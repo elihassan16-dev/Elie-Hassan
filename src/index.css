@@ -1,0 +1,45 @@
+:root {
+  --gold: #B8953F;
+  --safe-bottom: env(safe-area-inset-bottom);
+  --safe-top: env(safe-area-inset-top);
+}
+
+* { -webkit-tap-highlight-color: transparent; }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #F2F2F7;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+}
+
+/* Prevent iOS auto-zoom on focus by keeping inputs at >=16px */
+input, select, textarea, button { font-size: 16px; }
+
+/* Touch-friendly: ensure interactive controls are at least 44px on touch devices */
+@media (pointer: coarse) {
+  button, select, input[type="button"], input[type="submit"], a[role="button"] {
+    min-height: 44px;
+  }
+}
+
+/* Mobile bottom tab bar visibility is driven by JS (useIsMobile), but we keep a
+   utility class for the safe-area padding the tab bar needs. */
+.gs-tabbar {
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
+}
+
+/* Hide scrollbars on the horizontal pill rows but keep scrollability */
+.gs-scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.gs-scroll-x::-webkit-scrollbar { display: none; }

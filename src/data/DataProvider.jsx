@@ -11,86 +11,144 @@ export const useData = () => useContext(DataCtx);
 // few denormalized scalar columns for querying/sorting. The app always reads the
 // full object back out of `data`, so objects round-trip byte-for-byte.
 const propToRow = (p) => ({
-  id: String(p.id),
-  address: p.address || "",
-  city: p.city || "",
-  state: p.state || "",
-  zip: p.zip || "",
-  status: p.status || "",
-  data: p,
+  id: String(p.id), address: p.address || "", city: p.city || "", state: p.state || "", zip: p.zip || "", status: p.status || "", data: p,
 });
 const leadToRow = (l) => ({
-  id: String(l.id),
-  address: l.address || "",
-  city: l.city || "",
-  state: l.state || "",
-  zip: l.zip || "",
-  lead_status: l.leadStatus || "New Leads",
-  data: l,
+  id: String(l.id), address: l.address || "", city: l.city || "", state: l.state || "", zip: l.zip || "", lead_status: l.leadStatus || "New Leads", data: l,
 });
 const contactToRow = (c) => ({ id: String(c.id), name: c.name || "", role: c.role || "", phone: c.phone || "", email: c.email || "", data: c });
 const autoToRow = (a) => ({ id: String(a.id), trigger: a.trigger || "", data: a });
 
 const rowData = (row, fallback) => (row && row.data ? row.data : fallback(row));
 
-// Deep-ish equality for change detection (objects are built with stable key order).
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const mapProps = (data) => data.map((r) => rowData(r, (row) => ({ id: Number(row.id), address: row.address, city: row.city, state: row.state, zip: row.zip, status: row.status, financials: {}, propertyInfo: {}, tasks: [], contacts: [] })));
+const mapLeads = (data) => data.map((r) => rowData(r, (row) => ({ id: Number(row.id), address: row.address, city: row.city, state: row.state, zip: row.zip, leadStatus: row.lead_status })));
+const mapAutos = (data) => data.map((r) => rowData(r, (row) => ({ id: row.id, trigger: row.trigger, tasks: [] })));
+
+// ── A Supabase-backed collection with safe, coalesced, in-order writes ────────
+// - Edits update local state immediately, then a single debounced flush writes
+//   only the changed rows (in order, never overlapping). Rapid edits collapse to
+//   one write carrying the latest values → no out-of-order overwrite.
+// - A realtime refresh never reverts a row with unsaved local edits ("dirty").
+function useSyncedCollection(table, toRow, mapRows, reportError) {
+  const [items, setItems] = useState([]);
+  const ref = useRef([]);            // latest items (sync source of truth for flush)
+  const synced = useRef(new Map());  // id -> JSON string of last-known DB state
+  const dirty = useRef(new Set());   // ids with local changes not yet saved
+  const timer = useRef(null);
+  const flushing = useRef(false);
+  const again = useRef(false);
+
+  const flush = useCallback(async () => {
+    if (flushing.current) { again.current = true; return; }
+    flushing.current = true;
+    try {
+      const cur = ref.current;
+      const curIds = new Set(cur.map((x) => String(x.id)));
+      const changed = cur.filter((x) => JSON.stringify(x) !== synced.current.get(String(x.id)));
+      const removed = [...synced.current.keys()].filter((id) => !curIds.has(id));
+
+      for (const x of changed) {
+        const id = String(x.id);
+        const existed = synced.current.has(id);
+        const row = toRow(x);
+        let error;
+        if (existed) { const { id: _omit, ...rest } = row; ({ error } = await supabase.from(table).update(rest).eq("id", id)); }
+        else { ({ error } = await supabase.from(table).insert(row)); }
+        if (error) reportError(table, existed ? "update" : "insert", error);
+        else { synced.current.set(id, JSON.stringify(x)); dirty.current.delete(id); }
+      }
+      if (removed.length) {
+        const { error } = await supabase.from(table).delete().in("id", removed);
+        if (error) reportError(table, "delete", error);
+        else removed.forEach((id) => { synced.current.delete(id); dirty.current.delete(id); });
+      }
+    } finally {
+      flushing.current = false;
+      if (again.current) { again.current = false; flush(); }
+    }
+  }, [table, toRow, reportError]);
+
+  const schedule = useCallback(() => { clearTimeout(timer.current); timer.current = setTimeout(flush, 500); }, [flush]);
+
+  const set = useCallback((updater) => {
+    setItems((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      ref.current = next;
+      const nextIds = new Set(next.map((x) => String(x.id)));
+      next.forEach((x) => { const id = String(x.id); if (JSON.stringify(x) !== synced.current.get(id)) dirty.current.add(id); });
+      [...synced.current.keys()].forEach((id) => { if (!nextIds.has(id)) dirty.current.add(id); }); // pending deletes
+      schedule();
+      return next;
+    });
+  }, [schedule]);
+
+  // Load from DB, but keep any locally-dirty (unsaved) rows so a refresh can't
+  // revert an edit — or resurrect a locally-deleted row — before it's saved.
+  const load = useCallback(async () => {
+    const { data, error } = await supabase.from(table).select("*");
+    if (error || !data) return;
+    const rows = mapRows(data);
+    const dbIds = new Set(rows.map((r) => String(r.id)));
+    const merged = [];
+    rows.forEach((r) => {
+      const id = String(r.id);
+      if (dirty.current.has(id)) {
+        const local = ref.current.find((x) => String(x.id) === id);
+        if (local) merged.push(local); // keep unsaved edit; if deleted locally (no local) → omit
+      } else {
+        merged.push(r);
+        synced.current.set(id, JSON.stringify(r));
+      }
+    });
+    ref.current.forEach((x) => { const id = String(x.id); if (!dbIds.has(id) && dirty.current.has(id)) merged.push(x); }); // locally-created, unsaved
+    [...synced.current.keys()].forEach((id) => { if (!dbIds.has(id) && !dirty.current.has(id)) synced.current.delete(id); });
+    ref.current = merged;
+    setItems(merged);
+  }, [table, mapRows]);
+
+  const flushNow = useCallback(() => { clearTimeout(timer.current); return flush(); }, [flush]);
+
+  return { items, set, load, flushNow };
+}
 
 export function DataProvider({ children }) {
   const { user, isAdmin, displayName } = useAuth();
 
-  const [properties, setProperties] = useState([]);
-  const [leads, setLeadsState] = useState([]);
   const [contacts, setContacts] = useState([]);
-  const [automations, setAutomationsState] = useState([]);
-  const [team, setTeam] = useState([]); // users rows
+  const [team, setTeam] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saveError, setSaveError] = useState(null); // shown as a toast when a write fails
-
+  const [saveError, setSaveError] = useState(null);
   const seededRef = useRef(false);
 
-  // ── Loaders ─────────────────────────────────────────────────────────────────
-  const loadProperties = useCallback(async () => {
-    const { data, error } = await supabase.from("properties").select("*");
-    if (!error && data) setProperties(data.map((r) => rowData(r, (row) => ({ id: Number(row.id), address: row.address, city: row.city, state: row.state, zip: row.zip, status: row.status, financials: {}, propertyInfo: {}, tasks: [], contacts: [] }))));
-    return { data, error };
+  const reportError = useCallback((table, op, error) => {
+    console.error(`[${table}] ${op} failed:`, error.message);
+    setSaveError(`Couldn't save your change (${op} ${table}): ${error.message}`);
   }, []);
 
-  const loadLeads = useCallback(async () => {
-    const { data, error } = await supabase.from("leads").select("*");
-    if (!error && data) setLeadsState(data.map((r) => rowData(r, (row) => ({ id: Number(row.id), address: row.address, city: row.city, state: row.state, zip: row.zip, leadStatus: row.lead_status }))));
-    return { data, error };
-  }, []);
+  const propsC = useSyncedCollection("properties", propToRow, mapProps, reportError);
+  const leadsC = useSyncedCollection("leads", leadToRow, mapLeads, reportError);
+  const autosC = useSyncedCollection("automations", autoToRow, mapAutos, reportError);
 
   const loadContacts = useCallback(async () => {
     const { data, error } = await supabase.from("contacts").select("*").order("id");
     if (!error && data) setContacts(data.map((r) => rowData(r, (row) => ({ id: Number(row.id), name: row.name, role: row.role, phone: row.phone, email: row.email }))));
   }, []);
-
-  const loadAutomations = useCallback(async () => {
-    const { data, error } = await supabase.from("automations").select("*");
-    if (!error && data) setAutomationsState(data.map((r) => rowData(r, (row) => ({ id: row.id, trigger: row.trigger, tasks: [] }))));
-  }, []);
-
   const loadTeam = useCallback(async () => {
     const { data, error } = await supabase.from("users").select("*").order("name");
     if (!error && data) setTeam(data);
   }, []);
 
-  // ── One-time seed (admin only, ONLY when the table is provably empty) ────────
-  // Uses insert() — never upsert() — so even if this ever runs by mistake it can
-  // only add missing rows and can never overwrite existing (edited) data.
   const seedIfEmpty = useCallback(async () => {
     if (!isAdmin || seededRef.current) return;
     seededRef.current = true;
     const { count, error } = await supabase.from("properties").select("id", { count: "exact", head: true });
-    if (error || count !== 0) return; // unknown or non-empty → never seed
+    if (error || count !== 0) return;
     await supabase.from("properties").insert(INIT_PROPS.map(propToRow));
     await supabase.from("leads").insert(INIT_LEADS.map(leadToRow));
     await supabase.from("contacts").insert(DEFAULT_CONTACTS.map(contactToRow));
   }, [isAdmin]);
 
-  // ── Initial load + realtime subscriptions ────────────────────────────────────
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -98,121 +156,45 @@ export function DataProvider({ children }) {
     (async () => {
       setLoading(true);
       await seedIfEmpty();
-      await Promise.all([loadProperties(), loadLeads(), loadContacts(), loadAutomations(), loadTeam()]);
+      await Promise.all([propsC.load(), leadsC.load(), loadContacts(), autosC.load(), loadTeam()]);
       if (!cancelled) setLoading(false);
     })();
 
-    // Debounced reloads keep things simple and conflict-free: any remote change
-    // reloads that table, so every client converges to the DB state.
     const timers = {};
-    const debounce = (key, fn) => {
-      clearTimeout(timers[key]);
-      timers[key] = setTimeout(fn, 250);
-    };
+    const debounce = (key, fn) => { clearTimeout(timers[key]); timers[key] = setTimeout(fn, 250); };
 
     const channel = supabase
       .channel("goldstone-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "properties" }, () => debounce("p", loadProperties))
-      .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, () => debounce("l", loadLeads))
+      .on("postgres_changes", { event: "*", schema: "public", table: "properties" }, () => debounce("p", propsC.load))
+      .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, () => debounce("l", leadsC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "contacts" }, () => debounce("c", loadContacts))
-      .on("postgres_changes", { event: "*", schema: "public", table: "automations" }, () => debounce("a", loadAutomations))
+      .on("postgres_changes", { event: "*", schema: "public", table: "automations" }, () => debounce("a", autosC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "users" }, () => debounce("u", loadTeam))
       .subscribe();
+
+    // Safety net: if the tab is hidden/closed, flush any pending edits right away.
+    const onHide = () => { if (document.visibilityState === "hidden") { propsC.flushNow(); leadsC.flushNow(); autosC.flushNow(); } };
+    document.addEventListener("visibilitychange", onHide);
 
     return () => {
       cancelled = true;
       Object.values(timers).forEach(clearTimeout);
+      document.removeEventListener("visibilitychange", onHide);
       supabase.removeChannel(channel);
     };
-  }, [user, seedIfEmpty, loadProperties, loadLeads, loadContacts, loadAutomations, loadTeam]);
+  }, [user, seedIfEmpty, propsC.load, leadsC.load, autosC.load, propsC.flushNow, leadsC.flushNow, autosC.flushNow, loadContacts, loadTeam]);
 
-  // ── Persistence: diff prev→next, INSERT new rows, UPDATE changed rows, DELETE removed
-  // Existing rows go through update() (not upsert) so they use the permissive UPDATE
-  // policy — members and admins can both save edits; only new rows need insert rights.
-  const reportError = useCallback((table, op, error) => {
-    console.error(`[${table}] ${op} failed:`, error.message);
-    setSaveError(`Couldn't save your change (${op} ${table}): ${error.message}`);
-  }, []);
-
-  const syncCollection = useCallback(
-    async (prev, next, table, toRow) => {
-      const prevById = new Map(prev.map((x) => [String(x.id), x]));
-      const nextIds = new Set(next.map((x) => String(x.id)));
-
-      const inserts = [];
-      const updates = [];
-      for (const x of next) {
-        const before = prevById.get(String(x.id));
-        if (!before) inserts.push(x);
-        else if (!same(before, x)) updates.push(x);
-      }
-      const removedIds = prev.map((x) => String(x.id)).filter((id) => !nextIds.has(id));
-
-      if (inserts.length) {
-        const { error } = await supabase.from(table).insert(inserts.map(toRow));
-        if (error) reportError(table, "insert", error);
-      }
-      for (const u of updates) {
-        const { id, ...rest } = toRow(u);
-        const { error } = await supabase.from(table).update(rest).eq("id", id);
-        if (error) reportError(table, "update", error);
-      }
-      if (removedIds.length) {
-        const { error } = await supabase.from(table).delete().in("id", removedIds);
-        if (error) reportError(table, "delete", error);
-      }
-    },
-    [reportError]
-  );
-
-  // ── Public setters that mirror the original localStorage-backed signatures ───
-  const setSharedProps = useCallback(
-    (updater) => {
-      setProperties((prev) => {
-        const next = typeof updater === "function" ? updater(prev) : updater;
-        syncCollection(prev, next, "properties", propToRow);
-        return next;
-      });
-    },
-    [syncCollection]
-  );
-
-  const setLeads = useCallback(
-    (updater) => {
-      setLeadsState((prev) => {
-        const next = typeof updater === "function" ? updater(prev) : updater;
-        syncCollection(prev, next, "leads", leadToRow);
-        return next;
-      });
-    },
-    [syncCollection]
-  );
-
-  const setAutomations = useCallback(
-    (next) => {
-      setAutomationsState((prev) => {
-        const value = typeof next === "function" ? next(prev) : next;
-        syncCollection(prev, value, "automations", autoToRow);
-        return value;
-      });
-    },
-    [syncCollection]
-  );
-
-  // Team member display names for assignment dropdowns (always include myself).
-  const teamMembers = Array.from(
-    new Set([...team.map((u) => u.name || u.email).filter(Boolean), displayName].filter(Boolean))
-  );
+  const teamMembers = Array.from(new Set([...team.map((u) => u.name || u.email).filter(Boolean), displayName].filter(Boolean)));
 
   const value = {
     loading,
-    sharedProps: properties,
-    setSharedProps,
-    leads,
-    setLeads,
+    sharedProps: propsC.items,
+    setSharedProps: propsC.set,
+    leads: leadsC.items,
+    setLeads: leadsC.set,
     contacts,
-    automations,
-    setAutomations,
+    automations: autosC.items,
+    setAutomations: autosC.set,
     team,
     teamMembers,
     currentUser: displayName,

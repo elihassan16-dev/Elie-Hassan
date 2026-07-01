@@ -45,6 +45,7 @@ export function DataProvider({ children }) {
   const [automations, setAutomationsState] = useState([]);
   const [team, setTeam] = useState([]); // users rows
   const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState(null); // shown as a toast when a write fails
 
   const seededRef = useRef(false);
 
@@ -76,15 +77,17 @@ export function DataProvider({ children }) {
     if (!error && data) setTeam(data);
   }, []);
 
-  // ── One-time seed (admin only, only when properties table is empty) ──────────
+  // ── One-time seed (admin only, ONLY when the table is provably empty) ────────
+  // Uses insert() — never upsert() — so even if this ever runs by mistake it can
+  // only add missing rows and can never overwrite existing (edited) data.
   const seedIfEmpty = useCallback(async () => {
     if (!isAdmin || seededRef.current) return;
     seededRef.current = true;
-    const { count } = await supabase.from("properties").select("id", { count: "exact", head: true });
-    if (count && count > 0) return;
-    await supabase.from("properties").upsert(INIT_PROPS.map(propToRow));
-    await supabase.from("leads").upsert(INIT_LEADS.map(leadToRow));
-    await supabase.from("contacts").upsert(DEFAULT_CONTACTS.map(contactToRow));
+    const { count, error } = await supabase.from("properties").select("id", { count: "exact", head: true });
+    if (error || count !== 0) return; // unknown or non-empty → never seed
+    await supabase.from("properties").insert(INIT_PROPS.map(propToRow));
+    await supabase.from("leads").insert(INIT_LEADS.map(leadToRow));
+    await supabase.from("contacts").insert(DEFAULT_CONTACTS.map(contactToRow));
   }, [isAdmin]);
 
   // ── Initial load + realtime subscriptions ────────────────────────────────────
@@ -123,26 +126,44 @@ export function DataProvider({ children }) {
     };
   }, [user, seedIfEmpty, loadProperties, loadLeads, loadContacts, loadAutomations, loadTeam]);
 
-  // ── Persistence helpers: diff prev→next, upsert changed, delete removed ──────
-  const syncCollection = useCallback(async (prev, next, table, toRow) => {
-    const prevById = new Map(prev.map((x) => [String(x.id), x]));
-    const nextIds = new Set(next.map((x) => String(x.id)));
-
-    const changed = next.filter((x) => {
-      const before = prevById.get(String(x.id));
-      return !before || !same(before, x);
-    });
-    const removedIds = prev.map((x) => String(x.id)).filter((id) => !nextIds.has(id));
-
-    if (changed.length) {
-      const { error } = await supabase.from(table).upsert(changed.map(toRow));
-      if (error) console.error(`[${table}] upsert failed:`, error.message);
-    }
-    if (removedIds.length) {
-      const { error } = await supabase.from(table).delete().in("id", removedIds);
-      if (error) console.error(`[${table}] delete failed:`, error.message);
-    }
+  // ── Persistence: diff prev→next, INSERT new rows, UPDATE changed rows, DELETE removed
+  // Existing rows go through update() (not upsert) so they use the permissive UPDATE
+  // policy — members and admins can both save edits; only new rows need insert rights.
+  const reportError = useCallback((table, op, error) => {
+    console.error(`[${table}] ${op} failed:`, error.message);
+    setSaveError(`Couldn't save your change (${op} ${table}): ${error.message}`);
   }, []);
+
+  const syncCollection = useCallback(
+    async (prev, next, table, toRow) => {
+      const prevById = new Map(prev.map((x) => [String(x.id), x]));
+      const nextIds = new Set(next.map((x) => String(x.id)));
+
+      const inserts = [];
+      const updates = [];
+      for (const x of next) {
+        const before = prevById.get(String(x.id));
+        if (!before) inserts.push(x);
+        else if (!same(before, x)) updates.push(x);
+      }
+      const removedIds = prev.map((x) => String(x.id)).filter((id) => !nextIds.has(id));
+
+      if (inserts.length) {
+        const { error } = await supabase.from(table).insert(inserts.map(toRow));
+        if (error) reportError(table, "insert", error);
+      }
+      for (const u of updates) {
+        const { id, ...rest } = toRow(u);
+        const { error } = await supabase.from(table).update(rest).eq("id", id);
+        if (error) reportError(table, "update", error);
+      }
+      if (removedIds.length) {
+        const { error } = await supabase.from(table).delete().in("id", removedIds);
+        if (error) reportError(table, "delete", error);
+      }
+    },
+    [reportError]
+  );
 
   // ── Public setters that mirror the original localStorage-backed signatures ───
   const setSharedProps = useCallback(
@@ -195,6 +216,8 @@ export function DataProvider({ children }) {
     team,
     teamMembers,
     currentUser: displayName,
+    saveError,
+    clearSaveError: () => setSaveError(null),
   };
 
   return <DataCtx.Provider value={value}>{children}</DataCtx.Provider>;

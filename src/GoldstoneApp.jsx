@@ -2669,7 +2669,7 @@ function ComingSoon({label}){
 const MEMBER_KEYS = new Set(["tasks","properties"]);
 
 export function GoldstoneShell(){
-  const { sharedProps, setSharedProps, loading } = useData();
+  const { sharedProps, setSharedProps, loading, saveError, clearSaveError } = useData();
   const { displayName, role, isAdmin, signOut } = useAuth();
   const isMobile = useIsMobile();
 
@@ -2695,6 +2695,12 @@ export function GoldstoneShell(){
 
   return(
     <div style={{display:"flex",flexDirection:isMobile?"column":"row",height:"100vh",width:"100%",fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif",background:T.bg,overflow:"hidden"}}>
+      {saveError&&(
+        <div onClick={clearSaveError} style={{position:"fixed",top:"max(12px,env(safe-area-inset-top))",left:"50%",transform:"translateX(-50%)",zIndex:9999,maxWidth:"92vw",background:"#FFF0EF",border:`1.5px solid ${T.red}`,color:T.red,borderRadius:12,padding:"12px 16px",fontSize:13,fontWeight:600,boxShadow:"0 8px 30px rgba(0,0,0,0.18)",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+          <span style={{flex:1}}>{saveError}</span>
+          <span style={{fontSize:16,lineHeight:1}}>×</span>
+        </div>
+      )}
       <aside style={{width:220,background:T.card,borderRight:`1px solid ${T.border}`,display:isMobile?"none":"flex",flexDirection:"column",flexShrink:0}}>
         <div style={{padding:"20px 20px 18px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center"}}>

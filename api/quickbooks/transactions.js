@@ -1,9 +1,14 @@
 import { qbApi, requireAppUser } from "../../lib/quickbooks.js";
 
-// Transaction-level detail for a single QuickBooks project/customer, so the app
-// can drill into a cost bucket (e.g. Rehab) and list each transaction + vendor.
-// Uses the TransactionList report and maps columns by their ColKey metadata so we
-// don't depend on fixed column positions (which vary by company file).
+// Transaction-level detail for a single QuickBooks project/customer, grouped by
+// the P&L account (Purchase Price, Rehab Costs, etc.) so the app can drill into a
+// cost bucket and list each transaction.
+//
+// We use the ProfitAndLossDetail report — it honours the customer filter (like the
+// P&L summary already does) and nests each transaction under its income/expense
+// account, which is the axis the breakdown buckets are keyed on. TransactionList
+// was wrong here: it ignored the customer filter and its "account" column is the
+// bank account the money moved through, not the cost category.
 export default async function handler(req, res) {
   // Never let the browser cache this — otherwise a stale/empty result sticks (304).
   res.setHeader("Cache-Control", "no-store, max-age=0");
@@ -17,7 +22,7 @@ export default async function handler(req, res) {
     const start = "2010-01-01";
     const end = new Date().toISOString().slice(0, 10);
     const rpt = await qbApi(
-      `/reports/TransactionList?customer=${encodeURIComponent(customerId)}&start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,account_name,subt_nat_amount`
+      `/reports/ProfitAndLossDetail?customer=${encodeURIComponent(customerId)}&start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,subt_nat_amount`
     );
 
     // Map each column to a lowercase key from its metadata (fall back to title).
@@ -31,32 +36,24 @@ export default async function handler(req, res) {
     const iNum = idx("doc_num", "num");
     const iName = idx("name");
     const iMemo = idx("memo");
-    const iAcct = idx("account");
     const iAmt = idx("subt_nat_amount", "nat_amount", "amount");
 
-    // When the report is grouped (e.g. by account), the account name lives in the
-    // section Header row and the transaction rows under it leave that column blank.
-    // Carry the section's account down so those transactions aren't dropped.
-    const headerAccount = (r, fallback) => {
-      const h = r.Header?.ColData;
-      if (!h) return fallback;
-      const fromCol = iAcct >= 0 ? (h[iAcct]?.value || "") : "";
-      return fromCol || h[0]?.value || fallback;
-    };
-
+    // Transactions are grouped under their P&L account. Each Section's Header holds
+    // the account name; carry it down to the transaction rows beneath it. Nested
+    // groups (e.g. "Cost of Goods Sold" → "Rehab Costs") overwrite as we descend,
+    // so each transaction ends up tagged with its leaf account.
     const items = [];
-    function walk(rows, sectionAccount) {
+    const sectionName = (r, fallback) => (r.Header?.ColData ? (r.Header.ColData[0]?.value || fallback) : fallback);
+    function walk(rows, account) {
       if (!rows) return;
       for (const r of rows) {
-        const acct = headerAccount(r, sectionAccount);
+        const acct = sectionName(r, account);
         if (r.ColData) {
           const g = (i) => (i >= 0 ? r.ColData[i]?.value : "") || "";
-          const account = g(iAcct) || acct || "";
           const date = g(iDate), type = g(iType), vendor = g(iName);
-          const amount = num(g(iAmt));
           // A real transaction line has a date/type/vendor (not a bare subtotal).
-          if (account && (date || type || vendor)) {
-            items.push({ date, type, num: g(iNum), vendor, memo: g(iMemo), account, amount });
+          if (acct && (date || type || vendor)) {
+            items.push({ date, type, num: g(iNum), vendor, memo: g(iMemo), account: acct, amount: num(g(iAmt)) });
           }
         }
         if (r.Rows?.Row) walk(r.Rows.Row, acct);
@@ -64,15 +61,14 @@ export default async function handler(req, res) {
     }
     walk(rpt.Rows?.Row, "");
 
-    // Temporary diagnostic: /api/quickbooks/transactions?customerId=..&debug=1
-    // returns the report's shape so we can see why parsing came up empty.
+    // Temporary diagnostic: ?debug=1 shows the report shape + per-account counts.
     if (req.query.debug) {
       res.status(200).json({
-        cols, indexes: { iDate, iType, iNum, iName, iMemo, iAcct, iAmt },
-        columns: rpt.Columns,
+        cols, indexes: { iDate, iType, iNum, iName, iMemo, iAmt },
         topLevelRowCount: (rpt.Rows?.Row || []).length,
-        sampleRows: (rpt.Rows?.Row || []).slice(0, 3),
         parsedCount: items.length,
+        byAccount: items.reduce((m, t) => { m[t.account] = (m[t.account] || 0) + 1; return m; }, {}),
+        sampleRows: (rpt.Rows?.Row || []).slice(0, 2),
         items: items.slice(0, 5),
       });
       return;

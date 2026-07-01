@@ -1379,6 +1379,33 @@ function qbBucket(name){
   if(has("buying","closing","title","escrow","recording","transfer tax","attorney","legal","inspection","appraisal","survey"))return "buying";
   return "buying"; // default other expenses into buying/misc
 }
+
+// ─── Address ↔ QuickBooks-project matching ──────────────────────────────────
+// Street-type words + directionals + unit markers we ignore when comparing an
+// address to a QuickBooks project name (names are rarely formatted identically).
+const QB_STOP=new Set(["st","street","ave","avenue","rd","road","dr","drive","ln","lane","ct","court","blvd","boulevard","pl","place","ter","terrace","way","cir","circle","hwy","highway","pkwy","parkway","sq","square","trl","trail","apt","unit","ste","suite","fl","floor","n","s","e","w","north","south","east","west"]);
+const qbNorm=(s)=>(s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+const qbTokens=(s)=>qbNorm(s).split(" ").filter(Boolean);
+const qbHouseNum=(s)=>{const m=qbNorm(s).match(/\b(\d+)\b/);return m?m[1]:null;};
+const qbStreetWords=(s)=>qbTokens(s).filter(t=>!/^\d+$/.test(t)&&!QB_STOP.has(t));
+// Score 0..1 for how well a property address matches a QB project name.
+function qbMatchScore(address,name){
+  const addr=qbNorm(address),nm=qbNorm(name);
+  if(!addr||!nm)return 0;
+  let score=0;
+  const an=qbHouseNum(address),pn=qbHouseNum(name);
+  if(an&&pn&&an===pn)score+=0.5;                       // same house number = strong signal
+  const aw=qbStreetWords(address),nw=new Set(qbTokens(name));
+  if(aw.length){
+    const hits=aw.filter(w=>nw.has(w)).length;
+    score+=0.5*(hits/aw.length);                        // street-word overlap
+  }
+  const street=aw.join(" ");
+  if(street&&nm.includes(street))score=Math.max(score,0.85); // full street contained
+  return Math.min(1,score);
+}
+// Confidence label for a match score, shown next to suggested projects.
+const qbConfidence=(s)=>s>=0.85?"High match":s>=0.6?"Likely match":"Possible match";
 // In-app support contact — shown on the QuickBooks tab so users can reach us for help.
 const SUPPORT_EMAIL="elihassan16@gmail.com";
 function QbSupport(){
@@ -1396,35 +1423,54 @@ function QuickBooksTab({property,onUpdate}){
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState("");
   const[flash,setFlash]=useState("");
+  const autoSync=property.qbAutoSync!==false; // default ON — keep Actuals mirrored to QuickBooks
+  const autoPicked=useRef(false);             // guard: only auto-select a project once
+  const autoImported=useRef(null);            // guard: auto-import once per fresh P&L load
 
   useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(setStatus).catch(()=>setStatus({configured:false,connected:false}));},[]);
 
   useEffect(()=>{
     if(!status?.connected||projects)return;
-    qbAuthFetch("/api/quickbooks/projects").then(d=>{
-      const items=d.items||[];setProjects(items);
-      if(!property.qbProjectId){
-        const key=(property.address||"").toLowerCase().split(",")[0].trim();
-        const m=key&&items.find(p=>p.name.toLowerCase().includes(key));
-        if(m){setSel(m.id);onUpdate(property.id,"qbProjectId",m.id);onUpdate(property.id,"qbProjectName",m.name);}
-      }
-    }).catch(e=>setError(e.message));
-  },[status,projects]);// eslint-disable-line
+    qbAuthFetch("/api/quickbooks/projects").then(d=>setProjects(d.items||[])).catch(e=>setError(e.message));
+  },[status,projects]);
+
+  // Ranked suggested projects for this property's address (best first).
+  const suggestions=useMemo(()=>{
+    if(!projects)return [];
+    return projects
+      .map(p=>({...p,score:qbMatchScore(property.address,p.name)}))
+      .filter(p=>p.score>=0.34)
+      .sort((a,b)=>b.score-a.score)
+      .slice(0,3);
+  },[projects,property.address]);
+
+  const pick=useCallback((id)=>{
+    setSel(id);
+    const p=(projects||[]).find(x=>x.id===id);
+    onUpdate(property.id,"qbProjectId",id);
+    onUpdate(property.id,"qbProjectName",p?.name||"");
+  },[projects,property.id,onUpdate]);
+
+  // Auto-select a project on first load only when we're highly confident.
+  useEffect(()=>{
+    if(property.qbProjectId||!projects||autoPicked.current)return;
+    const best=suggestions[0];
+    if(best&&best.score>=0.7){autoPicked.current=true;pick(best.id);setFlash(`✓ Auto-matched to "${best.name}" from your address.`);}
+  },[projects,suggestions,property.qbProjectId,pick]);
 
   const loadPnl=useCallback((id)=>{
     if(!id)return;setLoading(true);setError("");setPnl(null);
+    autoImported.current=null; // allow a fresh auto-sync for this load
     qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`).then(setPnl).catch(e=>setError(e.message)).finally(()=>setLoading(false));
   },[]);
   useEffect(()=>{if(sel)loadPnl(sel);},[sel,loadPnl]);
 
-  const pick=(id)=>{setSel(id);const p=(projects||[]).find(x=>x.id===id);onUpdate(property.id,"qbProjectId",id);onUpdate(property.id,"qbProjectName",p?.name||"");};
-
-  const doImport=()=>{
-    if(!pnl)return;
-    const f=property.financials;const b={purchase:0,rehab:0,buying:0,holding:0,interest:0,selling:0};
-    (pnl.rows||[]).forEach(r=>{if(r.section==="Income")return;b[qbBucket(r.name)]+=r.amount;});
+  const applyImport=useCallback((data,{auto}={})=>{
+    if(!data)return;
+    const f=property.financials||{};const b={purchase:0,rehab:0,buying:0,holding:0,interest:0,selling:0};
+    (data.rows||[]).forEach(r=>{if(r.section==="Income")return;b[qbBucket(r.name)]+=r.amount;});
     onUpdate(property.id,"financials",{...f,
-      actualSalePrice:String(Math.round(pnl.income||0)),
+      actualSalePrice:String(Math.round(data.income||0)),
       actualPurchasePrice:String(Math.round(b.purchase)),
       actualRehabCosts:String(Math.round(b.rehab)),
       actualBuyingCosts:String(Math.round(b.buying)),
@@ -1433,8 +1479,18 @@ function QuickBooksTab({property,onUpdate}){
       hmInterest:String(Math.round(b.interest)),locInterest:"0",
       useActualProfit:true,
     });
-    setFlash("✓ Imported into the Actual columns — check Financial Overview.");
-  };
+    setFlash(auto?"↻ Auto-synced the latest QuickBooks numbers into your Actual columns.":"✓ Imported into the Actual columns — check Financial Overview.");
+  },[property.id,property.financials,onUpdate]);
+  const doImport=()=>applyImport(pnl,{auto:false});
+
+  // Auto-sync: whenever fresh numbers load for a mapped project, mirror them into
+  // the Actual columns (unless the user turned auto-sync off for this property).
+  useEffect(()=>{
+    if(!pnl||!sel||!autoSync)return;
+    if(autoImported.current===sel)return;
+    autoImported.current=sel;
+    applyImport(pnl,{auto:true});
+  },[pnl,sel,autoSync]);// eslint-disable-line
 
   const wrap={padding:24,maxWidth:680,margin:"0 auto"};
   if(!status)return <div style={{...wrap,color:T.textSub,fontSize:14}}>Loading…</div>;
@@ -1459,11 +1515,34 @@ function QuickBooksTab({property,onUpdate}){
           <div style={{fontSize:13,fontWeight:700,color:T.text}}>QuickBooks Project</div>
           <select value={sel} onChange={e=>pick(e.target.value)} style={{flex:1,minWidth:180,padding:"8px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:"#fff"}}>
             <option value="">— Select a project —</option>
-            {(projects||[]).map(p=><option key={p.id} value={p.id}>{p.name}{p.isProject?"":" (customer)"}</option>)}
+            {(projects||[]).map(p=>{const sg=suggestions.find(s=>s.id===p.id);return <option key={p.id} value={p.id}>{sg?"★ ":""}{p.name}{p.isProject?"":" (customer)"}{sg?` — ${qbConfidence(sg.score)}`:""}</option>;})}
           </select>
           {sel&&<button onClick={()=>loadPnl(sel)} style={{padding:"8px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻</button>}
         </div>
         {!projects&&<div style={{padding:"0 16px 14px",fontSize:12,color:T.textTert}}>Loading projects…</div>}
+        {/* Suggested matches — shown until a project is picked */}
+        {projects&&!sel&&suggestions.length>0&&(
+          <div style={{padding:"0 16px 14px"}}>
+            <div style={{fontSize:12,fontWeight:700,color:T.textSub,marginBottom:8}}>Suggested match{suggestions.length>1?"es":""} for {property.address}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {suggestions.map(s=>(
+                <button key={s.id} onClick={()=>pick(s.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${s.score>=0.7?T.green:T.border}`,background:s.score>=0.7?"#EDFBF1":"#fff",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                  <span style={{fontSize:13,fontWeight:600,color:T.text}}>{s.name}</span>
+                  <span style={{fontSize:11,fontWeight:700,color:s.score>=0.7?T.green:T.textSub,whiteSpace:"nowrap"}}>{qbConfidence(s.score)} · Use →</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* Auto-sync toggle — mirror QuickBooks into Actual columns on every open */}
+        {sel&&(
+          <div style={{padding:"0 16px 14px",display:"flex",alignItems:"center",gap:8}}>
+            <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:12,color:T.textSub}}>
+              <input type="checkbox" checked={autoSync} onChange={e=>onUpdate(property.id,"qbAutoSync",e.target.checked)} style={{cursor:"pointer"}}/>
+              Auto-sync: pull the latest QuickBooks numbers into Actuals every time this project loads
+            </label>
+          </div>
+        )}
       </Card>
 
       {error&&<div style={{marginBottom:14,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>

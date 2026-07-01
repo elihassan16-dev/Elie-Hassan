@@ -9,6 +9,8 @@ export default async function handler(req, res) {
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   const customerId = req.query.customerId;
   if (!customerId) { res.status(400).json({ error: "Missing customerId." }); return; }
+  // Never let the browser cache this — otherwise a stale/empty result sticks (304).
+  res.setHeader("Cache-Control", "no-store, max-age=0");
 
   const num = (v) => { const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, "")); return isNaN(x) ? 0 : x; };
   try {
@@ -32,27 +34,50 @@ export default async function handler(req, res) {
     const iAcct = idx("account");
     const iAmt = idx("subt_nat_amount", "nat_amount", "amount");
 
+    // When the report is grouped (e.g. by account), the account name lives in the
+    // section Header row and the transaction rows under it leave that column blank.
+    // Carry the section's account down so those transactions aren't dropped.
+    const headerAccount = (r, fallback) => {
+      const h = r.Header?.ColData;
+      if (!h) return fallback;
+      const fromCol = iAcct >= 0 ? (h[iAcct]?.value || "") : "";
+      return fromCol || h[0]?.value || fallback;
+    };
+
     const items = [];
-    function walk(rows) {
+    function walk(rows, sectionAccount) {
       if (!rows) return;
       for (const r of rows) {
+        const acct = headerAccount(r, sectionAccount);
         if (r.ColData) {
           const g = (i) => (i >= 0 ? r.ColData[i]?.value : "") || "";
-          const account = g(iAcct);
-          if (account) items.push({
-            date: g(iDate),
-            type: g(iType),
-            num: g(iNum),
-            vendor: g(iName),
-            memo: g(iMemo),
-            account,
-            amount: num(g(iAmt)),
-          });
+          const account = g(iAcct) || acct || "";
+          const date = g(iDate), type = g(iType), vendor = g(iName);
+          const amount = num(g(iAmt));
+          // A real transaction line has a date/type/vendor (not a bare subtotal).
+          if (account && (date || type || vendor)) {
+            items.push({ date, type, num: g(iNum), vendor, memo: g(iMemo), account, amount });
+          }
         }
-        if (r.Rows?.Row) walk(r.Rows.Row);
+        if (r.Rows?.Row) walk(r.Rows.Row, acct);
       }
     }
-    walk(rpt.Rows?.Row);
+    walk(rpt.Rows?.Row, "");
+
+    // Temporary diagnostic: /api/quickbooks/transactions?customerId=..&debug=1
+    // returns the report's shape so we can see why parsing came up empty.
+    if (req.query.debug) {
+      res.status(200).json({
+        cols, indexes: { iDate, iType, iNum, iName, iMemo, iAcct, iAmt },
+        columns: rpt.Columns,
+        topLevelRowCount: (rpt.Rows?.Row || []).length,
+        sampleRows: (rpt.Rows?.Row || []).slice(0, 3),
+        parsedCount: items.length,
+        items: items.slice(0, 5),
+      });
+      return;
+    }
+
     res.status(200).json({ items });
   } catch (e) {
     console.error("[quickbooks] transactions failed:", e.message);

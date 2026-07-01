@@ -2642,7 +2642,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                   onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
                   onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
                   <div style={{marginBottom:10}}>
-                    <span style={{background:sc.badge,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,textTransform:"uppercase",letterSpacing:"0.06em"}}>{st}</span>
+                    <span style={{display:"inline-block",maxWidth:"100%",background:sc.badge,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:20,textTransform:"uppercase",letterSpacing:"0.03em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",boxSizing:"border-box"}}>{st}</span>
                   </div>
                   <div style={{fontSize:22,fontWeight:700,color:T.text,marginBottom:4}}>{fmtD(profit)}</div>
                   <div style={{fontSize:12,color:T.textSub}}>{count} Active</div>
@@ -2667,7 +2667,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
         const title=isStatus?listPopup.status:"Equity Needed";
         const sc=isStatus?(STATUS_COLORS[listPopup.status]||{badge:T.gold}):{badge:T.gold};
         return(
-          <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.4)",zIndex:50,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:80}} onClick={()=>setListPopup(null)}>
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}} onClick={()=>setListPopup(null)}>
             <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(640px,92vw)",maxHeight:"75vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
               <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>

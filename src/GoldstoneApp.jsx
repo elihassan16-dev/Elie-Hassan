@@ -1873,12 +1873,12 @@ function FilesTab({property,onUpdate}){
   );
 }
 function PropDetail({property,onUpdate,onArchive}){
-  const { contacts: CONTACTS } = useData();
+  const { contacts: CONTACTS, teamMembers: TEAM_MEMBERS } = useData();
   const[tab,setTab]=useState("Financial Overview");
   const[taskPopup,setTaskPopup]=useState(null);
   const sc=SC[property.status]||{color:"#64748B",bg:"#F1F5F9"};
   const upP=(k,v)=>onUpdate(property.id,"propertyInfo",{...property.propertyInfo,[k]:v});
-  const addTask=()=>onUpdate(property.id,"tasks",[...property.tasks,{id:Date.now(),text:"",done:false,assignee:""}]);
+  const addTask=()=>onUpdate(property.id,"tasks",[...(property.tasks||[]),{id:Date.now(),text:"",status:"Not Started",assignee:""}]);
   const upTask=(tid,k,v)=>onUpdate(property.id,"tasks",property.tasks.map(t=>t.id===tid?{...t,[k]:v}:t));
   const delTask=(tid)=>onUpdate(property.id,"tasks",property.tasks.filter(t=>t.id!==tid));
   const linked=CONTACTS.filter(c=>property.contacts.includes(c.id));
@@ -1976,143 +1976,58 @@ function PropDetail({property,onUpdate,onArchive}){
           );
         })()}
         {tab==="Tasks"&&(()=>{
-          const checklist=DEFAULT_CHECKLISTS[property.status]||[];
-          const tasks=property.tasks||[];
-          const normTask=t=>typeof t==="string"?{text:t,contact:null,linkedContact:null,multi:false}:{...t};
-          const getTask=(cat,text)=>tasks.find(t=>t.cat===cat&&t.text===text)||{status:"Not Started",assignee:"",contactVal:""};
-          const setTask=(cat,text,field,val)=>{
-            const existing=tasks.find(t=>t.cat===cat&&t.text===text);
-            if(existing) onUpdate(property.id,"tasks",tasks.map(t=>t.cat===cat&&t.text===text?{...t,[field]:val}:t));
-            else onUpdate(property.id,"tasks",[...tasks,{id:Date.now(),cat,text,status:"Not Started",assignee:"",contactVal:"",[field]:val}]);
-          };
-          // Custom contacts saved to this property
-          const customContacts=property.customContacts||[];
-          const allContacts=[...CONTACTS,...customContacts];
-          // Save a new contact to property directory
-          const saveNewContact=(newC)=>onUpdate(property.id,"customContacts",[...customContacts,{...newC,id:Date.now()}]);
-          // Get the resolved contact value for a linked role (e.g. "Title Company")
-          const getLinkedVal=(role)=>{
-            const master=tasks.find(t=>t.contactRole===role);
-            return master?.contactVal||"";
-          };
-          const[popup,setPopup]=[taskPopup,setTaskPopup]; // lifted to PropDetail to avoid hook-in-callback error
-
-          const allItems=checklist.flatMap(c=>c.tasks.map(t=>{const nt=normTask(t);return getTask(c.cat,nt.text);}));
-          const done=allItems.filter(t=>t.status==="Completed").length;
-          const inProg=allItems.filter(t=>t.status==="In Progress").length;
-          const na=allItems.filter(t=>t.status==="N/A").length;
-          const total=allItems.length;
+          const allTasks=property.tasks||[];
+          const tasks=allTasks.filter(t=>!t.deleted);
+          const upT=(id,field,val)=>onUpdate(property.id,"tasks",allTasks.map(t=>t.id===id?{...t,[field]:val}:t));
+          const delT=(id)=>onUpdate(property.id,"tasks",allTasks.filter(t=>t.id!==id));
+          const done=tasks.filter(t=>t.status==="Completed").length;
+          const inProg=tasks.filter(t=>t.status==="In Progress").length;
+          const na=tasks.filter(t=>t.status==="N/A").length;
+          const total=tasks.length;
           const pct=total>0?Math.round((done/total)*100):0;
-
+          const members=TEAM_MEMBERS&&TEAM_MEMBERS.length?TEAM_MEMBERS:CONTACTS.map(c=>c.name);
           return(
             <div style={{padding:24}}>
-              {popup&&<TaskContactPopup
-                role={popup.role}
-                contact={getTask(popup.cat,popup.text).contactVal}
-                allContacts={allContacts}
-                onSet={(name,newC)=>{
-                  setTask(popup.cat,popup.text,"contactVal",name);
-                  setTask(popup.cat,popup.text,"contactRole",popup.role);
-                  if(newC) saveNewContact(newC);
-                  setPopup(null);
-                }}
-                onClose={()=>setPopup(null)}/>}
-
               {/* Progress bar */}
               <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,padding:"18px 22px",marginBottom:20}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <div style={{fontSize:15,fontWeight:700,color:T.text}}>{property.status} — Progress</div>
+                  <div style={{fontSize:15,fontWeight:700,color:T.text}}>Task Progress</div>
                   <div style={{fontSize:20,fontWeight:800,color:T.green}}>{pct}%</div>
                 </div>
                 <div style={{height:10,borderRadius:5,background:T.bg,overflow:"hidden",marginBottom:10}}>
                   <div style={{height:"100%",borderRadius:5,background:`linear-gradient(90deg,${T.green},#22C55E)`,width:`${pct}%`,transition:"width 0.4s"}}/>
                 </div>
-                <div style={{display:"flex",gap:20}}>
+                <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
                   {[["Completed",done,T.green],["In Progress",inProg,T.orange],["N/A",na,T.textTert],["Remaining",total-done-inProg-na,T.textSub]].map(([l,v,c])=>(
                     <div key={l} style={{fontSize:12,color:c}}><span style={{fontWeight:700}}>{v}</span> {l}</div>
                   ))}
                 </div>
               </div>
 
-              {checklist.length===0&&<div style={{textAlign:"center",padding:40,color:T.textTert,fontSize:14}}>No checklist for "{property.status}".</div>}
-
-              {checklist.map(({cat,tasks:catTasks})=>(
-                <Card key={cat} style={{marginBottom:16}}>
-                  <GHeader label={cat}/>
-                  <div style={{padding:"4px 0 8px"}}>
-                    {catTasks.map((rawTask,i)=>{
-                      const{text,contact:contactRole,linkedContact,multi}=normTask(rawTask);
-                      const t=getTask(cat,text);
-                      const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
-                      // For linked tasks, pull contactVal from the master task with that role
-                      const resolvedContact=contactRole?t.contactVal:linkedContact?getLinkedVal(linkedContact):"";
-                      const hasContact=contactRole||linkedContact;
-                      return(
-                        <div key={text} style={{borderTop:i===0?"none":`1px solid ${T.border}`}}>
-                          <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px"}}>
-                            <select value={t.status} onChange={e=>setTask(cat,text,"status",e.target.value)}
-                              style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0}}>
-                              {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-                            </select>
-                            {/* Task name — clickable if has a contact */}
-                            {hasContact
-                              ? <span onClick={()=>setPopup({cat,text,role:contactRole||linkedContact})}
-                                  style={{flex:1,fontSize:13,color:t.status==="Completed"||t.status==="N/A"?T.textTert:T.blue,textDecoration:t.status==="Completed"?"line-through":"underline",cursor:"pointer",fontWeight:500}}>
-                                  {text}
-                                </span>
-                              : <span style={{flex:1,fontSize:13,color:t.status==="Completed"||t.status==="N/A"?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{text}</span>
-                            }
-                            {/* Contact chip if set */}
-                            {hasContact&&resolvedContact&&(
-                              <span onClick={()=>setPopup({cat,text,role:contactRole||linkedContact})}
-                                style={{fontSize:11,fontWeight:600,color:T.gold,background:T.goldLight,padding:"3px 9px",borderRadius:20,cursor:"pointer",flexShrink:0}}>
-                                {resolvedContact}
-                              </span>
-                            )}
-                            {/* Assignee */}
-                            <select value={t.assignee||""} onChange={e=>setTask(cat,text,"assignee",e.target.value)}
-                              style={{fontSize:12,color:T.textSub,background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 7px",cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0}}>
-                              <option value="">Unassigned</option>
-                              {CONTACTS.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
-                            </select>
-                          </div>
-                          {/* Contact not yet set — show tap prompt */}
-                          {hasContact&&!resolvedContact&&(
-                            <div onClick={()=>setPopup({cat,text,role:contactRole||linkedContact})}
-                              style={{padding:"5px 16px 9px 46px",fontSize:12,color:T.blue,cursor:"pointer"}}>
-                              + Tap to assign {contactRole||linkedContact} →
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
-              ))}
-
-              {/* Custom tasks */}
               <Card>
-                <GHeader label="Custom Tasks"/>
+                <GHeader label="Tasks"/>
                 <div style={{padding:"4px 16px 16px",display:"flex",flexDirection:"column",gap:8}}>
-                  {tasks.filter(t=>!checklist.some(c=>c.tasks.includes(t.text))).map(task=>{
+                  {tasks.length===0&&<div style={{textAlign:"center",padding:"20px 8px",color:T.textTert,fontSize:13}}>No tasks yet. Add one below, or set up a rule in <strong>Settings → Automations</strong> to create tasks automatically when a property reaches a status.</div>}
+                  {tasks.map(task=>{
                     const sc=TASK_STATUS_COLORS[task.status]||TASK_STATUS_COLORS["Not Started"];
                     return(
                       <div key={task.id} style={{display:"flex",alignItems:"center",gap:10,background:T.bg,borderRadius:T.radiusSm,padding:"10px 12px"}}>
-                        <select value={task.status} onChange={e=>onUpdate(property.id,"tasks",tasks.map(t=>t.id===task.id?{...t,status:e.target.value}:t))}
+                        <select value={task.status||"Not Started"} onChange={e=>upT(task.id,"status",e.target.value)}
                           style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0}}>
                           {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
                         </select>
-                        <input style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:13,color:task.status==="Completed"?T.textTert:T.text,textDecoration:task.status==="Completed"?"line-through":"none",fontFamily:"inherit"}} value={task.text} onChange={e=>onUpdate(property.id,"tasks",tasks.map(t=>t.id===task.id?{...t,text:e.target.value}:t))} placeholder="Task description…"/>
-                        <select value={task.assignee||""} onChange={e=>onUpdate(property.id,"tasks",tasks.map(t=>t.id===task.id?{...t,assignee:e.target.value}:t))}
-                          style={{fontSize:12,color:T.textSub,background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 7px",cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0}}>
+                        <input style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",fontSize:13,color:task.status==="Completed"?T.textTert:T.text,textDecoration:task.status==="Completed"?"line-through":"none",fontFamily:"inherit"}} value={task.text} onChange={e=>upT(task.id,"text",e.target.value)} placeholder="Task description…"/>
+                        {task.autoId&&<span title="Created by an automation rule" style={{fontSize:9,fontWeight:700,background:T.gold,color:"#fff",borderRadius:10,padding:"2px 7px",textTransform:"uppercase",flexShrink:0}}>auto</span>}
+                        <select value={task.assignee||""} onChange={e=>upT(task.id,"assignee",e.target.value)}
+                          style={{fontSize:12,color:T.textSub,background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 7px",cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0,maxWidth:120}}>
                           <option value="">Unassigned</option>
-                          {CONTACTS.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
+                          {members.map(m=><option key={m} value={m}>{m}</option>)}
                         </select>
-                        <button onClick={()=>onUpdate(property.id,"tasks",tasks.filter(t=>t.id!==task.id))} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:18,flexShrink:0,lineHeight:1}}>×</button>
+                        <button onClick={()=>delT(task.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:18,flexShrink:0,lineHeight:1}}>×</button>
                       </div>
                     );
                   })}
-                  <button onClick={addTask} style={{marginTop:4,padding:"10px",borderRadius:T.radiusSm,background:"transparent",border:`1.5px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontSize:14,fontFamily:"inherit",fontWeight:500}}>+ Add Custom Task</button>
+                  <button onClick={addTask} style={{marginTop:4,padding:"10px",borderRadius:T.radiusSm,background:"transparent",border:`1.5px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontSize:14,fontFamily:"inherit",fontWeight:500}}>+ Add Task</button>
                 </div>
               </Card>
             </div>
@@ -2837,13 +2752,13 @@ function TaskRow({t,onStatusChange,onDelete,onContact}){
   return(
     <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 18px",borderTop:`1px solid ${T.border}`,background:"#fff"}}
       onMouseEnter={e=>e.currentTarget.style.background="#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
-      <select value={t.status} onChange={e=>onStatusChange(t.propId,t.cat,t.text,e.target.value)}
+      <select value={t.status||"Not Started"} onChange={e=>onStatusChange(t.propId,t.id,e.target.value)}
         style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0}}>
         {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
       </select>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:13,color:t.status==="Completed"||t.status==="N/A"?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",fontWeight:500}}>{t.text}</div>
-        <div style={{fontSize:11,color:T.textSub,marginTop:2}}>{t.propAddr} · {t.cat}</div>
+        <div style={{fontSize:13,color:t.status==="Completed"||t.status==="N/A"?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",fontWeight:500}}>{t.text}{t.autoId&&<span title="Created by an automation rule" style={{marginLeft:6,fontSize:9,fontWeight:700,background:T.gold,color:"#fff",borderRadius:10,padding:"1px 6px",textTransform:"uppercase"}}>auto</span>}</div>
+        <div style={{fontSize:11,color:T.textSub,marginTop:2}}>{t.propAddr}{t.cat?` · ${t.cat}`:""}</div>
       </div>
       {t.assignee&&<span style={{fontSize:11,fontWeight:600,color:T.blue,background:"#EBF4FF",padding:"3px 9px",borderRadius:20,flexShrink:0}}>{t.assignee}</span>}
       <span style={{fontSize:10,fontWeight:700,color:sc2.color,background:sc2.bg,padding:"2px 8px",borderRadius:20,flexShrink:0}}>{t.propStatus}</span>
@@ -2854,7 +2769,7 @@ function TaskRow({t,onStatusChange,onDelete,onContact}){
         onMouseLeave={e=>{if(!t.taskContact){e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.textTert;}}}>
         {t.taskContact?t.taskContact.name[0]:"👤"}
       </button>
-      <button onClick={()=>onDelete(t.propId,t.cat,t.text)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,padding:"2px 4px",flexShrink:0,borderRadius:6}}
+      <button onClick={()=>onDelete(t.propId,t.id)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,padding:"2px 4px",flexShrink:0,borderRadius:6}}
         onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.textTert}>🗑</button>
     </div>
   );
@@ -2887,49 +2802,21 @@ function TasksPage(){
   const[statusFilter,setStatusFilter]=useState(new Set()); // empty = show all
   const[showAutoBuilder,setShowAutoBuilder]=useState(false);
 
-  // Collect all tasks from all properties (archived ones are excluded)
+  // Collect real tasks from all properties (archived excluded). Tasks now come only
+  // from manual entry or automation rules — no auto-generated status checklists.
   const allTasks=[];
   sharedProps.filter(p=>!p.archived).forEach(prop=>{
-    const savedTasks=prop.tasks||[];
-    const deletedKeys=new Set(savedTasks.filter(t=>t.deleted).map(t=>`${t.cat}::${t.text}`));
-    const checklist=DEFAULT_CHECKLISTS[prop.status]||[];
-    checklist.forEach(({cat,tasks:catTasks})=>{
-      catTasks.forEach(rawTask=>{
-        const text=typeof rawTask==="string"?rawTask:rawTask.text;
-        if(deletedKeys.has(`${cat}::${text}`)) return; // skip deleted
-        const saved_t=savedTasks.find(t=>t.cat===cat&&t.text===text&&!t.deleted)||{status:"Not Started",assignee:"",contactVal:""};
-        allTasks.push({propId:prop.id,propAddr:prop.address+(prop.city?`, ${prop.city}`:""),propStatus:prop.status,cat,text,...saved_t,isChecklist:true});
-      });
-    });
-    // Custom tasks (not deleted, not from checklist)
-    savedTasks.filter(t=>!t.deleted&&!checklist.some(c=>c.tasks.some(rt=>(typeof rt==="string"?rt:rt.text)===t.text))).forEach(t=>{
+    (prop.tasks||[]).filter(t=>!t.deleted&&(t.text||"").trim()).forEach(t=>{
       allTasks.push({propId:prop.id,propAddr:prop.address+(prop.city?`, ${prop.city}`:""),propStatus:prop.status,...t,isChecklist:false});
     });
   });
 
-  function updateTaskStatus(propId,cat,text,status){
-    setSharedProps(prev=>prev.map(p=>{
-      if(p.id!==propId) return p;
-      const tasks=p.tasks||[];
-      const existing=tasks.find(t=>t.cat===cat&&t.text===text&&!t.deleted);
-      if(existing) return{...p,tasks:tasks.map(t=>t.cat===cat&&t.text===text?{...t,status}:t)};
-      return{...p,tasks:[...tasks,{id:Date.now(),cat,text,status,assignee:"",contactVal:""}]};
-    }));
+  function updateTaskStatus(propId,taskId,status){
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===taskId?{...t,status}:t)}));
   }
 
-  function deleteTask(propId,cat,text,isChecklist){
-    setSharedProps(prev=>prev.map(p=>{
-      if(p.id!==propId) return p;
-      const tasks=p.tasks||[];
-      if(isChecklist){
-        // Checklist tasks: mark deleted so they don't reappear
-        const existing=tasks.find(t=>t.cat===cat&&t.text===text);
-        if(existing) return{...p,tasks:tasks.map(t=>t.cat===cat&&t.text===text?{...t,deleted:true}:t)};
-        return{...p,tasks:[...tasks,{id:Date.now(),cat,text,status:"Not Started",assignee:"",contactVal:"",deleted:true}]};
-      }
-      // Custom tasks: fully remove
-      return{...p,tasks:tasks.filter(t=>!(t.cat===cat&&t.text===text))};
-    }));
+  function deleteTask(propId,taskId){
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).filter(t=>t.id!==taskId)}));
   }
 
   const myTasks=allTasks.filter(t=>t.assignee===CURRENT_USER);
@@ -3020,7 +2907,7 @@ function TasksPage(){
         </div>
         {/* View tabs */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {[["my","My Tasks"],["assigned","Assigned by Me"],["member","By Team Member"],["unassigned","Unassigned"],["all","All Tasks"],...(isAdmin?[["automations","⚙ Automations"]]:[])].map(([k,l])=>{
+          {[["my","My Tasks"],["assigned","Assigned by Me"],["member","By Team Member"],["unassigned","Unassigned"],["all","All Tasks"]].map(([k,l])=>{
             const active=views.has(k);
             return(
               <button key={k} onClick={()=>setViews(prev=>{const n=new Set(prev);active?n.delete(k):n.add(k);return n;})}
@@ -3179,7 +3066,7 @@ function TasksPage(){
                     {confirmDeleteProp===addr
                       ?<div style={{display:"flex",alignItems:"center",gap:6}}>
                           <span style={{fontSize:12,color:T.red}}>Delete all {ptasks.length}?</span>
-                          <button onClick={()=>{ptasks.forEach(t=>deleteTask(t.propId,t.cat,t.text,t.isChecklist));setConfirmDeleteProp(null);}}
+                          <button onClick={()=>{ptasks.forEach(t=>deleteTask(t.propId,t.id));setConfirmDeleteProp(null);}}
                             style={{padding:"3px 10px",borderRadius:6,background:T.red,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Yes</button>
                           <button onClick={()=>setConfirmDeleteProp(null)}
                             style={{padding:"3px 10px",borderRadius:6,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>No</button>
@@ -3192,7 +3079,7 @@ function TasksPage(){
                         </button>}
                   </div>
                 </div>
-                {ptasks.map(t=><TaskRow key={`${t.cat}-${t.text}`} t={t} onStatusChange={updateTaskStatus} onDelete={(pid,cat,text)=>deleteTask(pid,cat,text,t.isChecklist)} onContact={setTaskContactTarget}/>)}
+                {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onDelete={deleteTask} onContact={setTaskContactTarget}/>)}
               </div>
             ))}
           </div>
@@ -3213,8 +3100,90 @@ const archiveDaysLeft=(p)=>{
   const elapsed=Date.now()-new Date(p.archivedAt).getTime();
   return Math.max(0,Math.ceil(ARCHIVE_DAYS-elapsed/(24*60*60*1000)));
 };
+// Statuses that can trigger an automation rule.
+const AUTO_TRIGGERS=["Under Contract","Purchased","Under Construction","On Market","In Closing"];
+// Settings → Automations: build rules that add tasks when a property hits a status.
+function AutomationsPanel(){
+  const { automations, setAutomations, teamMembers:TEAM_MEMBERS } = useData();
+  const rules=automations||[];
+  const[showBuilder,setShowBuilder]=useState(false);
+  const[draft,setDraft]=useState({trigger:"Under Contract",tasks:[{text:"",assignTo:""}]});
+  const bdr=`1px solid ${T.border}`;
+  const save=()=>{
+    const validTasks=draft.tasks.filter(t=>t.text.trim()).map(t=>({text:t.text.trim(),assignTo:t.assignTo||"",category:"Automation"}));
+    if(validTasks.length===0)return;
+    setAutomations([...rules,{id:Date.now(),trigger:draft.trigger,tasks:validTasks}]);
+    setDraft({trigger:"Under Contract",tasks:[{text:"",assignTo:""}]});
+    setShowBuilder(false);
+  };
+  return(
+    <div>
+      <div style={{fontSize:12,color:T.textSub,marginBottom:14}}>When a property's status changes to the trigger, these tasks are automatically added to it (assigned to whoever you pick). Each rule applies once per property.</div>
+      {showBuilder&&(
+        <div style={{background:T.bg,borderRadius:12,padding:16,marginBottom:14}}>
+          <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:14}}>New Rule</div>
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>When status becomes</div>
+            <select value={draft.trigger} onChange={e=>setDraft(d=>({...d,trigger:e.target.value}))}
+              style={{width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,border:bdr,background:"#fff",color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"}}>
+              {AUTO_TRIGGERS.map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Tasks to create</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {draft.tasks.map((task,i)=>(
+              <div key={i} style={{display:"flex",gap:8,alignItems:"center",background:"#fff",borderRadius:T.radiusSm,padding:"8px 10px",border:bdr}}>
+                <input value={task.text} onChange={e=>setDraft(d=>({...d,tasks:d.tasks.map((t,j)=>j===i?{...t,text:e.target.value}:t)}))} placeholder="Task description…"
+                  style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:7,border:bdr,background:"#fff",color:T.text,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                <select value={task.assignTo} onChange={e=>setDraft(d=>({...d,tasks:d.tasks.map((t,j)=>j===i?{...t,assignTo:e.target.value}:t)}))}
+                  style={{width:130,flexShrink:0,padding:"6px 8px",borderRadius:7,border:bdr,background:"#fff",color:task.assignTo?T.text:T.textTert,fontSize:12,outline:"none",fontFamily:"inherit"}}>
+                  <option value="">— Assign —</option>
+                  {(TEAM_MEMBERS||[]).map(m=><option key={m}>{m}</option>)}
+                </select>
+                {draft.tasks.length>1&&<button onClick={()=>setDraft(d=>({...d,tasks:d.tasks.filter((_,j)=>j!==i)}))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>}
+              </div>
+            ))}
+          </div>
+          <button onClick={()=>setDraft(d=>({...d,tasks:[...d.tasks,{text:"",assignTo:""}]}))}
+            style={{marginTop:8,width:"100%",padding:"8px",borderRadius:T.radiusSm,background:"transparent",border:`1.5px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600}}>+ Add another task</button>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:14}}>
+            <button onClick={()=>{setShowBuilder(false);setDraft({trigger:"Under Contract",tasks:[{text:"",assignTo:""}]});}} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:"#fff",border:bdr,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Cancel</button>
+            <button onClick={save} style={{padding:"9px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Save Rule</button>
+          </div>
+        </div>
+      )}
+      {!showBuilder&&<button onClick={()=>setShowBuilder(true)} style={{padding:"9px 18px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",marginBottom:14}}>+ New Rule</button>}
+      {rules.length===0&&!showBuilder&&<div style={{padding:"24px 0",textAlign:"center",color:T.textTert,fontSize:13}}>No automation rules yet. Create one to auto-add tasks when a property reaches a status.</div>}
+      {rules.map(auto=>{
+        const sc=SC[auto.trigger]||{color:T.gold,bg:T.goldLight};
+        const tasks=auto.tasks||[];
+        return(
+          <div key={auto.id} style={{border:bdr,borderRadius:12,padding:"12px 14px",marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:tasks.length?10:0}}>
+              <span style={{background:sc.bg,color:sc.color,fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:20,flexShrink:0}}>{auto.trigger}</span>
+              <span style={{fontSize:12,color:T.textSub,flex:1}}>{tasks.length} task{tasks.length!==1?"s":""}</span>
+              <button onClick={()=>setAutomations(rules.filter(a=>a.id!==auto.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {tasks.map((t,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:T.bg,borderRadius:T.radiusSm,padding:"8px 12px"}}>
+                  <span style={{fontSize:13,color:T.text,flex:1}}>{t.text}</span>
+                  {t.assignTo&&<span style={{fontSize:11,fontWeight:600,color:T.blue,background:"#EBF4FF",padding:"3px 9px",borderRadius:20,flexShrink:0}}>{t.assignTo}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 function SettingsModal({archived,onRestore,onDelete,onClose}){
+  const[section,setSection]=useState("archived");
   const fmtAddr=(p)=>`${p.address}${p.city?`, ${p.city}`:""}${p.state?`, ${p.state}`:""}${p.zip?` ${p.zip}`:""}`;
+  const tab=(k,l)=>(
+    <button key={k} onClick={()=>setSection(k)} style={{padding:"8px 14px",borderRadius:20,border:`1.5px solid ${section===k?T.gold:T.border}`,background:section===k?T.goldLight:"transparent",color:section===k?T.gold:T.textSub,fontWeight:section===k?700:500,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+  );
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(640px,96vw)",maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
@@ -3222,26 +3191,33 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
           <div style={{fontSize:17,fontWeight:700,color:T.text}}>Settings</div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
+        <div style={{padding:"12px 20px 0",display:"flex",gap:8}}>
+          {tab("archived","Archived Properties")}
+          {tab("automations","Automations")}
+        </div>
         <div style={{overflowY:"auto",padding:"16px 20px"}}>
-          <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>Archived Properties</div>
-          <div style={{fontSize:12,color:T.textSub,marginBottom:14}}>Archived properties are hidden from your lists and are permanently deleted 60 days after archiving. Restore one to bring it back, or delete it now.</div>
-          {archived.length===0
-            ? <div style={{padding:"24px 0",textAlign:"center",color:T.textTert,fontSize:13}}>No archived properties.</div>
-            : archived.map(p=>{
-                const left=archiveDaysLeft(p);
-                return(
-                  <div key={p.id} style={{border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 14px",marginBottom:10}}>
-                    <div style={{fontSize:14,fontWeight:600,color:T.text}}>{fmtAddr(p)}</div>
-                    <div style={{fontSize:12,color:left<=7?T.red:T.textSub,marginTop:2}}>
-                      {left===0?"Deleting soon":`Deletes in ${left} day${left===1?"":"s"}`}{p.status?` · was ${p.status}`:""}
-                    </div>
-                    <div style={{display:"flex",gap:8,marginTop:10}}>
-                      <button onClick={()=>onRestore(p.id)} style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Restore</button>
-                      <button onClick={()=>{if(window.confirm(`Permanently delete ${fmtAddr(p)}?\n\nThis cannot be undone.`))onDelete(p.id);}} style={{padding:"7px 14px",borderRadius:T.radiusSm,background:"#fff",border:`1px solid ${T.red}`,color:T.red,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Delete now</button>
-                    </div>
-                  </div>
-                );
-              })}
+          {section==="archived"?(
+            <>
+              <div style={{fontSize:12,color:T.textSub,marginBottom:14}}>Archived properties are hidden from your lists and are permanently deleted 60 days after archiving. Restore one to bring it back, or delete it now.</div>
+              {archived.length===0
+                ? <div style={{padding:"24px 0",textAlign:"center",color:T.textTert,fontSize:13}}>No archived properties.</div>
+                : archived.map(p=>{
+                    const left=archiveDaysLeft(p);
+                    return(
+                      <div key={p.id} style={{border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 14px",marginBottom:10}}>
+                        <div style={{fontSize:14,fontWeight:600,color:T.text}}>{fmtAddr(p)}</div>
+                        <div style={{fontSize:12,color:left<=7?T.red:T.textSub,marginTop:2}}>
+                          {left===0?"Deleting soon":`Deletes in ${left} day${left===1?"":"s"}`}{p.status?` · was ${p.status}`:""}
+                        </div>
+                        <div style={{display:"flex",gap:8,marginTop:10}}>
+                          <button onClick={()=>onRestore(p.id)} style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Restore</button>
+                          <button onClick={()=>{if(window.confirm(`Permanently delete ${fmtAddr(p)}?\n\nThis cannot be undone.`))onDelete(p.id);}} style={{padding:"7px 14px",borderRadius:T.radiusSm,background:"#fff",border:`1px solid ${T.red}`,color:T.red,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Delete now</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+            </>
+          ):<AutomationsPanel/>}
         </div>
       </div>
     </div>
@@ -3253,7 +3229,7 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
 const MEMBER_KEYS = new Set(["tasks","properties"]);
 
 export function GoldstoneShell(){
-  const { sharedProps, setSharedProps, loading, saveError, clearSaveError } = useData();
+  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError } = useData();
   const { displayName, role, isAdmin, signOut } = useAuth();
   const isMobile = useIsMobile();
 
@@ -3275,6 +3251,30 @@ export function GoldstoneShell(){
     const expired=sharedProps.filter(p=>p.archived&&p.archivedAt&&new Date(p.archivedAt).getTime()<cutoff);
     if(expired.length){const ids=new Set(expired.map(p=>p.id));setSharedProps(prev=>prev.filter(p=>!ids.has(p.id)));}
   },[sharedProps,setSharedProps]);
+
+  // Apply automation rules: when a property reaches a rule's trigger status, add its
+  // tasks once (tracked via property.autoApplied so it never double-adds).
+  useEffect(()=>{
+    if(!automations||automations.length===0) return;
+    let changed=false;
+    const next=sharedProps.map(p=>{
+      if(p.archived) return p;
+      const applied=new Set(p.autoApplied||[]);
+      const toApply=automations.filter(a=>a.trigger===p.status && !applied.has(a.id));
+      if(toApply.length===0) return p;
+      changed=true;
+      const add=[];
+      toApply.forEach((a,ai)=>{
+        (a.tasks||[]).forEach((t,ti)=>{
+          if(!t.text||!t.text.trim()) return;
+          add.push({id:Date.now()+ai*1000+ti,text:t.text,cat:t.category||"Automation",status:"Not Started",assignee:t.assignTo||"",autoId:a.id});
+        });
+        applied.add(a.id);
+      });
+      return {...p,tasks:[...(p.tasks||[]),...add],autoApplied:[...applied]};
+    });
+    if(changed) setSharedProps(()=>next);
+  },[sharedProps,automations,setSharedProps]);
 
   function navigateToProperty(propId){
     setNavPropId(propId);

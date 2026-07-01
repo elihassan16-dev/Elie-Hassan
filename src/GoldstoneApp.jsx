@@ -1,6 +1,7 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";
+import { useOneDrive } from "./onedrive/useOneDrive";
 import { mkLead } from "./seed";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
@@ -1326,7 +1327,127 @@ function FinOverview({property,onUpdate}){
 }
 
 // ─── Property Detail ──────────────────────────────────────────────────────────
-const PTABS=["Financial Overview","Property Info","Tasks","Contacts"];
+const PTABS=["Financial Overview","Property Info","Tasks","Contacts","Files"];
+
+// ─── Files tab — browse a property's OneDrive/SharePoint folder in-app ─────────
+function fmtBytes(b){if(!b&&b!==0)return"";if(b<1024)return b+" B";const k=b/1024;if(k<1024)return Math.round(k)+" KB";const m=k/1024;return (m<10?m.toFixed(1):Math.round(m))+" MB";}
+function FilesTab({property,onUpdate}){
+  const od=useOneDrive();
+  const link=property.filesShareLink||"";
+  const[linkInput,setLinkInput]=useState("");
+  const[stack,setStack]=useState([]);
+  const[items,setItems]=useState([]);
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState("");
+  const[uploading,setUploading]=useState(0);
+  const fileRef=useRef(null);
+
+  const loadFrom=useCallback(async(driveId,itemId,newStack)=>{
+    setLoading(true);setError("");
+    try{const kids=await od.listChildren(driveId,itemId);setItems(kids);if(newStack)setStack(newStack);}
+    catch(e){setError(e.message||"Couldn't load files.");}
+    setLoading(false);
+  },[od]);
+
+  const loadRoot=useCallback(async()=>{
+    setLoading(true);setError("");
+    try{
+      const root=await od.resolveShareLink(link);
+      if(!root.driveId){setError("Couldn't read that folder link. Make sure it's a OneDrive/SharePoint 'Copy link' URL to a folder.");setLoading(false);return;}
+      setStack([{driveId:root.driveId,id:root.id,name:root.name||"Files"}]);
+      setItems(root.children&&root.children.length?root.children:await od.listChildren(root.driveId,root.id));
+    }catch(e){setError(e.message||"Couldn't open this folder.");}
+    setLoading(false);
+  },[od,link]);
+
+  useEffect(()=>{if(od.ready&&od.isConnected&&link&&stack.length===0)loadRoot();},[od.ready,od.isConnected,link]);// eslint-disable-line
+
+  const cur=stack[stack.length-1];
+  const openFolder=(f)=>loadFrom(cur.driveId,f.id,[...stack,{driveId:cur.driveId,id:f.id,name:f.name}]);
+  const goTo=(idx)=>loadFrom(stack[idx].driveId,stack[idx].id,stack.slice(0,idx+1));
+  const refresh=()=>cur&&loadFrom(cur.driveId,cur.id,null);
+  const onPick=async(e)=>{
+    const file=e.target.files&&e.target.files[0];if(!file||!cur)return;
+    setUploading(1);setError("");
+    try{await od.uploadFile(cur.driveId,cur.id,file,(p)=>setUploading(p||1));refresh();}
+    catch(err){setError(err.message||"Upload failed.");}
+    setUploading(0);if(fileRef.current)fileRef.current.value="";
+  };
+
+  const btn={padding:"8px 14px",borderRadius:T.radiusSm,border:`1px solid ${T.gold}`,background:T.goldLight,color:T.gold,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"};
+  const wrap={padding:24,maxWidth:680,margin:"0 auto"};
+
+  if(!od.ready) return <div style={{...wrap,color:T.textSub,fontSize:14}}>Connecting to Microsoft…</div>;
+
+  if(!od.isConnected) return(
+    <div style={{...wrap,textAlign:"center"}}>
+      <div style={{width:60,height:60,borderRadius:16,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,margin:"20px auto 14px"}}>📁</div>
+      <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>Connect your files</div>
+      <div style={{fontSize:14,color:T.textSub,marginBottom:18,lineHeight:1.5}}>Sign in with your Microsoft account to browse this property's OneDrive / SharePoint files here.</div>
+      <button onClick={()=>od.signIn().catch(e=>setError(e.message||"Sign-in cancelled."))} style={{...btn,padding:"11px 22px",fontSize:15,background:T.gold,color:"#fff",border:"none"}}>Connect Microsoft</button>
+      {error&&<div style={{marginTop:14,color:T.red,fontSize:13}}>{error}</div>}
+    </div>
+  );
+
+  if(!link) return(
+    <div style={wrap}>
+      <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>Link this property's folder</div>
+      <div style={{fontSize:13,color:T.textSub,marginBottom:14,lineHeight:1.5}}>In OneDrive/SharePoint, open this property's folder, click <strong>Share → Copy link</strong>, and paste it here. You only do this once per property.</div>
+      <input value={linkInput} onChange={e=>setLinkInput(e.target.value)} placeholder="https://…sharepoint.com/… or https://1drv.ms/…"
+        style={{width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit",marginBottom:12}}/>
+      <div style={{display:"flex",gap:10,alignItems:"center"}}>
+        <button onClick={()=>{if(linkInput.trim()){onUpdate(property.id,"filesShareLink",linkInput.trim());}}} style={{...btn,background:T.gold,color:"#fff",border:"none"}}>Save & Open</button>
+        <span style={{fontSize:12,color:T.textTert}}>Signed in as {od.displayName}</span>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={wrap}>
+      {/* toolbar */}
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:12}}>
+        <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",fontSize:13}}>
+          {stack.map((s,i)=>(
+            <span key={i} style={{display:"flex",alignItems:"center",gap:4}}>
+              {i>0&&<span style={{color:T.textTert}}>/</span>}
+              <span onClick={()=>goTo(i)} style={{color:i===stack.length-1?T.text:T.blue,fontWeight:i===stack.length-1?600:400,cursor:"pointer",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
+            </span>
+          ))}
+        </div>
+        <button onClick={refresh} style={btn}>↻</button>
+        <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{...btn,background:T.gold,color:"#fff",border:"none"}}>↑ Upload</button>
+        <input ref={fileRef} type="file" onChange={onPick} style={{display:"none"}}/>
+      </div>
+
+      {uploading>0&&<div style={{marginBottom:12,fontSize:13,color:T.gold}}>Uploading… {uploading}%<div style={{height:4,background:T.goldLight,borderRadius:4,marginTop:4,overflow:"hidden"}}><div style={{height:"100%",width:`${uploading}%`,background:T.gold}}/></div></div>}
+      {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
+
+      <Card>
+        {loading&&<div style={{padding:"18px 16px",color:T.textSub,fontSize:14}}>Loading…</div>}
+        {!loading&&items.length===0&&<div style={{padding:"24px 16px",textAlign:"center",color:T.textTert,fontSize:14}}>This folder is empty.</div>}
+        {!loading&&items.map((it,i)=>{
+          const isFolder=!!it.folder;
+          const dl=it["@microsoft.graph.downloadUrl"];
+          return(
+            <div key={it.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 16px",borderTop:i===0?"none":`1px solid ${T.border}`}}>
+              <span style={{fontSize:20,flexShrink:0}}>{isFolder?"📁":"📄"}</span>
+              <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>isFolder?openFolder(it):window.open(it.webUrl,"_blank","noopener")}>
+                <div style={{fontSize:14,fontWeight:500,color:isFolder?T.text:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>
+                <div style={{fontSize:11,color:T.textTert}}>{isFolder?`${it.folder.childCount||0} items`:fmtBytes(it.size)}{it.lastModifiedDateTime?` · ${new Date(it.lastModifiedDateTime).toLocaleDateString()}`:""}</div>
+              </div>
+              {!isFolder&&dl&&<a href={dl} style={{fontSize:12,color:T.gold,fontWeight:600,textDecoration:"none",flexShrink:0}}>Download</a>}
+            </div>
+          );
+        })}
+      </Card>
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}>
+        <button onClick={()=>{onUpdate(property.id,"filesShareLink","");setStack([]);setItems([]);setLinkInput("");}} style={{background:"none",border:"none",color:T.textTert,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Change folder link</button>
+        <span style={{fontSize:12,color:T.textTert}}>{od.displayName} · <span onClick={()=>od.signOut()} style={{color:T.blue,cursor:"pointer"}}>Disconnect</span></span>
+      </div>
+    </div>
+  );
+}
 function PropDetail({property,onUpdate}){
   const { contacts: CONTACTS } = useData();
   const[tab,setTab]=useState("Financial Overview");
@@ -1598,6 +1719,7 @@ function PropDetail({property,onUpdate}){
             )}
           </div>
         )}
+        {tab==="Files"&&<FilesTab property={property} onUpdate={onUpdate}/>}
       </div>
     </div>
   );

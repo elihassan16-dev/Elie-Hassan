@@ -1371,11 +1371,12 @@ const PTABS=["Financial Overview","Property Info","Tasks","Contacts","Files","Qu
 function qbBucket(name){
   const s=(name||"").toLowerCase();
   const has=(...k)=>k.some(x=>s.includes(x));
-  if(has("purchase","acquisition","cost of good","cogs","property cost"))return "purchase";
-  if(has("rehab","construction","renov","repair","improvement","material","labor","contractor","demo"))return "rehab";
+  if(has("purchase","acquisition","property cost"))return "purchase";
+  if(has("rehab","construction","renov","repair","improvement","contractor","material","labor","demo"))return "rehab";
+  if(has("holding","carry","utilit","property tax","insurance"))return "holding";
   if(has("interest","loan","financ","points","origination","lender","mortgage"))return "interest";
   if(has("commission","realtor","selling","staging","marketing","disposition","broker"))return "selling";
-  if(has("closing","title","escrow","recording","transfer tax","attorney","legal","inspection","appraisal","survey"))return "buying";
+  if(has("buying","closing","title","escrow","recording","transfer tax","attorney","legal","inspection","appraisal","survey"))return "buying";
   return "buying"; // default other expenses into buying/misc
 }
 function QuickBooksTab({property,onUpdate}){
@@ -1411,13 +1412,14 @@ function QuickBooksTab({property,onUpdate}){
 
   const doImport=()=>{
     if(!pnl)return;
-    const f=property.financials;const b={purchase:0,rehab:0,buying:0,interest:0,selling:0};
+    const f=property.financials;const b={purchase:0,rehab:0,buying:0,holding:0,interest:0,selling:0};
     (pnl.rows||[]).forEach(r=>{if(r.section==="Income")return;b[qbBucket(r.name)]+=r.amount;});
     onUpdate(property.id,"financials",{...f,
       actualSalePrice:String(Math.round(pnl.income||0)),
       actualPurchasePrice:String(Math.round(b.purchase)),
       actualRehabCosts:String(Math.round(b.rehab)),
       actualBuyingCosts:String(Math.round(b.buying)),
+      actualHoldingCosts:String(Math.round(b.holding)),actualHoldingCostItems:[],
       actualSellingCosts:String(Math.round(b.selling)),
       hmInterest:String(Math.round(b.interest)),locInterest:"0",
       useActualProfit:true,

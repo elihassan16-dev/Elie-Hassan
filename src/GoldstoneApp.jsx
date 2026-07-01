@@ -1423,7 +1423,7 @@ function QuickBooksTab({property,onUpdate}){
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState("");
   const[flash,setFlash]=useState("");
-  const autoSync=property.qbAutoSync!==false; // default ON — keep Actuals mirrored to QuickBooks
+  const autoSync=property.qbAutoSync===true; // default OFF — opt in per property to mirror Actuals to QuickBooks
   const autoPicked=useRef(false);             // guard: only auto-select a project once
   const autoImported=useRef(null);            // guard: auto-import once per fresh P&L load
 

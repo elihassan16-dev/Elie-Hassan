@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-UPDATE 2026-07-01 (mobile session): Added (1) **Auto-sync** — a per-property toggle (`property.qbAutoSync`, default ON) that re-imports the latest QuickBooks numbers into the Actual columns every time a mapped project's P&L loads, and (2) **smarter address→project matching** — `qbMatchScore` (house number + street-word overlap) replaces the old silent street-substring match; shows ranked "Suggested match" options with a confidence label, stars them in the dropdown, and auto-selects only when score≥0.7. Branch `claude/app-changes-mobile-m7zkyd`.
+UPDATE 2026-07-01 (mobile session): Added (1) **Auto-sync** — a per-property toggle (`property.qbAutoSync`, default OFF — opt in per property) that re-imports the latest QuickBooks numbers into the Actual columns every time a mapped project's P&L loads, and (2) **smarter address→project matching** — `qbMatchScore` (house number + street-word overlap) replaces the old silent street-substring match; shows ranked "Suggested match" options with a confidence label, stars them in the dropdown, and auto-selects only when score≥0.7. Branch `claude/app-changes-mobile-m7zkyd`.
 
 STATUS 2026-07-01: BUILT, DEPLOYED, CONNECTED. QuickBooks Online, client id `ABZXasjjiSvG3epOMwQQdq3IfQIns0QUAmIIfM8eVKwYtionqi`. Backend live (Vercel serverless: api/quickbooks/{connect,callback,status,disconnect,projects,pnl}); secrets QB_CLIENT_ID/QB_CLIENT_SECRET/SUPABASE_SERVICE_ROLE_KEY set in Vercel; token table `quickbooks_connection` created (supabase/quickbooks.sql). User completed OAuth (connected:true). New per-property **QuickBooks tab** shows the project's live P&L + **Import from QuickBooks** button fills Actual columns; project stored at `property.qbProjectId`.
 

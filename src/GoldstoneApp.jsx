@@ -950,10 +950,16 @@ function TaskContactPopup({role, contact, allContacts, onSet, onClose}){
 }
 
 // ─── Grid row helpers for the Projected | Actual table ───────────────────────
+// Responsive column template: on phones the number columns shrink to a % of the
+// row (instead of fixed 160px) so the Actual column no longer runs off-screen.
+const finCols=(showActual,isMobile)=>isMobile
+  ?(showActual?"minmax(0,1fr) 31% 31%":"minmax(0,1fr) 42%")
+  :(showActual?"1fr 160px 160px":"1fr 160px");
 function RowHdr({label,color,showActual}){
+  const isMobile=useIsMobile();
   return(
-    <div style={{display:"grid",gridTemplateColumns:showActual?"1fr 160px 160px":"1fr 160px",borderTop:`1px solid ${T.border}`,background:T.bg}}>
-      <div style={{gridColumn:showActual?"1 / span 3":"1 / span 2",padding:"9px 18px 5px",display:"flex",alignItems:"center",gap:7}}>
+    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`,background:T.bg}}>
+      <div style={{gridColumn:showActual?"1 / span 3":"1 / span 2",padding:isMobile?"9px 12px 5px":"9px 18px 5px",display:"flex",alignItems:"center",gap:7}}>
         <span style={{width:3,height:12,borderRadius:2,background:color,display:"inline-block"}}/>
         <span style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.07em"}}>{label}</span>
       </div>
@@ -961,18 +967,20 @@ function RowHdr({label,color,showActual}){
   );
 }
 function DateGridRow({label,value,onChange,showActual}){
+  const isMobile=useIsMobile();
   return(
-    <div style={{display:"grid",gridTemplateColumns:showActual?"1fr 160px 160px":"1fr 160px",borderTop:`1px solid ${T.border}`}}>
-      <div style={{padding:"9px 18px",fontSize:13,color:T.text}}>{label}</div>
+    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`}}>
+      <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:13,color:T.text}}>{label}</div>
       <div/>
-      <div style={{padding:"6px 14px",textAlign:"right"}}>
+      <div style={{padding:isMobile?"6px 8px":"6px 14px",textAlign:"right"}}>
         <input type="date" value={value||""} onChange={e=>onChange(e.target.value)}
-          style={{fontSize:12,padding:"4px 7px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,color:T.text,outline:"none",fontFamily:"inherit",cursor:"pointer"}}/>
+          style={{fontSize:12,padding:"4px 7px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,color:T.text,outline:"none",fontFamily:"inherit",cursor:"pointer",width:isMobile?"100%":"auto",maxWidth:"100%",boxSizing:"border-box"}}/>
       </div>
     </div>
   );
 }
 function EditGridRow({label,pVal,pEdit,aVal,aEdit,showActual,readOnlyActual,suffix,dim,dimP}){
+  const isMobile=useIsMobile();
   const[editingP,setEditingP]=useState(false);
   const[editingA,setEditingA]=useState(false);
   const[rawP,setRawP]=useState("");
@@ -980,16 +988,16 @@ function EditGridRow({label,pVal,pEdit,aVal,aEdit,showActual,readOnlyActual,suff
   const inS={width:"100%",padding:"5px 8px",borderRadius:6,border:`1.5px solid ${T.gold}`,background:T.goldLight,color:T.text,fontSize:13,outline:"none",textAlign:"right",fontFamily:"inherit",boxSizing:"border-box"};
   const pColor=dimP?T.textTert:(dim?T.textTert:T.text);
   return(
-    <div style={{display:"grid",gridTemplateColumns:showActual?"1fr 160px 160px":"1fr 160px",borderTop:`1px solid ${T.border}`}}>
-      <div style={{padding:"9px 18px",fontSize:13,color:dim?T.textTert:T.text}}>{label}</div>
-      <div style={{padding:"6px 14px",textAlign:"right"}}>
+    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`}}>
+      <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:13,color:dim?T.textTert:T.text}}>{label}</div>
+      <div style={{padding:isMobile?"6px 8px":"6px 14px",textAlign:"right"}}>
         {editingP
           ?<input autoFocus value={rawP} onChange={e=>setRawP(e.target.value.replace(/[^\d.]/g,""))}
               onBlur={()=>{setEditingP(false);pEdit(rawP);}} onKeyDown={e=>e.key==="Enter"&&e.target.blur()}
               style={inS}/>
           :<span onClick={()=>{setRawP(String(pVal||""));setEditingP(true);}} style={{fontSize:13,color:pColor,cursor:"pointer"}}>{suffix?`${pVal||0} ${suffix}`:fmtD(n(pVal))}</span>}
       </div>
-      {showActual&&<div style={{padding:"6px 14px",textAlign:"right"}}>
+      {showActual&&<div style={{padding:isMobile?"6px 8px":"6px 14px",textAlign:"right"}}>
         {readOnlyActual?<span style={{fontSize:13,color:T.textTert}}>—</span>:
         editingA
           ?<input autoFocus value={rawA} onChange={e=>setRawA(e.target.value.replace(/[^\d.]/g,""))}
@@ -1001,14 +1009,15 @@ function EditGridRow({label,pVal,pEdit,aVal,aEdit,showActual,readOnlyActual,suff
   );
 }
 function PopupGridRow({label,pVal,onOpenP,aVal,aEdit,onOpenA,showActual,aIsPopup,dimP}){
+  const isMobile=useIsMobile();
   const[editingA,setEditingA]=useState(false);
   const[rawA,setRawA]=useState("");
   const inS={width:"100%",padding:"5px 8px",borderRadius:6,border:`1.5px solid ${T.gold}`,background:T.goldLight,color:T.text,fontSize:13,outline:"none",textAlign:"right",fontFamily:"inherit",boxSizing:"border-box"};
   return(
-    <div style={{display:"grid",gridTemplateColumns:showActual?"1fr 160px 160px":"1fr 160px",borderTop:`1px solid ${T.border}`}}>
-      <div style={{padding:"9px 18px",fontSize:13,color:T.text}}>{label}</div>
-      <div onClick={onOpenP} style={{padding:"9px 14px",textAlign:"right",fontSize:13,color:dimP?T.textTert:T.blue,fontWeight:500,cursor:"pointer"}}>{fmtD(pVal)} ›</div>
-      {showActual&&<div style={{padding:aIsPopup?"9px 14px":"6px 14px",textAlign:"right"}}>
+    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`}}>
+      <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:13,color:T.text}}>{label}</div>
+      <div onClick={onOpenP} style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:13,color:dimP?T.textTert:T.blue,fontWeight:500,cursor:"pointer"}}>{fmtD(pVal)} ›</div>
+      {showActual&&<div style={{padding:aIsPopup?(isMobile?"9px 8px":"9px 14px"):(isMobile?"6px 8px":"6px 14px"),textAlign:"right"}}>
         {aIsPopup
           ? <span onClick={onOpenA} style={{fontSize:13,fontWeight:500,color:T.green,cursor:"pointer"}}>{aVal>0?fmtD(aVal)+" ›":"tap to enter ›"}</span>
           : editingA
@@ -1021,12 +1030,13 @@ function PopupGridRow({label,pVal,onOpenP,aVal,aEdit,onOpenA,showActual,aIsPopup
   );
 }
 function TotalGridRow({label,pVal,aVal,showActual,color,dimP}){
+  const isMobile=useIsMobile();
   const c=color||T.gold;
   return(
-    <div style={{display:"grid",gridTemplateColumns:showActual?"1fr 160px 160px":"1fr 160px",borderTop:`2px solid ${c}`,background:c+"14"}}>
-      <div style={{padding:"11px 18px",fontSize:14,fontWeight:700,color:dimP?T.textTert:c}}>{label}</div>
-      <div style={{padding:"11px 14px",fontSize:14,fontWeight:700,color:dimP?T.textTert:c,textAlign:"right"}}>{fmtD(pVal)}</div>
-      {showActual&&<div style={{padding:"11px 14px",fontSize:14,fontWeight:700,color:aVal!==null?c:T.textTert,textAlign:"right"}}>{aVal!==null?fmtD(aVal):"—"}</div>}
+    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`2px solid ${c}`,background:c+"14"}}>
+      <div style={{padding:isMobile?"11px 12px":"11px 18px",fontSize:14,fontWeight:700,color:dimP?T.textTert:c}}>{label}</div>
+      <div style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:14,fontWeight:700,color:dimP?T.textTert:c,textAlign:"right"}}>{fmtD(pVal)}</div>
+      {showActual&&<div style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:14,fontWeight:700,color:aVal!==null?c:T.textTert,textAlign:"right"}}>{aVal!==null?fmtD(aVal):"—"}</div>}
     </div>
   );
 }
@@ -1156,6 +1166,7 @@ function QuickBooksBar(){
 }
 
 function FinOverview({property,onUpdate}){
+  const isMobile=useIsMobile();
   const f=property.financials;
   const up=(k,v)=>onUpdate(property.id,"financials",{...f,[k]:v});
   const upMany=(ch)=>onUpdate(property.id,"financials",{...f,...ch});
@@ -1290,10 +1301,10 @@ function FinOverview({property,onUpdate}){
         <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
 
           {/* Column headers */}
-          <div style={{display:"grid",gridTemplateColumns:showActual?"1fr 160px 160px":"1fr 160px",borderBottom:`1px solid ${T.border}`,background:"#FAFAFA"}}>
-            <div style={{padding:"12px 18px",fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.06em"}}>Line Item</div>
-            <div style={{padding:"12px 14px",fontSize:11,fontWeight:700,color:T.blue,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Projected</div>
-            {showActual&&<div style={{padding:"12px 14px",fontSize:11,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Actual</div>}
+          <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderBottom:`1px solid ${T.border}`,background:"#FAFAFA"}}>
+            <div style={{padding:isMobile?"12px 12px":"12px 18px",fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.06em"}}>Line Item</div>
+            <div style={{padding:isMobile?"12px 8px":"12px 14px",fontSize:11,fontWeight:700,color:T.blue,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Projected</div>
+            {showActual&&<div style={{padding:isMobile?"12px 8px":"12px 14px",fontSize:11,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Actual</div>}
           </div>
 
           {/* ── Transaction Dates (only matters for actual, but shown when actual is on) ── */}
@@ -1302,10 +1313,10 @@ function FinOverview({property,onUpdate}){
             <DateGridRow label="Purchase Date" value={f.purchaseDate} onChange={v=>up("purchaseDate",v)} showActual={showActual}/>
             <DateGridRow label="Sell Date" value={f.sellingDate} onChange={v=>up("sellingDate",v)} showActual={showActual}/>
             {f.purchaseDate&&f.sellingDate&&(
-              <div style={{display:"grid",gridTemplateColumns:"1fr 160px 160px",borderTop:`1px solid ${T.border}`,background:T.goldLight}}>
-                <div style={{padding:"9px 18px",fontSize:13,fontWeight:600,color:T.gold}}>Hold Period</div>
-                <div style={{padding:"9px 14px",fontSize:13,fontWeight:600,color:T.gold,textAlign:"right"}}>{holdPeriodMonths} mo</div>
-                <div style={{padding:"9px 14px",fontSize:13,fontWeight:700,color:T.gold,textAlign:"right"}}>{actualHoldMonths} mo</div>
+              <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`,background:T.goldLight}}>
+                <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:13,fontWeight:600,color:T.gold}}>Hold Period</div>
+                <div style={{padding:isMobile?"9px 8px":"9px 14px",fontSize:13,fontWeight:600,color:T.gold,textAlign:"right"}}>{holdPeriodMonths} mo</div>
+                <div style={{padding:isMobile?"9px 8px":"9px 14px",fontSize:13,fontWeight:700,color:T.gold,textAlign:"right"}}>{actualHoldMonths} mo</div>
               </div>
             )}
           </>)}
@@ -1326,15 +1337,15 @@ function FinOverview({property,onUpdate}){
           <RowHdr label="Financing" color={T.blue} showActual={showActual}/>
           <EditGridRow label="Hold Period" pVal={f.holdPeriod||"0"} pEdit={v=>up("holdPeriod",v.replace(/[^\d.]/g,""))}
             aVal={null} showActual={showActual} readOnlyActual suffix="months" dimP={f.useActualProfit}/>
-          <div style={{display:"grid",gridTemplateColumns:showActual?"1fr 160px 160px":"1fr 160px",borderTop:`1px solid ${T.border}`}}>
-            <div onClick={()=>setShowFinancingP(true)} style={{padding:"11px 18px",fontSize:14,color:f.useActualProfit?T.textTert:T.text,cursor:"pointer"}}
+          <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`}}>
+            <div onClick={()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 12px":"11px 18px",fontSize:14,color:f.useActualProfit?T.textTert:T.text,cursor:"pointer"}}
               onMouseEnter={e=>e.currentTarget.parentElement.style.background="#FAFAFA"} onMouseLeave={e=>e.currentTarget.parentElement.style.background="transparent"}>
               Financing Details
             </div>
-            <div onClick={()=>setShowFinancingP(true)} style={{padding:"11px 14px",fontSize:13,color:f.useActualProfit?T.textTert:T.blue,fontWeight:500,textAlign:"right",cursor:"pointer"}}>
+            <div onClick={()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:13,color:f.useActualProfit?T.textTert:T.blue,fontWeight:500,textAlign:"right",cursor:"pointer"}}>
               HM {fmtD(liveHmTotal)} · Gap {fmtD(equityRequired)} ›
             </div>
-            {showActual&&<div onClick={()=>setShowActualFinancing(true)} style={{padding:"11px 14px",fontSize:13,color:T.green,fontWeight:500,textAlign:"right",cursor:"pointer"}}>
+            {showActual&&<div onClick={()=>setShowActualFinancing(true)} style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:13,color:T.green,fontWeight:500,textAlign:"right",cursor:"pointer"}}>
               {f.acHmLoanAmt||f.acGapLoanAmt?`HM ${fmtD(acHmLoanAmt)} · Gap ${fmtD(acGapLoanAmt)} ›`:"Tap to enter ›"}
             </div>}
           </div>
@@ -1351,10 +1362,10 @@ function FinOverview({property,onUpdate}){
             aVal={acSelling} onOpenA={()=>setShowActualSelling(true)} showActual={showActual} aIsPopup dimP={f.useActualProfit}/>
 
           {/* ── Net Profit ── */}
-          <div style={{display:"grid",gridTemplateColumns:showActual?"1fr 160px 160px":"1fr 160px",borderTop:`2px solid ${netProfit>=0?T.green:T.red}`,background:netProfit>=0?"#EDFBF1":"#FFF0EF"}}>
-            <div style={{padding:"15px 18px",fontSize:15,fontWeight:700,color:f.useActualProfit?T.textTert:(netProfit>=0?T.green:T.red)}}>Net Profit</div>
-            <div style={{padding:"15px 14px",fontSize:17,fontWeight:800,color:f.useActualProfit?T.textTert:(netProfit>=0?T.green:T.red),textAlign:"right"}}>{fmtD(netProfit)}</div>
-            {showActual&&<div style={{padding:"15px 14px",fontSize:17,fontWeight:800,color:acSalePrice>0?(acNet>=0?T.green:T.red):T.textTert,textAlign:"right"}}>{acSalePrice>0?fmtD(acNet):"—"}</div>}
+          <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`2px solid ${netProfit>=0?T.green:T.red}`,background:netProfit>=0?"#EDFBF1":"#FFF0EF"}}>
+            <div style={{padding:isMobile?"15px 12px":"15px 18px",fontSize:15,fontWeight:700,color:f.useActualProfit?T.textTert:(netProfit>=0?T.green:T.red)}}>Net Profit</div>
+            <div style={{padding:isMobile?"15px 8px":"15px 14px",fontSize:isMobile?15:17,fontWeight:800,color:f.useActualProfit?T.textTert:(netProfit>=0?T.green:T.red),textAlign:"right"}}>{fmtD(netProfit)}</div>
+            {showActual&&<div style={{padding:isMobile?"15px 8px":"15px 14px",fontSize:isMobile?15:17,fontWeight:800,color:acSalePrice>0?(acNet>=0?T.green:T.red):T.textTert,textAlign:"right"}}>{acSalePrice>0?fmtD(acNet):"—"}</div>}
           </div>
 
         </div>
@@ -1422,6 +1433,7 @@ const QB_IMPORT_KEYS=["income","purchase","buying","rehab","holding","interest",
 const qbImportSel=(property)=>{const saved=property.qbImportFields||{};return QB_IMPORT_KEYS.reduce((m,k)=>{m[k]=saved[k]!==false;return m;},{});};
 
 function QuickBooksTab({property,onUpdate}){
+  const isMobile=useIsMobile();
   const[status,setStatus]=useState(null);
   const[projects,setProjects]=useState(null);
   const[sel,setSel]=useState(property.qbProjectId||"");
@@ -1610,12 +1622,12 @@ function QuickBooksTab({property,onUpdate}){
             ↓ Import {selCount===QB_IMPORT_KEYS.length?"all lines":`${selCount} selected line${selCount!==1?"s":""}`} into Actual columns
           </button>
 
-          {/* Summary */}
-          <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+          {/* Summary — fixed 3-column grid so amounts never wrap onto each other */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?6:10,marginBottom:16}}>
             {[["Income",pnl.income,T.green],["Expenses",(pnl.expenses||0)+(pnl.cogs||0),T.red],["Net",pnl.netIncome,pnl.netIncome>=0?T.green:T.red]].map(([l,v,c])=>(
-              <div key={l} style={{flex:1,minWidth:100,background:T.bg,borderRadius:T.radiusSm,padding:"12px 14px"}}>
+              <div key={l} style={{minWidth:0,background:T.bg,borderRadius:T.radiusSm,padding:isMobile?"10px 10px":"12px 14px"}}>
                 <div style={{fontSize:11,color:T.textSub,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>{l}</div>
-                <div style={{fontSize:18,fontWeight:800,color:c,marginTop:2}}>{money(v)}</div>
+                <div style={{fontSize:isMobile?14:18,fontWeight:800,color:c,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{money(v)}</div>
               </div>
             ))}
           </div>

@@ -232,12 +232,12 @@ const ICONS={
   sort:<Ico lines={[[3,6,21,6],[3,12,15,12],[3,18,9,18]]}/>,
 };
 const NAV=[
-  {key:"tasks",label:"Tasks",icon:ICONS.tasks},
-  {key:"portfolio",label:"Portfolio Overview",icon:ICONS.portfolio},
-  {key:"leads",label:"New Leads",icon:ICONS.leads},
-  {key:"properties",label:"Properties",icon:ICONS.properties},
-  {key:"calendar",label:"Calendar",icon:ICONS.calendar},
-  {key:"contacts",label:"Contacts",icon:ICONS.contacts},
+  {key:"tasks",label:"Tasks",short:"Tasks",icon:ICONS.tasks},
+  {key:"portfolio",label:"Portfolio Overview",short:"Portfolio",icon:ICONS.portfolio},
+  {key:"leads",label:"New Leads",short:"Leads",icon:ICONS.leads},
+  {key:"properties",label:"Properties",short:"Properties",icon:ICONS.properties},
+  {key:"calendar",label:"Calendar",short:"Calendar",icon:ICONS.calendar},
+  {key:"contacts",label:"Contacts",short:"Contacts",icon:ICONS.contacts},
 ];
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
@@ -2043,6 +2043,7 @@ const ACTIVE_STATUSES=["Under Contract","Purchased","Under Construction","On Mar
 const STATUS_COLORS=Object.fromEntries(Object.entries(SC).map(([k,v])=>[k,{bg:v.bg,badge:v.color}]));
 
 function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
+  const isMobile=useIsMobile();
   const props=sharedProps.filter(p=>ACTIVE_STATUSES.includes(p.status));
 
   // Calculate net profit per property using same formula as FinOverview
@@ -2134,10 +2135,10 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
   const tdS={padding:"12px 14px",fontSize:13,color:T.text,borderBottom:`1px solid ${T.border}`};
 
   return(
-    <div style={{flex:1,overflowY:"auto",padding:"28px 32px",background:T.bg,position:"relative"}}>
+    <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"28px 32px",background:T.bg,position:"relative"}}>
 
       {/* Profit Analysis card */}
-      <div style={{background:T.card,borderRadius:16,boxShadow:T.shadow,padding:"28px 32px",marginBottom:24}}>
+      <div style={{background:T.card,borderRadius:16,boxShadow:T.shadow,padding:isMobile?"18px 16px":"28px 32px",marginBottom:isMobile?16:24}}>
         <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Consolidated Yield</div>
         <div style={{fontSize:26,fontWeight:700,color:T.text,marginBottom:24}}>Profit Analysis</div>
         <div style={{display:"flex",alignItems:"flex-start",gap:20,flexWrap:"wrap"}}>
@@ -2240,6 +2241,38 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
           );
         })()}
 
+        {isMobile ? (
+          <div>
+            <div style={{display:"flex",gap:14,padding:"8px 16px 6px",fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+              <span style={{color:T.gold}}>● Equity needed</span>
+              <span style={{color:T.green}}>● Est. profit</span>
+            </div>
+            {sorted.map(p=>{
+              const profit=pfCalcProfit(p);
+              const equity=calcEquity(p);
+              const addr=`${p.address}${p.city?`, ${p.city}`:""}${p.zip?` ${p.zip}`:""}`;
+              const funded=isFunded(p);
+              const autoFunded=p.status!=="Under Contract";
+              return(
+                <div key={p.id} style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`}}>
+                  <div onClick={()=>onNavigate&&onNavigate(p.id)} style={{fontSize:14,fontWeight:600,color:T.blue,marginBottom:9,cursor:"pointer"}}>{addr}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                    <StatusPicker value={p.status} size="sm" onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}/>
+                    <span style={{fontSize:14,fontWeight:700,color:equity>0?T.gold:T.textTert}}>{equity>0?fmtD(equity):"—"}</span>
+                    <span style={{fontSize:14,fontWeight:800,color:profit>0?T.green:profit<0?T.red:T.textTert}}>{profit!==0?fmtD(profit):"—"}</span>
+                    {p.financials.useActualProfit&&<span style={{fontSize:9,fontWeight:700,background:T.green,color:"#fff",borderRadius:10,padding:"2px 8px",textTransform:"uppercase"}}>actual</span>}
+                    <label style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto",fontSize:12,fontWeight:600,color:funded?T.gold:T.textSub,cursor:autoFunded?"default":"pointer"}}>
+                      <input type="checkbox" checked={funded} disabled={autoFunded}
+                        onChange={e=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,hasFunder:e.target.checked}:x))}
+                        style={{width:20,height:20,accentColor:T.gold,cursor:autoFunded?"default":"pointer",opacity:autoFunded?0.6:1}}/>
+                      Funded
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse"}}>
             <thead>
@@ -2282,6 +2315,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
             </tbody>
           </table>
         </div>
+        )}
       </div>
 
     </div>
@@ -2731,11 +2765,11 @@ export function GoldstoneShell(){
         </div>
       </main>
       {isMobile&&(
-        <nav className="gs-tabbar gs-scroll-x" style={{display:"flex",background:T.card,borderTop:`1px solid ${T.border}`,flexShrink:0,paddingTop:4}}>
-          {navItems.map(({key,label,icon})=>{const isActive=active===key;return(
-            <button key={key} onClick={()=>setActive(key)} style={{flex:1,minWidth:64,minHeight:52,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,border:"none",background:"transparent",color:isActive?T.gold:T.textTert,cursor:"pointer",fontFamily:"inherit",padding:"4px 6px"}}>
+        <nav className="gs-tabbar" style={{display:"flex",background:T.card,borderTop:`1px solid ${T.border}`,flexShrink:0,paddingTop:4}}>
+          {navItems.map(({key,label,short,icon})=>{const isActive=active===key;return(
+            <button key={key} onClick={()=>setActive(key)} style={{flex:1,minWidth:0,minHeight:52,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,border:"none",background:"transparent",color:isActive?T.gold:T.textTert,cursor:"pointer",fontFamily:"inherit",padding:"4px 2px",overflow:"hidden"}}>
               <span style={{color:isActive?T.gold:T.textTert}}>{icon}</span>
-              <span style={{fontSize:10,fontWeight:isActive?700:500,whiteSpace:"nowrap"}}>{label}</span>
+              <span style={{fontSize:10,fontWeight:isActive?700:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{short||label}</span>
             </button>);})}
         </nav>
       )}

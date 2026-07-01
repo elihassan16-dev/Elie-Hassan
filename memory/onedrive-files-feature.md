@@ -5,7 +5,13 @@ metadata:
   type: project
 ---
 
-Next feature to build (paused 2026-06-30, resuming ~2026-07-01): a **Files tab on every property**, next to Contacts, with **full in-app OneDrive/SharePoint browsing** (the user explicitly chose this over simple folder links).
+STATUS: BUILT & DEPLOYED 2026-07-01 (bundle live on Vercel). BLOCKED on **Microsoft admin consent** — the tenant "Goldstone Properties NJ" has user-consent disabled, and the user is NOT a Global Admin; their **IT company** manages the tenant. User texted IT (2026-07-01) to grant admin consent for app client `8b1ca3b1-7c66-4a1e-958a-c44df9e4cdff` (perms User.Read + Files.ReadWrite.All). Admin-consent link sent to IT: https://login.microsoftonline.com/377dbf92-fa58-4e25-bd42-f96116751c69/adminconsent?client_id=8b1ca3b1-7c66-4a1e-958a-c44df9e4cdff . Note: user initially added Files.Read.All (read-only) by mistake — must be Files.ReadWrite.All for uploads; confirm this is set before/after IT consents. Once consent lands: user hard-refreshes → property → Files → Connect Microsoft should work; then end-to-end test (browse/open/upload).
+
+NEXT FEATURE REQUESTED (not yet built): **auto-match folders by address** — instead of pasting a share link per property, the user connects ONE parent folder once and each property auto-finds its subfolder by matching the property address to the folder name. Needs the user's OneDrive/SharePoint folder layout (parent folder + naming convention) — screenshot still pending. Plan: store the parent folder's driveId/itemId globally (needs a small Supabase settings table or similar), list its children, fuzzy-match folder name to property.address, cache the matched folder on the property, manual override if wrong. Also clarified to user that it's already inherently 2-way (app reads/writes the real OneDrive folder directly, no copies) — no separate sync needed.
+
+Awaiting the user's real-world end-to-end test (MS sign-in → paste a folder share link on a property → browse/open/upload). Azure app: client `8b1ca3b1-7c66-4a1e-958a-c44df9e4cdff`, tenant `377dbf92-fa58-4e25-bd42-f96116751c69`, baked into `src/onedrive/msal.js` (public IDs, not env vars). SPA redirect URI registered = `https://elie-hassan.vercel.app`. Code: `src/onedrive/{msal.js,useOneDrive.js}` + `FilesTab` in GoldstoneApp.jsx (PTABS includes "Files"). Uses MSAL popup + Graph `/shares` + `/drives/{id}/items/{id}/children` + resumable upload. Per-property link stored at `property.filesShareLink`.
+
+A **Files tab on every property**, next to Contacts, with **full in-app OneDrive/SharePoint browsing** (the user explicitly chose this over simple folder links).
 
 **Design agreed:**
 - Microsoft sign-in via MSAL (`@azure/msal-browser`), separate from Supabase auth. Scopes: `User.Read`, `Files.ReadWrite.All`. Single-tenant app (their company tenant).

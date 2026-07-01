@@ -1364,7 +1364,7 @@ function FinOverview({property,onUpdate}){
 }
 
 // ─── Property Detail ──────────────────────────────────────────────────────────
-const PTABS=["Financial Overview","Property Info","Tasks","Contacts","Files","QuickBooks"];
+const PTABS=["Financial Overview","QuickBooks","Property Info","Tasks","Contacts","Files"];
 
 // ─── QuickBooks tab — map a property to its QB project, view P&L, import actuals ─
 // Heuristic bucketing of expense accounts into the app's Actual fields.
@@ -1738,10 +1738,10 @@ function PropDetail({property,onUpdate}){
         <div style={{marginBottom:14}}>
           <StatusPicker value={property.status} onChange={v=>onUpdate(property.id,"status",v)}/>
         </div>
-        <div style={{display:"flex",background:T.bg,borderRadius:10,padding:3,gap:2,width:"fit-content"}}>
+        <div style={{display:"flex",background:T.bg,borderRadius:10,padding:3,gap:2,maxWidth:"100%",overflowX:"auto",WebkitOverflowScrolling:"touch",scrollbarWidth:"none"}}>
           {PTABS.map(t=>(
             <button key={t} onClick={()=>setTab(t)}
-              style={{padding:"7px 16px",borderRadius:8,border:"none",background:tab===t?T.card:"transparent",color:tab===t?T.text:T.textSub,fontWeight:tab===t?600:400,fontSize:13,cursor:"pointer",fontFamily:"inherit",boxShadow:tab===t?"0 1px 3px rgba(0,0,0,0.12)":"none",transition:"all 0.15s"}}>
+              style={{flex:"0 0 auto",whiteSpace:"nowrap",padding:"7px 16px",borderRadius:8,border:"none",background:tab===t?T.card:"transparent",color:tab===t?T.text:T.textSub,fontWeight:tab===t?600:400,fontSize:13,cursor:"pointer",fontFamily:"inherit",boxShadow:tab===t?"0 1px 3px rgba(0,0,0,0.12)":"none",transition:"all 0.15s"}}>
               {t}
             </button>
           ))}

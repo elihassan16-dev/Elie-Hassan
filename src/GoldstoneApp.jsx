@@ -1496,13 +1496,21 @@ function ShowingsTab({property}){
   const past=mine.filter(s=>s.ts<cutoff).sort((a,b)=>b.ts-a.ts);
 
   const Row=(s)=>(
-    <div key={s.uid||s.ts+s.summary} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
-      <div style={{width:7,height:7,borderRadius:4,background:/cancel|declin/i.test(s.status)?T.red:T.green,flexShrink:0}}/>
+    <div key={s.uid||s.ts+s.summary} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
+      <div style={{width:7,height:7,borderRadius:4,background:/cancel|declin/i.test(s.status)?T.red:T.green,flexShrink:0,marginTop:5}}/>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:14,fontWeight:600,color:T.text}}>{fmtShowingTime(s.start)}</div>
-        <div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>
+        {(s.agent||s.phone)&&(
+          <div style={{fontSize:13,color:T.text,marginTop:2}}>
+            {s.agent&&<span style={{fontWeight:500}}>{s.agent}</span>}
+            {s.broker&&<span style={{color:T.textSub}}> · {s.broker}</span>}
+          </div>
+        )}
+        {s.phone&&<a href={`tel:${s.phone.replace(/[^\d+]/g,"")}`} style={{fontSize:13,color:T.blue,textDecoration:"none"}}>{s.phone}</a>}
+        {s.email&&<div><a href={`mailto:${s.email}`} style={{fontSize:12,color:T.textSub,textDecoration:"none"}}>{s.email}</a></div>}
+        {!s.agent&&!s.phone&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>}
       </div>
-      {s.status&&<span style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",flexShrink:0}}>{s.status}</span>}
+      {s.status&&<span style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",flexShrink:0,marginTop:3}}>{s.status}</span>}
     </div>
   );
 

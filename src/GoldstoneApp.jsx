@@ -1433,7 +1433,94 @@ function FinOverview({property,onUpdate}){
 }
 
 // ─── Property Detail ──────────────────────────────────────────────────────────
-const PTABS=["Financial Overview","QuickBooks","Property Info","Tasks","Contacts","Files"];
+const PTABS=["Financial Overview","QuickBooks","Property Info","Tasks","Contacts","Files","Showings"];
+
+// ─── Showings tab — pull ShowingTime calendar feed, match to this property ─────
+function showingMatchesProperty(text,p){
+  const a=`${p.address||""} ${p.city||""}`;
+  const hn=qbHouseNum(a),thn=qbHouseNum(text||"");
+  if(!hn||!thn||hn!==thn)return false;
+  const words=new Set(qbStreetWords(a));
+  return qbStreetWords(text||"").some(w=>words.has(w));
+}
+function fmtShowingTime(s){
+  if(!s)return "";
+  const d=new Date(s);
+  if(isNaN(d.getTime()))return s;
+  return d.toLocaleString(undefined,{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+}
+function ShowingsTab({property}){
+  const { isAdmin }=useAuth();
+  const[status,setStatus]=useState(null);
+  const[showings,setShowings]=useState(null);
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState("");
+  const[urlInput,setUrlInput]=useState("");
+  const[saving,setSaving]=useState(false);
+
+  useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
+  const load=useCallback(()=>{setLoading(true);setError("");qbAuthFetch("/api/showings").then(d=>setShowings(d.showings||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
+  useEffect(()=>{if(status&&status.configured)load();},[status,load]);
+
+  const save=async()=>{
+    if(!urlInput.trim())return;setSaving(true);setError("");
+    try{await qbAuthFetch("/api/showings/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({icsUrl:urlInput.trim()})});setStatus({configured:true});}
+    catch(e){setError(e.message);}
+    setSaving(false);
+  };
+
+  const wrap={padding:24,maxWidth:680,margin:"0 auto"};
+  const btn={padding:"9px 16px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"};
+
+  if(!status) return <div style={{...wrap,color:T.textSub,fontSize:14}}>Loading…</div>;
+
+  if(!status.configured) return(
+    <div style={wrap}>
+      <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>Connect ShowingTime</div>
+      <div style={{fontSize:13,color:T.textSub,marginBottom:14,lineHeight:1.5}}>Paste your ShowingTime <strong>Calendar Sync Link</strong> (in ShowingTime: Profile → Calendar Sync → Sync Now). This connects showings for <em>all</em> your properties — you only do it once.</div>
+      {!isAdmin
+        ?<div style={{fontSize:13,color:T.textTert}}>Ask an admin to connect ShowingTime.</div>
+        :(<>
+          <input value={urlInput} onChange={e=>setUrlInput(e.target.value)} placeholder="webcal://showingti.me/cal/…"
+            style={{width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit",marginBottom:12}}/>
+          <button onClick={save} disabled={saving} style={btn}>{saving?"Connecting…":"Connect"}</button>
+        </>)}
+      {error&&<div style={{marginTop:12,color:T.red,fontSize:13}}>{error}</div>}
+    </div>
+  );
+
+  const all=showings||[];
+  const mine=all.filter(s=>showingMatchesProperty(s.location||s.summary||"",property)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
+  const cutoff=Date.now()-3600000;
+  const upcoming=mine.filter(s=>s.ts>=cutoff).sort((a,b)=>a.ts-b.ts);
+  const past=mine.filter(s=>s.ts<cutoff).sort((a,b)=>b.ts-a.ts);
+
+  const Row=(s)=>(
+    <div key={s.uid||s.ts+s.summary} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
+      <div style={{width:7,height:7,borderRadius:4,background:/cancel|declin/i.test(s.status)?T.red:T.green,flexShrink:0}}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:14,fontWeight:600,color:T.text}}>{fmtShowingTime(s.start)}</div>
+        <div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>
+      </div>
+      {s.status&&<span style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",flexShrink:0}}>{s.status}</span>}
+    </div>
+  );
+
+  return(
+    <div style={wrap}>
+      <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:13,color:T.textSub}}>{mine.length} showing{mine.length!==1?"s":""} for this property</div>
+        <button onClick={load} style={{marginLeft:"auto",padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻ Refresh</button>
+      </div>
+      {loading&&<div style={{color:T.textSub,fontSize:14,padding:12}}>Loading showings…</div>}
+      {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
+      {!loading&&mine.length===0&&<Card><div style={{padding:"24px 16px",textAlign:"center",color:T.textTert,fontSize:14}}>No showings matched this property's address yet.<div style={{fontSize:12,marginTop:6}}>Showings are matched by street address from ShowingTime.</div></div></Card>}
+      {upcoming.length>0&&<Card style={{marginBottom:12}}><GHeader label="Upcoming"/>{upcoming.map(Row)}</Card>}
+      {past.length>0&&<Card><GHeader label="Past"/>{past.slice(0,40).map(Row)}</Card>}
+      {mine.length>0&&<div style={{marginTop:12,fontSize:12,color:T.textTert,textAlign:"center"}}>Live from ShowingTime · matched by address</div>}
+    </div>
+  );
+}
 
 // ─── QuickBooks tab — map a property to its QB project, view P&L, import actuals ─
 // Heuristic bucketing of expense accounts into the app's Actual fields.
@@ -2157,6 +2244,7 @@ function PropDetail({property,onUpdate,onArchive}){
         )}
         {tab==="Files"&&<FilesTab property={property} onUpdate={onUpdate}/>}
         {tab==="QuickBooks"&&<QuickBooksTab property={property} onUpdate={onUpdate}/>}
+        {tab==="Showings"&&<ShowingsTab property={property}/>}
       </div>
     </div>
   );

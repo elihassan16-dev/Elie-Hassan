@@ -1442,8 +1442,10 @@ function qbBucket(name){
   const has=(...k)=>k.some(x=>s.includes(x));
   if(has("purchase","acquisition","property cost"))return "purchase";
   if(has("rehab","construction","renov","repair","improvement","contractor","material","labor","demo"))return "rehab";
+  // Debt service / financing — kept in its OWN bucket (never lumped into buying) and
+  // never imported, because the app computes debt service from its own formula.
+  if(has("debt","interest","financ","loan","principal","amortiz","points","origination","lender","mortgage","note payment","p&i"))return "debt";
   if(has("holding","carry","utilit","property tax","insurance"))return "holding";
-  if(has("interest","loan","financ","points","origination","lender","mortgage"))return "interest";
   if(has("commission","realtor","selling","staging","marketing","disposition","broker"))return "selling";
   if(has("buying","closing","title","escrow","recording","transfer tax","attorney","legal","inspection","appraisal","survey"))return "buying";
   return "buying"; // default other expenses into buying/misc
@@ -1487,7 +1489,7 @@ function QbSupport(){
 // Which breakdown lines get written into the Actual columns on Import / Auto-sync.
 // A line is included unless the user has explicitly unchecked it, so existing
 // properties (no saved selection) keep the old "import everything" behaviour.
-const QB_IMPORT_KEYS=["income","purchase","buying","rehab","holding","interest","selling"];
+const QB_IMPORT_KEYS=["income","purchase","buying","rehab","holding","selling"];
 const qbImportSel=(property)=>{const saved=property.qbImportFields||{};return QB_IMPORT_KEYS.reduce((m,k)=>{m[k]=saved[k]!==false;return m;},{});};
 
 function QuickBooksTab({property,onUpdate}){
@@ -1550,7 +1552,7 @@ function QuickBooksTab({property,onUpdate}){
 
   const applyImport=useCallback((data,{auto}={})=>{
     if(!data)return;
-    const f=property.financials||{};const b={purchase:0,rehab:0,buying:0,holding:0,interest:0,selling:0};
+    const f=property.financials||{};const b={purchase:0,rehab:0,buying:0,holding:0,debt:0,selling:0};
     (data.rows||[]).forEach(r=>{if(r.section==="Income")return;b[qbBucket(r.name)]+=r.amount;});
     const sel=qbImportSel(property);                 // only write the checked lines
     const ch={};
@@ -1560,7 +1562,7 @@ function QuickBooksTab({property,onUpdate}){
     if(sel.buying)  ch.actualBuyingCosts=String(Math.round(b.buying));
     if(sel.holding){ch.actualHoldingCosts=String(Math.round(b.holding));ch.actualHoldingCostItems=[];}
     if(sel.selling) ch.actualSellingCosts=String(Math.round(b.selling));
-    if(sel.interest){ch.hmInterest=String(Math.round(b.interest));ch.locInterest="0";}
+    // Debt service / interest is intentionally NOT imported — the app has its own formula.
     if(Object.keys(ch).length===0){if(!auto)setFlash("Check at least one line to import.");return;}
     ch.useActualProfit=true;
     onUpdate(property.id,"financials",{...f,...ch});
@@ -1579,7 +1581,7 @@ function QuickBooksTab({property,onUpdate}){
 
   // Cost-bucket totals from the P&L (already-correct signed amounts).
   const bucketTotals=useMemo(()=>{
-    const b={purchase:0,buying:0,rehab:0,holding:0,interest:0,selling:0};
+    const b={purchase:0,buying:0,rehab:0,holding:0,debt:0,selling:0};
     (pnl?.rows||[]).forEach(r=>{if(r.section==="Income")return;b[qbBucket(r.name)]+=r.amount;});
     return b;
   },[pnl]);
@@ -1587,7 +1589,7 @@ function QuickBooksTab({property,onUpdate}){
   const incomeAccts=useMemo(()=>new Set((pnl?.rows||[]).filter(r=>r.section==="Income").map(r=>(r.name||"").toLowerCase())),[pnl]);
   // Group each transaction into its bucket for the drill-down lists.
   const txByBucket=useMemo(()=>{
-    const m={income:[],purchase:[],buying:[],rehab:[],holding:[],interest:[],selling:[]};
+    const m={income:[],purchase:[],buying:[],rehab:[],holding:[],debt:[],selling:[]};
     (txns||[]).forEach(t=>{
       const k=incomeAccts.has((t.account||"").toLowerCase())?"income":qbBucket(t.account);
       (m[k]||m.buying).push(t);
@@ -1608,7 +1610,7 @@ function QuickBooksTab({property,onUpdate}){
     {key:"buying",label:"Buying Costs",total:bucketTotals.buying},
     {key:"rehab",label:"Rehab Costs",total:bucketTotals.rehab},
     {key:"holding",label:"Holding Costs",total:bucketTotals.holding},
-    {key:"interest",label:"Interest / Financing",total:bucketTotals.interest},
+    {key:"debt",label:"Debt Service / Interest",total:bucketTotals.debt,noImport:true},
     {key:"selling",label:"Selling Costs",total:bucketTotals.selling},
   ];
 
@@ -1700,14 +1702,17 @@ function QuickBooksTab({property,onUpdate}){
               return(
                 <div key={row.key} style={{borderTop:`1px solid ${T.border}`}}>
                   <div style={{display:"flex",alignItems:"center"}}>
-                  <input type="checkbox" checked={importSel[row.key]} onChange={()=>toggleImport(row.key)}
-                    title={importSel[row.key]?"This line imports into Actuals — uncheck to keep it manual":"Excluded from Import — check to include it"}
-                    style={{margin:"0 2px 0 14px",width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
-                  <button onClick={()=>setOpenBucket(open?"":row.key)} style={{flex:1,minWidth:0,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"12px 16px 12px 10px",background:open?T.bg:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left",opacity:importSel[row.key]?1:0.45}}>
+                  {row.noImport
+                    ? <span title="Debt service is never imported — the app uses its own debt service formula" style={{margin:"0 2px 0 14px",width:16,flexShrink:0,textAlign:"center",fontSize:12,color:T.textTert}}>—</span>
+                    : <input type="checkbox" checked={importSel[row.key]} onChange={()=>toggleImport(row.key)}
+                        title={importSel[row.key]?"This line imports into Actuals — uncheck to keep it manual":"Excluded from Import — check to include it"}
+                        style={{margin:"0 2px 0 14px",width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>}
+                  <button onClick={()=>setOpenBucket(open?"":row.key)} style={{flex:1,minWidth:0,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"12px 16px 12px 10px",background:open?T.bg:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left",opacity:row.noImport?0.6:(importSel[row.key]?1:0.45)}}>
                     <span style={{fontSize:14,color:T.text,display:"flex",alignItems:"center",gap:8}}>
                       <span style={{color:T.textTert,fontSize:11,display:"inline-block",transform:open?"rotate(90deg)":"none",transition:"transform .15s"}}>▶</span>
                       {row.label}
                       {list.length>0&&<span style={{fontSize:11,color:T.textTert}}>({list.length})</span>}
+                      {row.noImport&&<span style={{fontSize:10,color:T.textTert,fontStyle:"italic"}}>· not imported</span>}
                     </span>
                     <span style={{fontSize:14,fontWeight:700,color:row.key==="income"?T.green:T.text}}>{money(row.total)}</span>
                   </button>

@@ -7,6 +7,7 @@ export default async function handler(req, res) {
     await disconnect();
     res.status(200).json({ ok: true });
   } catch (e) {
+    console.error("[quickbooks] disconnect failed:", e.message);
     res.status(500).json({ error: e.message });
   }
 }

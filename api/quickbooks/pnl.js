@@ -39,6 +39,7 @@ export default async function handler(req, res) {
     walk(rpt.Rows?.Row, null);
     res.status(200).json(out);
   } catch (e) {
+    console.error("[quickbooks] pnl failed:", e.message);
     res.status(500).json({ error: e.message });
   }
 }

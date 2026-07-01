@@ -1379,6 +1379,15 @@ function qbBucket(name){
   if(has("buying","closing","title","escrow","recording","transfer tax","attorney","legal","inspection","appraisal","survey"))return "buying";
   return "buying"; // default other expenses into buying/misc
 }
+// In-app support contact — shown on the QuickBooks tab so users can reach us for help.
+const SUPPORT_EMAIL="elihassan16@gmail.com";
+function QbSupport(){
+  return(
+    <div style={{fontSize:12,color:"#888"}}>
+      Need help with QuickBooks? <a href={`mailto:${SUPPORT_EMAIL}?subject=Goldstone%20QuickBooks%20support`} style={{color:"#b8912e",fontWeight:600}}>Contact support</a>
+    </div>
+  );
+}
 function QuickBooksTab({property,onUpdate}){
   const[status,setStatus]=useState(null);
   const[projects,setProjects]=useState(null);
@@ -1435,6 +1444,7 @@ function QuickBooksTab({property,onUpdate}){
       <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>Connect QuickBooks</div>
       <div style={{fontSize:14,color:T.textSub,marginBottom:16}}>Link your QuickBooks company to see each project's numbers here.</div>
       <button onClick={()=>{window.location.href="/api/quickbooks/connect";}} style={{padding:"11px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Connect QuickBooks</button>
+      <QbSupport/>
     </div>
   );
 
@@ -1459,6 +1469,7 @@ function QuickBooksTab({property,onUpdate}){
       {error&&<div style={{marginBottom:14,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>
         <div style={{marginBottom:8,wordBreak:"break-word"}}>{error}</div>
         <button onClick={()=>{window.location.href="/api/quickbooks/connect";}} style={{padding:"6px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Reconnect QuickBooks</button>
+        <div style={{marginTop:8,fontSize:12}}><QbSupport/></div>
       </div>}
       {flash&&<div style={{marginBottom:14,padding:"10px 12px",background:"#EDFBF1",border:`1px solid ${T.green}`,borderRadius:T.radiusSm,color:T.green,fontSize:13,fontWeight:600}}>{flash}</div>}
 
@@ -1502,6 +1513,7 @@ function QuickBooksTab({property,onUpdate}){
       )}
       {!loading&&sel&&!pnl&&!error&&<div style={{padding:20,color:T.textTert,fontSize:14}}>No data for this project yet.</div>}
       {!sel&&<div style={{padding:20,color:T.textTert,fontSize:14}}>Pick the QuickBooks project for this property to see its numbers.</div>}
+      <div style={{textAlign:"center",marginTop:20}}><QbSupport/></div>
     </div>
   );
 }

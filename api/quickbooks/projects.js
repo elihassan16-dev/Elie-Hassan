@@ -15,6 +15,7 @@ export default async function handler(req, res) {
     }));
     res.status(200).json({ items: rows });
   } catch (e) {
+    console.error("[quickbooks] projects failed:", e.message);
     res.status(500).json({ error: e.message });
   }
 }

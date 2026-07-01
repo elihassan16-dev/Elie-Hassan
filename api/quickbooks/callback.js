@@ -18,6 +18,7 @@ export default async function handler(req, res) {
     res.writeHead(302, { Location: `${back}/?qb=connected` });
     res.end();
   } catch (e) {
+    console.error("[quickbooks] oauth callback failed:", e.message);
     res.writeHead(302, { Location: `${back}/?qb=error&msg=${encodeURIComponent(e.message || "connect failed")}` });
     res.end();
   }

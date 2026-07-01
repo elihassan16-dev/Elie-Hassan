@@ -1643,6 +1643,7 @@ function SortModal({order,onSave,onClose}){
 function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed}){
   const props=sharedProps;
   const setProps=setSharedProps;
+  const isMobile=useIsMobile();
   const[selId,setSelId]=useState(initialSelId||null);
   useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);
   const[search,setSearch]=useState("");
@@ -1668,7 +1669,7 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed})
   const iS={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-      <div style={{width:276,flexShrink:0,display:"flex",flexDirection:"column",borderRight:`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+      <div style={{width:isMobile?"100%":276,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
             <div><div style={{fontWeight:700,fontSize:15,color:T.text}}>Properties</div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{props.length} total</div></div>
@@ -1690,7 +1691,8 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed})
           })}
         </div>
       </div>
-      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
+        {isMobile&&sel&&<button onClick={()=>setSelId(null)} style={{display:"flex",alignItems:"center",gap:4,padding:"11px 14px",background:T.card,border:"none",borderBottom:`1px solid ${T.border}`,color:T.gold,fontWeight:600,fontSize:15,fontFamily:"inherit",cursor:"pointer",flexShrink:0,textAlign:"left",minHeight:44}}>‹ All properties</button>}
         {sel?<PropDetail property={sel} onUpdate={upProp}/>:
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:14}}>
             <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🏠</div>
@@ -1966,8 +1968,9 @@ function LeadDetail({lead,onUpdate}){
 
 function NewLeadsPage(){
   const { sharedProps, setSharedProps, leads, setLeads } = useData();
+  const isMobile=useIsMobile();
   const[selId,setSelId]=useState(null);
-  useEffect(()=>{ if(selId==null && leads.length) setSelId(leads[0].id); },[leads,selId]);
+  useEffect(()=>{ if(!isMobile && selId==null && leads.length) setSelId(leads[0].id); },[leads,selId,isMobile]);
   const[search,setSearch]=useState("");
   const[showAdd,setShowAdd]=useState(false);
   const[converted,setConverted]=useState(null);
@@ -1987,7 +1990,7 @@ function NewLeadsPage(){
   const iS={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-      <div style={{width:276,flexShrink:0,display:"flex",flexDirection:"column",borderRight:`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+      <div style={{width:isMobile?"100%":276,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
             <div><div style={{fontWeight:700,fontSize:15,color:T.text}}>New Leads</div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{leads.length} leads</div></div>
@@ -2000,11 +2003,12 @@ function NewLeadsPage(){
           {sorted.map(item=>{const isActive=item.id===selId;return <div key={item.id} onClick={()=>setSelId(item.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?"#FFF0EF":"transparent",borderLeft:isActive?`3px solid ${T.red}`:"3px solid transparent",transition:"background 0.12s"}}><div style={{fontWeight:isActive?600:400,fontSize:13,color:isActive?T.red:T.text,lineHeight:1.3}}>{item.address||"New Lead"}</div><div style={{fontSize:12,color:T.textSub,marginTop:3}}>{item.city}{item.city&&item.state?", ":""}{item.state}{item.zip?" "+item.zip:""}</div><div style={{marginTop:5,fontSize:11,color:T.textTert}}>{item.dateAdded}</div></div>;})}
         </div>
       </div>
-      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
         {sel?(
           <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-            <div style={{padding:"10px 24px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",flexShrink:0}}>
-              <button onClick={()=>moveToUnderContract(sel)} style={{padding:"7px 18px",borderRadius:T.radiusSm,background:"#F5F0FF",border:"1px solid #7C3AED",color:"#7C3AED",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>→ Move to Under Contract</button>
+            <div style={{padding:isMobile?"8px 12px":"10px 24px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexShrink:0}}>
+              {isMobile?<button onClick={()=>setSelId(null)} style={{padding:"7px 4px",background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",minHeight:44}}>‹ All leads</button>:<span/>}
+              <button onClick={()=>moveToUnderContract(sel)} style={{padding:"7px 18px",borderRadius:T.radiusSm,background:"#F5F0FF",border:"1px solid #7C3AED",color:"#7C3AED",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",minHeight:44}}>→ Move to Under Contract</button>
             </div>
             <LeadDetail lead={sel} onUpdate={upLead}/>
           </div>
@@ -2320,6 +2324,7 @@ function TaskRow({t,onStatusChange,onDelete,onContact}){
 function TasksPage(){
   const { sharedProps, setSharedProps, contacts: CONTACTS, teamMembers: TEAM_MEMBERS, currentUser: CURRENT_USER, automations, setAutomations } = useData();
   const { isAdmin } = useAuth();
+  const isMobile=useIsMobile();
   const[views,setViews]=useState(new Set(["my"]));
   const[filterMember,setFilterMember]=useState("");
   useEffect(()=>{ if(!filterMember && TEAM_MEMBERS.length) setFilterMember(TEAM_MEMBERS[0]); },[TEAM_MEMBERS,filterMember]);
@@ -2461,8 +2466,8 @@ function TasksPage(){
         </div>
       )}
       {/* Header */}
-      <div style={{background:T.card,borderBottom:bdr,padding:"18px 28px",flexShrink:0}}>
-        <div style={{fontSize:22,fontWeight:700,color:T.text,marginBottom:14}}>Tasks</div>
+      <div style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>
+        <div style={{fontSize:isMobile?19:22,fontWeight:700,color:T.text,marginBottom:14}}>Tasks</div>
         {/* Summary pills */}
         <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
           {Object.entries(summaryByStatus).filter(([,v])=>v>0).map(([s,v])=>{
@@ -2485,7 +2490,7 @@ function TasksPage(){
         </div>
       </div>
 
-      <div style={{flex:1,overflowY:"auto",padding:"20px 28px"}}>
+      <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
 
         {showAutomations&&(
           <div style={{maxWidth:720}}>

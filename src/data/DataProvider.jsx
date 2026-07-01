@@ -3,7 +3,7 @@ import { supabase } from "../supabaseClient";
 import { useAuth } from "../auth/AuthProvider";
 import { INIT_PROPS, INIT_LEADS, DEFAULT_CONTACTS } from "../seed";
 
-const DataCtx = createContext(null);
+export const DataCtx = createContext(null);
 export const useData = () => useContext(DataCtx);
 
 // ── Row <-> app-object mapping ────────────────────────────────────────────────

@@ -2255,16 +2255,20 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
               const autoFunded=p.status!=="Under Contract";
               return(
                 <div key={p.id} style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`}}>
-                  <div onClick={()=>onNavigate&&onNavigate(p.id)} style={{fontSize:14,fontWeight:600,color:T.blue,marginBottom:9,cursor:"pointer"}}>{addr}</div>
-                  <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                    <StatusPicker value={p.status} size="sm" onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}/>
-                    <span style={{fontSize:14,fontWeight:700,color:equity>0?T.gold:T.textTert}}>{equity>0?fmtD(equity):"—"}</span>
-                    <span style={{fontSize:14,fontWeight:800,color:profit>0?T.green:profit<0?T.red:T.textTert}}>{profit!==0?fmtD(profit):"—"}</span>
-                    {p.financials.useActualProfit&&<span style={{fontSize:9,fontWeight:700,background:T.green,color:"#fff",borderRadius:10,padding:"2px 8px",textTransform:"uppercase"}}>actual</span>}
-                    <label style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto",fontSize:12,fontWeight:600,color:funded?T.gold:T.textSub,cursor:autoFunded?"default":"pointer"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
+                    <span onClick={()=>onNavigate&&onNavigate(p.id)} style={{fontSize:14,fontWeight:600,color:T.blue,cursor:"pointer",flex:1,minWidth:0}}>{addr}</span>
+                    {p.financials.useActualProfit&&<span style={{fontSize:9,fontWeight:700,background:T.green,color:"#fff",borderRadius:10,padding:"2px 8px",textTransform:"uppercase",flexShrink:0}}>actual</span>}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 62px 62px 70px",alignItems:"center",gap:8}}>
+                    <div style={{minWidth:0,overflow:"hidden",display:"flex"}}>
+                      <StatusPicker value={p.status} size="sm" onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}/>
+                    </div>
+                    <span style={{textAlign:"right",fontSize:13,fontWeight:700,color:equity>0?T.gold:T.textTert,whiteSpace:"nowrap"}}>{equity>0?fmtD(equity):"—"}</span>
+                    <span style={{textAlign:"right",fontSize:13,fontWeight:800,color:profit>0?T.green:profit<0?T.red:T.textTert,whiteSpace:"nowrap"}}>{profit!==0?fmtD(profit):"—"}</span>
+                    <label style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:6,fontSize:12,fontWeight:600,color:funded?T.gold:T.textSub,cursor:autoFunded?"default":"pointer"}}>
                       <input type="checkbox" checked={funded} disabled={autoFunded}
                         onChange={e=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,hasFunder:e.target.checked}:x))}
-                        style={{width:20,height:20,accentColor:T.gold,cursor:autoFunded?"default":"pointer",opacity:autoFunded?0.6:1}}/>
+                        style={{width:20,height:20,accentColor:T.gold,cursor:autoFunded?"default":"pointer",opacity:autoFunded?0.6:1,flexShrink:0}}/>
                       Funded
                     </label>
                   </div>

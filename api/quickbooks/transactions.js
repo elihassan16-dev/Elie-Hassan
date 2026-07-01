@@ -5,12 +5,12 @@ import { qbApi, requireAppUser } from "../../lib/quickbooks.js";
 // Uses the TransactionList report and maps columns by their ColKey metadata so we
 // don't depend on fixed column positions (which vary by company file).
 export default async function handler(req, res) {
+  // Never let the browser cache this — otherwise a stale/empty result sticks (304).
+  res.setHeader("Cache-Control", "no-store, max-age=0");
   const user = await requireAppUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   const customerId = req.query.customerId;
   if (!customerId) { res.status(400).json({ error: "Missing customerId." }); return; }
-  // Never let the browser cache this — otherwise a stale/empty result sticks (304).
-  res.setHeader("Cache-Control", "no-store, max-age=0");
 
   const num = (v) => { const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, "")); return isNaN(x) ? 0 : x; };
   try {

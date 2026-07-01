@@ -2752,30 +2752,54 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
 
 // ─── Task Row (module level to avoid React #31) ───────────────────────────────
 function TaskRow({t,onStatusChange,onDelete,onContact}){
+  const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
-  const sc2=SC[t.propStatus]||{};
+  const dim=t.status==="Completed"||t.status==="N/A";
+  // Address + property status are already shown in the group header above, so the
+  // row omits them and just carries the task itself.
+  const statusSel=(
+    <select value={t.status||"Not Started"} onChange={e=>onStatusChange(t.propId,t.id,e.target.value)}
+      style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0}}>
+      {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+    </select>
+  );
+  const textBlock=(
+    <div style={{flex:1,minWidth:0}}>
+      <div style={{fontSize:13,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",fontWeight:500}}>{t.text||"(untitled task)"}{t.autoId&&<span title="Created by an automation rule" style={{marginLeft:6,fontSize:9,fontWeight:700,background:T.gold,color:"#fff",borderRadius:10,padding:"1px 6px",textTransform:"uppercase"}}>auto</span>}</div>
+    </div>
+  );
+  const assigneeChip=<span style={{fontSize:11,fontWeight:600,color:t.assignee?T.blue:T.textTert,background:t.assignee?"#EBF4FF":T.bg,padding:"3px 9px",borderRadius:20,flexShrink:0,whiteSpace:"nowrap",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis"}}>{t.assignee||"Unassigned"}</span>;
+  const contactBtn=(
+    <button onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name}`:"Add contact"}
+      style={{background:t.taskContact?"#EBF4FF":"none",border:t.taskContact?`1px solid ${T.blue}`:`1px solid ${T.border}`,borderRadius:"50%",width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:13,flexShrink:0,color:t.taskContact?T.blue:T.textTert}}>
+      {t.taskContact?t.taskContact.name[0]:"👤"}
+    </button>
+  );
+  const delBtn=(
+    <button onClick={()=>onDelete(t.propId,t.id)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,padding:"2px 4px",flexShrink:0,borderRadius:6}}
+      onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.textTert}>🗑</button>
+  );
+  if(isMobile) return(
+    <div style={{display:"flex",flexDirection:"column",gap:8,padding:"12px 14px",borderTop:`1px solid ${T.border}`,background:"#fff"}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+        {statusSel}
+        {textBlock}
+        {delBtn}
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",paddingLeft:2}}>
+        {assigneeChip}
+        {contactBtn}
+      </div>
+    </div>
+  );
   return(
     <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 18px",borderTop:`1px solid ${T.border}`,background:"#fff"}}
       onMouseEnter={e=>e.currentTarget.style.background="#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
-      <select value={t.status||"Not Started"} onChange={e=>onStatusChange(t.propId,t.id,e.target.value)}
-        style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0}}>
-        {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-      </select>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:13,color:t.status==="Completed"||t.status==="N/A"?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",fontWeight:500}}>{t.text}{t.autoId&&<span title="Created by an automation rule" style={{marginLeft:6,fontSize:9,fontWeight:700,background:T.gold,color:"#fff",borderRadius:10,padding:"1px 6px",textTransform:"uppercase"}}>auto</span>}</div>
-        <div style={{fontSize:11,color:T.textSub,marginTop:2}}>{t.propAddr}{t.cat?` · ${t.cat}`:""}</div>
-      </div>
-      {t.assignee&&<span style={{fontSize:11,fontWeight:600,color:T.blue,background:"#EBF4FF",padding:"3px 9px",borderRadius:20,flexShrink:0}}>{t.assignee}</span>}
-      <span style={{fontSize:10,fontWeight:700,color:sc2.color,background:sc2.bg,padding:"2px 8px",borderRadius:20,flexShrink:0}}>{t.propStatus}</span>
-      {/* Contact icon — shows filled avatar if contact set */}
-      <button onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name}`:"Add contact"}
-        style={{background:t.taskContact?"#EBF4FF":"none",border:t.taskContact?`1px solid ${T.blue}`:`1px solid ${T.border}`,borderRadius:"50%",width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:13,flexShrink:0,color:t.taskContact?T.blue:T.textTert}}
-        onMouseEnter={e=>{e.currentTarget.style.borderColor=T.blue;e.currentTarget.style.color=T.blue;}}
-        onMouseLeave={e=>{if(!t.taskContact){e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.textTert;}}}>
-        {t.taskContact?t.taskContact.name[0]:"👤"}
-      </button>
-      <button onClick={()=>onDelete(t.propId,t.id)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,padding:"2px 4px",flexShrink:0,borderRadius:6}}
-        onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.textTert}>🗑</button>
+      {statusSel}
+      {textBlock}
+      {assigneeChip}
+      {contactBtn}
+      {delBtn}
     </div>
   );
 }
@@ -3063,9 +3087,9 @@ function TasksPage(){
             {/* Group by property */}
             {Object.entries(filteredDisplay.reduce((acc,t)=>{(acc[t.propAddr]=acc[t.propAddr]||[]).push(t);return acc;},{})).map(([addr,ptasks])=>(
               <div key={addr} style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14}}>
-                <div style={{padding:"11px 18px",background:"#FAFAFA",borderBottom:bdr,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                  <span style={{fontSize:13,fontWeight:700,color:T.text}}>{addr}</span>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{padding:"11px 16px",background:"#FAFAFA",borderBottom:bdr,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+                  <span style={{fontSize:13,fontWeight:700,color:T.text,flex:"1 1 auto",minWidth:0}}>{addr}</span>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,flexWrap:"wrap"}}>
                     <span style={{fontSize:11,color:T.textSub}}>{ptasks.filter(t=>t.status==="Completed").length}/{ptasks.length} done</span>
                     {(()=>{const sc=SC[ptasks[0]?.propStatus]||{};return <span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{ptasks[0]?.propStatus}</span>;})()}
                     {confirmDeleteProp===addr

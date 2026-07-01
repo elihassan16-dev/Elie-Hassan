@@ -4,7 +4,17 @@
 -- Safe to run more than once (idempotent).
 -- ============================================================================
 
--- ── Helper: is the current user an admin? (SECURITY DEFINER avoids RLS recursion)
+-- ── users (profile mirror of auth.users) ────────────────────────────────────
+create table if not exists public.users (
+  id         uuid primary key references auth.users(id) on delete cascade,
+  email      text,
+  name       text,
+  role       text not null default 'member' check (role in ('admin','member')),
+  created_at timestamptz not null default now()
+);
+
+-- Helper: is the current user an admin? (SECURITY DEFINER avoids RLS recursion.)
+-- Defined after public.users so the SQL body validates.
 create or replace function public.is_admin()
 returns boolean
 language sql
@@ -16,15 +26,6 @@ as $$
     select 1 from public.users where id = auth.uid() and role = 'admin'
   );
 $$;
-
--- ── users (profile mirror of auth.users) ────────────────────────────────────
-create table if not exists public.users (
-  id         uuid primary key references auth.users(id) on delete cascade,
-  email      text,
-  name       text,
-  role       text not null default 'member' check (role in ('admin','member')),
-  created_at timestamptz not null default now()
-);
 
 -- When someone signs up, create their profile row. Your email is seeded as admin.
 create or replace function public.handle_new_user()

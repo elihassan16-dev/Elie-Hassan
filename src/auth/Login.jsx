@@ -11,6 +11,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [logoError, setLogoError] = useState(false);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -47,30 +48,41 @@ export default function Login() {
           boxSizing: "border-box",
         }}
       >
-        {/* Brand mark */}
+        {/* Brand mark — company logo, with a G-monogram fallback if the file is missing */}
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <div
-            style={{
-              width: 72,
-              height: 72,
-              margin: "0 auto 16px",
-              borderRadius: 20,
-              background: `linear-gradient(135deg, ${GOLD_MID}, ${GOLD})`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: `0 8px 24px ${GOLD}66`,
-              fontFamily: "Georgia, serif",
-              fontWeight: 700,
-              fontSize: 40,
-              color: GOLD_LIGHT,
-            }}
-          >
-            G
-          </div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#1C1C1E", letterSpacing: "-0.01em" }}>
-            Goldstone Properties
-          </div>
+          {logoError ? (
+            <>
+              <div
+                style={{
+                  width: 72,
+                  height: 72,
+                  margin: "0 auto 16px",
+                  borderRadius: 20,
+                  background: `linear-gradient(135deg, ${GOLD_MID}, ${GOLD})`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: `0 8px 24px ${GOLD}66`,
+                  fontFamily: "Georgia, serif",
+                  fontWeight: 700,
+                  fontSize: 40,
+                  color: GOLD_LIGHT,
+                }}
+              >
+                G
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#1C1C1E", letterSpacing: "-0.01em" }}>
+                Goldstone Properties
+              </div>
+            </>
+          ) : (
+            <img
+              src="/logo.png"
+              alt="Goldstone Properties"
+              onError={() => setLogoError(true)}
+              style={{ width: 220, maxWidth: "78%", height: "auto", margin: "0 auto 6px", display: "block" }}
+            />
+          )}
           <div style={{ fontSize: 14, color: "#8A8A8E", marginTop: 4 }}>Sign in to your portfolio</div>
         </div>
 

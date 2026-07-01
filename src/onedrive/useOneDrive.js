@@ -25,22 +25,17 @@ export function useOneDrive() {
     return () => { alive = false; };
   }, []);
 
+  // Full-page redirect sign-in — avoids popup issues (block_nested_popups) and
+  // works in PWAs / popup-blocking browsers. Returns to the current page after.
   const signIn = useCallback(async () => {
     await ensureMsalReady();
-    const res = await msalInstance.loginPopup({ scopes: GRAPH_SCOPES, prompt: "select_account" });
-    msalInstance.setActiveAccount(res.account);
-    setAccount(res.account);
-    return res.account;
+    await msalInstance.loginRedirect({ scopes: GRAPH_SCOPES, redirectStartPage: window.location.href });
   }, []);
 
+  // Disconnect locally (don't sign the user out of Microsoft entirely).
   const signOut = useCallback(async () => {
     await ensureMsalReady();
-    const acc = msalInstance.getActiveAccount();
-    try {
-      await msalInstance.logoutPopup({ account: acc, mainWindowRedirectUri: window.location.origin });
-    } catch {
-      /* popup closed — clear locally anyway */
-    }
+    msalInstance.setActiveAccount(null);
     setAccount(null);
   }, []);
 
@@ -51,9 +46,9 @@ export function useOneDrive() {
     try {
       const r = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: acc });
       return r.accessToken;
-    } catch {
-      const r = await msalInstance.acquireTokenPopup({ scopes: GRAPH_SCOPES, account: acc });
-      return r.accessToken;
+    } catch (e) {
+      await msalInstance.acquireTokenRedirect({ scopes: GRAPH_SCOPES, account: acc });
+      throw e; // navigates away; nothing after this runs
     }
   }, []);
 

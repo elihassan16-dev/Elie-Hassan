@@ -2,7 +2,18 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";
 import { useOneDrive } from "./onedrive/useOneDrive";
+import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
+
+// Authenticated fetch to our QuickBooks serverless API (sends the Supabase JWT).
+async function qbAuthFetch(path, opts = {}) {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  const res = await fetch(path, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `Request failed (${res.status}).`);
+  return json;
+}
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -1353,7 +1364,142 @@ function FinOverview({property,onUpdate}){
 }
 
 // ─── Property Detail ──────────────────────────────────────────────────────────
-const PTABS=["Financial Overview","Property Info","Tasks","Contacts","Files"];
+const PTABS=["Financial Overview","Property Info","Tasks","Contacts","Files","QuickBooks"];
+
+// ─── QuickBooks tab — map a property to its QB project, view P&L, import actuals ─
+// Heuristic bucketing of expense accounts into the app's Actual fields.
+function qbBucket(name){
+  const s=(name||"").toLowerCase();
+  const has=(...k)=>k.some(x=>s.includes(x));
+  if(has("purchase","acquisition","cost of good","cogs","property cost"))return "purchase";
+  if(has("rehab","construction","renov","repair","improvement","material","labor","contractor","demo"))return "rehab";
+  if(has("interest","loan","financ","points","origination","lender","mortgage"))return "interest";
+  if(has("commission","realtor","selling","staging","marketing","disposition","broker"))return "selling";
+  if(has("closing","title","escrow","recording","transfer tax","attorney","legal","inspection","appraisal","survey"))return "buying";
+  return "buying"; // default other expenses into buying/misc
+}
+function QuickBooksTab({property,onUpdate}){
+  const[status,setStatus]=useState(null);
+  const[projects,setProjects]=useState(null);
+  const[sel,setSel]=useState(property.qbProjectId||"");
+  const[pnl,setPnl]=useState(null);
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState("");
+  const[flash,setFlash]=useState("");
+
+  useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(setStatus).catch(()=>setStatus({configured:false,connected:false}));},[]);
+
+  useEffect(()=>{
+    if(!status?.connected||projects)return;
+    qbAuthFetch("/api/quickbooks/projects").then(d=>{
+      const items=d.items||[];setProjects(items);
+      if(!property.qbProjectId){
+        const key=(property.address||"").toLowerCase().split(",")[0].trim();
+        const m=key&&items.find(p=>p.name.toLowerCase().includes(key));
+        if(m){setSel(m.id);onUpdate(property.id,"qbProjectId",m.id);onUpdate(property.id,"qbProjectName",m.name);}
+      }
+    }).catch(e=>setError(e.message));
+  },[status,projects]);// eslint-disable-line
+
+  const loadPnl=useCallback((id)=>{
+    if(!id)return;setLoading(true);setError("");setPnl(null);
+    qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`).then(setPnl).catch(e=>setError(e.message)).finally(()=>setLoading(false));
+  },[]);
+  useEffect(()=>{if(sel)loadPnl(sel);},[sel,loadPnl]);
+
+  const pick=(id)=>{setSel(id);const p=(projects||[]).find(x=>x.id===id);onUpdate(property.id,"qbProjectId",id);onUpdate(property.id,"qbProjectName",p?.name||"");};
+
+  const doImport=()=>{
+    if(!pnl)return;
+    const f=property.financials;const b={purchase:0,rehab:0,buying:0,interest:0,selling:0};
+    (pnl.rows||[]).forEach(r=>{if(r.section==="Income")return;b[qbBucket(r.name)]+=r.amount;});
+    onUpdate(property.id,"financials",{...f,
+      actualSalePrice:String(Math.round(pnl.income||0)),
+      actualPurchasePrice:String(Math.round(b.purchase)),
+      actualRehabCosts:String(Math.round(b.rehab)),
+      actualBuyingCosts:String(Math.round(b.buying)),
+      actualSellingCosts:String(Math.round(b.selling)),
+      hmInterest:String(Math.round(b.interest)),locInterest:"0",
+      useActualProfit:true,
+    });
+    setFlash("✓ Imported into the Actual columns — check Financial Overview.");
+  };
+
+  const wrap={padding:24,maxWidth:680,margin:"0 auto"};
+  if(!status)return <div style={{...wrap,color:T.textSub,fontSize:14}}>Loading…</div>;
+  if(!status.configured)return <div style={{...wrap,color:T.textSub,fontSize:14}}>QuickBooks isn't set up yet.</div>;
+  if(!status.connected)return(
+    <div style={{...wrap,textAlign:"center"}}>
+      <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>Connect QuickBooks</div>
+      <div style={{fontSize:14,color:T.textSub,marginBottom:16}}>Link your QuickBooks company to see each project's numbers here.</div>
+      <button onClick={()=>{window.location.href="/api/quickbooks/connect";}} style={{padding:"11px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Connect QuickBooks</button>
+    </div>
+  );
+
+  const bySection=(sec)=>(pnl?.rows||[]).filter(r=>r.section===sec&&r.amount!==0);
+  const money=(v)=>fmtD(v);
+
+  return(
+    <div style={wrap}>
+      {/* Project mapping */}
+      <Card style={{marginBottom:16}}>
+        <div style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <div style={{fontSize:13,fontWeight:700,color:T.text}}>QuickBooks Project</div>
+          <select value={sel} onChange={e=>pick(e.target.value)} style={{flex:1,minWidth:180,padding:"8px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:"#fff"}}>
+            <option value="">— Select a project —</option>
+            {(projects||[]).map(p=><option key={p.id} value={p.id}>{p.name}{p.isProject?"":" (customer)"}</option>)}
+          </select>
+          {sel&&<button onClick={()=>loadPnl(sel)} style={{padding:"8px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻</button>}
+        </div>
+        {!projects&&<div style={{padding:"0 16px 14px",fontSize:12,color:T.textTert}}>Loading projects…</div>}
+      </Card>
+
+      {error&&<div style={{marginBottom:14,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
+      {flash&&<div style={{marginBottom:14,padding:"10px 12px",background:"#EDFBF1",border:`1px solid ${T.green}`,borderRadius:T.radiusSm,color:T.green,fontSize:13,fontWeight:600}}>{flash}</div>}
+
+      {loading&&<div style={{padding:20,color:T.textSub,fontSize:14}}>Loading QuickBooks numbers…</div>}
+
+      {!loading&&pnl&&(
+        <>
+          {/* Import button */}
+          <button onClick={doImport} style={{width:"100%",padding:"12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit",marginBottom:16,boxShadow:`0 2px 10px ${T.gold}55`}}>
+            ↓ Import from QuickBooks into Actual columns
+          </button>
+
+          {/* Summary */}
+          <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+            {[["Income",pnl.income,T.green],["Expenses",(pnl.expenses||0)+(pnl.cogs||0),T.red],["Net",pnl.netIncome,pnl.netIncome>=0?T.green:T.red]].map(([l,v,c])=>(
+              <div key={l} style={{flex:1,minWidth:100,background:T.bg,borderRadius:T.radiusSm,padding:"12px 14px"}}>
+                <div style={{fontSize:11,color:T.textSub,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>{l}</div>
+                <div style={{fontSize:18,fontWeight:800,color:c,marginTop:2}}>{money(v)}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Line items by section */}
+          {["Income","COGS","Expenses"].map(secName=>{
+            const rows=bySection(secName);
+            if(rows.length===0)return null;
+            return(
+              <Card key={secName} style={{marginBottom:12}}>
+                <GHeader label={secName==="COGS"?"Cost of Goods Sold":secName}/>
+                {rows.map((r,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
+                    <span style={{fontSize:14,color:T.text}}>{r.name}</span>
+                    <span style={{fontSize:14,fontWeight:600,color:T.text}}>{money(r.amount)}</span>
+                  </div>
+                ))}
+              </Card>
+            );
+          })}
+          <div style={{fontSize:12,color:T.textTert,textAlign:"center",marginTop:8}}>Numbers come live from QuickBooks. Import maps them into the Actual columns — tell me your account names if any land in the wrong bucket.</div>
+        </>
+      )}
+      {!loading&&sel&&!pnl&&!error&&<div style={{padding:20,color:T.textTert,fontSize:14}}>No data for this project yet.</div>}
+      {!sel&&<div style={{padding:20,color:T.textTert,fontSize:14}}>Pick the QuickBooks project for this property to see its numbers.</div>}
+    </div>
+  );
+}
 
 // ─── Files tab — browse a property's OneDrive/SharePoint folder in-app ─────────
 function fmtBytes(b){if(!b&&b!==0)return"";if(b<1024)return b+" B";const k=b/1024;if(k<1024)return Math.round(k)+" KB";const m=k/1024;return (m<10?m.toFixed(1):Math.round(m))+" MB";}
@@ -1746,6 +1892,7 @@ function PropDetail({property,onUpdate}){
           </div>
         )}
         {tab==="Files"&&<FilesTab property={property} onUpdate={onUpdate}/>}
+        {tab==="QuickBooks"&&<QuickBooksTab property={property} onUpdate={onUpdate}/>}
       </div>
     </div>
   );

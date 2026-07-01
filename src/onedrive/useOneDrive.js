@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { msalInstance, ensureMsalReady, GRAPH_SCOPES } from "./msal";
+import { msalInstance, ensureMsalReady, GRAPH_SCOPES, SITE_SCOPES } from "./msal";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
@@ -91,6 +91,41 @@ export function useOneDrive() {
     return { driveId: drive.id, rootId: root.id, name: "My OneDrive", items: j.value || [] };
   }, [graph]);
 
+  // ── SharePoint sites (needs Sites.Read.All) ──────────────────────────────────
+  // Separate token so a missing Sites.Read.All consent never breaks OneDrive login.
+  const graphSites = useCallback(async (path) => {
+    await ensureMsalReady();
+    const acc = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+    if (!acc) throw new Error("Not signed in to Microsoft.");
+    let token;
+    try {
+      token = (await msalInstance.acquireTokenSilent({ scopes: SITE_SCOPES, account: acc })).accessToken;
+    } catch {
+      throw new Error("SharePoint browsing needs the 'Sites.Read.All' permission — ask your admin to add + consent it, then try again.");
+    }
+    const res = await fetch(GRAPH + path, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+    if (!res.ok) {
+      let msg = `${res.status} ${res.statusText}`;
+      try { const j = await res.json(); msg = j.error?.message || msg; } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    return res.json();
+  }, []);
+
+  const searchSites = useCallback(async (q) => {
+    const query = (q || "").trim();
+    const j = await graphSites(`/sites?search=${encodeURIComponent(query || "*")}`);
+    return (j.value || []).map((s) => ({ id: s.id, name: s.displayName || s.name, webUrl: s.webUrl }));
+  }, [graphSites]);
+
+  // Get a site's default document library root + its top-level items.
+  const siteDriveRoot = useCallback(async (siteId) => {
+    const drive = await graphSites(`/sites/${siteId}/drive?$select=id`);
+    const root = await graphSites(`/sites/${siteId}/drive/root?$select=id,name`);
+    const kids = await graphSites(`/sites/${siteId}/drive/root/children?$top=500`);
+    return { driveId: drive.id, rootId: root.id, name: root.name || "Documents", items: kids.value || [] };
+  }, [graphSites]);
+
   // Folders shared with the user (surfaces SharePoint/OneDrive folders they can access).
   const sharedWithMe = useCallback(async () => {
     const j = await graph("/me/drive/sharedWithMe");
@@ -147,6 +182,8 @@ export function useOneDrive() {
     listChildren,
     myDriveRoot,
     sharedWithMe,
+    searchSites,
+    siteDriveRoot,
     uploadFile,
   };
 }

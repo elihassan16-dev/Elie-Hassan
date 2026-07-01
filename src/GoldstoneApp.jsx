@@ -1777,6 +1777,10 @@ function FilesTab({property,onUpdate}){
   const[pLoading,setPLoading]=useState(false);
   const[showPaste,setShowPaste]=useState(false);
   const[linkInput,setLinkInput]=useState("");
+  const[siteMode,setSiteMode]=useState(false);   // SharePoint site search
+  const[siteQ,setSiteQ]=useState("");
+  const[sites,setSites]=useState(null);
+  const[siteBusy,setSiteBusy]=useState(false);
 
   const loadFrom=useCallback(async(driveId,itemId,newStack)=>{
     setLoading(true);setError("");
@@ -1822,6 +1826,8 @@ function FilesTab({property,onUpdate}){
   const pEnter=async(f)=>{const driveId=f.driveId||pTop.driveId;setPLoading(true);setError("");try{const kids=await od.listChildren(driveId,f.id);setPStack([...pStack,{driveId,id:f.id,name:f.name}]);setPItems(kids);}catch(e){setError(e.message);}setPLoading(false);};
   const pGoTo=async(idx)=>{const t=pStack[idx];if(t.virtual){openShared();return;}setPLoading(true);setError("");try{const kids=await od.listChildren(t.driveId,t.id);setPStack(pStack.slice(0,idx+1));setPItems(kids);}catch(e){setError(e.message);}setPLoading(false);};
   const useThisFolder=()=>{if(pTop&&pTop.driveId&&pTop.id){onUpdate(property.id,"filesFolder",{driveId:pTop.driveId,id:pTop.id,name:pTop.name});onUpdate(property.id,"filesShareLink","");}};
+  const doSiteSearch=async()=>{setSiteBusy(true);setError("");try{setSites(await od.searchSites(siteQ));}catch(e){setError(e.message);setSites([]);}setSiteBusy(false);};
+  const pickSite=async(s)=>{setPLoading(true);setError("");try{const r=await od.siteDriveRoot(s.id);setPStack([{driveId:r.driveId,id:r.rootId,name:s.name}]);setPItems(r.items);setSiteMode(false);}catch(e){setError(e.message);}setPLoading(false);};
 
   const btn={padding:"8px 14px",borderRadius:T.radiusSm,border:`1px solid ${T.gold}`,background:T.goldLight,color:T.gold,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"};
   const wrap={padding:24,maxWidth:680,margin:"0 auto"};
@@ -1845,13 +1851,39 @@ function FilesTab({property,onUpdate}){
       <div style={{fontSize:13,color:T.textSub,marginBottom:14,lineHeight:1.5}}>Browse to the folder and tap <strong>Use this folder</strong>. You only do this once per property.</div>
       {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
 
-      {pStack.length===0?(
+      {pStack.length===0&&siteMode?(
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+            <span onClick={()=>{setSiteMode(false);setSites(null);}} style={{fontSize:13,color:T.blue,cursor:"pointer",fontWeight:600}}>‹ Locations</span>
+            <span style={{fontSize:13,color:T.text,fontWeight:600}}>/ SharePoint sites</span>
+          </div>
+          <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+            <input value={siteQ} onChange={e=>setSiteQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doSiteSearch()} placeholder="Search sites (e.g. Goldstone)"
+              style={{flex:1,minWidth:200,padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+            <button onClick={doSiteSearch} style={{...btn,background:T.gold,color:"#fff",border:"none"}}>Search</button>
+          </div>
+          <Card>
+            {siteBusy&&<div style={{padding:"18px 16px",color:T.textSub,fontSize:14}}>Searching…</div>}
+            {!siteBusy&&sites&&sites.length===0&&<div style={{padding:"20px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No sites found. Try part of the site name.</div>}
+            {!siteBusy&&(sites||[]).map((s,i)=>(
+              <div key={s.id} onClick={()=>pickSite(s)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",cursor:"pointer",borderTop:i===0?"none":`1px solid ${T.border}`}}>
+                <span style={{fontSize:20}}>🏢</span>
+                <div style={{flex:1,minWidth:0,fontSize:14,fontWeight:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
+                <span style={{fontSize:16,color:T.textTert}}>›</span>
+              </div>
+            ))}
+          </Card>
+        </div>
+      ):pStack.length===0?(
         <Card>
           <div onClick={openMyOneDrive} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer"}}>
             <span style={{fontSize:22}}>📁</span><div style={{fontSize:15,fontWeight:600,color:T.text}}>My OneDrive</div>
           </div>
           <div onClick={openShared} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`}}>
             <span style={{fontSize:22}}>🤝</span><div style={{fontSize:15,fontWeight:600,color:T.text}}>Shared with me</div>
+          </div>
+          <div onClick={()=>setSiteMode(true)} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`}}>
+            <span style={{fontSize:22}}>🏢</span><div style={{fontSize:15,fontWeight:600,color:T.text}}>SharePoint sites <span style={{fontSize:12,fontWeight:400,color:T.textTert}}>(shared drives)</span></div>
           </div>
         </Card>
       ):(<>

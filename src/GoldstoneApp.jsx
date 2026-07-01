@@ -1509,12 +1509,12 @@ function ShowingsTab({property}){
   return(
     <div style={wrap}>
       <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
-        <div style={{fontSize:13,color:T.textSub}}>{mine.length} showing{mine.length!==1?"s":""} for this property</div>
+        <div style={{fontSize:13,color:T.textSub}}>{mine.length} showing{mine.length!==1?"s":""} for this property <span style={{color:T.textTert}}>· {all.length} in feed</span></div>
         <button onClick={load} style={{marginLeft:"auto",padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻ Refresh</button>
       </div>
       {loading&&<div style={{color:T.textSub,fontSize:14,padding:12}}>Loading showings…</div>}
       {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
-      {!loading&&mine.length===0&&<Card><div style={{padding:"24px 16px",textAlign:"center",color:T.textTert,fontSize:14}}>No showings matched this property's address yet.<div style={{fontSize:12,marginTop:6}}>Showings are matched by street address from ShowingTime.</div></div></Card>}
+      {!loading&&mine.length===0&&<Card><div style={{padding:"24px 16px",textAlign:"center",color:T.textTert,fontSize:14}}>No showings matched this property's address yet.<div style={{fontSize:12,marginTop:6}}>Matching “{property.address}{property.city?`, ${property.city}`:""}” against {all.length} showings in your ShowingTime feed.</div></div></Card>}
       {upcoming.length>0&&<Card style={{marginBottom:12}}><GHeader label="Upcoming"/>{upcoming.map(Row)}</Card>}
       {past.length>0&&<Card><GHeader label="Past"/>{past.slice(0,40).map(Row)}</Card>}
       {mine.length>0&&<div style={{marginTop:12,fontSize:12,color:T.textTert,textAlign:"center"}}>Live from ShowingTime · matched by address</div>}

@@ -1815,7 +1815,7 @@ function FilesTab({property,onUpdate}){
     </div>
   );
 }
-function PropDetail({property,onUpdate}){
+function PropDetail({property,onUpdate,onArchive}){
   const { contacts: CONTACTS } = useData();
   const[tab,setTab]=useState("Financial Overview");
   const[taskPopup,setTaskPopup]=useState(null);
@@ -1833,7 +1833,11 @@ function PropDetail({property,onUpdate}){
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
       <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"18px 24px 0",flexShrink:0}}>
-        <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",marginBottom:10}}>{full}</div>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:10}}>
+          <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px"}}>{full}</div>
+          {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
+            style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
+        </div>
         <div style={{marginBottom:14}}>
           <StatusPicker value={property.status} onChange={v=>onUpdate(property.id,"status",v)}/>
         </div>
@@ -2130,8 +2134,8 @@ function SortModal({order,onSave,onClose}){
 }
 
 // ─── Properties Page ──────────────────────────────────────────────────────────
-function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed}){
-  const props=sharedProps;
+function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,onArchive}){
+  const props=sharedProps.filter(p=>!p.archived); // archived properties live in Settings only
   const setProps=setSharedProps;
   const isMobile=useIsMobile();
   const[selId,setSelId]=useState(initialSelId||null);
@@ -2183,7 +2187,7 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed})
       </div>
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
         {isMobile&&sel&&<button onClick={()=>setSelId(null)} style={{display:"flex",alignItems:"center",gap:4,padding:"11px 14px",background:T.card,border:"none",borderBottom:`1px solid ${T.border}`,color:T.gold,fontWeight:600,fontSize:15,fontFamily:"inherit",cursor:"pointer",flexShrink:0,textAlign:"left",minHeight:44}}>‹ All properties</button>}
-        {sel?<PropDetail property={sel} onUpdate={upProp}/>:
+        {sel?<PropDetail property={sel} onUpdate={upProp} onArchive={onArchive?(id)=>{onArchive(id);setSelId(null);}:undefined}/>:
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:14}}>
             <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🏠</div>
             <div style={{fontSize:16,fontWeight:600,color:T.textSub}}>Select a property</div>
@@ -2534,7 +2538,7 @@ const STATUS_COLORS=Object.fromEntries(Object.entries(SC).map(([k,v])=>[k,{bg:v.
 
 function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
   const isMobile=useIsMobile();
-  const props=sharedProps.filter(p=>ACTIVE_STATUSES.includes(p.status));
+  const props=sharedProps.filter(p=>!p.archived&&ACTIVE_STATUSES.includes(p.status));
 
   // Calculate net profit per property using same formula as FinOverview
   function pfCalcProfit(p){
@@ -2873,9 +2877,9 @@ function TasksPage(){
   const[statusFilter,setStatusFilter]=useState(new Set()); // empty = show all
   const[showAutoBuilder,setShowAutoBuilder]=useState(false);
 
-  // Collect all tasks from all properties
+  // Collect all tasks from all properties (archived ones are excluded)
   const allTasks=[];
-  sharedProps.forEach(prop=>{
+  sharedProps.filter(p=>!p.archived).forEach(prop=>{
     const savedTasks=prop.tasks||[];
     const deletedKeys=new Set(savedTasks.filter(t=>t.deleted).map(t=>`${t.cat}::${t.text}`));
     const checklist=DEFAULT_CHECKLISTS[prop.status]||[];
@@ -3192,6 +3196,48 @@ function ComingSoon({label}){
   return <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,background:T.bg}}><div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🚧</div><div style={{fontSize:17,fontWeight:600,color:T.text}}>{label}</div><div style={{fontSize:14,color:T.textSub}}>Coming soon</div></div>;
 }
 
+// ─── Settings modal — currently houses Archived Properties ───────────────────
+const ARCHIVE_DAYS=60;
+const archiveDaysLeft=(p)=>{
+  if(!p.archivedAt)return ARCHIVE_DAYS;
+  const elapsed=Date.now()-new Date(p.archivedAt).getTime();
+  return Math.max(0,Math.ceil(ARCHIVE_DAYS-elapsed/(24*60*60*1000)));
+};
+function SettingsModal({archived,onRestore,onDelete,onClose}){
+  const fmtAddr=(p)=>`${p.address}${p.city?`, ${p.city}`:""}${p.state?`, ${p.state}`:""}${p.zip?` ${p.zip}`:""}`;
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(640px,96vw)",maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+        <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:17,fontWeight:700,color:T.text}}>Settings</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{overflowY:"auto",padding:"16px 20px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>Archived Properties</div>
+          <div style={{fontSize:12,color:T.textSub,marginBottom:14}}>Archived properties are hidden from your lists and are permanently deleted 60 days after archiving. Restore one to bring it back, or delete it now.</div>
+          {archived.length===0
+            ? <div style={{padding:"24px 0",textAlign:"center",color:T.textTert,fontSize:13}}>No archived properties.</div>
+            : archived.map(p=>{
+                const left=archiveDaysLeft(p);
+                return(
+                  <div key={p.id} style={{border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 14px",marginBottom:10}}>
+                    <div style={{fontSize:14,fontWeight:600,color:T.text}}>{fmtAddr(p)}</div>
+                    <div style={{fontSize:12,color:left<=7?T.red:T.textSub,marginTop:2}}>
+                      {left===0?"Deleting soon":`Deletes in ${left} day${left===1?"":"s"}`}{p.status?` · was ${p.status}`:""}
+                    </div>
+                    <div style={{display:"flex",gap:8,marginTop:10}}>
+                      <button onClick={()=>onRestore(p.id)} style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Restore</button>
+                      <button onClick={()=>{if(window.confirm(`Permanently delete ${fmtAddr(p)}?\n\nThis cannot be undone.`))onDelete(p.id);}} style={{padding:"7px 14px",borderRadius:T.radiusSm,background:"#fff",border:`1px solid ${T.red}`,color:T.red,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Delete now</button>
+                    </div>
+                  </div>
+                );
+              })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App Shell ────────────────────────────────────────────────────────────────
 // Members only see Tasks + Properties; admins see the full nav.
 const MEMBER_KEYS = new Set(["tasks","properties"]);
@@ -3204,7 +3250,21 @@ export function GoldstoneShell(){
   const navItems = isAdmin ? NAV : NAV.filter(n=>MEMBER_KEYS.has(n.key));
   const[active,setActive]=useState(isAdmin?"properties":"tasks");
   const[navPropId,setNavPropId]=useState(null);
+  const[showSettings,setShowSettings]=useState(false);
   useEffect(()=>{ if(!navItems.find(n=>n.key===active)) setActive(navItems[0]?.key||"tasks"); },[navItems,active]);
+
+  // Archive / restore / permanent-delete helpers.
+  const archiveProperty=useCallback((id)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,archived:true,archivedAt:new Date().toISOString()}:p)),[setSharedProps]);
+  const restoreProperty=useCallback((id)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,archived:false,archivedAt:null}:p)),[setSharedProps]);
+  const deleteProperty=useCallback((id)=>setSharedProps(prev=>prev.filter(p=>p.id!==id)),[setSharedProps]);
+  const archivedProps=sharedProps.filter(p=>p.archived);
+
+  // Auto-purge: permanently drop archived properties past the 60-day window.
+  useEffect(()=>{
+    const cutoff=Date.now()-ARCHIVE_DAYS*24*60*60*1000;
+    const expired=sharedProps.filter(p=>p.archived&&p.archivedAt&&new Date(p.archivedAt).getTime()<cutoff);
+    if(expired.length){const ids=new Set(expired.map(p=>p.id));setSharedProps(prev=>prev.filter(p=>!ids.has(p.id)));}
+  },[sharedProps,setSharedProps]);
 
   function navigateToProperty(propId){
     setNavPropId(propId);
@@ -3213,7 +3273,7 @@ export function GoldstoneShell(){
 
   const initials=(displayName||"?").trim().charAt(0).toUpperCase()||"?";
   const pageEl = active==="properties"
-    ? <PropertiesPage sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navPropId} onNavConsumed={()=>setNavPropId(null)}/>
+    ? <PropertiesPage sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navPropId} onNavConsumed={()=>setNavPropId(null)} onArchive={archiveProperty}/>
     : active==="leads" ? <NewLeadsPage/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage/>
@@ -3250,9 +3310,11 @@ export function GoldstoneShell(){
             {isMobile&&<div style={{width:30,height:30,borderRadius:8,background:`linear-gradient(135deg,${T.goldMid},${T.gold})`,display:"flex",alignItems:"center",justifyContent:"center",color:T.goldLight,fontFamily:"Georgia,serif",fontWeight:700,fontSize:18}}>G</div>}
             <div style={{fontWeight:700,fontSize:17,color:T.text}}>{NAV.find(n=>n.key===active)?.label}</div>
           </div>
-          {isMobile
-            ? <button onClick={signOut} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,padding:"6px 10px"}}>Sign out</button>
-            : <div style={{fontSize:13,color:T.textSub}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>}
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            {!isMobile&&<div style={{fontSize:13,color:T.textSub}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>}
+            {isAdmin&&<button onClick={()=>setShowSettings(true)} title="Settings" aria-label="Settings" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:15,padding:"5px 9px",lineHeight:1}}>⚙</button>}
+            {isMobile&&<button onClick={signOut} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,padding:"6px 10px"}}>Sign out</button>}
+          </div>
         </div>
         <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
           {pageEl}
@@ -3267,6 +3329,7 @@ export function GoldstoneShell(){
             </button>);})}
         </nav>
       )}
+      {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}/>}
     </div>
   );
 }

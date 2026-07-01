@@ -82,6 +82,26 @@ export function useOneDrive() {
     return j.value || [];
   }, [graph]);
 
+  // ── Folder picker sources ────────────────────────────────────────────────────
+  // The user's own OneDrive root (top-level items) + its driveId for navigation.
+  const myDriveRoot = useCallback(async () => {
+    const drive = await graph("/me/drive?$select=id");
+    const root = await graph("/me/drive/root?$select=id,name");
+    const j = await graph("/me/drive/root/children?$top=500");
+    return { driveId: drive.id, rootId: root.id, name: "My OneDrive", items: j.value || [] };
+  }, [graph]);
+
+  // Folders shared with the user (surfaces SharePoint/OneDrive folders they can access).
+  const sharedWithMe = useCallback(async () => {
+    const j = await graph("/me/drive/sharedWithMe");
+    return (j.value || [])
+      .map((it) => {
+        const r = it.remoteItem || it;
+        return { id: r.id, name: r.name, folder: r.folder, file: r.file, webUrl: r.webUrl, driveId: r.parentReference?.driveId };
+      })
+      .filter((x) => x.driveId && x.id);
+  }, [graph]);
+
   // Upload a file into a folder via a resumable session (handles files of any size).
   const uploadFile = useCallback(async (driveId, parentId, file, onProgress) => {
     const token = await getToken();
@@ -125,6 +145,8 @@ export function useOneDrive() {
     signOut,
     resolveShareLink,
     listChildren,
+    myDriveRoot,
+    sharedWithMe,
     uploadFile,
   };
 }

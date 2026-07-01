@@ -1762,14 +1762,21 @@ function QuickBooksTab({property,onUpdate}){
 function fmtBytes(b){if(!b&&b!==0)return"";if(b<1024)return b+" B";const k=b/1024;if(k<1024)return Math.round(k)+" KB";const m=k/1024;return (m<10?m.toFixed(1):Math.round(m))+" MB";}
 function FilesTab({property,onUpdate}){
   const od=useOneDrive();
-  const link=property.filesShareLink||"";
-  const[linkInput,setLinkInput]=useState("");
+  const folder=property.filesFolder||null;      // {driveId,id,name} — picked in-app
+  const link=property.filesShareLink||"";        // legacy pasted share link
+  const connected=!!((folder&&folder.driveId&&folder.id)||link);
   const[stack,setStack]=useState([]);
   const[items,setItems]=useState([]);
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState("");
   const[uploading,setUploading]=useState(0);
   const fileRef=useRef(null);
+  // picker
+  const[pStack,setPStack]=useState([]);          // [] = choose a location
+  const[pItems,setPItems]=useState([]);
+  const[pLoading,setPLoading]=useState(false);
+  const[showPaste,setShowPaste]=useState(false);
+  const[linkInput,setLinkInput]=useState("");
 
   const loadFrom=useCallback(async(driveId,itemId,newStack)=>{
     setLoading(true);setError("");
@@ -1781,15 +1788,20 @@ function FilesTab({property,onUpdate}){
   const loadRoot=useCallback(async()=>{
     setLoading(true);setError("");
     try{
-      const root=await od.resolveShareLink(link);
-      if(!root.driveId){setError("Couldn't read that folder link. Make sure it's a OneDrive/SharePoint 'Copy link' URL to a folder.");setLoading(false);return;}
-      setStack([{driveId:root.driveId,id:root.id,name:root.name||"Files"}]);
-      setItems(root.children&&root.children.length?root.children:await od.listChildren(root.driveId,root.id));
+      if(folder&&folder.driveId&&folder.id){
+        setStack([{driveId:folder.driveId,id:folder.id,name:folder.name||"Files"}]);
+        setItems(await od.listChildren(folder.driveId,folder.id));
+      }else if(link){
+        const root=await od.resolveShareLink(link);
+        if(!root.driveId){setError("Couldn't read that folder link. Make sure it's a OneDrive/SharePoint 'Copy link' URL to a folder.");setLoading(false);return;}
+        setStack([{driveId:root.driveId,id:root.id,name:root.name||"Files"}]);
+        setItems(root.children&&root.children.length?root.children:await od.listChildren(root.driveId,root.id));
+      }
     }catch(e){setError(e.message||"Couldn't open this folder.");}
     setLoading(false);
-  },[od,link]);
+  },[od,folder,link]);
 
-  useEffect(()=>{if(od.ready&&od.isConnected&&link&&stack.length===0)loadRoot();},[od.ready,od.isConnected,link]);// eslint-disable-line
+  useEffect(()=>{if(od.ready&&od.isConnected&&connected&&stack.length===0)loadRoot();},[od.ready,od.isConnected,connected]);// eslint-disable-line
 
   const cur=stack[stack.length-1];
   const openFolder=(f)=>loadFrom(cur.driveId,f.id,[...stack,{driveId:cur.driveId,id:f.id,name:f.name}]);
@@ -1802,6 +1814,14 @@ function FilesTab({property,onUpdate}){
     catch(err){setError(err.message||"Upload failed.");}
     setUploading(0);if(fileRef.current)fileRef.current.value="";
   };
+
+  // ── Picker actions ──
+  const openMyOneDrive=async()=>{setPLoading(true);setError("");try{const r=await od.myDriveRoot();setPStack([{driveId:r.driveId,id:r.rootId,name:"My OneDrive"}]);setPItems(r.items);}catch(e){setError(e.message);}setPLoading(false);};
+  const openShared=async()=>{setPLoading(true);setError("");try{const rows=await od.sharedWithMe();setPStack([{name:"Shared with me",virtual:true}]);setPItems(rows);}catch(e){setError(e.message);}setPLoading(false);};
+  const pTop=pStack[pStack.length-1];
+  const pEnter=async(f)=>{const driveId=f.driveId||pTop.driveId;setPLoading(true);setError("");try{const kids=await od.listChildren(driveId,f.id);setPStack([...pStack,{driveId,id:f.id,name:f.name}]);setPItems(kids);}catch(e){setError(e.message);}setPLoading(false);};
+  const pGoTo=async(idx)=>{const t=pStack[idx];if(t.virtual){openShared();return;}setPLoading(true);setError("");try{const kids=await od.listChildren(t.driveId,t.id);setPStack(pStack.slice(0,idx+1));setPItems(kids);}catch(e){setError(e.message);}setPLoading(false);};
+  const useThisFolder=()=>{if(pTop&&pTop.driveId&&pTop.id){onUpdate(property.id,"filesFolder",{driveId:pTop.driveId,id:pTop.id,name:pTop.name});onUpdate(property.id,"filesShareLink","");}};
 
   const btn={padding:"8px 14px",borderRadius:T.radiusSm,border:`1px solid ${T.gold}`,background:T.goldLight,color:T.gold,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"};
   const wrap={padding:24,maxWidth:680,margin:"0 auto"};
@@ -1818,16 +1838,52 @@ function FilesTab({property,onUpdate}){
     </div>
   );
 
-  if(!link) return(
+  // ── Folder picker (shown until a folder is connected) ──
+  if(!connected) return(
     <div style={wrap}>
-      <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>Link this property's folder</div>
-      <div style={{fontSize:13,color:T.textSub,marginBottom:14,lineHeight:1.5}}>In OneDrive/SharePoint, open this property's folder, click <strong>Share → Copy link</strong>, and paste it here. You only do this once per property.</div>
-      <input value={linkInput} onChange={e=>setLinkInput(e.target.value)} placeholder="https://…sharepoint.com/… or https://1drv.ms/…"
-        style={{width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit",marginBottom:12}}/>
-      <div style={{display:"flex",gap:10,alignItems:"center"}}>
-        <button onClick={()=>{if(linkInput.trim()){onUpdate(property.id,"filesShareLink",linkInput.trim());}}} style={{...btn,background:T.gold,color:"#fff",border:"none"}}>Save & Open</button>
-        <span style={{fontSize:12,color:T.textTert}}>Signed in as {od.displayName}</span>
+      <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:4}}>Pick this property's folder</div>
+      <div style={{fontSize:13,color:T.textSub,marginBottom:14,lineHeight:1.5}}>Browse to the folder and tap <strong>Use this folder</strong>. You only do this once per property.</div>
+      {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
+
+      {pStack.length===0?(
+        <Card>
+          <div onClick={openMyOneDrive} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer"}}>
+            <span style={{fontSize:22}}>📁</span><div style={{fontSize:15,fontWeight:600,color:T.text}}>My OneDrive</div>
+          </div>
+          <div onClick={openShared} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`}}>
+            <span style={{fontSize:22}}>🤝</span><div style={{fontSize:15,fontWeight:600,color:T.text}}>Shared with me</div>
+          </div>
+        </Card>
+      ):(<>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+          <span onClick={()=>{setPStack([]);setPItems([]);}} style={{fontSize:13,color:T.blue,cursor:"pointer",fontWeight:600}}>‹ Locations</span>
+          {pStack.map((s,i)=>(<span key={i} style={{display:"flex",alignItems:"center",gap:4,fontSize:13}}><span style={{color:T.textTert}}>/</span><span onClick={()=>pGoTo(i)} style={{color:i===pStack.length-1?T.text:T.blue,fontWeight:i===pStack.length-1?600:400,cursor:"pointer",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span></span>))}
+          {pTop&&pTop.driveId&&pTop.id&&<button onClick={useThisFolder} style={{...btn,marginLeft:"auto",background:T.gold,color:"#fff",border:"none"}}>✓ Use this folder</button>}
+        </div>
+        <Card>
+          {pLoading&&<div style={{padding:"18px 16px",color:T.textSub,fontSize:14}}>Loading…</div>}
+          {!pLoading&&pItems.filter(it=>it.folder).length===0&&<div style={{padding:"20px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No sub-folders here.{pTop&&pTop.driveId?" You can still tap “Use this folder” above.":""}</div>}
+          {!pLoading&&pItems.filter(it=>it.folder).map((it,i)=>(
+            <div key={it.id} onClick={()=>pEnter(it)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",cursor:"pointer",borderTop:i===0?"none":`1px solid ${T.border}`}}>
+              <span style={{fontSize:20}}>📁</span>
+              <div style={{flex:1,minWidth:0,fontSize:14,fontWeight:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>
+              <span style={{fontSize:16,color:T.textTert}}>›</span>
+            </div>
+          ))}
+        </Card>
+      </>)}
+
+      <div style={{marginTop:14,fontSize:12,color:T.textTert}}>
+        Can't find it? <span onClick={()=>setShowPaste(v=>!v)} style={{color:T.blue,cursor:"pointer"}}>Paste a share link instead</span>
       </div>
+      {showPaste&&(
+        <div style={{marginTop:8,display:"flex",gap:8,flexWrap:"wrap"}}>
+          <input value={linkInput} onChange={e=>setLinkInput(e.target.value)} placeholder="https://…sharepoint.com/… or https://1drv.ms/…"
+            style={{flex:1,minWidth:220,padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+          <button onClick={()=>{if(linkInput.trim())onUpdate(property.id,"filesShareLink",linkInput.trim());}} style={{...btn,background:T.gold,color:"#fff",border:"none"}}>Save</button>
+        </div>
+      )}
+      <div style={{marginTop:14,fontSize:12,color:T.textTert}}>Signed in as {od.displayName} · <span onClick={()=>od.signOut()} style={{color:T.blue,cursor:"pointer"}}>Disconnect</span></div>
     </div>
   );
 
@@ -1871,7 +1927,7 @@ function FilesTab({property,onUpdate}){
       </Card>
 
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}>
-        <button onClick={()=>{onUpdate(property.id,"filesShareLink","");setStack([]);setItems([]);setLinkInput("");}} style={{background:"none",border:"none",color:T.textTert,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Change folder link</button>
+        <button onClick={()=>{onUpdate(property.id,"filesFolder",null);onUpdate(property.id,"filesShareLink","");setStack([]);setItems([]);setLinkInput("");setPStack([]);setPItems([]);}} style={{background:"none",border:"none",color:T.textTert,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Change folder</button>
         <span style={{fontSize:12,color:T.textTert}}>{od.displayName} · <span onClick={()=>od.signOut()} style={{color:T.blue,cursor:"pointer"}}>Disconnect</span></span>
       </div>
     </div>

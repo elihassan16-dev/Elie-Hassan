@@ -196,6 +196,62 @@ function calcA(f){
   return{total,interest,net:rev-total-interest-(rev*pct(f.actualSellingCosts))-n(f.actualSellingTransferTax)};
 }
 
+// ─── SINGLE SOURCE OF TRUTH for a property's profit ───────────────────────────
+// Used by BOTH the Financial Overview banner and the Portfolio Overview so the
+// two can never disagree. Mirrors the Financial Overview formulas exactly.
+// If you change a profit rule, change it HERE only.
+function finProfit(f){
+  if(!f) return {netProfit:0,acNet:0,effective:0,useActual:false};
+  const buyingItems=f.buyingCostItems||[];
+  const buyingTotal=buyingItems.length>0?calcBuyingTotal(buyingItems,f.purchasePrice):n(f.buyingCosts)||0;
+  const sellingItems=f.sellingCostItems||[];
+  const holdingItems=f.holdingCostItems||[];
+  const months=n(f.holdPeriod)||0;
+  const sellingOf=(sp,items,flat)=>items.length>0
+    ?items.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe").reduce((s,i)=>{
+        if(i.autoType==="commission")return s+Math.round(n(sp)*(parseFloat(i.commissionPct||0)/100));
+        if(i.autoType==="tax"){const rtf=calcNJRTF(n(sp));return i.resp==="Seller Pays"?s+rtf.total:i.resp==="Split"?s+Math.round(rtf.total/2):s;}
+        return s+n(i.amount);
+      },0)
+    :n(flat)||0;
+
+  // ── Projected ──
+  const sellingTotal=sellingOf(f.salePrice,sellingItems,f.sellingCosts);
+  const holdingTotal=holdingItems.length>0?holdingItems.reduce((s,i)=>s+(i.perYear?n(i.amount)/12:n(i.amount))*months,0):n(f.annualHoldingCosts)||0;
+  const totalCosts=n(f.purchasePrice)+buyingTotal+n(f.rehabCosts)+holdingTotal;
+  const liveHmLoan=Math.round(n(f.purchasePrice)*(n(f.hmLoanPct||90)/100));
+  const liveHmMonthly=Math.round(liveHmLoan*(n(f.hmRate||9)/100)/12);
+  const liveHmReserve=Math.round(liveHmMonthly*months);
+  const liveRehabLoan=Math.round(n(f.rehabCosts)*(n(f.rehabFinPct||100)/100));
+  const liveHmTotal=liveHmLoan+liveRehabLoan;
+  const liveHmOrigFee=Math.round(liveHmTotal*(n(f.hmOrigPct||0)/100));
+  const liveHmDoc=n(f.hmDocFee||1000);
+  const liveGapPrinc=Math.round(n(f.purchasePrice)*(1-n(f.hmLoanPct||90)/100))+Math.round(n(f.rehabCosts)*(1-n(f.rehabFinPct||100)/100))+buyingTotal+liveHmReserve+liveHmOrigFee+liveHmDoc;
+  const liveGapBalloon=Math.round(liveGapPrinc*(n(f.gapRate||15)/100)/12*months);
+  const debtService=(n(f.hmInterest)||liveHmReserve)+(n(f.locInterest)||liveGapBalloon);
+  const netProfit=n(f.salePrice)-sellingTotal-debtService-totalCosts;
+
+  // ── Actual ──
+  const actualHoldMonths=f.purchaseDate&&f.sellingDate?parseFloat(((new Date(f.sellingDate)-new Date(f.purchaseDate))/(1000*60*60*24*30.44)).toFixed(1)):months;
+  const acCosts=n(f.actualPurchasePrice)+n(f.actualBuyingCosts)+n(f.actualRehabCosts)+n(f.actualHoldingCosts);
+  const acSalePrice=n(f.actualSalePrice);
+  const acSelling=sellingOf(acSalePrice,f.actualSellingCostItems||[],f.actualSellingCosts);
+  const acHmLoanAmt=n(f.acHmLoanAmt)||liveHmTotal;
+  const acHmRate=f.acHmRate!==undefined?n(f.acHmRate):n(f.hmRate||9);
+  const acHmOrigPct=f.acHmOrigPct!==undefined?n(f.acHmOrigPct):n(f.hmOrigPct||0);
+  const acHmDocAmt=f.acHmDocFee!==undefined?n(f.acHmDocFee):n(f.hmDocFee||1000);
+  const equityRequired=n(f.locLoan)||liveGapPrinc;
+  const acGapLoanAmt=n(f.acGapLoanAmt)||equityRequired;
+  const acGapRate=f.acGapRate!==undefined?n(f.acGapRate):n(f.gapRate||15);
+  const acHmMonthlyInt=Math.round(acHmLoanAmt*(acHmRate/100)/12);
+  const acHmInterest=f.acHmInterestOverride!==undefined&&f.acHmInterestOverride!==""?n(f.acHmInterestOverride):Math.round(acHmMonthlyInt*actualHoldMonths)+Math.round(acHmLoanAmt*(acHmOrigPct/100))+acHmDocAmt;
+  const acGapBalloon=f.acGapInterestOverride!==undefined&&f.acGapInterestOverride!==""?n(f.acGapInterestOverride):Math.round(acGapLoanAmt*(acGapRate/100)/12*actualHoldMonths);
+  const acNet=acSalePrice>0?acSalePrice-acSelling-(acHmInterest+acGapBalloon)-acCosts:0;
+
+  const useActual=!!(f.useActualProfit&&acSalePrice>0);
+  return {netProfit,acNet,effective:useActual?acNet:netProfit,useActual};
+}
+
 // ─── NJ Realty Transfer Tax ───────────────────────────────────────────────────
 function calcNJRTF(price){
   const p=Math.ceil(price/500)*500;
@@ -1219,7 +1275,8 @@ function FinOverview({property,onUpdate}){
   const locInterestFinal= n(f.locInterest)||liveGapBalloon;
   const debtService=hmInterestFinal+locInterestFinal;
   const equityRequired = n(f.locLoan)||liveGapPrinc;
-  const netProfit=n(f.salePrice)-sellingTotal-debtService-totalCosts;
+  const _fp=finProfit(f);                 // single source of truth (matches Portfolio)
+  const netProfit=_fp.netProfit;
 
   // ── Actual hold period from dates ──
   const actualHoldMonths=f.purchaseDate&&f.sellingDate
@@ -1260,7 +1317,7 @@ function FinOverview({property,onUpdate}){
     : Math.round(acGapLoanAmt*(acGapRate/100)/12*actualHoldMonths);
   const acDebt = acHmInterest+acGapBalloon;
 
-  const acNet = acSalePrice>0 ? acSalePrice-acSelling-acDebt-acCosts : 0;
+  const acNet = _fp.acNet;                 // single source of truth (matches Portfolio)
 
   const iS={padding:"5px 8px",borderRadius:6,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontSize:13,outline:"none",textAlign:"right",fontFamily:"inherit",boxSizing:"border-box"};
 
@@ -2541,55 +2598,8 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
   const props=sharedProps.filter(p=>!p.archived&&ACTIVE_STATUSES.includes(p.status));
 
   // Calculate net profit per property using same formula as FinOverview
-  function pfCalcProfit(p){
-    const f=p.financials;
-    const nn=v=>parseFloat(String(v||0).replace(/[^\d.-]/g,""))||0;
-
-    // If "Use Actual in Overview" is toggled on and actual data exists, use that
-    if(f.useActualProfit&&nn(f.actualSalePrice)>0){
-      const acSP=nn(f.actualSalePrice);
-      const acCosts=nn(f.actualPurchasePrice||f.purchasePrice)+nn(f.actualBuyingCosts||f.buyingCosts)+nn(f.actualRehabCosts||f.rehabCosts);
-      const acHolding=(f.actualHoldingCostItems||f.holdingCostItems||[]).length>0
-        ?(f.actualHoldingCostItems||f.holdingCostItems).reduce((s,i)=>{
-            const months=f.purchaseDate&&f.sellingDate?parseFloat(((new Date(f.sellingDate)-new Date(f.purchaseDate))/(1000*60*60*24*30.44)).toFixed(1)):nn(f.holdPeriod);
-            return s+(i.perYear?nn(i.amount)/12:nn(i.amount))*months;
-          },0)
-        :nn(f.actualHoldingCosts);
-      const acItems=f.actualSellingCostItems||f.sellingCostItems||[];
-      const acSelling=acItems.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe").reduce((s,i)=>{
-        if(i.autoType==="commission")return s+Math.round(acSP*(parseFloat(i.commissionPct||0)/100));
-        if(i.autoType==="tax"){const rtf=calcNJRTF(acSP);return i.resp==="Seller Pays"?s+rtf.total:i.resp==="Split"?s+Math.round(rtf.total/2):s;}
-        return s+nn(i.amount);
-      },0)||nn(f.actualSellingCosts);
-      const acDebt=nn(f.hmInterest)+nn(f.locInterest);
-      return acSP-acSelling-acDebt-(acCosts+acHolding);
-    }
-    const sp=nn(f.salePrice);
-    const months=nn(f.holdPeriod)||0;
-    const buying=calcBuyingTotal(f.buyingCostItems||[],f.purchasePrice)||nn(f.buyingCosts);
-    const holding=(f.holdingCostItems||[]).length>0
-      ?(f.holdingCostItems).reduce((s,i)=>s+(i.perYear?nn(i.amount)/12:nn(i.amount))*months,0)
-      :nn(f.annualHoldingCosts);
-    const totalCosts=nn(f.purchasePrice)+buying+nn(f.rehabCosts)+holding;
-    const selling=(f.sellingCostItems||[]).filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe").reduce((s,i)=>{
-      if(i.autoType==="commission")return s+Math.round(sp*(parseFloat(i.commissionPct||0)/100));
-      if(i.autoType==="tax"){const rtf=calcNJRTF(sp);return i.resp==="Seller Pays"?s+rtf.total:i.resp==="Split"?s+Math.round(rtf.total/2):s;}
-      return s+nn(i.amount);
-    },0)||nn(f.sellingCosts);
-    // Debt service — live calc from params, fallback to saved values
-    const hmLoan=Math.round(nn(f.purchasePrice)*(nn(f.hmLoanPct||90)/100));
-    const hmMonthly=Math.round(hmLoan*(nn(f.hmRate||9)/100)/12);
-    const hmReserve=Math.round(hmMonthly*months);
-    const downPmt=Math.round(nn(f.purchasePrice)*(1-nn(f.hmLoanPct||90)/100));
-    const rehabGap=Math.round(nn(f.rehabCosts)*(1-nn(f.rehabFinPct||100)/100));
-    const hmRehabLoan=Math.round(nn(f.rehabCosts)*(nn(f.rehabFinPct||100)/100));
-    const hmOrigFee=Math.round((hmLoan+hmRehabLoan)*(nn(f.hmOrigPct||0)/100));
-    const hmDoc=nn(f.hmDocFee||1000);
-    const gapPrinc=downPmt+rehabGap+buying+hmReserve+hmOrigFee+hmDoc;
-    const gapBalloon=Math.round(gapPrinc*(nn(f.gapRate||15)/100)/12*months);
-    const debt=(nn(f.hmInterest)||hmReserve)+(nn(f.locInterest)||gapBalloon);
-    return sp-selling-debt-totalCosts;
-  }
+  // Uses the shared finProfit() so this ALWAYS matches the property's Financial Overview.
+  function pfCalcProfit(p){ return finProfit(p.financials).effective; }
   function calcEquity(p){
     const f=p.financials;
     const nn=v=>parseFloat(String(v||0).replace(/[^\d.-]/g,""))||0;
@@ -2620,7 +2630,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
   const[listPopup,setListPopup]=useState(null);
   const[sortKey,setSortKey]=useState("status");
   const sorted=[...props].sort((a,b)=>{
-    if(sortKey==="profit")return calcProfit(b)-calcProfit(a);
+    if(sortKey==="profit")return pfCalcProfit(b)-pfCalcProfit(a);
     if(sortKey==="equity")return calcEquity(b)-calcEquity(a);
     return ACTIVE_STATUSES.indexOf(a.status)-ACTIVE_STATUSES.indexOf(b.status);
   });

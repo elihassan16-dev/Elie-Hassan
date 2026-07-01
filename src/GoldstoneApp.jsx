@@ -1149,7 +1149,7 @@ function QuickBooksBar(){
       {flash&&<span style={{color:T.textSub}}>{flash}</span>}
       <span style={{flex:1}}/>
       {st.connected
-        ?<span style={{fontSize:12,color:T.textSub}}>Connected · per-property import coming next</span>
+        ?<span style={{fontSize:12,color:T.textSub}}>Connected · <span onClick={()=>{window.location.href="/api/quickbooks/connect";}} style={{color:T.blue,cursor:"pointer",fontWeight:600}}>Reconnect</span></span>
         :<button onClick={()=>{window.location.href="/api/quickbooks/connect";}} style={{padding:"7px 16px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Connect QuickBooks</button>}
     </div>
   );
@@ -1456,7 +1456,10 @@ function QuickBooksTab({property,onUpdate}){
         {!projects&&<div style={{padding:"0 16px 14px",fontSize:12,color:T.textTert}}>Loading projects…</div>}
       </Card>
 
-      {error&&<div style={{marginBottom:14,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
+      {error&&<div style={{marginBottom:14,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>
+        <div style={{marginBottom:8,wordBreak:"break-word"}}>{error}</div>
+        <button onClick={()=>{window.location.href="/api/quickbooks/connect";}} style={{padding:"6px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Reconnect QuickBooks</button>
+      </div>}
       {flash&&<div style={{marginBottom:14,padding:"10px 12px",background:"#EDFBF1",border:`1px solid ${T.green}`,borderRadius:T.radiusSm,color:T.green,fontSize:13,fontWeight:600}}>{flash}</div>}
 
       {loading&&<div style={{padding:20,color:T.textSub,fontSize:14}}>Loading QuickBooks numbers…</div>}

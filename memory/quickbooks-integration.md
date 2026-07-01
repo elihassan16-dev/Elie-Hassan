@@ -5,7 +5,11 @@ metadata:
   type: project
 ---
 
-Requested 2026-07-01 (not started, deferred): sync the app with the user's **QuickBooks**, match property addresses to QuickBooks projects, and auto-import **actual numbers** into the Financial Overview "Actual" columns (actualPurchasePrice, actualBuyingCosts, actualRehabCosts, actualSalePrice, interest, selling costs, etc. — see `calcA` in GoldstoneApp.jsx).
+STATUS 2026-07-01: BUILT, DEPLOYED, CONNECTED. QuickBooks Online, client id `ABZXasjjiSvG3epOMwQQdq3IfQIns0QUAmIIfM8eVKwYtionqi`. Backend live (Vercel serverless: api/quickbooks/{connect,callback,status,disconnect,projects,pnl}); secrets QB_CLIENT_ID/QB_CLIENT_SECRET/SUPABASE_SERVICE_ROLE_KEY set in Vercel; token table `quickbooks_connection` created (supabase/quickbooks.sql). User completed OAuth (connected:true). New per-property **QuickBooks tab** shows the project's live P&L + **Import from QuickBooks** button fills Actual columns; project stored at `property.qbProjectId`.
+
+User records each flip as a QuickBooks **Project** (sub-customer). Their COGS account names map 1:1 to app fields — confirmed from a project screenshot: **Purchase Price, Buying Costs, Rehab Costs, Holding Costs** (under Cost of Goods Sold). Import mapping (`qbBucket` in GoldstoneApp.jsx) matches these by keyword → actualPurchasePrice/actualBuyingCosts/actualRehabCosts/actualHoldingCosts; income→actualSalePrice; interest/commission accounts→interest/actualSellingCosts. AWAITING user's test of the import on a real property (verify P&L loads + numbers land in the right Actual boxes). Example project totaled $308,464.73 COGS (Purchase 275,108 / Buying 4,882.35 / Rehab 25,795.16 / Holding 2,679.22), income $0 (not sold).
+
+Original request 2026-07-01: sync the app with the user's **QuickBooks**, match property addresses to QuickBooks projects, and auto-import **actual numbers** into the Financial Overview "Actual" columns (actualPurchasePrice, actualBuyingCosts, actualRehabCosts, actualSalePrice, interest, selling costs, etc. — see `calcA` in GoldstoneApp.jsx).
 
 Key facts/decisions:
 - Feasible only for **QuickBooks Online** (has the Accounting API). QuickBooks Desktop has no clean cloud API → fallback would be CSV export→import.

@@ -1420,6 +1420,9 @@ function QuickBooksTab({property,onUpdate}){
   const[projects,setProjects]=useState(null);
   const[sel,setSel]=useState(property.qbProjectId||"");
   const[pnl,setPnl]=useState(null);
+  const[txns,setTxns]=useState(null);        // transaction-level detail for drill-down
+  const[openBucket,setOpenBucket]=useState("");// which cost bucket is expanded
+  const[txSort,setTxSort]=useState("vendor"); // vendor | date | amount
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState("");
   const[flash,setFlash]=useState("");
@@ -1459,9 +1462,10 @@ function QuickBooksTab({property,onUpdate}){
   },[projects,suggestions,property.qbProjectId,pick]);
 
   const loadPnl=useCallback((id)=>{
-    if(!id)return;setLoading(true);setError("");setPnl(null);
+    if(!id)return;setLoading(true);setError("");setPnl(null);setTxns(null);setOpenBucket("");
     autoImported.current=null; // allow a fresh auto-sync for this load
     qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`).then(setPnl).catch(e=>setError(e.message)).finally(()=>setLoading(false));
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`).then(d=>setTxns(d.items||[])).catch(()=>setTxns([]));
   },[]);
   useEffect(()=>{if(sel)loadPnl(sel);},[sel,loadPnl]);
 
@@ -1492,6 +1496,41 @@ function QuickBooksTab({property,onUpdate}){
     applyImport(pnl,{auto:true});
   },[pnl,sel,autoSync]);// eslint-disable-line
 
+  // Cost-bucket totals from the P&L (already-correct signed amounts).
+  const bucketTotals=useMemo(()=>{
+    const b={purchase:0,buying:0,rehab:0,holding:0,interest:0,selling:0};
+    (pnl?.rows||[]).forEach(r=>{if(r.section==="Income")return;b[qbBucket(r.name)]+=r.amount;});
+    return b;
+  },[pnl]);
+  // Account names that are Income, so we don't file sale transactions under a cost bucket.
+  const incomeAccts=useMemo(()=>new Set((pnl?.rows||[]).filter(r=>r.section==="Income").map(r=>(r.name||"").toLowerCase())),[pnl]);
+  // Group each transaction into its bucket for the drill-down lists.
+  const txByBucket=useMemo(()=>{
+    const m={income:[],purchase:[],buying:[],rehab:[],holding:[],interest:[],selling:[]};
+    (txns||[]).forEach(t=>{
+      const k=incomeAccts.has((t.account||"").toLowerCase())?"income":qbBucket(t.account);
+      (m[k]||m.buying).push(t);
+    });
+    return m;
+  },[txns,incomeAccts]);
+  const sortTx=useCallback((list)=>{
+    const c=[...list];
+    if(txSort==="vendor")c.sort((a,b)=>(a.vendor||"~").localeCompare(b.vendor||"~"));
+    else if(txSort==="amount")c.sort((a,b)=>Math.abs(b.amount)-Math.abs(a.amount));
+    else c.sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+    return c;
+  },[txSort]);
+  // Fixed display order the user asked for (income first, then costs in order).
+  const BUCKET_ROWS=[
+    {key:"income",label:"Sale Price / Income",total:pnl?.income||0},
+    {key:"purchase",label:"Purchase Price",total:bucketTotals.purchase},
+    {key:"buying",label:"Buying Costs",total:bucketTotals.buying},
+    {key:"rehab",label:"Rehab Costs",total:bucketTotals.rehab},
+    {key:"holding",label:"Holding Costs",total:bucketTotals.holding},
+    {key:"interest",label:"Interest / Financing",total:bucketTotals.interest},
+    {key:"selling",label:"Selling Costs",total:bucketTotals.selling},
+  ];
+
   const wrap={padding:24,maxWidth:680,margin:"0 auto"};
   if(!status)return <div style={{...wrap,color:T.textSub,fontSize:14}}>Loading…</div>;
   if(!status.configured)return <div style={{...wrap,color:T.textSub,fontSize:14}}>QuickBooks isn't set up yet.</div>;
@@ -1504,7 +1543,6 @@ function QuickBooksTab({property,onUpdate}){
     </div>
   );
 
-  const bySection=(sec)=>(pnl?.rows||[]).filter(r=>r.section===sec&&r.amount!==0);
   const money=(v)=>fmtD(v);
 
   return(
@@ -1571,23 +1609,54 @@ function QuickBooksTab({property,onUpdate}){
             ))}
           </div>
 
-          {/* Line items by section */}
-          {["Income","COGS","Expenses"].map(secName=>{
-            const rows=bySection(secName);
-            if(rows.length===0)return null;
-            return(
-              <Card key={secName} style={{marginBottom:12}}>
-                <GHeader label={secName==="COGS"?"Cost of Goods Sold":secName}/>
-                {rows.map((r,i)=>(
-                  <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
-                    <span style={{fontSize:14,color:T.text}}>{r.name}</span>
-                    <span style={{fontSize:14,fontWeight:600,color:T.text}}>{money(r.amount)}</span>
-                  </div>
-                ))}
-              </Card>
-            );
-          })}
-          <div style={{fontSize:12,color:T.textTert,textAlign:"center",marginTop:8}}>Numbers come live from QuickBooks. Import maps them into the Actual columns — tell me your account names if any land in the wrong bucket.</div>
+          {/* Ordered breakdown — tap a line to drill into its transactions */}
+          <Card style={{marginBottom:12}}>
+            <GHeader label="Breakdown"/>
+            {BUCKET_ROWS.map(row=>{
+              const list=txByBucket[row.key]||[];
+              const open=openBucket===row.key;
+              return(
+                <div key={row.key} style={{borderTop:`1px solid ${T.border}`}}>
+                  <button onClick={()=>setOpenBucket(open?"":row.key)} style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"12px 16px",background:open?T.bg:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                    <span style={{fontSize:14,color:T.text,display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{color:T.textTert,fontSize:11,display:"inline-block",transform:open?"rotate(90deg)":"none",transition:"transform .15s"}}>▶</span>
+                      {row.label}
+                      {list.length>0&&<span style={{fontSize:11,color:T.textTert}}>({list.length})</span>}
+                    </span>
+                    <span style={{fontSize:14,fontWeight:700,color:row.key==="income"?T.green:T.text}}>{money(row.total)}</span>
+                  </button>
+                  {open&&(
+                    <div style={{padding:"0 16px 12px"}}>
+                      {txns===null?(
+                        <div style={{fontSize:12,color:T.textTert,padding:"8px 0"}}>Loading transactions…</div>
+                      ):list.length===0?(
+                        <div style={{fontSize:12,color:T.textTert,padding:"8px 0"}}>No transactions in this line.</div>
+                      ):(
+                        <>
+                          <div style={{display:"flex",gap:6,margin:"4px 0 8px"}}>
+                            <span style={{fontSize:11,color:T.textTert,alignSelf:"center"}}>Sort:</span>
+                            {[["vendor","Vendor"],["date","Date"],["amount","Amount"]].map(([k,l])=>(
+                              <button key={k} onClick={()=>setTxSort(k)} style={{padding:"4px 10px",borderRadius:20,border:`1px solid ${txSort===k?T.gold:T.border}`,background:txSort===k?T.goldLight:"#fff",color:txSort===k?T.gold:T.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                            ))}
+                          </div>
+                          {sortTx(list).map((t,i)=>(
+                            <div key={i} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 0",borderTop:i?`1px solid ${T.border}`:"none"}}>
+                              <div style={{minWidth:0}}>
+                                <div style={{fontSize:13,color:T.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
+                                <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.type,t.memo].filter(Boolean).join(" · ")}</div>
+                              </div>
+                              <span style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{money(t.amount)}</span>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </Card>
+          <div style={{fontSize:12,color:T.textTert,textAlign:"center",marginTop:8}}>Tap a line to see its QuickBooks transactions and sort by vendor. Numbers come live from QuickBooks; Import maps them into the Actual columns.</div>
         </>
       )}
       {!loading&&sel&&!pnl&&!error&&<div style={{padding:20,color:T.textTert,fontSize:14}}>No data for this project yet.</div>}

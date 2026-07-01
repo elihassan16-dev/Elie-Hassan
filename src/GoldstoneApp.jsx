@@ -1415,6 +1415,12 @@ function QbSupport(){
     </div>
   );
 }
+// Which breakdown lines get written into the Actual columns on Import / Auto-sync.
+// A line is included unless the user has explicitly unchecked it, so existing
+// properties (no saved selection) keep the old "import everything" behaviour.
+const QB_IMPORT_KEYS=["income","purchase","buying","rehab","holding","interest","selling"];
+const qbImportSel=(property)=>{const saved=property.qbImportFields||{};return QB_IMPORT_KEYS.reduce((m,k)=>{m[k]=saved[k]!==false;return m;},{});};
+
 function QuickBooksTab({property,onUpdate}){
   const[status,setStatus]=useState(null);
   const[projects,setProjects]=useState(null);
@@ -1427,6 +1433,9 @@ function QuickBooksTab({property,onUpdate}){
   const[error,setError]=useState("");
   const[flash,setFlash]=useState("");
   const autoSync=property.qbAutoSync===true; // default OFF — opt in per property to mirror Actuals to QuickBooks
+  const importSel=qbImportSel(property);      // which breakdown lines feed the Actual columns
+  const toggleImport=(key)=>onUpdate(property.id,"qbImportFields",{...importSel,[key]:!importSel[key]});
+  const selCount=QB_IMPORT_KEYS.filter(k=>importSel[k]).length;
   const autoPicked=useRef(false);             // guard: only auto-select a project once
   const autoImported=useRef(null);            // guard: auto-import once per fresh P&L load
 
@@ -1473,18 +1482,20 @@ function QuickBooksTab({property,onUpdate}){
     if(!data)return;
     const f=property.financials||{};const b={purchase:0,rehab:0,buying:0,holding:0,interest:0,selling:0};
     (data.rows||[]).forEach(r=>{if(r.section==="Income")return;b[qbBucket(r.name)]+=r.amount;});
-    onUpdate(property.id,"financials",{...f,
-      actualSalePrice:String(Math.round(data.income||0)),
-      actualPurchasePrice:String(Math.round(b.purchase)),
-      actualRehabCosts:String(Math.round(b.rehab)),
-      actualBuyingCosts:String(Math.round(b.buying)),
-      actualHoldingCosts:String(Math.round(b.holding)),actualHoldingCostItems:[],
-      actualSellingCosts:String(Math.round(b.selling)),
-      hmInterest:String(Math.round(b.interest)),locInterest:"0",
-      useActualProfit:true,
-    });
-    setFlash(auto?"↻ Auto-synced the latest QuickBooks numbers into your Actual columns.":"✓ Imported into the Actual columns — check Financial Overview.");
-  },[property.id,property.financials,onUpdate]);
+    const sel=qbImportSel(property);                 // only write the checked lines
+    const ch={};
+    if(sel.income)  ch.actualSalePrice=String(Math.round(data.income||0));
+    if(sel.purchase)ch.actualPurchasePrice=String(Math.round(b.purchase));
+    if(sel.rehab)   ch.actualRehabCosts=String(Math.round(b.rehab));
+    if(sel.buying)  ch.actualBuyingCosts=String(Math.round(b.buying));
+    if(sel.holding){ch.actualHoldingCosts=String(Math.round(b.holding));ch.actualHoldingCostItems=[];}
+    if(sel.selling) ch.actualSellingCosts=String(Math.round(b.selling));
+    if(sel.interest){ch.hmInterest=String(Math.round(b.interest));ch.locInterest="0";}
+    if(Object.keys(ch).length===0){if(!auto)setFlash("Check at least one line to import.");return;}
+    ch.useActualProfit=true;
+    onUpdate(property.id,"financials",{...f,...ch});
+    setFlash(auto?"↻ Auto-synced the selected QuickBooks lines into your Actual columns.":"✓ Imported the selected lines into the Actual columns — check Financial Overview.");
+  },[property.id,property.financials,property.qbImportFields,onUpdate]);
   const doImport=()=>applyImport(pnl,{auto:false});
 
   // Auto-sync: whenever fresh numbers load for a mapped project, mirror them into
@@ -1577,7 +1588,7 @@ function QuickBooksTab({property,onUpdate}){
           <div style={{padding:"0 16px 14px",display:"flex",alignItems:"center",gap:8}}>
             <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:12,color:T.textSub}}>
               <input type="checkbox" checked={autoSync} onChange={e=>onUpdate(property.id,"qbAutoSync",e.target.checked)} style={{cursor:"pointer"}}/>
-              Auto-sync: pull the latest QuickBooks numbers into Actuals every time this project loads
+              Auto-sync: automatically update the checked lines into Actuals every time this project loads
             </label>
           </div>
         )}
@@ -1595,8 +1606,8 @@ function QuickBooksTab({property,onUpdate}){
       {!loading&&pnl&&(
         <>
           {/* Import button */}
-          <button onClick={doImport} style={{width:"100%",padding:"12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit",marginBottom:16,boxShadow:`0 2px 10px ${T.gold}55`}}>
-            ↓ Import from QuickBooks into Actual columns
+          <button onClick={doImport} disabled={selCount===0} style={{width:"100%",padding:"12px",borderRadius:T.radiusSm,background:selCount===0?T.border:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:15,cursor:selCount===0?"default":"pointer",fontFamily:"inherit",marginBottom:16,boxShadow:selCount===0?"none":`0 2px 10px ${T.gold}55`}}>
+            ↓ Import {selCount===QB_IMPORT_KEYS.length?"all lines":`${selCount} selected line${selCount!==1?"s":""}`} into Actual columns
           </button>
 
           {/* Summary */}
@@ -1612,12 +1623,17 @@ function QuickBooksTab({property,onUpdate}){
           {/* Ordered breakdown — tap a line to drill into its transactions */}
           <Card style={{marginBottom:12}}>
             <GHeader label="Breakdown"/>
+            <div style={{padding:"8px 16px 2px",fontSize:11,color:T.textTert}}>Checked lines import into your Actual columns (and auto-sync). Uncheck any you'd rather keep manual. Tap a line to see its transactions.</div>
             {BUCKET_ROWS.map(row=>{
               const list=txByBucket[row.key]||[];
               const open=openBucket===row.key;
               return(
                 <div key={row.key} style={{borderTop:`1px solid ${T.border}`}}>
-                  <button onClick={()=>setOpenBucket(open?"":row.key)} style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"12px 16px",background:open?T.bg:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                  <div style={{display:"flex",alignItems:"center"}}>
+                  <input type="checkbox" checked={importSel[row.key]} onChange={()=>toggleImport(row.key)}
+                    title={importSel[row.key]?"This line imports into Actuals — uncheck to keep it manual":"Excluded from Import — check to include it"}
+                    style={{margin:"0 2px 0 14px",width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+                  <button onClick={()=>setOpenBucket(open?"":row.key)} style={{flex:1,minWidth:0,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"12px 16px 12px 10px",background:open?T.bg:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left",opacity:importSel[row.key]?1:0.45}}>
                     <span style={{fontSize:14,color:T.text,display:"flex",alignItems:"center",gap:8}}>
                       <span style={{color:T.textTert,fontSize:11,display:"inline-block",transform:open?"rotate(90deg)":"none",transition:"transform .15s"}}>▶</span>
                       {row.label}
@@ -1625,6 +1641,7 @@ function QuickBooksTab({property,onUpdate}){
                     </span>
                     <span style={{fontSize:14,fontWeight:700,color:row.key==="income"?T.green:T.text}}>{money(row.total)}</span>
                   </button>
+                  </div>
                   {open&&(
                     <div style={{padding:"0 16px 12px"}}>
                       {txns===null?(
@@ -1656,7 +1673,7 @@ function QuickBooksTab({property,onUpdate}){
               );
             })}
           </Card>
-          <div style={{fontSize:12,color:T.textTert,textAlign:"center",marginTop:8}}>Tap a line to see its QuickBooks transactions and sort by vendor. Numbers come live from QuickBooks; Import maps them into the Actual columns.</div>
+          <div style={{fontSize:12,color:T.textTert,textAlign:"center",marginTop:8}}>Numbers come live from QuickBooks. Use the checkboxes to choose which lines Import writes into the Actual columns.</div>
         </>
       )}
       {!loading&&sel&&!pnl&&!error&&<div style={{padding:20,color:T.textTert,fontSize:14}}>No data for this project yet.</div>}

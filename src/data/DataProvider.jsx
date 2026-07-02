@@ -149,8 +149,13 @@ export function DataProvider({ children }) {
     await supabase.from("contacts").insert(DEFAULT_CONTACTS.map(contactToRow));
   }, [isAdmin]);
 
+  // Key the load/subscribe effect on the stable user id (not the whole user object),
+  // so background token refreshes and preference saves — which mint a new user object
+  // reference with the same id — don't reload all data or flip loading (which would
+  // briefly unmount the whole app).
+  const userId = user?.id;
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     let cancelled = false;
 
     (async () => {
@@ -182,7 +187,7 @@ export function DataProvider({ children }) {
       document.removeEventListener("visibilitychange", onHide);
       supabase.removeChannel(channel);
     };
-  }, [user, seedIfEmpty, propsC.load, leadsC.load, autosC.load, propsC.flushNow, leadsC.flushNow, autosC.flushNow, loadContacts, loadTeam]);
+  }, [userId, seedIfEmpty, propsC.load, leadsC.load, autosC.load, propsC.flushNow, leadsC.flushNow, autosC.flushNow, loadContacts, loadTeam]);
 
   const teamMembers = Array.from(new Set([...team.map((u) => u.name || u.email).filter(Boolean), displayName].filter(Boolean)));
 

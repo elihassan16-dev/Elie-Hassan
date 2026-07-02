@@ -190,6 +190,21 @@ const DEFAULT_CHECKLISTS={
   ],
 };
 
+// Every task name the old auto-checklist feature could have created. Used once, on
+// load, to clean up leftover checklist tasks that an earlier app version saved onto
+// properties (the feature itself is long gone).
+const CHECKLIST_TEXTS=new Set(
+  Object.values(DEFAULT_CHECKLISTS).flatMap(groups=>
+    groups.flatMap(g=>(g.tasks||[]).map(t=>(typeof t==="string"?t:t.text)))
+  ).filter(Boolean).map(s=>s.trim().toLowerCase())
+);
+// A leftover auto-checklist task = matches a known checklist name AND was never touched
+// (no assignee/delegate, no messages, no linked contact, not automation-created).
+const isLeftoverChecklistTask=(t)=>
+  CHECKLIST_TEXTS.has((t.text||"").trim().toLowerCase())
+  && !t.autoId && !t.assignee && !t.delegate && !t.taskContact
+  && !(t.messages&&t.messages.length);
+
 const TASK_STATUSES=["Not Started","In Progress","Completed","N/A"];
 const TASK_STATUS_COLORS={"Not Started":{bg:"#F2F2F7",color:"#8A8A8E"},"In Progress":{bg:"#FFF4E5",color:"#FF9500"},"Completed":{bg:"#EDFBF1",color:"#34C759"},"N/A":{bg:"#F2F2F7",color:"#AEAEB2"}};
 
@@ -5424,6 +5439,22 @@ export function GoldstoneShell(){
     const expired=sharedProps.filter(p=>p.archived&&p.archivedAt&&new Date(p.archivedAt).getTime()<cutoff);
     if(expired.length){const ids=new Set(expired.map(p=>p.id));setSharedProps(prev=>prev.filter(p=>!ids.has(p.id)));}
   },[sharedProps,setSharedProps]);
+
+  // One-time cleanup: remove leftover auto-checklist tasks a previous app version saved
+  // onto properties. Only untouched, exact-match checklist items are removed — real tasks,
+  // anything assigned/delegated, messaged, contact-linked, or automation-made are kept.
+  // Idempotent: once cleaned, no rows match so it stops.
+  useEffect(()=>{
+    if(!isAdmin) return;
+    let changed=false;
+    const next=sharedProps.map(p=>{
+      const tasks=p.tasks||[];
+      const keep=tasks.filter(t=>!isLeftoverChecklistTask(t));
+      if(keep.length!==tasks.length){changed=true;return {...p,tasks:keep};}
+      return p;
+    });
+    if(changed) setSharedProps(()=>next);
+  },[sharedProps,isAdmin,setSharedProps]);
 
   // Apply automation rules: when a property reaches a rule's trigger status, add its
   // tasks once (tracked via property.autoApplied so it never double-adds).

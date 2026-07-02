@@ -1490,6 +1490,7 @@ function PropertyShowings({property,showings,onUpdate}){
   const all=showings||[];
   const address=`${property.address}${property.city?`, ${property.city}`:""}`;
   const leadMap=property.showingLeads||{};
+  const customLeads=property.customLeads||[];
   const setLead=(s,val)=>{const next={...leadMap};if(val)next[showingKey(s)]=val;else delete next[showingKey(s)];onUpdate(property.id,"showingLeads",next);};
   const mine=all.filter(s=>showingMatchesProperty(s.location||s.summary||"",property)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
   const cutoff=Date.now()-3600000;
@@ -1498,7 +1499,30 @@ function PropertyShowings({property,showings,onUpdate}){
     const ra=showingLeadRank(leadMap[showingKey(a)]),rb=showingLeadRank(leadMap[showingKey(b)]);
     return ra!==rb?ra-rb:b.ts-a.ts;
   });
+  const[showAdd,setShowAdd]=useState(false);
+  const[draft,setDraft]=useState({name:"",phone:""});
+  const addLead=()=>{const name=draft.name.trim(),phone=draft.phone.trim();if(!name&&!phone)return;onUpdate(property.id,"customLeads",[...customLeads,{id:Date.now(),name,phone,at:new Date().toISOString(),lead:""}]);setDraft({name:"",phone:""});setShowAdd(false);};
+  const removeLead=(id)=>onUpdate(property.id,"customLeads",customLeads.filter(l=>l.id!==id));
+  const setCustomStatus=(id,val)=>onUpdate(property.id,"customLeads",customLeads.map(l=>l.id===id?{...l,lead:val}:l));
   const actBtn={display:"inline-flex",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:T.radiusSm,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textDecoration:"none",whiteSpace:"nowrap"};
+  const leadSelect=(value,onChange,lead)=>(
+    <select value={value} onChange={onChange} style={{padding:"5px 9px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",border:`1px solid ${lead?lead.color:T.border}`,background:lead?lead.bg:"#fff",color:lead?lead.color:T.textSub}}>
+      <option value="">Set lead status…</option>
+      {SHOWING_LEADS.map(l=><option key={l.key} value={l.key}>{l.short}</option>)}
+    </select>
+  );
+  // Actions for one phone number — plain Text (no template) + the two templates.
+  const phoneActions=(ph,name)=>(
+    <div style={{marginTop:8}}>
+      <div style={{fontSize:12,color:T.textSub,marginBottom:5}}>{ph}</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
+        <a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a>
+        <a href={showingSms(ph,showingMessage("initial",name,address))} style={{...actBtn,background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"}}>Initial</a>
+        <a href={showingSms(ph,showingMessage("followup",name,address))} style={{...actBtn,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue}}>Follow-up</a>
+      </div>
+    </div>
+  );
   const Row=(s)=>{
     const phones=parseShowingPhones(s.phone);
     const leadKey=leadMap[showingKey(s)]||"";
@@ -1515,33 +1539,54 @@ function PropertyShowings({property,showings,onUpdate}){
           </div>
         )}
         {s.email&&<div><a href={`mailto:${s.email}`} style={{fontSize:12,color:T.textSub,textDecoration:"none"}}>{s.email}</a></div>}
-        <div style={{marginTop:8}}>
-          <select value={leadKey} onChange={e=>setLead(s,e.target.value)}
-            style={{padding:"5px 9px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",border:`1px solid ${lead?lead.color:T.border}`,background:lead?lead.bg:"#fff",color:lead?lead.color:T.textSub}}>
-            <option value="">Set lead status…</option>
-            {SHOWING_LEADS.map(l=><option key={l.key} value={l.key}>{l.short}</option>)}
-          </select>
-        </div>
-        {phones.map((ph,i)=>(
-          <div key={i} style={{marginTop:8}}>
-            <div style={{fontSize:12,color:T.textSub,marginBottom:5}}>{ph}</div>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
-              <a href={showingSms(ph,showingMessage("initial",s.agent,address))} style={{...actBtn,background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"}}>💬 Initial text</a>
-              <a href={showingSms(ph,showingMessage("followup",s.agent,address))} style={{...actBtn,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue}}>💬 Follow-up</a>
-            </div>
-          </div>
-        ))}
+        <div style={{marginTop:8}}>{leadSelect(leadKey,e=>setLead(s,e.target.value),lead)}</div>
+        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,s.agent)}</div>)}
         {!s.agent&&phones.length===0&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>}
       </div>
       {s.status&&<span style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",flexShrink:0,marginTop:3}}>{s.status}</span>}
     </div>
     );
   };
-  if(mine.length===0) return <Card><div style={{padding:"20px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No showings matched this property's address yet.</div></Card>;
+  const LeadRow=(l)=>{
+    const lead=SHOWING_LEADS.find(x=>x.key===l.lead);
+    const phones=parseShowingPhones(l.phone);
+    return(
+    <div key={l.id} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`,background:lead?lead.bg+"66":"transparent"}}>
+      <div style={{width:7,height:7,borderRadius:4,background:T.gold,flexShrink:0,marginTop:5}}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:14,fontWeight:600,color:T.text}}>{l.name||"(no name)"}</div>
+        <div style={{marginTop:8}}>{leadSelect(l.lead||"",e=>setCustomStatus(l.id,e.target.value),lead)}</div>
+        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,l.name)}</div>)}
+        {phones.length===0&&<div style={{fontSize:12,color:T.textTert,marginTop:6}}>No phone number.</div>}
+      </div>
+      <button onClick={()=>removeLead(l.id)} title="Remove lead" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+    </div>
+    );
+  };
+  const inpS={width:"100%",padding:"9px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(<>
     {upcoming.length>0&&<Card style={{marginBottom:12}}><GHeader label="Upcoming"/>{upcoming.map(Row)}</Card>}
-    {past.length>0&&<Card><GHeader label="Past"/>{past.slice(0,40).map(Row)}</Card>}
+    {past.length>0&&<Card style={{marginBottom:12}}><GHeader label="Past"/>{past.slice(0,40).map(Row)}</Card>}
+    {mine.length===0&&<Card style={{marginBottom:12}}><div style={{padding:"18px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No showings matched this property's address yet.</div></Card>}
+    {/* Custom leads you add by hand */}
+    <Card>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px 10px"}}>
+        <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.06em"}}>Leads you added</div>
+        {!showAdd&&<button onClick={()=>setShowAdd(true)} style={{padding:"5px 12px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add lead</button>}
+      </div>
+      {showAdd&&(
+        <div style={{padding:"6px 16px 12px",display:"flex",flexDirection:"column",gap:8,borderTop:`1px solid ${T.border}`}}>
+          <input autoFocus value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} placeholder="Name (agent or buyer)" style={inpS}/>
+          <input value={draft.phone} onChange={e=>setDraft(d=>({...d,phone:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addLead()} placeholder="Phone number" inputMode="tel" style={inpS}/>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <button onClick={()=>{setShowAdd(false);setDraft({name:"",phone:""});}} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Cancel</button>
+            <button onClick={addLead} disabled={!draft.name.trim()&&!draft.phone.trim()} style={{padding:"8px 18px",borderRadius:T.radiusSm,background:(draft.name.trim()||draft.phone.trim())?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Add lead</button>
+          </div>
+        </div>
+      )}
+      {customLeads.length===0&&!showAdd&&<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>Add a lead to call or text a buyer/agent who isn't in your ShowingTime feed.</div>}
+      {customLeads.map(LeadRow)}
+    </Card>
   </>);
 }
 // Count showings from the feed that match a property (used for headers/sorting).
@@ -1718,7 +1763,7 @@ function ShowingsPage(){
                 <button onClick={load} title="Refresh" style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻ Refresh</button>
               </div>
               <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
-                <PropertyShowings property={sel} showings={all} onUpdate={onUpdate}/>
+                <PropertyShowings key={sel.id} property={sel} showings={all} onUpdate={onUpdate}/>
                 <div style={{marginTop:12,fontSize:12,color:T.textTert,textAlign:"center"}}>Live from ShowingTime · matched by address</div>
               </div>
             </>

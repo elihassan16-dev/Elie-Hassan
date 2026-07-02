@@ -3039,20 +3039,35 @@ function AssigneeAvatar({name,size=24}){
 // <select> can't color options on iOS, and we want a Delete action in here).
 function TaskStatusPicker({value,onChange,onDelete}){
   const[open,setOpen]=useState(false);
+  const[pos,setPos]=useState({top:0,left:0});
+  const btnRef=useRef(null);
   const sc=TASK_STATUS_COLORS[value]||TASK_STATUS_COLORS["Not Started"];
+  const MENU_W=160,MENU_H=250;
+  const openMenu=()=>{
+    const r=btnRef.current?.getBoundingClientRect();
+    const vw=typeof window!=="undefined"?window.innerWidth:360;
+    const vh=typeof window!=="undefined"?window.innerHeight:640;
+    if(r){
+      const left=Math.max(8,Math.min(r.right-MENU_W,vw-MENU_W-8));
+      const top=(r.bottom+MENU_H>vh)?Math.max(8,r.top-MENU_H-4):r.bottom+4; // flip up near bottom
+      setPos({top,left});
+    }
+    setOpen(true);
+  };
   return(
-    <div style={{position:"relative",flexShrink:0}}>
-      <button onClick={()=>setOpen(o=>!o)} style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
+    <div style={{flexShrink:0}}>
+      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
       {open&&(<>
+        {/* fixed positioning so the menu isn't clipped by the property card's overflow:hidden */}
         <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:290}}/>
-        <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,zIndex:300,background:"#fff",border:`1px solid ${T.border}`,borderRadius:T.radiusSm,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",padding:4,minWidth:150}}>
+        <div style={{position:"fixed",top:pos.top,left:pos.left,width:MENU_W,zIndex:300,background:"#fff",border:`1px solid ${T.border}`,borderRadius:T.radiusSm,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",padding:4,maxHeight:MENU_H,overflowY:"auto"}}>
           {TASK_STATUSES.map(s=>{const c=TASK_STATUS_COLORS[s];return(
-            <button key={s} onClick={()=>{onChange(s);setOpen(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:7,border:"none",background:s===value?c.bg:"transparent",color:c.color,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+            <button key={s} onClick={()=>{onChange(s);setOpen(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:7,border:"none",background:s===value?c.bg:"transparent",color:c.color,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
               <span style={{width:8,height:8,borderRadius:"50%",background:c.color,flexShrink:0}}/>{s}
             </button>
           );})}
           <div style={{borderTop:`1px solid ${T.border}`,margin:"4px 6px"}}/>
-          <button onClick={()=>{setOpen(false);onDelete();}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:7,border:"none",background:"transparent",color:T.red,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>🗑 Delete</button>
+          <button onClick={()=>{setOpen(false);onDelete();}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:7,border:"none",background:"transparent",color:T.red,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>🗑 Delete</button>
         </div>
       </>)}
     </div>
@@ -3188,6 +3203,15 @@ function TasksPage(){
     setSharedProps(prev=>prev.map(p=>{
       const keep=(p.tasks||[]).filter(tk=>!selectedKeys.has(`${p.id}:${tk.id}`));
       return keep.length===(p.tasks||[]).length?p:{...p,tasks:keep};
+    }));
+    setSelectedKeys(new Set());setSelectMode(false);
+  }
+  function setSelectedStatus(status){
+    if(selectedKeys.size===0)return;
+    setSharedProps(prev=>prev.map(p=>{
+      let changed=false;
+      const tasks=(p.tasks||[]).map(tk=>{if(selectedKeys.has(`${p.id}:${tk.id}`)){changed=true;return {...tk,status};}return tk;});
+      return changed?{...p,tasks}:p;
     }));
     setSelectedKeys(new Set());setSelectMode(false);
   }
@@ -3483,13 +3507,18 @@ function TasksPage(){
               <div style={{marginLeft:"auto",fontSize:12,color:T.textSub}}>{filteredDisplay.length} tasks</div>
             </div>}
 
-            {/* Select / bulk-delete toolbar */}
+            {/* Select / bulk-actions toolbar */}
             {filteredDisplay.length>0&&(
-              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap"}}>
                 {!selectMode
                   ? <button onClick={()=>setSelectMode(true)} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>☑ Select</button>
                   : <>
                       <span style={{fontSize:13,fontWeight:600,color:T.text}}>{selectedKeys.size} selected</span>
+                      <select value="" onChange={e=>{if(e.target.value)setSelectedStatus(e.target.value);}} disabled={selectedKeys.size===0}
+                        style={{padding:"6px 10px",borderRadius:20,border:`1px solid ${T.border}`,background:selectedKeys.size?T.card:T.bg,color:selectedKeys.size?T.text:T.textTert,fontSize:12,fontWeight:600,cursor:selectedKeys.size?"pointer":"default",fontFamily:"inherit",outline:"none"}}>
+                        <option value="">Mark as…</option>
+                        {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+                      </select>
                       <button onClick={deleteSelected} disabled={selectedKeys.size===0} style={{padding:"6px 14px",borderRadius:20,border:"none",background:selectedKeys.size?T.red:T.border,color:"#fff",fontSize:12,fontWeight:700,cursor:selectedKeys.size?"pointer":"default",fontFamily:"inherit"}}>🗑 Delete</button>
                       <button onClick={()=>{setSelectMode(false);setSelectedKeys(new Set());}} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
                     </>}

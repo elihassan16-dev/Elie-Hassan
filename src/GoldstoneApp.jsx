@@ -3073,13 +3073,13 @@ function TaskRow({t,onStatusChange,onDelete,onContact}){
 }
 
 // Compact multi-select dropdown — tap to open a checklist, pick as many as you want.
-function MultiSelect({placeholder,options,selected,onToggle}){
+function MultiSelect({placeholder,options,selected,onToggle,style}){
   const[open,setOpen]=useState(false);
   const arr=[...selected];
   const labelFor=(v)=>options.find(o=>o.value===v)?.label||v;
   const summary=arr.length===0?placeholder:arr.length===1?labelFor(arr[0]):`${arr.length} selected`;
   return(
-    <div style={{position:"relative",flex:1,minWidth:0}}>
+    <div style={{position:"relative",flex:1,minWidth:0,...style}}>
       <button onClick={()=>setOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,padding:"9px 10px",borderRadius:T.radiusSm,border:`1px solid ${arr.length?T.gold:T.border}`,background:arr.length?T.goldLight:T.bg,color:arr.length?T.gold:T.text,fontSize:13,fontWeight:arr.length?700:400,cursor:"pointer",fontFamily:"inherit",textAlign:"left",boxSizing:"border-box"}}>
         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{summary}</span>
         <span style={{fontSize:11,flexShrink:0,opacity:0.7}}>▾</span>
@@ -3110,7 +3110,7 @@ function TasksPage(){
   const[filterMember,setFilterMember]=useState("");
   useEffect(()=>{ if(!filterMember && TEAM_MEMBERS.length) setFilterMember(TEAM_MEMBERS[0]); },[TEAM_MEMBERS,filterMember]);
   const[confirmDeleteProp,setConfirmDeleteProp]=useState(null);
-  const[filterProp,setFilterProp]=useState("");
+  const[filterProps,setFilterProps]=useState(new Set()); // empty = all properties
   const[taskContactTarget,setTaskContactTarget]=useState(null);
   const[contactSearch,setContactSearch]=useState(""); // the task we're setting a contact for
 
@@ -3153,7 +3153,9 @@ function TasksPage(){
     :[...new Map(baseViews.flatMap(v=>v==="my"?myTasks:v==="assigned"?assignedByMe:v==="member"?memberTasks:v==="unassigned"?unassignedTasks:[])
         .map(t=>[`${t.propId}-${t.cat}-${t.text}`,t])).values()];
   const displayTasks=combined.filter(t=>statusFilter.size===0||statusFilter.has(t.status));
-  const filteredDisplay=filterProp?displayTasks.filter(t=>t.propAddr===filterProp):displayTasks;
+  const filteredDisplay=filterProps.size?displayTasks.filter(t=>filterProps.has(t.propAddr)):displayTasks;
+  const togglePropFilter=(a)=>setFilterProps(p=>{const n=new Set(p);n.has(a)?n.delete(a):n.add(a);return n;});
+  const propOptions=[...new Set(allTasks.map(t=>t.propAddr))].sort().map(a=>({value:a,label:a}));
   const showAutomations=views.has("automations");
 
   const bdr=`1px solid ${T.border}`;
@@ -3236,10 +3238,7 @@ function TasksPage(){
                   options={TASK_STATUSES.map(s=>({value:s,label:s}))}/>
               </div>
               <div style={{display:"flex",gap:8}}>
-                <select value={filterProp} onChange={e=>setFilterProp(e.target.value)} style={selStyle}>
-                  <option value="">All Properties</option>
-                  {[...new Set(allTasks.map(t=>t.propAddr))].sort().map(a=><option key={a} value={a}>{a}</option>)}
-                </select>
+                <MultiSelect placeholder="All Properties" selected={filterProps} onToggle={togglePropFilter} options={propOptions}/>
                 {views.has("member")&&(
                   <select value={filterMember} onChange={e=>setFilterMember(e.target.value)} style={selStyle}>
                     {TEAM_MEMBERS.map(m=><option key={m}>{m}</option>)}
@@ -3377,12 +3376,8 @@ function TasksPage(){
                   {TEAM_MEMBERS.map(m=><option key={m}>{m}</option>)}
                 </select>
               )}
-              {/* Property filter */}
-              <select value={filterProp} onChange={e=>setFilterProp(e.target.value)}
-                style={{padding:"7px 12px",borderRadius:T.radiusSm,border:bdr,background:T.card,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit",maxWidth:220}}>
-                <option value="">All Properties</option>
-                {[...new Set(allTasks.map(t=>t.propAddr))].sort().map(a=><option key={a} value={a}>{a}</option>)}
-              </select>
+              {/* Property filter (multi-select) */}
+              <MultiSelect placeholder="All Properties" selected={filterProps} onToggle={togglePropFilter} options={propOptions} style={{flex:"0 0 auto",width:220}}/>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 {TASK_STATUSES.map(s=>{
                   const sc=TASK_STATUS_COLORS[s];

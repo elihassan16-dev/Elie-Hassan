@@ -309,11 +309,11 @@ const ICONS={
 const NAV=[
   {key:"tasks",label:"Tasks",short:"Tasks",icon:ICONS.tasks},
   {key:"messages",label:"Messages",short:"Messages",icon:ICONS.messages},
-  {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
   {key:"portfolio",label:"Portfolio Overview",short:"Portfolio",icon:ICONS.portfolio},
   {key:"leads",label:"New Leads",short:"Leads",icon:ICONS.leads},
   {key:"properties",label:"Properties",short:"Properties",icon:ICONS.properties},
   {key:"calendar",label:"Calendar",short:"Calendar",icon:ICONS.calendar},
+  {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
   {key:"contacts",label:"Contacts",short:"Contacts",icon:ICONS.contacts},
 ];
 

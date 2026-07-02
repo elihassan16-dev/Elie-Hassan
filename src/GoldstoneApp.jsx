@@ -3517,19 +3517,54 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
   );
 }
 
+// ─── Profile modal — set your display name (used everywhere you're assigned) ──
+function ProfileModal({current,onSave,onClose}){
+  const[name,setName]=useState(current||"");
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
+  const save=async()=>{
+    if(!name.trim())return;
+    setBusy(true);setErr("");
+    const e=await onSave(name.trim());
+    setBusy(false);
+    if(e)setErr(e.message||"Couldn't save your name.");else onClose();
+  };
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(400px,96vw)",boxShadow:"0 12px 48px rgba(0,0,0,0.25)",overflow:"hidden"}}>
+        <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:17,fontWeight:700,color:T.text}}>Your name</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{padding:20}}>
+          <div style={{fontSize:12,color:T.textSub,marginBottom:12}}>This is the name teammates see and how tasks are assigned to you. Use your real name (not your email).</div>
+          <input autoFocus value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&save()} placeholder="e.g. Elie"
+            style={{width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:15,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+          {err&&<div style={{marginTop:10,color:T.red,fontSize:13}}>{err}</div>}
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:18}}>
+            <button onClick={onClose} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
+            <button onClick={save} disabled={busy||!name.trim()} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:busy?"default":"pointer",fontFamily:"inherit",fontSize:14,opacity:busy||!name.trim()?0.6:1}}>{busy?"Saving…":"Save"}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App Shell ────────────────────────────────────────────────────────────────
 // Members only see Tasks + Properties; admins see the full nav.
 const MEMBER_KEYS = new Set(["tasks","properties"]);
 
 export function GoldstoneShell(){
   const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError } = useData();
-  const { displayName, role, isAdmin, signOut } = useAuth();
+  const { displayName, role, isAdmin, signOut, updateName } = useAuth();
   const isMobile = useIsMobile();
 
   const navItems = isAdmin ? NAV : NAV.filter(n=>MEMBER_KEYS.has(n.key));
   const[active,setActive]=useState(isAdmin?"properties":"tasks");
   const[navPropId,setNavPropId]=useState(null);
   const[showSettings,setShowSettings]=useState(false);
+  const[showProfile,setShowProfile]=useState(false);
   useEffect(()=>{ if(!navItems.find(n=>n.key===active)) setActive(navItems[0]?.key||"tasks"); },[navItems,active]);
 
   // Archive / restore / permanent-delete helpers.
@@ -3603,7 +3638,7 @@ export function GoldstoneShell(){
         </nav>
         <div style={{padding:"14px 16px",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:"#fff",flexShrink:0}}>{initials}</div>
-          <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{displayName}</div><div style={{fontSize:11,color:T.textSub,textTransform:"capitalize"}}>{role}</div></div>
+          <button onClick={()=>setShowProfile(true)} title="Edit your name" style={{flex:1,minWidth:0,textAlign:"left",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{displayName} <span style={{color:T.textTert,fontWeight:400}}>✎</span></div><div style={{fontSize:11,color:T.textSub,textTransform:"capitalize"}}>{role}</div></button>
           <button onClick={signOut} title="Sign out" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,padding:"6px 10px"}}>Sign out</button>
         </div>
       </aside>
@@ -3615,6 +3650,7 @@ export function GoldstoneShell(){
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             {!isMobile&&<div style={{fontSize:13,color:T.textSub}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>}
+            {isMobile&&<button onClick={()=>setShowProfile(true)} title="Edit your name" aria-label="Your profile" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:15,padding:"5px 9px",lineHeight:1}}>👤</button>}
             {isAdmin&&<button onClick={()=>setShowSettings(true)} title="Settings" aria-label="Settings" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:15,padding:"5px 9px",lineHeight:1}}>⚙</button>}
             {isMobile&&<button onClick={signOut} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,padding:"6px 10px"}}>Sign out</button>}
           </div>
@@ -3633,6 +3669,7 @@ export function GoldstoneShell(){
         </nav>
       )}
       {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}/>}
+      {showProfile&&<ProfileModal current={displayName} onSave={updateName} onClose={()=>setShowProfile(false)}/>}
     </div>
   );
 }

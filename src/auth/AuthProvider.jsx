@@ -58,6 +58,16 @@ export function AuthProvider({ children }) {
   );
   const signOut = useCallback(() => supabase.auth.signOut(), []);
 
+  // Let a user set their own display name (RLS allows updating your own users row).
+  const updateName = useCallback(async (name) => {
+    const clean = (name || "").trim();
+    if (!clean || !session?.user) return { message: "Enter a name." };
+    await supabase.auth.updateUser({ data: { name: clean } }); // keep auth metadata in sync
+    const { error } = await supabase.from("users").update({ name: clean }).eq("id", session.user.id);
+    if (!error) setProfile((p) => (p ? { ...p, name: clean } : p));
+    return error;
+  }, [session]);
+
   const value = {
     session,
     user: session?.user || null,
@@ -68,6 +78,7 @@ export function AuthProvider({ children }) {
     loading,
     signIn,
     signOut,
+    updateName,
   };
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;

@@ -2522,14 +2522,11 @@ function PropDetail({property,onUpdate,onArchive}){
         {tab==="Tasks"&&(()=>{
           const allTasks=property.tasks||[];
           const tasks=allTasks.filter(t=>!t.deleted);
-          const upT=(id,field,val)=>onUpdate(property.id,"tasks",allTasks.map(t=>t.id===id?{...t,[field]:val}:t));
-          const delT=(id)=>onUpdate(property.id,"tasks",allTasks.filter(t=>t.id!==id));
           const done=tasks.filter(t=>t.status==="Completed").length;
           const inProg=tasks.filter(t=>t.status==="In Progress").length;
           const na=tasks.filter(t=>t.status==="N/A").length;
           const total=tasks.length;
           const pct=total>0?Math.round((done/total)*100):0;
-          const members=TEAM_MEMBERS&&TEAM_MEMBERS.length?TEAM_MEMBERS:CONTACTS.map(c=>c.name);
           return(
             <div style={{padding:24}}>
               {/* Progress bar */}
@@ -2548,37 +2545,7 @@ function PropDetail({property,onUpdate,onArchive}){
                 </div>
               </div>
 
-              <Card>
-                <GHeader label="Tasks"/>
-                <div style={{padding:"4px 16px 16px",display:"flex",flexDirection:"column",gap:8}}>
-                  {tasks.length===0&&<div style={{textAlign:"center",padding:"20px 8px",color:T.textTert,fontSize:13}}>No tasks yet. Add one below, or set up a rule in <strong>Settings → Automations</strong> to create tasks automatically when a property reaches a status.</div>}
-                  {tasks.map(task=>{
-                    const sc=TASK_STATUS_COLORS[task.status]||TASK_STATUS_COLORS["Not Started"];
-                    return(
-                      <div key={task.id} style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",gap:isMobile?6:10,background:T.bg,borderRadius:T.radiusSm,padding:isMobile?"8px 10px":"10px 12px"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-                          <select value={task.status||"Not Started"} onChange={e=>upT(task.id,"status",e.target.value)}
-                            style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0}}>
-                            {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-                          </select>
-                          <input style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",fontSize:13,color:task.status==="Completed"?T.textTert:T.text,textDecoration:task.status==="Completed"?"line-through":"none",fontFamily:"inherit"}} value={task.text} onChange={e=>upT(task.id,"text",e.target.value)} placeholder="Task description…"/>
-                          {task.autoId&&<span title="Created by an automation rule" style={{fontSize:9,fontWeight:700,background:T.gold,color:"#fff",borderRadius:10,padding:"2px 7px",textTransform:"uppercase",flexShrink:0}}>auto</span>}
-                          {isMobile&&<button onClick={()=>delT(task.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:18,flexShrink:0,lineHeight:1}}>×</button>}
-                        </div>
-                        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,paddingLeft:isMobile?2:0}}>
-                          <select value={task.assignee||""} onChange={e=>upT(task.id,"assignee",e.target.value)}
-                            style={{fontSize:12,color:T.textSub,background:isMobile?"#fff":"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 7px",cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0,maxWidth:isMobile?200:120}}>
-                            <option value="">Unassigned</option>
-                            {members.map(m=><option key={m} value={m}>{m}</option>)}
-                          </select>
-                          {!isMobile&&<button onClick={()=>delT(task.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:18,flexShrink:0,lineHeight:1}}>×</button>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <button onClick={addTask} style={{marginTop:4,padding:"10px",borderRadius:T.radiusSm,background:"transparent",border:`1.5px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontSize:14,fontFamily:"inherit",fontWeight:500}}>+ Add Task</button>
-                </div>
-              </Card>
+              <PropertyTaskList property={property}/>
             </div>
           );
         })()}
@@ -3680,6 +3647,99 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
         )}
       </div>
     </div>
+  );
+}
+
+// The full task list for ONE property — identical rows/graphics/options to the Tasks
+// tab (status picker, owner→delegate avatars, delegate "to/for" tags, contact 👤 and
+// message 💬 buttons, assign & delegate popup). Reused inside the property detail so
+// both places behave exactly the same. Writes go through setSharedProps like the Tasks tab.
+function PropertyTaskList({property}){
+  const { sharedProps, setSharedProps, contacts:CONTACTS, setContacts, flushContacts, teamMembers:TEAM_MEMBERS, currentUser:CURRENT_USER } = useData();
+  const dir=CONTACTS.map(normContact);
+  const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
+  const propId=property.id;
+  const live=sharedProps.find(p=>p.id===propId)||property;
+  const propAddr=(live.address||"")+(live.city?`, ${live.city}`:"");
+  const tasks=(live.tasks||[]).filter(t=>!t.deleted);
+  const rows=tasks.map(t=>({propId,propAddr,propStatus:live.status,...t}));
+  const[contactTarget,setContactTarget]=useState(null);
+  const[msgTarget,setMsgTarget]=useState(null);
+  const[assignTarget,setAssignTarget]=useState(null);
+
+  const updateTaskStatus=(pid,tid,status)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===tid?{...t,status}:t)}));
+  const deleteTask=(pid,tid)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).filter(t=>t.id!==tid)}));
+  const setTaskContact=(pid,tid,contact)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,taskContact:contact})}));
+  const setTaskRole=(pid,tid,role,member)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>{
+    if(tk.id!==tid)return tk;
+    if(role==="owner"){ if(!member)return {...tk,assignee:"",delegate:""}; return {...tk,assignee:member,delegate:tk.delegate===member?"":tk.delegate}; }
+    if(!member)return {...tk,delegate:""};
+    return {...tk,delegate:member===tk.assignee?"":member};
+  })}));
+  const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}; if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); };
+  const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
+  useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+  const addTask=(text)=>{const t=(text||"").trim();if(!t)return;setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER}]}));};
+
+  return(
+    <>
+      {/* Task contact card */}
+      {contactTarget&&(()=>{ const lt=(sharedProps.find(p=>p.id===contactTarget.propId)?.tasks||[]).find(tk=>tk.id===contactTarget.id)||contactTarget; return <TaskContactCard task={lt} contacts={dir} onAssign={(val)=>setTaskContact(contactTarget.propId,lt.id,val)} onCreateContact={addContactToDir} onClose={()=>setContactTarget(null)}/>; })()}
+      {/* Task messages popup */}
+      {msgTarget&&(()=>{ const lt=(sharedProps.find(p=>p.id===msgTarget.propId)?.tasks||[]).find(tk=>tk.id===msgTarget.id); return <TaskMessagesPopup title={msgTarget.text||"Task"} messages={lt?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={(txt,att,mn)=>addTaskMessage(msgTarget.propId,msgTarget.id,txt,att,mn)} onClose={()=>setMsgTarget(null)}/>; })()}
+      {/* Assign / delegate popup — owner (original) + optional delegate */}
+      {assignTarget&&(()=>{
+        const liveTask=(sharedProps.find(p=>p.id===assignTarget.propId)?.tasks||[]).find(tk=>tk.id===assignTarget.id)||assignTarget;
+        const owner=liveTask.assignee||"";
+        const delegate=liveTask.delegate||"";
+        const memberRow=(m,active,onClick,color)=>(
+          <div key={m} onClick={onClick} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",cursor:"pointer",background:active?T.goldLight:"transparent"}}
+            onMouseEnter={e=>e.currentTarget.style.background=active?T.goldLight:"#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background=active?T.goldLight:"transparent"}>
+            <AssigneeAvatar name={m} size={28}/>
+            <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:600,color:T.text}}>{m}{m===CURRENT_USER?" (you)":""}</div>
+            {active&&<span style={{fontSize:12,color:color||T.gold,fontWeight:700}}>✓</span>}
+          </div>
+        );
+        const secHdr=(t)=><div style={{padding:"10px 16px 4px",fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>{t}</div>;
+        return(
+        <div onClick={()=>setAssignTarget(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(380px,94vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+            <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight}}>
+              <div style={{fontSize:13,fontWeight:700,color:T.gold}}>Assign &amp; delegate</div>
+              <button onClick={()=>setAssignTarget(null)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+            <div style={{padding:"10px 16px 2px",fontSize:11,color:T.textSub,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Task: {liveTask.text}</div>
+            <div style={{overflowY:"auto"}}>
+              {secHdr("Assigned to (owner)")}
+              {TEAM_MEMBERS.map(m=>memberRow(m,owner===m,()=>setTaskRole(assignTarget.propId,assignTarget.id,"owner",owner===m?"":m)))}
+              {owner&&<div onClick={()=>setTaskRole(assignTarget.propId,assignTarget.id,"owner","")} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",cursor:"pointer"}}>
+                <span style={{width:28,height:28,borderRadius:"50%",border:`1px dashed ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.textTert,fontSize:15,flexShrink:0}}>×</span>
+                <div style={{fontSize:13,fontWeight:600,color:T.red}}>Unassign</div>
+              </div>}
+              {owner&&<>
+                <div style={{borderTop:`1px solid ${T.border}`,marginTop:4}}/>
+                {secHdr("Delegate to (optional)")}
+                {TEAM_MEMBERS.filter(m=>m!==owner).map(m=>memberRow(m,delegate===m,()=>setTaskRole(assignTarget.propId,assignTarget.id,"delegate",delegate===m?"":m),T.blue))}
+                {delegate&&<div onClick={()=>setTaskRole(assignTarget.propId,assignTarget.id,"delegate","")} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",cursor:"pointer"}}>
+                  <span style={{width:28,height:28,borderRadius:"50%",border:`1px dashed ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.textTert,fontSize:15,flexShrink:0}}>×</span>
+                  <div style={{fontSize:13,fontWeight:600,color:T.textSub}}>Remove delegate</div>
+                </div>}
+              </>}
+            </div>
+            <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end"}}>
+              <button onClick={()=>setAssignTarget(null)} style={{padding:"9px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Done</button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+      {/* Rows — same TaskRow as the Tasks tab */}
+      <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
+        {rows.length===0&&<div style={{padding:"22px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No tasks yet. Add one below, or set up a rule in <strong>Settings → Automations</strong> to create tasks automatically.</div>}
+        {rows.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onDelete={deleteTask} onContact={setContactTarget} onMessage={setMsgTarget} onAssign={setAssignTarget} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
+        <AddTaskInline onAdd={addTask}/>
+      </div>
+    </>
   );
 }
 // ─── Tasks Page ───────────────────────────────────────────────────────────────

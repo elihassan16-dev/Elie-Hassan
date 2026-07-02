@@ -5523,6 +5523,19 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
         <div style={{flex:1}}><div style={finLabel}>Payback date</div><input type="date" value={paybackDate} onChange={e=>setPaybackDate(e.target.value)} style={finInput}/></div>
       </div>
       <div style={{fontSize:11,color:T.textTert,marginTop:-4}}>Leave payback empty while the loan is open — interest accrues to today.</div>
+      {(()=>{
+        const a=Number(numIn(amount));const prev={amount:a,dateFunded,paybackDate:paybackDate||null};
+        const days=drawDays(prev);const int=drawInterest(prev);
+        if(!a||!dateFunded)return null;
+        const bad=(!!paybackDate&&new Date(paybackDate)<new Date(dateFunded));
+        return(
+          <div style={{background:bad?"#FFF0EF":T.goldLight,border:`1px solid ${bad?T.red:T.gold}`,borderRadius:10,padding:"10px 12px"}}>
+            <div style={{fontSize:13,color:bad?T.red:"#8a6d1f"}}><b>{days} day{days===1?"":"s"}</b> {paybackDate?"(funded → payback)":"(accruing to today)"} · interest <b>{fmtD(int)}</b> @ 15%/yr</div>
+            <div style={{fontSize:12,color:bad?T.red:"#8a6d1f",marginTop:2}}>Payoff (principal + interest): <b>{fmtD(a+int)}</b></div>
+            {bad&&<div style={{fontSize:11,color:T.red,marginTop:3,fontWeight:600}}>Payback date is before the funded date — check the years.</div>}
+          </div>
+        );
+      })()}
       <div><div style={finLabel}>Note</div><input value={note} onChange={e=>setNote(e.target.value)} placeholder="Optional (e.g. rehab draw, refi proceeds)" style={finInput}/></div>
     </FinModal>
   );

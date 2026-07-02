@@ -4002,10 +4002,11 @@ function PropertyFilesPanel(){
   return(
     <div>
       <div style={{fontSize:12,color:T.textSub,marginBottom:12,lineHeight:1.55}}>Paste the <strong>Copy link</strong> to your <strong>Flips</strong> folder (the one whose subfolders are your properties). I'll scan its subfolders and match each property to its folder by address — then every property's <strong>Files</strong> tab opens automatically. You only do this once.</div>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:6}}>
         <input value={link} onChange={e=>setLink(e.target.value)} placeholder="https://…sharepoint.com/…/Flips" style={{...inp,flex:1,minWidth:220}}/>
         {goldBtn(scanning?"Scanning…":"Scan & match",scan,scanning)}
       </div>
+      <div style={{fontSize:11,color:T.textTert,marginBottom:12}}>If a Microsoft sign-in appears when you scan, finish it — your link is saved, so just reopen this tab and tap <strong>Scan &amp; match</strong> again.</div>
       {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
       {result&&(
         <div>

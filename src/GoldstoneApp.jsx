@@ -1659,7 +1659,13 @@ function ShowingsPage(){
             <div style={{fontSize:15,fontWeight:700,color:T.text}}>Showings</div>
             <div style={{fontSize:12.5,color:T.textSub,marginTop:2}}>{totalUpcoming} upcoming · {onMarket.length} propert{onMarket.length===1?"y":"ies"} on market</div>
           </div>
-          <button onClick={load} style={{marginLeft:"auto",padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻ Refresh</button>
+          <div style={{marginLeft:"auto",display:"flex",gap:8,flexShrink:0}}>
+            {onMarket.length>0&&(()=>{
+              const allExpanded=onMarket.every(({p,total})=>collapsed[p.id]!==undefined?!collapsed[p.id]:total>0);
+              return <button onClick={()=>setCollapsed(Object.fromEntries(onMarket.map(x=>[x.p.id,allExpanded])))} style={{padding:"7px 14px",borderRadius:T.radiusSm,background:"transparent",color:T.textSub,border:`1px solid ${T.border}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{allExpanded?"Collapse all":"Expand all"}</button>;
+            })()}
+            <button onClick={load} style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻ Refresh</button>
+          </div>
         </div>
         {loading&&<div style={{color:T.textSub,fontSize:14,padding:12}}>Loading showings…</div>}
         {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}

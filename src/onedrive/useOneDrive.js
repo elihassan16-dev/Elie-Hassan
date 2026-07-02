@@ -72,7 +72,10 @@ export function useOneDrive() {
   // Resolve a OneDrive/SharePoint folder share link into a driveItem (+ children).
   const resolveShareLink = useCallback(async (url) => {
     const shareId = encodeShareUrl(url);
-    const item = await graph(`/shares/${shareId}/driveItem?$expand=children($top=500)`);
+    // $top isn't allowed inside $expand on this endpoint ("Can only provide expand
+    // and select for expand options"), so expand children plainly. Callers that need
+    // the full list fall back to listChildren (which pages with $top).
+    const item = await graph(`/shares/${shareId}/driveItem?$expand=children`);
     const driveId = item.parentReference?.driveId || item.remoteItem?.parentReference?.driveId;
     return { driveId, id: item.id, name: item.name, webUrl: item.webUrl, children: item.children || [] };
   }, [graph]);

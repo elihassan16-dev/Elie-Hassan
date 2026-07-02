@@ -3931,6 +3931,113 @@ function AutomationsPanel(){
     </div>
   );
 }
+// Score how well a folder name matches a property address (house # must match).
+const folderMatchScore=(name,p)=>{
+  const addr=`${p.address||""} ${p.city||""}`;
+  const hn=qbHouseNum(addr),fhn=qbHouseNum(name||"");
+  if(!hn||!fhn||hn!==fhn)return 0;
+  const pw=new Set(qbStreetWords(addr));
+  return 10+qbStreetWords(name||"").filter(w=>pw.has(w)).length;
+};
+// Recursively collect folders under a base folder (bounded depth + count).
+async function gatherFolders(od,driveId,itemId,depth,acc){
+  if(depth>3||acc.length>800)return;
+  let kids=[];
+  try{kids=await od.listChildren(driveId,itemId);}catch{return;}
+  for(const k of kids){
+    if(k.folder){
+      acc.push({driveId,id:k.id,name:k.name});
+      await gatherFolders(od,driveId,k.id,depth+1,acc);
+    }
+  }
+}
+// Settings → Property Files: set the "Flips" base folder once, auto-match every
+// property to its subfolder by address, and fill in each property's Files tab.
+function PropertyFilesPanel(){
+  const { sharedProps, setSharedProps } = useData();
+  const { prefs, savePrefs } = useAuth();
+  const od=useOneDrive();
+  const props=sharedProps.filter(p=>!p.archived);
+  const[link,setLink]=useState(prefs.filesBaseLink||"");
+  const[scanning,setScanning]=useState(false);
+  const[error,setError]=useState("");
+  const[result,setResult]=useState(null);
+  const[applied,setApplied]=useState(0);
+  const scan=async()=>{
+    const url=link.trim();
+    if(!url){setError("Paste the link to your Flips folder first.");return;}
+    setScanning(true);setError("");setResult(null);setApplied(0);
+    try{
+      await savePrefs({filesBaseLink:url});
+      const root=await od.resolveShareLink(url);
+      if(!root.driveId){setError("Couldn't open that link. Use a SharePoint/OneDrive 'Copy link' URL to the Flips folder.");setScanning(false);return;}
+      const folders=[];
+      await gatherFolders(od,root.driveId,root.id,0,folders);
+      const matched=[],unmatched=[];
+      props.forEach(p=>{
+        let best=null,bestScore=0;
+        folders.forEach(f=>{const s=folderMatchScore(f.name,p);if(s>bestScore){bestScore=s;best=f;}});
+        if(best)matched.push({p,folder:best});else unmatched.push(p);
+      });
+      setResult({matched,unmatched,folderCount:folders.length});
+    }catch(e){setError(e.message||"Scan failed.");}
+    setScanning(false);
+  };
+  const apply=()=>{
+    if(!result)return;
+    const map=new Map(result.matched.map(m=>[m.p.id,m.folder]));
+    setSharedProps(prev=>prev.map(p=>{const f=map.get(p.id);return f?{...p,filesFolder:{driveId:f.driveId,id:f.id,name:f.name},filesShareLink:""}:p;}));
+    setApplied(result.matched.length);
+  };
+  const inp={width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  const goldBtn=(txt,onClick,disabled)=><button onClick={onClick} disabled={disabled} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:disabled?T.border:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:disabled?"default":"pointer",fontFamily:"inherit"}}>{txt}</button>;
+  if(!od.ready)return <div style={{fontSize:13,color:T.textSub}}>Connecting to Microsoft…</div>;
+  if(!od.isConnected)return(
+    <div>
+      <div style={{fontSize:13,color:T.textSub,marginBottom:14,lineHeight:1.5}}>Sign in with your Microsoft account to connect your SharePoint files.</div>
+      {goldBtn("Connect Microsoft",()=>od.signIn().catch(e=>setError(e.message)))}
+      {error&&<div style={{marginTop:12,color:T.red,fontSize:13}}>{error}</div>}
+    </div>
+  );
+  return(
+    <div>
+      <div style={{fontSize:12,color:T.textSub,marginBottom:12,lineHeight:1.55}}>Paste the <strong>Copy link</strong> to your <strong>Flips</strong> folder (the one whose subfolders are your properties). I'll scan its subfolders and match each property to its folder by address — then every property's <strong>Files</strong> tab opens automatically. You only do this once.</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+        <input value={link} onChange={e=>setLink(e.target.value)} placeholder="https://…sharepoint.com/…/Flips" style={{...inp,flex:1,minWidth:220}}/>
+        {goldBtn(scanning?"Scanning…":"Scan & match",scan,scanning)}
+      </div>
+      {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
+      {result&&(
+        <div>
+          <div style={{fontSize:13,color:T.text,fontWeight:600,marginBottom:4}}>Matched {result.matched.length} of {props.length} properties <span style={{color:T.textTert,fontWeight:400}}>· scanned {result.folderCount} folders</span></div>
+          {applied>0
+            ? <div style={{margin:"10px 0",padding:"10px 12px",background:"#EDFBF1",border:`1px solid ${T.green}`,borderRadius:T.radiusSm,color:"#15803D",fontSize:13,fontWeight:600}}>✓ Applied to {applied} propert{applied===1?"y":"ies"} — their Files tabs now open the matched folder.</div>
+            : <div style={{margin:"10px 0"}}>{goldBtn(`Apply to ${result.matched.length} propert${result.matched.length===1?"y":"ies"}`,apply,result.matched.length===0)}</div>}
+          <div style={{maxHeight:260,overflowY:"auto",border:`1px solid ${T.border}`,borderRadius:12}}>
+            {result.matched.map(({p,folder})=>(
+              <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:`1px solid ${T.border}`}}>
+                <span style={{fontSize:14}}>📁</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}{p.city?`, ${p.city}`:""}</div>
+                  <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {folder.name}</div>
+                </div>
+                <span style={{fontSize:12,color:T.green,fontWeight:700}}>✓</span>
+              </div>
+            ))}
+            {result.unmatched.map(p=>(
+              <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:`1px solid ${T.border}`,opacity:0.7}}>
+                <span style={{fontSize:14}}>❓</span>
+                <div style={{flex:1,minWidth:0,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}{p.city?`, ${p.city}`:""}</div>
+                <span style={{fontSize:11,color:T.textTert}}>no folder found</span>
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:11,color:T.textTert,marginTop:8}}>Unmatched properties keep whatever folder you set manually. Re-scan anytime you add properties or folders.</div>
+        </div>
+      )}
+    </div>
+  );
+}
 function SettingsModal({archived,onRestore,onDelete,onClose}){
   const[section,setSection]=useState("archived");
   const fmtAddr=(p)=>`${p.address}${p.city?`, ${p.city}`:""}${p.state?`, ${p.state}`:""}${p.zip?` ${p.zip}`:""}`;
@@ -3944,9 +4051,10 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
           <div style={{fontSize:17,fontWeight:700,color:T.text}}>Settings</div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
-        <div style={{padding:"12px 20px 0",display:"flex",gap:8}}>
+        <div style={{padding:"12px 20px 0",display:"flex",gap:8,flexWrap:"wrap"}}>
           {tab("archived","Archived Properties")}
           {tab("automations","Automations")}
+          {tab("files","Property Files")}
         </div>
         <div style={{overflowY:"auto",padding:"16px 20px"}}>
           {section==="archived"?(
@@ -3970,7 +4078,7 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
                     );
                   })}
             </>
-          ):<AutomationsPanel/>}
+          ):section==="files"?<PropertyFilesPanel/>:<AutomationsPanel/>}
         </div>
       </div>
     </div>

@@ -3163,7 +3163,10 @@ function TaskMessagesPopup({title,messages,currentUser,onSend,onClose}){
           {messages.map(m=>{const mine=m.author===currentUser;return(
             <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
               <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
-              <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{m.text}</div>
+              <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+                {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.6)":T.gold}`,paddingLeft:8,marginBottom:6,opacity:0.85}}><div style={{fontSize:10,fontWeight:700}}>{m.replyTo.author||"—"}</div><div style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:200}}>{m.replyTo.text}</div></div>}
+                {m.text}
+              </div>
             </div>
           );})}
         </div>
@@ -3714,13 +3717,14 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
 // the task they came from), sorted oldest→newest — so task chatter shows up in the
 // property's history too.
 const mergePropertyMessages=(p)=>{
-  const gen=(p.messages||[]).map(m=>({...m,taskText:null}));
-  const tsk=(p.tasks||[]).flatMap(t=>(t.messages||[]).map(m=>({...m,taskText:t.text||"Untitled task"})));
+  const gen=(p.messages||[]).map(m=>({...m,taskText:null,taskId:null}));
+  const tsk=(p.tasks||[]).flatMap(t=>(t.messages||[]).map(m=>({...m,taskText:t.text||"Untitled task",taskId:t.id})));
   return [...gen,...tsk].sort((a,b)=>(new Date(a.at).getTime()||0)-(new Date(b.at).getTime()||0));
 };
 function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
   const[text,setText]=useState("");
-  const send=()=>{const t=text.trim();if(!t)return;onSend(t);setText("");};
+  const[reply,setReply]=useState(null); // message being replied to
+  const send=()=>{const t=text.trim();if(!t)return;onSend(t,reply);setText("");setReply(null);};
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   const addr=`${property.address}${property.city?`, ${property.city}`:""}`;
   const sc=SC[property.status]||{};
@@ -3733,15 +3737,31 @@ function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
       <div style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
         {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"30px 0"}}>No messages yet for this property. Start the conversation below.</div>}
         {messages.map((m,i)=>{const mine=m.author===currentUser;return(
-          <div key={`${m.taskText?"t":"g"}-${m.id}-${i}`} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
-            <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
-            {m.taskText&&<div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start",marginBottom:3}}><span title="This message was posted on a task" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>↳ Task: {m.taskText}</span></div>}
-            <div style={{background:mine?T.gold:T.card,color:mine?"#fff":T.text,borderRadius:14,padding:"9px 13px",fontSize:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:T.shadow}}>{m.text}</div>
+          <div key={`${m.taskText?"t":"g"}-${m.id}-${i}`} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"88%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start"}}>
+            <div style={{fontSize:10,color:T.textTert,marginBottom:2}}>{m.author||"—"} · {fmt(m.at)}</div>
+            {m.taskText&&<div style={{marginBottom:3}}><span title="This message was posted on a task" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {m.taskText}</span></div>}
+            <div style={{background:mine?T.gold:T.card,color:mine?"#fff":T.text,borderRadius:14,padding:"9px 13px",fontSize:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:T.shadow}}>
+              {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.6)":T.gold}`,paddingLeft:8,marginBottom:6,opacity:0.85}}>
+                <div style={{fontSize:10,fontWeight:700}}>{m.replyTo.author||"—"}{m.replyTo.taskText?` · ↳ ${m.replyTo.taskText}`:""}</div>
+                <div style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}>{m.replyTo.text}</div>
+              </div>}
+              {m.text}
+            </div>
+            <button onClick={()=>setReply(m)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:11,fontFamily:"inherit",padding:"3px 2px 0",fontWeight:600}}>↩ Reply</button>
           </div>
         );})}
       </div>
+      {reply&&(
+        <div style={{padding:"8px 12px",background:T.goldLight,borderTop:`1px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div style={{flex:1,minWidth:0,borderLeft:`3px solid ${T.gold}`,paddingLeft:8}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#b8912e"}}>Replying to {reply.author||"—"}{reply.taskText?` · ↳ ${reply.taskText}`:""}</div>
+            <div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{reply.text}</div>
+          </div>
+          <button onClick={()=>setReply(null)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+      )}
       <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,background:T.card,display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
-        <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Message your team…"
+        <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder={reply?(reply.taskText?"Reply — posts on that task too…":"Reply…"):"Message your team…"}
           style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:22,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit"}}/>
         <button onClick={send} disabled={!text.trim()} style={{padding:"10px 18px",borderRadius:22,background:text.trim()?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:text.trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
       </div>
@@ -3760,7 +3780,17 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const list=withMeta.filter(x=>(x.p.address+" "+(x.p.city||"")).toLowerCase().includes(q))
     .sort((a,b)=>b.lastAt-a.lastAt||a.p.address.localeCompare(b.p.address));
   const sel=active.find(p=>p.id===selId);
-  const send=(text)=>{const t=text.trim();if(!t||!sel)return;setSharedProps(prev=>prev.map(p=>p.id===sel.id?{...p,messages:[...(p.messages||[]),{id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString()}]}:p));};
+  const send=(text,replyTarget)=>{
+    const t=(text||"").trim();if(!t||!sel)return;
+    const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString()};
+    if(replyTarget)msg.replyTo={author:replyTarget.author||"",text:(replyTarget.text||"").slice(0,140),taskText:replyTarget.taskText||null};
+    if(replyTarget&&replyTarget.taskId){
+      // Reply to a task message → post it onto that task so it shows at the task's 💬 too.
+      setSharedProps(prev=>prev.map(p=>p.id!==sel.id?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==replyTarget.taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
+    }else{
+      setSharedProps(prev=>prev.map(p=>p.id!==sel.id?p:{...p,messages:[...(p.messages||[]),msg]}));
+    }
+  };
   const fmtShort=(iso)=>{if(!iso)return "";try{const d=new Date(iso),now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(

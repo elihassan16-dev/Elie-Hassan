@@ -4149,7 +4149,7 @@ function TasksPage({onNavigate}){
                 <div style={{padding:"10px 14px",background:"#FAFAFA",borderBottom:bdr,display:"flex",flexDirection:"column",gap:7}}>
                   {/* Row 1: address + delete */}
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-                    <span onClick={()=>onNavigate&&ptasks[0]&&onNavigate(ptasks[0].propId)} title="Open this property" style={{fontSize:13,fontWeight:700,color:onNavigate?T.blue:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:onNavigate?"pointer":"default",textDecoration:onNavigate?"underline":"none",textUnderlineOffset:2}}>{addr}</span>
+                    <span onClick={()=>onNavigate&&ptasks[0]&&onNavigate(ptasks[0].propId)} title="Open this property" style={{fontSize:13,fontWeight:700,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:onNavigate?"pointer":"default"}}>{addr}</span>
                     {confirmDeleteProp===addr
                       ?<div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
                           <span style={{fontSize:12,color:T.red}}>Delete {ptasks.length}?</span>
@@ -4994,7 +4994,11 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
   const[reply,setReply]=useState(null); // message being replied to
   const[selMode,setSelMode]=useState(false); // select-to-delete mode
   const[selIds,setSelIds]=useState(new Set());
-  const handleSend=async(text,attachment,mentions)=>{await onSend(text,reply,attachment,mentions);setReply(null);};
+  const[target,setTarget]=useState(null); // {id,text} → post onto that task; null → general thread
+  const[pickTask,setPickTask]=useState(false); // task-target dropdown open
+  const propTasks=(property.tasks||[]).filter(t=>(t.text||"").trim());
+  // When not replying, route a new message to the general thread or the chosen task.
+  const handleSend=async(text,attachment,mentions)=>{await onSend(text,reply,attachment,mentions,reply?null:(target?target.id:null));setReply(null);};
   const threads=buildMessageThreads(messages);
   const allIds=messages.map(m=>m.id);
   const toggleSel=(id)=>setSelIds(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
@@ -5078,8 +5082,33 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           <button onClick={()=>setReply(null)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
         </div>
       )}
-      {!selMode&&<div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,background:T.card,flexShrink:0}}>
-        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.taskText?"Reply — posts on that task too…":"Reply…"):"Message your team…"}/>
+      {/* Where a new (non-reply) message goes: the property's general thread, or onto a specific task. */}
+      {!selMode&&!reply&&propTasks.length>0&&(
+        <div style={{padding:"8px 12px 0",flexShrink:0,position:"relative"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:11,color:T.textTert,fontWeight:600}}>Posting to:</span>
+            <button onClick={()=>setPickTask(v=>!v)} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:20,border:`1px solid ${target?T.gold:T.border}`,background:target?T.goldLight:T.bg,color:target?"#b8912e":T.textSub,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",maxWidth:"70%"}}>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{target?`↳ ${target.text}`:"💬 General thread"}</span>
+              <span style={{opacity:0.7,flexShrink:0}}>▾</span>
+            </button>
+            {target&&<button onClick={()=>setTarget(null)} title="Back to general thread" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit",padding:"2px 4px"}}>× clear</button>}
+          </div>
+          {pickTask&&(<>
+            <div onClick={()=>setPickTask(false)} style={{position:"fixed",inset:0,zIndex:190}}/>
+            <div style={{position:"absolute",bottom:"calc(100% - 4px)",left:12,zIndex:200,background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",padding:4,maxHeight:280,overflowY:"auto",width:"min(320px,80vw)"}}>
+              <button onClick={()=>{setTarget(null);setPickTask(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:8,border:"none",background:!target?T.goldLight:"transparent",color:!target?T.gold:T.text,fontSize:13,fontWeight:!target?700:500,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>💬 General thread</button>
+              <div style={{padding:"6px 10px 3px",fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>Regarding a task</div>
+              {propTasks.map(t=>{const on=target&&target.id===t.id;return(
+                <button key={t.id} onClick={()=>{setTarget({id:t.id,text:t.text});setPickTask(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:8,border:"none",background:on?T.goldLight:"transparent",color:on?"#b8912e":T.text,fontSize:13,fontWeight:on?700:500,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                  <span style={{flexShrink:0}}>↳</span><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text}</span>
+                </button>
+              );})}
+            </div>
+          </>)}
+        </div>
+      )}
+      {!selMode&&<div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:target&&!reply?`2px solid ${T.gold}`:`1px solid ${T.border}`,background:T.card,flexShrink:0}}>
+        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.taskText?"Reply — posts on that task too…":"Reply…"):(target?`Message on “${target.text}”…`:"Message your team…")}/>
       </div>}
     </div>
   );
@@ -5118,7 +5147,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       return {...p,messages,tasks};
     }));
   };
-  const send=(text,replyTarget,attachment,mentions)=>{
+  const send=(text,replyTarget,attachment,mentions,targetTaskId)=>{
     const t=(text||"").trim();if((!t&&!attachment)||!sel)return;
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
     if(attachment)msg.attachment=attachment;
@@ -5128,9 +5157,11 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     if(replyTarget&&replyTarget.author&&replyTarget.author!==CURRENT_USER)tagged.add(replyTarget.author);
     if(tagged.size)msg.mentions=[...tagged];
     if(replyTarget){msg.replyToId=replyTarget.id;msg.replyTo={author:replyTarget.author||"",text:(replyTarget.text||"").slice(0,140),taskText:replyTarget.taskText||null};}
-    if(replyTarget&&replyTarget.taskId){
-      // Reply to a task message → post it onto that task so it shows at the task's 💬 too.
-      setSharedProps(prev=>prev.map(p=>p.id!==sel.id?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==replyTarget.taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
+    // Route to a task thread when replying to a task message, or when the composer
+    // was aimed at a specific task; otherwise post to the property's general thread.
+    const postTaskId=(replyTarget&&replyTarget.taskId)||targetTaskId||null;
+    if(postTaskId){
+      setSharedProps(prev=>prev.map(p=>p.id!==sel.id?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==postTaskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
     }else{
       setSharedProps(prev=>prev.map(p=>p.id!==sel.id?p:{...p,messages:[...(p.messages||[]),msg]}));
     }

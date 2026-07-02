@@ -1233,31 +1233,6 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, o
   );
 }
 
-// ─── QuickBooks connection bar (shown once backend secrets are configured) ────
-function QuickBooksBar(){
-  const[st,setSt]=useState(null);
-  const[flash,setFlash]=useState("");
-  useEffect(()=>{
-    const p=new URLSearchParams(window.location.search);
-    const qb=p.get("qb");
-    if(qb==="connected")setFlash("✓ Connected");
-    else if(qb==="error")setFlash("Connection failed: "+(p.get("msg")||"try again"));
-    if(qb){p.delete("qb");p.delete("msg");window.history.replaceState({},"",window.location.pathname+(p.toString()?`?${p}`:""));}
-    fetch("/api/quickbooks/status").then(r=>r.json()).then(setSt).catch(()=>setSt({configured:false,connected:false}));
-  },[]);
-  if(!st||!st.configured)return null; // hidden until QB_CLIENT_SECRET + service role are set in Vercel
-  return(
-    <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:T.radiusSm,marginBottom:16,fontSize:13,background:st.connected?"#EDFBF1":T.goldLight,border:`1px solid ${st.connected?T.green:T.gold}`}}>
-      <span style={{fontWeight:700,color:st.connected?T.green:T.gold}}>QuickBooks</span>
-      {flash&&<span style={{color:T.textSub}}>{flash}</span>}
-      <span style={{flex:1}}/>
-      {st.connected
-        ?<span style={{fontSize:12,color:T.textSub}}>Connected · <span onClick={()=>{window.location.href="/api/quickbooks/connect";}} style={{color:T.blue,cursor:"pointer",fontWeight:600}}>Reconnect</span></span>
-        :<button onClick={()=>{window.location.href="/api/quickbooks/connect";}} style={{padding:"7px 16px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Connect QuickBooks</button>}
-    </div>
-  );
-}
-
 function FinOverview({property,onUpdate}){
   const isMobile=useIsMobile();
   const f=property.financials;
@@ -1359,7 +1334,6 @@ function FinOverview({property,onUpdate}){
 
   return(
     <div style={{background:T.bg,minHeight:"100%",padding:"24px 28px"}}>
-      <QuickBooksBar/>
       {showBuying&&<BuyingCostsPopup items={buyingItems} purchasePrice={f.purchasePrice} currentResp={f.transferTaxResp} onChange={(items,total,resp,taxAmt)=>upMany({buyingCostItems:items,buyingCosts:String(total),buyingTransferTax:String(taxAmt||0),transferTaxResp:resp})} onClose={()=>setShowBuying(false)}/>}
       {showSelling&&<SellingCostsPopup items={sellingItems} salePrice={f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({sellingCostItems:items,sellingCosts:String(total)})} onClose={()=>setShowSelling(false)}/>}
       {showHolding&&<HoldingCostsPopup items={holdingItems} holdPeriod={f.holdPeriod} onChange={(items,total)=>upMany({holdingCostItems:items,annualHoldingCosts:String(total)})} onClose={()=>setShowHolding(false)}/>}

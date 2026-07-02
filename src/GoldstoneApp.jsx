@@ -3072,6 +3072,33 @@ function TaskRow({t,onStatusChange,onDelete,onContact}){
   );
 }
 
+// Compact multi-select dropdown — tap to open a checklist, pick as many as you want.
+function MultiSelect({placeholder,options,selected,onToggle}){
+  const[open,setOpen]=useState(false);
+  const arr=[...selected];
+  const labelFor=(v)=>options.find(o=>o.value===v)?.label||v;
+  const summary=arr.length===0?placeholder:arr.length===1?labelFor(arr[0]):`${arr.length} selected`;
+  return(
+    <div style={{position:"relative",flex:1,minWidth:0}}>
+      <button onClick={()=>setOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,padding:"9px 10px",borderRadius:T.radiusSm,border:`1px solid ${arr.length?T.gold:T.border}`,background:arr.length?T.goldLight:T.bg,color:arr.length?T.gold:T.text,fontSize:13,fontWeight:arr.length?700:400,cursor:"pointer",fontFamily:"inherit",textAlign:"left",boxSizing:"border-box"}}>
+        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{summary}</span>
+        <span style={{fontSize:11,flexShrink:0,opacity:0.7}}>▾</span>
+      </button>
+      {open&&(<>
+        <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:190}}/>
+        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,minWidth:"100%",zIndex:200,background:"#fff",border:`1px solid ${T.border}`,borderRadius:T.radiusSm,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",padding:4,maxHeight:280,overflowY:"auto"}}>
+          {options.map(o=>{const on=selected.has(o.value);return(
+            <button key={o.value} onClick={()=>onToggle(o.value)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:7,border:"none",background:on?T.goldLight:"transparent",color:on?T.gold:T.text,fontSize:13,fontWeight:on?700:400,cursor:"pointer",fontFamily:"inherit",textAlign:"left",whiteSpace:"nowrap"}}>
+              <span style={{width:16,flexShrink:0}}>{on?"☑":"☐"}</span>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{o.label}</span>
+            </button>
+          );})}
+        </div>
+      </>)}
+    </div>
+  );
+}
+
 // ─── Tasks Page ───────────────────────────────────────────────────────────────
 // TEAM_MEMBERS and CURRENT_USER now come from useData() (real Supabase auth + users table).
 
@@ -3195,32 +3222,25 @@ function TasksPage(){
       <div style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>
         <div style={{fontSize:isMobile?19:22,fontWeight:700,color:T.text,marginBottom:14}}>Tasks</div>
         {isMobile?(()=>{
-          // Compact filter bar for mobile — dropdowns instead of stacked chip rows.
-          const mView=["my","assigned","member","unassigned","all"].find(k=>views.has(k))||"all";
-          const mStatus=statusFilter.size===0?"all":[...statusFilter][0];
+          // Compact filter bar for mobile — multi-select dropdowns instead of chip rows.
           const selStyle={flex:1,minWidth:0,padding:"9px 10px",borderRadius:T.radiusSm,border:bdr,background:T.bg,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"};
           const summary=Object.entries(summaryByStatus).filter(([,v])=>v>0).map(([s,v])=>`${v} ${s}`).join(" · ");
+          const toggleView=(k)=>setViews(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
+          const toggleStatus=(s)=>setStatusFilter(p=>{const n=new Set(p);n.has(s)?n.delete(s):n.add(s);return n;});
           return(
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               <div style={{display:"flex",gap:8}}>
-                <select value={mView} onChange={e=>setViews(new Set([e.target.value]))} style={selStyle}>
-                  <option value="my">My Tasks ({myTasks.length})</option>
-                  <option value="assigned">Assigned by Me</option>
-                  <option value="member">By Team Member</option>
-                  <option value="unassigned">Unassigned ({unassignedTasks.length})</option>
-                  <option value="all">All Tasks</option>
-                </select>
-                <select value={mStatus} onChange={e=>setStatusFilter(e.target.value==="all"?new Set():new Set([e.target.value]))} style={selStyle}>
-                  <option value="all">All statuses</option>
-                  {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-                </select>
+                <MultiSelect placeholder="All Tasks" selected={views} onToggle={toggleView}
+                  options={[{value:"my",label:`My Tasks (${myTasks.length})`},{value:"assigned",label:"Assigned by Me"},{value:"member",label:"By Team Member"},{value:"unassigned",label:`Unassigned (${unassignedTasks.length})`},{value:"all",label:"All Tasks"}]}/>
+                <MultiSelect placeholder="All statuses" selected={statusFilter} onToggle={toggleStatus}
+                  options={TASK_STATUSES.map(s=>({value:s,label:s}))}/>
               </div>
               <div style={{display:"flex",gap:8}}>
                 <select value={filterProp} onChange={e=>setFilterProp(e.target.value)} style={selStyle}>
                   <option value="">All Properties</option>
                   {[...new Set(allTasks.map(t=>t.propAddr))].sort().map(a=><option key={a} value={a}>{a}</option>)}
                 </select>
-                {mView==="member"&&(
+                {views.has("member")&&(
                   <select value={filterMember} onChange={e=>setFilterMember(e.target.value)} style={selStyle}>
                     {TEAM_MEMBERS.map(m=><option key={m}>{m}</option>)}
                   </select>

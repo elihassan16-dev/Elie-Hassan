@@ -3545,14 +3545,23 @@ function TaskMessagesPopup({title,messages,currentUser,teamMembers,onSend,onClos
 }
 
 // ─── Task Contact card — assign a person or company, then Call/Text/WhatsApp/Email
-function TaskContactCard({task,contacts,onAssign,onClose}){
+function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
   const tc=task.taskContact||null;
   const isCompany=!!(tc&&tc.kind==="company");
   const person=(!isCompany&&tc)?(contacts.find(c=>c.id===tc.id)||contacts.find(c=>(c.name||"").toLowerCase()===(tc.name||"").toLowerCase())||normContact(tc)):null;
   const companyPeople=isCompany?contacts.filter(c=>sameCompany(c.company,tc.name)):[];
   const[pick,setPick]=useState(!tc);
   const[q,setQ]=useState("");
+  const[adding,setAdding]=useState(false); // showing the "new contact" form
+  const[draft,setDraft]=useState({name:"",phone:"",company:"",role:"",email:""});
+  const[confirmC,setConfirmC]=useState(null); // built contact awaiting the save-to-directory decision
   const ql=q.trim().toLowerCase();
+  // Attach a freshly-created contact to the task; optionally also save it to the directory.
+  const assignNew=(c,saveToDir)=>{
+    if(saveToDir&&onCreateContact)onCreateContact(c);
+    onAssign(saveToDir?{kind:"person",id:c.id,name:c.name}:{kind:"person",id:c.id,name:c.name,company:c.company,role:c.role,email:c.email,phones:c.phones,tags:c.tags});
+    setConfirmC(null);setAdding(false);setPick(false);
+  };
   const companies=[...new Set(contacts.map(c=>c.company).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const people=contacts.filter(c=>!ql||[c.name,c.company,c.role,...(c.tags||[]),...(c.phones||[]).map(p=>p.number)].filter(Boolean).join(" ").toLowerCase().includes(ql)).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   const coMatches=companies.filter(co=>!ql||co.toLowerCase().includes(ql));
@@ -3580,13 +3589,42 @@ function TaskContactCard({task,contacts,onAssign,onClose}){
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
         <div style={{padding:"10px 16px 6px",fontSize:11,color:T.textSub,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Task: {task.text}</div>
-        {pick?(
+        {pick?(confirmC?(
+          <>
+            <div style={{padding:"18px 20px 8px",flex:1}}>
+              <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>Save to your directory?</div>
+              <div style={{fontSize:13,color:T.textSub,lineHeight:1.5}}>Add <b>{confirmC.name||"this contact"}</b>{confirmC.phones[0]?` (${confirmC.phones[0].number})`:""} to your Contacts so you can reach them from any task later — or just use them on this task.</div>
+            </div>
+            <div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8}}>
+              <button onClick={()=>assignNew(confirmC,false)} style={{flex:1,padding:"10px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Just this task</button>
+              <button onClick={()=>assignNew(confirmC,true)} style={{flex:1,padding:"10px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Save to directory</button>
+            </div>
+          </>
+        ):adding?(
+          <>
+            <div style={{overflowY:"auto",padding:"6px 16px 12px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",margin:"4px 0 10px"}}>New contact</div>
+              {[["name","Full name"],["phone","Phone number"],["company","Company (optional)"],["role","Role / trade (optional)"],["email","Email (optional)"]].map(([k,ph])=>(
+                <input key={k} value={draft[k]} onChange={e=>setDraft(d=>({...d,[k]:e.target.value}))} placeholder={ph} type={k==="phone"?"tel":k==="email"?"email":"text"} style={{width:"100%",boxSizing:"border-box",marginBottom:8,padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",color:T.text,background:T.bg,outline:"none"}}/>
+              ))}
+            </div>
+            <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8}}>
+              <button onClick={()=>setAdding(false)} style={{flex:1,padding:"9px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+              {(()=>{const ok=!!(draft.name.trim()||draft.phone.trim());return(
+                <button disabled={!ok} onClick={()=>{const num=draft.phone.trim();setConfirmC({id:Date.now(),name:draft.name.trim(),company:draft.company.trim(),role:draft.role.trim(),email:draft.email.trim(),notes:"",phones:num?[{label:"Mobile",number:num}]:[],tags:[],phone:num});}} style={{flex:1,padding:"9px",borderRadius:T.radiusSm,background:ok?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:ok?"pointer":"default",fontFamily:"inherit"}}>Continue</button>
+              );})()}
+            </div>
+          </>
+        ):(
           <>
             <div style={{padding:"0 16px 10px"}}>
               <div style={{display:"flex",alignItems:"center",gap:8,background:T.bg,borderRadius:10,padding:"8px 12px",border:`1px solid ${T.border}`}}>
                 <span style={{fontSize:14,color:T.textSub}}>🔍</span>
                 <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search people or companies…" style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:13,color:T.text,fontFamily:"inherit"}}/>
               </div>
+            </div>
+            <div style={{padding:"0 16px 8px"}}>
+              <button onClick={()=>{setDraft({name:q.trim(),phone:"",company:"",role:"",email:""});setAdding(true);}} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"9px 12px",borderRadius:10,border:`1px dashed ${T.gold}`,background:T.goldLight,color:T.gold,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}><span style={{fontSize:15}}>＋</span> Add new contact{q.trim()?` “${q.trim()}”`:""}</button>
             </div>
             <div style={{overflowY:"auto"}}>
               {coMatches.length>0&&<div style={{padding:"6px 16px 2px",fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>Companies</div>}
@@ -3608,7 +3646,7 @@ function TaskContactCard({task,contacts,onAssign,onClose}){
             </div>
             {tc&&<div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`}}><button onClick={()=>setPick(false)} style={{width:"100%",padding:"8px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button></div>}
           </>
-        ):isCompany?(
+        )):isCompany?(
           <>
             <div style={{overflowY:"auto",padding:"4px 0 8px"}}>
               <div style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px"}}>
@@ -3648,8 +3686,9 @@ function TaskContactCard({task,contacts,onAssign,onClose}){
 // TEAM_MEMBERS and CURRENT_USER now come from useData() (real Supabase auth + users table).
 
 function TasksPage(){
-  const { sharedProps, setSharedProps, contacts: CONTACTS, teamMembers: TEAM_MEMBERS, currentUser: CURRENT_USER, automations, setAutomations } = useData();
+  const { sharedProps, setSharedProps, contacts: CONTACTS, setContacts, flushContacts, teamMembers: TEAM_MEMBERS, currentUser: CURRENT_USER, automations, setAutomations } = useData();
   const dir=CONTACTS.map(normContact); // normalized contact directory (phones[], company, tags)
+  const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
   const { isAdmin } = useAuth();
   const isMobile=useIsMobile();
   const[views,setViews]=useState(new Set(["my"]));
@@ -3837,7 +3876,7 @@ function TasksPage(){
       {/* Task contact popup */}
       {taskContactTarget&&(()=>{
         const liveTask=(sharedProps.find(p=>p.id===taskContactTarget.propId)?.tasks||[]).find(tk=>tk.id===taskContactTarget.id)||taskContactTarget;
-        return <TaskContactCard task={liveTask} contacts={dir} onAssign={(val)=>setTaskContact(taskContactTarget.propId,liveTask.id,val)} onClose={()=>setTaskContactTarget(null)}/>;
+        return <TaskContactCard task={liveTask} contacts={dir} onAssign={(val)=>setTaskContact(taskContactTarget.propId,liveTask.id,val)} onCreateContact={addContactToDir} onClose={()=>setTaskContactTarget(null)}/>;
       })()}
       {/* Header */}
       <div style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>

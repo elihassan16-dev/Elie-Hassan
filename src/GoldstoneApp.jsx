@@ -1,3 +1,4 @@
+// Build marker: financial-section-v1 (force redeploy)
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";

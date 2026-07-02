@@ -5,11 +5,20 @@ import { useOneDrive } from "./onedrive/useOneDrive";
 import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
 
-// Authenticated fetch to our QuickBooks serverless API (sends the Supabase JWT).
+// Authenticated fetch to our serverless API (sends the Supabase JWT). If the token
+// has gone stale (server replies 401 "Not signed in"), refresh the session once and
+// retry — otherwise an idle PWA can fail even though the user is still logged in.
 async function qbAuthFetch(path, opts = {}) {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  const res = await fetch(path, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
+  const call = async () => {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    return fetch(path, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
+  };
+  let res = await call();
+  if (res.status === 401) {
+    try { await supabase.auth.refreshSession(); } catch { /* fall through */ }
+    res = await call();
+  }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status}).`);
   return json;

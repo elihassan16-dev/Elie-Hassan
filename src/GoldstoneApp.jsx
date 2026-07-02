@@ -4154,15 +4154,41 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
     setText("");setPendingAtt(null);setMentions([]);setShowTag(false);setErr("");
     try{ await onSend(t,att||null,mn); }catch{ setErr("Send failed. Try again."); }
   };
-  const onPickFile=async(e)=>{
-    const file=e.target.files&&e.target.files[0];
-    if(fileRef.current)fileRef.current.value="";
+  // Stage any file (from the picker, a paste, or a drop). Pasted images often have
+  // no filename → give them one so they upload with a real extension.
+  const uploadStaged=async(file)=>{
     if(!file)return;
     if(file.size>25*1024*1024){setErr("File is too large (max 25 MB).");return;}
     setErr("");setBusy(true);
-    try{ setPendingAtt(await uploadAttachment(file,"chat")); }
-    catch{ setErr("Upload failed. Try again."); }
+    try{
+      let up=file;
+      if(!file.name||!/\.[a-z0-9]+$/i.test(file.name)){
+        const ext=((file.type||"").split("/")[1]||"bin").replace("jpeg","jpg").replace("+xml","");
+        up=new File([file],`pasted-${Date.now()}.${ext}`,{type:file.type||"application/octet-stream"});
+      }
+      setPendingAtt(await uploadAttachment(up,"chat"));
+    }catch{ setErr("Upload failed. Try again."); }
     setBusy(false);
+  };
+  const onPickFile=async(e)=>{
+    const file=e.target.files&&e.target.files[0];
+    if(fileRef.current)fileRef.current.value="";
+    await uploadStaged(file);
+  };
+  const onPasteFiles=(e)=>{
+    const items=e.clipboardData?.items||[];
+    let file=null;
+    for(const it of items){if(it.kind==="file"){const f=it.getAsFile();if(f){file=f;break;}}}
+    if(!file&&e.clipboardData?.files?.length)file=e.clipboardData.files[0];
+    if(!file)return; // plain text/HTML paste — leave it to the input
+    e.preventDefault();
+    uploadStaged(file);
+  };
+  const onDropFiles=(e)=>{
+    const file=e.dataTransfer?.files?.[0];
+    if(!file)return;
+    e.preventDefault();
+    uploadStaged(file);
   };
   const startRec=async()=>{
     setErr("");
@@ -4198,7 +4224,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
   const fmtSecs=(s)=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
   const canSend=(!!text.trim()||!!pendingAtt)&&!busy;
   return(
-    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+    <div onDrop={onDropFiles} onDragOver={e=>e.preventDefault()} style={{display:"flex",flexDirection:"column",gap:6}}>
       {err&&<div style={{fontSize:11,color:"#FF3B30",fontWeight:600,padding:"0 6px"}}>{err}</div>}
       {/* Who this message notifies (only while tagging) */}
       {!recording&&tagOptions.length>0&&(showTag||mentions.length>0)&&(
@@ -4241,11 +4267,11 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
           </>
         ):(
           <>
-            <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={onPickFile} style={{display:"none"}}/>
-            <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo or PDF" style={iconBtn}>📎</button>
+            <input ref={fileRef} type="file" accept="image/*,application/pdf,.xls,.xlsx,.csv,.doc,.docx,.ppt,.pptx,.txt,.numbers,.pages,.key" onChange={onPickFile} style={{display:"none"}}/>
+            <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, PDF, or spreadsheet" style={iconBtn}>📎</button>
             <button onClick={startRec} disabled={busy} title="Record a voice note" style={iconBtn}>🎤</button>
             {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...iconBtn,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
-            <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&canSend&&send()} placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":placeholder)} disabled={busy}
+            <input value={text} onChange={e=>setText(e.target.value)} onPaste={onPasteFiles} onKeyDown={e=>e.key==="Enter"&&canSend&&send()} placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":placeholder)} disabled={busy}
               style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:22,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit"}}/>
             <button onClick={()=>send()} disabled={!canSend} style={{padding:"10px 18px",borderRadius:22,background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
           </>

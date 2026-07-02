@@ -3816,23 +3816,30 @@ const AUTO_TRIGGERS=["Under Contract","Purchased","Under Construction","On Marke
 // Settings → Automations: build rules that add tasks when a property hits a status.
 function AutomationsPanel(){
   const { automations, setAutomations, teamMembers:TEAM_MEMBERS } = useData();
+  const { isAdmin } = useAuth();
   const rules=automations||[];
   const[showBuilder,setShowBuilder]=useState(false);
+  const[editingId,setEditingId]=useState(null); // rule being edited (null = creating new)
   const[draft,setDraft]=useState({trigger:"Under Contract",tasks:[{text:"",assignTo:""}]});
   const bdr=`1px solid ${T.border}`;
+  const blank={trigger:"Under Contract",tasks:[{text:"",assignTo:""}]};
+  const startNew=()=>{setEditingId(null);setDraft(blank);setShowBuilder(true);};
+  const startEdit=(auto)=>{setEditingId(auto.id);setDraft({trigger:auto.trigger,tasks:(auto.tasks&&auto.tasks.length?auto.tasks:[{text:"",assignTo:""}]).map(t=>({text:t.text||"",assignTo:t.assignTo||""}))});setShowBuilder(true);};
+  const cancel=()=>{setShowBuilder(false);setEditingId(null);setDraft(blank);};
   const save=()=>{
     const validTasks=draft.tasks.filter(t=>t.text.trim()).map(t=>({text:t.text.trim(),assignTo:t.assignTo||"",category:"Automation"}));
     if(validTasks.length===0)return;
-    setAutomations([...rules,{id:Date.now(),trigger:draft.trigger,tasks:validTasks}]);
-    setDraft({trigger:"Under Contract",tasks:[{text:"",assignTo:""}]});
-    setShowBuilder(false);
+    if(editingId)setAutomations(rules.map(r=>r.id===editingId?{...r,trigger:draft.trigger,tasks:validTasks}:r));
+    else setAutomations([...rules,{id:Date.now(),trigger:draft.trigger,tasks:validTasks}]);
+    cancel();
   };
+  if(!isAdmin)return <div style={{fontSize:13,color:T.textSub,padding:"12px 0"}}>Only an admin can create or edit automations.</div>;
   return(
     <div>
       <div style={{fontSize:12,color:T.textSub,marginBottom:14}}>When a property's status changes to the trigger, these tasks are automatically added to it (assigned to whoever you pick). Each rule applies once per property.</div>
       {showBuilder&&(
         <div style={{background:T.bg,borderRadius:12,padding:16,marginBottom:14}}>
-          <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:14}}>New Rule</div>
+          <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:14}}>{editingId?"Edit Rule":"New Rule"}</div>
           <div style={{marginBottom:14}}>
             <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>When status becomes</div>
             <select value={draft.trigger} onChange={e=>setDraft(d=>({...d,trigger:e.target.value}))}
@@ -3858,12 +3865,12 @@ function AutomationsPanel(){
           <button onClick={()=>setDraft(d=>({...d,tasks:[...d.tasks,{text:"",assignTo:""}]}))}
             style={{marginTop:8,width:"100%",padding:"8px",borderRadius:T.radiusSm,background:"transparent",border:`1.5px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600}}>+ Add another task</button>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:14}}>
-            <button onClick={()=>{setShowBuilder(false);setDraft({trigger:"Under Contract",tasks:[{text:"",assignTo:""}]});}} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:"#fff",border:bdr,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Cancel</button>
-            <button onClick={save} style={{padding:"9px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Save Rule</button>
+            <button onClick={cancel} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:"#fff",border:bdr,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Cancel</button>
+            <button onClick={save} style={{padding:"9px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{editingId?"Update Rule":"Save Rule"}</button>
           </div>
         </div>
       )}
-      {!showBuilder&&<button onClick={()=>setShowBuilder(true)} style={{padding:"9px 18px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",marginBottom:14}}>+ New Rule</button>}
+      {!showBuilder&&<button onClick={startNew} style={{padding:"9px 18px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",marginBottom:14}}>+ New Rule</button>}
       {rules.length===0&&!showBuilder&&<div style={{padding:"24px 0",textAlign:"center",color:T.textTert,fontSize:13}}>No automation rules yet. Create one to auto-add tasks when a property reaches a status.</div>}
       {rules.map(auto=>{
         const sc=SC[auto.trigger]||{color:T.gold,bg:T.goldLight};
@@ -3873,7 +3880,8 @@ function AutomationsPanel(){
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:tasks.length?10:0}}>
               <span style={{background:sc.bg,color:sc.color,fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:20,flexShrink:0}}>{auto.trigger}</span>
               <span style={{fontSize:12,color:T.textSub,flex:1}}>{tasks.length} task{tasks.length!==1?"s":""}</span>
-              <button onClick={()=>setAutomations(rules.filter(a=>a.id!==auto.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
+              <button onClick={()=>startEdit(auto)} style={{background:"none",border:bdr,borderRadius:20,color:T.gold,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",padding:"4px 12px",flexShrink:0}}>Edit</button>
+              <button onClick={()=>setAutomations(rules.filter(a=>a.id!==auto.id))} title="Delete rule" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
               {tasks.map((t,i)=>(

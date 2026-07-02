@@ -3389,8 +3389,8 @@ function TaskRow({t,onStatusChange,onDelete,onContact,onMessage,onAssign,current
   const dim=t.status==="Completed"||t.status==="N/A";
   const msgCount=(t.messages||[]).length;
   const contactBtnEl=(
-    <button onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name}`:"Link a contact"}
-      style={{background:t.taskContact?"#EBF4FF":"none",border:t.taskContact?`1px solid ${T.blue}`:`1px solid ${T.border}`,borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,flexShrink:0,color:t.taskContact?T.blue:T.textTert}}>{t.taskContact?t.taskContact.name[0]:"👤"}</button>
+    <button onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name||""}`:"Link a contact"}
+      style={{background:t.taskContact?"#EBF4FF":"none",border:t.taskContact?`1px solid ${T.blue}`:`1px solid ${T.border}`,borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,flexShrink:0,color:t.taskContact?T.blue:T.textTert}}>{t.taskContact?.kind==="company"?"🏢":(t.taskContact?.name?.[0]||"👤")}</button>
   );
   const msgBtnEl=(
     <button onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",background:msgCount?"#EBF4FF":"none",border:`1px solid ${msgCount?T.blue:T.border}`,borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,flexShrink:0,color:msgCount?T.blue:T.textTert}}>💬{msgCount>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgCount}</span>}</button>
@@ -3591,7 +3591,7 @@ function TaskContactCard({task,contacts,onAssign,onClose}){
             <div style={{overflowY:"auto"}}>
               {coMatches.length>0&&<div style={{padding:"6px 16px 2px",fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>Companies</div>}
               {coMatches.map(co=>{const n=contacts.filter(c=>sameCompany(c.company,co)).length;return(
-                <div key={"co-"+co} onClick={()=>onAssign({kind:"company",name:co})} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`}}>
+                <div key={"co-"+co} onClick={()=>{onAssign({kind:"company",name:co});setPick(false);}} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`}}>
                   <div style={{width:36,height:36,borderRadius:10,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>🏢</div>
                   <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{co}</div><div style={{fontSize:11,color:T.textSub}}>{n} {n===1?"person":"people"}</div></div>
                   <span style={{fontSize:15,color:T.textTert}}>›</span>
@@ -3599,7 +3599,7 @@ function TaskContactCard({task,contacts,onAssign,onClose}){
               );})}
               <div style={{padding:"8px 16px 2px",fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>People</div>
               {people.map(c=>(
-                <div key={c.id} onClick={()=>onAssign({kind:"person",id:c.id,name:c.name})} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`}}>
+                <div key={c.id} onClick={()=>{onAssign({kind:"person",id:c.id,name:c.name});setPick(false);}} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`}}>
                   {avatar(c.name)}
                   <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div><div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[c.company,c.role].filter(Boolean).join(" · ")||(c.phones[0]&&c.phones[0].number)||""}</div></div>
                 </div>

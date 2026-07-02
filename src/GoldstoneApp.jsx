@@ -3148,8 +3148,6 @@ function AddTaskInline({onAdd}){
 
 // In-app messages/notes on a single task.
 function TaskMessagesPopup({title,messages,currentUser,onSend,onClose}){
-  const[text,setText]=useState("");
-  const send=()=>{const t=text.trim();if(!t)return;onSend(t);setText("");};
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)"}}>
@@ -3166,14 +3164,13 @@ function TaskMessagesPopup({title,messages,currentUser,onSend,onClose}){
               <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
                 {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.55)":T.gold}`,paddingLeft:8,marginBottom:5,opacity:0.9,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}><b>{m.replyTo.author?m.replyTo.author.split(" ")[0]:"—"}:</b> {m.replyTo.text}</div>}
                 {m.text}
+                {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
               </div>
             </div>
           );})}
         </div>
-        <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center"}}>
-          <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Write a message…"
-            style={{flex:1,minWidth:0,padding:"10px 12px",borderRadius:20,border:`1px solid ${T.border}`,background:T.bg,fontSize:14,outline:"none",fontFamily:"inherit"}}/>
-          <button onClick={send} disabled={!text.trim()} style={{padding:"9px 16px",borderRadius:20,background:text.trim()?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:text.trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
+        <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`}}>
+          <ChatComposer onSend={(txt,att)=>onSend(txt,att)} placeholder="Write a message…"/>
         </div>
       </div>
     </div>
@@ -3199,9 +3196,11 @@ function TasksPage(){
   const[selectedKeys,setSelectedKeys]=useState(new Set()); // `${propId}:${taskId}`
   const selKey=(t)=>`${t.propId}:${t.id}`;
   const toggleSelect=(t)=>setSelectedKeys(p=>{const n=new Set(p);const k=selKey(t);n.has(k)?n.delete(k):n.add(k);return n;});
-  function addTaskMessage(propId,taskId,text){
-    const t=(text||"").trim();if(!t)return;
-    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),{id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString()}]})}));
+  function addTaskMessage(propId,taskId,text,attachment){
+    const t=(text||"").trim();if(!t&&!attachment)return;
+    const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString()};
+    if(attachment)msg.attachment=attachment;
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
   }
   function deleteSelected(){
     if(selectedKeys.size===0)return;
@@ -3286,7 +3285,7 @@ function TasksPage(){
       {taskMsgTarget&&(()=>{
         const liveTask=(sharedProps.find(p=>p.id===taskMsgTarget.propId)?.tasks||[]).find(tk=>tk.id===taskMsgTarget.id);
         return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} messages={liveTask?.messages||[]} currentUser={CURRENT_USER}
-          onSend={(txt)=>addTaskMessage(taskMsgTarget.propId,taskMsgTarget.id,txt)} onClose={()=>setTaskMsgTarget(null)}/>;
+          onSend={(txt,att)=>addTaskMessage(taskMsgTarget.propId,taskMsgTarget.id,txt,att)} onClose={()=>setTaskMsgTarget(null)}/>;
       })()}
       {/* Task contact popup */}
       {taskContactTarget&&(
@@ -3712,6 +3711,133 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
   );
 }
 
+// ─── Chat attachments — photos, PDFs & voice notes (Supabase Storage) ─────────
+// One-time setup: run supabase/storage.sql in Supabase → SQL Editor to create the
+// public "attachments" bucket + policies. An attachment is stored on the message as
+// { url, name, mime, kind } where kind is 'image' | 'audio' | 'file'.
+const iconBtn={width:40,height:40,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:T.bg,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1};
+const attachmentKind=(mime="")=>mime.startsWith("image/")?"image":mime.startsWith("audio/")?"audio":"file";
+const sanitizeName=(name="file")=>(name.replace(/[^a-zA-Z0-9._-]/g,"_")||"file").slice(-80);
+async function uploadAttachment(file,folder="chat"){
+  const kind=attachmentKind(file.type||"");
+  const base=file.name?sanitizeName(file.name):`${kind}.${kind==="audio"?"webm":kind==="image"?"jpg":"bin"}`;
+  const path=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${base}`;
+  const { error }=await supabase.storage.from("attachments").upload(path,file,{contentType:file.type||undefined,upsert:false});
+  if(error)throw error;
+  const { data }=supabase.storage.from("attachments").getPublicUrl(path);
+  return { url:data.publicUrl, name:file.name||base, mime:file.type||"", kind };
+}
+function MessageAttachment({att,mine}){
+  if(!att||!att.url)return null;
+  if(att.kind==="image")return(
+    <a href={att.url} target="_blank" rel="noreferrer" style={{display:"block",marginTop:6}}>
+      <img src={att.url} alt={att.name||"photo"} style={{maxWidth:220,maxHeight:260,width:"auto",borderRadius:10,display:"block",objectFit:"cover"}}/>
+    </a>
+  );
+  if(att.kind==="audio")return <audio src={att.url} controls preload="metadata" style={{marginTop:6,maxWidth:240,width:240,height:40}}/>;
+  const isPdf=(att.mime||"").includes("pdf")||/\.pdf$/i.test(att.name||"");
+  return(
+    <a href={att.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:8,marginTop:6,padding:"8px 10px",borderRadius:10,border:`1px solid ${mine?"rgba(255,255,255,0.35)":T.border}`,background:mine?"rgba(255,255,255,0.15)":T.bg,textDecoration:"none",color:mine?"#fff":T.text,maxWidth:240}}>
+      <span style={{fontSize:18,flexShrink:0}}>{isPdf?"📄":"📎"}</span>
+      <span style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{att.name||"Attachment"}</span>
+    </a>
+  );
+}
+// Shared chat input: text + 📎 attach (photo/PDF) + 🎤 voice note (MediaRecorder).
+// onSend(text, attachment|null) — attachment is an already-uploaded {url,name,mime,kind}.
+function ChatComposer({onSend,placeholder="Message…"}){
+  const[text,setText]=useState("");
+  const[busy,setBusy]=useState(false);
+  const[recording,setRecording]=useState(false);
+  const[recSecs,setRecSecs]=useState(0);
+  const[err,setErr]=useState("");
+  const fileRef=useRef(null);
+  const mrRef=useRef(null);
+  const chunksRef=useRef([]);
+  const cancelRef=useRef(false);
+  const timerRef=useRef(null);
+  useEffect(()=>()=>clearInterval(timerRef.current),[]);
+  const send=async(att)=>{
+    const t=text.trim();
+    if(!t&&!att)return;
+    setText("");setErr("");
+    try{ await onSend(t,att||null); }catch{ setErr("Send failed. Try again."); }
+  };
+  const onPickFile=async(e)=>{
+    const file=e.target.files&&e.target.files[0];
+    if(fileRef.current)fileRef.current.value="";
+    if(!file)return;
+    if(file.size>25*1024*1024){setErr("File is too large (max 25 MB).");return;}
+    setErr("");setBusy(true);
+    try{
+      const att=await uploadAttachment(file,"chat");
+      const t=text.trim();setText("");
+      await onSend(t,att);
+    }catch{ setErr("Upload failed. Try again."); }
+    setBusy(false);
+  };
+  const startRec=async()=>{
+    setErr("");
+    if(!navigator.mediaDevices?.getUserMedia||typeof window.MediaRecorder==="undefined"){setErr("Voice notes aren't supported on this device.");return;}
+    let stream;
+    try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+    catch{ setErr("Microphone access is blocked. Allow it in Settings to record."); return; }
+    const mr=new MediaRecorder(stream);
+    chunksRef.current=[];cancelRef.current=false;
+    mr.ondataavailable=(ev)=>{if(ev.data&&ev.data.size)chunksRef.current.push(ev.data);};
+    mr.onstop=async()=>{
+      stream.getTracks().forEach(tr=>tr.stop());
+      clearInterval(timerRef.current);
+      setRecording(false);setRecSecs(0);
+      if(cancelRef.current)return;
+      const blob=new Blob(chunksRef.current,{type:mr.mimeType||"audio/webm"});
+      if(!blob.size)return;
+      setBusy(true);
+      try{
+        const ext=/mp4|aac|m4a/.test(mr.mimeType||"")?"m4a":"webm";
+        const file=new File([blob],`voice-note-${Date.now()}.${ext}`,{type:blob.type||"audio/webm"});
+        const att=await uploadAttachment(file,"voice");
+        await onSend("",att);
+      }catch{ setErr("Couldn't send the voice note."); }
+      setBusy(false);
+    };
+    mrRef.current=mr;
+    mr.start();
+    setRecording(true);setRecSecs(0);
+    timerRef.current=setInterval(()=>setRecSecs(s=>s+1),1000);
+  };
+  const stopRec=()=>{cancelRef.current=false;if(mrRef.current&&mrRef.current.state!=="inactive")mrRef.current.stop();};
+  const cancelRec=()=>{cancelRef.current=true;if(mrRef.current&&mrRef.current.state!=="inactive")mrRef.current.stop();};
+  const fmtSecs=(s)=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+  const canSend=!!text.trim()&&!busy;
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:err?6:0}}>
+      {err&&<div style={{fontSize:11,color:"#FF3B30",fontWeight:600,padding:"0 6px"}}>{err}</div>}
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        {recording?(
+          <>
+            <button onClick={cancelRec} title="Cancel recording" style={{...iconBtn,color:T.textTert}}>×</button>
+            <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,color:"#FF3B30",fontSize:14,fontWeight:600}}>
+              <span style={{width:9,height:9,borderRadius:"50%",background:"#FF3B30",display:"inline-block",flexShrink:0}}/>
+              Recording… {fmtSecs(recSecs)}
+            </div>
+            <button onClick={stopRec} style={{padding:"10px 18px",borderRadius:22,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Send</button>
+          </>
+        ):(
+          <>
+            <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={onPickFile} style={{display:"none"}}/>
+            <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo or PDF" style={iconBtn}>📎</button>
+            <button onClick={startRec} disabled={busy} title="Record a voice note" style={iconBtn}>🎤</button>
+            <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&canSend&&send()} placeholder={busy?"Uploading…":placeholder} disabled={busy}
+              style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:22,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit"}}/>
+            <button onClick={()=>send()} disabled={!canSend} style={{padding:"10px 18px",borderRadius:22,background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Messaging Center — team chat organized per property ──────────────────────
 // Merge a property's general messages with all of its task messages (tagged with
 // the task they came from), sorted oldest→newest — so task chatter shows up in the
@@ -3722,9 +3848,8 @@ const mergePropertyMessages=(p)=>{
   return [...gen,...tsk].sort((a,b)=>(new Date(a.at).getTime()||0)-(new Date(b.at).getTime()||0));
 };
 function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
-  const[text,setText]=useState("");
   const[reply,setReply]=useState(null); // message being replied to
-  const send=()=>{const t=text.trim();if(!t)return;onSend(t,reply);setText("");setReply(null);};
+  const handleSend=async(text,attachment)=>{await onSend(text,reply,attachment);setReply(null);};
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   const addr=`${property.address}${property.city?`, ${property.city}`:""}`;
   const sc=SC[property.status]||{};
@@ -3743,6 +3868,7 @@ function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
             <div style={{background:mine?T.gold:T.card,color:mine?"#fff":T.text,borderRadius:14,padding:"9px 13px",fontSize:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:T.shadow}}>
               {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.55)":T.gold}`,paddingLeft:8,marginBottom:5,opacity:0.9,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:240}}><b>{m.replyTo.author?m.replyTo.author.split(" ")[0]:"—"}:</b> {m.replyTo.text}</div>}
               {m.text}
+              {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
             </div>
             <button onClick={()=>setReply(m)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:11,fontFamily:"inherit",padding:"3px 2px 0",fontWeight:600}}>↩ Reply</button>
           </div>
@@ -3757,10 +3883,8 @@ function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
           <button onClick={()=>setReply(null)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
         </div>
       )}
-      <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,background:T.card,display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
-        <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder={reply?(reply.taskText?"Reply — posts on that task too…":"Reply…"):"Message your team…"}
-          style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:22,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit"}}/>
-        <button onClick={send} disabled={!text.trim()} style={{padding:"10px 18px",borderRadius:22,background:text.trim()?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:text.trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
+      <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,background:T.card,flexShrink:0}}>
+        <ChatComposer onSend={handleSend} placeholder={reply?(reply.taskText?"Reply — posts on that task too…":"Reply…"):"Message your team…"}/>
       </div>
     </div>
   );
@@ -3777,9 +3901,10 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const list=withMeta.filter(x=>(x.p.address+" "+(x.p.city||"")).toLowerCase().includes(q))
     .sort((a,b)=>b.lastAt-a.lastAt||a.p.address.localeCompare(b.p.address));
   const sel=active.find(p=>p.id===selId);
-  const send=(text,replyTarget)=>{
-    const t=(text||"").trim();if(!t||!sel)return;
+  const send=(text,replyTarget,attachment)=>{
+    const t=(text||"").trim();if((!t&&!attachment)||!sel)return;
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString()};
+    if(attachment)msg.attachment=attachment;
     if(replyTarget)msg.replyTo={author:replyTarget.author||"",text:(replyTarget.text||"").slice(0,140),taskText:replyTarget.taskText||null};
     if(replyTarget&&replyTarget.taskId){
       // Reply to a task message → post it onto that task so it shows at the task's 💬 too.

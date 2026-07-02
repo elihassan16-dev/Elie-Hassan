@@ -3164,7 +3164,7 @@ function TaskMessagesPopup({title,messages,currentUser,onSend,onClose}){
             <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
               <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
               <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
-                {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.6)":T.gold}`,paddingLeft:8,marginBottom:6,opacity:0.85}}><div style={{fontSize:10,fontWeight:700}}>{m.replyTo.author||"—"}</div><div style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:200}}>{m.replyTo.text}</div></div>}
+                {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.55)":T.gold}`,paddingLeft:8,marginBottom:5,opacity:0.9,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}><b>{m.replyTo.author?m.replyTo.author.split(" ")[0]:"—"}:</b> {m.replyTo.text}</div>}
                 {m.text}
               </div>
             </div>
@@ -3739,12 +3739,9 @@ function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
         {messages.map((m,i)=>{const mine=m.author===currentUser;return(
           <div key={`${m.taskText?"t":"g"}-${m.id}-${i}`} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"88%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start"}}>
             <div style={{fontSize:10,color:T.textTert,marginBottom:2}}>{m.author||"—"} · {fmt(m.at)}</div>
-            {m.taskText&&<div style={{marginBottom:3}}><span title="This message was posted on a task" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {m.taskText}</span></div>}
+            {m.taskText&&!m.replyTo&&<div style={{marginBottom:3}}><span title="This message was posted on a task" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {m.taskText}</span></div>}
             <div style={{background:mine?T.gold:T.card,color:mine?"#fff":T.text,borderRadius:14,padding:"9px 13px",fontSize:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:T.shadow}}>
-              {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.6)":T.gold}`,paddingLeft:8,marginBottom:6,opacity:0.85}}>
-                <div style={{fontSize:10,fontWeight:700}}>{m.replyTo.author||"—"}{m.replyTo.taskText?` · ↳ ${m.replyTo.taskText}`:""}</div>
-                <div style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}>{m.replyTo.text}</div>
-              </div>}
+              {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.55)":T.gold}`,paddingLeft:8,marginBottom:5,opacity:0.9,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:240}}><b>{m.replyTo.author?m.replyTo.author.split(" ")[0]:"—"}:</b> {m.replyTo.text}</div>}
               {m.text}
             </div>
             <button onClick={()=>setReply(m)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:11,fontFamily:"inherit",padding:"3px 2px 0",fontWeight:600}}>↩ Reply</button>

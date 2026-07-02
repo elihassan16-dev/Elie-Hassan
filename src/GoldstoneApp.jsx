@@ -3194,6 +3194,42 @@ function TasksPage(){
       {/* Header */}
       <div style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>
         <div style={{fontSize:isMobile?19:22,fontWeight:700,color:T.text,marginBottom:14}}>Tasks</div>
+        {isMobile?(()=>{
+          // Compact filter bar for mobile — dropdowns instead of stacked chip rows.
+          const mView=["my","assigned","member","unassigned","all"].find(k=>views.has(k))||"all";
+          const mStatus=statusFilter.size===0?"all":[...statusFilter][0];
+          const selStyle={flex:1,minWidth:0,padding:"9px 10px",borderRadius:T.radiusSm,border:bdr,background:T.bg,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"};
+          const summary=Object.entries(summaryByStatus).filter(([,v])=>v>0).map(([s,v])=>`${v} ${s}`).join(" · ");
+          return(
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{display:"flex",gap:8}}>
+                <select value={mView} onChange={e=>setViews(new Set([e.target.value]))} style={selStyle}>
+                  <option value="my">My Tasks ({myTasks.length})</option>
+                  <option value="assigned">Assigned by Me</option>
+                  <option value="member">By Team Member</option>
+                  <option value="unassigned">Unassigned ({unassignedTasks.length})</option>
+                  <option value="all">All Tasks</option>
+                </select>
+                <select value={mStatus} onChange={e=>setStatusFilter(e.target.value==="all"?new Set():new Set([e.target.value]))} style={selStyle}>
+                  <option value="all">All statuses</option>
+                  {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <select value={filterProp} onChange={e=>setFilterProp(e.target.value)} style={selStyle}>
+                  <option value="">All Properties</option>
+                  {[...new Set(allTasks.map(t=>t.propAddr))].sort().map(a=><option key={a} value={a}>{a}</option>)}
+                </select>
+                {mView==="member"&&(
+                  <select value={filterMember} onChange={e=>setFilterMember(e.target.value)} style={selStyle}>
+                    {TEAM_MEMBERS.map(m=><option key={m}>{m}</option>)}
+                  </select>
+                )}
+              </div>
+              <div style={{fontSize:11,color:T.textSub}}>{filteredDisplay.length} shown{summary?` · ${summary}`:""}</div>
+            </div>
+          );
+        })():(<>
         {/* Summary pills */}
         <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
           {Object.entries(summaryByStatus).filter(([,v])=>v>0).map(([s,v])=>{
@@ -3214,6 +3250,7 @@ function TasksPage(){
             );
           })}
         </div>
+        </>)}
       </div>
 
       <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
@@ -3312,8 +3349,8 @@ function TasksPage(){
         {/* Task list views */}
         {!showAutomations&&(
           <div style={{maxWidth:840}}>
-            {/* Filter bar */}
-            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
+            {/* Filter bar (desktop only — mobile uses the compact dropdowns in the header) */}
+            {!isMobile&&<div style={{display:"flex",gap:10,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
               {views.has("member")&&(
                 <select value={filterMember} onChange={e=>setFilterMember(e.target.value)}
                   style={{padding:"7px 12px",borderRadius:T.radiusSm,border:bdr,background:T.card,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"}}>
@@ -3340,7 +3377,7 @@ function TasksPage(){
                 {statusFilter.size>0&&<button onClick={()=>setStatusFilter(new Set())} style={{padding:"5px 13px",borderRadius:20,border:`1.5px solid ${T.border}`,background:"transparent",color:T.textTert,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Clear</button>}
               </div>
               <div style={{marginLeft:"auto",fontSize:12,color:T.textSub}}>{filteredDisplay.length} tasks</div>
-            </div>
+            </div>}
 
             {filteredDisplay.length===0&&(
               <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,padding:40,textAlign:"center",color:T.textTert,fontSize:14}}>

@@ -18,6 +18,8 @@ const leadToRow = (l) => ({
 });
 const contactToRow = (c) => ({ id: String(c.id), name: c.name || "", role: c.role || "", phone: c.phone || "", email: c.email || "", data: c });
 const autoToRow = (a) => ({ id: String(a.id), trigger: a.trigger || "", data: a });
+// Financial Section (admin-only): funders + draws are stored whole in `data`.
+const idToRow = (x) => ({ id: String(x.id), data: x });
 
 const rowData = (row, fallback) => (row && row.data ? row.data : fallback(row));
 
@@ -25,6 +27,7 @@ const mapProps = (data) => data.map((r) => rowData(r, (row) => ({ id: Number(row
 const mapLeads = (data) => data.map((r) => rowData(r, (row) => ({ id: Number(row.id), address: row.address, city: row.city, state: row.state, zip: row.zip, leadStatus: row.lead_status })));
 const mapAutos = (data) => data.map((r) => rowData(r, (row) => ({ id: row.id, trigger: row.trigger, tasks: [] })));
 const mapContacts = (data) => data.map((r) => rowData(r, (row) => ({ id: Number(row.id), name: row.name, role: row.role, phone: row.phone, email: row.email })));
+const mapData = (data) => data.map((r) => (r && r.data ? r.data : r)).filter(Boolean);
 
 // ── A Supabase-backed collection with safe, coalesced, in-order writes ────────
 // - Edits update local state immediately, then a single debounced flush writes
@@ -130,6 +133,8 @@ export function DataProvider({ children }) {
   const leadsC = useSyncedCollection("leads", leadToRow, mapLeads, reportError);
   const autosC = useSyncedCollection("automations", autoToRow, mapAutos, reportError);
   const contactsC = useSyncedCollection("contacts", contactToRow, mapContacts, reportError);
+  const fundersC = useSyncedCollection("funders", idToRow, mapData, reportError);
+  const drawsC = useSyncedCollection("draws", idToRow, mapData, reportError);
 
   const loadTeam = useCallback(async () => {
     const { data, error } = await supabase.from("users").select("*").order("name");
@@ -158,7 +163,7 @@ export function DataProvider({ children }) {
     (async () => {
       setLoading(true);
       await seedIfEmpty();
-      await Promise.all([propsC.load(), leadsC.load(), contactsC.load(), autosC.load(), loadTeam()]);
+      await Promise.all([propsC.load(), leadsC.load(), contactsC.load(), autosC.load(), fundersC.load(), drawsC.load(), loadTeam()]);
       if (!cancelled) setLoading(false);
     })();
 
@@ -171,12 +176,14 @@ export function DataProvider({ children }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, () => debounce("l", leadsC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "contacts" }, () => debounce("c", contactsC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "automations" }, () => debounce("a", autosC.load))
+      .on("postgres_changes", { event: "*", schema: "public", table: "funders" }, () => debounce("f", fundersC.load))
+      .on("postgres_changes", { event: "*", schema: "public", table: "draws" }, () => debounce("d", drawsC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "users" }, () => debounce("u", loadTeam))
       .subscribe();
 
     // Safety net: flush any pending edits when the tab is hidden or the page is
     // being unloaded/backgrounded (covers a PWA refresh or app switch).
-    const flushAll = () => { propsC.flushNow(); leadsC.flushNow(); autosC.flushNow(); contactsC.flushNow(); };
+    const flushAll = () => { propsC.flushNow(); leadsC.flushNow(); autosC.flushNow(); contactsC.flushNow(); fundersC.flushNow(); drawsC.flushNow(); };
     const onHide = () => { if (document.visibilityState === "hidden") flushAll(); };
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("pagehide", flushAll);
@@ -188,7 +195,7 @@ export function DataProvider({ children }) {
       window.removeEventListener("pagehide", flushAll);
       supabase.removeChannel(channel);
     };
-  }, [userId, seedIfEmpty, propsC.load, leadsC.load, autosC.load, contactsC.load, propsC.flushNow, leadsC.flushNow, autosC.flushNow, contactsC.flushNow, loadTeam]);
+  }, [userId, seedIfEmpty, propsC.load, leadsC.load, autosC.load, contactsC.load, fundersC.load, drawsC.load, propsC.flushNow, leadsC.flushNow, autosC.flushNow, contactsC.flushNow, fundersC.flushNow, drawsC.flushNow, loadTeam]);
 
   const teamMembers = Array.from(new Set([...team.map((u) => u.name || u.email).filter(Boolean), displayName].filter(Boolean)));
 
@@ -204,6 +211,12 @@ export function DataProvider({ children }) {
     flushContacts: contactsC.flushNow,
     automations: autosC.items,
     setAutomations: autosC.set,
+    funders: fundersC.items,
+    setFunders: fundersC.set,
+    flushFunders: fundersC.flushNow,
+    draws: drawsC.items,
+    setDraws: drawsC.set,
+    flushDraws: drawsC.flushNow,
     team,
     teamMembers,
     currentUser: displayName,

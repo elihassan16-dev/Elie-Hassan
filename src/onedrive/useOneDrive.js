@@ -81,8 +81,17 @@ export function useOneDrive() {
   }, [graph]);
 
   const listChildren = useCallback(async (driveId, itemId) => {
-    const j = await graph(`/drives/${driveId}/items/${itemId}/children?$top=500`);
-    return j.value || [];
+    // Page through everything so folders with many files (spreadsheets, etc.) show in full.
+    let url = `/drives/${driveId}/items/${itemId}/children?$top=200`;
+    const all = [];
+    let guard = 0;
+    while (url && guard < 50) {
+      const j = await graph(url);
+      all.push(...(j.value || []));
+      url = j["@odata.nextLink"] || null;
+      guard += 1;
+    }
+    return all;
   }, [graph]);
 
   // ── Folder picker sources ────────────────────────────────────────────────────

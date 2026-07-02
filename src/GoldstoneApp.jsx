@@ -2078,13 +2078,34 @@ function FilesTab({property,onUpdate}){
   const openFolder=(f)=>loadFrom(cur.driveId,f.id,[...stack,{driveId:cur.driveId,id:f.id,name:f.name}]);
   const goTo=(idx)=>loadFrom(stack[idx].driveId,stack[idx].id,stack.slice(0,idx+1));
   const refresh=()=>cur&&loadFrom(cur.driveId,cur.id,null);
-  const onPick=async(e)=>{
-    const file=e.target.files&&e.target.files[0];if(!file||!cur)return;
+  const uploadToFolder=useCallback(async(file)=>{
+    if(!file||!cur)return;
     setUploading(1);setError("");
-    try{await od.uploadFile(cur.driveId,cur.id,file,(p)=>setUploading(p||1));refresh();}
+    let up=file;
+    if(!file.name||!/\.[a-z0-9]+$/i.test(file.name)){const ext=((file.type||"").split("/")[1]||"png").replace("jpeg","jpg");up=new File([file],`pasted-${Date.now()}.${ext}`,{type:file.type||"application/octet-stream"});}
+    try{await od.uploadFile(cur.driveId,cur.id,up,(p)=>setUploading(p||1));refresh();}
     catch(err){setError(err.message||"Upload failed.");}
-    setUploading(0);if(fileRef.current)fileRef.current.value="";
+    setUploading(0);
+  },[cur,od,refresh]);
+  const onPick=async(e)=>{
+    const file=e.target.files&&e.target.files[0];
+    if(fileRef.current)fileRef.current.value="";
+    await uploadToFolder(file);
   };
+  const onFilesDrop=(e)=>{const file=e.dataTransfer?.files?.[0];if(!file)return;e.preventDefault();uploadToFolder(file);};
+  // Paste a file (from email, WhatsApp Web, etc.) to upload it into the open folder.
+  useEffect(()=>{
+    if(!connected||!cur)return;
+    const onPaste=(e)=>{
+      const items=e.clipboardData?.items||[];let file=null;
+      for(const it of items){if(it.kind==="file"){const f=it.getAsFile();if(f){file=f;break;}}}
+      if(!file&&e.clipboardData?.files?.length)file=e.clipboardData.files[0];
+      if(!file)return;
+      e.preventDefault();uploadToFolder(file);
+    };
+    window.addEventListener("paste",onPaste);
+    return ()=>window.removeEventListener("paste",onPaste);
+  },[connected,cur,uploadToFolder]);
 
   // ── Picker actions ──
   const openMyOneDrive=async()=>{setPLoading(true);setError("");try{const r=await od.myDriveRoot();setPStack([{driveId:r.driveId,id:r.rootId,name:"My OneDrive"}]);setPItems(r.items);}catch(e){setError(e.message);}setPLoading(false);};
@@ -2187,7 +2208,7 @@ function FilesTab({property,onUpdate}){
   );
 
   return(
-    <div style={wrap}>
+    <div style={wrap} onDrop={onFilesDrop} onDragOver={e=>e.preventDefault()}>
       {/* toolbar */}
       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:12}}>
         <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",fontSize:13}}>

@@ -3249,6 +3249,58 @@ function AddTaskInline({onAdd}){
   );
 }
 
+// Bulk-add tasks to any property (incl. ones with no tasks yet). Assigning here just
+// sets who's responsible — it does NOT mark the task as "delegated by me".
+function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
+  const[propId,setPropId]=useState(initialPropId||(properties[0]?.id||""));
+  const[rows,setRows]=useState([{text:"",assignee:""}]);
+  const setRow=(i,k,v)=>setRows(rs=>rs.map((r,j)=>j===i?{...r,[k]:v}:r));
+  const addRow=()=>setRows(rs=>[...rs,{text:"",assignee:""}]);
+  const removeRow=(i)=>setRows(rs=>rs.length>1?rs.filter((_,j)=>j!==i):rs);
+  const valid=propId&&rows.some(r=>r.text.trim());
+  const save=()=>{ if(!valid)return; onAdd(propId,rows); onClose(); };
+  const inp={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit",background:"#fff"};
+  const lbl={fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6,display:"block"};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:410,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(6px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderTopLeftRadius:20,borderTopRightRadius:20,width:"100%",maxWidth:560,maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 -8px 40px rgba(0,0,0,0.2)"}}>
+        <div style={{padding:"15px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:16,fontWeight:700,color:T.text}}>Add tasks</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{padding:"16px 18px",overflowY:"auto"}}>
+          <div style={{marginBottom:16}}>
+            <label style={lbl}>Property</label>
+            <select value={propId} onChange={e=>setPropId(e.target.value)} style={{...inp,color:propId?T.text:T.textTert}}>
+              <option value="">Select a property…</option>
+              {properties.map(p=><option key={p.id} value={p.id}>{p.address}{p.city?`, ${p.city}`:""}</option>)}
+            </select>
+          </div>
+          <label style={lbl}>Tasks</label>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {rows.map((r,i)=>(
+              <div key={i} style={{display:"flex",gap:8,alignItems:"center"}}>
+                <input autoFocus={i===0} value={r.text} onChange={e=>setRow(i,"text",e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&r.text.trim()&&i===rows.length-1)addRow();}} placeholder={`Task ${i+1}…`}
+                  style={{...inp,flex:1}}/>
+                <select value={r.assignee} onChange={e=>setRow(i,"assignee",e.target.value)} style={{...inp,width:130,flexShrink:0,color:r.assignee?T.text:T.textTert,fontSize:13,padding:"10px 8px"}}>
+                  <option value="">Unassigned</option>
+                  {(teamMembers||[]).map(m=><option key={m} value={m}>{m}</option>)}
+                </select>
+                {rows.length>1&&<button onClick={()=>removeRow(i)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0,padding:"2px 4px"}}>×</button>}
+              </div>
+            ))}
+          </div>
+          <button onClick={addRow} style={{marginTop:10,width:"100%",padding:"9px",borderRadius:T.radiusSm,background:"transparent",border:`1.5px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600}}>+ Add another task</button>
+        </div>
+        <div style={{padding:"12px 18px max(12px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end"}}>
+          <button onClick={onClose} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
+          <button onClick={save} disabled={!valid} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:valid?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,cursor:valid?"pointer":"default",fontFamily:"inherit",fontSize:14}}>Add tasks</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // In-app messages/notes on a single task.
 function TaskMessagesPopup({title,messages,currentUser,teamMembers,onSend,onClose}){
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
@@ -3297,6 +3349,7 @@ function TasksPage(){
   const[contactSearch,setContactSearch]=useState(""); // the task we're setting a contact for
   const[taskMsgTarget,setTaskMsgTarget]=useState(null); // task whose messages are open
   const[taskAssignTarget,setTaskAssignTarget]=useState(null); // task we're delegating
+  const[showAddTasks,setShowAddTasks]=useState(false); // bulk add-tasks popup
   const[selectMode,setSelectMode]=useState(false);
   const[selectedKeys,setSelectedKeys]=useState(new Set()); // `${propId}:${taskId}`
   const selKey=(t)=>`${t.propId}:${t.id}`;
@@ -3378,6 +3431,13 @@ function TasksPage(){
     const t=(text||"").trim();if(!t)return;
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER}]}));
   }
+  // Bulk-add tasks to any property. Assigning here just sets who's responsible — it
+  // does NOT set assignedBy, so these don't show up as "delegated by me".
+  function addTasksBulk(propId,rows){
+    const clean=(rows||[]).map(r=>({text:(r.text||"").trim(),assignee:r.assignee||""})).filter(r=>r.text);
+    if(!propId||!clean.length)return;
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),...clean.map((r,i)=>({id:Date.now()+i,text:r.text,status:"Not Started",assignee:r.assignee,cat:"Custom"}))]}));
+  }
 
   const myTasks=allTasks.filter(t=>t.assignee===CURRENT_USER);
   // Tasks I delegated to someone else — so I can track whether they're done.
@@ -3407,6 +3467,8 @@ function TasksPage(){
 
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",background:T.bg,overflow:"hidden"}}>
+      {/* Bulk add-tasks popup */}
+      {showAddTasks&&<AddTasksModal properties={[...sharedProps.filter(p=>!p.archived)].sort((a,b)=>(a.address||"").localeCompare(b.address||""))} teamMembers={TEAM_MEMBERS} onAdd={addTasksBulk} onClose={()=>setShowAddTasks(false)}/>}
       {/* Delegate / assign popup */}
       {taskAssignTarget&&(
         <div onClick={()=>setTaskAssignTarget(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
@@ -3498,7 +3560,10 @@ function TasksPage(){
       )}
       {/* Header */}
       <div style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>
-        <div style={{fontSize:isMobile?19:22,fontWeight:700,color:T.text,marginBottom:14}}>Tasks</div>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{fontSize:isMobile?19:22,fontWeight:700,color:T.text}}>Tasks</div>
+          <button onClick={()=>setShowAddTasks(true)} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,padding:isMobile?"8px 12px":"9px 16px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:isMobile?13:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}><span style={{fontSize:16,lineHeight:1}}>＋</span>{isMobile?"Add":"Add Tasks"}</button>
+        </div>
         {isMobile?(()=>{
           // Compact filter bar for mobile — multi-select dropdowns instead of chip rows.
           const selStyle={flex:1,minWidth:0,padding:"9px 10px",borderRadius:T.radiusSm,border:bdr,background:T.bg,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"};

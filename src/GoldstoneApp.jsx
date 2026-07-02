@@ -304,6 +304,7 @@ const ICONS={
   contacts:<Ico p="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" p2="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" c={[9,7,4]}/>,
   messages:<Ico p="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>,
   showings:<Ico p="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" c={[12,12,3]}/>,
+  share:<Ico p="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" p2="M16 6l-4-4-4 4" lines={[[12,2,12,15]]}/>,
   sort:<Ico lines={[[3,6,21,6],[3,12,15,12],[3,18,9,18]]}/>,
 };
 const NAV=[
@@ -2066,6 +2067,13 @@ function FilesTab({property,onUpdate}){
 
   useEffect(()=>{if(od.ready&&od.isConnected&&connected&&stack.length===0)loadRoot();},[od.ready,od.isConnected,connected]);// eslint-disable-line
 
+  const[copiedId,setCopiedId]=useState("");
+  const shareItem=async(it)=>{
+    const url=it.webUrl;if(!url)return;
+    if(navigator.share){try{await navigator.share({title:it.name,url});}catch{/* cancelled */}return;}
+    try{await navigator.clipboard.writeText(url);setCopiedId(it.id);setTimeout(()=>setCopiedId(c=>c===it.id?"":c),1500);}
+    catch{window.prompt("Copy this link:",url);}
+  };
   const cur=stack[stack.length-1];
   const openFolder=(f)=>loadFrom(cur.driveId,f.id,[...stack,{driveId:cur.driveId,id:f.id,name:f.name}]);
   const goTo=(idx)=>loadFrom(stack[idx].driveId,stack[idx].id,stack.slice(0,idx+1));
@@ -2212,6 +2220,7 @@ function FilesTab({property,onUpdate}){
                 <div style={{fontSize:11,color:T.textTert}}>{isFolder?`${it.folder.childCount||0} items`:fmtBytes(it.size)}{it.lastModifiedDateTime?` · ${new Date(it.lastModifiedDateTime).toLocaleDateString()}`:""}</div>
               </div>
               {!isFolder&&dl&&<a href={dl} style={{fontSize:12,color:T.gold,fontWeight:600,textDecoration:"none",flexShrink:0}}>Download</a>}
+              <button onClick={()=>shareItem(it)} title="Share link" style={{background:"none",border:"none",cursor:it.webUrl?"pointer":"default",color:copiedId===it.id?T.green:T.textSub,padding:"4px 6px",display:"flex",alignItems:"center",gap:4,flexShrink:0,fontFamily:"inherit",fontSize:11,fontWeight:600,opacity:it.webUrl?1:0.4}}>{copiedId===it.id?"✓ Copied":ICONS.share}</button>
             </div>
           );
         })}

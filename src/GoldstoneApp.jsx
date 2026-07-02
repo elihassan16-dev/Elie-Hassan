@@ -4031,6 +4031,163 @@ function TasksPage(){
   );
 }
 
+// Parse a vCard (.vcf) file (as exported from iPhone/iCloud Contacts) into contacts.
+function parseVCards(text){
+  const unfolded=String(text).replace(/\r\n/g,"\n").replace(/\n[ \t]/g,"");
+  const clean=(v)=>v.replace(/\\n/gi,"\n").replace(/\\,/g,",").replace(/\\;/g,";").replace(/\\\\/g,"\\").trim();
+  const out=[];let cur=null;
+  for(const line of unfolded.split("\n")){
+    const L=line.trim();
+    if(/^BEGIN:VCARD$/i.test(L)){cur={tels:[],emails:[]};continue;}
+    if(/^END:VCARD$/i.test(L)){if(cur)out.push(cur);cur=null;continue;}
+    if(!cur)continue;
+    const idx=L.indexOf(":");if(idx<0)continue;
+    const key=L.slice(0,idx).split(";")[0].toUpperCase().split(".").pop();
+    const val=L.slice(idx+1);
+    if(key==="FN")cur.fn=clean(val);
+    else if(key==="N"&&!cur.n){const p=val.split(";").map(clean);cur.n=`${p[1]||""} ${p[0]||""}`.trim();}
+    else if(key==="TEL")cur.tels.push(clean(val));
+    else if(key==="EMAIL")cur.emails.push(clean(val));
+    else if(key==="ORG")cur.org=clean(val).replace(/;+$/,"").replace(/;/g," · ");
+    else if(key==="TITLE")cur.title=clean(val);
+  }
+  return out.map(c=>({name:c.fn||c.n||"",phone:c.tels[0]||"",email:c.emails[0]||"",role:[c.title,c.org].filter(Boolean).join(" · ")}))
+    .filter(c=>c.name||c.phone||c.email);
+}
+// ─── Contacts — company directory (search, add/edit, import from iPhone) ───────
+function ContactsPage(){
+  const { contacts, setContacts, flushContacts }=useData();
+  const isMobile=useIsMobile();
+  const[selId,setSelId]=useState(null);
+  const[search,setSearch]=useState("");
+  const[editing,setEditing]=useState(null); // draft contact being added/edited
+  const[importMsg,setImportMsg]=useState("");
+  const fileRef=useRef(null);
+  const saveNow=()=>{if(flushContacts)setTimeout(flushContacts,0);};
+  const q=search.trim().toLowerCase();
+  const list=[...contacts].filter(c=>!q||[c.name,c.role,c.phone,c.email].filter(Boolean).join(" ").toLowerCase().includes(q))
+    .sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const sel=contacts.find(c=>c.id===selId)||null;
+  const save=(c)=>{
+    const clean={id:c.id||Date.now(),name:(c.name||"").trim(),role:(c.role||"").trim(),phone:(c.phone||"").trim(),email:(c.email||"").trim()};
+    if(!clean.name&&!clean.phone&&!clean.email)return;
+    setContacts(prev=>prev.some(x=>x.id===clean.id)?prev.map(x=>x.id===clean.id?clean:x):[...prev,clean]);
+    saveNow();setEditing(null);setSelId(clean.id);
+  };
+  const del=(id)=>{if(!window.confirm("Delete this contact?"))return;setContacts(prev=>prev.filter(x=>x.id!==id));saveNow();setSelId(null);setEditing(null);};
+  const onImport=async(e)=>{
+    const file=e.target.files&&e.target.files[0];if(fileRef.current)fileRef.current.value="";if(!file)return;
+    setImportMsg("");
+    try{
+      const parsed=parseVCards(await file.text());
+      if(!parsed.length){setImportMsg("No contacts found in that file.");return;}
+      const key=(c)=>`${(c.name||"").toLowerCase()}|${(c.phone||"").replace(/\D/g,"")}`;
+      const seen=new Set(contacts.map(key));const fresh=[];
+      parsed.forEach(c=>{const k=key(c);if(!seen.has(k)){seen.add(k);fresh.push(c);}});
+      if(!fresh.length){setImportMsg("Those contacts are already in your directory.");return;}
+      setContacts(prev=>[...prev,...fresh.map((c,i)=>({id:Date.now()+i,name:c.name,role:c.role,phone:c.phone,email:c.email}))]);
+      saveNow();
+      const dup=parsed.length-fresh.length;
+      setImportMsg(`Imported ${fresh.length} contact${fresh.length!==1?"s":""}${dup>0?` · ${dup} already existed`:""}.`);
+    }catch{setImportMsg("Couldn't read that file. Export your contacts as a .vcf and try again.");}
+  };
+  const iS={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  const initials=(n)=>initialsOf(n)||"?";
+  const actBtn={display:"inline-flex",alignItems:"center",gap:6,padding:"9px 14px",borderRadius:T.radiusSm,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textDecoration:"none"};
+  const showDetail=isMobile?(!!sel||!!editing):true;
+  return(
+    <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+      <div style={{width:isMobile?"100%":300,flexShrink:0,display:isMobile&&showDetail?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+        <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            <div><div style={{fontWeight:700,fontSize:15,color:T.text}}>Contacts</div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{contacts.length} in directory</div></div>
+            <div style={{display:"flex",gap:6}}>
+              <input ref={fileRef} type="file" accept=".vcf,text/vcard,text/x-vcard" onChange={onImport} style={{display:"none"}}/>
+              <button onClick={()=>fileRef.current&&fileRef.current.click()} title="Import from a .vcf file" style={{height:32,padding:"0 10px",borderRadius:8,background:T.bg,border:"none",cursor:"pointer",color:T.textSub,fontSize:12,fontWeight:600,fontFamily:"inherit"}}>⇪ Import</button>
+              <button onClick={()=>{setEditing({});setSelId(null);}} title="Add contact" style={{width:32,height:32,borderRadius:8,background:T.gold,border:"none",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:20,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+            </div>
+          </div>
+          {importMsg&&<div style={{marginBottom:8,fontSize:11.5,color:T.gold,fontWeight:600}}>{importMsg}</div>}
+          <div style={{position:"relative"}}>
+            <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:15,pointerEvents:"none"}}>⌕</span>
+            <input placeholder="Search name, role, phone…" value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px"}}/>
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:"auto"}}>
+          {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{contacts.length===0?"No contacts yet. Add one, or import a .vcf.":"No matches."}</div>}
+          {list.map(c=>{
+            const active=c.id===selId;
+            return(
+              <div key={c.id} onClick={()=>{setSelId(c.id);setEditing(null);}} style={{display:"flex",alignItems:"center",gap:11,padding:"10px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:active?T.goldLight:"transparent",borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent"}}>
+                <span style={{width:34,height:34,borderRadius:"50%",background:avatarColor(c.name),color:"#fff",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(c.name)}</span>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontSize:13,fontWeight:active?700:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name||"(no name)"}</div>
+                  <div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.role||c.phone||c.email||""}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{flex:1,display:isMobile&&!showDetail?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
+        {editing!==null
+          ? <ContactForm draft={editing} isMobile={isMobile} onSave={save} onCancel={()=>{setEditing(null);}} onDelete={editing.id?()=>del(editing.id):null}/>
+          : sel
+            ? <div style={{flex:1,overflowY:"auto"}}>
+                {isMobile&&<button onClick={()=>setSelId(null)} style={{display:"flex",alignItems:"center",gap:4,padding:"11px 14px",background:T.card,border:"none",borderBottom:`1px solid ${T.border}`,color:T.gold,fontWeight:600,fontSize:15,fontFamily:"inherit",cursor:"pointer",width:"100%",textAlign:"left"}}>‹ Contacts</button>}
+                <div style={{padding:"24px 20px",maxWidth:520,margin:"0 auto"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18}}>
+                    <span style={{width:56,height:56,borderRadius:"50%",background:avatarColor(sel.name),color:"#fff",fontSize:20,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(sel.name)}</span>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:20,fontWeight:700,color:T.text}}>{sel.name||"(no name)"}</div>
+                      {sel.role&&<div style={{fontSize:13,color:T.textSub,marginTop:2}}>{sel.role}</div>}
+                    </div>
+                  </div>
+                  <Card>
+                    {sel.phone&&<div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>Phone</div><div style={{fontSize:15,color:T.text,marginBottom:8}}>{sel.phone}</div><div style={{display:"flex",gap:8,flexWrap:"wrap"}}><a href={`tel:${sel.phone.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a><a href={`sms:${sel.phone.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a></div></div>}
+                    {sel.email&&<div style={{padding:"12px 16px"}}><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>Email</div><a href={`mailto:${sel.email}`} style={{fontSize:15,color:T.blue,textDecoration:"none"}}>{sel.email}</a></div>}
+                    {!sel.phone&&!sel.email&&<div style={{padding:"16px",fontSize:13,color:T.textTert}}>No phone or email on file.</div>}
+                  </Card>
+                  <div style={{display:"flex",gap:10,marginTop:16}}>
+                    <button onClick={()=>setEditing(sel)} style={{padding:"9px 18px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Edit</button>
+                    <button onClick={()=>del(sel.id)} style={{padding:"9px 18px",borderRadius:T.radiusSm,background:"#fff",border:`1px solid ${T.red}`,color:T.red,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
+                  </div>
+                </div>
+              </div>
+            : <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:T.textSub}}>
+                <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>👥</div>
+                <div style={{fontSize:16,fontWeight:600}}>Select a contact</div>
+                <div style={{fontSize:13,color:T.textTert}}>Or tap + to add one, ⇪ to import from your phone</div>
+              </div>}
+      </div>
+    </div>
+  );
+}
+function ContactForm({draft,isMobile,onSave,onCancel,onDelete}){
+  const[c,setC]=useState({name:draft.name||"",role:draft.role||"",phone:draft.phone||"",email:draft.email||"",id:draft.id});
+  const up=(k,v)=>setC(p=>({...p,[k]:v}));
+  const iS={width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:15,outline:"none",boxSizing:"border-box",fontFamily:"inherit",background:"#fff"};
+  const lbl={fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6,display:"block"};
+  return(
+    <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+      {isMobile&&<button onClick={onCancel} style={{display:"flex",alignItems:"center",gap:4,padding:"11px 14px",background:T.card,border:"none",borderBottom:`1px solid ${T.border}`,color:T.gold,fontWeight:600,fontSize:15,fontFamily:"inherit",cursor:"pointer",width:"100%",textAlign:"left"}}>‹ Back</button>}
+      <div style={{padding:"22px 20px",maxWidth:520,margin:"0 auto"}}>
+        <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:18}}>{draft.id?"Edit contact":"New contact"}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div><label style={lbl}>Name</label><input autoFocus value={c.name} onChange={e=>up("name",e.target.value)} placeholder="Full name" style={iS}/></div>
+          <div><label style={lbl}>Role / trade / company</label><input value={c.role} onChange={e=>up("role",e.target.value)} placeholder="e.g. Plumber · ABC Plumbing" style={iS}/></div>
+          <div><label style={lbl}>Phone</label><input value={c.phone} onChange={e=>up("phone",e.target.value)} placeholder="Phone" inputMode="tel" style={iS}/></div>
+          <div><label style={lbl}>Email</label><input value={c.email} onChange={e=>up("email",e.target.value)} placeholder="Email" autoCapitalize="none" inputMode="email" style={iS}/></div>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:20,alignItems:"center"}}>
+          <button onClick={()=>onSave(c)} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+          <button onClick={onCancel} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+          {onDelete&&<button onClick={onDelete} style={{marginLeft:"auto",padding:"10px 16px",borderRadius:T.radiusSm,background:"#fff",border:`1px solid ${T.red}`,color:T.red,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
 function ComingSoon({label}){
   return <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,background:T.bg}}><div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🚧</div><div style={{fontSize:17,fontWeight:600,color:T.text}}>{label}</div><div style={{fontSize:14,color:T.textSub}}>Coming soon</div></div>;
 }
@@ -4970,6 +5127,7 @@ export function GoldstoneShell(){
     : active==="showings" ? <ShowingsPage/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage/>
+    : active==="contacts" ? <ContactsPage/>
     : <ComingSoon label={NAV.find(n=>n.key===active)?.label}/>;
 
   if(loading) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.gold,fontWeight:700,fontSize:16,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif"}}>Loading Goldstone…</div>;

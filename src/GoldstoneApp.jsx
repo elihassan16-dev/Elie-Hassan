@@ -1605,13 +1605,15 @@ function ShowingsTab({property,onUpdate}){
 function ShowingsPage(){
   const { sharedProps, setSharedProps }=useData();
   const { isAdmin }=useAuth();
+  const isMobile=useIsMobile();
   const[status,setStatus]=useState(null);
   const[showings,setShowings]=useState(null);
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState("");
   const[urlInput,setUrlInput]=useState("");
   const[saving,setSaving]=useState(false);
-  const[collapsed,setCollapsed]=useState({}); // propId -> true when manually collapsed
+  const[selId,setSelId]=useState(null);
+  const[search,setSearch]=useState("");
   useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
   const load=useCallback(()=>{setLoading(true);setError("");qbAuthFetch("/api/showings").then(d=>setShowings(d.showings||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
   useEffect(()=>{if(status&&status.configured)load();},[status,load]);
@@ -1623,10 +1625,10 @@ function ShowingsPage(){
   };
   const onUpdate=(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));
 
-  const wrap={padding:"18px 16px 40px",maxWidth:720,margin:"0 auto",width:"100%",boxSizing:"border-box"};
+  const wrap={padding:"18px 16px 40px",maxWidth:600,margin:"0 auto",width:"100%",boxSizing:"border-box"};
   if(!status) return <div style={{...wrap,color:T.textSub,fontSize:14}}>Loading…</div>;
   if(!status.configured) return(
-    <div style={{...wrap,maxWidth:600}}>
+    <div style={wrap}>
       <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>Connect ShowingTime</div>
       <div style={{fontSize:13,color:T.textSub,marginBottom:14,lineHeight:1.5}}>Paste your ShowingTime <strong>Calendar Sync Link</strong> (in ShowingTime: Profile → Calendar Sync → Sync Now). This connects showings for <em>all</em> your properties — you only do it once.</div>
       {!isAdmin
@@ -1642,56 +1644,92 @@ function ShowingsPage(){
 
   const all=showings||[];
   const cutoff=Date.now()-3600000;
-  const onMarket=sharedProps.filter(p=>!p.archived&&(p.status==="On Market"||p.status==="In Closing"))
+  const rows=sharedProps.filter(p=>!p.archived&&(p.status==="On Market"||p.status==="In Closing"))
     .map(p=>{
       const mine=matchedShowings(all,p);
       const upTs=mine.filter(s=>s.ts>=cutoff).map(s=>s.ts).sort((a,b)=>a-b);
       return {p,total:mine.length,upcoming:upTs.length,next:upTs[0]??Infinity};
     })
     .sort((a,b)=>a.next-b.next||b.total-a.total||a.p.address.localeCompare(b.p.address));
-  const totalUpcoming=onMarket.reduce((n,x)=>n+x.upcoming,0);
+  const totalUpcoming=rows.reduce((n,x)=>n+x.upcoming,0);
+  const q=search.toLowerCase();
+  const list=rows.filter(x=>(x.p.address+" "+(x.p.city||"")).toLowerCase().includes(q));
+  // Effective selection: honor a tapped property, else default to the first on desktop.
+  const selMeta=(selId&&list.find(x=>x.p.id===selId))||(!isMobile?list[0]:null)||null;
+  const sel=selMeta?.p||null;
+  const iS={width:"100%",padding:"7px 10px 7px 28px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
 
   return(
-    <div style={{flex:1,overflowY:"auto",background:T.bg}}>
-      <div style={wrap}>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-          <div>
-            <div style={{fontSize:15,fontWeight:700,color:T.text}}>Showings</div>
-            <div style={{fontSize:12.5,color:T.textSub,marginTop:2}}>{totalUpcoming} upcoming · {onMarket.length} propert{onMarket.length===1?"y":"ies"} on market</div>
+    <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+      {/* Left: property list */}
+      <div style={{width:isMobile?"100%":340,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+        <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+            <div style={{minWidth:0,flex:1}}>
+              <div style={{fontWeight:700,fontSize:15,color:T.text}}>Showings</div>
+              <div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>{totalUpcoming} upcoming · {rows.length} on market</div>
+            </div>
+            <button onClick={load} title="Refresh" style={{padding:"6px 12px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻</button>
           </div>
-          <div style={{marginLeft:"auto",display:"flex",gap:8,flexShrink:0}}>
-            {onMarket.length>0&&(()=>{
-              const allExpanded=onMarket.every(({p,total})=>collapsed[p.id]!==undefined?!collapsed[p.id]:total>0);
-              return <button onClick={()=>setCollapsed(Object.fromEntries(onMarket.map(x=>[x.p.id,allExpanded])))} style={{padding:"7px 14px",borderRadius:T.radiusSm,background:"transparent",color:T.textSub,border:`1px solid ${T.border}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{allExpanded?"Collapse all":"Expand all"}</button>;
-            })()}
-            <button onClick={load} style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻ Refresh</button>
+          <div style={{position:"relative"}}>
+            <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:14,pointerEvents:"none"}}>⌕</span>
+            <input placeholder="Search properties…" value={search} onChange={e=>setSearch(e.target.value)} style={iS}/>
           </div>
         </div>
-        {loading&&<div style={{color:T.textSub,fontSize:14,padding:12}}>Loading showings…</div>}
-        {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
-        {onMarket.length===0&&!loading&&<Card><div style={{padding:"28px 16px",textAlign:"center",color:T.textTert,fontSize:14}}>No properties are on market right now.<div style={{fontSize:12,marginTop:6}}>Set a property's status to "On Market" or "In Closing" and its showings will appear here.</div></div></Card>}
-        {onMarket.map(({p,total,upcoming})=>{
-          const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
-          const sc=SC[p.status]||{};
-          const isOpen=collapsed[p.id]!==undefined?!collapsed[p.id]:total>0;
+        <div style={{flex:1,overflowY:"auto"}}>
+          {loading&&<div style={{padding:16,color:T.textSub,fontSize:13}}>Loading showings…</div>}
+          {error&&<div style={{margin:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:12.5}}>{error}</div>}
+          {!loading&&list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{rows.length===0?"No properties are on market.":"No matches."}</div>}
+          {list.map(({p,total,upcoming})=>{
+            const active=sel&&sel.id===p.id;
+            const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
+            const sc=SC[p.status]||{};
+            return(
+              <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:active?T.goldLight:"transparent",borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{flex:1,minWidth:0,fontWeight:active?700:600,fontSize:13,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</span>
+                  {upcoming>0&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:9,background:T.gold,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{upcoming}</span>}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3}}>
+                  {p.status&&<span style={{fontSize:9,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 7px",borderRadius:20}}>{p.status}</span>}
+                  <span style={{fontSize:11,color:T.textSub}}>{upcoming>0?`${upcoming} upcoming`:total>0?"No upcoming":"No showings yet"}{total>0?` · ${total} total`:""}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {/* Right: selected property's showings */}
+      <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
+        {sel?(()=>{
+          const sc=SC[sel.status]||{};
+          const addr=`${sel.address}${sel.city?`, ${sel.city}`:""}`;
           return(
-            <div key={p.id} style={{marginBottom:18}}>
-              <div onClick={()=>setCollapsed(c=>({...c,[p.id]:isOpen}))} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",padding:"6px 2px",marginBottom:8}}>
-                <span style={{fontSize:12,color:T.textTert,transform:isOpen?"rotate(90deg)":"none",transition:"transform 0.15s",flexShrink:0}}>▶</span>
+            <>
+              <div style={{padding:"12px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+                {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",padding:"2px 4px",flexShrink:0}}>‹</button>}
                 <div style={{minWidth:0,flex:1}}>
-                  <div style={{fontSize:14.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
+                  <div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
-                    {p.status&&<span style={{fontSize:9.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{p.status}</span>}
-                    <span style={{fontSize:11.5,color:T.textSub}}>{upcoming>0?`${upcoming} upcoming`:total>0?"No upcoming":"No showings yet"}{total>0?` · ${total} total`:""}</span>
+                    {sel.status&&<span style={{fontSize:9.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{sel.status}</span>}
+                    <span style={{fontSize:11.5,color:T.textSub}}>{selMeta.upcoming} upcoming · {selMeta.total} total</span>
                   </div>
                 </div>
-                {upcoming>0&&<span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:10,background:T.gold,color:"#fff",fontSize:11,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{upcoming}</span>}
+                <button onClick={load} title="Refresh" style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻ Refresh</button>
               </div>
-              {isOpen&&<PropertyShowings property={p} showings={all} onUpdate={onUpdate}/>}
-            </div>
+              <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
+                <PropertyShowings property={sel} showings={all} onUpdate={onUpdate}/>
+                <div style={{marginTop:12,fontSize:12,color:T.textTert,textAlign:"center"}}>Live from ShowingTime · matched by address</div>
+              </div>
+            </>
           );
-        })}
-        {onMarket.length>0&&<div style={{marginTop:6,fontSize:12,color:T.textTert,textAlign:"center"}}>Live from ShowingTime · matched by address</div>}
+        })():(
+          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:T.textSub}}>
+            <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>👁️</div>
+            <div style={{fontSize:16,fontWeight:600}}>Select a property</div>
+            <div style={{fontSize:13,color:T.textTert}}>Choose a property to see its showings</div>
+          </div>
+        )}
       </div>
     </div>
   );

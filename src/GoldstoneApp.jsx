@@ -3099,6 +3099,20 @@ function MultiSelect({placeholder,options,selected,onToggle,style}){
   );
 }
 
+// Inline "add a task" row shown at the bottom of each property group in the Task Center.
+function AddTaskInline({onAdd}){
+  const[text,setText]=useState("");
+  const submit=()=>{const t=text.trim();if(!t)return;onAdd(t);setText("");};
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderTop:`1px solid ${T.border}`}}>
+      <span style={{color:T.blue,fontSize:17,fontWeight:700,flexShrink:0,lineHeight:1}}>+</span>
+      <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="Add a task for this property…"
+        style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",fontSize:13,color:T.text,fontFamily:"inherit"}}/>
+      {text.trim()&&<button onClick={submit} style={{padding:"5px 14px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Add</button>}
+    </div>
+  );
+}
+
 // ─── Tasks Page ───────────────────────────────────────────────────────────────
 // TEAM_MEMBERS and CURRENT_USER now come from useData() (real Supabase auth + users table).
 
@@ -3141,6 +3155,11 @@ function TasksPage(){
 
   function deleteTask(propId,taskId){
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).filter(t=>t.id!==taskId)}));
+  }
+  // Add a task straight from the Task Center — assigned to me so it stays visible.
+  function addTaskToProp(propId,text){
+    const t=(text||"").trim();if(!t)return;
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER}]}));
   }
 
   const myTasks=allTasks.filter(t=>t.assignee===CURRENT_USER);
@@ -3407,28 +3426,31 @@ function TasksPage(){
             {/* Group by property */}
             {Object.entries(filteredDisplay.reduce((acc,t)=>{(acc[t.propAddr]=acc[t.propAddr]||[]).push(t);return acc;},{})).map(([addr,ptasks])=>(
               <div key={addr} style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14}}>
-                <div style={{padding:"11px 16px",background:"#FAFAFA",borderBottom:bdr,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
-                  <span style={{fontSize:13,fontWeight:700,color:T.text,flex:"1 1 auto",minWidth:0}}>{addr}</span>
-                <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,flexWrap:"wrap"}}>
-                    <span style={{fontSize:11,color:T.textSub}}>{ptasks.filter(t=>t.status==="Completed").length}/{ptasks.length} done</span>
-                    {(()=>{const sc=SC[ptasks[0]?.propStatus]||{};return <span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{ptasks[0]?.propStatus}</span>;})()}
+                <div style={{padding:"10px 14px",background:"#FAFAFA",borderBottom:bdr,display:"flex",flexDirection:"column",gap:7}}>
+                  {/* Row 1: address + delete */}
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+                    <span style={{fontSize:13,fontWeight:700,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</span>
                     {confirmDeleteProp===addr
-                      ?<div style={{display:"flex",alignItems:"center",gap:6}}>
-                          <span style={{fontSize:12,color:T.red}}>Delete all {ptasks.length}?</span>
+                      ?<div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                          <span style={{fontSize:12,color:T.red}}>Delete {ptasks.length}?</span>
                           <button onClick={()=>{ptasks.forEach(t=>deleteTask(t.propId,t.id));setConfirmDeleteProp(null);}}
                             style={{padding:"3px 10px",borderRadius:6,background:T.red,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Yes</button>
                           <button onClick={()=>setConfirmDeleteProp(null)}
                             style={{padding:"3px 10px",borderRadius:6,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>No</button>
                         </div>
-                      :<button onClick={()=>setConfirmDeleteProp(addr)}
-                          style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,cursor:"pointer",fontSize:12,fontFamily:"inherit",padding:"2px 8px",borderRadius:6}}
+                      :<button onClick={()=>setConfirmDeleteProp(addr)} title="Delete all tasks for this property"
+                          style={{flexShrink:0,background:"none",border:`1px solid ${T.border}`,color:T.textTert,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:"3px 9px",borderRadius:6,lineHeight:1}}
                           onMouseEnter={e=>{e.currentTarget.style.color=T.red;e.currentTarget.style.borderColor=T.red;}}
-                          onMouseLeave={e=>{e.currentTarget.style.color=T.textTert;e.currentTarget.style.borderColor=T.border;}}>
-                          🗑 Delete All
-                        </button>}
+                          onMouseLeave={e=>{e.currentTarget.style.color=T.textTert;e.currentTarget.style.borderColor=T.border;}}>🗑</button>}
+                  </div>
+                  {/* Row 2: status chip + done — always the same position, all properties aligned */}
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    {(()=>{const sc=SC[ptasks[0]?.propStatus]||{};return <span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}}>{ptasks[0]?.propStatus}</span>;})()}
+                    <span style={{fontSize:11,color:T.textSub}}>{ptasks.filter(t=>t.status==="Completed").length}/{ptasks.length} done</span>
                   </div>
                 </div>
                 {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onDelete={deleteTask} onContact={setTaskContactTarget}/>)}
+                <AddTaskInline onAdd={(text)=>addTaskToProp(ptasks[0].propId,text)}/>
               </div>
             ))}
           </div>

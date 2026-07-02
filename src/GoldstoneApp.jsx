@@ -1945,7 +1945,15 @@ function QuickBooksTab({property,onUpdate}){
     if(sel.holding&&b.holding!==0){ch.actualHoldingCosts=String(Math.round(b.holding));ch.actualHoldingCostItems=[];}
     if(sel.selling) put("actualSellingCosts",b.selling);
     // Debt service / interest is intentionally NOT imported — the app has its own formula.
-    if(Object.keys(ch).length===0){if(!auto)setFlash("QuickBooks has no numbers to import for the checked lines yet — your entered values were left as-is.");return;}
+    if(Object.keys(ch).length===0){
+      if(!auto){
+        const anyChecked=QB_IMPORT_KEYS.some(k=>sel[k]);
+        setFlash(!anyChecked
+          ?"No lines are checked to import — check the lines you want below, then Import again."
+          :"QuickBooks returned $0 for every checked line on this project — nothing to import. Make sure the property is mapped to the right QuickBooks project and that its costs are tagged to that project.");
+      }
+      return;
+    }
     ch.useActualProfit=true;
     onUpdate(property.id,"financials",{...f,...ch});
     setFlash(auto?"↻ Auto-synced the selected QuickBooks lines into your Actual columns.":"✓ Imported the selected lines into the Actual columns — check Financial Overview.");
@@ -2060,9 +2068,14 @@ function QuickBooksTab({property,onUpdate}){
       {!loading&&pnl&&(
         <>
           {/* Import button */}
-          <button onClick={doImport} disabled={selCount===0} style={{width:"100%",padding:"12px",borderRadius:T.radiusSm,background:selCount===0?T.border:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:15,cursor:selCount===0?"default":"pointer",fontFamily:"inherit",marginBottom:16,boxShadow:selCount===0?"none":`0 2px 10px ${T.gold}55`}}>
+          <button onClick={doImport} disabled={selCount===0} style={{width:"100%",padding:"12px",borderRadius:T.radiusSm,background:selCount===0?T.border:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:15,cursor:selCount===0?"default":"pointer",fontFamily:"inherit",marginBottom:8,boxShadow:selCount===0?"none":`0 2px 10px ${T.gold}55`}}>
             ↓ Import {selCount===QB_IMPORT_KEYS.length?"all lines":`${selCount} selected line${selCount!==1?"s":""}`} into Actual columns
           </button>
+          {/* Diagnostic — what QuickBooks actually returned for this project. */}
+          <div style={{fontSize:11,color:T.textTert,textAlign:"center",marginBottom:16}}>
+            Mapped to <b style={{color:T.textSub}}>{property.qbProjectName||"(unnamed project)"}</b> · {(pnl.rows||[]).filter(r=>r.section!=="Income").length} cost line{(pnl.rows||[]).filter(r=>r.section!=="Income").length!==1?"s":""} · {(txns||[]).length} transaction{(txns||[]).length!==1?"s":""} · {selCount} of {QB_IMPORT_KEYS.length} lines checked
+            {selCount===0&&<span style={{color:T.red}}> — no lines checked, so Import is off. Check some lines below.</span>}
+          </div>
 
           {/* Summary — fixed 3-column grid so amounts never wrap onto each other */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?6:10,marginBottom:16}}>

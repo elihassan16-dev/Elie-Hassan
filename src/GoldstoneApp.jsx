@@ -3544,11 +3544,112 @@ function TaskMessagesPopup({title,messages,currentUser,teamMembers,onSend,onClos
   );
 }
 
+// ─── Task Contact card — assign a person or company, then Call/Text/WhatsApp/Email
+function TaskContactCard({task,contacts,onAssign,onClose}){
+  const tc=task.taskContact||null;
+  const isCompany=!!(tc&&tc.kind==="company");
+  const person=(!isCompany&&tc)?(contacts.find(c=>c.id===tc.id)||contacts.find(c=>(c.name||"").toLowerCase()===(tc.name||"").toLowerCase())||normContact(tc)):null;
+  const companyPeople=isCompany?contacts.filter(c=>sameCompany(c.company,tc.name)):[];
+  const[pick,setPick]=useState(!tc);
+  const[q,setQ]=useState("");
+  const ql=q.trim().toLowerCase();
+  const companies=[...new Set(contacts.map(c=>c.company).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const people=contacts.filter(c=>!ql||[c.name,c.company,c.role,...(c.tags||[]),...(c.phones||[]).map(p=>p.number)].filter(Boolean).join(" ").toLowerCase().includes(ql)).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const coMatches=companies.filter(co=>!ql||co.toLowerCase().includes(ql));
+  const dig=(n)=>String(n||"").replace(/\D/g,"");
+  const actA={display:"inline-flex",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:T.radiusSm,fontSize:12,fontWeight:600,textDecoration:"none",whiteSpace:"nowrap"};
+  const phoneRow=(num)=>(
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
+      <a href={`tel:${String(num||"").replace(/[^\d+]/g,"")}`} style={{...actA,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
+      <a href={`sms:${String(num||"").replace(/[^\d+]/g,"")}`} style={{...actA,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a>
+      <a href={`https://wa.me/${dig(num)}`} target="_blank" rel="noreferrer" style={{...actA,background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B"}}>WhatsApp</a>
+    </div>
+  );
+  const avatar=(name,size=36)=><div style={{width:size,height:size,borderRadius:"50%",background:avatarColor(name),display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:size*0.4,color:"#fff",flexShrink:0}}>{initialsOf(name)||"?"}</div>;
+  const footer=(
+    <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8}}>
+      <button onClick={()=>{setPick(true);setQ("");}} style={{flex:1,padding:"9px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Change</button>
+      <button onClick={()=>onAssign(null)} style={{flex:1,padding:"9px",borderRadius:T.radiusSm,background:"#FFF0EF",border:`1px solid ${T.red}`,color:T.red,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Remove</button>
+    </div>
+  );
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(400px,94vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight}}>
+          <div style={{fontSize:13,fontWeight:700,color:T.gold}}>Task Contact</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{padding:"10px 16px 6px",fontSize:11,color:T.textSub,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Task: {task.text}</div>
+        {pick?(
+          <>
+            <div style={{padding:"0 16px 10px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,background:T.bg,borderRadius:10,padding:"8px 12px",border:`1px solid ${T.border}`}}>
+                <span style={{fontSize:14,color:T.textSub}}>🔍</span>
+                <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search people or companies…" style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:13,color:T.text,fontFamily:"inherit"}}/>
+              </div>
+            </div>
+            <div style={{overflowY:"auto"}}>
+              {coMatches.length>0&&<div style={{padding:"6px 16px 2px",fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>Companies</div>}
+              {coMatches.map(co=>{const n=contacts.filter(c=>sameCompany(c.company,co)).length;return(
+                <div key={"co-"+co} onClick={()=>onAssign({kind:"company",name:co})} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`}}>
+                  <div style={{width:36,height:36,borderRadius:10,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>🏢</div>
+                  <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{co}</div><div style={{fontSize:11,color:T.textSub}}>{n} {n===1?"person":"people"}</div></div>
+                  <span style={{fontSize:15,color:T.textTert}}>›</span>
+                </div>
+              );})}
+              <div style={{padding:"8px 16px 2px",fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>People</div>
+              {people.map(c=>(
+                <div key={c.id} onClick={()=>onAssign({kind:"person",id:c.id,name:c.name})} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`}}>
+                  {avatar(c.name)}
+                  <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div><div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[c.company,c.role].filter(Boolean).join(" · ")||(c.phones[0]&&c.phones[0].number)||""}</div></div>
+                </div>
+              ))}
+              {people.length===0&&coMatches.length===0&&<div style={{padding:"20px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No matches{q?` for "${q}"`:""}.</div>}
+            </div>
+            {tc&&<div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`}}><button onClick={()=>setPick(false)} style={{width:"100%",padding:"8px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button></div>}
+          </>
+        ):isCompany?(
+          <>
+            <div style={{overflowY:"auto",padding:"4px 0 8px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px"}}>
+                <div style={{width:44,height:44,borderRadius:12,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>🏢</div>
+                <div style={{minWidth:0}}><div style={{fontSize:16,fontWeight:700,color:T.text}}>{tc.name}</div><div style={{fontSize:12,color:T.textSub}}>{companyPeople.length} {companyPeople.length===1?"person":"people"} · pick who to reach</div></div>
+              </div>
+              {companyPeople.length===0&&<div style={{padding:"10px 16px",fontSize:13,color:T.textTert}}>No people at this company yet. Add them in Contacts.</div>}
+              {companyPeople.map(c=>(
+                <div key={c.id} style={{padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>{avatar(c.name,32)}<div style={{minWidth:0,flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{c.name}</div>{c.role&&<div style={{fontSize:11,color:T.textSub}}>{c.role}</div>}</div></div>
+                  {c.phones[0]&&<div style={{fontSize:12,color:T.textSub,marginTop:5}}>{c.phones[0].label}: {c.phones[0].number}</div>}
+                  {c.phones[0]&&phoneRow(c.phones[0].number)}
+                  {c.email&&<a href={`mailto:${c.email}`} style={{...actA,marginTop:6,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue,display:"inline-flex"}}>✉️ Email</a>}
+                </div>
+              ))}
+            </div>
+            {footer}
+          </>
+        ):(
+          <>
+            <div style={{overflowY:"auto",padding:"8px 16px 12px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>{avatar(person?.name,48)}<div style={{minWidth:0}}><div style={{fontSize:17,fontWeight:700,color:T.text}}>{person?.name||"(unknown)"}</div>{(person?.company||person?.role)&&<div style={{fontSize:12,color:T.textSub,marginTop:1}}>{[person.role,person.company].filter(Boolean).join(" · ")}</div>}</div></div>
+              {(person?.phones||[]).map((p,i)=>(
+                <div key={i} style={{marginBottom:10}}><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em"}}>{p.label||"Phone"}</div><div style={{fontSize:14,color:T.text}}>{p.number}</div>{phoneRow(p.number)}</div>
+              ))}
+              {person?.email&&<div><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}}>Email</div><a href={`mailto:${person.email}`} style={{...actA,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue,display:"inline-flex"}}>✉️ Email {person.email}</a></div>}
+              {(!person||((person.phones||[]).length===0&&!person.email))&&<div style={{fontSize:13,color:T.textTert}}>No phone or email on this contact.</div>}
+            </div>
+            {footer}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 // ─── Tasks Page ───────────────────────────────────────────────────────────────
 // TEAM_MEMBERS and CURRENT_USER now come from useData() (real Supabase auth + users table).
 
 function TasksPage(){
   const { sharedProps, setSharedProps, contacts: CONTACTS, teamMembers: TEAM_MEMBERS, currentUser: CURRENT_USER, automations, setAutomations } = useData();
+  const dir=CONTACTS.map(normContact); // normalized contact directory (phones[], company, tags)
   const { isAdmin } = useAuth();
   const isMobile=useIsMobile();
   const[views,setViews]=useState(new Set(["my"]));
@@ -3614,14 +3715,8 @@ function TasksPage(){
     setSelectedKeys(new Set());setSelectMode(false);
   }
 
-  function setTaskContact(propId,cat,text,contact){
-    setSharedProps(prev=>prev.map(p=>{
-      if(p.id!==propId) return p;
-      const tasks=p.tasks||[];
-      const existing=tasks.find(t=>t.cat===cat&&t.text===text);
-      if(existing) return{...p,tasks:tasks.map(t=>t.cat===cat&&t.text===text?{...t,taskContact:contact}:t)};
-      return{...p,tasks:[...tasks,{id:Date.now(),cat,text,status:"Not Started",assignee:"",taskContact:contact}]};
-    }));
+  function setTaskContact(propId,taskId,contact){
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,taskContact:contact})}));
   }
   const[statusFilter,setStatusFilter]=useState(new Set()); // empty = show all
   const[showAutoBuilder,setShowAutoBuilder]=useState(false);
@@ -3740,55 +3835,10 @@ function TasksPage(){
           onSend={(txt,att,mn)=>addTaskMessage(taskMsgTarget.propId,taskMsgTarget.id,txt,att,mn)} onClose={()=>setTaskMsgTarget(null)}/>;
       })()}
       {/* Task contact popup */}
-      {taskContactTarget&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(6px)"}}>
-          <div style={{background:"#fff",borderRadius:20,width:"min(380px,92vw)",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
-            <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight}}>
-              <div style={{fontSize:13,fontWeight:700,color:T.gold}}>Task Contact</div>
-              <button onClick={()=>{setTaskContactTarget(null);setContactSearch("");}} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
-            </div>
-            <div style={{padding:"10px 16px 8px",fontSize:11,color:T.textSub,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>Task: {taskContactTarget.text}</div>
-            {/* Search */}
-            <div style={{padding:"0 16px 10px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,background:T.bg,borderRadius:10,padding:"8px 12px",border:`1px solid ${T.border}`}}>
-                <span style={{fontSize:14,color:T.textSub,flexShrink:0}}>🔍</span>
-                <input autoFocus value={contactSearch} onChange={e=>setContactSearch(e.target.value)}
-                  placeholder="Search contacts…"
-                  style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:13,color:T.text,fontFamily:"inherit"}}/>
-                {contactSearch&&<button onClick={()=>setContactSearch("")} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}
-              </div>
-            </div>
-            <div style={{maxHeight:240,overflowY:"auto"}}>
-              {CONTACTS.filter(c=>c.name.toLowerCase().includes(contactSearch.toLowerCase())||c.role.toLowerCase().includes(contactSearch.toLowerCase())).map(c=>{
-                const isSet=taskContactTarget.taskContact?.name===c.name;
-                return(
-                  <div key={c.id} onClick={()=>{setTaskContact(taskContactTarget.propId,taskContactTarget.cat,taskContactTarget.text,isSet?null:c);setTaskContactTarget(null);setContactSearch("");}}
-                    style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",cursor:"pointer",background:isSet?T.goldLight:"transparent",borderTop:`1px solid ${T.border}`}}
-                    onMouseEnter={e=>e.currentTarget.style.background=isSet?T.goldLight:"#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background=isSet?T.goldLight:"transparent"}>
-                    <div style={{width:36,height:36,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14,color:"#fff",flexShrink:0}}>{c.name[0]}</div>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:13,fontWeight:600,color:T.text}}>{c.name}</div>
-                      <div style={{fontSize:11,color:T.textSub}}>{c.role} · {c.phone}</div>
-                    </div>
-                    {isSet&&<span style={{fontSize:11,color:T.gold,fontWeight:700}}>✓</span>}
-                  </div>
-                );
-              })}
-              {CONTACTS.filter(c=>c.name.toLowerCase().includes(contactSearch.toLowerCase())||c.role.toLowerCase().includes(contactSearch.toLowerCase())).length===0&&(
-                <div style={{padding:"20px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No contacts match "{contactSearch}"</div>
-              )}
-            </div>
-            {taskContactTarget.taskContact&&(
-              <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
-                <button onClick={()=>{setTaskContact(taskContactTarget.propId,taskContactTarget.cat,taskContactTarget.text,null);setTaskContactTarget(null);setContactSearch("");}}
-                  style={{width:"100%",padding:"8px",borderRadius:T.radiusSm,background:"#FFF0EF",border:`1px solid ${T.red}`,color:T.red,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
-                  Remove Contact
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {taskContactTarget&&(()=>{
+        const liveTask=(sharedProps.find(p=>p.id===taskContactTarget.propId)?.tasks||[]).find(tk=>tk.id===taskContactTarget.id)||taskContactTarget;
+        return <TaskContactCard task={liveTask} contacts={dir} onAssign={(val)=>setTaskContact(taskContactTarget.propId,liveTask.id,val)} onClose={()=>setTaskContactTarget(null)}/>;
+      })()}
       {/* Header */}
       <div style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>

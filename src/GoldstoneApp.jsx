@@ -3020,6 +3020,21 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
   );
 }
 
+// Initials + a stable color for an assignee avatar (Monday-style).
+const initialsOf=(name)=>{
+  const parts=(name||"").trim().split(/\s+/).filter(Boolean);
+  if(parts.length===0)return "";
+  if(parts.length===1)return parts[0].slice(0,2).toUpperCase();
+  return (parts[0][0]+parts[parts.length-1][0]).toUpperCase();
+};
+const AVATAR_COLORS=["#E2445C","#7E5EF2","#00C875","#0086C0","#FDAB3D","#A25DDC","#579BFC","#037F4C","#FF642E","#00A9C0"];
+const avatarColor=(name)=>{if(!name)return "#C4C4C4";let h=0;for(let i=0;i<name.length;i++)h=(h*31+name.charCodeAt(i))>>>0;return AVATAR_COLORS[h%AVATAR_COLORS.length];};
+function AssigneeAvatar({name,size=24}){
+  return name
+    ? <span title={name} style={{width:size,height:size,borderRadius:"50%",background:avatarColor(name),color:"#fff",fontSize:size*0.42,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,lineHeight:1}}>{initialsOf(name)}</span>
+    : <span title="Unassigned" style={{width:size,height:size,borderRadius:"50%",background:"transparent",border:`1px dashed ${T.border}`,color:T.textTert,fontSize:size*0.5,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,lineHeight:1}}>+</span>;
+}
+
 // ─── Task Row (module level to avoid React #31) ───────────────────────────────
 function TaskRow({t,onStatusChange,onDelete,onContact}){
   const isMobile=useIsMobile();
@@ -3050,14 +3065,14 @@ function TaskRow({t,onStatusChange,onDelete,onContact}){
       onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.textTert}>🗑</button>
   );
   if(isMobile) return(
-    <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderTop:`1px solid ${T.border}`,background:"#fff"}}>
+    // Monday-style compact row: task · assignee initials · comment · delete · status (far right)
+    <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderTop:`1px solid ${T.border}`,background:"#fff"}}>
+      <span style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text||"(untitled task)"}{t.autoId&&<span style={{marginLeft:5,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}</span>
+      <AssigneeAvatar name={t.assignee} size={24}/>
+      <button onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name}`:"Add contact"}
+        style={{background:t.taskContact?"#EBF4FF":"none",border:t.taskContact?`1px solid ${T.blue}`:`1px solid ${T.border}`,borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,flexShrink:0,color:t.taskContact?T.blue:T.textTert}}>{t.taskContact?t.taskContact.name[0]:"💬"}</button>
+      <button onClick={()=>onDelete(t.propId,t.id)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:"2px",flexShrink:0}}>🗑</button>
       {statusSel}
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text||"(untitled task)"}{t.autoId&&<span style={{marginLeft:5,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}</div>
-        <div style={{fontSize:11,color:t.assignee?T.blue:T.textTert,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.assignee||"Unassigned"}</div>
-      </div>
-      {contactBtn}
-      {delBtn}
     </div>
   );
   return(

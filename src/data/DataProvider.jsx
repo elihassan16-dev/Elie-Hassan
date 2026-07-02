@@ -177,14 +177,18 @@ export function DataProvider({ children }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "users" }, () => debounce("u", loadTeam))
       .subscribe();
 
-    // Safety net: if the tab is hidden/closed, flush any pending edits right away.
-    const onHide = () => { if (document.visibilityState === "hidden") { propsC.flushNow(); leadsC.flushNow(); autosC.flushNow(); } };
+    // Safety net: flush any pending edits when the tab is hidden or the page is
+    // being unloaded/backgrounded (covers a PWA refresh or app switch).
+    const flushAll = () => { propsC.flushNow(); leadsC.flushNow(); autosC.flushNow(); };
+    const onHide = () => { if (document.visibilityState === "hidden") flushAll(); };
     document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", flushAll);
 
     return () => {
       cancelled = true;
       Object.values(timers).forEach(clearTimeout);
       document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", flushAll);
       supabase.removeChannel(channel);
     };
   }, [userId, seedIfEmpty, propsC.load, leadsC.load, autosC.load, propsC.flushNow, leadsC.flushNow, autosC.flushNow, loadContacts, loadTeam]);
@@ -195,6 +199,7 @@ export function DataProvider({ children }) {
     loading,
     sharedProps: propsC.items,
     setSharedProps: propsC.set,
+    flushProps: propsC.flushNow,
     leads: leadsC.items,
     setLeads: leadsC.set,
     contacts,

@@ -1495,12 +1495,17 @@ const showingKey=(s)=>String(s.uid||`${s.ts||""}-${s.summary||s.start||""}`);
 // Renders one property's showings from an already-loaded feed: upcoming + past
 // (past ranked by lead disposition), each row with call/text templates. Shared by
 // the per-property Showings tab and the top-level Showings page.
-function PropertyShowings({property,showings,onUpdate}){
+function PropertyShowings({property,showings,onUpdate,flush}){
   const all=showings||[];
   const address=`${property.address}${property.city?`, ${property.city}`:""}`;
   const leadMap=property.showingLeads||{};
   const customLeads=property.customLeads||[];
-  const setLead=(s,val)=>{const next={...leadMap};if(val)next[showingKey(s)]=val;else delete next[showingKey(s)];onUpdate(property.id,"showingLeads",next);};
+  // Persist right away (don't wait on the debounced sync) so a lead never gets lost
+  // if the app is refreshed/backgrounded moments later.
+  const saveNow=()=>{if(flush)setTimeout(flush,0);};
+  const setLead=(s,val)=>{const next={...leadMap};if(val)next[showingKey(s)]=val;else delete next[showingKey(s)];onUpdate(property.id,"showingLeads",next);saveNow();};
+  const[hideNot,setHideNot]=useState(()=>{try{return localStorage.getItem("gs_hideNotInterested")==="1";}catch{return false;}});
+  const toggleHide=()=>setHideNot(v=>{const n=!v;try{localStorage.setItem("gs_hideNotInterested",n?"1":"0");}catch{}return n;});
   const mine=all.filter(s=>showingMatchesProperty(s.location||s.summary||"",property)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
   const cutoff=Date.now()-3600000;
   const upcoming=mine.filter(s=>s.ts>=cutoff).sort((a,b)=>a.ts-b.ts);
@@ -1510,9 +1515,9 @@ function PropertyShowings({property,showings,onUpdate}){
   });
   const[showAdd,setShowAdd]=useState(false);
   const[draft,setDraft]=useState({name:"",phone:""});
-  const addLead=()=>{const name=draft.name.trim(),phone=draft.phone.trim();if(!name&&!phone)return;onUpdate(property.id,"customLeads",[...customLeads,{id:Date.now(),name,phone,at:new Date().toISOString(),lead:""}]);setDraft({name:"",phone:""});setShowAdd(false);};
-  const removeLead=(id)=>onUpdate(property.id,"customLeads",customLeads.filter(l=>l.id!==id));
-  const setCustomStatus=(id,val)=>onUpdate(property.id,"customLeads",customLeads.map(l=>l.id===id?{...l,lead:val}:l));
+  const addLead=()=>{const name=draft.name.trim(),phone=draft.phone.trim();if(!name&&!phone)return;onUpdate(property.id,"customLeads",[...customLeads,{id:Date.now(),name,phone,at:new Date().toISOString(),lead:""}]);setDraft({name:"",phone:""});setShowAdd(false);saveNow();};
+  const removeLead=(id)=>{onUpdate(property.id,"customLeads",customLeads.filter(l=>l.id!==id));saveNow();};
+  const setCustomStatus=(id,val)=>{onUpdate(property.id,"customLeads",customLeads.map(l=>l.id===id?{...l,lead:val}:l));saveNow();};
   const actBtn={display:"inline-flex",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:T.radiusSm,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textDecoration:"none",whiteSpace:"nowrap"};
   const leadSelect=(value,onChange,lead)=>(
     <select value={value} onChange={onChange} style={{padding:"5px 9px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",border:`1px solid ${lead?lead.color:T.border}`,background:lead?lead.bg:"#fff",color:lead?lead.color:T.textSub}}>
@@ -1573,9 +1578,18 @@ function PropertyShowings({property,showings,onUpdate}){
     );
   };
   const inpS={width:"100%",padding:"9px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  const notNot=(leadKey)=>!hideNot||leadKey!=="not";
+  const upcomingShown=upcoming.filter(s=>notNot(leadMap[showingKey(s)]));
+  const pastShown=past.filter(s=>notNot(leadMap[showingKey(s)]));
+  const leadsShown=customLeads.filter(l=>notNot(l.lead));
+  const hiddenCount=(past.length-pastShown.length)+(customLeads.length-leadsShown.length)+(upcoming.length-upcomingShown.length);
   return(<>
-    {upcoming.length>0&&<Card style={{marginBottom:12}}><GHeader label="Upcoming"/>{upcoming.map(Row)}</Card>}
-    {past.length>0&&<Card style={{marginBottom:12}}><GHeader label="Past"/>{past.slice(0,40).map(Row)}</Card>}
+    <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:12.5,color:T.textSub,cursor:"pointer"}}>
+      <input type="checkbox" checked={hideNot} onChange={toggleHide} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>
+      Hide "not interested" leads{hideNot&&hiddenCount>0?` (${hiddenCount} hidden)`:""}
+    </label>
+    {upcomingShown.length>0&&<Card style={{marginBottom:12}}><GHeader label="Upcoming"/>{upcomingShown.map(Row)}</Card>}
+    {pastShown.length>0&&<Card style={{marginBottom:12}}><GHeader label="Past"/>{pastShown.slice(0,40).map(Row)}</Card>}
     {mine.length===0&&<Card style={{marginBottom:12}}><div style={{padding:"18px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No showings matched this property's address yet.</div></Card>}
     {/* Custom leads you add by hand */}
     <Card>
@@ -1594,7 +1608,7 @@ function PropertyShowings({property,showings,onUpdate}){
         </div>
       )}
       {customLeads.length===0&&!showAdd&&<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>Add a lead to call or text a buyer/agent who isn't in your ShowingTime feed.</div>}
-      {customLeads.map(LeadRow)}
+      {leadsShown.map(LeadRow)}
     </Card>
   </>);
 }
@@ -1602,6 +1616,7 @@ function PropertyShowings({property,showings,onUpdate}){
 const matchedShowings=(showings,p)=>(showings||[]).filter(s=>showingMatchesProperty(s.location||s.summary||"",p)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
 function ShowingsTab({property,onUpdate}){
   const { isAdmin }=useAuth();
+  const { flushProps }=useData();
   const[status,setStatus]=useState(null);
   const[showings,setShowings]=useState(null);
   const[loading,setLoading]=useState(false);
@@ -1650,14 +1665,14 @@ function ShowingsTab({property,onUpdate}){
       </div>
       {loading&&<div style={{color:T.textSub,fontSize:14,padding:12}}>Loading showings…</div>}
       {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
-      <PropertyShowings property={property} showings={all} onUpdate={onUpdate}/>
+      <PropertyShowings property={property} showings={all} onUpdate={onUpdate} flush={flushProps}/>
       {mineCount>0&&<div style={{marginTop:12,fontSize:12,color:T.textTert,textAlign:"center"}}>Live from ShowingTime · matched by address</div>}
     </div>
   );
 }
 // ─── Showings page — every on-market property's showings in one schedule ───────
 function ShowingsPage(){
-  const { sharedProps, setSharedProps }=useData();
+  const { sharedProps, setSharedProps, flushProps }=useData();
   const { isAdmin }=useAuth();
   const isMobile=useIsMobile();
   const[status,setStatus]=useState(null);
@@ -1789,7 +1804,7 @@ function ShowingsPage(){
                 <button onClick={load} title="Refresh" style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻ Refresh</button>
               </div>
               <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
-                <PropertyShowings key={sel.id} property={sel} showings={all} onUpdate={onUpdate}/>
+                <PropertyShowings key={sel.id} property={sel} showings={all} onUpdate={onUpdate} flush={flushProps}/>
                 <div style={{marginTop:12,fontSize:12,color:T.textTert,textAlign:"center"}}>Live from ShowingTime · matched by address</div>
               </div>
             </>

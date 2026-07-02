@@ -4042,18 +4042,32 @@ function parseVCards(text){
     if(/^END:VCARD$/i.test(L)){if(cur)out.push(cur);cur=null;continue;}
     if(!cur)continue;
     const idx=L.indexOf(":");if(idx<0)continue;
-    const key=L.slice(0,idx).split(";")[0].toUpperCase().split(".").pop();
+    const rawKey=L.slice(0,idx);
+    const key=rawKey.split(";")[0].toUpperCase().split(".").pop();
     const val=L.slice(idx+1);
     if(key==="FN")cur.fn=clean(val);
     else if(key==="N"&&!cur.n){const p=val.split(";").map(clean);cur.n=`${p[1]||""} ${p[0]||""}`.trim();}
-    else if(key==="TEL")cur.tels.push(clean(val));
+    else if(key==="TEL"){
+      const ty=(rawKey.toUpperCase().match(/TYPE=([A-Z,]+)/)||[])[1]||"";
+      const label=/CELL|IPHONE/.test(ty)?"Mobile":/FAX/.test(ty)?"Fax":/WORK/.test(ty)?"Office":/HOME/.test(ty)?"Home":/MAIN/.test(ty)?"Main":"Phone";
+      cur.tels.push({label,number:clean(val)});
+    }
     else if(key==="EMAIL")cur.emails.push(clean(val));
     else if(key==="ORG")cur.org=clean(val).replace(/;+$/,"").replace(/;/g," · ");
     else if(key==="TITLE")cur.title=clean(val);
   }
-  return out.map(c=>({name:c.fn||c.n||"",phone:c.tels[0]||"",email:c.emails[0]||"",role:[c.title,c.org].filter(Boolean).join(" · ")}))
-    .filter(c=>c.name||c.phone||c.email);
+  return out.map(c=>({name:c.fn||c.n||"",company:c.org||"",role:c.title||"",email:c.emails[0]||"",phones:c.tels}))
+    .filter(c=>c.name||c.phones.length||c.email);
 }
+const PHONE_LABELS=["Mobile","Office","Home","Fax","WhatsApp","Direct","Other"];
+const TAG_SUGGEST=["General Contractor","Plumber","Electrician","HVAC","Roofer","Handyman","Landscaper","Painter","Realtor","Attorney","Inspector","Appraiser","Lender","Title Company","Wholesaler","Architect"];
+// Normalize a stored contact into the richer shape (back-compat with old {phone,role}).
+const normContact=(c)=>({
+  id:c.id, name:c.name||"", company:c.company||"", role:c.role||"", email:c.email||"", notes:c.notes||"",
+  phones:Array.isArray(c.phones)&&c.phones.length?c.phones.filter(p=>p&&String(p.number||"").trim()):(String(c.phone||"").trim()?[{label:"Mobile",number:c.phone}]:[]),
+  tags:Array.isArray(c.tags)?c.tags.filter(Boolean):(typeof c.tags==="string"&&c.tags?[c.tags]:[]),
+});
+const sameCompany=(a,b)=>a&&b&&a.trim().toLowerCase()===b.trim().toLowerCase();
 // ─── Contacts — company directory (search, add/edit, import from iPhone) ───────
 function ContactsPage(){
   const { contacts, setContacts, flushContacts }=useData();
@@ -4065,12 +4079,16 @@ function ContactsPage(){
   const fileRef=useRef(null);
   const saveNow=()=>{if(flushContacts)setTimeout(flushContacts,0);};
   const q=search.trim().toLowerCase();
-  const list=[...contacts].filter(c=>!q||[c.name,c.role,c.phone,c.email].filter(Boolean).join(" ").toLowerCase().includes(q))
-    .sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-  const sel=contacts.find(c=>c.id===selId)||null;
+  const dir=contacts.map(normContact);
+  const matches=(c)=>!q||[c.name,c.company,c.role,c.notes,...(c.tags||[]),...(c.phones||[]).map(p=>p.number),c.email].filter(Boolean).join(" ").toLowerCase().includes(q);
+  const list=dir.filter(matches).sort((a,b)=>(a.company||"~").toLowerCase().localeCompare((b.company||"~").toLowerCase())||(a.name||"").localeCompare(b.name||""));
+  const sel=dir.find(c=>c.id===selId)||null;
+  const colleagues=sel&&sel.company?dir.filter(c=>c.id!==sel.id&&sameCompany(c.company,sel.company)):[];
+  const companies=[...new Set(dir.map(c=>c.company).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const save=(c)=>{
-    const clean={id:c.id||Date.now(),name:(c.name||"").trim(),role:(c.role||"").trim(),phone:(c.phone||"").trim(),email:(c.email||"").trim()};
-    if(!clean.name&&!clean.phone&&!clean.email)return;
+    const phones=(c.phones||[]).map(p=>({label:(p.label||"Mobile").trim()||"Mobile",number:String(p.number||"").trim()})).filter(p=>p.number);
+    const clean={id:c.id||Date.now(),name:(c.name||"").trim(),company:(c.company||"").trim(),role:(c.role||"").trim(),email:(c.email||"").trim(),notes:(c.notes||"").trim(),phones,tags:(c.tags||[]).map(t=>t.trim()).filter(Boolean),phone:phones[0]?.number||""};
+    if(!clean.name&&!clean.phones.length&&!clean.email&&!clean.company)return;
     setContacts(prev=>prev.some(x=>x.id===clean.id)?prev.map(x=>x.id===clean.id?clean:x):[...prev,clean]);
     saveNow();setEditing(null);setSelId(clean.id);
   };
@@ -4081,11 +4099,11 @@ function ContactsPage(){
     try{
       const parsed=parseVCards(await file.text());
       if(!parsed.length){setImportMsg("No contacts found in that file.");return;}
-      const key=(c)=>`${(c.name||"").toLowerCase()}|${(c.phone||"").replace(/\D/g,"")}`;
-      const seen=new Set(contacts.map(key));const fresh=[];
+      const key=(c)=>`${(c.name||"").toLowerCase()}|${((c.phones&&c.phones[0]&&c.phones[0].number)||c.phone||"").replace(/\D/g,"")}`;
+      const seen=new Set(dir.map(key));const fresh=[];
       parsed.forEach(c=>{const k=key(c);if(!seen.has(k)){seen.add(k);fresh.push(c);}});
       if(!fresh.length){setImportMsg("Those contacts are already in your directory.");return;}
-      setContacts(prev=>[...prev,...fresh.map((c,i)=>({id:Date.now()+i,name:c.name,role:c.role,phone:c.phone,email:c.email}))]);
+      setContacts(prev=>[...prev,...fresh.map((c,i)=>({id:Date.now()+i,name:c.name,company:c.company||"",role:c.role||"",email:c.email||"",phones:c.phones||[],tags:[],phone:(c.phones&&c.phones[0]&&c.phones[0].number)||""}))]);
       saveNow();
       const dup=parsed.length-fresh.length;
       setImportMsg(`Imported ${fresh.length} contact${fresh.length!==1?"s":""}${dup>0?` · ${dup} already existed`:""}.`);
@@ -4122,7 +4140,7 @@ function ContactsPage(){
                 <span style={{width:34,height:34,borderRadius:"50%",background:avatarColor(c.name),color:"#fff",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(c.name)}</span>
                 <div style={{minWidth:0,flex:1}}>
                   <div style={{fontSize:13,fontWeight:active?700:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name||"(no name)"}</div>
-                  <div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.role||c.phone||c.email||""}</div>
+                  <div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[c.company,c.role].filter(Boolean).join(" · ")||(c.tags[0]||"")||(c.phones[0]&&c.phones[0].number)||c.email||""}</div>
                 </div>
               </div>
             );
@@ -4131,23 +4149,43 @@ function ContactsPage(){
       </div>
       <div style={{flex:1,display:isMobile&&!showDetail?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
         {editing!==null
-          ? <ContactForm draft={editing} isMobile={isMobile} onSave={save} onCancel={()=>{setEditing(null);}} onDelete={editing.id?()=>del(editing.id):null}/>
+          ? <ContactForm draft={editing} isMobile={isMobile} companies={companies} onSave={save} onCancel={()=>{setEditing(null);}} onDelete={editing.id?()=>del(editing.id):null}/>
           : sel
             ? <div style={{flex:1,overflowY:"auto"}}>
                 {isMobile&&<button onClick={()=>setSelId(null)} style={{display:"flex",alignItems:"center",gap:4,padding:"11px 14px",background:T.card,border:"none",borderBottom:`1px solid ${T.border}`,color:T.gold,fontWeight:600,fontSize:15,fontFamily:"inherit",cursor:"pointer",width:"100%",textAlign:"left"}}>‹ Contacts</button>}
                 <div style={{padding:"24px 20px",maxWidth:520,margin:"0 auto"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18}}>
+                  <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:16}}>
                     <span style={{width:56,height:56,borderRadius:"50%",background:avatarColor(sel.name),color:"#fff",fontSize:20,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(sel.name)}</span>
                     <div style={{minWidth:0}}>
                       <div style={{fontSize:20,fontWeight:700,color:T.text}}>{sel.name||"(no name)"}</div>
-                      {sel.role&&<div style={{fontSize:13,color:T.textSub,marginTop:2}}>{sel.role}</div>}
+                      {(sel.company||sel.role)&&<div style={{fontSize:13,color:T.textSub,marginTop:2}}>{sel.role&&<span>{sel.role}{sel.company?" · ":""}</span>}{sel.company&&<span onClick={()=>{setSearch(sel.company);}} style={{color:T.gold,fontWeight:600,cursor:"pointer"}}>{sel.company}</span>}</div>}
                     </div>
                   </div>
+                  {sel.tags.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>{sel.tags.map(t=><span key={t} onClick={()=>setSearch(t)} style={{fontSize:11,fontWeight:600,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"3px 10px",cursor:"pointer"}}>{t}</span>)}</div>}
                   <Card>
-                    {sel.phone&&<div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>Phone</div><div style={{fontSize:15,color:T.text,marginBottom:8}}>{sel.phone}</div><div style={{display:"flex",gap:8,flexWrap:"wrap"}}><a href={`tel:${sel.phone.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a><a href={`sms:${sel.phone.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a></div></div>}
-                    {sel.email&&<div style={{padding:"12px 16px"}}><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>Email</div><a href={`mailto:${sel.email}`} style={{fontSize:15,color:T.blue,textDecoration:"none"}}>{sel.email}</a></div>}
-                    {!sel.phone&&!sel.email&&<div style={{padding:"16px",fontSize:13,color:T.textTert}}>No phone or email on file.</div>}
+                    {sel.phones.map((p,i)=>(
+                      <div key={i} style={{padding:"11px 16px",borderBottom:(i<sel.phones.length-1||sel.email||sel.notes)?`1px solid ${T.border}`:"none"}}>
+                        <div style={{fontSize:10.5,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5}}>{p.label||"Phone"}</div>
+                        <div style={{fontSize:15,color:T.text,marginBottom:8}}>{p.number}</div>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><a href={`tel:${p.number.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a><a href={`sms:${p.number.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a></div>
+                      </div>
+                    ))}
+                    {sel.email&&<div style={{padding:"11px 16px",borderBottom:sel.notes?`1px solid ${T.border}`:"none"}}><div style={{fontSize:10.5,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5}}>Email</div><a href={`mailto:${sel.email}`} style={{fontSize:15,color:T.blue,textDecoration:"none"}}>{sel.email}</a></div>}
+                    {sel.notes&&<div style={{padding:"11px 16px"}}><div style={{fontSize:10.5,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5}}>Notes</div><div style={{fontSize:14,color:T.text,whiteSpace:"pre-wrap",lineHeight:1.5}}>{sel.notes}</div></div>}
+                    {sel.phones.length===0&&!sel.email&&!sel.notes&&<div style={{padding:"16px",fontSize:13,color:T.textTert}}>No phone, email, or notes yet.</div>}
                   </Card>
+                  {colleagues.length>0&&(
+                    <Card style={{marginTop:14}}>
+                      <div style={{padding:"11px 16px 8px",fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Others at {sel.company} ({colleagues.length})</div>
+                      {colleagues.map(c=>(
+                        <div key={c.id} onClick={()=>setSelId(c.id)} style={{display:"flex",alignItems:"center",gap:11,padding:"10px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`}}>
+                          <span style={{width:32,height:32,borderRadius:"50%",background:avatarColor(c.name),color:"#fff",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(c.name)}</span>
+                          <div style={{minWidth:0,flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div><div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.role||(c.phones[0]&&c.phones[0].number)||""}</div></div>
+                          <span style={{fontSize:15,color:T.textTert}}>›</span>
+                        </div>
+                      ))}
+                    </Card>
+                  )}
                   <div style={{display:"flex",gap:10,marginTop:16}}>
                     <button onClick={()=>setEditing(sel)} style={{padding:"9px 18px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Edit</button>
                     <button onClick={()=>del(sel.id)} style={{padding:"9px 18px",borderRadius:T.radiusSm,background:"#fff",border:`1px solid ${T.red}`,color:T.red,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
@@ -4163,9 +4201,17 @@ function ContactsPage(){
     </div>
   );
 }
-function ContactForm({draft,isMobile,onSave,onCancel,onDelete}){
-  const[c,setC]=useState({name:draft.name||"",role:draft.role||"",phone:draft.phone||"",email:draft.email||"",id:draft.id});
+function ContactForm({draft,isMobile,companies=[],onSave,onCancel,onDelete}){
+  const nd=normContact(draft);
+  const[c,setC]=useState({id:draft.id,name:nd.name,company:nd.company,role:nd.role,email:nd.email,notes:nd.notes,
+    phones:nd.phones.length?nd.phones:[{label:"Mobile",number:""}],tags:[...nd.tags]});
+  const[tagInput,setTagInput]=useState("");
   const up=(k,v)=>setC(p=>({...p,[k]:v}));
+  const setPhone=(i,k,v)=>setC(p=>({...p,phones:p.phones.map((ph,j)=>j===i?{...ph,[k]:v}:ph)}));
+  const addPhone=()=>setC(p=>({...p,phones:[...p.phones,{label:"Office",number:""}]}));
+  const rmPhone=(i)=>setC(p=>({...p,phones:p.phones.filter((_,j)=>j!==i)}));
+  const addTag=(t)=>{const v=(t||"").trim();if(!v)return;setC(p=>p.tags.some(x=>x.toLowerCase()===v.toLowerCase())?p:{...p,tags:[...p.tags,v]});setTagInput("");};
+  const rmTag=(t)=>setC(p=>({...p,tags:p.tags.filter(x=>x!==t)}));
   const iS={width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:15,outline:"none",boxSizing:"border-box",fontFamily:"inherit",background:"#fff"};
   const lbl={fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6,display:"block"};
   return(
@@ -4175,9 +4221,32 @@ function ContactForm({draft,isMobile,onSave,onCancel,onDelete}){
         <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:18}}>{draft.id?"Edit contact":"New contact"}</div>
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
           <div><label style={lbl}>Name</label><input autoFocus value={c.name} onChange={e=>up("name",e.target.value)} placeholder="Full name" style={iS}/></div>
-          <div><label style={lbl}>Role / trade / company</label><input value={c.role} onChange={e=>up("role",e.target.value)} placeholder="e.g. Plumber · ABC Plumbing" style={iS}/></div>
-          <div><label style={lbl}>Phone</label><input value={c.phone} onChange={e=>up("phone",e.target.value)} placeholder="Phone" inputMode="tel" style={iS}/></div>
+          <div><label style={lbl}>Company / organization</label><input list="gs-companies" value={c.company} onChange={e=>up("company",e.target.value)} placeholder="e.g. ABC Plumbing" style={iS}/><datalist id="gs-companies">{companies.map(co=><option key={co} value={co}/>)}</datalist></div>
+          <div><label style={lbl}>Title / role <span style={{textTransform:"none",fontWeight:400,color:T.textTert}}>(optional)</span></label><input value={c.role} onChange={e=>up("role",e.target.value)} placeholder="e.g. Owner, Project Manager" style={iS}/></div>
+          {/* Phones */}
+          <div>
+            <label style={lbl}>Phone numbers</label>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {c.phones.map((ph,i)=>(
+                <div key={i} style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <input list="gs-phlabels" value={ph.label} onChange={e=>setPhone(i,"label",e.target.value)} placeholder="Label" style={{...iS,width:96,flexShrink:0,padding:"11px 9px",fontSize:13}}/>
+                  <input value={ph.number} onChange={e=>setPhone(i,"number",e.target.value)} placeholder="Number" inputMode="tel" style={{...iS,flex:1}}/>
+                  {c.phones.length>1&&<button onClick={()=>rmPhone(i)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0,padding:"0 2px"}}>×</button>}
+                </div>
+              ))}
+              <datalist id="gs-phlabels">{PHONE_LABELS.map(l=><option key={l} value={l}/>)}</datalist>
+              <button onClick={addPhone} style={{alignSelf:"flex-start",padding:"7px 12px",borderRadius:T.radiusSm,background:"transparent",border:`1.5px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",fontSize:12.5,fontWeight:600}}>+ Add number</button>
+            </div>
+          </div>
           <div><label style={lbl}>Email</label><input value={c.email} onChange={e=>up("email",e.target.value)} placeholder="Email" autoCapitalize="none" inputMode="email" style={iS}/></div>
+          {/* Tags */}
+          <div>
+            <label style={lbl}>Tags <span style={{textTransform:"none",fontWeight:400,color:T.textTert}}>(trade / type)</span></label>
+            {c.tags.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>{c.tags.map(t=><span key={t} style={{fontSize:12,fontWeight:600,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"3px 10px",display:"inline-flex",gap:5,alignItems:"center"}}>{t}<span onClick={()=>rmTag(t)} style={{cursor:"pointer",fontWeight:800}}>×</span></span>)}</div>}
+            <input value={tagInput} onChange={e=>setTagInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addTag(tagInput);}}} placeholder="Type a tag + Enter (e.g. Plumber)" style={iS}/>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>{TAG_SUGGEST.filter(t=>!c.tags.some(x=>x.toLowerCase()===t.toLowerCase())&&(!tagInput||t.toLowerCase().includes(tagInput.toLowerCase()))).slice(0,8).map(t=><button key={t} onClick={()=>addTag(t)} style={{fontSize:12,fontWeight:500,color:T.textSub,background:"transparent",border:`1px solid ${T.border}`,borderRadius:20,padding:"4px 10px",cursor:"pointer",fontFamily:"inherit"}}>+ {t}</button>)}</div>
+          </div>
+          <div><label style={lbl}>Notes</label><textarea value={c.notes} onChange={e=>up("notes",e.target.value)} placeholder="Any extra info…" rows={3} style={{...iS,resize:"vertical",lineHeight:1.5}}/></div>
         </div>
         <div style={{display:"flex",gap:10,marginTop:20,alignItems:"center"}}>
           <button onClick={()=>onSave(c)} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Save</button>

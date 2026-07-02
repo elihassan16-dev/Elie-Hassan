@@ -4065,7 +4065,11 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     const t=(text||"").trim();if((!t&&!attachment)||!sel)return;
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
     if(attachment)msg.attachment=attachment;
-    if(mentions&&mentions.length)msg.mentions=mentions;
+    // Replying to someone auto-notifies just that person (plus anyone you tagged),
+    // instead of pinging the whole team like an untagged message.
+    const tagged=new Set(mentions||[]);
+    if(replyTarget&&replyTarget.author&&replyTarget.author!==CURRENT_USER)tagged.add(replyTarget.author);
+    if(tagged.size)msg.mentions=[...tagged];
     if(replyTarget){msg.replyToId=replyTarget.id;msg.replyTo={author:replyTarget.author||"",text:(replyTarget.text||"").slice(0,140),taskText:replyTarget.taskText||null};}
     if(replyTarget&&replyTarget.taskId){
       // Reply to a task message → post it onto that task so it shows at the task's 💬 too.
@@ -4190,7 +4194,9 @@ function NavMenu({items,active,isPinned,onNavigate,onTogglePin,onClose}){
 
 // ─── App Shell ────────────────────────────────────────────────────────────────
 // Members only see Tasks + Properties; admins see the full nav.
-const MEMBER_KEYS = new Set(["tasks","properties","messages"]);
+// Which nav tabs non-admin members can open. Currently everyone sees every tab
+// (permissions to be tightened later); narrow this set to restrict members.
+const MEMBER_KEYS = new Set(NAV.map(n=>n.key));
 
 export function GoldstoneShell(){
   const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError } = useData();

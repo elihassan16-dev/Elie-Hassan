@@ -5393,22 +5393,299 @@ function NavMenu({items,active,isPinned,onNavigate,onTogglePin,onClose}){
 }
 
 // ─── Financial Section (admin-only) ───────────────────────────────────────────
-// Placeholder for now — a private space for Elie to build out company-wide
-// financials. Only the admin ever reaches this (nav item + render are gated).
-function FinancialSectionPage(){
-  const isMobile=useIsMobile();
+// Private lender ("funder") ledgers + the draws (money lent against a property).
+// Interest is simple 15%/yr, day-counted — matching the Excel the data came from.
+const LOC_RATE=0.15;
+const daysBetween=(a,b)=>{const s=new Date(a),e=new Date(b);if(isNaN(s)||isNaN(e))return 0;return Math.max(0,Math.round((e-s)/86400000));};
+const drawDays=(d)=>daysBetween(d.dateFunded,d.paybackDate||new Date());
+const drawInterest=(d)=>(Number(d.amount)||0)*(LOC_RATE/365)*drawDays(d);
+const sameName=(a,b)=>!!a&&!!b&&String(a).trim().toLowerCase()===String(b).trim().toLowerCase();
+const funderDraws=(f,draws)=>(draws||[]).filter(d=>String(d.funderId)===String(f.id)||sameName(d.funderName,f.name));
+const ledgerSum=(f,type)=>((f.ledger||[]).filter(e=>e.type===type).reduce((s,e)=>s+(Number(e.amount)||0),0));
+const funderStats=(f,draws)=>{
+  const principal=ledgerSum(f,"principal"), reinvest=ledgerSum(f,"reinvest"), distribution=ledgerSum(f,"distribution"), adjustment=ledgerSum(f,"adjustment");
+  const capital=principal+reinvest-distribution+adjustment;
+  const mine=funderDraws(f,draws);
+  const open=mine.filter(d=>!d.paybackDate);
+  const deployed=open.reduce((s,d)=>s+(Number(d.amount)||0),0);
+  const interest=open.reduce((s,d)=>s+drawInterest(d),0);
+  return {principal,reinvest,distribution,adjustment,capital,deployed,interest,available:capital-deployed,mine,open};
+};
+const LEDGER_TYPES=[
+  {v:"principal",label:"Principal in",sign:1,color:"#16A34A"},
+  {v:"reinvest",label:"Reinvested profit",sign:1,color:T.blue},
+  {v:"distribution",label:"Distribution / payout",sign:-1,color:T.red},
+  {v:"adjustment",label:"Adjustment",sign:1,color:T.textSub},
+];
+const finFmtDate=(iso)=>{if(!iso)return "";try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});}catch{return iso;}};
+const finInput={width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:14,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none"};
+
+// Small centered modal shell reused by the Financial Section forms.
+function FinModal({title,onClose,children,footer}){
   return(
-    <div style={{flex:1,overflow:"auto",background:T.bg}}>
-      <div style={{maxWidth:760,margin:"0 auto",padding:isMobile?"20px 16px":"32px 28px"}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-          <div style={{fontSize:isMobile?22:26,fontWeight:800,color:T.text}}>Financial Section</div>
-          <span style={{fontSize:10,fontWeight:800,background:T.gold,color:"#fff",borderRadius:20,padding:"3px 9px",textTransform:"uppercase",letterSpacing:"0.05em"}}>Private</span>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(440px,96vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.25)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight}}>
+          <div style={{fontSize:14,fontWeight:700,color:T.gold}}>{title}</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
-        <div style={{fontSize:14,color:T.textSub,marginBottom:22}}>Only you can see this section for now.</div>
-        <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,padding:isMobile?"28px 20px":"40px 32px",textAlign:"center"}}>
-          <div style={{width:60,height:60,borderRadius:16,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",color:T.gold}}>{ICONS.financials}</div>
-          <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Ready to build</div>
-          <div style={{fontSize:14,color:T.textSub,lineHeight:1.6,maxWidth:440,margin:"0 auto"}}>This is your private Financial Section. Tell me what you'd like in here — company-wide P&amp;L, cash on hand, per-deal returns, investor payouts, whatever you have in mind — and I'll build it out.</div>
+        <div style={{padding:16,overflowY:"auto",display:"flex",flexDirection:"column",gap:12}}>{children}</div>
+        {footer&&<div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end"}}>{footer}</div>}
+      </div>
+    </div>
+  );
+}
+const finBtn=(primary)=>({padding:"9px 18px",borderRadius:10,border:primary?"none":`1px solid ${T.border}`,background:primary?T.gold:T.bg,color:primary?"#fff":T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"});
+const finLabel={fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4};
+
+function FinFunderModal({funder,onSave,onClose}){
+  const editing=!!funder;
+  const[name,setName]=useState(funder?.name||"");
+  const[notes,setNotes]=useState(funder?.notes||"");
+  const[principal,setPrincipal]=useState("");
+  const save=()=>{
+    const nm=name.trim();if(!nm)return;
+    if(editing){onSave({...funder,name:nm,notes:notes.trim()});}
+    else{
+      const ledger=[];const p=Number(numIn(principal));
+      if(p)ledger.push({id:Date.now(),type:"principal",amount:p,date:new Date().toISOString().slice(0,10),note:"Initial principal"});
+      onSave({id:Date.now(),name:nm,notes:notes.trim(),ledger});
+    }
+    onClose();
+  };
+  return(
+    <FinModal title={editing?"Edit lender":"New lender"} onClose={onClose}
+      footer={<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button onClick={save} disabled={!name.trim()} style={{...finBtn(true),opacity:name.trim()?1:0.5}}>Save</button></>}>
+      <div><div style={finLabel}>Name</div><input autoFocus value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Cohen" style={finInput}/></div>
+      {!editing&&<div><div style={finLabel}>Initial principal (optional)</div><input value={principal} onChange={e=>setPrincipal(numIn(e.target.value))} inputMode="decimal" placeholder="e.g. 740000" style={finInput}/><div style={{fontSize:11,color:T.textTert,marginTop:4}}>Adds a first "Principal in" ledger entry. You can add more later.</div></div>}
+      <div><div style={finLabel}>Notes</div><textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Terms, contact info, anything…" style={{...finInput,minHeight:60,resize:"vertical"}}/></div>
+    </FinModal>
+  );
+}
+
+function FinLedgerModal({funderName,onSave,onClose}){
+  const[type,setType]=useState("principal");
+  const[amount,setAmount]=useState("");
+  const[date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const[note,setNote]=useState("");
+  const save=()=>{const a=Number(numIn(amount));if(!a)return;onSave({id:Date.now(),type,amount:a,date,note:note.trim()});onClose();};
+  return(
+    <FinModal title={`Ledger entry — ${funderName}`} onClose={onClose}
+      footer={<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button onClick={save} disabled={!Number(numIn(amount))} style={{...finBtn(true),opacity:Number(numIn(amount))?1:0.5}}>Add</button></>}>
+      <div><div style={finLabel}>Type</div>
+        <select value={type} onChange={e=>setType(e.target.value)} style={finInput}>{LEDGER_TYPES.map(t=><option key={t.v} value={t.v}>{t.label}</option>)}</select>
+      </div>
+      <div><div style={finLabel}>Amount</div><input autoFocus value={amount} onChange={e=>setAmount(numIn(e.target.value))} inputMode="decimal" placeholder="0" style={finInput}/></div>
+      <div><div style={finLabel}>Date</div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={finInput}/></div>
+      <div><div style={finLabel}>Note</div><input value={note} onChange={e=>setNote(e.target.value)} placeholder="Optional" style={finInput}/></div>
+    </FinModal>
+  );
+}
+
+function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
+  const editing=!!draw;
+  const[prop,setProp]=useState(draw?.propertyLabel||"");
+  const[funderId,setFunderId]=useState(draw?.funderId||defaultFunderId||(funders[0]?.id||""));
+  const[amount,setAmount]=useState(draw?String(draw.amount||""):"");
+  const[dateFunded,setDateFunded]=useState(draw?.dateFunded||new Date().toISOString().slice(0,10));
+  const[paybackDate,setPaybackDate]=useState(draw?.paybackDate||"");
+  const[note,setNote]=useState(draw?.note||"");
+  const propOptions=[...new Set((properties||[]).map(p=>`${p.address}${p.city?`, ${p.city}`:""}`).filter(Boolean))].sort();
+  const save=()=>{
+    const a=Number(numIn(amount));if(!a||!funderId)return;
+    const f=funders.find(x=>String(x.id)===String(funderId));
+    const match=(properties||[]).find(p=>`${p.address}${p.city?`, ${p.city}`:""}`===prop.trim()||p.address===prop.trim());
+    onSave({
+      id:draw?.id||Date.now(),
+      propertyId:match?match.id:(draw?.propertyId||null),
+      propertyLabel:prop.trim(),
+      funderId, funderName:f?.name||"",
+      amount:a, dateFunded, paybackDate:paybackDate||null, note:note.trim(),
+    });
+    onClose();
+  };
+  return(
+    <FinModal title={editing?"Edit draw":"New draw (money lent)"} onClose={onClose}
+      footer={<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button onClick={save} disabled={!Number(numIn(amount))||!funderId} style={{...finBtn(true),opacity:(Number(numIn(amount))&&funderId)?1:0.5}}>Save</button></>}>
+      <div><div style={finLabel}>Property</div>
+        <input list="fin-props" value={prop} onChange={e=>setProp(e.target.value)} placeholder="Type or pick a property…" style={finInput}/>
+        <datalist id="fin-props">{propOptions.map(p=><option key={p} value={p}/>)}</datalist>
+      </div>
+      <div><div style={finLabel}>Lender</div>
+        <select value={funderId} onChange={e=>setFunderId(e.target.value)} style={finInput}>
+          {funders.length===0&&<option value="">— add a lender first —</option>}
+          {funders.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
+        </select>
+      </div>
+      <div><div style={finLabel}>Amount</div><input value={amount} onChange={e=>setAmount(numIn(e.target.value))} inputMode="decimal" placeholder="0" style={finInput}/></div>
+      <div style={{display:"flex",gap:10}}>
+        <div style={{flex:1}}><div style={finLabel}>Date funded</div><input type="date" value={dateFunded} onChange={e=>setDateFunded(e.target.value)} style={finInput}/></div>
+        <div style={{flex:1}}><div style={finLabel}>Payback date</div><input type="date" value={paybackDate} onChange={e=>setPaybackDate(e.target.value)} style={finInput}/></div>
+      </div>
+      <div style={{fontSize:11,color:T.textTert,marginTop:-4}}>Leave payback empty while the loan is open — interest accrues to today.</div>
+      <div><div style={finLabel}>Note</div><input value={note} onChange={e=>setNote(e.target.value)} placeholder="Optional (e.g. rehab draw, refi proceeds)" style={finInput}/></div>
+    </FinModal>
+  );
+}
+
+function FinancialSectionPage(){
+  const { funders, setFunders, flushFunders, draws, setDraws, flushDraws, sharedProps } = useData();
+  const isMobile=useIsMobile();
+  const[selId,setSelId]=useState(null);
+  const[funderModal,setFunderModal]=useState(null);   // {} new, or funder obj to edit
+  const[ledgerModal,setLedgerModal]=useState(false);
+  const[drawModal,setDrawModal]=useState(null);        // {} new, or draw obj, or {defaultFunderId}
+  const save=()=>{setTimeout(()=>{flushFunders&&flushFunders();flushDraws&&flushDraws();},0);};
+
+  const list=[...(funders||[])].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const sel=list.find(f=>String(f.id)===String(selId))||null;
+
+  // Portfolio totals across all lenders.
+  const totals=list.reduce((acc,f)=>{const s=funderStats(f,draws);acc.capital+=s.capital;acc.deployed+=s.deployed;acc.interest+=s.interest;acc.available+=s.available;return acc;},{capital:0,deployed:0,interest:0,available:0});
+
+  const addFunder=(f)=>{setFunders(prev=>[...prev,f]);save();setSelId(f.id);};
+  const updateFunder=(f)=>{setFunders(prev=>prev.map(x=>String(x.id)===String(f.id)?f:x));save();};
+  const deleteFunder=(id)=>{if(!window.confirm("Delete this lender and its ledger? (Their draws stay, tagged by name.)"))return;setFunders(prev=>prev.filter(x=>String(x.id)!==String(id)));save();setSelId(null);};
+  const addLedger=(funderId,entry)=>{setFunders(prev=>prev.map(x=>String(x.id)===String(funderId)?{...x,ledger:[...(x.ledger||[]),entry]}:x));save();};
+  const delLedger=(funderId,entryId)=>{setFunders(prev=>prev.map(x=>String(x.id)===String(funderId)?{...x,ledger:(x.ledger||[]).filter(e=>e.id!==entryId)}:x));save();};
+  const saveDraw=(d)=>{setDraws(prev=>prev.some(x=>x.id===d.id)?prev.map(x=>x.id===d.id?d:x):[...prev,d]);save();};
+  const delDraw=(id)=>{setDraws(prev=>prev.filter(x=>x.id!==id));save();};
+  const markPaid=(d)=>{saveDraw({...d,paybackDate:new Date().toISOString().slice(0,10)});};
+
+  const downloadBackup=()=>{
+    const payload={exportedAt:new Date().toISOString(),funders,draws};
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=`goldstone-financials-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
+
+  const stat=(label,val,color)=>(
+    <div style={{background:T.bg,borderRadius:10,padding:"10px 12px",minWidth:0}}>
+      <div style={{fontSize:10,color:T.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</div>
+      <div style={{fontSize:isMobile?15:17,fontWeight:800,color:color||T.text,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fmtD(val)}</div>
+    </div>
+  );
+
+  const funderRow=(f)=>{
+    const s=funderStats(f,draws);const active=String(f.id)===String(selId);
+    return(
+      <div key={f.id} onClick={()=>setSelId(f.id)} style={{padding:"12px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:active?T.goldLight:"transparent",borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
+          <span style={{fontWeight:700,fontSize:14,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</span>
+          <span style={{fontSize:12,fontWeight:700,color:s.available<0?T.red:T.green,flexShrink:0}}>{fmtD(s.available)}</span>
+        </div>
+        <div style={{fontSize:11,color:T.textSub,marginTop:2}}>{fmtD(s.deployed)} out · {s.open.length} open · {fmtD(s.interest)} int</div>
+      </div>
+    );
+  };
+
+  const detail=(f)=>{
+    const s=funderStats(f,draws);
+    const ledger=[...(f.ledger||[])].sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+    const drawsSorted=[...s.mine].sort((a,b)=>(b.dateFunded||"").localeCompare(a.dateFunded||""));
+    return(
+      <div style={{flex:1,minWidth:0,overflowY:"auto",padding:isMobile?"14px 14px 40px":"20px 24px 40px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:16,cursor:"pointer",padding:"2px 4px"}}>‹</button>}
+          <div style={{fontSize:20,fontWeight:800,color:T.text,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
+          <button onClick={()=>setFunderModal(f)} style={{...finBtn(false),padding:"6px 12px"}}>Edit</button>
+          <button onClick={()=>deleteFunder(f.id)} title="Delete lender" style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>🗑</button>
+        </div>
+        {f.notes&&<div style={{fontSize:13,color:T.textSub,marginBottom:14,whiteSpace:"pre-wrap"}}>{f.notes}</div>}
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:8,marginBottom:20}}>
+          {stat("Capital balance",s.capital)}
+          {stat("Deployed",s.deployed,T.blue)}
+          {stat("Available",s.available,s.available<0?T.red:T.green)}
+          {stat("Interest owed",s.interest,T.gold)}
+        </div>
+
+        {/* Capital ledger */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <div style={{fontSize:14,fontWeight:800,color:T.text}}>Capital ledger</div>
+          <button onClick={()=>setLedgerModal(true)} style={{...finBtn(true),padding:"6px 12px",fontSize:12}}>+ Entry</button>
+        </div>
+        <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden",marginBottom:22}}>
+          {ledger.length===0&&<div style={{padding:"16px",textAlign:"center",color:T.textTert,fontSize:13}}>No entries yet. Add their principal, reinvestments, or payouts.</div>}
+          {ledger.map(e=>{const t=LEDGER_TYPES.find(x=>x.v===e.type)||LEDGER_TYPES[0];return(
+            <div key={e.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderTop:`1px solid ${T.border}`}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:600,color:T.text}}>{t.label}</div>
+                <div style={{fontSize:11,color:T.textTert}}>{finFmtDate(e.date)}{e.note?` · ${e.note}`:""}</div>
+              </div>
+              <div style={{fontSize:14,fontWeight:700,color:t.color,whiteSpace:"nowrap"}}>{t.sign<0?"−":"+"}{fmtD(e.amount)}</div>
+              <button onClick={()=>delLedger(f.id,e.id)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>
+            </div>
+          );})}
+        </div>
+
+        {/* Draws (money out to properties) */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <div style={{fontSize:14,fontWeight:800,color:T.text}}>Money lent (draws)</div>
+          <button onClick={()=>setDrawModal({defaultFunderId:f.id})} style={{...finBtn(true),padding:"6px 12px",fontSize:12}}>+ Draw</button>
+        </div>
+        <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden"}}>
+          {drawsSorted.length===0&&<div style={{padding:"16px",textAlign:"center",color:T.textTert,fontSize:13}}>No draws yet.</div>}
+          {drawsSorted.map(d=>(
+            <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderTop:`1px solid ${T.border}`}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.propertyLabel||"(no property)"}{d.paybackDate?<span style={{marginLeft:6,fontSize:9,fontWeight:800,background:"#EDFBF1",color:"#15803D",borderRadius:8,padding:"1px 6px",textTransform:"uppercase"}}>paid</span>:<span style={{marginLeft:6,fontSize:9,fontWeight:800,background:T.goldLight,color:T.gold,borderRadius:8,padding:"1px 6px",textTransform:"uppercase"}}>open</span>}</div>
+                <div style={{fontSize:11,color:T.textTert}}>{finFmtDate(d.dateFunded)}{d.paybackDate?` → ${finFmtDate(d.paybackDate)}`:""} · {drawDays(d)}d · {fmtD(drawInterest(d))} int{d.note?` · ${d.note}`:""}</div>
+              </div>
+              <div style={{fontSize:14,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{fmtD(d.amount)}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                {!d.paybackDate&&<button onClick={()=>markPaid(d)} title="Mark paid back (today)" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.green,cursor:"pointer",fontSize:11,fontWeight:700,padding:"2px 7px",fontFamily:"inherit"}}>Paid</button>}
+                <button onClick={()=>setDrawModal(d)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:11,padding:"2px 7px",fontFamily:"inherit"}}>Edit</button>
+              </div>
+              <button onClick={()=>{if(window.confirm("Delete this draw?"))delDraw(d.id);}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return(
+    <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
+      {funderModal&&<FinFunderModal funder={funderModal.id?funderModal:null} onSave={(f)=>funderModal.id?updateFunder(f):addFunder(f)} onClose={()=>setFunderModal(null)}/>}
+      {ledgerModal&&sel&&<FinLedgerModal funderName={sel.name} onSave={(e)=>addLedger(sel.id,e)} onClose={()=>setLedgerModal(false)}/>}
+      {drawModal&&<FinDrawModal draw={drawModal.id?drawModal:null} defaultFunderId={drawModal.defaultFunderId} funders={list} properties={sharedProps} onSave={saveDraw} onClose={()=>setDrawModal(null)}/>}
+
+      {/* Header */}
+      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"12px 14px":"16px 24px",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{fontSize:isMobile?19:22,fontWeight:800,color:T.text}}>Financial Section</div>
+          <span style={{fontSize:9,fontWeight:800,background:T.gold,color:"#fff",borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>Private</span>
+          <div style={{marginLeft:"auto",display:"flex",gap:8}}>
+            <button onClick={downloadBackup} title="Download a backup file of all financial data" style={{...finBtn(false),padding:"8px 12px"}}>⬇ Backup</button>
+            <button onClick={()=>setFunderModal({})} style={{...finBtn(false),padding:"8px 12px"}}>+ Lender</button>
+            <button onClick={()=>setDrawModal({})} style={{...finBtn(true),padding:"8px 14px"}}>+ Draw</button>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:8,marginTop:12}}>
+          {stat("Total capital",totals.capital)}
+          {stat("Deployed",totals.deployed,T.blue)}
+          {stat("Available",totals.available,totals.available<0?T.red:T.green)}
+          {stat("Interest owed",totals.interest,T.gold)}
+        </div>
+      </div>
+
+      {/* Master-detail */}
+      <div style={{flex:1,display:"flex",overflow:"hidden"}}>
+        <div style={{width:isMobile?"100%":320,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+          <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.border}`,fontSize:12,fontWeight:700,color:T.textSub}}>Lenders ({list.length})</div>
+          <div style={{flex:1,overflowY:"auto"}}>
+            {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No lenders yet. Tap <b>+ Lender</b> to add your first private funder.</div>}
+            {list.map(funderRow)}
+          </div>
+        </div>
+        <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
+          {sel?detail(sel)
+            :<div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:T.textSub,padding:24,textAlign:"center"}}>
+              <div style={{width:60,height:60,borderRadius:16,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",color:T.gold}}>{ICONS.financials}</div>
+              <div style={{fontSize:16,fontWeight:700}}>Pick a lender</div>
+              <div style={{fontSize:13,color:T.textTert,maxWidth:340}}>See their capital ledger — principal, reinvested profit, payouts — and every property their money is in, with interest accruing at 15%.</div>
+            </div>}
         </div>
       </div>
     </div>

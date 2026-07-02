@@ -3766,6 +3766,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
   const[err,setErr]=useState("");
   const[mentions,setMentions]=useState([]); // tagged names ([] = everyone)
   const[showTag,setShowTag]=useState(false);
+  const[pendingAtt,setPendingAtt]=useState(null); // attachment staged, not yet sent
   const fileRef=useRef(null);
   const mrRef=useRef(null);
   const chunksRef=useRef([]);
@@ -3774,11 +3775,11 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
   useEffect(()=>()=>clearInterval(timerRef.current),[]);
   const tagOptions=(people||[]).filter(n=>n&&n!==currentUser);
   const toggleMention=(n)=>setMentions(prev=>prev.includes(n)?prev.filter(x=>x!==n):[...prev,n]);
-  const send=async(att)=>{
+  const send=async()=>{
     const t=text.trim();
-    if(!t&&!att)return;
-    const mn=mentions;
-    setText("");setErr("");setMentions([]);setShowTag(false);
+    if((!t&&!pendingAtt)||busy)return;
+    const att=pendingAtt,mn=mentions;
+    setText("");setPendingAtt(null);setMentions([]);setShowTag(false);setErr("");
     try{ await onSend(t,att||null,mn); }catch{ setErr("Send failed. Try again."); }
   };
   const onPickFile=async(e)=>{
@@ -3787,11 +3788,8 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
     if(!file)return;
     if(file.size>25*1024*1024){setErr("File is too large (max 25 MB).");return;}
     setErr("");setBusy(true);
-    try{
-      const att=await uploadAttachment(file,"chat");
-      const t=text.trim();const mn=mentions;setText("");setMentions([]);setShowTag(false);
-      await onSend(t,att,mn);
-    }catch{ setErr("Upload failed. Try again."); }
+    try{ setPendingAtt(await uploadAttachment(file,"chat")); }
+    catch{ setErr("Upload failed. Try again."); }
     setBusy(false);
   };
   const startRec=async()=>{
@@ -3814,10 +3812,8 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
       try{
         const ext=/mp4|aac|m4a/.test(mr.mimeType||"")?"m4a":"webm";
         const file=new File([blob],`voice-note-${Date.now()}.${ext}`,{type:blob.type||"audio/webm"});
-        const att=await uploadAttachment(file,"voice");
-        const mn=mentions;setMentions([]);setShowTag(false);
-        await onSend("",att,mn);
-      }catch{ setErr("Couldn't send the voice note."); }
+        setPendingAtt(await uploadAttachment(file,"voice"));
+      }catch{ setErr("Couldn't save the voice note."); }
       setBusy(false);
     };
     mrRef.current=mr;
@@ -3828,7 +3824,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
   const stopRec=()=>{cancelRef.current=false;if(mrRef.current&&mrRef.current.state!=="inactive")mrRef.current.stop();};
   const cancelRec=()=>{cancelRef.current=true;if(mrRef.current&&mrRef.current.state!=="inactive")mrRef.current.stop();};
   const fmtSecs=(s)=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
-  const canSend=!!text.trim()&&!busy;
+  const canSend=(!!text.trim()||!!pendingAtt)&&!busy;
   return(
     <div style={{display:"flex",flexDirection:"column",gap:6}}>
       {err&&<div style={{fontSize:11,color:"#FF3B30",fontWeight:600,padding:"0 6px"}}>{err}</div>}
@@ -3848,6 +3844,19 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
           )}
         </div>
       )}
+      {/* Staged attachment — attach/record first, then tag + Send */}
+      {pendingAtt&&!recording&&(
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"6px 8px",background:T.bg,border:`1px solid ${T.border}`,borderRadius:12}}>
+          {pendingAtt.kind==="image"
+            ? <img src={pendingAtt.url} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"cover",flexShrink:0}}/>
+            : <span style={{fontSize:24,flexShrink:0}}>{pendingAtt.kind==="audio"?"🎤":"📄"}</span>}
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:12,fontWeight:700,color:T.text}}>{pendingAtt.kind==="audio"?"Voice note ready":pendingAtt.kind==="image"?"Photo ready":"File ready"}</div>
+            <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tagOptions.length?"Tag someone below, then Send":(pendingAtt.name||"Ready to send")}</div>
+          </div>
+          <button onClick={()=>setPendingAtt(null)} title="Remove" style={{background:"none",border:"none",color:T.textTert,fontSize:20,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+      )}
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         {recording?(
           <>
@@ -3856,7 +3865,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
               <span style={{width:9,height:9,borderRadius:"50%",background:"#FF3B30",display:"inline-block",flexShrink:0}}/>
               Recording… {fmtSecs(recSecs)}
             </div>
-            <button onClick={stopRec} style={{padding:"10px 18px",borderRadius:22,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Send</button>
+            <button onClick={stopRec} style={{padding:"10px 18px",borderRadius:22,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Stop</button>
           </>
         ):(
           <>
@@ -3864,7 +3873,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
             <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo or PDF" style={iconBtn}>📎</button>
             <button onClick={startRec} disabled={busy} title="Record a voice note" style={iconBtn}>🎤</button>
             {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...iconBtn,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
-            <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&canSend&&send()} placeholder={busy?"Uploading…":placeholder} disabled={busy}
+            <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&canSend&&send()} placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":placeholder)} disabled={busy}
               style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:22,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit"}}/>
             <button onClick={()=>send()} disabled={!canSend} style={{padding:"10px 18px",borderRadius:22,background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
           </>
@@ -3914,10 +3923,16 @@ const buildMessageThreads=(messages)=>{
   arr.sort((a,b)=>msgTime(a.root.at)-msgTime(b.root.at));
   return arr;
 };
-function MessageThread({property,messages,currentUser,teamMembers,onSend,onBack,isMobile}){
+function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelete,onBack,isMobile}){
   const[reply,setReply]=useState(null); // message being replied to
+  const[selMode,setSelMode]=useState(false); // select-to-delete mode
+  const[selIds,setSelIds]=useState(new Set());
   const handleSend=async(text,attachment,mentions)=>{await onSend(text,reply,attachment,mentions);setReply(null);};
   const threads=buildMessageThreads(messages);
+  const allIds=messages.map(m=>m.id);
+  const toggleSel=(id)=>setSelIds(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
+  const exitSelect=()=>{setSelMode(false);setSelIds(new Set());};
+  const doDelete=()=>{if(selIds.size&&onDelete)onDelete([...selIds]);exitSelect();};
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   const addr=`${property.address}${property.city?`, ${property.city}`:""}`;
   const sc=SC[property.status]||{};
@@ -3926,7 +3941,17 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onBack,
       <div style={{padding:"12px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         {isMobile&&<button onClick={onBack} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",padding:"2px 4px",flexShrink:0}}>‹</button>}
         <div style={{minWidth:0,flex:1}}><div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>{property.status&&<span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{property.status}</span>}</div>
+        {messages.length>0&&!selMode&&<button onClick={()=>setSelMode(true)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 12px",flexShrink:0}}>Select</button>}
       </div>
+      {selMode&&(
+        <div style={{padding:"8px 14px",background:T.goldLight,borderBottom:`1px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <span style={{fontSize:13,fontWeight:700,color:T.text}}>{selIds.size} selected</span>
+          <button onClick={()=>setSelIds(selIds.size===allIds.length?new Set():new Set(allIds))} style={{background:"none",border:"none",color:T.gold,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,padding:"2px 4px"}}>{selIds.size===allIds.length?"Clear all":"Select all"}</button>
+          <div style={{flex:1}}/>
+          <button onClick={doDelete} disabled={!selIds.size} style={{padding:"6px 14px",borderRadius:20,border:"none",background:selIds.size?T.red:T.border,color:"#fff",fontSize:12,fontWeight:700,cursor:selIds.size?"pointer":"default",fontFamily:"inherit"}}>🗑 Delete</button>
+          <button onClick={exitSelect} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 12px"}}>Cancel</button>
+        </div>
+      )}
       <div style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
         {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"30px 0"}}>No messages yet for this property. Start the conversation below.</div>}
         {threads.map(th=>{
@@ -3936,18 +3961,22 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onBack,
           const bubble=(m,{small,onCard}={})=>{
             const mine=m.author===currentUser;
             const theirBg=onCard?T.bg:T.card;
+            const picked=selIds.has(m.id);
             return(
-              <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"90%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start"}}>
+              <div key={m.id} onClick={selMode?()=>toggleSel(m.id):undefined} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"92%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start",cursor:selMode?"pointer":"default"}}>
                 <div style={{fontSize:10,color:T.textTert,marginBottom:2}}>{m.author||"—"} · {fmt(m.at)}</div>
-                <div style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`}}>
-                  {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
-                  {m.text}
-                  {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
+                <div style={{display:"flex",alignItems:"center",gap:8,flexDirection:mine?"row-reverse":"row"}}>
+                  {selMode&&<span style={{width:20,height:20,flexShrink:0,borderRadius:"50%",border:`2px solid ${picked?T.gold:T.border}`,background:picked?T.gold:"transparent",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800}}>{picked?"✓":""}</span>}
+                  <div style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`,opacity:selMode&&!picked?0.55:1}}>
+                    {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
+                    {m.text}
+                    {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
+                  </div>
                 </div>
               </div>
             );
           };
-          const replyBtn=(color)=><button onClick={()=>setReply(root)} style={{background:"none",border:"none",color:color||T.textTert,cursor:"pointer",fontSize:11,fontFamily:"inherit",padding:"3px 2px 0",fontWeight:600}}>↩ Reply</button>;
+          const replyBtn=(color)=>selMode?null:<button onClick={()=>setReply(root)} style={{background:"none",border:"none",color:color||T.textTert,cursor:"pointer",fontSize:11,fontFamily:"inherit",padding:"3px 2px 0",fontWeight:600}}>↩ Reply</button>;
           // Standalone message — same clean look as before.
           if(replies.length===0){
             return(
@@ -3969,12 +3998,12 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onBack,
                 {bubble(root,{onCard:true})}
                 {replies.map(r=>bubble(r,{small:true,onCard:true}))}
               </div>
-              <div style={{display:"flex",justifyContent:"flex-end",borderTop:`1px solid ${T.border}`,paddingTop:5}}>{replyBtn(T.gold)}</div>
+              {!selMode&&<div style={{display:"flex",justifyContent:"flex-end",borderTop:`1px solid ${T.border}`,paddingTop:5}}>{replyBtn(T.gold)}</div>}
             </div>
           );
         })}
       </div>
-      {reply&&(
+      {!selMode&&reply&&(
         <div style={{padding:"8px 12px",background:T.goldLight,borderTop:`1px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <div style={{flex:1,minWidth:0,borderLeft:`3px solid ${T.gold}`,paddingLeft:8}}>
             <div style={{fontSize:11,fontWeight:700,color:"#b8912e"}}>Replying to {reply.author||"—"}{reply.taskText?` · ↳ ${reply.taskText}`:""}</div>
@@ -3983,9 +4012,9 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onBack,
           <button onClick={()=>setReply(null)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
         </div>
       )}
-      <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,background:T.card,flexShrink:0}}>
+      {!selMode&&<div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,background:T.card,flexShrink:0}}>
         <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.taskText?"Reply — posts on that task too…":"Reply…"):"Message your team…"}/>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -4012,6 +4041,17 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   }));
   const selUnread=sel?propUnreadCount(sel,CURRENT_USER):0;
   useEffect(()=>{if(sel&&selUnread>0)markRead(sel.id);},[selId,selUnread]);// eslint-disable-line
+  // Delete selected messages (from the general thread and any task threads).
+  const deleteMessages=(ids)=>{
+    if(!sel||!ids||!ids.length)return;
+    const idset=new Set(ids);
+    setSharedProps(prev=>prev.map(p=>{
+      if(p.id!==sel.id)return p;
+      const messages=(p.messages||[]).filter(m=>!idset.has(m.id));
+      const tasks=(p.tasks||[]).map(t=>({...t,messages:(t.messages||[]).filter(m=>!idset.has(m.id))}));
+      return {...p,messages,tasks};
+    }));
+  };
   const send=(text,replyTarget,attachment,mentions)=>{
     const t=(text||"").trim();if((!t&&!attachment)||!sel)return;
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
@@ -4062,7 +4102,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       </div>
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
         {sel
-          ? <MessageThread property={sel} messages={mergePropertyMessages(sel)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onBack={()=>setSelId(null)} isMobile={isMobile}/>
+          ? <MessageThread property={sel} messages={mergePropertyMessages(sel)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onDelete={deleteMessages} onBack={()=>setSelId(null)} isMobile={isMobile}/>
           : <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:12,color:T.textSub}}>
               <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>💬</div>
               <div style={{fontSize:16,fontWeight:600}}>Select a property</div>

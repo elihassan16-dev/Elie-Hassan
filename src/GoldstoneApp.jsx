@@ -3909,18 +3909,27 @@ function UnreadBadge({count,style={}}){
   if(!count)return null;
   return <span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:9,background:T.red,color:"#fff",fontSize:11,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",lineHeight:1,boxSizing:"border-box",...style}}>{count>99?"99+":count}</span>;
 }
-// Group a flat, time-sorted list into threads: a root message plus every reply that
-// chains back to it (flattened to one level, so a reply-to-a-reply still nests under
-// the same root). A message with no replies is its own single-message "thread".
+// Group a flat, time-sorted list into thread boxes.
+//  • Every message on the same task lands in ONE box for that task (whether it was a
+//    reply or posted straight onto the task).
+//  • General (non-task) messages group by reply chain: a message plus everything that
+//    chains back to it. A lone message is its own single-message box.
+// Boxes are ordered by most-recent activity (last message), so a box jumps to the
+// bottom when it gets a new message.
 const buildMessageThreads=(messages)=>{
   const byId=new Map(messages.map(m=>[m.id,m]));
   const rootIdOf=(m)=>{let cur=m,g=0;while(cur.replyToId&&byId.has(cur.replyToId)&&g<200){cur=byId.get(cur.replyToId);g++;}return cur.id;};
+  const keyOf=(m)=>m.taskId?`task:${m.taskId}`:`root:${rootIdOf(m)}`;
   const threads=new Map();
-  messages.forEach(m=>{const rid=rootIdOf(m);if(!threads.has(rid))threads.set(rid,{id:rid,root:byId.get(rid),replies:[]});});
-  messages.forEach(m=>{const rid=rootIdOf(m);if(m.id!==rid)threads.get(rid).replies.push(m);});
-  const arr=[...threads.values()].filter(t=>t.root);
-  arr.forEach(t=>t.replies.sort((a,b)=>msgTime(a.at)-msgTime(b.at)));
-  arr.sort((a,b)=>msgTime(a.root.at)-msgTime(b.root.at));
+  messages.forEach(m=>{const k=keyOf(m);if(!threads.has(k))threads.set(k,{key:k,items:[]});threads.get(k).items.push(m);});
+  const arr=[...threads.values()];
+  arr.forEach(t=>{
+    t.items.sort((a,b)=>msgTime(a.at)-msgTime(b.at));
+    t.root=t.items[0];
+    t.replies=t.items.slice(1);
+    t.lastAt=msgTime(t.items[t.items.length-1].at);
+  });
+  arr.sort((a,b)=>a.lastAt-b.lastAt||msgTime(a.root.at)-msgTime(b.root.at));
   return arr;
 };
 function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelete,onBack,isMobile}){

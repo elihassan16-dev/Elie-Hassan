@@ -2433,7 +2433,9 @@ function PropDetail({property,onUpdate,onArchive}){
   const[taskPopup,setTaskPopup]=useState(null);
   // Showings tab only shows while the property is actively On Market / In Closing.
   const showShowings=property.status==="On Market"||property.status==="In Closing";
-  const tabs=useMemo(()=>PTABS.filter(t=>t!=="Showings"||showShowings),[showShowings]);
+  // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.
+  const showQB=property.status!=="Under Contract";
+  const tabs=useMemo(()=>PTABS.filter(t=>(t!=="Showings"||showShowings)&&(t!=="QuickBooks"||showQB)),[showShowings,showQB]);
   useEffect(()=>{ if(!tabs.includes(tab)) setTab("Financial Overview"); },[tabs,tab]);
   const sc=SC[property.status]||{color:"#64748B",bg:"#F1F5F9"};
   const upP=(k,v)=>onUpdate(property.id,"propertyInfo",{...property.propertyInfo,[k]:v});

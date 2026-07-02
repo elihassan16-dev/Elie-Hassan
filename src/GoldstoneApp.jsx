@@ -3175,7 +3175,7 @@ function TaskStatusPicker({value,onChange,onDelete}){
 }
 
 // ─── Task Row (module level to avoid React #31) ───────────────────────────────
-function TaskRow({t,onStatusChange,onDelete,onContact,onMessage,selectMode,selected,onToggleSelect}){
+function TaskRow({t,onStatusChange,onDelete,onContact,onMessage,onAssign,selectMode,selected,onToggleSelect}){
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
@@ -3195,7 +3195,8 @@ function TaskRow({t,onStatusChange,onDelete,onContact,onMessage,selectMode,selec
     <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,padding:isMobile?"9px 12px":"11px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:"#fff"}}>
       {selBox}
       <span style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text||"(untitled task)"}{t.autoId&&<span style={{marginLeft:5,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}</span>
-      <AssigneeAvatar name={t.assignee} size={24}/>
+      {t.assignedBy&&<span title={`Delegated by ${t.assignedBy}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>by {t.assignedBy.split(" ")[0]}</span>}
+      <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Assigned to ${t.assignee} — tap to change`:"Delegate to a teammate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",flexShrink:0}}><AssigneeAvatar name={t.assignee} size={24}/></button>
       {contactBtnEl}
       {msgBtnEl}
       <TaskStatusPicker value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
@@ -3291,6 +3292,7 @@ function TasksPage(){
   const[taskContactTarget,setTaskContactTarget]=useState(null);
   const[contactSearch,setContactSearch]=useState(""); // the task we're setting a contact for
   const[taskMsgTarget,setTaskMsgTarget]=useState(null); // task whose messages are open
+  const[taskAssignTarget,setTaskAssignTarget]=useState(null); // task we're delegating
   const[selectMode,setSelectMode]=useState(false);
   const[selectedKeys,setSelectedKeys]=useState(new Set()); // `${propId}:${taskId}`
   const selKey=(t)=>`${t.propId}:${t.id}`;
@@ -3301,6 +3303,15 @@ function TasksPage(){
     if(attachment)msg.attachment=attachment;
     if(mentions&&mentions.length)msg.mentions=mentions;
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
+  }
+  // Delegate a task: assigning to someone else records who assigned it (assignedBy)
+  // so the assignee sees it came from you; assigning to yourself clears that.
+  function setTaskAssignee(propId,taskId,member){
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>{
+      if(tk.id!==taskId)return tk;
+      if(!member)return {...tk,assignee:"",assignedBy:""};
+      return {...tk,assignee:member,assignedBy:member!==CURRENT_USER?CURRENT_USER:""};
+    })}));
   }
   // Mark a task's messages read by me when I open its 💬 popup.
   function markTaskRead(propId,taskId){
@@ -3391,6 +3402,39 @@ function TasksPage(){
 
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",background:T.bg,overflow:"hidden"}}>
+      {/* Delegate / assign popup */}
+      {taskAssignTarget&&(
+        <div onClick={()=>setTaskAssignTarget(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(360px,94vw)",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+            <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight}}>
+              <div style={{fontSize:13,fontWeight:700,color:T.gold}}>Delegate task</div>
+              <button onClick={()=>setTaskAssignTarget(null)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+            <div style={{padding:"10px 16px 4px",fontSize:11,color:T.textSub,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Task: {taskAssignTarget.text}</div>
+            <div style={{maxHeight:300,overflowY:"auto",padding:"6px 0 10px"}}>
+              {TEAM_MEMBERS.map(m=>{
+                const isSet=taskAssignTarget.assignee===m;
+                return(
+                  <div key={m} onClick={()=>{setTaskAssignee(taskAssignTarget.propId,taskAssignTarget.id,m);setTaskAssignTarget(null);}}
+                    style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",cursor:"pointer",background:isSet?T.goldLight:"transparent"}}
+                    onMouseEnter={e=>e.currentTarget.style.background=isSet?T.goldLight:"#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background=isSet?T.goldLight:"transparent"}>
+                    <AssigneeAvatar name={m} size={30}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:T.text}}>{m}{m===CURRENT_USER?" (you)":""}</div>
+                    </div>
+                    {isSet&&<span style={{fontSize:12,color:T.gold,fontWeight:700}}>✓</span>}
+                  </div>
+                );
+              })}
+              {taskAssignTarget.assignee&&<div onClick={()=>{setTaskAssignee(taskAssignTarget.propId,taskAssignTarget.id,"");setTaskAssignTarget(null);}}
+                style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`,marginTop:4}}>
+                <span style={{width:30,height:30,borderRadius:"50%",border:`1px dashed ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.textTert,fontSize:16,flexShrink:0}}>×</span>
+                <div style={{fontSize:13,fontWeight:600,color:T.red}}>Unassign</div>
+              </div>}
+            </div>
+          </div>
+        </div>
+      )}
       {/* Task messages popup */}
       {taskMsgTarget&&(()=>{
         const liveTask=(sharedProps.find(p=>p.id===taskMsgTarget.propId)?.tasks||[]).find(tk=>tk.id===taskMsgTarget.id);
@@ -3675,7 +3719,7 @@ function TasksPage(){
                     <span style={{fontSize:11,color:T.textSub}}>{ptasks.filter(t=>t.status==="Completed").length}/{ptasks.length} done</span>
                   </div>
                 </div>
-                {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+                {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
                 <AddTaskInline onAdd={(text)=>addTaskToProp(ptasks[0].propId,text)}/>
               </div>
             ))}
@@ -4257,6 +4301,104 @@ function ProfileModal({current,onSave,onClose}){
   );
 }
 
+// ─── Profile / team menu — opens from the EH avatar ───────────────────────────
+function ProfileMenu({displayName,role,isAdmin,teamMembers,onEditName,onAddTeammate,onSignOut,onClose}){
+  const initials=initialsOf(displayName)||"?";
+  const others=(teamMembers||[]).filter(Boolean);
+  const rowBtn={display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 20px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:14,color:T.text,textAlign:"left"};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:410,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderTopLeftRadius:20,borderTopRightRadius:20,width:"100%",maxWidth:480,maxHeight:"82vh",overflowY:"auto",boxShadow:"0 -8px 40px rgba(0,0,0,0.2)",paddingBottom:"max(12px,env(safe-area-inset-bottom))"}}>
+        <div style={{padding:"18px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:14}}>
+          <div style={{width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#fff",flexShrink:0}}>{initials}</div>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{fontSize:16,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{displayName}</div>
+            <div style={{fontSize:12,color:T.textSub,textTransform:"capitalize"}}>{role}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <button onClick={onEditName} style={rowBtn}><span style={{fontSize:16,width:22,textAlign:"center"}}>✎</span> Edit your name</button>
+        {isAdmin&&<button onClick={onAddTeammate} style={{...rowBtn,color:T.gold,fontWeight:700,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:18,width:22,textAlign:"center"}}>＋</span> Add a teammate</button>}
+        <div style={{padding:"12px 20px 6px",fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",borderTop:`1px solid ${T.border}`}}>Team ({others.length})</div>
+        <div style={{padding:"0 20px 8px",display:"flex",flexDirection:"column",gap:2}}>
+          {others.map(m=>(
+            <div key={m} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0"}}>
+              <AssigneeAvatar name={m} size={28}/>
+              <div style={{fontSize:13.5,color:T.text}}>{m}{m===displayName?" (you)":""}</div>
+            </div>
+          ))}
+        </div>
+        <button onClick={onSignOut} style={{...rowBtn,color:T.red,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:16,width:22,textAlign:"center"}}>⎋</span> Sign out</button>
+      </div>
+    </div>
+  );
+}
+// ─── Add teammate — admin creates a login right from the app ───────────────────
+function AddTeammateModal({onClose,onCreated}){
+  const[name,setName]=useState("");
+  const[email,setEmail]=useState("");
+  const[password,setPassword]=useState("");
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
+  const[done,setDone]=useState(null); // created member {email,password} to show
+  const gen=()=>{const chars="abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";let s="";for(let i=0;i<10;i++)s+=chars[Math.floor(Math.random()*chars.length)];setPassword(s);};
+  const submit=async()=>{
+    setErr("");
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){setErr("Enter a valid email address.");return;}
+    if(password.trim().length<8){setErr("Password must be at least 8 characters.");return;}
+    setBusy(true);
+    try{
+      const r=await qbAuthFetch("/api/team/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name.trim(),email:email.trim(),password:password.trim()})});
+      setDone({email:email.trim(),password:password.trim(),name:r.member?.name||name.trim()});
+      onCreated&&onCreated();
+    }catch(e){setErr(e.message||"Couldn't add the teammate.");}
+    setBusy(false);
+  };
+  const inp={width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:15,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  const lbl={fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6,display:"block"};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:420,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(420px,96vw)",boxShadow:"0 12px 48px rgba(0,0,0,0.25)",overflow:"hidden",maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
+        <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:17,fontWeight:700,color:T.text}}>{done?"Teammate added":"Add a teammate"}</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{padding:20,overflowY:"auto"}}>
+          {done?(
+            <div>
+              <div style={{fontSize:13,color:T.textSub,marginBottom:14,lineHeight:1.5}}><strong style={{color:T.text}}>{done.name}</strong> can now sign in. Share these credentials with them — they can change their name in the app afterward.</div>
+              <div style={{background:T.bg,borderRadius:12,padding:"12px 14px",fontSize:13,lineHeight:1.9}}>
+                <div><span style={{color:T.textSub}}>Email:</span> <strong style={{color:T.text}}>{done.email}</strong></div>
+                <div><span style={{color:T.textSub}}>Password:</span> <strong style={{color:T.text,fontFamily:"monospace"}}>{done.password}</strong></div>
+              </div>
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:18}}>
+                <button onClick={()=>{setDone(null);setName("");setEmail("");setPassword("");}} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Add another</button>
+                <button onClick={onClose} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Done</button>
+              </div>
+            </div>
+          ):(
+            <>
+              <div style={{marginBottom:14}}><label style={lbl}>Name</label><input autoFocus value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Moshe Hamaoui" style={inp}/></div>
+              <div style={{marginBottom:14}}><label style={lbl}>Email</label><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="teammate@email.com" autoCapitalize="none" autoCorrect="off" inputMode="email" style={inp}/></div>
+              <div style={{marginBottom:6}}><label style={lbl}>Temporary password</label>
+                <div style={{display:"flex",gap:8}}>
+                  <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="at least 8 characters" style={{...inp,flex:1}}/>
+                  <button onClick={gen} style={{padding:"0 14px",borderRadius:T.radiusSm,background:T.goldLight,border:`1px solid ${T.gold}`,color:T.gold,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Generate</button>
+                </div>
+              </div>
+              <div style={{fontSize:12,color:T.textTert,marginTop:8,lineHeight:1.5}}>They'll sign in with this email + password, then can rename themselves. New teammates join as members.</div>
+              {err&&<div style={{marginTop:12,color:T.red,fontSize:13}}>{err}</div>}
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:18}}>
+                <button onClick={onClose} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
+                <button onClick={submit} disabled={busy} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:busy?"default":"pointer",fontFamily:"inherit",fontSize:14,opacity:busy?0.6:1}}>{busy?"Adding…":"Add teammate"}</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 // ─── Mobile nav menu — all sections + pin/unpin which show on the bottom bar ──
 function NavMenu({items,active,isPinned,onNavigate,onTogglePin,onClose}){
   return(
@@ -4296,7 +4438,7 @@ function NavMenu({items,active,isPinned,onNavigate,onTogglePin,onClose}){
 const MEMBER_KEYS = new Set(NAV.map(n=>n.key));
 
 export function GoldstoneShell(){
-  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError } = useData();
+  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers } = useData();
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs } = useAuth();
   const isMobile = useIsMobile();
 
@@ -4306,6 +4448,8 @@ export function GoldstoneShell(){
   const[navPropId,setNavPropId]=useState(null);
   const[showSettings,setShowSettings]=useState(false);
   const[showProfile,setShowProfile]=useState(false);
+  const[showProfileMenu,setShowProfileMenu]=useState(false);
+  const[showAddTeammate,setShowAddTeammate]=useState(false);
   const[showNavMenu,setShowNavMenu]=useState(false);
   useEffect(()=>{ if(!navItems.find(n=>n.key===active)) setActive(navItems[0]?.key||"tasks"); },[navItems,active]);
 
@@ -4363,7 +4507,7 @@ export function GoldstoneShell(){
     setActive("properties");
   }
 
-  const initials=(displayName||"?").trim().charAt(0).toUpperCase()||"?";
+  const initials=initialsOf(displayName)||"?";
   const pageEl = active==="properties"
     ? <PropertiesPage sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navPropId} onNavConsumed={()=>setNavPropId(null)} onArchive={archiveProperty}/>
     : active==="leads" ? <NewLeadsPage/>
@@ -4393,8 +4537,8 @@ export function GoldstoneShell(){
           {navItems.map(({key,label,icon})=>{const isActive=active===key;return <button key={key} onClick={()=>setActive(key)} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:"none",background:isActive?T.goldLight:"transparent",color:isActive?T.gold:T.textSub,fontWeight:isActive?600:400,fontSize:14,cursor:"pointer",marginBottom:2,transition:"all 0.15s",textAlign:"left",fontFamily:"inherit"}}><span style={{color:isActive?T.gold:T.textTert}}>{icon}</span>{label}{key==="messages"&&<UnreadBadge count={unreadTotal} style={{marginLeft:"auto"}}/>}</button>;})}
         </nav>
         <div style={{padding:"14px 16px",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:"#fff",flexShrink:0}}>{initials}</div>
-          <button onClick={()=>setShowProfile(true)} title="Edit your name" style={{flex:1,minWidth:0,textAlign:"left",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{displayName} <span style={{color:T.textTert,fontWeight:400}}>✎</span></div><div style={{fontSize:11,color:T.textSub,textTransform:"capitalize"}}>{role}</div></button>
+          <button onClick={()=>setShowProfileMenu(true)} title="Profile & team" style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:"#fff",flexShrink:0,border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>{initials}</button>
+          <button onClick={()=>setShowProfileMenu(true)} title="Profile & team" style={{flex:1,minWidth:0,textAlign:"left",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{displayName} <span style={{color:T.textTert,fontWeight:400}}>▾</span></div><div style={{fontSize:11,color:T.textSub,textTransform:"capitalize"}}>{role}</div></button>
           <button onClick={signOut} title="Sign out" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,padding:"6px 10px"}}>Sign out</button>
         </div>
       </aside>
@@ -4406,7 +4550,7 @@ export function GoldstoneShell(){
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             {!isMobile&&<div style={{fontSize:13,color:T.textSub}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>}
-            {isMobile&&<button onClick={()=>setShowProfile(true)} title="Edit your name" aria-label="Your profile" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:15,padding:"5px 9px",lineHeight:1}}>👤</button>}
+            {isMobile&&<button onClick={()=>setShowProfileMenu(true)} title="Profile & team" aria-label="Profile and team" style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,color:"#fff",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>{initials}</button>}
             {isAdmin&&<button onClick={()=>setShowSettings(true)} title="Settings" aria-label="Settings" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:15,padding:"5px 9px",lineHeight:1}}>⚙</button>}
             {isMobile&&<button onClick={signOut} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,padding:"6px 10px"}}>Sign out</button>}
           </div>
@@ -4430,6 +4574,11 @@ export function GoldstoneShell(){
       )}
       {showNavMenu&&<NavMenu items={navItems} active={active} isPinned={isPinned} onNavigate={(k)=>{setActive(k);setShowNavMenu(false);}} onTogglePin={togglePin} onClose={()=>setShowNavMenu(false)}/>}
       {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}/>}
+      {showProfileMenu&&<ProfileMenu displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers}
+        onEditName={()=>{setShowProfileMenu(false);setShowProfile(true);}}
+        onAddTeammate={()=>{setShowProfileMenu(false);setShowAddTeammate(true);}}
+        onSignOut={signOut} onClose={()=>setShowProfileMenu(false)}/>}
+      {showAddTeammate&&<AddTeammateModal onClose={()=>setShowAddTeammate(false)}/>}
       {showProfile&&<ProfileModal current={displayName} onSave={updateName} onClose={()=>setShowProfile(false)}/>}
     </div>
   );

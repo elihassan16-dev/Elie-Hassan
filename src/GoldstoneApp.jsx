@@ -1711,14 +1711,18 @@ function QuickBooksTab({property,onUpdate}){
     (data.rows||[]).forEach(r=>{if(r.section==="Income")return;b[qbBucket(r.name)]+=r.amount;});
     const sel=qbImportSel(property);                 // only write the checked lines
     const ch={};
-    if(sel.income)  ch.actualSalePrice=String(Math.round(data.income||0));
-    if(sel.purchase)ch.actualPurchasePrice=String(Math.round(b.purchase));
-    if(sel.rehab)   ch.actualRehabCosts=String(Math.round(b.rehab));
-    if(sel.buying)  ch.actualBuyingCosts=String(Math.round(b.buying));
-    if(sel.holding){ch.actualHoldingCosts=String(Math.round(b.holding));ch.actualHoldingCostItems=[];}
-    if(sel.selling) ch.actualSellingCosts=String(Math.round(b.selling));
+    // Only write a field when QuickBooks actually has a value (>0). A QuickBooks 0
+    // (e.g. no sale recorded yet) must NEVER overwrite a number you already entered —
+    // that was wiping the actual Sale Price on re-import / auto-sync.
+    const put=(key,val)=>{if(val>0)ch[key]=String(Math.round(val));};
+    if(sel.income)  put("actualSalePrice",data.income||0);
+    if(sel.purchase)put("actualPurchasePrice",b.purchase);
+    if(sel.rehab)   put("actualRehabCosts",b.rehab);
+    if(sel.buying)  put("actualBuyingCosts",b.buying);
+    if(sel.holding&&b.holding>0){ch.actualHoldingCosts=String(Math.round(b.holding));ch.actualHoldingCostItems=[];}
+    if(sel.selling) put("actualSellingCosts",b.selling);
     // Debt service / interest is intentionally NOT imported — the app has its own formula.
-    if(Object.keys(ch).length===0){if(!auto)setFlash("Check at least one line to import.");return;}
+    if(Object.keys(ch).length===0){if(!auto)setFlash("QuickBooks has no numbers to import for the checked lines yet — your entered values were left as-is.");return;}
     ch.useActualProfit=true;
     onUpdate(property.id,"financials",{...f,...ch});
     setFlash(auto?"↻ Auto-synced the selected QuickBooks lines into your Actual columns.":"✓ Imported the selected lines into the Actual columns — check Financial Overview.");

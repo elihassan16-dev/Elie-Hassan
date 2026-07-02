@@ -302,10 +302,12 @@ const ICONS={
   properties:<Ico p="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" p2="M9 22v-10h6v10"/>,
   calendar:<Ico r={[3,4,18,18,2]} lines={[[16,2,16,6],[8,2,8,6],[3,10,21,10]]}/>,
   contacts:<Ico p="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" p2="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" c={[9,7,4]}/>,
+  messages:<Ico p="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>,
   sort:<Ico lines={[[3,6,21,6],[3,12,15,12],[3,18,9,18]]}/>,
 };
 const NAV=[
   {key:"tasks",label:"Tasks",short:"Tasks",icon:ICONS.tasks},
+  {key:"messages",label:"Messages",short:"Messages",icon:ICONS.messages},
   {key:"portfolio",label:"Portfolio Overview",short:"Portfolio",icon:ICONS.portfolio},
   {key:"leads",label:"New Leads",short:"Leads",icon:ICONS.leads},
   {key:"properties",label:"Properties",short:"Properties",icon:ICONS.properties},
@@ -3707,6 +3709,93 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
   );
 }
 
+// ─── Messaging Center — team chat organized per property ──────────────────────
+function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
+  const[text,setText]=useState("");
+  const send=()=>{const t=text.trim();if(!t)return;onSend(t);setText("");};
+  const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
+  const addr=`${property.address}${property.city?`, ${property.city}`:""}`;
+  const sc=SC[property.status]||{};
+  return(
+    <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,background:T.bg,overflow:"hidden"}}>
+      <div style={{padding:"12px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+        {isMobile&&<button onClick={onBack} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",padding:"2px 4px",flexShrink:0}}>‹</button>}
+        <div style={{minWidth:0,flex:1}}><div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>{property.status&&<span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{property.status}</span>}</div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+        {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"30px 0"}}>No messages yet for this property. Start the conversation below.</div>}
+        {messages.map(m=>{const mine=m.author===currentUser;return(
+          <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
+            <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
+            <div style={{background:mine?T.gold:T.card,color:mine?"#fff":T.text,borderRadius:14,padding:"9px 13px",fontSize:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:T.shadow}}>{m.text}</div>
+          </div>
+        );})}
+      </div>
+      <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,background:T.card,display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+        <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Message your team…"
+          style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:22,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit"}}/>
+        <button onClick={send} disabled={!text.trim()} style={{padding:"10px 18px",borderRadius:22,background:text.trim()?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:text.trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
+      </div>
+    </div>
+  );
+}
+function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}){
+  const { currentUser:CURRENT_USER } = useData();
+  const isMobile=useIsMobile();
+  const[selId,setSelId]=useState(initialSelId||null);
+  useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);// eslint-disable-line
+  const[search,setSearch]=useState("");
+  const active=sharedProps.filter(p=>!p.archived);
+  const withMeta=active.map(p=>{const msgs=p.messages||[];const last=msgs[msgs.length-1];return {p,last,lastAt:last?new Date(last.at).getTime():0,count:msgs.length};});
+  const q=search.toLowerCase();
+  const list=withMeta.filter(x=>(x.p.address+" "+(x.p.city||"")).toLowerCase().includes(q))
+    .sort((a,b)=>b.lastAt-a.lastAt||a.p.address.localeCompare(b.p.address));
+  const sel=active.find(p=>p.id===selId);
+  const send=(text)=>{const t=text.trim();if(!t||!sel)return;setSharedProps(prev=>prev.map(p=>p.id===sel.id?{...p,messages:[...(p.messages||[]),{id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString()}]}:p));};
+  const fmtShort=(iso)=>{if(!iso)return "";try{const d=new Date(iso),now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
+  const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  return(
+    <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+      <div style={{width:isMobile?"100%":320,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+        <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
+          <div style={{fontWeight:700,fontSize:15,color:T.text,marginBottom:10}}>Messages</div>
+          <div style={{position:"relative"}}>
+            <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:15,pointerEvents:"none"}}>⌕</span>
+            <input placeholder="Search properties…" value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px"}}/>
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:"auto"}}>
+          {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No properties.</div>}
+          {list.map(({p,last,count})=>{
+            const isActive=p.id===selId;
+            const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
+            return(
+              <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?T.goldLight:"transparent",borderLeft:isActive?`3px solid ${T.gold}`:"3px solid transparent"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
+                  <span style={{fontWeight:isActive?700:600,fontSize:13,color:isActive?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</span>
+                  {last&&<span style={{fontSize:10,color:T.textTert,flexShrink:0}}>{fmtShort(last.at)}</span>}
+                </div>
+                <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {last?<>{last.author?`${last.author.split(" ")[0]}: `:""}{last.text}</>:<span style={{color:T.textTert}}>No messages yet</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
+        {sel
+          ? <MessageThread property={sel} messages={sel.messages||[]} currentUser={CURRENT_USER} onSend={send} onBack={()=>setSelId(null)} isMobile={isMobile}/>
+          : <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:12,color:T.textSub}}>
+              <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>💬</div>
+              <div style={{fontSize:16,fontWeight:600}}>Select a property</div>
+              <div style={{fontSize:13,color:T.textTert}}>Choose a property to see and send messages</div>
+            </div>}
+      </div>
+    </div>
+  );
+}
+
 // ─── Profile modal — set your display name (used everywhere you're assigned) ──
 function ProfileModal({current,onSave,onClose}){
   const[name,setName]=useState(current||"");
@@ -3775,7 +3864,7 @@ function NavMenu({items,active,isPinned,onNavigate,onTogglePin,onClose}){
 
 // ─── App Shell ────────────────────────────────────────────────────────────────
 // Members only see Tasks + Properties; admins see the full nav.
-const MEMBER_KEYS = new Set(["tasks","properties"]);
+const MEMBER_KEYS = new Set(["tasks","properties","messages"]);
 
 export function GoldstoneShell(){
   const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError } = useData();
@@ -3848,6 +3937,7 @@ export function GoldstoneShell(){
   const pageEl = active==="properties"
     ? <PropertiesPage sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navPropId} onNavConsumed={()=>setNavPropId(null)} onArchive={archiveProperty}/>
     : active==="leads" ? <NewLeadsPage/>
+    : active==="messages" ? <MessagingCenter sharedProps={sharedProps} setSharedProps={setSharedProps}/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage/>
     : <ComingSoon label={NAV.find(n=>n.key===active)?.label}/>;

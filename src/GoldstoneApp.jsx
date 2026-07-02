@@ -3847,9 +3847,25 @@ const mergePropertyMessages=(p)=>{
   const tsk=(p.tasks||[]).flatMap(t=>(t.messages||[]).map(m=>({...m,taskText:t.text||"Untitled task",taskId:t.id})));
   return [...gen,...tsk].sort((a,b)=>(new Date(a.at).getTime()||0)-(new Date(b.at).getTime()||0));
 };
+const msgTime=(iso)=>{const t=new Date(iso).getTime();return isNaN(t)?0:t;};
+// Group a flat, time-sorted list into threads: a root message plus every reply that
+// chains back to it (flattened to one level, so a reply-to-a-reply still nests under
+// the same root). A message with no replies is its own single-message "thread".
+const buildMessageThreads=(messages)=>{
+  const byId=new Map(messages.map(m=>[m.id,m]));
+  const rootIdOf=(m)=>{let cur=m,g=0;while(cur.replyToId&&byId.has(cur.replyToId)&&g<200){cur=byId.get(cur.replyToId);g++;}return cur.id;};
+  const threads=new Map();
+  messages.forEach(m=>{const rid=rootIdOf(m);if(!threads.has(rid))threads.set(rid,{id:rid,root:byId.get(rid),replies:[]});});
+  messages.forEach(m=>{const rid=rootIdOf(m);if(m.id!==rid)threads.get(rid).replies.push(m);});
+  const arr=[...threads.values()].filter(t=>t.root);
+  arr.forEach(t=>t.replies.sort((a,b)=>msgTime(a.at)-msgTime(b.at)));
+  arr.sort((a,b)=>msgTime(a.root.at)-msgTime(b.root.at));
+  return arr;
+};
 function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
   const[reply,setReply]=useState(null); // message being replied to
   const handleSend=async(text,attachment)=>{await onSend(text,reply,attachment);setReply(null);};
+  const threads=buildMessageThreads(messages);
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   const addr=`${property.address}${property.city?`, ${property.city}`:""}`;
   const sc=SC[property.status]||{};
@@ -3859,20 +3875,51 @@ function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
         {isMobile&&<button onClick={onBack} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",padding:"2px 4px",flexShrink:0}}>‹</button>}
         <div style={{minWidth:0,flex:1}}><div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>{property.status&&<span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{property.status}</span>}</div>
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
         {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"30px 0"}}>No messages yet for this property. Start the conversation below.</div>}
-        {messages.map((m,i)=>{const mine=m.author===currentUser;return(
-          <div key={`${m.taskText?"t":"g"}-${m.id}-${i}`} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"88%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start"}}>
-            <div style={{fontSize:10,color:T.textTert,marginBottom:2}}>{m.author||"—"} · {fmt(m.at)}</div>
-            {m.taskText&&!m.replyTo&&<div style={{marginBottom:3}}><span title="This message was posted on a task" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {m.taskText}</span></div>}
-            <div style={{background:mine?T.gold:T.card,color:mine?"#fff":T.text,borderRadius:14,padding:"9px 13px",fontSize:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:T.shadow}}>
-              {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.55)":T.gold}`,paddingLeft:8,marginBottom:5,opacity:0.9,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:240}}><b>{m.replyTo.author?m.replyTo.author.split(" ")[0]:"—"}:</b> {m.replyTo.text}</div>}
-              {m.text}
-              {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
+        {threads.map(th=>{
+          const{root,replies}=th;
+          const rootMine=root.author===currentUser;
+          const taskTag=(txt)=><span title="This message is on a task" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {txt}</span>;
+          const bubble=(m,{small,onCard}={})=>{
+            const mine=m.author===currentUser;
+            const theirBg=onCard?T.bg:T.card;
+            return(
+              <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"90%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start"}}>
+                <div style={{fontSize:10,color:T.textTert,marginBottom:2}}>{m.author||"—"} · {fmt(m.at)}</div>
+                <div style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`}}>
+                  {m.text}
+                  {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
+                </div>
+              </div>
+            );
+          };
+          const replyBtn=(color)=><button onClick={()=>setReply(root)} style={{background:"none",border:"none",color:color||T.textTert,cursor:"pointer",fontSize:11,fontFamily:"inherit",padding:"3px 2px 0",fontWeight:600}}>↩ Reply</button>;
+          // Standalone message — same clean look as before.
+          if(replies.length===0){
+            return(
+              <div key={root.id} style={{display:"flex",flexDirection:"column",alignItems:rootMine?"flex-end":"flex-start"}}>
+                {root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
+                {bubble(root)}
+                {replyBtn()}
+              </div>
+            );
+          }
+          // Thread — root + nested replies grow inside one card (a sub-chat).
+          return(
+            <div key={root.id} style={{alignSelf:"stretch",border:`1px solid ${T.border}`,borderRadius:16,background:T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                {root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
+                <span style={{fontSize:10,color:T.textTert}}>{replies.length+1} messages</span>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {bubble(root,{onCard:true})}
+                {replies.map(r=>bubble(r,{small:true,onCard:true}))}
+              </div>
+              <div style={{display:"flex",justifyContent:"flex-end",borderTop:`1px solid ${T.border}`,paddingTop:5}}>{replyBtn(T.gold)}</div>
             </div>
-            <button onClick={()=>setReply(m)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:11,fontFamily:"inherit",padding:"3px 2px 0",fontWeight:600}}>↩ Reply</button>
-          </div>
-        );})}
+          );
+        })}
       </div>
       {reply&&(
         <div style={{padding:"8px 12px",background:T.goldLight,borderTop:`1px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
@@ -3905,7 +3952,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     const t=(text||"").trim();if((!t&&!attachment)||!sel)return;
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString()};
     if(attachment)msg.attachment=attachment;
-    if(replyTarget)msg.replyTo={author:replyTarget.author||"",text:(replyTarget.text||"").slice(0,140),taskText:replyTarget.taskText||null};
+    if(replyTarget){msg.replyToId=replyTarget.id;msg.replyTo={author:replyTarget.author||"",text:(replyTarget.text||"").slice(0,140),taskText:replyTarget.taskText||null};}
     if(replyTarget&&replyTarget.taskId){
       // Reply to a task message → post it onto that task so it shows at the task's 💬 too.
       setSharedProps(prev=>prev.map(p=>p.id!==sel.id?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==replyTarget.taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));

@@ -1465,7 +1465,15 @@ const showingSms=(phone,body)=>{
   const sep=(typeof navigator!=="undefined"&&/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent))?"&":"?"; // iOS wants &body=
   return `sms:${clean}${sep}body=${encodeURIComponent(body)}`;
 };
-function ShowingsTab({property}){
+// Lead disposition for a showing agent, ranked hottest → coldest (unset sorts last).
+const SHOWING_LEADS=[
+  {key:"offer",label:"🔥 Expecting an offer",short:"Expecting offer",color:"#15803D",bg:"#EDFBF1"},
+  {key:"interest",label:"Expressed interest",short:"Interested",color:"#B45309",bg:"#FEF3C7"},
+  {key:"not",label:"Not interested",short:"Not interested",color:"#B91C1C",bg:"#FEE2E2"},
+];
+const showingLeadRank=(k)=>{const i=SHOWING_LEADS.findIndex(x=>x.key===k);return i<0?99:i;};
+const showingKey=(s)=>String(s.uid||`${s.ts||""}-${s.summary||s.start||""}`);
+function ShowingsTab({property,onUpdate}){
   const { isAdmin }=useAuth();
   const[status,setStatus]=useState(null);
   const[showings,setShowings]=useState(null);
@@ -1507,16 +1515,24 @@ function ShowingsTab({property}){
 
   const all=showings||[];
   const address=`${property.address}${property.city?`, ${property.city}`:""}`;
+  const leadMap=property.showingLeads||{};
+  const setLead=(s,val)=>{const next={...leadMap};if(val)next[showingKey(s)]=val;else delete next[showingKey(s)];onUpdate(property.id,"showingLeads",next);};
   const mine=all.filter(s=>showingMatchesProperty(s.location||s.summary||"",property)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
   const cutoff=Date.now()-3600000;
   const upcoming=mine.filter(s=>s.ts>=cutoff).sort((a,b)=>a.ts-b.ts);
-  const past=mine.filter(s=>s.ts<cutoff).sort((a,b)=>b.ts-a.ts);
+  // Past showings are your leads — rank by disposition (hottest first), then recency.
+  const past=mine.filter(s=>s.ts<cutoff).sort((a,b)=>{
+    const ra=showingLeadRank(leadMap[showingKey(a)]),rb=showingLeadRank(leadMap[showingKey(b)]);
+    return ra!==rb?ra-rb:b.ts-a.ts;
+  });
 
   const actBtn={display:"inline-flex",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:T.radiusSm,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textDecoration:"none",whiteSpace:"nowrap"};
   const Row=(s)=>{
     const phones=parseShowingPhones(s.phone);
+    const leadKey=leadMap[showingKey(s)]||"";
+    const lead=SHOWING_LEADS.find(l=>l.key===leadKey);
     return(
-    <div key={s.uid||s.ts+s.summary} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
+    <div key={s.uid||s.ts+s.summary} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`,background:lead?lead.bg+"66":"transparent"}}>
       <div style={{width:7,height:7,borderRadius:4,background:/cancel|declin/i.test(s.status)?T.red:T.green,flexShrink:0,marginTop:5}}/>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:14,fontWeight:600,color:T.text}}>{fmtShowingTime(s.start)}</div>
@@ -1527,6 +1543,14 @@ function ShowingsTab({property}){
           </div>
         )}
         {s.email&&<div><a href={`mailto:${s.email}`} style={{fontSize:12,color:T.textSub,textDecoration:"none"}}>{s.email}</a></div>}
+        {/* Lead disposition — sorts hottest agents to the top */}
+        <div style={{marginTop:8}}>
+          <select value={leadKey} onChange={e=>setLead(s,e.target.value)}
+            style={{padding:"5px 9px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",border:`1px solid ${lead?lead.color:T.border}`,background:lead?lead.bg:"#fff",color:lead?lead.color:T.textSub}}>
+            <option value="">Set lead status…</option>
+            {SHOWING_LEADS.map(l=><option key={l.key} value={l.key}>{l.short}</option>)}
+          </select>
+        </div>
         {/* Per-number actions: Call + the two text templates */}
         {phones.map((ph,i)=>(
           <div key={i} style={{marginTop:8}}>
@@ -2287,7 +2311,7 @@ function PropDetail({property,onUpdate,onArchive}){
         )}
         {tab==="Files"&&<FilesTab property={property} onUpdate={onUpdate}/>}
         {tab==="QuickBooks"&&<QuickBooksTab property={property} onUpdate={onUpdate}/>}
-        {tab==="Showings"&&<ShowingsTab property={property}/>}
+        {tab==="Showings"&&<ShowingsTab property={property} onUpdate={onUpdate}/>}
       </div>
     </div>
   );

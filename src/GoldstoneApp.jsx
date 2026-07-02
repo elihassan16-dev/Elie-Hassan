@@ -4059,6 +4059,32 @@ function parseVCards(text){
   return out.map(c=>({name:c.fn||c.n||"",company:c.org||"",role:c.title||"",email:c.emails[0]||"",phones:c.tels}))
     .filter(c=>c.name||c.phones.length||c.email);
 }
+// Parse CSV text (handles quoted fields, commas/newlines inside quotes).
+function parseCSV(text){
+  const s=String(text).replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+  const rows=[];let row=[],cur="",inQ=false;
+  for(let i=0;i<s.length;i++){
+    const ch=s[i];
+    if(inQ){ if(ch==='"'){ if(s[i+1]==='"'){cur+='"';i++;} else inQ=false; } else cur+=ch; }
+    else{ if(ch==='"')inQ=true; else if(ch===","){row.push(cur);cur="";} else if(ch==="\n"){row.push(cur);rows.push(row);row=[];cur="";} else cur+=ch; }
+  }
+  if(cur!==""||row.length){row.push(cur);rows.push(row);}
+  const clean=rows.filter(r=>r.some(c=>String(c).trim()!==""));
+  if(!clean.length)return {headers:[],rows:[]};
+  return {headers:clean[0].map(h=>String(h).trim()),rows:clean.slice(1)};
+}
+// Guess which contact field a spreadsheet column maps to, from its header.
+const CONTACT_FIELDS=[{v:"",l:"— Skip —"},{v:"name",l:"Name"},{v:"company",l:"Company"},{v:"role",l:"Title / role"},{v:"phone",l:"Phone"},{v:"email",l:"Email"},{v:"tags",l:"Tags"},{v:"notes",l:"Notes"}];
+const guessField=(h)=>{const s=(h||"").toLowerCase();
+  if(/company|organization|\borg\b|business|employer/.test(s))return "company";
+  if(/e-?mail/.test(s))return "email";
+  if(/phone|mobile|cell|tel|fax|number|whats/.test(s))return "phone";
+  if(/title|role|position|\bjob\b/.test(s))return "role";
+  if(/tag|trade|\btype\b|category|specialt|service/.test(s))return "tags";
+  if(/note|comment|descr/.test(s))return "notes";
+  if(/name/.test(s))return "name";
+  return "";
+};
 const PHONE_LABELS=["Mobile","Office","Home","Fax","WhatsApp","Direct","Other"];
 const TAG_SUGGEST=["General Contractor","Plumber","Electrician","HVAC","Roofer","Handyman","Landscaper","Painter","Realtor","Attorney","Inspector","Appraiser","Lender","Title Company","Wholesaler","Architect"];
 // Normalize a stored contact into the richer shape (back-compat with old {phone,role}).
@@ -4076,6 +4102,8 @@ function ContactsPage(){
   const[search,setSearch]=useState("");
   const[editing,setEditing]=useState(null); // draft contact being added/edited
   const[importMsg,setImportMsg]=useState("");
+  const[csvData,setCsvData]=useState(null); // {headers,rows} awaiting column mapping
+  const[mapping,setMapping]=useState([]);   // field per column
   const fileRef=useRef(null);
   const saveNow=()=>{if(flushContacts)setTimeout(flushContacts,0);};
   const q=search.trim().toLowerCase();
@@ -4093,21 +4121,45 @@ function ContactsPage(){
     saveNow();setEditing(null);setSelId(clean.id);
   };
   const del=(id)=>{if(!window.confirm("Delete this contact?"))return;setContacts(prev=>prev.filter(x=>x.id!==id));saveNow();setSelId(null);setEditing(null);};
+  const dedupKey=(c)=>`${(c.name||"").toLowerCase()}|${((c.phones&&c.phones[0]&&c.phones[0].number)||c.phone||"").replace(/\D/g,"")}`;
+  const addImported=(built)=>{
+    const seen=new Set(dir.map(dedupKey));const fresh=[];
+    built.forEach(c=>{const k=dedupKey(c);if(!seen.has(k)){seen.add(k);fresh.push(c);}});
+    if(!fresh.length){setImportMsg("No new contacts to import (already in your directory).");return;}
+    setContacts(prev=>[...prev,...fresh.map((c,i)=>({id:Date.now()+i,name:c.name||"",company:c.company||"",role:c.role||"",email:c.email||"",notes:c.notes||"",phones:c.phones||[],tags:c.tags||[],phone:(c.phones&&c.phones[0]&&c.phones[0].number)||""}))]);
+    saveNow();
+    const dup=built.length-fresh.length;
+    setImportMsg(`Imported ${fresh.length} contact${fresh.length!==1?"s":""}${dup>0?` · ${dup} skipped (already there)`:""}.`);
+  };
   const onImport=async(e)=>{
     const file=e.target.files&&e.target.files[0];if(fileRef.current)fileRef.current.value="";if(!file)return;
-    setImportMsg("");
+    setImportMsg("");setCsvData(null);
     try{
-      const parsed=parseVCards(await file.text());
-      if(!parsed.length){setImportMsg("No contacts found in that file.");return;}
-      const key=(c)=>`${(c.name||"").toLowerCase()}|${((c.phones&&c.phones[0]&&c.phones[0].number)||c.phone||"").replace(/\D/g,"")}`;
-      const seen=new Set(dir.map(key));const fresh=[];
-      parsed.forEach(c=>{const k=key(c);if(!seen.has(k)){seen.add(k);fresh.push(c);}});
-      if(!fresh.length){setImportMsg("Those contacts are already in your directory.");return;}
-      setContacts(prev=>[...prev,...fresh.map((c,i)=>({id:Date.now()+i,name:c.name,company:c.company||"",role:c.role||"",email:c.email||"",phones:c.phones||[],tags:[],phone:(c.phones&&c.phones[0]&&c.phones[0].number)||""}))]);
-      saveNow();
-      const dup=parsed.length-fresh.length;
-      setImportMsg(`Imported ${fresh.length} contact${fresh.length!==1?"s":""}${dup>0?` · ${dup} already existed`:""}.`);
-    }catch{setImportMsg("Couldn't read that file. Export your contacts as a .vcf and try again.");}
+      const text=await file.text();
+      if(/\.vcf$/i.test(file.name)||/BEGIN:VCARD/i.test(text)){
+        const parsed=parseVCards(text);
+        if(!parsed.length){setImportMsg("No contacts found in that file.");return;}
+        addImported(parsed);
+      }else{
+        const parsed=parseCSV(text);
+        if(!parsed.headers.length){setImportMsg("Couldn't read that file. Save your Excel sheet as CSV and try again.");return;}
+        setCsvData(parsed);setMapping(parsed.headers.map(guessField));
+      }
+    }catch{setImportMsg("Couldn't read that file. Save it as CSV (or export contacts as .vcf) and try again.");}
+  };
+  const importCsv=()=>{
+    if(!csvData)return;
+    const{headers,rows}=csvData;
+    const cols=(field)=>mapping.map((f,i)=>f===field?i:-1).filter(i=>i>=0);
+    const first=(row,field)=>{const c=cols(field);for(const i of c){const v=(row[i]||"").trim();if(v)return v;}return "";};
+    const built=rows.map(row=>({
+      name:first(row,"name"),company:first(row,"company"),role:first(row,"role"),email:first(row,"email"),
+      notes:cols("notes").map(i=>(row[i]||"").trim()).filter(Boolean).join("\n"),
+      phones:cols("phone").map(i=>({label:headers[i]||"Phone",number:(row[i]||"").trim()})).filter(p=>p.number),
+      tags:cols("tags").flatMap(i=>String(row[i]||"").split(/[;,/|]/)).map(t=>t.trim()).filter(Boolean),
+    })).filter(c=>c.name||c.phones.length||c.email||c.company);
+    if(!built.length){setImportMsg("No contacts found — check your column mapping.");return;}
+    addImported(built);setCsvData(null);setMapping([]);
   };
   const iS={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   const initials=(n)=>initialsOf(n)||"?";
@@ -4120,8 +4172,8 @@ function ContactsPage(){
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
             <div><div style={{fontWeight:700,fontSize:15,color:T.text}}>Contacts</div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{contacts.length} in directory</div></div>
             <div style={{display:"flex",gap:6}}>
-              <input ref={fileRef} type="file" accept=".vcf,text/vcard,text/x-vcard" onChange={onImport} style={{display:"none"}}/>
-              <button onClick={()=>fileRef.current&&fileRef.current.click()} title="Import from a .vcf file" style={{height:32,padding:"0 10px",borderRadius:8,background:T.bg,border:"none",cursor:"pointer",color:T.textSub,fontSize:12,fontWeight:600,fontFamily:"inherit"}}>⇪ Import</button>
+              <input ref={fileRef} type="file" accept=".vcf,.csv,text/csv,text/vcard,text/x-vcard" onChange={onImport} style={{display:"none"}}/>
+              <button onClick={()=>fileRef.current&&fileRef.current.click()} title="Import from a .vcf or .csv file" style={{height:32,padding:"0 10px",borderRadius:8,background:T.bg,border:"none",cursor:"pointer",color:T.textSub,fontSize:12,fontWeight:600,fontFamily:"inherit"}}>⇪ Import</button>
               <button onClick={()=>{setEditing({});setSelId(null);}} title="Add contact" style={{width:32,height:32,borderRadius:8,background:T.gold,border:"none",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:20,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
             </div>
           </div>
@@ -4198,6 +4250,35 @@ function ContactsPage(){
                 <div style={{fontSize:13,color:T.textTert}}>Or tap + to add one, ⇪ to import from your phone</div>
               </div>}
       </div>
+      {/* CSV column-mapping modal */}
+      {csvData&&(
+        <div onClick={()=>setCsvData(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:420,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(520px,96vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div><div style={{fontSize:17,fontWeight:700,color:T.text}}>Map your columns</div><div style={{fontSize:12,color:T.textSub,marginTop:2}}>{csvData.rows.length} row{csvData.rows.length!==1?"s":""} · match each column to a contact field</div></div>
+              <button onClick={()=>setCsvData(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+            <div style={{overflowY:"auto",padding:"12px 20px"}}>
+              {csvData.headers.map((h,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 0",borderBottom:`1px solid ${T.border}`}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h||`Column ${i+1}`}</div>
+                    <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(csvData.rows[0]&&csvData.rows[0][i])||""}</div>
+                  </div>
+                  <select value={mapping[i]||""} onChange={e=>setMapping(m=>m.map((v,j)=>j===i?e.target.value:v))} style={{width:150,flexShrink:0,padding:"8px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:"#fff",color:mapping[i]?T.text:T.textTert}}>
+                    {CONTACT_FIELDS.map(f=><option key={f.v} value={f.v}>{f.l}</option>)}
+                  </select>
+                </div>
+              ))}
+              <div style={{fontSize:11.5,color:T.textTert,marginTop:10,lineHeight:1.5}}>Tip: map several columns to <b>Phone</b> (e.g. Mobile + Office) — each becomes its own labeled number. A <b>Tags</b> column can hold comma-separated trades.</div>
+            </div>
+            <div style={{padding:"12px 20px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setCsvData(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
+              <button onClick={importCsv} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Import {csvData.rows.length}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

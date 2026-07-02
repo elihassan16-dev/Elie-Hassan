@@ -5528,12 +5528,108 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
   );
 }
 
+// Turn a CSV register (one row per transaction) into capital-ledger entries.
+const finNum=(v)=>{const x=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,""));return isNaN(x)?0:x;};
+const finNormDate=(s)=>{if(s==null)return "";const t=String(s).trim();if(!t)return "";const d=new Date(t);return isNaN(d)?t:d.toISOString().slice(0,10);};
+const guessCol=(headers,re)=>headers.findIndex(h=>re.test(String(h).toLowerCase()));
+const buildRegisterEntries=(csv,map)=>{
+  const at=(row,i)=>(i>=0&&i<row.length?row[i]:"");
+  const out=[];
+  (csv.rows||[]).forEach((row,idx)=>{
+    const inA=map.in>=0?finNum(at(row,map.in)):0;
+    const outA=map.out>=0?finNum(at(row,map.out)):0;
+    const tword=`${map.type>=0?at(row,map.type):""} ${map.note>=0?at(row,map.note):""}`.toLowerCase();
+    let type,amt;
+    if(outA>0){type="distribution";amt=outA;}
+    else if(inA<0){type="distribution";amt=Math.abs(inA);}
+    else{
+      amt=inA;
+      if(/re-?invest|roll/.test(tword))type="reinvest";
+      else if(/payback|paid|withdraw|distribut|payout|return/.test(tword))type="distribution";
+      else type="principal";
+    }
+    if(!amt)return;
+    out.push({id:Date.now()+idx,type,amount:amt,date:finNormDate(map.date>=0?at(row,map.date):""),note:(map.note>=0?String(at(row,map.note)).trim():"")});
+  });
+  return out;
+};
+
+function FinRegisterImport({funder,onImport,onClose}){
+  const[csv,setCsv]=useState(null);
+  const[map,setMap]=useState({date:-1,in:-1,out:-1,type:-1,note:-1});
+  const[err,setErr]=useState("");
+  const fileRef=useRef(null);
+  const onFile=async(e)=>{
+    const f=e.target.files&&e.target.files[0];if(fileRef.current)fileRef.current.value="";if(!f)return;
+    setErr("");
+    if(/\.(xlsx|xls)$/i.test(f.name)){setErr("Please save that Excel tab as CSV first (File → Save As → CSV), then upload the .csv.");return;}
+    try{
+      const parsed=parseCSV(await f.text());
+      if(!parsed.headers.length){setErr("Couldn't read that file. Make sure it's a CSV with a header row.");return;}
+      const H=parsed.headers;
+      setMap({
+        date:guessCol(H,/date/),
+        in:guessCol(H,/deposit|money ?in|amount ?in|contribut|princip|invest|credit|received|\bin\b/),
+        out:guessCol(H,/withdraw|money ?out|amount ?out|payback|paid|distribut|payout|debit|\bout\b/),
+        type:guessCol(H,/type|category|transaction/),
+        note:guessCol(H,/note|memo|descr|detail/),
+      });
+      setCsv(parsed);
+    }catch{setErr("Couldn't read that file.");}
+  };
+  const entries=csv?buildRegisterEntries(csv,map):[];
+  const opts=(csv?csv.headers:[]).map((h,i)=>({v:i,l:h||`Column ${i+1}`}));
+  const sel=(field,label)=>(
+    <div><div style={finLabel}>{label}</div>
+      <select value={map[field]} onChange={e=>setMap(m=>({...m,[field]:Number(e.target.value)}))} style={finInput}>
+        <option value={-1}>— skip —</option>{opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+      </select>
+    </div>
+  );
+  const doImport=()=>{if(!entries.length){setErr("Nothing to import — check your column mapping.");return;}onImport(entries);onClose();};
+  return(
+    <FinModal title={`Import register — ${funder.name}`} onClose={onClose}
+      footer={csv?<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button onClick={doImport} disabled={!entries.length} style={{...finBtn(true),opacity:entries.length?1:0.5}}>Import {entries.length} {entries.length===1?"entry":"entries"}</button></>:<button onClick={onClose} style={finBtn(false)}>Cancel</button>}>
+      {err&&<div style={{fontSize:12,color:T.red,fontWeight:600}}>{err}</div>}
+      {!csv?(
+        <>
+          <div style={{fontSize:13,color:T.textSub,lineHeight:1.5}}>Upload a CSV of {funder.name}'s register — one row per transaction. Include a <b>date</b>, an <b>amount in</b> (deposits / reinvested profit) and/or <b>amount out</b> (paybacks), and a <b>type</b> or <b>note</b> so I can tell reinvestments from paybacks.</div>
+          <div style={{fontSize:12,color:T.textTert}}>In Excel: <b>File → Save As → CSV</b>, then upload it here.</div>
+          <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onFile} style={{display:"none"}}/>
+          <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{...finBtn(true),padding:"12px"}}>Choose CSV file…</button>
+        </>
+      ):(
+        <>
+          <div style={{fontSize:12,color:T.textSub}}>Map your columns:</div>
+          {sel("date","Date")}
+          {sel("in","Amount in (deposits / reinvested)")}
+          {sel("out","Amount out (paybacks)")}
+          {sel("type","Type (optional)")}
+          {sel("note","Note (optional)")}
+          <div style={{fontSize:11,color:T.textTert}}>An amount-out (or a negative amount) becomes a payback; a note/type with "reinvest" becomes reinvested profit; everything else is principal in.</div>
+          <div style={{fontSize:11,fontWeight:700,color:T.textSub,marginTop:4}}>Preview ({entries.length} entries)</div>
+          <div style={{border:`1px solid ${T.border}`,borderRadius:8,maxHeight:170,overflowY:"auto"}}>
+            {entries.slice(0,15).map((e,i)=>{const t=LEDGER_TYPES.find(x=>x.v===e.type)||LEDGER_TYPES[0];return(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"6px 10px",borderTop:i?`1px solid ${T.border}`:"none",fontSize:12}}>
+                <span style={{color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.date||"—"} · {t.label}{e.note?` · ${e.note}`:""}</span>
+                <span style={{fontWeight:700,color:t.color,flexShrink:0}}>{t.sign<0?"−":"+"}{fmtD(e.amount)}</span>
+              </div>
+            );})}
+            {entries.length===0&&<div style={{padding:"10px",fontSize:12,color:T.textTert,textAlign:"center"}}>No entries parsed — adjust the mapping above.</div>}
+          </div>
+        </>
+      )}
+    </FinModal>
+  );
+}
+
 function FinancialSectionPage(){
   const { funders, setFunders, flushFunders, draws, setDraws, flushDraws, sharedProps } = useData();
   const isMobile=useIsMobile();
   const[selId,setSelId]=useState(null);
   const[funderModal,setFunderModal]=useState(null);   // {} new, or funder obj to edit
   const[ledgerModal,setLedgerModal]=useState(false);
+  const[registerImport,setRegisterImport]=useState(false);
   const[drawModal,setDrawModal]=useState(null);        // {} new, or draw obj, or {defaultFunderId}
   const save=()=>{setTimeout(()=>{flushFunders&&flushFunders();flushDraws&&flushDraws();},0);};
 
@@ -5547,6 +5643,7 @@ function FinancialSectionPage(){
   const updateFunder=(f)=>{setFunders(prev=>prev.map(x=>String(x.id)===String(f.id)?f:x));save();};
   const deleteFunder=(id)=>{if(!window.confirm("Delete this lender and its ledger? (Their draws stay, tagged by name.)"))return;setFunders(prev=>prev.filter(x=>String(x.id)!==String(id)));save();setSelId(null);};
   const addLedger=(funderId,entry)=>{setFunders(prev=>prev.map(x=>String(x.id)===String(funderId)?{...x,ledger:[...(x.ledger||[]),entry]}:x));save();};
+  const addLedgerBulk=(funderId,entries)=>{if(!entries.length)return;setFunders(prev=>prev.map(x=>String(x.id)===String(funderId)?{...x,ledger:[...(x.ledger||[]),...entries]}:x));save();};
   const delLedger=(funderId,entryId)=>{setFunders(prev=>prev.map(x=>String(x.id)===String(funderId)?{...x,ledger:(x.ledger||[]).filter(e=>e.id!==entryId)}:x));save();};
   const saveDraw=(d)=>{setDraws(prev=>prev.some(x=>x.id===d.id)?prev.map(x=>x.id===d.id?d:x):[...prev,d]);save();};
   const delDraw=(id)=>{setDraws(prev=>prev.filter(x=>x.id!==id));save();};
@@ -5601,9 +5698,12 @@ function FinancialSectionPage(){
         </div>
 
         {/* Capital ledger */}
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
           <div style={{fontSize:14,fontWeight:800,color:T.text}}>Capital ledger</div>
-          <button onClick={()=>setLedgerModal(true)} style={{...finBtn(true),padding:"6px 12px",fontSize:12}}>+ Entry</button>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>setRegisterImport(true)} title="Import a CSV register for this lender" style={{...finBtn(false),padding:"6px 12px",fontSize:12}}>⇪ Import register</button>
+            <button onClick={()=>setLedgerModal(true)} style={{...finBtn(true),padding:"6px 12px",fontSize:12}}>+ Entry</button>
+          </div>
         </div>
         <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden",marginBottom:22}}>
           {ledger.length===0&&<div style={{padding:"16px",textAlign:"center",color:T.textTert,fontSize:13}}>No entries yet. Add their principal, reinvestments, or payouts.</div>}
@@ -5649,6 +5749,7 @@ function FinancialSectionPage(){
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
       {funderModal&&<FinFunderModal funder={funderModal.id?funderModal:null} onSave={(f)=>funderModal.id?updateFunder(f):addFunder(f)} onClose={()=>setFunderModal(null)}/>}
       {ledgerModal&&sel&&<FinLedgerModal funderName={sel.name} onSave={(e)=>addLedger(sel.id,e)} onClose={()=>setLedgerModal(false)}/>}
+      {registerImport&&sel&&<FinRegisterImport funder={sel} onImport={(entries)=>addLedgerBulk(sel.id,entries)} onClose={()=>setRegisterImport(false)}/>}
       {drawModal&&<FinDrawModal draw={drawModal.id?drawModal:null} defaultFunderId={drawModal.defaultFunderId} funders={list} properties={sharedProps} onSave={saveDraw} onClose={()=>setDrawModal(null)}/>}
 
       {/* Header */}

@@ -3175,7 +3175,7 @@ function TaskStatusPicker({value,onChange,onDelete}){
 }
 
 // ─── Task Row (module level to avoid React #31) ───────────────────────────────
-function TaskRow({t,onStatusChange,onDelete,onContact,onMessage,onAssign,selectMode,selected,onToggleSelect}){
+function TaskRow({t,onStatusChange,onDelete,onContact,onMessage,onAssign,currentUser,selectMode,selected,onToggleSelect}){
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
@@ -3195,7 +3195,11 @@ function TaskRow({t,onStatusChange,onDelete,onContact,onMessage,onAssign,selectM
     <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,padding:isMobile?"9px 12px":"11px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:"#fff"}}>
       {selBox}
       <span style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text||"(untitled task)"}{t.autoId&&<span style={{marginLeft:5,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}</span>
-      {t.assignedBy&&<span title={`Delegated by ${t.assignedBy}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>by {t.assignedBy.split(" ")[0]}</span>}
+      {t.assignedBy&&t.assignedBy!==currentUser
+        ? <span title={`Delegated to you by ${t.assignedBy}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>by {t.assignedBy.split(" ")[0]}</span>
+        : (t.assignedBy===currentUser&&t.assignee&&t.assignee!==currentUser)
+          ? <span title={`You delegated this to ${t.assignee}`} style={{fontSize:10,color:T.gold,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>to {t.assignee.split(" ")[0]}</span>
+          : null}
       <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Assigned to ${t.assignee} — tap to change`:"Delegate to a teammate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",flexShrink:0}}><AssigneeAvatar name={t.assignee} size={24}/></button>
       {contactBtnEl}
       {msgBtnEl}
@@ -3376,7 +3380,8 @@ function TasksPage(){
   }
 
   const myTasks=allTasks.filter(t=>t.assignee===CURRENT_USER);
-  const assignedByMe=allTasks.filter(t=>t.assignee&&t.assignee!==CURRENT_USER);
+  // Tasks I delegated to someone else — so I can track whether they're done.
+  const assignedByMe=allTasks.filter(t=>t.assignedBy===CURRENT_USER&&t.assignee&&t.assignee!==CURRENT_USER);
   const memberTasks=allTasks.filter(t=>t.assignee===filterMember);
   const unassignedTasks=allTasks.filter(t=>!t.assignee);
 
@@ -3504,7 +3509,7 @@ function TasksPage(){
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               <div style={{display:"flex",gap:8}}>
                 <MultiSelect placeholder="All Tasks" selected={views} onToggle={toggleView}
-                  options={[{value:"my",label:`My Tasks (${myTasks.length})`},{value:"assigned",label:"Assigned by Me"},{value:"member",label:"By Team Member"},{value:"unassigned",label:`Unassigned (${unassignedTasks.length})`},{value:"all",label:"All Tasks"}]}/>
+                  options={[{value:"my",label:`My Tasks (${myTasks.length})`},{value:"assigned",label:`Delegated by Me (${assignedByMe.length})`},{value:"member",label:"By Team Member"},{value:"unassigned",label:`Unassigned (${unassignedTasks.length})`},{value:"all",label:"All Tasks"}]}/>
                 <MultiSelect placeholder="All statuses" selected={statusFilter} onToggle={toggleStatus}
                   options={TASK_STATUSES.map(s=>({value:s,label:s}))}/>
               </div>
@@ -3530,7 +3535,7 @@ function TasksPage(){
         </div>
         {/* View tabs */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {[["my","My Tasks"],["assigned","Assigned by Me"],["member","By Team Member"],["unassigned","Unassigned"],["all","All Tasks"]].map(([k,l])=>{
+          {[["my","My Tasks"],["assigned","Delegated by Me"],["member","By Team Member"],["unassigned","Unassigned"],["all","All Tasks"]].map(([k,l])=>{
             const active=views.has(k);
             return(
               <button key={k} onClick={()=>setViews(prev=>{const n=new Set(prev);active?n.delete(k):n.add(k);return n;})}
@@ -3719,7 +3724,7 @@ function TasksPage(){
                     <span style={{fontSize:11,color:T.textSub}}>{ptasks.filter(t=>t.status==="Completed").length}/{ptasks.length} done</span>
                   </div>
                 </div>
-                {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+                {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
                 <AddTaskInline onAdd={(text)=>addTaskToProp(ptasks[0].propId,text)}/>
               </div>
             ))}

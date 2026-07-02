@@ -1449,6 +1449,22 @@ function fmtShowingTime(s){
   if(isNaN(d.getTime()))return s;
   return d.toLocaleString(undefined,{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
 }
+// A showing's phone field may contain more than one number — split them out so each
+// gets its own call / text actions.
+const parseShowingPhones=(raw)=>String(raw||"").split(/[,/;]|\bor\b/i).map(x=>x.trim()).filter(x=>x.replace(/[^\d]/g,"").length>=7);
+const showingFirstName=(name)=>{const n=(name||"").trim().split(/\s+/)[0];return n||"there";};
+// The two text-message templates (auto-fill the agent's first name + the address).
+function showingMessage(kind,agentName,address){
+  const fn=showingFirstName(agentName);
+  if(kind==="followup")
+    return `Hey ${fn}, Eli again — just following up to see your client's interest and whether we can expect an offer. Thanks!`;
+  return `Hi ${fn}, Eli from Goldstone Properties. I believe you showed your client ${address}. I'm actually the owner of the property — Esther is my full-time employee. Just wanted to touch base and see how the showing went.`;
+}
+const showingSms=(phone,body)=>{
+  const clean=(phone||"").replace(/[^\d+]/g,"");
+  const sep=(typeof navigator!=="undefined"&&/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent))?"&":"?"; // iOS wants &body=
+  return `sms:${clean}${sep}body=${encodeURIComponent(body)}`;
+};
 function ShowingsTab({property}){
   const { isAdmin }=useAuth();
   const[status,setStatus]=useState(null);
@@ -1490,29 +1506,44 @@ function ShowingsTab({property}){
   );
 
   const all=showings||[];
+  const address=`${property.address}${property.city?`, ${property.city}`:""}`;
   const mine=all.filter(s=>showingMatchesProperty(s.location||s.summary||"",property)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
   const cutoff=Date.now()-3600000;
   const upcoming=mine.filter(s=>s.ts>=cutoff).sort((a,b)=>a.ts-b.ts);
   const past=mine.filter(s=>s.ts<cutoff).sort((a,b)=>b.ts-a.ts);
 
-  const Row=(s)=>(
+  const actBtn={display:"inline-flex",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:T.radiusSm,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textDecoration:"none",whiteSpace:"nowrap"};
+  const Row=(s)=>{
+    const phones=parseShowingPhones(s.phone);
+    return(
     <div key={s.uid||s.ts+s.summary} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
       <div style={{width:7,height:7,borderRadius:4,background:/cancel|declin/i.test(s.status)?T.red:T.green,flexShrink:0,marginTop:5}}/>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:14,fontWeight:600,color:T.text}}>{fmtShowingTime(s.start)}</div>
-        {(s.agent||s.phone)&&(
+        {(s.agent||phones.length>0)&&(
           <div style={{fontSize:13,color:T.text,marginTop:2}}>
             {s.agent&&<span style={{fontWeight:500}}>{s.agent}</span>}
             {s.broker&&<span style={{color:T.textSub}}> · {s.broker}</span>}
           </div>
         )}
-        {s.phone&&<a href={`tel:${s.phone.replace(/[^\d+]/g,"")}`} style={{fontSize:13,color:T.blue,textDecoration:"none"}}>{s.phone}</a>}
         {s.email&&<div><a href={`mailto:${s.email}`} style={{fontSize:12,color:T.textSub,textDecoration:"none"}}>{s.email}</a></div>}
-        {!s.agent&&!s.phone&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>}
+        {/* Per-number actions: Call + the two text templates */}
+        {phones.map((ph,i)=>(
+          <div key={i} style={{marginTop:8}}>
+            <div style={{fontSize:12,color:T.textSub,marginBottom:5}}>{ph}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
+              <a href={showingSms(ph,showingMessage("initial",s.agent,address))} style={{...actBtn,background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"}}>💬 Initial text</a>
+              <a href={showingSms(ph,showingMessage("followup",s.agent,address))} style={{...actBtn,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue}}>💬 Follow-up</a>
+            </div>
+          </div>
+        ))}
+        {!s.agent&&phones.length===0&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>}
       </div>
       {s.status&&<span style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",flexShrink:0,marginTop:3}}>{s.status}</span>}
     </div>
-  );
+    );
+  };
 
   return(
     <div style={wrap}>
@@ -2064,6 +2095,10 @@ function PropDetail({property,onUpdate,onArchive}){
   const { contacts: CONTACTS, teamMembers: TEAM_MEMBERS } = useData();
   const[tab,setTab]=useState("Financial Overview");
   const[taskPopup,setTaskPopup]=useState(null);
+  // Showings tab only shows while the property is actively On Market / In Closing.
+  const showShowings=property.status==="On Market"||property.status==="In Closing";
+  const tabs=useMemo(()=>PTABS.filter(t=>t!=="Showings"||showShowings),[showShowings]);
+  useEffect(()=>{ if(!tabs.includes(tab)) setTab("Financial Overview"); },[tabs,tab]);
   const sc=SC[property.status]||{color:"#64748B",bg:"#F1F5F9"};
   const upP=(k,v)=>onUpdate(property.id,"propertyInfo",{...property.propertyInfo,[k]:v});
   const addTask=()=>onUpdate(property.id,"tasks",[...(property.tasks||[]),{id:Date.now(),text:"",status:"Not Started",assignee:""}]);
@@ -2087,7 +2122,7 @@ function PropDetail({property,onUpdate,onArchive}){
           <StatusPicker value={property.status} onChange={v=>onUpdate(property.id,"status",v)}/>
         </div>
         <div style={{display:"flex",background:T.bg,borderRadius:10,padding:3,gap:2,maxWidth:"100%",overflowX:"auto",WebkitOverflowScrolling:"touch",scrollbarWidth:"none"}}>
-          {PTABS.map(t=>(
+          {tabs.map(t=>(
             <button key={t} onClick={()=>setTab(t)}
               style={{flex:"0 0 auto",whiteSpace:"nowrap",padding:"7px 16px",borderRadius:8,border:"none",background:tab===t?T.card:"transparent",color:tab===t?T.text:T.textSub,fontWeight:tab===t?600:400,fontSize:13,cursor:"pointer",fontFamily:"inherit",boxShadow:tab===t?"0 1px 3px rgba(0,0,0,0.12)":"none",transition:"all 0.15s"}}>
               {t}

@@ -2126,6 +2126,7 @@ function FilesTab({property,onUpdate}){
 }
 function PropDetail({property,onUpdate,onArchive}){
   const { contacts: CONTACTS, teamMembers: TEAM_MEMBERS } = useData();
+  const isMobile=useIsMobile();
   const[tab,setTab]=useState("Financial Overview");
   const[taskPopup,setTaskPopup]=useState(null);
   // Showings tab only shows while the property is actively On Market / In Closing.
@@ -2267,19 +2268,24 @@ function PropDetail({property,onUpdate,onArchive}){
                   {tasks.map(task=>{
                     const sc=TASK_STATUS_COLORS[task.status]||TASK_STATUS_COLORS["Not Started"];
                     return(
-                      <div key={task.id} style={{display:"flex",alignItems:"center",gap:10,background:T.bg,borderRadius:T.radiusSm,padding:"10px 12px"}}>
-                        <select value={task.status||"Not Started"} onChange={e=>upT(task.id,"status",e.target.value)}
-                          style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0}}>
-                          {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-                        </select>
-                        <input style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",fontSize:13,color:task.status==="Completed"?T.textTert:T.text,textDecoration:task.status==="Completed"?"line-through":"none",fontFamily:"inherit"}} value={task.text} onChange={e=>upT(task.id,"text",e.target.value)} placeholder="Task description…"/>
-                        {task.autoId&&<span title="Created by an automation rule" style={{fontSize:9,fontWeight:700,background:T.gold,color:"#fff",borderRadius:10,padding:"2px 7px",textTransform:"uppercase",flexShrink:0}}>auto</span>}
-                        <select value={task.assignee||""} onChange={e=>upT(task.id,"assignee",e.target.value)}
-                          style={{fontSize:12,color:T.textSub,background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 7px",cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0,maxWidth:120}}>
-                          <option value="">Unassigned</option>
-                          {members.map(m=><option key={m} value={m}>{m}</option>)}
-                        </select>
-                        <button onClick={()=>delT(task.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:18,flexShrink:0,lineHeight:1}}>×</button>
+                      <div key={task.id} style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",gap:isMobile?6:10,background:T.bg,borderRadius:T.radiusSm,padding:isMobile?"8px 10px":"10px 12px"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+                          <select value={task.status||"Not Started"} onChange={e=>upT(task.id,"status",e.target.value)}
+                            style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0}}>
+                            {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+                          </select>
+                          <input style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",fontSize:13,color:task.status==="Completed"?T.textTert:T.text,textDecoration:task.status==="Completed"?"line-through":"none",fontFamily:"inherit"}} value={task.text} onChange={e=>upT(task.id,"text",e.target.value)} placeholder="Task description…"/>
+                          {task.autoId&&<span title="Created by an automation rule" style={{fontSize:9,fontWeight:700,background:T.gold,color:"#fff",borderRadius:10,padding:"2px 7px",textTransform:"uppercase",flexShrink:0}}>auto</span>}
+                          {isMobile&&<button onClick={()=>delT(task.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:18,flexShrink:0,lineHeight:1}}>×</button>}
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,paddingLeft:isMobile?2:0}}>
+                          <select value={task.assignee||""} onChange={e=>upT(task.id,"assignee",e.target.value)}
+                            style={{fontSize:12,color:T.textSub,background:isMobile?"#fff":"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 7px",cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0,maxWidth:isMobile?200:120}}>
+                            <option value="">Unassigned</option>
+                            {members.map(m=><option key={m} value={m}>{m}</option>)}
+                          </select>
+                          {!isMobile&&<button onClick={()=>delT(task.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:18,flexShrink:0,lineHeight:1}}>×</button>}
+                        </div>
                       </div>
                     );
                   })}
@@ -3035,7 +3041,7 @@ function TaskRow({t,onStatusChange,onDelete,onContact}){
   const assigneeChip=<span style={{fontSize:11,fontWeight:600,color:t.assignee?T.blue:T.textTert,background:t.assignee?"#EBF4FF":T.bg,padding:"3px 9px",borderRadius:20,flexShrink:0,whiteSpace:"nowrap",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis"}}>{t.assignee||"Unassigned"}</span>;
   const contactBtn=(
     <button onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name}`:"Add contact"}
-      style={{background:t.taskContact?"#EBF4FF":"none",border:t.taskContact?`1px solid ${T.blue}`:`1px solid ${T.border}`,borderRadius:"50%",width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:13,flexShrink:0,color:t.taskContact?T.blue:T.textTert}}>
+      style={{background:t.taskContact?"#EBF4FF":"none",border:t.taskContact?`1px solid ${T.blue}`:`1px solid ${T.border}`,borderRadius:"50%",width:isMobile?24:28,height:isMobile?24:28,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:isMobile?11:13,flexShrink:0,color:t.taskContact?T.blue:T.textTert}}>
       {t.taskContact?t.taskContact.name[0]:"👤"}
     </button>
   );
@@ -3044,16 +3050,14 @@ function TaskRow({t,onStatusChange,onDelete,onContact}){
       onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.textTert}>🗑</button>
   );
   if(isMobile) return(
-    <div style={{display:"flex",flexDirection:"column",gap:8,padding:"12px 14px",borderTop:`1px solid ${T.border}`,background:"#fff"}}>
-      <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-        {statusSel}
-        {textBlock}
-        {delBtn}
+    <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderTop:`1px solid ${T.border}`,background:"#fff"}}>
+      {statusSel}
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text||"(untitled task)"}{t.autoId&&<span style={{marginLeft:5,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}</div>
+        <div style={{fontSize:11,color:t.assignee?T.blue:T.textTert,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.assignee||"Unassigned"}</div>
       </div>
-      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",paddingLeft:2}}>
-        {assigneeChip}
-        {contactBtn}
-      </div>
+      {contactBtn}
+      {delBtn}
     </div>
   );
   return(

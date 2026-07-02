@@ -303,11 +303,13 @@ const ICONS={
   calendar:<Ico r={[3,4,18,18,2]} lines={[[16,2,16,6],[8,2,8,6],[3,10,21,10]]}/>,
   contacts:<Ico p="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" p2="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" c={[9,7,4]}/>,
   messages:<Ico p="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>,
+  showings:<Ico p="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" c={[12,12,3]}/>,
   sort:<Ico lines={[[3,6,21,6],[3,12,15,12],[3,18,9,18]]}/>,
 };
 const NAV=[
   {key:"tasks",label:"Tasks",short:"Tasks",icon:ICONS.tasks},
   {key:"messages",label:"Messages",short:"Messages",icon:ICONS.messages},
+  {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
   {key:"portfolio",label:"Portfolio Overview",short:"Portfolio",icon:ICONS.portfolio},
   {key:"leads",label:"New Leads",short:"Leads",icon:ICONS.leads},
   {key:"properties",label:"Properties",short:"Properties",icon:ICONS.properties},
@@ -1480,6 +1482,69 @@ const SHOWING_LEADS=[
 ];
 const showingLeadRank=(k)=>{const i=SHOWING_LEADS.findIndex(x=>x.key===k);return i<0?99:i;};
 const showingKey=(s)=>String(s.uid||`${s.ts||""}-${s.summary||s.start||""}`);
+// Renders one property's showings from an already-loaded feed: upcoming + past
+// (past ranked by lead disposition), each row with call/text templates. Shared by
+// the per-property Showings tab and the top-level Showings page.
+function PropertyShowings({property,showings,onUpdate}){
+  const all=showings||[];
+  const address=`${property.address}${property.city?`, ${property.city}`:""}`;
+  const leadMap=property.showingLeads||{};
+  const setLead=(s,val)=>{const next={...leadMap};if(val)next[showingKey(s)]=val;else delete next[showingKey(s)];onUpdate(property.id,"showingLeads",next);};
+  const mine=all.filter(s=>showingMatchesProperty(s.location||s.summary||"",property)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
+  const cutoff=Date.now()-3600000;
+  const upcoming=mine.filter(s=>s.ts>=cutoff).sort((a,b)=>a.ts-b.ts);
+  const past=mine.filter(s=>s.ts<cutoff).sort((a,b)=>{
+    const ra=showingLeadRank(leadMap[showingKey(a)]),rb=showingLeadRank(leadMap[showingKey(b)]);
+    return ra!==rb?ra-rb:b.ts-a.ts;
+  });
+  const actBtn={display:"inline-flex",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:T.radiusSm,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textDecoration:"none",whiteSpace:"nowrap"};
+  const Row=(s)=>{
+    const phones=parseShowingPhones(s.phone);
+    const leadKey=leadMap[showingKey(s)]||"";
+    const lead=SHOWING_LEADS.find(l=>l.key===leadKey);
+    return(
+    <div key={s.uid||s.ts+s.summary} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`,background:lead?lead.bg+"66":"transparent"}}>
+      <div style={{width:7,height:7,borderRadius:4,background:/cancel|declin/i.test(s.status)?T.red:T.green,flexShrink:0,marginTop:5}}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:14,fontWeight:600,color:T.text}}>{fmtShowingTime(s.start)}</div>
+        {(s.agent||phones.length>0)&&(
+          <div style={{fontSize:13,color:T.text,marginTop:2}}>
+            {s.agent&&<span style={{fontWeight:500}}>{s.agent}</span>}
+            {s.broker&&<span style={{color:T.textSub}}> · {s.broker}</span>}
+          </div>
+        )}
+        {s.email&&<div><a href={`mailto:${s.email}`} style={{fontSize:12,color:T.textSub,textDecoration:"none"}}>{s.email}</a></div>}
+        <div style={{marginTop:8}}>
+          <select value={leadKey} onChange={e=>setLead(s,e.target.value)}
+            style={{padding:"5px 9px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",border:`1px solid ${lead?lead.color:T.border}`,background:lead?lead.bg:"#fff",color:lead?lead.color:T.textSub}}>
+            <option value="">Set lead status…</option>
+            {SHOWING_LEADS.map(l=><option key={l.key} value={l.key}>{l.short}</option>)}
+          </select>
+        </div>
+        {phones.map((ph,i)=>(
+          <div key={i} style={{marginTop:8}}>
+            <div style={{fontSize:12,color:T.textSub,marginBottom:5}}>{ph}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
+              <a href={showingSms(ph,showingMessage("initial",s.agent,address))} style={{...actBtn,background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"}}>💬 Initial text</a>
+              <a href={showingSms(ph,showingMessage("followup",s.agent,address))} style={{...actBtn,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue}}>💬 Follow-up</a>
+            </div>
+          </div>
+        ))}
+        {!s.agent&&phones.length===0&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>}
+      </div>
+      {s.status&&<span style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",flexShrink:0,marginTop:3}}>{s.status}</span>}
+    </div>
+    );
+  };
+  if(mine.length===0) return <Card><div style={{padding:"20px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No showings matched this property's address yet.</div></Card>;
+  return(<>
+    {upcoming.length>0&&<Card style={{marginBottom:12}}><GHeader label="Upcoming"/>{upcoming.map(Row)}</Card>}
+    {past.length>0&&<Card><GHeader label="Past"/>{past.slice(0,40).map(Row)}</Card>}
+  </>);
+}
+// Count showings from the feed that match a property (used for headers/sorting).
+const matchedShowings=(showings,p)=>(showings||[]).filter(s=>showingMatchesProperty(s.location||s.summary||"",p)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
 function ShowingsTab({property,onUpdate}){
   const { isAdmin }=useAuth();
   const[status,setStatus]=useState(null);
@@ -1521,73 +1586,106 @@ function ShowingsTab({property,onUpdate}){
   );
 
   const all=showings||[];
-  const address=`${property.address}${property.city?`, ${property.city}`:""}`;
-  const leadMap=property.showingLeads||{};
-  const setLead=(s,val)=>{const next={...leadMap};if(val)next[showingKey(s)]=val;else delete next[showingKey(s)];onUpdate(property.id,"showingLeads",next);};
-  const mine=all.filter(s=>showingMatchesProperty(s.location||s.summary||"",property)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
-  const cutoff=Date.now()-3600000;
-  const upcoming=mine.filter(s=>s.ts>=cutoff).sort((a,b)=>a.ts-b.ts);
-  // Past showings are your leads — rank by disposition (hottest first), then recency.
-  const past=mine.filter(s=>s.ts<cutoff).sort((a,b)=>{
-    const ra=showingLeadRank(leadMap[showingKey(a)]),rb=showingLeadRank(leadMap[showingKey(b)]);
-    return ra!==rb?ra-rb:b.ts-a.ts;
-  });
-
-  const actBtn={display:"inline-flex",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:T.radiusSm,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textDecoration:"none",whiteSpace:"nowrap"};
-  const Row=(s)=>{
-    const phones=parseShowingPhones(s.phone);
-    const leadKey=leadMap[showingKey(s)]||"";
-    const lead=SHOWING_LEADS.find(l=>l.key===leadKey);
-    return(
-    <div key={s.uid||s.ts+s.summary} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`,background:lead?lead.bg+"66":"transparent"}}>
-      <div style={{width:7,height:7,borderRadius:4,background:/cancel|declin/i.test(s.status)?T.red:T.green,flexShrink:0,marginTop:5}}/>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:14,fontWeight:600,color:T.text}}>{fmtShowingTime(s.start)}</div>
-        {(s.agent||phones.length>0)&&(
-          <div style={{fontSize:13,color:T.text,marginTop:2}}>
-            {s.agent&&<span style={{fontWeight:500}}>{s.agent}</span>}
-            {s.broker&&<span style={{color:T.textSub}}> · {s.broker}</span>}
-          </div>
-        )}
-        {s.email&&<div><a href={`mailto:${s.email}`} style={{fontSize:12,color:T.textSub,textDecoration:"none"}}>{s.email}</a></div>}
-        {/* Lead disposition — sorts hottest agents to the top */}
-        <div style={{marginTop:8}}>
-          <select value={leadKey} onChange={e=>setLead(s,e.target.value)}
-            style={{padding:"5px 9px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",border:`1px solid ${lead?lead.color:T.border}`,background:lead?lead.bg:"#fff",color:lead?lead.color:T.textSub}}>
-            <option value="">Set lead status…</option>
-            {SHOWING_LEADS.map(l=><option key={l.key} value={l.key}>{l.short}</option>)}
-          </select>
-        </div>
-        {/* Per-number actions: Call + the two text templates */}
-        {phones.map((ph,i)=>(
-          <div key={i} style={{marginTop:8}}>
-            <div style={{fontSize:12,color:T.textSub,marginBottom:5}}>{ph}</div>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
-              <a href={showingSms(ph,showingMessage("initial",s.agent,address))} style={{...actBtn,background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"}}>💬 Initial text</a>
-              <a href={showingSms(ph,showingMessage("followup",s.agent,address))} style={{...actBtn,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue}}>💬 Follow-up</a>
-            </div>
-          </div>
-        ))}
-        {!s.agent&&phones.length===0&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>}
-      </div>
-      {s.status&&<span style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",flexShrink:0,marginTop:3}}>{s.status}</span>}
-    </div>
-    );
-  };
-
+  const mineCount=matchedShowings(all,property).length;
   return(
     <div style={wrap}>
       <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
-        <div style={{fontSize:13,color:T.textSub}}>{mine.length} showing{mine.length!==1?"s":""} for this property <span style={{color:T.textTert}}>· {all.length} in feed</span></div>
+        <div style={{fontSize:13,color:T.textSub}}>{mineCount} showing{mineCount!==1?"s":""} for this property <span style={{color:T.textTert}}>· {all.length} in feed</span></div>
         <button onClick={load} style={{marginLeft:"auto",padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻ Refresh</button>
       </div>
       {loading&&<div style={{color:T.textSub,fontSize:14,padding:12}}>Loading showings…</div>}
       {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
-      {!loading&&mine.length===0&&<Card><div style={{padding:"24px 16px",textAlign:"center",color:T.textTert,fontSize:14}}>No showings matched this property's address yet.<div style={{fontSize:12,marginTop:6}}>Matching “{property.address}{property.city?`, ${property.city}`:""}” against {all.length} showings in your ShowingTime feed.</div></div></Card>}
-      {upcoming.length>0&&<Card style={{marginBottom:12}}><GHeader label="Upcoming"/>{upcoming.map(Row)}</Card>}
-      {past.length>0&&<Card><GHeader label="Past"/>{past.slice(0,40).map(Row)}</Card>}
-      {mine.length>0&&<div style={{marginTop:12,fontSize:12,color:T.textTert,textAlign:"center"}}>Live from ShowingTime · matched by address</div>}
+      <PropertyShowings property={property} showings={all} onUpdate={onUpdate}/>
+      {mineCount>0&&<div style={{marginTop:12,fontSize:12,color:T.textTert,textAlign:"center"}}>Live from ShowingTime · matched by address</div>}
+    </div>
+  );
+}
+// ─── Showings page — every on-market property's showings in one schedule ───────
+function ShowingsPage(){
+  const { sharedProps, setSharedProps }=useData();
+  const { isAdmin }=useAuth();
+  const[status,setStatus]=useState(null);
+  const[showings,setShowings]=useState(null);
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState("");
+  const[urlInput,setUrlInput]=useState("");
+  const[saving,setSaving]=useState(false);
+  const[collapsed,setCollapsed]=useState({}); // propId -> true when manually collapsed
+  useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
+  const load=useCallback(()=>{setLoading(true);setError("");qbAuthFetch("/api/showings").then(d=>setShowings(d.showings||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
+  useEffect(()=>{if(status&&status.configured)load();},[status,load]);
+  const save=async()=>{
+    if(!urlInput.trim())return;setSaving(true);setError("");
+    try{await qbAuthFetch("/api/showings/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({icsUrl:urlInput.trim()})});setStatus({configured:true});}
+    catch(e){setError(e.message);}
+    setSaving(false);
+  };
+  const onUpdate=(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));
+
+  const wrap={padding:"18px 16px 40px",maxWidth:720,margin:"0 auto",width:"100%",boxSizing:"border-box"};
+  if(!status) return <div style={{...wrap,color:T.textSub,fontSize:14}}>Loading…</div>;
+  if(!status.configured) return(
+    <div style={{...wrap,maxWidth:600}}>
+      <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>Connect ShowingTime</div>
+      <div style={{fontSize:13,color:T.textSub,marginBottom:14,lineHeight:1.5}}>Paste your ShowingTime <strong>Calendar Sync Link</strong> (in ShowingTime: Profile → Calendar Sync → Sync Now). This connects showings for <em>all</em> your properties — you only do it once.</div>
+      {!isAdmin
+        ?<div style={{fontSize:13,color:T.textTert}}>Ask an admin to connect ShowingTime.</div>
+        :(<>
+          <input value={urlInput} onChange={e=>setUrlInput(e.target.value)} placeholder="webcal://showingti.me/cal/…"
+            style={{width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit",marginBottom:12}}/>
+          <button onClick={save} disabled={saving} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{saving?"Connecting…":"Connect"}</button>
+        </>)}
+      {error&&<div style={{marginTop:12,color:T.red,fontSize:13}}>{error}</div>}
+    </div>
+  );
+
+  const all=showings||[];
+  const cutoff=Date.now()-3600000;
+  const onMarket=sharedProps.filter(p=>!p.archived&&(p.status==="On Market"||p.status==="In Closing"))
+    .map(p=>{
+      const mine=matchedShowings(all,p);
+      const upTs=mine.filter(s=>s.ts>=cutoff).map(s=>s.ts).sort((a,b)=>a-b);
+      return {p,total:mine.length,upcoming:upTs.length,next:upTs[0]??Infinity};
+    })
+    .sort((a,b)=>a.next-b.next||b.total-a.total||a.p.address.localeCompare(b.p.address));
+  const totalUpcoming=onMarket.reduce((n,x)=>n+x.upcoming,0);
+
+  return(
+    <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+      <div style={wrap}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+          <div>
+            <div style={{fontSize:15,fontWeight:700,color:T.text}}>Showings</div>
+            <div style={{fontSize:12.5,color:T.textSub,marginTop:2}}>{totalUpcoming} upcoming · {onMarket.length} propert{onMarket.length===1?"y":"ies"} on market</div>
+          </div>
+          <button onClick={load} style={{marginLeft:"auto",padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻ Refresh</button>
+        </div>
+        {loading&&<div style={{color:T.textSub,fontSize:14,padding:12}}>Loading showings…</div>}
+        {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
+        {onMarket.length===0&&!loading&&<Card><div style={{padding:"28px 16px",textAlign:"center",color:T.textTert,fontSize:14}}>No properties are on market right now.<div style={{fontSize:12,marginTop:6}}>Set a property's status to "On Market" or "In Closing" and its showings will appear here.</div></div></Card>}
+        {onMarket.map(({p,total,upcoming})=>{
+          const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
+          const sc=SC[p.status]||{};
+          const isOpen=collapsed[p.id]!==undefined?!collapsed[p.id]:total>0;
+          return(
+            <div key={p.id} style={{marginBottom:18}}>
+              <div onClick={()=>setCollapsed(c=>({...c,[p.id]:isOpen}))} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",padding:"6px 2px",marginBottom:8}}>
+                <span style={{fontSize:12,color:T.textTert,transform:isOpen?"rotate(90deg)":"none",transition:"transform 0.15s",flexShrink:0}}>▶</span>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontSize:14.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
+                    {p.status&&<span style={{fontSize:9.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{p.status}</span>}
+                    <span style={{fontSize:11.5,color:T.textSub}}>{upcoming>0?`${upcoming} upcoming`:total>0?"No upcoming":"No showings yet"}{total>0?` · ${total} total`:""}</span>
+                  </div>
+                </div>
+                {upcoming>0&&<span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:10,background:T.gold,color:"#fff",fontSize:11,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{upcoming}</span>}
+              </div>
+              {isOpen&&<PropertyShowings property={p} showings={all} onUpdate={onUpdate}/>}
+            </div>
+          );
+        })}
+        {onMarket.length>0&&<div style={{marginTop:6,fontSize:12,color:T.textTert,textAlign:"center"}}>Live from ShowingTime · matched by address</div>}
+      </div>
     </div>
   );
 }
@@ -4271,6 +4369,7 @@ export function GoldstoneShell(){
     ? <PropertiesPage sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navPropId} onNavConsumed={()=>setNavPropId(null)} onArchive={archiveProperty}/>
     : active==="leads" ? <NewLeadsPage/>
     : active==="messages" ? <MessagingCenter sharedProps={sharedProps} setSharedProps={setSharedProps}/>
+    : active==="showings" ? <ShowingsPage/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage/>
     : <ComingSoon label={NAV.find(n=>n.key===active)?.label}/>;

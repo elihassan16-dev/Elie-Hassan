@@ -3035,54 +3035,55 @@ function AssigneeAvatar({name,size=24}){
     : <span title="Unassigned" style={{width:size,height:size,borderRadius:"50%",background:"transparent",border:`1px dashed ${T.border}`,color:T.textTert,fontSize:size*0.5,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,lineHeight:1}}>+</span>;
 }
 
+// Custom status picker — colored options + a red Delete at the bottom (native
+// <select> can't color options on iOS, and we want a Delete action in here).
+function TaskStatusPicker({value,onChange,onDelete}){
+  const[open,setOpen]=useState(false);
+  const sc=TASK_STATUS_COLORS[value]||TASK_STATUS_COLORS["Not Started"];
+  return(
+    <div style={{position:"relative",flexShrink:0}}>
+      <button onClick={()=>setOpen(o=>!o)} style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
+      {open&&(<>
+        <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:290}}/>
+        <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,zIndex:300,background:"#fff",border:`1px solid ${T.border}`,borderRadius:T.radiusSm,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",padding:4,minWidth:150}}>
+          {TASK_STATUSES.map(s=>{const c=TASK_STATUS_COLORS[s];return(
+            <button key={s} onClick={()=>{onChange(s);setOpen(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:7,border:"none",background:s===value?c.bg:"transparent",color:c.color,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:c.color,flexShrink:0}}/>{s}
+            </button>
+          );})}
+          <div style={{borderTop:`1px solid ${T.border}`,margin:"4px 6px"}}/>
+          <button onClick={()=>{setOpen(false);onDelete();}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:7,border:"none",background:"transparent",color:T.red,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>🗑 Delete</button>
+        </div>
+      </>)}
+    </div>
+  );
+}
+
 // ─── Task Row (module level to avoid React #31) ───────────────────────────────
-function TaskRow({t,onStatusChange,onDelete,onContact}){
+function TaskRow({t,onStatusChange,onDelete,onContact,onMessage,selectMode,selected,onToggleSelect}){
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
+  const msgCount=(t.messages||[]).length;
+  const contactBtnEl=(
+    <button onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name}`:"Link a contact"}
+      style={{background:t.taskContact?"#EBF4FF":"none",border:t.taskContact?`1px solid ${T.blue}`:`1px solid ${T.border}`,borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,flexShrink:0,color:t.taskContact?T.blue:T.textTert}}>{t.taskContact?t.taskContact.name[0]:"👤"}</button>
+  );
+  const msgBtnEl=(
+    <button onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",background:msgCount?"#EBF4FF":"none",border:`1px solid ${msgCount?T.blue:T.border}`,borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,flexShrink:0,color:msgCount?T.blue:T.textTert}}>💬{msgCount>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgCount}</span>}</button>
+  );
+  const selBox=selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:18,height:18,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>;
   // Address + property status are already shown in the group header above, so the
-  // row omits them and just carries the task itself.
-  const statusSel=(
-    <select value={t.status||"Not Started"} onChange={e=>onStatusChange(t.propId,t.id,e.target.value)}
-      style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",flexShrink:0}}>
-      {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-    </select>
-  );
-  const textBlock=(
-    <div style={{flex:1,minWidth:0}}>
-      <div style={{fontSize:13,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",fontWeight:500}}>{t.text||"(untitled task)"}{t.autoId&&<span title="Created by an automation rule" style={{marginLeft:6,fontSize:9,fontWeight:700,background:T.gold,color:"#fff",borderRadius:10,padding:"1px 6px",textTransform:"uppercase"}}>auto</span>}</div>
-    </div>
-  );
-  const assigneeChip=<span style={{fontSize:11,fontWeight:600,color:t.assignee?T.blue:T.textTert,background:t.assignee?"#EBF4FF":T.bg,padding:"3px 9px",borderRadius:20,flexShrink:0,whiteSpace:"nowrap",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis"}}>{t.assignee||"Unassigned"}</span>;
-  const contactBtn=(
-    <button onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name}`:"Add contact"}
-      style={{background:t.taskContact?"#EBF4FF":"none",border:t.taskContact?`1px solid ${T.blue}`:`1px solid ${T.border}`,borderRadius:"50%",width:isMobile?24:28,height:isMobile?24:28,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:isMobile?11:13,flexShrink:0,color:t.taskContact?T.blue:T.textTert}}>
-      {t.taskContact?t.taskContact.name[0]:"👤"}
-    </button>
-  );
-  const delBtn=(
-    <button onClick={()=>onDelete(t.propId,t.id)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,padding:"2px 4px",flexShrink:0,borderRadius:6}}
-      onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.textTert}>🗑</button>
-  );
-  if(isMobile) return(
-    // Monday-style compact row: task · assignee initials · comment · delete · status (far right)
-    <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderTop:`1px solid ${T.border}`,background:"#fff"}}>
+  // row omits them and just carries the task itself. Compact Monday-style layout:
+  // [select?] task · assignee initials · contact · message · status (far right).
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,padding:isMobile?"9px 12px":"11px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:"#fff"}}>
+      {selBox}
       <span style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text||"(untitled task)"}{t.autoId&&<span style={{marginLeft:5,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}</span>
       <AssigneeAvatar name={t.assignee} size={24}/>
-      <button onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name}`:"Add contact"}
-        style={{background:t.taskContact?"#EBF4FF":"none",border:t.taskContact?`1px solid ${T.blue}`:`1px solid ${T.border}`,borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,flexShrink:0,color:t.taskContact?T.blue:T.textTert}}>{t.taskContact?t.taskContact.name[0]:"💬"}</button>
-      <button onClick={()=>onDelete(t.propId,t.id)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:"2px",flexShrink:0}}>🗑</button>
-      {statusSel}
-    </div>
-  );
-  return(
-    <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 18px",borderTop:`1px solid ${T.border}`,background:"#fff"}}
-      onMouseEnter={e=>e.currentTarget.style.background="#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
-      {statusSel}
-      {textBlock}
-      {assigneeChip}
-      {contactBtn}
-      {delBtn}
+      {contactBtnEl}
+      {msgBtnEl}
+      <TaskStatusPicker value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
     </div>
   );
 }
@@ -3128,6 +3129,37 @@ function AddTaskInline({onAdd}){
   );
 }
 
+// In-app messages/notes on a single task.
+function TaskMessagesPopup({title,messages,currentUser,onSend,onClose}){
+  const[text,setText]=useState("");
+  const send=()=>{const t=text.trim();if(!t)return;onSend(t);setText("");};
+  const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderTopLeftRadius:20,borderTopRightRadius:20,width:"100%",maxWidth:520,maxHeight:"80vh",display:"flex",flexDirection:"column",boxShadow:"0 -8px 40px rgba(0,0,0,0.2)"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{minWidth:0}}><div style={{fontSize:15,fontWeight:700,color:T.text}}>Messages</div><div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div></div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"12px 16px",display:"flex",flexDirection:"column",gap:10,minHeight:120}}>
+          {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"24px 0"}}>No messages yet. Leave a note for your team below.</div>}
+          {messages.map(m=>{const mine=m.author===currentUser;return(
+            <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
+              <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
+              <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{m.text}</div>
+            </div>
+          );})}
+        </div>
+        <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center"}}>
+          <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Write a message…"
+            style={{flex:1,minWidth:0,padding:"10px 12px",borderRadius:20,border:`1px solid ${T.border}`,background:T.bg,fontSize:14,outline:"none",fontFamily:"inherit"}}/>
+          <button onClick={send} disabled={!text.trim()} style={{padding:"9px 16px",borderRadius:20,background:text.trim()?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:text.trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Tasks Page ───────────────────────────────────────────────────────────────
 // TEAM_MEMBERS and CURRENT_USER now come from useData() (real Supabase auth + users table).
 
@@ -3142,6 +3174,23 @@ function TasksPage(){
   const[filterProps,setFilterProps]=useState(new Set()); // empty = all properties
   const[taskContactTarget,setTaskContactTarget]=useState(null);
   const[contactSearch,setContactSearch]=useState(""); // the task we're setting a contact for
+  const[taskMsgTarget,setTaskMsgTarget]=useState(null); // task whose messages are open
+  const[selectMode,setSelectMode]=useState(false);
+  const[selectedKeys,setSelectedKeys]=useState(new Set()); // `${propId}:${taskId}`
+  const selKey=(t)=>`${t.propId}:${t.id}`;
+  const toggleSelect=(t)=>setSelectedKeys(p=>{const n=new Set(p);const k=selKey(t);n.has(k)?n.delete(k):n.add(k);return n;});
+  function addTaskMessage(propId,taskId,text){
+    const t=(text||"").trim();if(!t)return;
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),{id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString()}]})}));
+  }
+  function deleteSelected(){
+    if(selectedKeys.size===0)return;
+    setSharedProps(prev=>prev.map(p=>{
+      const keep=(p.tasks||[]).filter(tk=>!selectedKeys.has(`${p.id}:${tk.id}`));
+      return keep.length===(p.tasks||[]).length?p:{...p,tasks:keep};
+    }));
+    setSelectedKeys(new Set());setSelectMode(false);
+  }
 
   function setTaskContact(propId,cat,text,contact){
     setSharedProps(prev=>prev.map(p=>{
@@ -3204,6 +3253,12 @@ function TasksPage(){
 
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",background:T.bg,overflow:"hidden"}}>
+      {/* Task messages popup */}
+      {taskMsgTarget&&(()=>{
+        const liveTask=(sharedProps.find(p=>p.id===taskMsgTarget.propId)?.tasks||[]).find(tk=>tk.id===taskMsgTarget.id);
+        return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} messages={liveTask?.messages||[]} currentUser={CURRENT_USER}
+          onSend={(txt)=>addTaskMessage(taskMsgTarget.propId,taskMsgTarget.id,txt)} onClose={()=>setTaskMsgTarget(null)}/>;
+      })()}
       {/* Task contact popup */}
       {taskContactTarget&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(6px)"}}>
@@ -3428,6 +3483,19 @@ function TasksPage(){
               <div style={{marginLeft:"auto",fontSize:12,color:T.textSub}}>{filteredDisplay.length} tasks</div>
             </div>}
 
+            {/* Select / bulk-delete toolbar */}
+            {filteredDisplay.length>0&&(
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                {!selectMode
+                  ? <button onClick={()=>setSelectMode(true)} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>☑ Select</button>
+                  : <>
+                      <span style={{fontSize:13,fontWeight:600,color:T.text}}>{selectedKeys.size} selected</span>
+                      <button onClick={deleteSelected} disabled={selectedKeys.size===0} style={{padding:"6px 14px",borderRadius:20,border:"none",background:selectedKeys.size?T.red:T.border,color:"#fff",fontSize:12,fontWeight:700,cursor:selectedKeys.size?"pointer":"default",fontFamily:"inherit"}}>🗑 Delete</button>
+                      <button onClick={()=>{setSelectMode(false);setSelectedKeys(new Set());}} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                    </>}
+              </div>
+            )}
+
             {filteredDisplay.length===0&&(
               <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,padding:40,textAlign:"center",color:T.textTert,fontSize:14}}>
                 {views.has("my")?"No tasks assigned to you yet."
@@ -3464,7 +3532,7 @@ function TasksPage(){
                     <span style={{fontSize:11,color:T.textSub}}>{ptasks.filter(t=>t.status==="Completed").length}/{ptasks.length} done</span>
                   </div>
                 </div>
-                {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onDelete={deleteTask} onContact={setTaskContactTarget}/>)}
+                {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
                 <AddTaskInline onAdd={(text)=>addTaskToProp(ptasks[0].propId,text)}/>
               </div>
             ))}

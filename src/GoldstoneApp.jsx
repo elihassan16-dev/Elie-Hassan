@@ -41,6 +41,8 @@ const T={gold:"#B8953F",goldLight:"#F8F1E0",goldMid:"#D4A843",bg:"#F2F2F7",card:
 
 const SC={"Under Contract":{color:"#9333EA",bg:"#F3E8FF"},"Purchased":{color:"#2563EB",bg:"#DBEAFE"},"Under Construction":{color:"#EA580C",bg:"#FFEDD5"},"On Market":{color:"#16A34A",bg:"#DCFCE7"},"In Closing":{color:"#CA8A04",bg:"#FEF9C3"},"Sold":{color:"#65A30D",bg:"#ECFCCB"},"Rental":{color:"#0891B2",bg:"#CFFAFE"},"New Leads":{color:"#DB2777",bg:"#FCE7F3"}};
 const DEFAULT_ORDER=["Under Contract","In Closing","Purchased","Under Construction","On Market","Rental","New Leads","Sold"];
+// Fixed display order for the Properties page (New Leads lives in the Leads section).
+const PROP_ORDER=["Under Contract","Purchased","Under Construction","On Market","In Closing","Sold","Rental"];
 
 // Small localStorage-backed preference helpers (per device) for UI settings that
 // should survive an app reload — e.g. the property list's status sort/filter.
@@ -2659,33 +2661,57 @@ function SortModal({order,hidden,onSave,onClose}){
 
 // ─── Properties Page ──────────────────────────────────────────────────────────
 function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,onArchive}){
-  const props=sharedProps.filter(p=>!p.archived); // archived properties live in Settings only
+  const { leads, setLeads }=useData();
+  const props=sharedProps.filter(p=>!p.archived&&p.status!=="New Leads"); // New Leads live in the Leads section
   const setProps=setSharedProps;
   const isMobile=useIsMobile();
   const[selId,setSelId]=useState(initialSelId||null);
   useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);
   const[search,setSearch]=useState("");
-  // Persist the status sort order + which statuses are hidden (survives app reload).
-  const[sortOrder,setSortOrder]=useState(()=>{
-    const saved=loadPref("gs_propSort",null);
-    if(Array.isArray(saved)&&saved.length) return [...saved.filter(s=>DEFAULT_ORDER.includes(s)),...DEFAULT_ORDER.filter(s=>!saved.includes(s))];
-    return DEFAULT_ORDER;
-  });
-  const[hiddenStatuses,setHiddenStatuses]=useState(()=>loadPref("gs_propHidden",[]));
-  useEffect(()=>savePref("gs_propSort",sortOrder),[sortOrder]);
-  useEffect(()=>savePref("gs_propHidden",hiddenStatuses),[hiddenStatuses]);
-  const[showSort,setShowSort]=useState(false);
+  // Which statuses to show (empty = all). Persisted per device so it survives reload.
+  const[viewStatuses,setViewStatuses]=useState(()=>new Set(loadPref("gs_propView",[]).filter(s=>PROP_ORDER.includes(s))));
+  useEffect(()=>savePref("gs_propView",[...viewStatuses]),[viewStatuses]);
+  const toggleView=(s)=>setViewStatuses(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;});
   const[showAdd,setShowAdd]=useState(false);
   const[form,setForm]=useState({addr:"",city:"",state:"NJ",zip:"",status:"Under Contract"});
   const sel=props.find(p=>p.id===selId);
-  const upProp=(id,key,val)=>setProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));
+  // Setting a property's status to "New Leads" moves it back into the Leads section.
+  const moveToLeads=(p)=>{
+    const pi=p.propertyInfo||{};
+    const base=mkLead({address:p.address,city:p.city,state:p.state,zip:p.zip});
+    const lead={...base,leadStatus:"New Leads",financials:{...(p.financials||{})},
+      info:{...base.info,type:pi.type||"",beds:pi.beds||"",baths:pi.baths||"",sqft:pi.sqft||"",yearBuilt:pi.yearBuilt||""},
+      propertyInfo:{...base.propertyInfo,lockboxCode:pi.lockboxCode||"",dropboxLink:pi.dropboxLink||""},
+      tasks:p.tasks||[],contacts:p.contacts||[],notes:pi.notes||base.notes};
+    setLeads(prev=>[...prev,lead]);
+    setProps(prev=>prev.filter(x=>x.id!==p.id));
+    setSelId(null);
+  };
+  const upProp=(id,key,val)=>{
+    if(key==="status"&&val==="New Leads"){const p=props.find(x=>x.id===id);if(p){moveToLeads(p);return;}}
+    setProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));
+  };
+  // One-time cleanup: any property still sitting at "New Leads" status belongs in the
+  // Leads section — move it there (skip if a lead with that address already exists).
+  const migratedRef=useRef(false);
+  useEffect(()=>{
+    if(migratedRef.current)return;
+    const strays=sharedProps.filter(p=>!p.archived&&p.status==="New Leads");
+    if(!strays.length)return;
+    migratedRef.current=true;
+    const known=new Set((leads||[]).map(l=>(l.address||"").trim().toLowerCase()));
+    strays.forEach(p=>{
+      if(known.has((p.address||"").trim().toLowerCase())){setProps(prev=>prev.filter(x=>x.id!==p.id));}
+      else{known.add((p.address||"").trim().toLowerCase());moveToLeads(p);}
+    });
+  });// eslint-disable-line
   const sorted=useMemo(()=>{
-    const q=search.toLowerCase();const hiddenSet=new Set(hiddenStatuses);
-    return [...props].filter(p=>!hiddenSet.has(p.status)&&(p.address+" "+p.city).toLowerCase().includes(q)).sort((a,b)=>{
-      const ai=sortOrder.indexOf(a.status),bi=sortOrder.indexOf(b.status);
+    const q=search.toLowerCase();
+    return [...props].filter(p=>(viewStatuses.size===0||viewStatuses.has(p.status))&&(p.address+" "+p.city).toLowerCase().includes(q)).sort((a,b)=>{
+      const ai=PROP_ORDER.indexOf(a.status),bi=PROP_ORDER.indexOf(b.status);
       return(ai===-1?999:ai)!==(bi===-1?999:bi)?(ai===-1?999:ai)-(bi===-1?999:bi):a.address.localeCompare(b.address);
     });
-  },[props,search,sortOrder,hiddenStatuses]);
+  },[props,search,viewStatuses]);
   const grouped=useMemo(()=>{const out=[];let last=null;sorted.forEach(p=>{if(p.status!==last){out.push({type:"h",status:p.status});last=p.status;}out.push({type:"p",...p});});return out;},[sorted]);
   function addProp(){
     if(!form.addr.trim())return;
@@ -2698,16 +2724,14 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
       <div style={{width:isMobile?"100%":276,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-            <div><div style={{fontWeight:700,fontSize:15,color:T.text}}>Properties</div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{hiddenStatuses.length>0?`${sorted.length} shown · ${props.length} total`:`${props.length} total`}</div></div>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={()=>setShowSort(true)} style={{width:32,height:32,borderRadius:8,background:T.bg,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:T.textSub}}>{ICONS.sort}</button>
-              <button onClick={()=>setShowAdd(true)} style={{width:32,height:32,borderRadius:8,background:T.gold,border:"none",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:20,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
-            </div>
+            <div><div style={{fontWeight:700,fontSize:15,color:T.text}}>Properties</div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{viewStatuses.size>0?`${sorted.length} shown · ${props.length} total`:`${props.length} total`}</div></div>
+            <button onClick={()=>setShowAdd(true)} style={{width:32,height:32,borderRadius:8,background:T.gold,border:"none",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:20,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
           </div>
-          <div style={{position:"relative"}}>
+          <div style={{position:"relative",marginBottom:8}}>
             <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:15,pointerEvents:"none"}}>⌕</span>
             <input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px"}}/>
           </div>
+          <MultiSelect placeholder="All statuses" options={PROP_ORDER.map(s=>({value:s,label:s}))} selected={viewStatuses} onToggle={toggleView} style={{width:"100%"}}/>
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
           {grouped.map((item,i)=>{
@@ -2726,7 +2750,6 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
             <div style={{fontSize:13,color:T.textTert}}>Choose from the list on the left to view details</div>
           </div>}
       </div>
-      {showSort&&<SortModal order={sortOrder} hidden={hiddenStatuses} onSave={(o,h)=>{setSortOrder(o);setHiddenStatuses(h);}} onClose={()=>setShowSort(false)}/>}
       {showAdd&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,backdropFilter:"blur(4px)"}}>
           <div style={{background:T.card,borderRadius:20,padding:28,width:460,boxShadow:T.shadowMd}}>
@@ -2738,7 +2761,7 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
                 <div><div style={{fontSize:12,color:T.textSub,marginBottom:5,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>State</div><input style={iS} value={form.state} onChange={e=>setForm(f=>({...f,state:e.target.value}))}/></div>
                 <div><div style={{fontSize:12,color:T.textSub,marginBottom:5,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>Zip</div><input style={iS} value={form.zip} onChange={e=>setForm(f=>({...f,zip:e.target.value}))}/></div>
               </div>
-              <div><div style={{fontSize:12,color:T.textSub,marginBottom:5,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>Status</div><select style={iS} value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}>{Object.keys(SC).map(s=><option key={s}>{s}</option>)}</select></div>
+              <div><div style={{fontSize:12,color:T.textSub,marginBottom:5,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>Status</div><select style={iS} value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}>{PROP_ORDER.map(s=><option key={s}>{s}</option>)}</select></div>
             </div>
             <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
               <button onClick={()=>setShowAdd(false)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>

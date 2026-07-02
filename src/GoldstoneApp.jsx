@@ -2068,6 +2068,7 @@ function FilesTab({property,onUpdate}){
   useEffect(()=>{if(od.ready&&od.isConnected&&connected&&stack.length===0)loadRoot();},[od.ready,od.isConnected,connected]);// eslint-disable-line
 
   const[copiedId,setCopiedId]=useState("");
+  const[deletingId,setDeletingId]=useState("");
   const shareItem=async(it)=>{
     const url=it.webUrl;if(!url)return;
     if(navigator.share){try{await navigator.share({title:it.name,url});}catch{/* cancelled */}return;}
@@ -2093,6 +2094,14 @@ function FilesTab({property,onUpdate}){
     await uploadToFolder(file);
   };
   const onFilesDrop=(e)=>{const file=e.dataTransfer?.files?.[0];if(!file)return;e.preventDefault();uploadToFolder(file);};
+  const removeItem=async(it)=>{
+    if(!cur||!it)return;
+    if(!window.confirm(`Delete "${it.name}"?${it.folder?" This deletes the folder and everything in it." : ""}\n\nIt moves to the SharePoint/OneDrive recycle bin.`))return;
+    setDeletingId(it.id);setError("");
+    try{await od.deleteItem(cur.driveId,it.id);setItems(prev=>prev.filter(x=>x.id!==it.id));}
+    catch(e){setError(e.message||"Couldn't delete that item.");}
+    setDeletingId("");
+  };
   // Paste a file (from email, WhatsApp Web, etc.) to upload it into the open folder.
   useEffect(()=>{
     if(!connected||!cur)return;
@@ -2242,6 +2251,7 @@ function FilesTab({property,onUpdate}){
               </div>
               {!isFolder&&dl&&<a href={dl} style={{fontSize:12,color:T.gold,fontWeight:600,textDecoration:"none",flexShrink:0}}>Download</a>}
               <button onClick={()=>shareItem(it)} title="Share link" style={{background:"none",border:"none",cursor:it.webUrl?"pointer":"default",color:copiedId===it.id?T.green:T.textSub,padding:"4px 6px",display:"flex",alignItems:"center",gap:4,flexShrink:0,fontFamily:"inherit",fontSize:11,fontWeight:600,opacity:it.webUrl?1:0.4}}>{copiedId===it.id?"✓ Copied":ICONS.share}</button>
+              <button onClick={()=>removeItem(it)} disabled={deletingId===it.id} title="Delete" style={{background:"none",border:"none",cursor:deletingId===it.id?"default":"pointer",color:T.textTert,padding:"4px 6px",display:"flex",alignItems:"center",flexShrink:0,fontFamily:"inherit",fontSize:14,opacity:deletingId===it.id?0.5:1}} onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.textTert}>{deletingId===it.id?"…":"🗑"}</button>
             </div>
           );
         })}

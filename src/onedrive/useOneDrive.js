@@ -94,6 +94,11 @@ export function useOneDrive() {
     return all;
   }, [graph]);
 
+  // Delete a file/folder (moves it to the OneDrive/SharePoint recycle bin).
+  const deleteItem = useCallback(async (driveId, itemId) => {
+    await graph(`/drives/${driveId}/items/${itemId}`, { method: "DELETE" });
+  }, [graph]);
+
   // ── Folder picker sources ────────────────────────────────────────────────────
   // The user's own OneDrive root (top-level items) + its driveId for navigation.
   const myDriveRoot = useCallback(async () => {
@@ -192,6 +197,7 @@ export function useOneDrive() {
     signOut,
     resolveShareLink,
     listChildren,
+    deleteItem,
     myDriveRoot,
     sharedWithMe,
     searchSites,

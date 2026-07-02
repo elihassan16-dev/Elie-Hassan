@@ -5403,20 +5403,43 @@ const sameName=(a,b)=>!!a&&!!b&&String(a).trim().toLowerCase()===String(b).trim(
 const funderDraws=(f,draws)=>(draws||[]).filter(d=>String(d.funderId)===String(f.id)||sameName(d.funderName,f.name));
 const ledgerSum=(f,type)=>((f.ledger||[]).filter(e=>e.type===type).reduce((s,e)=>s+(Number(e.amount)||0),0));
 const funderStats=(f,draws)=>{
-  const principal=ledgerSum(f,"principal"), reinvest=ledgerSum(f,"reinvest"), distribution=ledgerSum(f,"distribution"), adjustment=ledgerSum(f,"adjustment");
-  const capital=principal+reinvest-distribution+adjustment;
+  // Capital he's owed = wires in + reinvested interest − principal he withdrew (± adjustments).
+  // Distributions are interest PAID OUT (his realized profit taken) — they don't reduce capital.
+  const principal=ledgerSum(f,"principal"), reinvest=ledgerSum(f,"reinvest"), distribution=ledgerSum(f,"distribution"), withdrawal=ledgerSum(f,"withdrawal"), adjustment=ledgerSum(f,"adjustment");
+  const capital=principal+reinvest-withdrawal+adjustment;
   const mine=funderDraws(f,draws);
   const open=mine.filter(d=>!d.paybackDate);
+  const paid=mine.filter(d=>d.paybackDate);
   const deployed=open.reduce((s,d)=>s+(Number(d.amount)||0),0);
-  const interest=open.reduce((s,d)=>s+drawInterest(d),0);
-  return {principal,reinvest,distribution,adjustment,capital,deployed,interest,available:capital-deployed,mine,open};
+  const interest=open.reduce((s,d)=>s+drawInterest(d),0);           // accruing / owed on open loans
+  const interestRealized=paid.reduce((s,d)=>s+drawInterest(d),0);   // earned on closed loans
+  return {principal,reinvest,distribution,withdrawal,adjustment,capital,deployed,interest,interestRealized,available:capital-deployed,mine,open,paid};
 };
 const LEDGER_TYPES=[
-  {v:"principal",label:"Principal in",sign:1,color:"#16A34A"},
-  {v:"reinvest",label:"Reinvested profit",sign:1,color:T.blue},
-  {v:"distribution",label:"Distribution / payout",sign:-1,color:T.red},
+  {v:"principal",label:"Wire in (principal)",sign:1,color:"#16A34A"},
+  {v:"reinvest",label:"Reinvested interest",sign:1,color:T.blue},
+  {v:"distribution",label:"Interest paid out",sign:-1,color:T.red},
+  {v:"withdrawal",label:"Principal withdrawn",sign:-1,color:T.red},
   {v:"adjustment",label:"Adjustment",sign:1,color:T.textSub},
 ];
+// One chronological register per lender: ledger entries + each draw's funded/payback
+// events, time-sorted, with a running available balance (what's un-deployed).
+const funderRegister=(f,draws)=>{
+  const ev=[];
+  (f.ledger||[]).forEach(e=>ev.push({id:"L"+e.id,kind:e.type,date:e.date||"",amount:Number(e.amount)||0,note:e.note||"",ledgerId:e.id}));
+  funderDraws(f,draws).forEach(d=>{
+    ev.push({id:"F"+d.id,kind:"fund",date:d.dateFunded||"",amount:Number(d.amount)||0,note:d.propertyLabel||"",draw:d});
+    if(d.paybackDate)ev.push({id:"P"+d.id,kind:"payback",date:d.paybackDate,amount:Number(d.amount)||0,interest:drawInterest(d),note:d.propertyLabel||"",draw:d});
+  });
+  ev.sort((a,b)=>String(a.date).localeCompare(String(b.date))||(a.kind==="fund"?-1:a.kind==="payback"?1:0));
+  let bal=0;
+  ev.forEach(e=>{
+    if(e.kind==="principal"||e.kind==="reinvest"||e.kind==="payback")bal+=e.amount;
+    else if(e.kind==="withdrawal"||e.kind==="fund")bal-=e.amount;
+    e.balance=bal; // "distribution" (interest paid out) doesn't move available capital
+  });
+  return ev;
+};
 const finFmtDate=(iso)=>{if(!iso)return "";try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});}catch{return iso;}};
 const finInput={width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:14,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none"};
 
@@ -5636,6 +5659,34 @@ function FinRegisterImport({funder,onImport,onClose}){
   );
 }
 
+// Record a payback on a draw: freeze interest at the payback date and choose whether
+// the interest was reinvested (added to his balance) or paid out to him.
+function FinPaybackModal({draw,onConfirm,onClose}){
+  const[date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const[handling,setHandling]=useState("reinvest");
+  const prev={amount:Number(draw.amount)||0,dateFunded:draw.dateFunded,paybackDate:date};
+  const days=drawDays(prev), interest=drawInterest(prev);
+  const bad=new Date(date)<new Date(draw.dateFunded||date);
+  return(
+    <FinModal title={`Record payback — ${draw.propertyLabel||"draw"}`} onClose={onClose}
+      footer={<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button onClick={()=>{onConfirm({paybackDate:date,interest,handling});onClose();}} style={finBtn(true)}>Record payback</button></>}>
+      <div><div style={finLabel}>Payback date</div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={finInput}/></div>
+      <div style={{background:bad?"#FFF0EF":T.goldLight,border:`1px solid ${bad?T.red:T.gold}`,borderRadius:10,padding:"10px 12px",fontSize:13,color:bad?T.red:"#8a6d1f"}}>
+        Principal <b>{fmtD(prev.amount)}</b> back · <b>{days} day{days===1?"":"s"}</b> · interest <b>{fmtD(interest)}</b> @ 15%/yr
+        {bad&&<div style={{fontSize:11,fontWeight:600,marginTop:3}}>Payback date is before the funded date.</div>}
+      </div>
+      <div><div style={finLabel}>The interest was…</div>
+        {[["reinvest","Reinvested — added to his balance (redeployable)"],["distribute","Paid out to him (his profit, taken)"],["leave","Just record the payback — no interest entry"]].map(([v,l])=>(
+          <label key={v} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 4px",cursor:"pointer"}}>
+            <input type="radio" name="ph" checked={handling===v} onChange={()=>setHandling(v)} style={{accentColor:T.gold}}/>
+            <span style={{fontSize:13,color:T.text}}>{l}</span>
+          </label>
+        ))}
+      </div>
+    </FinModal>
+  );
+}
+
 function FinancialSectionPage(){
   const { funders, setFunders, flushFunders, draws, setDraws, flushDraws, sharedProps } = useData();
   const isMobile=useIsMobile();
@@ -5643,6 +5694,7 @@ function FinancialSectionPage(){
   const[funderModal,setFunderModal]=useState(null);   // {} new, or funder obj to edit
   const[ledgerModal,setLedgerModal]=useState(false);
   const[registerImport,setRegisterImport]=useState(false);
+  const[paybackModal,setPaybackModal]=useState(null);  // draw being paid back
   const[drawModal,setDrawModal]=useState(null);        // {} new, or draw obj, or {defaultFunderId}
   const save=()=>{setTimeout(()=>{flushFunders&&flushFunders();flushDraws&&flushDraws();},0);};
 
@@ -5661,6 +5713,16 @@ function FinancialSectionPage(){
   const saveDraw=(d)=>{setDraws(prev=>prev.some(x=>x.id===d.id)?prev.map(x=>x.id===d.id?d:x):[...prev,d]);save();};
   const delDraw=(id)=>{setDraws(prev=>prev.filter(x=>x.id!==id));save();};
   const markPaid=(d)=>{saveDraw({...d,paybackDate:new Date().toISOString().slice(0,10)});};
+  const recordPayback=(draw,{paybackDate,interest,handling})=>{
+    saveDraw({...draw,paybackDate});
+    if(handling==="reinvest")addLedger(draw.funderId,{id:Date.now(),type:"reinvest",amount:Math.round(interest),date:paybackDate,note:`Interest reinvested — ${draw.propertyLabel||""}`.trim()});
+    else if(handling==="distribute")addLedger(draw.funderId,{id:Date.now()+1,type:"distribution",amount:Math.round(interest),date:paybackDate,note:`Interest paid out — ${draw.propertyLabel||""}`.trim()});
+  };
+  const delEvent=(e)=>{
+    if(e.ledgerId!=null&&sel)delLedger(sel.id,e.ledgerId);
+    else if(e.kind==="fund"&&e.draw){if(window.confirm("Delete this funding (draw)?"))delDraw(e.draw.id);}
+    else if(e.kind==="payback"&&e.draw){if(window.confirm("Reopen this loan (remove the payback)?"))saveDraw({...e.draw,paybackDate:null});}
+  };
 
   const downloadBackup=()=>{
     const payload={exportedAt:new Date().toISOString(),funders,draws};
@@ -5690,10 +5752,15 @@ function FinancialSectionPage(){
     );
   };
 
+  const kindMeta=(e)=>{
+    if(e.kind==="fund")return {label:`Funded — ${e.note||"deal"}`,color:T.orange,sign:-1};
+    if(e.kind==="payback")return {label:`Payback — ${e.note||"deal"}`,color:"#16A34A",sign:1,extra:e.interest?`+ ${fmtD(e.interest)} interest earned`:""};
+    const t=LEDGER_TYPES.find(x=>x.v===e.kind)||{label:e.kind,color:T.textSub,sign:1};
+    return {label:t.label+(e.note?` — ${e.note}`:""),color:t.color,sign:t.sign};
+  };
   const detail=(f)=>{
     const s=funderStats(f,draws);
-    const ledger=[...(f.ledger||[])].sort((a,b)=>(a.date||"").localeCompare(b.date||""));
-    const drawsSorted=[...s.mine].sort((a,b)=>(b.dateFunded||"").localeCompare(a.dateFunded||""));
+    const reg=funderRegister(f,draws);
     return(
       <div style={{flex:1,minWidth:0,overflowY:"auto",padding:isMobile?"14px 14px 40px":"20px 24px 40px"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
@@ -5703,56 +5770,45 @@ function FinancialSectionPage(){
           <button onClick={()=>deleteFunder(f.id)} title="Delete lender" style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>🗑</button>
         </div>
         {f.notes&&<div style={{fontSize:13,color:T.textSub,marginBottom:14,whiteSpace:"pre-wrap"}}>{f.notes}</div>}
-        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:8,marginBottom:20}}>
-          {stat("Capital balance",s.capital)}
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:8,marginBottom:16}}>
+          {stat("Available balance",s.available,s.available<0?T.red:T.green)}
           {stat("Deployed",s.deployed,T.blue)}
-          {stat("Available",s.available,s.available<0?T.red:T.green)}
-          {stat("Interest owed",s.interest,T.gold)}
+          {stat("Capital (owed)",s.capital)}
+          {stat("Interest owed (open)",s.interest,T.gold)}
+          {stat("Interest earned",s.interestRealized,"#16A34A")}
+          {stat("Paid out to him",s.distribution,T.red)}
         </div>
 
-        {/* Capital ledger */}
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
-          <div style={{fontSize:14,fontWeight:800,color:T.text}}>Capital ledger</div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setRegisterImport(true)} title="Import a CSV register for this lender" style={{...finBtn(false),padding:"6px 12px",fontSize:12}}>⇪ Import register</button>
-            <button onClick={()=>setLedgerModal(true)} style={{...finBtn(true),padding:"6px 12px",fontSize:12}}>+ Entry</button>
+        {/* Toolbar */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8,flexWrap:"wrap"}}>
+          <div style={{fontSize:14,fontWeight:800,color:T.text}}>Register</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button onClick={()=>setRegisterImport(true)} title="Import a CSV register" style={{...finBtn(false),padding:"6px 10px",fontSize:12}}>⇪ Import</button>
+            <button onClick={()=>setLedgerModal(true)} style={{...finBtn(false),padding:"6px 10px",fontSize:12}}>+ Wire / entry</button>
+            <button onClick={()=>setDrawModal({defaultFunderId:f.id})} style={{...finBtn(true),padding:"6px 12px",fontSize:12}}>+ Funding</button>
           </div>
         </div>
-        <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden",marginBottom:22}}>
-          {ledger.length===0&&<div style={{padding:"16px",textAlign:"center",color:T.textTert,fontSize:13}}>No entries yet. Add their principal, reinvestments, or payouts.</div>}
-          {ledger.map(e=>{const t=LEDGER_TYPES.find(x=>x.v===e.type)||LEDGER_TYPES[0];return(
-            <div key={e.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderTop:`1px solid ${T.border}`}}>
+        <div style={{fontSize:11,color:T.textTert,marginBottom:8}}>Chronological — wires in, fundings out, paybacks (with interest). Running balance = his un-deployed cash.</div>
+        <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden"}}>
+          {reg.length===0&&<div style={{padding:"18px",textAlign:"center",color:T.textTert,fontSize:13}}>Nothing yet. Start with <b>+ Wire / entry</b> for money he sent you, then <b>+ Funding</b> when you deploy it into a deal.</div>}
+          {reg.map(e=>{const m=kindMeta(e);const isOpenFund=e.kind==="fund"&&e.draw&&!e.draw.paybackDate;return(
+            <div key={e.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderTop:`1px solid ${T.border}`}}>
+              <div style={{width:52,fontSize:10.5,color:T.textTert,flexShrink:0,lineHeight:1.25}}>{finFmtDate(e.date)||"—"}</div>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:600,color:T.text}}>{t.label}</div>
-                <div style={{fontSize:11,color:T.textTert}}>{finFmtDate(e.date)}{e.note?` · ${e.note}`:""}</div>
+                <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.label}</div>
+                {m.extra&&<div style={{fontSize:11,color:"#16A34A"}}>{m.extra}</div>}
               </div>
-              <div style={{fontSize:14,fontWeight:700,color:t.color,whiteSpace:"nowrap"}}>{t.sign<0?"−":"+"}{fmtD(e.amount)}</div>
-              <button onClick={()=>delLedger(f.id,e.id)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontSize:13,fontWeight:700,color:m.color,whiteSpace:"nowrap"}}>{m.sign<0?"−":"+"}{fmtD(e.amount)}</div>
+                <div style={{fontSize:9.5,color:T.textTert,whiteSpace:"nowrap"}}>bal {fmtD(e.balance)}</div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:3,flexShrink:0}}>
+                {isOpenFund&&<button onClick={()=>setPaybackModal(e.draw)} style={{background:"none",border:`1px solid ${T.green}`,borderRadius:7,color:T.green,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:"2px 7px",fontFamily:"inherit"}}>Payback</button>}
+                {e.draw&&<button onClick={()=>setDrawModal(e.draw)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:10.5,padding:"2px 7px",fontFamily:"inherit"}}>Edit</button>}
+              </div>
+              <button onClick={()=>delEvent(e)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
             </div>
           );})}
-        </div>
-
-        {/* Draws (money out to properties) */}
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-          <div style={{fontSize:14,fontWeight:800,color:T.text}}>Money lent (draws)</div>
-          <button onClick={()=>setDrawModal({defaultFunderId:f.id})} style={{...finBtn(true),padding:"6px 12px",fontSize:12}}>+ Draw</button>
-        </div>
-        <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden"}}>
-          {drawsSorted.length===0&&<div style={{padding:"16px",textAlign:"center",color:T.textTert,fontSize:13}}>No draws yet.</div>}
-          {drawsSorted.map(d=>(
-            <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderTop:`1px solid ${T.border}`}}>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.propertyLabel||"(no property)"}{d.paybackDate?<span style={{marginLeft:6,fontSize:9,fontWeight:800,background:"#EDFBF1",color:"#15803D",borderRadius:8,padding:"1px 6px",textTransform:"uppercase"}}>paid</span>:<span style={{marginLeft:6,fontSize:9,fontWeight:800,background:T.goldLight,color:T.gold,borderRadius:8,padding:"1px 6px",textTransform:"uppercase"}}>open</span>}</div>
-                <div style={{fontSize:11,color:T.textTert}}>{finFmtDate(d.dateFunded)}{d.paybackDate?` → ${finFmtDate(d.paybackDate)}`:""} · {drawDays(d)}d · {fmtD(drawInterest(d))} int{d.note?` · ${d.note}`:""}</div>
-              </div>
-              <div style={{fontSize:14,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{fmtD(d.amount)}</div>
-              <div style={{display:"flex",flexDirection:"column",gap:3}}>
-                {!d.paybackDate&&<button onClick={()=>markPaid(d)} title="Mark paid back (today)" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.green,cursor:"pointer",fontSize:11,fontWeight:700,padding:"2px 7px",fontFamily:"inherit"}}>Paid</button>}
-                <button onClick={()=>setDrawModal(d)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:11,padding:"2px 7px",fontFamily:"inherit"}}>Edit</button>
-              </div>
-              <button onClick={()=>{if(window.confirm("Delete this draw?"))delDraw(d.id);}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>
-            </div>
-          ))}
         </div>
       </div>
     );
@@ -5763,6 +5819,7 @@ function FinancialSectionPage(){
       {funderModal&&<FinFunderModal funder={funderModal.id?funderModal:null} onSave={(f)=>funderModal.id?updateFunder(f):addFunder(f)} onClose={()=>setFunderModal(null)}/>}
       {ledgerModal&&sel&&<FinLedgerModal funderName={sel.name} onSave={(e)=>addLedger(sel.id,e)} onClose={()=>setLedgerModal(false)}/>}
       {registerImport&&sel&&<FinRegisterImport funder={sel} onImport={(entries)=>addLedgerBulk(sel.id,entries)} onClose={()=>setRegisterImport(false)}/>}
+      {paybackModal&&<FinPaybackModal draw={paybackModal} onConfirm={(r)=>recordPayback(paybackModal,r)} onClose={()=>setPaybackModal(null)}/>}
       {drawModal&&<FinDrawModal draw={drawModal.id?drawModal:null} defaultFunderId={drawModal.defaultFunderId} funders={list} properties={sharedProps} onSave={saveDraw} onClose={()=>setDrawModal(null)}/>}
 
       {/* Header */}

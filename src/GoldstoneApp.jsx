@@ -1659,6 +1659,8 @@ function ShowingsPage(){
   const[saving,setSaving]=useState(false);
   const[selId,setSelId]=useState(null);
   const[search,setSearch]=useState("");
+  const[showConn,setShowConn]=useState(false);
+  const[copied,setCopied]=useState(false);
   useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
   const load=useCallback(()=>{setLoading(true);setError("");qbAuthFetch("/api/showings").then(d=>setShowings(d.showings||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
   useEffect(()=>{if(status&&status.configured)load();},[status,load]);
@@ -1743,6 +1745,21 @@ function ShowingsPage(){
             );
           })}
         </div>
+        {isAdmin&&status.configured&&(
+          <div style={{padding:"10px 14px",borderTop:`1px solid ${T.border}`,fontSize:11,color:T.textTert,flexShrink:0}}>
+            <div style={{display:"flex",gap:12,alignItems:"center"}}>
+              <span style={{color:T.green,fontWeight:600}}>● ShowingTime connected</span>
+              {status.icsUrl&&<span onClick={()=>setShowConn(v=>!v)} style={{color:T.blue,cursor:"pointer",fontWeight:600}}>{showConn?"Hide link":"Show link"}</span>}
+              <span onClick={()=>{setStatus({configured:false});setShowConn(false);}} style={{color:T.blue,cursor:"pointer",fontWeight:600}}>Change</span>
+            </div>
+            {showConn&&status.icsUrl&&(
+              <div style={{marginTop:8,display:"flex",gap:6,alignItems:"center"}}>
+                <input readOnly value={status.icsUrl} onFocus={e=>e.target.select()} style={{flex:1,minWidth:0,fontSize:11,padding:"7px 9px",border:`1px solid ${T.border}`,borderRadius:8,background:T.bg,color:T.text,outline:"none",fontFamily:"inherit"}}/>
+                <button onClick={()=>{if(navigator.clipboard)navigator.clipboard.writeText(status.icsUrl).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1500);});}} style={{padding:"7px 12px",borderRadius:8,background:copied?T.green:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>{copied?"✓":"Copy"}</button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       {/* Right: selected property's showings */}
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>

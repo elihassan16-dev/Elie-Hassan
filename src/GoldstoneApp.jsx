@@ -33,6 +33,11 @@ const T={gold:"#B8953F",goldLight:"#F8F1E0",goldMid:"#D4A843",bg:"#F2F2F7",card:
 const SC={"Under Contract":{color:"#9333EA",bg:"#F3E8FF"},"Purchased":{color:"#2563EB",bg:"#DBEAFE"},"Under Construction":{color:"#EA580C",bg:"#FFEDD5"},"On Market":{color:"#16A34A",bg:"#DCFCE7"},"In Closing":{color:"#CA8A04",bg:"#FEF9C3"},"Sold":{color:"#65A30D",bg:"#ECFCCB"},"Rental":{color:"#0891B2",bg:"#CFFAFE"},"New Leads":{color:"#DB2777",bg:"#FCE7F3"}};
 const DEFAULT_ORDER=["Under Contract","In Closing","Purchased","Under Construction","On Market","Rental","New Leads","Sold"];
 
+// Small localStorage-backed preference helpers (per device) for UI settings that
+// should survive an app reload — e.g. the property list's status sort/filter.
+const loadPref=(key,fallback)=>{try{const v=localStorage.getItem(key);return v==null?fallback:JSON.parse(v);}catch{return fallback;}};
+const savePref=(key,val)=>{try{localStorage.setItem(key,JSON.stringify(val));}catch{/* ignore quota/private-mode */}};
+
 // Compact property data: [id,address,city,zip,status, pp,bc,btx,txResp,rehab,holdCost,holdPd,fundSrc, sp,sc,stx, app,abc,arc,pDate,sDate, locL,locI,hmL,hmI,asp,asc,astx, lbCode,notes]
 const PR=[
 // [id,addr,city,zip,status,pp,rehab,hp,fs,sp,txResp,lb,notes,app,abc,arc,li,hi,asp]
@@ -2318,35 +2323,39 @@ function PropDetail({property,onUpdate,onArchive}){
 }
 
 // ─── Sort Modal ───────────────────────────────────────────────────────────────
-function SortModal({order,onSave,onClose}){
+function SortModal({order,hidden,onSave,onClose}){
   const[loc,setLoc]=useState([...order]);
-  const[drag,setDrag]=useState(null);
-  const[over,setOver]=useState(null);
-  const end=()=>{
-    if(drag!==null&&over!==null&&drag!==over){const next=[...loc];const[m]=next.splice(drag,1);next.splice(over,0,m);setLoc(next);}
-    setDrag(null);setOver(null);
-  };
+  const[hiddenLoc,setHiddenLoc]=useState(new Set(hidden||[]));
+  const move=(i,dir)=>{const j=i+dir;if(j<0||j>=loc.length)return;const next=[...loc];[next[i],next[j]]=[next[j],next[i]];setLoc(next);};
+  const toggle=(status)=>setHiddenLoc(prev=>{const n=new Set(prev);n.has(status)?n.delete(status):n.add(status);return n;});
+  const allVisible=loc.every(s=>!hiddenLoc.has(s));
+  const arrowBtn={width:30,height:28,borderRadius:7,border:`1px solid ${T.border}`,background:"#fff",cursor:"pointer",fontSize:13,color:T.textSub,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit",padding:0};
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
-      <div style={{background:T.card,borderRadius:20,padding:28,width:380,boxShadow:T.shadowMd}}>
-        <div style={{fontWeight:700,fontSize:18,marginBottom:6,color:T.text}}>Sort by Status</div>
-        <div style={{fontSize:13,color:T.textSub,marginBottom:20}}>Drag to set the order properties appear.</div>
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:20,padding:"24px 22px",width:400,maxWidth:"100%",maxHeight:"88vh",boxShadow:T.shadowMd,display:"flex",flexDirection:"column"}}>
+        <div style={{fontWeight:700,fontSize:18,marginBottom:4,color:T.text}}>Sort & Filter Statuses</div>
+        <div style={{fontSize:13,color:T.textSub,marginBottom:12}}>Use the arrows to set the order. Uncheck a status to hide it from the list.</div>
+        <button onClick={()=>setHiddenLoc(allVisible?new Set(loc):new Set())} style={{alignSelf:"flex-start",background:"none",border:"none",color:T.blue,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600,padding:"2px 0",marginBottom:10}}>{allVisible?"Hide all":"Show all"}</button>
+        <div style={{display:"flex",flexDirection:"column",gap:8,overflowY:"auto"}}>
           {loc.map((status,i)=>{
             const s=SC[status]||{color:"#64748B",bg:"#F1F5F9"};
+            const visible=!hiddenLoc.has(status);
             return(
-              <div key={status} draggable onDragStart={()=>setDrag(i)} onDragEnter={()=>setOver(i)} onDragEnd={end} onDragOver={e=>e.preventDefault()}
-                style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:T.radiusSm,background:over===i?"#EBF4FF":T.bg,border:`1.5px solid ${over===i?T.blue:T.border}`,cursor:"grab",opacity:drag===i?0.4:1,transition:"all 0.1s"}}>
-                <span style={{color:T.textTert,fontSize:16,userSelect:"none"}}>⠿</span>
-                <span style={{flex:1,fontSize:13,fontWeight:600,color:T.text}}>{status}</span>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:s.bg,color:s.color}}>{status}</span>
+              <div key={status} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,opacity:visible?1:0.5}}>
+                <input type="checkbox" checked={visible} onChange={()=>toggle(status)} style={{width:18,height:18,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+                <span style={{flex:1,minWidth:0,fontSize:13,fontWeight:600,color:T.text}}>{status}</span>
+                <span style={{padding:"3px 9px",borderRadius:20,fontSize:11,fontWeight:700,background:s.bg,color:s.color,whiteSpace:"nowrap"}}>{status}</span>
+                <div style={{display:"flex",gap:4,flexShrink:0}}>
+                  <button onClick={()=>move(i,-1)} disabled={i===0} title="Move up" style={{...arrowBtn,opacity:i===0?0.35:1,cursor:i===0?"default":"pointer"}}>▲</button>
+                  <button onClick={()=>move(i,1)} disabled={i===loc.length-1} title="Move down" style={{...arrowBtn,opacity:i===loc.length-1?0.35:1,cursor:i===loc.length-1?"default":"pointer"}}>▼</button>
+                </div>
               </div>
             );
           })}
         </div>
-        <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
+        <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
           <button onClick={onClose} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
-          <button onClick={()=>{onSave(loc);onClose();}} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Apply</button>
+          <button onClick={()=>{onSave(loc,[...hiddenLoc]);onClose();}} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Apply</button>
         </div>
       </div>
     </div>
@@ -2361,19 +2370,27 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
   const[selId,setSelId]=useState(initialSelId||null);
   useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);
   const[search,setSearch]=useState("");
-  const[sortOrder,setSortOrder]=useState(DEFAULT_ORDER);
+  // Persist the status sort order + which statuses are hidden (survives app reload).
+  const[sortOrder,setSortOrder]=useState(()=>{
+    const saved=loadPref("gs_propSort",null);
+    if(Array.isArray(saved)&&saved.length) return [...saved.filter(s=>DEFAULT_ORDER.includes(s)),...DEFAULT_ORDER.filter(s=>!saved.includes(s))];
+    return DEFAULT_ORDER;
+  });
+  const[hiddenStatuses,setHiddenStatuses]=useState(()=>loadPref("gs_propHidden",[]));
+  useEffect(()=>savePref("gs_propSort",sortOrder),[sortOrder]);
+  useEffect(()=>savePref("gs_propHidden",hiddenStatuses),[hiddenStatuses]);
   const[showSort,setShowSort]=useState(false);
   const[showAdd,setShowAdd]=useState(false);
   const[form,setForm]=useState({addr:"",city:"",state:"NJ",zip:"",status:"Under Contract"});
   const sel=props.find(p=>p.id===selId);
   const upProp=(id,key,val)=>setProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));
   const sorted=useMemo(()=>{
-    const q=search.toLowerCase();
-    return [...props].filter(p=>(p.address+" "+p.city).toLowerCase().includes(q)).sort((a,b)=>{
+    const q=search.toLowerCase();const hiddenSet=new Set(hiddenStatuses);
+    return [...props].filter(p=>!hiddenSet.has(p.status)&&(p.address+" "+p.city).toLowerCase().includes(q)).sort((a,b)=>{
       const ai=sortOrder.indexOf(a.status),bi=sortOrder.indexOf(b.status);
       return(ai===-1?999:ai)!==(bi===-1?999:bi)?(ai===-1?999:ai)-(bi===-1?999:bi):a.address.localeCompare(b.address);
     });
-  },[props,search,sortOrder]);
+  },[props,search,sortOrder,hiddenStatuses]);
   const grouped=useMemo(()=>{const out=[];let last=null;sorted.forEach(p=>{if(p.status!==last){out.push({type:"h",status:p.status});last=p.status;}out.push({type:"p",...p});});return out;},[sorted]);
   function addProp(){
     if(!form.addr.trim())return;
@@ -2386,7 +2403,7 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
       <div style={{width:isMobile?"100%":276,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-            <div><div style={{fontWeight:700,fontSize:15,color:T.text}}>Properties</div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{props.length} total</div></div>
+            <div><div style={{fontWeight:700,fontSize:15,color:T.text}}>Properties</div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{hiddenStatuses.length>0?`${sorted.length} shown · ${props.length} total`:`${props.length} total`}</div></div>
             <div style={{display:"flex",gap:6}}>
               <button onClick={()=>setShowSort(true)} style={{width:32,height:32,borderRadius:8,background:T.bg,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:T.textSub}}>{ICONS.sort}</button>
               <button onClick={()=>setShowAdd(true)} style={{width:32,height:32,borderRadius:8,background:T.gold,border:"none",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:20,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
@@ -2414,7 +2431,7 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
             <div style={{fontSize:13,color:T.textTert}}>Choose from the list on the left to view details</div>
           </div>}
       </div>
-      {showSort&&<SortModal order={sortOrder} onSave={setSortOrder} onClose={()=>setShowSort(false)}/>}
+      {showSort&&<SortModal order={sortOrder} hidden={hiddenStatuses} onSave={(o,h)=>{setSortOrder(o);setHiddenStatuses(h);}} onClose={()=>setShowSort(false)}/>}
       {showAdd&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,backdropFilter:"blur(4px)"}}>
           <div style={{background:T.card,borderRadius:20,padding:28,width:460,boxShadow:T.shadowMd}}>

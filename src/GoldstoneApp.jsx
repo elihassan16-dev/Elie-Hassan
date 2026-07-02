@@ -213,6 +213,11 @@ const TASK_STATUS_COLORS={"Not Started":{bg:"#F2F2F7",color:"#8A8A8E"},"In Progr
 function n(v){const x=parseFloat(String(v).replace(/,/g,""));return isNaN(x)?0:x;}
 function pct(v){const x=parseFloat(String(v));return isNaN(x)?0:x/100;}
 function fmtD(v){const x=Math.round(v||0);return (x<0?"-$":"$")+Math.abs(x).toLocaleString();}
+// A value counts as "entered" when it isn't blank — so 0 and negatives (credits) still
+// display, and only a truly empty field shows the "tap to enter" placeholder.
+const hasVal=(v)=>v!==null&&v!==undefined&&String(v).trim()!=="";
+// Sanitize a currency input while allowing a single leading minus (credits/refunds).
+const numIn=(v)=>String(v).replace(/[^\d.-]/g,"").replace(/(?!^)-/g,"");
 
 function calcP(f){
   const hold=(n(f.annualHoldingCosts)/12)*n(f.holdPeriod);
@@ -804,12 +809,12 @@ function ActualField({value, onChange, label, up}){
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
       <span style={{fontSize:14,color:T.text}}>{label}</span>
       {editing
-        ?<input autoFocus value={raw} onChange={e=>setRaw(e.target.value.replace(/[^\d]/g,""))}
+        ?<input autoFocus value={raw} onChange={e=>setRaw(numIn(e.target.value))}
             onBlur={commit} onKeyDown={e=>e.key==="Enter"&&commit()}
             style={{width:140,padding:"5px 8px",borderRadius:6,border:`1.5px solid ${T.gold}`,background:T.goldLight,color:T.text,fontSize:14,outline:"none",textAlign:"right",fontFamily:"inherit"}}/>
         :<span onClick={()=>{setRaw(value||"");setEditing(true);}}
-            style={{fontSize:14,fontWeight:500,color:amt>0?T.text:T.textTert,cursor:"pointer",minWidth:120,textAlign:"right",display:"inline-block"}}>
-            {amt>0?fmtD(amt):"tap to enter"}
+            style={{fontSize:14,fontWeight:500,color:hasVal(value)?T.text:T.textTert,cursor:"pointer",minWidth:120,textAlign:"right",display:"inline-block"}}>
+            {hasVal(value)?fmtD(amt):"tap to enter"}
           </span>
       }
     </div>
@@ -1093,10 +1098,10 @@ function EditGridRow({label,pVal,pEdit,aVal,aEdit,showActual,readOnlyActual,suff
       {showActual&&<div style={{padding:isMobile?"6px 8px":"6px 14px",textAlign:"right"}}>
         {readOnlyActual?<span style={{fontSize:13,color:T.textTert}}>—</span>:
         editingA
-          ?<input autoFocus value={rawA} onChange={e=>setRawA(e.target.value.replace(/[^\d.]/g,""))}
+          ?<input autoFocus value={rawA} onChange={e=>setRawA(numIn(e.target.value))}
               onBlur={()=>{setEditingA(false);aEdit(rawA);}} onKeyDown={e=>e.key==="Enter"&&e.target.blur()}
               style={inS}/>
-          :<span onClick={()=>{setRawA(String(aVal||""));setEditingA(true);}} style={{fontSize:13,fontWeight:n(aVal)>0?600:400,color:n(aVal)>0?T.green:T.textTert,cursor:"pointer"}}>{n(aVal)>0?(suffix?`${aVal} ${suffix}`:fmtD(n(aVal))):"tap to enter"}</span>}
+          :<span onClick={()=>{setRawA(String(aVal??""));setEditingA(true);}} style={{fontSize:13,fontWeight:hasVal(aVal)?600:400,color:hasVal(aVal)?T.green:T.textTert,cursor:"pointer"}}>{hasVal(aVal)?(suffix?`${aVal} ${suffix}`:fmtD(n(aVal))):"tap to enter"}</span>}
       </div>}
     </div>
   );
@@ -1112,12 +1117,12 @@ function PopupGridRow({label,pVal,onOpenP,aVal,aEdit,onOpenA,showActual,aIsPopup
       <div onClick={onOpenP} style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:13,color:dimP?T.textTert:T.blue,fontWeight:500,cursor:"pointer"}}>{fmtD(pVal)} ›</div>
       {showActual&&<div style={{padding:aIsPopup?(isMobile?"9px 8px":"9px 14px"):(isMobile?"6px 8px":"6px 14px"),textAlign:"right"}}>
         {aIsPopup
-          ? <span onClick={onOpenA} style={{fontSize:13,fontWeight:500,color:T.green,cursor:"pointer"}}>{aVal>0?fmtD(aVal)+" ›":"tap to enter ›"}</span>
+          ? <span onClick={onOpenA} style={{fontSize:13,fontWeight:500,color:T.green,cursor:"pointer"}}>{n(aVal)!==0?fmtD(n(aVal))+" ›":"tap to enter ›"}</span>
           : editingA
-            ?<input autoFocus value={rawA} onChange={e=>setRawA(e.target.value.replace(/[^\d.]/g,""))}
+            ?<input autoFocus value={rawA} onChange={e=>setRawA(numIn(e.target.value))}
                 onBlur={()=>{setEditingA(false);aEdit(rawA);}} onKeyDown={e=>e.key==="Enter"&&e.target.blur()}
                 style={inS}/>
-            :<span onClick={()=>{setRawA(String(aVal||""));setEditingA(true);}} style={{fontSize:13,fontWeight:n(aVal)>0?600:400,color:n(aVal)>0?T.green:T.textTert,cursor:"pointer"}}>{n(aVal)>0?fmtD(n(aVal)):"tap to enter"}</span>}
+            :<span onClick={()=>{setRawA(String(aVal??""));setEditingA(true);}} style={{fontSize:13,fontWeight:hasVal(aVal)?600:400,color:hasVal(aVal)?T.green:T.textTert,cursor:"pointer"}}>{hasVal(aVal)?fmtD(n(aVal)):"tap to enter"}</span>}
       </div>}
     </div>
   );
@@ -1399,7 +1404,7 @@ function FinOverview({property,onUpdate}){
             aVal={f.actualRehabCosts} aEdit={v=>up("actualRehabCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
           <PopupGridRow label="Holding Costs" pVal={holdingTotal} onOpenP={()=>setShowHolding(true)}
             aVal={f.actualHoldingCosts} aEdit={v=>up("actualHoldingCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
-          <TotalGridRow label="Total Costs" pVal={totalCosts} aVal={showActual&&acCosts>0?acCosts:null} showActual={showActual} dimP={f.useActualProfit}/>
+          <TotalGridRow label="Total Costs" pVal={totalCosts} aVal={showActual&&acCosts!==0?acCosts:null} showActual={showActual} dimP={f.useActualProfit}/>
 
           {/* ── Financing ── */}
           <RowHdr label="Financing" color={T.blue} showActual={showActual}/>

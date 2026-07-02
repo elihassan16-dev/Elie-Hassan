@@ -3483,8 +3483,8 @@ function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
 function TaskMessagesPopup({title,messages,currentUser,teamMembers,onSend,onClose}){
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderTopLeftRadius:20,borderTopRightRadius:20,width:"100%",maxWidth:520,maxHeight:"80vh",display:"flex",flexDirection:"column",boxShadow:"0 -8px 40px rgba(0,0,0,0.2)"}}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(520px,94vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
         <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{minWidth:0}}><div style={{fontSize:15,fontWeight:700,color:T.text}}>Messages</div><div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div></div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
@@ -3745,7 +3745,7 @@ function PropertyTaskList({property}){
 // ─── Tasks Page ───────────────────────────────────────────────────────────────
 // TEAM_MEMBERS and CURRENT_USER now come from useData() (real Supabase auth + users table).
 
-function TasksPage(){
+function TasksPage({onNavigate}){
   const { sharedProps, setSharedProps, contacts: CONTACTS, setContacts, flushContacts, teamMembers: TEAM_MEMBERS, currentUser: CURRENT_USER, automations, setAutomations } = useData();
   const dir=CONTACTS.map(normContact); // normalized contact directory (phones[], company, tags)
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
@@ -4149,7 +4149,7 @@ function TasksPage(){
                 <div style={{padding:"10px 14px",background:"#FAFAFA",borderBottom:bdr,display:"flex",flexDirection:"column",gap:7}}>
                   {/* Row 1: address + delete */}
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-                    <span style={{fontSize:13,fontWeight:700,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</span>
+                    <span onClick={()=>onNavigate&&ptasks[0]&&onNavigate(ptasks[0].propId)} title="Open this property" style={{fontSize:13,fontWeight:700,color:onNavigate?T.blue:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:onNavigate?"pointer":"default",textDecoration:onNavigate?"underline":"none",textUnderlineOffset:2}}>{addr}</span>
                     {confirmDeleteProp===addr
                       ?<div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
                           <span style={{fontSize:12,color:T.red}}>Delete {ptasks.length}?</span>
@@ -4799,7 +4799,10 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
   const chunksRef=useRef([]);
   const cancelRef=useRef(false);
   const timerRef=useRef(null);
+  const taRef=useRef(null);
   useEffect(()=>()=>clearInterval(timerRef.current),[]);
+  // Grow the text box with its content (multi-line paste included), up to a cap.
+  useEffect(()=>{const el=taRef.current;if(!el)return;el.style.height="auto";el.style.height=Math.min(el.scrollHeight,150)+"px";},[text]);
   const tagOptions=(people||[]).filter(n=>n&&n!==currentUser);
   const toggleMention=(n)=>setMentions(prev=>prev.includes(n)?prev.filter(x=>x!==n):[...prev,n]);
   const send=async()=>{
@@ -4910,7 +4913,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
           <button onClick={()=>setPendingAtt(null)} title="Remove" style={{background:"none",border:"none",color:T.textTert,fontSize:20,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
         </div>
       )}
-      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
         {recording?(
           <>
             <button onClick={cancelRec} title="Cancel recording" style={{...iconBtn,color:T.textTert}}>×</button>
@@ -4926,8 +4929,10 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
             <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, PDF, or spreadsheet" style={iconBtn}>📎</button>
             <button onClick={startRec} disabled={busy} title="Record a voice note" style={iconBtn}>🎤</button>
             {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...iconBtn,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
-            <input value={text} onChange={e=>setText(e.target.value)} onPaste={onPasteFiles} onKeyDown={e=>e.key==="Enter"&&canSend&&send()} placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":placeholder)} disabled={busy}
-              style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:22,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit"}}/>
+            <textarea ref={taRef} rows={1} value={text} onChange={e=>setText(e.target.value)} onPaste={onPasteFiles}
+              onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(canSend)send();}}}
+              placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":placeholder)} disabled={busy}
+              style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
             <button onClick={()=>send()} disabled={!canSend} style={{padding:"10px 18px",borderRadius:22,background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
           </>
         )}
@@ -5425,7 +5430,7 @@ export function GoldstoneShell(){
     : active==="messages" ? <MessagingCenter sharedProps={sharedProps} setSharedProps={setSharedProps}/>
     : active==="showings" ? <ShowingsPage/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
-    : active==="tasks" ? <TasksPage/>
+    : active==="tasks" ? <TasksPage onNavigate={navigateToProperty}/>
     : active==="contacts" ? <ContactsPage/>
     : <ComingSoon label={NAV.find(n=>n.key===active)?.label}/>;
 

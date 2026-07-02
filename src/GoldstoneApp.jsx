@@ -337,6 +337,7 @@ const ICONS={
   showings:<Ico p="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" c={[12,12,3]}/>,
   share:<Ico p="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" p2="M16 6l-4-4-4 4" lines={[[12,2,12,15]]}/>,
   sort:<Ico lines={[[3,6,21,6],[3,12,15,12],[3,18,9,18]]}/>,
+  financials:<Ico p="M12 1v22" p2="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>,
 };
 const NAV=[
   {key:"tasks",label:"Tasks",short:"Tasks",icon:ICONS.tasks},
@@ -347,7 +348,10 @@ const NAV=[
   {key:"calendar",label:"Calendar",short:"Calendar",icon:ICONS.calendar},
   {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
   {key:"contacts",label:"Contacts",short:"Contacts",icon:ICONS.contacts},
+  {key:"financials",label:"Financial Section",short:"Financials",icon:ICONS.financials},
 ];
+// Sections only the admin (Elie) can see. Everyone else never gets these nav items.
+const ADMIN_ONLY_KEYS=new Set(["financials"]);
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
 function Card({children,style={}}){return <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",...style}}>{children}</div>;}
@@ -5388,11 +5392,34 @@ function NavMenu({items,active,isPinned,onNavigate,onTogglePin,onClose}){
   );
 }
 
+// ─── Financial Section (admin-only) ───────────────────────────────────────────
+// Placeholder for now — a private space for Elie to build out company-wide
+// financials. Only the admin ever reaches this (nav item + render are gated).
+function FinancialSectionPage(){
+  const isMobile=useIsMobile();
+  return(
+    <div style={{flex:1,overflow:"auto",background:T.bg}}>
+      <div style={{maxWidth:760,margin:"0 auto",padding:isMobile?"20px 16px":"32px 28px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+          <div style={{fontSize:isMobile?22:26,fontWeight:800,color:T.text}}>Financial Section</div>
+          <span style={{fontSize:10,fontWeight:800,background:T.gold,color:"#fff",borderRadius:20,padding:"3px 9px",textTransform:"uppercase",letterSpacing:"0.05em"}}>Private</span>
+        </div>
+        <div style={{fontSize:14,color:T.textSub,marginBottom:22}}>Only you can see this section for now.</div>
+        <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,padding:isMobile?"28px 20px":"40px 32px",textAlign:"center"}}>
+          <div style={{width:60,height:60,borderRadius:16,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",color:T.gold}}>{ICONS.financials}</div>
+          <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Ready to build</div>
+          <div style={{fontSize:14,color:T.textSub,lineHeight:1.6,maxWidth:440,margin:"0 auto"}}>This is your private Financial Section. Tell me what you'd like in here — company-wide P&amp;L, cash on hand, per-deal returns, investor payouts, whatever you have in mind — and I'll build it out.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App Shell ────────────────────────────────────────────────────────────────
 // Members only see Tasks + Properties; admins see the full nav.
-// Which nav tabs non-admin members can open. Currently everyone sees every tab
-// (permissions to be tightened later); narrow this set to restrict members.
-const MEMBER_KEYS = new Set(NAV.map(n=>n.key));
+// Which nav tabs non-admin members can open. Admin-only sections (see
+// ADMIN_ONLY_KEYS) are excluded so members never get them.
+const MEMBER_KEYS = new Set(NAV.map(n=>n.key).filter(k=>!ADMIN_ONLY_KEYS.has(k)));
 
 export function GoldstoneShell(){
   const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers } = useData();
@@ -5489,6 +5516,7 @@ export function GoldstoneShell(){
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage onNavigate={navigateToProperty}/>
     : active==="contacts" ? <ContactsPage/>
+    : active==="financials" ? (isAdmin ? <FinancialSectionPage/> : <ComingSoon label="Financial Section"/>)
     : <ComingSoon label={NAV.find(n=>n.key===active)?.label}/>;
 
   if(loading) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.gold,fontWeight:700,fontSize:16,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif"}}>Loading Goldstone…</div>;

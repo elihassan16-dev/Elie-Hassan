@@ -212,7 +212,7 @@ const TASK_STATUS_COLORS={"Not Started":{bg:"#F2F2F7",color:"#8A8A8E"},"In Progr
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function n(v){const x=parseFloat(String(v).replace(/,/g,""));return isNaN(x)?0:x;}
 function pct(v){const x=parseFloat(String(v));return isNaN(x)?0:x/100;}
-function fmtD(v){return "$"+Math.round(v||0).toLocaleString();}
+function fmtD(v){const x=Math.round(v||0);return (x<0?"-$":"$")+Math.abs(x).toLocaleString();}
 
 function calcP(f){
   const hold=(n(f.annualHoldingCosts)/12)*n(f.holdPeriod);
@@ -1933,15 +1933,16 @@ function QuickBooksTab({property,onUpdate}){
     (data.rows||[]).forEach(r=>{if(r.section==="Income")return;b[qbBucket(r.name)]+=r.amount;});
     const sel=qbImportSel(property);                 // only write the checked lines
     const ch={};
-    // Only write a field when QuickBooks actually has a value (>0). A QuickBooks 0
-    // (e.g. no sale recorded yet) must NEVER overwrite a number you already entered —
-    // that was wiping the actual Sale Price on re-import / auto-sync.
-    const put=(key,val)=>{if(val>0)ch[key]=String(Math.round(val));};
+    // Only write a field when QuickBooks actually has a value (non-zero). A QuickBooks 0
+    // (e.g. no sale recorded yet) must NEVER overwrite a number you already entered — that
+    // was wiping the actual Sale Price on re-import / auto-sync. Negative totals (credits
+    // you booked in QuickBooks) DO import, so a net credit shows as a negative actual.
+    const put=(key,val)=>{if(val!==0)ch[key]=String(Math.round(val));};
     if(sel.income)  put("actualSalePrice",data.income||0);
     if(sel.purchase)put("actualPurchasePrice",b.purchase);
     if(sel.rehab)   put("actualRehabCosts",b.rehab);
     if(sel.buying)  put("actualBuyingCosts",b.buying);
-    if(sel.holding&&b.holding>0){ch.actualHoldingCosts=String(Math.round(b.holding));ch.actualHoldingCostItems=[];}
+    if(sel.holding&&b.holding!==0){ch.actualHoldingCosts=String(Math.round(b.holding));ch.actualHoldingCostItems=[];}
     if(sel.selling) put("actualSellingCosts",b.selling);
     // Debt service / interest is intentionally NOT imported — the app has its own formula.
     if(Object.keys(ch).length===0){if(!auto)setFlash("QuickBooks has no numbers to import for the checked lines yet — your entered values were left as-is.");return;}

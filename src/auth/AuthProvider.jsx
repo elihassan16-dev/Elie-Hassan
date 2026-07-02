@@ -68,6 +68,14 @@ export function AuthProvider({ children }) {
     return error;
   }, [session]);
 
+  // Per-user UI preferences, stored in auth user_metadata (persists across devices
+  // and logins, and is unique to each account). savePrefs merges the given keys.
+  const savePrefs = useCallback(async (patch) => {
+    const { data, error } = await supabase.auth.updateUser({ data: patch });
+    if (!error && data?.user) setSession((s) => (s ? { ...s, user: data.user } : s));
+    return error;
+  }, []);
+
   const value = {
     session,
     user: session?.user || null,
@@ -75,6 +83,8 @@ export function AuthProvider({ children }) {
     role: profile?.role || "member",
     isAdmin: profile?.role === "admin",
     displayName: profile?.name || session?.user?.email || "",
+    prefs: session?.user?.user_metadata || {},
+    savePrefs,
     loading,
     signIn,
     signOut,

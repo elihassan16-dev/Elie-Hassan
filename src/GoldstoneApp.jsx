@@ -3645,7 +3645,7 @@ const MEMBER_KEYS = new Set(["tasks","properties"]);
 
 export function GoldstoneShell(){
   const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError } = useData();
-  const { displayName, role, isAdmin, signOut, updateName } = useAuth();
+  const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs } = useAuth();
   const isMobile = useIsMobile();
 
   const navItems = isAdmin ? NAV : NAV.filter(n=>MEMBER_KEYS.has(n.key));
@@ -3657,16 +3657,16 @@ export function GoldstoneShell(){
   useEffect(()=>{ if(!navItems.find(n=>n.key===active)) setActive(navItems[0]?.key||"tasks"); },[navItems,active]);
 
   // Which sections show on the mobile bottom bar (customizable via the ☰ menu).
-  // null = not customized yet → show them all. Persisted per device.
-  const[pinnedKeys,setPinnedKeys]=useState(()=>loadPref("gs_pinnedTabs",null));
-  useEffect(()=>{ if(pinnedKeys) savePref("gs_pinnedTabs",pinnedKeys); },[pinnedKeys]);
+  // Stored per-user on the account (prefs.pinnedTabs) so it persists across logins
+  // and each team member keeps their own choice. null = not customized → show all.
+  const pinnedKeys=Array.isArray(prefs.pinnedTabs)?prefs.pinnedTabs:null;
   const isPinned=(key)=>!pinnedKeys||pinnedKeys.includes(key);
   const bottomItems=(()=>{ if(!pinnedKeys) return navItems; const chosen=navItems.filter(n=>pinnedKeys.includes(n.key)); return chosen.length?chosen:navItems; })();
-  const togglePin=(key)=>setPinnedKeys(prev=>{
-    const set=new Set(prev||navItems.map(n=>n.key));
+  const togglePin=(key)=>{
+    const set=new Set(pinnedKeys||navItems.map(n=>n.key));
     set.has(key)?set.delete(key):set.add(key);
-    return navItems.map(n=>n.key).filter(k=>set.has(k)); // preserve nav order
-  });
+    savePrefs({pinnedTabs:navItems.map(n=>n.key).filter(k=>set.has(k))}); // preserve nav order
+  };
 
   // Archive / restore / permanent-delete helpers.
   const archiveProperty=useCallback((id)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,archived:true,archivedAt:new Date().toISOString()}:p)),[setSharedProps]);

@@ -3195,12 +3195,15 @@ function TaskRow({t,onStatusChange,onDelete,onContact,onMessage,onAssign,current
     <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,padding:isMobile?"9px 12px":"11px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:"#fff"}}>
       {selBox}
       <span style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text||"(untitled task)"}{t.autoId&&<span style={{marginLeft:5,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}</span>
-      {t.assignedBy&&t.assignedBy!==currentUser
-        ? <span title={`Delegated to you by ${t.assignedBy}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>by {t.assignedBy.split(" ")[0]}</span>
-        : (t.assignedBy===currentUser&&t.assignee&&t.assignee!==currentUser)
-          ? <span title={`You delegated this to ${t.assignee}`} style={{fontSize:10,color:T.gold,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>to {t.assignee.split(" ")[0]}</span>
+      {t.delegate&&t.delegate===currentUser&&t.assignee
+        ? <span title={`You're doing this for ${t.assignee}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>for {t.assignee.split(" ")[0]}</span>
+        : (t.delegate&&t.assignee===currentUser)
+          ? <span title={`You delegated this to ${t.delegate}`} style={{fontSize:10,color:T.blue,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>to {t.delegate.split(" ")[0]}</span>
           : null}
-      <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Assigned to ${t.assignee} — tap to change`:"Delegate to a teammate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",flexShrink:0}}><AssigneeAvatar name={t.assignee} size={24}/></button>
+      <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
+        <AssigneeAvatar name={t.assignee} size={24}/>
+        {t.delegate&&<><span style={{color:T.textTert,fontSize:11,fontWeight:700}}>→</span><AssigneeAvatar name={t.delegate} size={24}/></>}
+      </button>
       {contactBtnEl}
       {msgBtnEl}
       <TaskStatusPicker value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
@@ -3361,13 +3364,18 @@ function TasksPage(){
     if(mentions&&mentions.length)msg.mentions=mentions;
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
   }
-  // Delegate a task: assigning to someone else records who assigned it (assignedBy)
-  // so the assignee sees it came from you; assigning to yourself clears that.
-  function setTaskAssignee(propId,taskId,member){
+  // A task has an owner (assignee = the original responsible person) and an optional
+  // delegate (someone the owner handed the work to). role is "owner" or "delegate".
+  function setTaskRole(propId,taskId,role,member){
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>{
       if(tk.id!==taskId)return tk;
-      if(!member)return {...tk,assignee:"",assignedBy:""};
-      return {...tk,assignee:member,assignedBy:member!==CURRENT_USER?CURRENT_USER:""};
+      if(role==="owner"){
+        if(!member)return {...tk,assignee:"",delegate:""}; // clearing owner clears delegate too
+        return {...tk,assignee:member,delegate:tk.delegate===member?"":tk.delegate};
+      }
+      // delegate
+      if(!member)return {...tk,delegate:""};
+      return {...tk,delegate:member===tk.assignee?"":member}; // no delegating to the owner
     })}));
   }
   // Mark a task's messages read by me when I open its 💬 popup.
@@ -3439,10 +3447,12 @@ function TasksPage(){
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),...clean.map((r,i)=>({id:Date.now()+i,text:r.text,status:"Not Started",assignee:r.assignee,cat:"Custom"}))]}));
   }
 
-  const myTasks=allTasks.filter(t=>t.assignee===CURRENT_USER);
-  // Tasks I delegated to someone else — so I can track whether they're done.
-  const assignedByMe=allTasks.filter(t=>t.assignedBy===CURRENT_USER&&t.assignee&&t.assignee!==CURRENT_USER);
-  const memberTasks=allTasks.filter(t=>t.assignee===filterMember);
+  // On my plate = I'm the delegate, or I'm the owner and it isn't delegated away.
+  const myTasks=allTasks.filter(t=>t.delegate===CURRENT_USER||(t.assignee===CURRENT_USER&&!t.delegate));
+  // Tasks I own and delegated to someone else — so I can track whether they're done.
+  const assignedByMe=allTasks.filter(t=>t.assignee===CURRENT_USER&&t.delegate&&t.delegate!==CURRENT_USER);
+  // A member's plate = they own it or it's delegated to them.
+  const memberTasks=allTasks.filter(t=>t.assignee===filterMember||t.delegate===filterMember);
   const unassignedTasks=allTasks.filter(t=>!t.assignee);
 
   const baseViews=["my","assigned","member","unassigned","all"].filter(v=>views.has(v));
@@ -3469,39 +3479,52 @@ function TasksPage(){
     <div style={{flex:1,display:"flex",flexDirection:"column",background:T.bg,overflow:"hidden"}}>
       {/* Bulk add-tasks popup */}
       {showAddTasks&&<AddTasksModal properties={[...sharedProps.filter(p=>!p.archived)].sort((a,b)=>(a.address||"").localeCompare(b.address||""))} teamMembers={TEAM_MEMBERS} onAdd={addTasksBulk} onClose={()=>setShowAddTasks(false)}/>}
-      {/* Delegate / assign popup */}
-      {taskAssignTarget&&(
+      {/* Assign / delegate popup — owner (original) + optional delegate */}
+      {taskAssignTarget&&(()=>{
+        const liveTask=(sharedProps.find(p=>p.id===taskAssignTarget.propId)?.tasks||[]).find(tk=>tk.id===taskAssignTarget.id)||taskAssignTarget;
+        const owner=liveTask.assignee||"";
+        const delegate=liveTask.delegate||"";
+        const memberRow=(m,active,onClick,color)=>(
+          <div key={m} onClick={onClick} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",cursor:"pointer",background:active?T.goldLight:"transparent"}}
+            onMouseEnter={e=>e.currentTarget.style.background=active?T.goldLight:"#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background=active?T.goldLight:"transparent"}>
+            <AssigneeAvatar name={m} size={28}/>
+            <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:600,color:T.text}}>{m}{m===CURRENT_USER?" (you)":""}</div>
+            {active&&<span style={{fontSize:12,color:color||T.gold,fontWeight:700}}>✓</span>}
+          </div>
+        );
+        const secHdr=(t)=><div style={{padding:"10px 16px 4px",fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>{t}</div>;
+        return(
         <div onClick={()=>setTaskAssignTarget(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(360px,94vw)",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(380px,94vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
             <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight}}>
-              <div style={{fontSize:13,fontWeight:700,color:T.gold}}>Delegate task</div>
+              <div style={{fontSize:13,fontWeight:700,color:T.gold}}>Assign &amp; delegate</div>
               <button onClick={()=>setTaskAssignTarget(null)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
             </div>
-            <div style={{padding:"10px 16px 4px",fontSize:11,color:T.textSub,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Task: {taskAssignTarget.text}</div>
-            <div style={{maxHeight:300,overflowY:"auto",padding:"6px 0 10px"}}>
-              {TEAM_MEMBERS.map(m=>{
-                const isSet=taskAssignTarget.assignee===m;
-                return(
-                  <div key={m} onClick={()=>{setTaskAssignee(taskAssignTarget.propId,taskAssignTarget.id,m);setTaskAssignTarget(null);}}
-                    style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",cursor:"pointer",background:isSet?T.goldLight:"transparent"}}
-                    onMouseEnter={e=>e.currentTarget.style.background=isSet?T.goldLight:"#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background=isSet?T.goldLight:"transparent"}>
-                    <AssigneeAvatar name={m} size={30}/>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:600,color:T.text}}>{m}{m===CURRENT_USER?" (you)":""}</div>
-                    </div>
-                    {isSet&&<span style={{fontSize:12,color:T.gold,fontWeight:700}}>✓</span>}
-                  </div>
-                );
-              })}
-              {taskAssignTarget.assignee&&<div onClick={()=>{setTaskAssignee(taskAssignTarget.propId,taskAssignTarget.id,"");setTaskAssignTarget(null);}}
-                style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`,marginTop:4}}>
-                <span style={{width:30,height:30,borderRadius:"50%",border:`1px dashed ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.textTert,fontSize:16,flexShrink:0}}>×</span>
+            <div style={{padding:"10px 16px 2px",fontSize:11,color:T.textSub,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Task: {taskAssignTarget.text}</div>
+            <div style={{overflowY:"auto"}}>
+              {secHdr("Assigned to (owner)")}
+              {TEAM_MEMBERS.map(m=>memberRow(m,owner===m,()=>setTaskRole(taskAssignTarget.propId,taskAssignTarget.id,"owner",owner===m?"":m)))}
+              {owner&&<div onClick={()=>setTaskRole(taskAssignTarget.propId,taskAssignTarget.id,"owner","")} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",cursor:"pointer"}}>
+                <span style={{width:28,height:28,borderRadius:"50%",border:`1px dashed ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.textTert,fontSize:15,flexShrink:0}}>×</span>
                 <div style={{fontSize:13,fontWeight:600,color:T.red}}>Unassign</div>
               </div>}
+              {owner&&<>
+                <div style={{borderTop:`1px solid ${T.border}`,marginTop:4}}/>
+                {secHdr("Delegate to (optional)")}
+                {TEAM_MEMBERS.filter(m=>m!==owner).map(m=>memberRow(m,delegate===m,()=>setTaskRole(taskAssignTarget.propId,taskAssignTarget.id,"delegate",delegate===m?"":m),T.blue))}
+                {delegate&&<div onClick={()=>setTaskRole(taskAssignTarget.propId,taskAssignTarget.id,"delegate","")} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",cursor:"pointer"}}>
+                  <span style={{width:28,height:28,borderRadius:"50%",border:`1px dashed ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.textTert,fontSize:15,flexShrink:0}}>×</span>
+                  <div style={{fontSize:13,fontWeight:600,color:T.textSub}}>Remove delegate</div>
+                </div>}
+              </>}
+            </div>
+            <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end"}}>
+              <button onClick={()=>setTaskAssignTarget(null)} style={{padding:"9px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Done</button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
       {/* Task messages popup */}
       {taskMsgTarget&&(()=>{
         const liveTask=(sharedProps.find(p=>p.id===taskMsgTarget.propId)?.tasks||[]).find(tk=>tk.id===taskMsgTarget.id);
@@ -3820,14 +3843,14 @@ function AutomationsPanel(){
   const rules=automations||[];
   const[showBuilder,setShowBuilder]=useState(false);
   const[editingId,setEditingId]=useState(null); // rule being edited (null = creating new)
-  const[draft,setDraft]=useState({trigger:"Under Contract",tasks:[{text:"",assignTo:""}]});
+  const[draft,setDraft]=useState({trigger:"Under Contract",tasks:[{text:"",assignTo:"",delegateTo:""}]});
   const bdr=`1px solid ${T.border}`;
-  const blank={trigger:"Under Contract",tasks:[{text:"",assignTo:""}]};
+  const blank={trigger:"Under Contract",tasks:[{text:"",assignTo:"",delegateTo:""}]};
   const startNew=()=>{setEditingId(null);setDraft(blank);setShowBuilder(true);};
-  const startEdit=(auto)=>{setEditingId(auto.id);setDraft({trigger:auto.trigger,tasks:(auto.tasks&&auto.tasks.length?auto.tasks:[{text:"",assignTo:""}]).map(t=>({text:t.text||"",assignTo:t.assignTo||""}))});setShowBuilder(true);};
+  const startEdit=(auto)=>{setEditingId(auto.id);setDraft({trigger:auto.trigger,tasks:(auto.tasks&&auto.tasks.length?auto.tasks:[{text:"",assignTo:"",delegateTo:""}]).map(t=>({text:t.text||"",assignTo:t.assignTo||"",delegateTo:t.delegateTo||""}))});setShowBuilder(true);};
   const cancel=()=>{setShowBuilder(false);setEditingId(null);setDraft(blank);};
   const save=()=>{
-    const validTasks=draft.tasks.filter(t=>t.text.trim()).map(t=>({text:t.text.trim(),assignTo:t.assignTo||"",category:"Automation"}));
+    const validTasks=draft.tasks.filter(t=>t.text.trim()).map(t=>({text:t.text.trim(),assignTo:t.assignTo||"",delegateTo:(t.delegateTo&&t.delegateTo!==t.assignTo)?t.delegateTo:"",category:"Automation"}));
     if(validTasks.length===0)return;
     if(editingId)setAutomations(rules.map(r=>r.id===editingId?{...r,trigger:draft.trigger,tasks:validTasks}:r));
     else setAutomations([...rules,{id:Date.now(),trigger:draft.trigger,tasks:validTasks}]);
@@ -3849,20 +3872,30 @@ function AutomationsPanel(){
           </div>
           <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Tasks to create</div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {draft.tasks.map((task,i)=>(
-              <div key={i} style={{display:"flex",gap:8,alignItems:"center",background:"#fff",borderRadius:T.radiusSm,padding:"8px 10px",border:bdr}}>
-                <input value={task.text} onChange={e=>setDraft(d=>({...d,tasks:d.tasks.map((t,j)=>j===i?{...t,text:e.target.value}:t)}))} placeholder="Task description…"
-                  style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:7,border:bdr,background:"#fff",color:T.text,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-                <select value={task.assignTo} onChange={e=>setDraft(d=>({...d,tasks:d.tasks.map((t,j)=>j===i?{...t,assignTo:e.target.value}:t)}))}
-                  style={{width:130,flexShrink:0,padding:"6px 8px",borderRadius:7,border:bdr,background:"#fff",color:task.assignTo?T.text:T.textTert,fontSize:12,outline:"none",fontFamily:"inherit"}}>
-                  <option value="">— Assign —</option>
-                  {(TEAM_MEMBERS||[]).map(m=><option key={m}>{m}</option>)}
-                </select>
-                {draft.tasks.length>1&&<button onClick={()=>setDraft(d=>({...d,tasks:d.tasks.filter((_,j)=>j!==i)}))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>}
+            {draft.tasks.map((task,i)=>{
+              const selStyle=(v)=>({flex:1,minWidth:0,padding:"6px 8px",borderRadius:7,border:bdr,background:"#fff",color:v?T.text:T.textTert,fontSize:12,outline:"none",fontFamily:"inherit"});
+              return(
+              <div key={i} style={{background:"#fff",borderRadius:T.radiusSm,padding:"8px 10px",border:bdr}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+                  <input value={task.text} onChange={e=>setDraft(d=>({...d,tasks:d.tasks.map((t,j)=>j===i?{...t,text:e.target.value}:t)}))} placeholder="Task description…"
+                    style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:7,border:bdr,background:"#fff",color:T.text,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  {draft.tasks.length>1&&<button onClick={()=>setDraft(d=>({...d,tasks:d.tasks.filter((_,j)=>j!==i)}))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>}
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <select value={task.assignTo} onChange={e=>setDraft(d=>({...d,tasks:d.tasks.map((t,j)=>j===i?{...t,assignTo:e.target.value}:t)}))} style={selStyle(task.assignTo)}>
+                    <option value="">— Owner —</option>
+                    {(TEAM_MEMBERS||[]).map(m=><option key={m}>{m}</option>)}
+                  </select>
+                  <select value={task.delegateTo} onChange={e=>setDraft(d=>({...d,tasks:d.tasks.map((t,j)=>j===i?{...t,delegateTo:e.target.value}:t)}))} disabled={!task.assignTo} style={{...selStyle(task.delegateTo),opacity:task.assignTo?1:0.5}}>
+                    <option value="">— Delegate (optional) —</option>
+                    {(TEAM_MEMBERS||[]).filter(m=>m!==task.assignTo).map(m=><option key={m}>{m}</option>)}
+                  </select>
+                </div>
               </div>
-            ))}
+              );
+            })}
           </div>
-          <button onClick={()=>setDraft(d=>({...d,tasks:[...d.tasks,{text:"",assignTo:""}]}))}
+          <button onClick={()=>setDraft(d=>({...d,tasks:[...d.tasks,{text:"",assignTo:"",delegateTo:""}]}))}
             style={{marginTop:8,width:"100%",padding:"8px",borderRadius:T.radiusSm,background:"transparent",border:`1.5px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600}}>+ Add another task</button>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:14}}>
             <button onClick={cancel} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:"#fff",border:bdr,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Cancel</button>
@@ -3885,9 +3918,10 @@ function AutomationsPanel(){
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
               {tasks.map((t,i)=>(
-                <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:T.bg,borderRadius:T.radiusSm,padding:"8px 12px"}}>
+                <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:T.bg,borderRadius:T.radiusSm,padding:"8px 12px"}}>
                   <span style={{fontSize:13,color:T.text,flex:1}}>{t.text}</span>
                   {t.assignTo&&<span style={{fontSize:11,fontWeight:600,color:T.blue,background:"#EBF4FF",padding:"3px 9px",borderRadius:20,flexShrink:0}}>{t.assignTo}</span>}
+                  {t.delegateTo&&<span title={`Delegated to ${t.delegateTo}`} style={{fontSize:11,fontWeight:600,color:T.gold,background:T.goldLight,padding:"3px 9px",borderRadius:20,flexShrink:0}}>→ {t.delegateTo}</span>}
                 </div>
               ))}
             </div>
@@ -4571,7 +4605,7 @@ export function GoldstoneShell(){
       toApply.forEach((a,ai)=>{
         (a.tasks||[]).forEach((t,ti)=>{
           if(!t.text||!t.text.trim()) return;
-          add.push({id:Date.now()+ai*1000+ti,text:t.text,cat:t.category||"Automation",status:"Not Started",assignee:t.assignTo||"",autoId:a.id});
+          add.push({id:Date.now()+ai*1000+ti,text:t.text,cat:t.category||"Automation",status:"Not Started",assignee:t.assignTo||"",delegate:(t.delegateTo&&t.delegateTo!==t.assignTo)?t.delegateTo:"",autoId:a.id});
         });
         applied.add(a.id);
       });

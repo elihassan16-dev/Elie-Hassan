@@ -4080,17 +4080,17 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                     {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
                   </div>
                 </div>
+                {/* Reply to THIS specific message (notifies its author) */}
+                {!selMode&&<button onClick={()=>setReply(m)} style={{background:"none",border:"none",color:reply&&reply.id===m.id?T.gold:T.textTert,cursor:"pointer",fontSize:11,fontFamily:"inherit",padding:"3px 2px 0",fontWeight:600}}>↩ Reply</button>}
               </div>
             );
           };
-          const replyBtn=(color)=>selMode?null:<button onClick={()=>setReply(root)} style={{background:"none",border:"none",color:color||T.textTert,cursor:"pointer",fontSize:11,fontFamily:"inherit",padding:"3px 2px 0",fontWeight:600}}>↩ Reply</button>;
           // Standalone message — same clean look as before.
           if(replies.length===0){
             return(
               <div key={root.id} style={{display:"flex",flexDirection:"column",alignItems:rootMine?"flex-end":"flex-start"}}>
                 {root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
                 {bubble(root)}
-                {replyBtn()}
               </div>
             );
           }
@@ -4101,11 +4101,10 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                 {root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
                 <span style={{fontSize:10,color:T.textTert}}>{replies.length+1} messages</span>
               </div>
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {bubble(root,{onCard:true})}
                 {replies.map(r=>bubble(r,{small:true,onCard:true}))}
               </div>
-              {!selMode&&<div style={{display:"flex",justifyContent:"flex-end",borderTop:`1px solid ${T.border}`,paddingTop:5}}>{replyBtn(T.gold)}</div>}
             </div>
           );
         })}

@@ -2020,6 +2020,21 @@ function QuickBooksTab({property,onUpdate}){
 
 // ─── Files tab — browse a property's OneDrive/SharePoint folder in-app ─────────
 function fmtBytes(b){if(!b&&b!==0)return"";if(b<1024)return b+" B";const k=b/1024;if(k<1024)return Math.round(k)+" KB";const m=k/1024;return (m<10?m.toFixed(1):Math.round(m))+" MB";}
+// Pick an icon by file type so a spreadsheet, image, PDF, etc. are easy to tell apart.
+function fileIcon(name="",mime=""){
+  const ext=(name.split(".").pop()||"").toLowerCase();
+  const is=(...l)=>l.includes(ext);
+  if(mime.startsWith("image/")||is("jpg","jpeg","png","gif","heic","heif","webp","bmp","tiff","svg"))return "🖼️";
+  if(ext==="pdf"||mime==="application/pdf")return "📕";
+  if(is("xls","xlsx","xlsm","csv","numbers")||mime.includes("spreadsheet"))return "📊";
+  if(is("doc","docx","pages","rtf","odt")||mime.includes("word"))return "📘";
+  if(is("ppt","pptx","key","odp")||mime.includes("presentation"))return "📙";
+  if(mime.startsWith("video/")||is("mp4","mov","avi","mkv","webm"))return "🎬";
+  if(mime.startsWith("audio/")||is("mp3","m4a","wav","aac","ogg"))return "🎵";
+  if(is("zip","rar","7z","tar","gz"))return "🗜️";
+  if(is("txt","md"))return "📃";
+  return "📄";
+}
 function FilesTab({property,onUpdate}){
   const od=useOneDrive();
   const folder=property.filesFolder||null;      // {driveId,id,name} — picked in-app
@@ -2244,7 +2259,7 @@ function FilesTab({property,onUpdate}){
           const dl=it["@microsoft.graph.downloadUrl"];
           return(
             <div key={it.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 16px",borderTop:i===0?"none":`1px solid ${T.border}`}}>
-              <span style={{fontSize:20,flexShrink:0}}>{isFolder?"📁":"📄"}</span>
+              <span style={{fontSize:20,flexShrink:0}}>{isFolder?"📁":fileIcon(it.name,it.file?.mimeType)}</span>
               <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>isFolder?openFolder(it):window.open(it.webUrl,"_blank","noopener")}>
                 <div style={{fontSize:14,fontWeight:500,color:isFolder?T.text:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>
                 <div style={{fontSize:11,color:T.textTert}}>{isFolder?`${it.folder.childCount||0} items`:fmtBytes(it.size)}{it.lastModifiedDateTime?` · ${new Date(it.lastModifiedDateTime).toLocaleDateString()}`:""}</div>

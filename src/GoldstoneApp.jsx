@@ -5404,12 +5404,16 @@ const funderDraws=(f,draws)=>(draws||[]).filter(d=>String(d.funderId)===String(f
 const ledgerSum=(f,type)=>((f.ledger||[]).filter(e=>e.type===type).reduce((s,e)=>s+(Number(e.amount)||0),0));
 const funderStats=(f,draws)=>{
   // Capital he's owed = wires in + reinvested interest − principal he withdrew (± adjustments).
-  // Distributions are interest PAID OUT (his realized profit taken) — they don't reduce capital.
-  const principal=ledgerSum(f,"principal"), reinvest=ledgerSum(f,"reinvest"), distribution=ledgerSum(f,"distribution"), withdrawal=ledgerSum(f,"withdrawal"), adjustment=ledgerSum(f,"adjustment");
-  const capital=principal+reinvest-withdrawal+adjustment;
+  // Reinvested interest GROWS his balance; interest paid out (distribution) does not.
+  const principal=ledgerSum(f,"principal"), withdrawal=ledgerSum(f,"withdrawal"), adjustment=ledgerSum(f,"adjustment");
   const mine=funderDraws(f,draws);
   const open=mine.filter(d=>!d.paybackDate);
   const paid=mine.filter(d=>d.paybackDate);
+  const paidReinvest=paid.filter(d=>d.interestHandling==="reinvest").reduce((s,d)=>s+Math.round(drawInterest(d)),0);
+  const paidDistrib=paid.filter(d=>d.interestHandling==="distribute").reduce((s,d)=>s+Math.round(drawInterest(d)),0);
+  const reinvest=ledgerSum(f,"reinvest")+paidReinvest;             // manual reinvest entries + reinvested payback interest
+  const distribution=ledgerSum(f,"distribution")+paidDistrib;      // manual + interest paid out at payback
+  const capital=principal+reinvest-withdrawal+adjustment;
   const deployed=open.reduce((s,d)=>s+(Number(d.amount)||0),0);
   const interest=open.reduce((s,d)=>s+drawInterest(d),0);           // accruing / owed on open loans
   const interestRealized=paid.reduce((s,d)=>s+drawInterest(d),0);   // earned on closed loans
@@ -5423,15 +5427,22 @@ const LEDGER_TYPES=[
   {v:"adjustment",label:"Adjustment",sign:1,color:T.textSub},
 ];
 // One chronological register per lender: ledger entries + each draw's funded/payback
-// events, time-sorted, with a running available balance (what's un-deployed).
+// events (and the interest's reinvest/paid-out decision), time-sorted, with a running
+// available balance (what's un-deployed). Same-date order: fund → payback → interest.
+const REG_RANK={fund:0,principal:1,withdrawal:1,adjustment:1,payback:2,reinvest:3,distribution:3};
 const funderRegister=(f,draws)=>{
   const ev=[];
   (f.ledger||[]).forEach(e=>ev.push({id:"L"+e.id,kind:e.type,date:e.date||"",amount:Number(e.amount)||0,note:e.note||"",ledgerId:e.id}));
   funderDraws(f,draws).forEach(d=>{
     ev.push({id:"F"+d.id,kind:"fund",date:d.dateFunded||"",amount:Number(d.amount)||0,note:d.propertyLabel||"",draw:d});
-    if(d.paybackDate)ev.push({id:"P"+d.id,kind:"payback",date:d.paybackDate,amount:Number(d.amount)||0,interest:drawInterest(d),note:d.propertyLabel||"",draw:d});
+    if(d.paybackDate){
+      const int=Math.round(drawInterest(d));
+      ev.push({id:"P"+d.id,kind:"payback",date:d.paybackDate,amount:Number(d.amount)||0,interest:int,note:d.propertyLabel||"",draw:d});
+      if(d.interestHandling==="reinvest")ev.push({id:"R"+d.id,kind:"reinvest",date:d.paybackDate,amount:int,note:`Interest reinvested — ${d.propertyLabel||""}`.trim(),draw:d,derived:true});
+      else if(d.interestHandling==="distribute")ev.push({id:"D"+d.id,kind:"distribution",date:d.paybackDate,amount:int,note:`Interest paid out — ${d.propertyLabel||""}`.trim(),draw:d,derived:true});
+    }
   });
-  ev.sort((a,b)=>String(a.date).localeCompare(String(b.date))||(a.kind==="fund"?-1:a.kind==="payback"?1:0));
+  ev.sort((a,b)=>String(a.date).localeCompare(String(b.date))||((REG_RANK[a.kind]??1)-(REG_RANK[b.kind]??1)));
   let bal=0;
   ev.forEach(e=>{
     if(e.kind==="principal"||e.kind==="reinvest"||e.kind==="payback")bal+=e.amount;
@@ -5662,8 +5673,8 @@ function FinRegisterImport({funder,onImport,onClose}){
 // Record a payback on a draw: freeze interest at the payback date and choose whether
 // the interest was reinvested (added to his balance) or paid out to him.
 function FinPaybackModal({draw,onConfirm,onClose}){
-  const[date,setDate]=useState(new Date().toISOString().slice(0,10));
-  const[handling,setHandling]=useState("reinvest");
+  const[date,setDate]=useState(draw.paybackDate||new Date().toISOString().slice(0,10));
+  const[handling,setHandling]=useState(draw.interestHandling||"reinvest");
   const prev={amount:Number(draw.amount)||0,dateFunded:draw.dateFunded,paybackDate:date};
   const days=drawDays(prev), interest=drawInterest(prev);
   const bad=new Date(date)<new Date(draw.dateFunded||date);
@@ -5713,15 +5724,14 @@ function FinancialSectionPage(){
   const saveDraw=(d)=>{setDraws(prev=>prev.some(x=>x.id===d.id)?prev.map(x=>x.id===d.id?d:x):[...prev,d]);save();};
   const delDraw=(id)=>{setDraws(prev=>prev.filter(x=>x.id!==id));save();};
   const markPaid=(d)=>{saveDraw({...d,paybackDate:new Date().toISOString().slice(0,10)});};
-  const recordPayback=(draw,{paybackDate,interest,handling})=>{
-    saveDraw({...draw,paybackDate});
-    if(handling==="reinvest")addLedger(draw.funderId,{id:Date.now(),type:"reinvest",amount:Math.round(interest),date:paybackDate,note:`Interest reinvested — ${draw.propertyLabel||""}`.trim()});
-    else if(handling==="distribute")addLedger(draw.funderId,{id:Date.now()+1,type:"distribution",amount:Math.round(interest),date:paybackDate,note:`Interest paid out — ${draw.propertyLabel||""}`.trim()});
-  };
+  // Store the payback date + interest decision on the draw itself, so it can be
+  // set or changed anytime (including on already-paid draws).
+  const recordPayback=(draw,{paybackDate,handling})=>{saveDraw({...draw,paybackDate,interestHandling:handling});};
   const delEvent=(e)=>{
+    if(e.derived&&e.draw){saveDraw({...e.draw,interestHandling:"leave"});return;} // clear the interest decision
     if(e.ledgerId!=null&&sel)delLedger(sel.id,e.ledgerId);
     else if(e.kind==="fund"&&e.draw){if(window.confirm("Delete this funding (draw)?"))delDraw(e.draw.id);}
-    else if(e.kind==="payback"&&e.draw){if(window.confirm("Reopen this loan (remove the payback)?"))saveDraw({...e.draw,paybackDate:null});}
+    else if(e.kind==="payback"&&e.draw){if(window.confirm("Reopen this loan (remove the payback)?"))saveDraw({...e.draw,paybackDate:null,interestHandling:null});}
   };
 
   const downloadBackup=()=>{
@@ -5804,7 +5814,10 @@ function FinancialSectionPage(){
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:3,flexShrink:0}}>
                 {isOpenFund&&<button onClick={()=>setPaybackModal(e.draw)} style={{background:"none",border:`1px solid ${T.green}`,borderRadius:7,color:T.green,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:"2px 7px",fontFamily:"inherit"}}>Payback</button>}
-                {e.draw&&<button onClick={()=>setDrawModal(e.draw)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:10.5,padding:"2px 7px",fontFamily:"inherit"}}>Edit</button>}
+                {e.kind==="payback"&&e.draw&&(()=>{const h=e.draw.interestHandling;const label=h==="reinvest"?"↩ reinvested":h==="distribute"?"→ paid out":"set interest ▾";const col=h==="reinvest"?T.blue:h==="distribute"?T.red:T.gold;return(
+                  <button onClick={()=>setPaybackModal(e.draw)} title="How was the interest handled?" style={{background:h?"none":T.goldLight,border:`1px solid ${col}`,borderRadius:7,color:col,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:"2px 7px",fontFamily:"inherit",whiteSpace:"nowrap"}}>{label}</button>
+                );})()}
+                {e.kind==="fund"&&e.draw&&<button onClick={()=>setDrawModal(e.draw)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:10.5,padding:"2px 7px",fontFamily:"inherit"}}>Edit</button>}
               </div>
               <button onClick={()=>delEvent(e)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
             </div>

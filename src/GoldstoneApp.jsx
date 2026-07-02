@@ -1,4 +1,3 @@
-// Build marker: financial-section-v1 (force redeploy)
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";
@@ -341,7 +340,6 @@ const ICONS={
   financials:<Ico p="M12 1v22" p2="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>,
 };
 const NAV=[
-  {key:"financials",label:"Financial Section",short:"Financials",icon:ICONS.financials},
   {key:"tasks",label:"Tasks",short:"Tasks",icon:ICONS.tasks},
   {key:"messages",label:"Messages",short:"Messages",icon:ICONS.messages},
   {key:"portfolio",label:"Portfolio Overview",short:"Portfolio",icon:ICONS.portfolio},
@@ -350,6 +348,7 @@ const NAV=[
   {key:"calendar",label:"Calendar",short:"Calendar",icon:ICONS.calendar},
   {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
   {key:"contacts",label:"Contacts",short:"Contacts",icon:ICONS.contacts},
+  {key:"financials",label:"Financial Section",short:"Financials",icon:ICONS.financials},
 ];
 // Sections only the admin (Elie) can see. Everyone else never gets these nav items.
 const ADMIN_ONLY_KEYS=new Set(["financials"]);

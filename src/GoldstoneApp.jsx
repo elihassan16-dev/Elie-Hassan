@@ -3147,7 +3147,7 @@ function AddTaskInline({onAdd}){
 }
 
 // In-app messages/notes on a single task.
-function TaskMessagesPopup({title,messages,currentUser,onSend,onClose}){
+function TaskMessagesPopup({title,messages,currentUser,teamMembers,onSend,onClose}){
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)"}}>
@@ -3163,6 +3163,7 @@ function TaskMessagesPopup({title,messages,currentUser,onSend,onClose}){
               <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
               <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
                 {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.55)":T.gold}`,paddingLeft:8,marginBottom:5,opacity:0.9,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}><b>{m.replyTo.author?m.replyTo.author.split(" ")[0]:"—"}:</b> {m.replyTo.text}</div>}
+                {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                 {m.text}
                 {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
               </div>
@@ -3170,7 +3171,7 @@ function TaskMessagesPopup({title,messages,currentUser,onSend,onClose}){
           );})}
         </div>
         <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`}}>
-          <ChatComposer onSend={(txt,att)=>onSend(txt,att)} placeholder="Write a message…"/>
+          <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn)} people={teamMembers} currentUser={currentUser} placeholder="Write a message…"/>
         </div>
       </div>
     </div>
@@ -3196,12 +3197,23 @@ function TasksPage(){
   const[selectedKeys,setSelectedKeys]=useState(new Set()); // `${propId}:${taskId}`
   const selKey=(t)=>`${t.propId}:${t.id}`;
   const toggleSelect=(t)=>setSelectedKeys(p=>{const n=new Set(p);const k=selKey(t);n.has(k)?n.delete(k):n.add(k);return n;});
-  function addTaskMessage(propId,taskId,text,attachment){
+  function addTaskMessage(propId,taskId,text,attachment,mentions){
     const t=(text||"").trim();if(!t&&!attachment)return;
-    const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString()};
+    const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
     if(attachment)msg.attachment=attachment;
+    if(mentions&&mentions.length)msg.mentions=mentions;
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
   }
+  // Mark a task's messages read by me when I open its 💬 popup.
+  function markTaskRead(propId,taskId){
+    setSharedProps(prev=>prev.map(p=>{
+      if(p.id!==propId)return p;
+      let changed=false;
+      const tasks=(p.tasks||[]).map(tk=>{if(tk.id!==taskId)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};});
+      return changed?{...p,tasks}:p;
+    }));
+  }
+  useEffect(()=>{if(taskMsgTarget)markTaskRead(taskMsgTarget.propId,taskMsgTarget.id);},[taskMsgTarget]);// eslint-disable-line
   function deleteSelected(){
     if(selectedKeys.size===0)return;
     setSharedProps(prev=>prev.map(p=>{
@@ -3284,8 +3296,8 @@ function TasksPage(){
       {/* Task messages popup */}
       {taskMsgTarget&&(()=>{
         const liveTask=(sharedProps.find(p=>p.id===taskMsgTarget.propId)?.tasks||[]).find(tk=>tk.id===taskMsgTarget.id);
-        return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} messages={liveTask?.messages||[]} currentUser={CURRENT_USER}
-          onSend={(txt,att)=>addTaskMessage(taskMsgTarget.propId,taskMsgTarget.id,txt,att)} onClose={()=>setTaskMsgTarget(null)}/>;
+        return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} messages={liveTask?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
+          onSend={(txt,att,mn)=>addTaskMessage(taskMsgTarget.propId,taskMsgTarget.id,txt,att,mn)} onClose={()=>setTaskMsgTarget(null)}/>;
       })()}
       {/* Task contact popup */}
       {taskContactTarget&&(
@@ -3743,25 +3755,31 @@ function MessageAttachment({att,mine}){
     </a>
   );
 }
-// Shared chat input: text + 📎 attach (photo/PDF) + 🎤 voice note (MediaRecorder).
-// onSend(text, attachment|null) — attachment is an already-uploaded {url,name,mime,kind}.
-function ChatComposer({onSend,placeholder="Message…"}){
+// Shared chat input: text + 📎 attach (photo/PDF) + 🎤 voice note (MediaRecorder)
+// + 👥 tag teammates. onSend(text, attachment|null, mentions[]) — mentions is the list
+// of tagged names (empty = everyone). attachment is an uploaded {url,name,mime,kind}.
+function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
   const[text,setText]=useState("");
   const[busy,setBusy]=useState(false);
   const[recording,setRecording]=useState(false);
   const[recSecs,setRecSecs]=useState(0);
   const[err,setErr]=useState("");
+  const[mentions,setMentions]=useState([]); // tagged names ([] = everyone)
+  const[showTag,setShowTag]=useState(false);
   const fileRef=useRef(null);
   const mrRef=useRef(null);
   const chunksRef=useRef([]);
   const cancelRef=useRef(false);
   const timerRef=useRef(null);
   useEffect(()=>()=>clearInterval(timerRef.current),[]);
+  const tagOptions=(people||[]).filter(n=>n&&n!==currentUser);
+  const toggleMention=(n)=>setMentions(prev=>prev.includes(n)?prev.filter(x=>x!==n):[...prev,n]);
   const send=async(att)=>{
     const t=text.trim();
     if(!t&&!att)return;
-    setText("");setErr("");
-    try{ await onSend(t,att||null); }catch{ setErr("Send failed. Try again."); }
+    const mn=mentions;
+    setText("");setErr("");setMentions([]);setShowTag(false);
+    try{ await onSend(t,att||null,mn); }catch{ setErr("Send failed. Try again."); }
   };
   const onPickFile=async(e)=>{
     const file=e.target.files&&e.target.files[0];
@@ -3771,8 +3789,8 @@ function ChatComposer({onSend,placeholder="Message…"}){
     setErr("");setBusy(true);
     try{
       const att=await uploadAttachment(file,"chat");
-      const t=text.trim();setText("");
-      await onSend(t,att);
+      const t=text.trim();const mn=mentions;setText("");setMentions([]);setShowTag(false);
+      await onSend(t,att,mn);
     }catch{ setErr("Upload failed. Try again."); }
     setBusy(false);
   };
@@ -3797,7 +3815,8 @@ function ChatComposer({onSend,placeholder="Message…"}){
         const ext=/mp4|aac|m4a/.test(mr.mimeType||"")?"m4a":"webm";
         const file=new File([blob],`voice-note-${Date.now()}.${ext}`,{type:blob.type||"audio/webm"});
         const att=await uploadAttachment(file,"voice");
-        await onSend("",att);
+        const mn=mentions;setMentions([]);setShowTag(false);
+        await onSend("",att,mn);
       }catch{ setErr("Couldn't send the voice note."); }
       setBusy(false);
     };
@@ -3811,8 +3830,24 @@ function ChatComposer({onSend,placeholder="Message…"}){
   const fmtSecs=(s)=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
   const canSend=!!text.trim()&&!busy;
   return(
-    <div style={{display:"flex",flexDirection:"column",gap:err?6:0}}>
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
       {err&&<div style={{fontSize:11,color:"#FF3B30",fontWeight:600,padding:"0 6px"}}>{err}</div>}
+      {/* Who this message notifies (only while tagging) */}
+      {!recording&&tagOptions.length>0&&(showTag||mentions.length>0)&&(
+        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",padding:"0 4px"}}>
+          <span style={{fontSize:11,color:T.textTert,fontWeight:600}}>{mentions.length?"Notifying:":"Notifies everyone — tap a name:"}</span>
+          {mentions.map(n=>(
+            <span key={n} onClick={()=>toggleMention(n)} style={{fontSize:11,fontWeight:700,color:T.gold,background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:4}}>@{n.split(" ")[0]} ×</span>
+          ))}
+          {showTag&&(
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",width:"100%",marginTop:2,background:T.bg,border:`1px solid ${T.border}`,borderRadius:12,padding:8}}>
+              {tagOptions.map(n=>{const on=mentions.includes(n);return(
+                <button key={n} onClick={()=>toggleMention(n)} style={{fontSize:12,fontWeight:on?700:500,color:on?"#fff":T.textSub,background:on?T.gold:"transparent",border:`1px solid ${on?T.gold:T.border}`,borderRadius:20,padding:"5px 11px",cursor:"pointer",fontFamily:"inherit"}}>{on?"✓ ":""}{n}</button>
+              );})}
+            </div>
+          )}
+        </div>
+      )}
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         {recording?(
           <>
@@ -3828,6 +3863,7 @@ function ChatComposer({onSend,placeholder="Message…"}){
             <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={onPickFile} style={{display:"none"}}/>
             <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo or PDF" style={iconBtn}>📎</button>
             <button onClick={startRec} disabled={busy} title="Record a voice note" style={iconBtn}>🎤</button>
+            {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...iconBtn,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
             <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&canSend&&send()} placeholder={busy?"Uploading…":placeholder} disabled={busy}
               style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:22,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit"}}/>
             <button onClick={()=>send()} disabled={!canSend} style={{padding:"10px 18px",borderRadius:22,background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
@@ -3848,6 +3884,22 @@ const mergePropertyMessages=(p)=>{
   return [...gen,...tsk].sort((a,b)=>(new Date(a.at).getTime()||0)-(new Date(b.at).getTime()||0));
 };
 const msgTime=(iso)=>{const t=new Date(iso).getTime();return isNaN(t)?0:t;};
+// Read/unread: a message is unread for a user when they didn't write it, aren't yet
+// recorded in readBy, and it's addressed to them — either no one was tagged (goes to
+// everyone) or they were one of the tagged people.
+const isUnreadForUser=(m,user)=>{
+  if(!user||m.author===user)return false;
+  if((m.readBy||[]).includes(user))return false;
+  const mentions=m.mentions||[];
+  return mentions.length===0||mentions.includes(user);
+};
+const propUnreadCount=(p,user)=>mergePropertyMessages(p).reduce((n,m)=>n+(isUnreadForUser(m,user)?1:0),0);
+const totalUnread=(props,user)=>(props||[]).filter(p=>!p.archived).reduce((n,p)=>n+propUnreadCount(p,user),0);
+// A small count bubble used on nav items and the property list.
+function UnreadBadge({count,style={}}){
+  if(!count)return null;
+  return <span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:9,background:T.red,color:"#fff",fontSize:11,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",lineHeight:1,boxSizing:"border-box",...style}}>{count>99?"99+":count}</span>;
+}
 // Group a flat, time-sorted list into threads: a root message plus every reply that
 // chains back to it (flattened to one level, so a reply-to-a-reply still nests under
 // the same root). A message with no replies is its own single-message "thread".
@@ -3862,9 +3914,9 @@ const buildMessageThreads=(messages)=>{
   arr.sort((a,b)=>msgTime(a.root.at)-msgTime(b.root.at));
   return arr;
 };
-function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
+function MessageThread({property,messages,currentUser,teamMembers,onSend,onBack,isMobile}){
   const[reply,setReply]=useState(null); // message being replied to
-  const handleSend=async(text,attachment)=>{await onSend(text,reply,attachment);setReply(null);};
+  const handleSend=async(text,attachment,mentions)=>{await onSend(text,reply,attachment,mentions);setReply(null);};
   const threads=buildMessageThreads(messages);
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   const addr=`${property.address}${property.city?`, ${property.city}`:""}`;
@@ -3888,6 +3940,7 @@ function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
               <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"90%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start"}}>
                 <div style={{fontSize:10,color:T.textTert,marginBottom:2}}>{m.author||"—"} · {fmt(m.at)}</div>
                 <div style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`}}>
+                  {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                   {m.text}
                   {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
                 </div>
@@ -3931,27 +3984,39 @@ function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
         </div>
       )}
       <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,background:T.card,flexShrink:0}}>
-        <ChatComposer onSend={handleSend} placeholder={reply?(reply.taskText?"Reply — posts on that task too…":"Reply…"):"Message your team…"}/>
+        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.taskText?"Reply — posts on that task too…":"Reply…"):"Message your team…"}/>
       </div>
     </div>
   );
 }
 function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}){
-  const { currentUser:CURRENT_USER } = useData();
+  const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS } = useData();
   const isMobile=useIsMobile();
   const[selId,setSelId]=useState(initialSelId||null);
   useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);// eslint-disable-line
   const[search,setSearch]=useState("");
   const active=sharedProps.filter(p=>!p.archived);
-  const withMeta=active.map(p=>{const merged=mergePropertyMessages(p);const last=merged[merged.length-1];return {p,last,lastAt:last?new Date(last.at).getTime():0,count:merged.length};});
+  const withMeta=active.map(p=>{const merged=mergePropertyMessages(p);const last=merged[merged.length-1];return {p,last,lastAt:last?new Date(last.at).getTime():0,count:merged.length,unread:merged.reduce((n,m)=>n+(isUnreadForUser(m,CURRENT_USER)?1:0),0)};});
   const q=search.toLowerCase();
   const list=withMeta.filter(x=>(x.p.address+" "+(x.p.city||"")).toLowerCase().includes(q))
     .sort((a,b)=>b.lastAt-a.lastAt||a.p.address.localeCompare(b.p.address));
   const sel=active.find(p=>p.id===selId);
-  const send=(text,replyTarget,attachment)=>{
+  // Mark every message in the open property as read by me (clears its unread tag).
+  const markRead=(propId)=>setSharedProps(prev=>prev.map(p=>{
+    if(p.id!==propId)return p;
+    let changed=false;
+    const mark=(arr)=>(arr||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});
+    const messages=mark(p.messages);
+    const tasks=(p.tasks||[]).map(t=>({...t,messages:mark(t.messages)}));
+    return changed?{...p,messages,tasks}:p;
+  }));
+  const selUnread=sel?propUnreadCount(sel,CURRENT_USER):0;
+  useEffect(()=>{if(sel&&selUnread>0)markRead(sel.id);},[selId,selUnread]);// eslint-disable-line
+  const send=(text,replyTarget,attachment,mentions)=>{
     const t=(text||"").trim();if((!t&&!attachment)||!sel)return;
-    const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString()};
+    const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
     if(attachment)msg.attachment=attachment;
+    if(mentions&&mentions.length)msg.mentions=mentions;
     if(replyTarget){msg.replyToId=replyTarget.id;msg.replyTo={author:replyTarget.author||"",text:(replyTarget.text||"").slice(0,140),taskText:replyTarget.taskText||null};}
     if(replyTarget&&replyTarget.taskId){
       // Reply to a task message → post it onto that task so it shows at the task's 💬 too.
@@ -3974,17 +4039,21 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
           {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No properties.</div>}
-          {list.map(({p,last,count})=>{
+          {list.map(({p,last,unread})=>{
             const isActive=p.id===selId;
             const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
+            const hasUnread=unread>0&&!isActive;
             return(
               <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?T.goldLight:"transparent",borderLeft:isActive?`3px solid ${T.gold}`:"3px solid transparent"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
-                  <span style={{fontWeight:isActive?700:600,fontSize:13,color:isActive?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</span>
-                  {last&&<span style={{fontSize:10,color:T.textTert,flexShrink:0}}>{fmtShort(last.at)}</span>}
+                  <span style={{fontWeight:hasUnread||isActive?700:600,fontSize:13,color:isActive?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{addr}</span>
+                  {last&&<span style={{fontSize:10,color:hasUnread?T.red:T.textTert,fontWeight:hasUnread?700:400,flexShrink:0}}>{fmtShort(last.at)}</span>}
                 </div>
-                <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                  {last?<>{last.taskText?<span title={`On task: ${last.taskText}`} style={{color:"#b8912e"}}>↳ </span>:null}{last.author?`${last.author.split(" ")[0]}: `:""}{last.text}</>:<span style={{color:T.textTert}}>No messages yet</span>}
+                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
+                  <div style={{flex:1,minWidth:0,fontSize:12,color:hasUnread?T.text:T.textSub,fontWeight:hasUnread?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {last?<>{last.taskText?<span title={`On task: ${last.taskText}`} style={{color:"#b8912e"}}>↳ </span>:null}{last.author?`${last.author.split(" ")[0]}: `:""}{last.text||(last.attachment?(last.attachment.kind==="image"?"📷 Photo":last.attachment.kind==="audio"?"🎤 Voice note":"📎 Attachment"):"")}</>:<span style={{color:T.textTert}}>No messages yet</span>}
+                  </div>
+                  {hasUnread&&<UnreadBadge count={unread}/>}
                 </div>
               </div>
             );
@@ -3993,7 +4062,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       </div>
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
         {sel
-          ? <MessageThread property={sel} messages={mergePropertyMessages(sel)} currentUser={CURRENT_USER} onSend={send} onBack={()=>setSelId(null)} isMobile={isMobile}/>
+          ? <MessageThread property={sel} messages={mergePropertyMessages(sel)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onBack={()=>setSelId(null)} isMobile={isMobile}/>
           : <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:12,color:T.textSub}}>
               <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>💬</div>
               <div style={{fontSize:16,fontWeight:600}}>Select a property</div>
@@ -4080,6 +4149,7 @@ export function GoldstoneShell(){
   const isMobile = useIsMobile();
 
   const navItems = isAdmin ? NAV : NAV.filter(n=>MEMBER_KEYS.has(n.key));
+  const unreadTotal = totalUnread(sharedProps, displayName);
   const[active,setActive]=useState(isAdmin?"properties":"tasks");
   const[navPropId,setNavPropId]=useState(null);
   const[showSettings,setShowSettings]=useState(false);
@@ -4167,7 +4237,7 @@ export function GoldstoneShell(){
           </div>
         </div>
         <nav style={{flex:1,padding:"12px 10px"}}>
-          {navItems.map(({key,label,icon})=>{const isActive=active===key;return <button key={key} onClick={()=>setActive(key)} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:"none",background:isActive?T.goldLight:"transparent",color:isActive?T.gold:T.textSub,fontWeight:isActive?600:400,fontSize:14,cursor:"pointer",marginBottom:2,transition:"all 0.15s",textAlign:"left",fontFamily:"inherit"}}><span style={{color:isActive?T.gold:T.textTert}}>{icon}</span>{label}</button>;})}
+          {navItems.map(({key,label,icon})=>{const isActive=active===key;return <button key={key} onClick={()=>setActive(key)} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:"none",background:isActive?T.goldLight:"transparent",color:isActive?T.gold:T.textSub,fontWeight:isActive?600:400,fontSize:14,cursor:"pointer",marginBottom:2,transition:"all 0.15s",textAlign:"left",fontFamily:"inherit"}}><span style={{color:isActive?T.gold:T.textTert}}>{icon}</span>{label}{key==="messages"&&<UnreadBadge count={unreadTotal} style={{marginLeft:"auto"}}/>}</button>;})}
         </nav>
         <div style={{padding:"14px 16px",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:"#fff",flexShrink:0}}>{initials}</div>
@@ -4196,11 +4266,11 @@ export function GoldstoneShell(){
         <nav className="gs-tabbar" style={{display:"flex",background:T.card,borderTop:`1px solid ${T.border}`,flexShrink:0,paddingTop:4}}>
           {bottomItems.map(({key,label,short,icon})=>{const isActive=active===key;return(
             <button key={key} onClick={()=>setActive(key)} style={{flex:1,minWidth:0,minHeight:52,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,border:"none",background:"transparent",color:isActive?T.gold:T.textTert,cursor:"pointer",fontFamily:"inherit",padding:"4px 2px",overflow:"hidden"}}>
-              <span style={{color:isActive?T.gold:T.textTert}}>{icon}</span>
+              <span style={{color:isActive?T.gold:T.textTert,position:"relative",display:"inline-flex"}}>{icon}{key==="messages"&&unreadTotal>0&&<UnreadBadge count={unreadTotal} style={{position:"absolute",top:-6,left:12,minWidth:16,height:16,fontSize:10}}/>}</span>
               <span style={{fontSize:10,fontWeight:isActive?700:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{short||label}</span>
             </button>);})}
           <button onClick={()=>setShowNavMenu(true)} title="More" style={{flex:1,minWidth:0,minHeight:52,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,border:"none",background:"transparent",color:T.textTert,cursor:"pointer",fontFamily:"inherit",padding:"4px 2px",overflow:"hidden"}}>
-            <span style={{fontSize:18,lineHeight:1}}>☰</span>
+            <span style={{fontSize:18,lineHeight:1,position:"relative",display:"inline-flex"}}>☰{unreadTotal>0&&!bottomItems.some(n=>n.key==="messages")&&<UnreadBadge count={unreadTotal} style={{position:"absolute",top:-6,left:14,minWidth:16,height:16,fontSize:10}}/>}</span>
             <span style={{fontSize:10,fontWeight:500}}>More</span>
           </button>
         </nav>

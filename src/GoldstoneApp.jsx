@@ -3710,6 +3710,14 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
 }
 
 // ─── Messaging Center — team chat organized per property ──────────────────────
+// Merge a property's general messages with all of its task messages (tagged with
+// the task they came from), sorted oldest→newest — so task chatter shows up in the
+// property's history too.
+const mergePropertyMessages=(p)=>{
+  const gen=(p.messages||[]).map(m=>({...m,taskText:null}));
+  const tsk=(p.tasks||[]).flatMap(t=>(t.messages||[]).map(m=>({...m,taskText:t.text||"Untitled task"})));
+  return [...gen,...tsk].sort((a,b)=>(new Date(a.at).getTime()||0)-(new Date(b.at).getTime()||0));
+};
 function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
   const[text,setText]=useState("");
   const send=()=>{const t=text.trim();if(!t)return;onSend(t);setText("");};
@@ -3724,9 +3732,10 @@ function MessageThread({property,messages,currentUser,onSend,onBack,isMobile}){
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
         {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"30px 0"}}>No messages yet for this property. Start the conversation below.</div>}
-        {messages.map(m=>{const mine=m.author===currentUser;return(
-          <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
+        {messages.map((m,i)=>{const mine=m.author===currentUser;return(
+          <div key={`${m.taskText?"t":"g"}-${m.id}-${i}`} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
             <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
+            {m.taskText&&<div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start",marginBottom:3}}><span title="This message was posted on a task" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>↳ Task: {m.taskText}</span></div>}
             <div style={{background:mine?T.gold:T.card,color:mine?"#fff":T.text,borderRadius:14,padding:"9px 13px",fontSize:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:T.shadow}}>{m.text}</div>
           </div>
         );})}
@@ -3746,7 +3755,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);// eslint-disable-line
   const[search,setSearch]=useState("");
   const active=sharedProps.filter(p=>!p.archived);
-  const withMeta=active.map(p=>{const msgs=p.messages||[];const last=msgs[msgs.length-1];return {p,last,lastAt:last?new Date(last.at).getTime():0,count:msgs.length};});
+  const withMeta=active.map(p=>{const merged=mergePropertyMessages(p);const last=merged[merged.length-1];return {p,last,lastAt:last?new Date(last.at).getTime():0,count:merged.length};});
   const q=search.toLowerCase();
   const list=withMeta.filter(x=>(x.p.address+" "+(x.p.city||"")).toLowerCase().includes(q))
     .sort((a,b)=>b.lastAt-a.lastAt||a.p.address.localeCompare(b.p.address));
@@ -3776,7 +3785,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
                   {last&&<span style={{fontSize:10,color:T.textTert,flexShrink:0}}>{fmtShort(last.at)}</span>}
                 </div>
                 <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                  {last?<>{last.author?`${last.author.split(" ")[0]}: `:""}{last.text}</>:<span style={{color:T.textTert}}>No messages yet</span>}
+                  {last?<>{last.taskText?<span title={`On task: ${last.taskText}`} style={{color:"#b8912e"}}>↳ </span>:null}{last.author?`${last.author.split(" ")[0]}: `:""}{last.text}</>:<span style={{color:T.textTert}}>No messages yet</span>}
                 </div>
               </div>
             );
@@ -3785,7 +3794,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       </div>
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
         {sel
-          ? <MessageThread property={sel} messages={sel.messages||[]} currentUser={CURRENT_USER} onSend={send} onBack={()=>setSelId(null)} isMobile={isMobile}/>
+          ? <MessageThread property={sel} messages={mergePropertyMessages(sel)} currentUser={CURRENT_USER} onSend={send} onBack={()=>setSelId(null)} isMobile={isMobile}/>
           : <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:12,color:T.textSub}}>
               <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>💬</div>
               <div style={{fontSize:16,fontWeight:600}}>Select a property</div>

@@ -3555,6 +3555,38 @@ function ProfileModal({current,onSave,onClose}){
   );
 }
 
+// ─── Mobile nav menu — all sections + pin/unpin which show on the bottom bar ──
+function NavMenu({items,active,isPinned,onNavigate,onTogglePin,onClose}){
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderTopLeftRadius:20,borderTopRightRadius:20,width:"100%",maxWidth:520,maxHeight:"82vh",overflowY:"auto",boxShadow:"0 -8px 40px rgba(0,0,0,0.2)",paddingBottom:"max(12px,env(safe-area-inset-bottom))"}}>
+        <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"#fff"}}>
+          <div>
+            <div style={{fontSize:16,fontWeight:700,color:T.text}}>Menu</div>
+            <div style={{fontSize:12,color:T.textSub,marginTop:1}}>Tap to open · pin the ones you want on the bottom bar</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{padding:8}}>
+          {items.map(({key,label,icon})=>{
+            const pinned=isPinned(key);const activeItem=active===key;
+            return(
+              <div key={key} style={{display:"flex",alignItems:"center",gap:12,padding:"12px",borderRadius:T.radiusSm,background:activeItem?T.goldLight:"transparent"}}>
+                <button onClick={()=>onNavigate(key)} style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:12,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left",padding:0}}>
+                  <span style={{color:activeItem?T.gold:T.textTert}}>{icon}</span>
+                  <span style={{fontSize:15,fontWeight:activeItem?700:500,color:activeItem?T.gold:T.text}}>{label}</span>
+                </button>
+                <button onClick={()=>onTogglePin(key)} title={pinned?"Unpin from bottom bar":"Pin to bottom bar"}
+                  style={{background:pinned?T.goldLight:"transparent",border:`1px solid ${pinned?T.gold:T.border}`,borderRadius:20,padding:"5px 12px",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,color:pinned?T.gold:T.textSub,flexShrink:0}}>{pinned?"📌 Pinned":"Pin"}</button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App Shell ────────────────────────────────────────────────────────────────
 // Members only see Tasks + Properties; admins see the full nav.
 const MEMBER_KEYS = new Set(["tasks","properties"]);
@@ -3569,7 +3601,20 @@ export function GoldstoneShell(){
   const[navPropId,setNavPropId]=useState(null);
   const[showSettings,setShowSettings]=useState(false);
   const[showProfile,setShowProfile]=useState(false);
+  const[showNavMenu,setShowNavMenu]=useState(false);
   useEffect(()=>{ if(!navItems.find(n=>n.key===active)) setActive(navItems[0]?.key||"tasks"); },[navItems,active]);
+
+  // Which sections show on the mobile bottom bar (customizable via the ☰ menu).
+  // null = not customized yet → show them all. Persisted per device.
+  const[pinnedKeys,setPinnedKeys]=useState(()=>loadPref("gs_pinnedTabs",null));
+  useEffect(()=>{ if(pinnedKeys) savePref("gs_pinnedTabs",pinnedKeys); },[pinnedKeys]);
+  const isPinned=(key)=>!pinnedKeys||pinnedKeys.includes(key);
+  const bottomItems=(()=>{ if(!pinnedKeys) return navItems; const chosen=navItems.filter(n=>pinnedKeys.includes(n.key)); return chosen.length?chosen:navItems; })();
+  const togglePin=(key)=>setPinnedKeys(prev=>{
+    const set=new Set(prev||navItems.map(n=>n.key));
+    set.has(key)?set.delete(key):set.add(key);
+    return navItems.map(n=>n.key).filter(k=>set.has(k)); // preserve nav order
+  });
 
   // Archive / restore / permanent-delete helpers.
   const archiveProperty=useCallback((id)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,archived:true,archivedAt:new Date().toISOString()}:p)),[setSharedProps]);
@@ -3649,7 +3694,7 @@ export function GoldstoneShell(){
       <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{minHeight:54,padding:isMobile?"max(8px,env(safe-area-inset-top)) 16px 8px":"0 24px",borderBottom:`1px solid ${T.border}`,background:T.card,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            {isMobile&&<div style={{width:30,height:30,borderRadius:8,background:`linear-gradient(135deg,${T.goldMid},${T.gold})`,display:"flex",alignItems:"center",justifyContent:"center",color:T.goldLight,fontFamily:"Georgia,serif",fontWeight:700,fontSize:18}}>G</div>}
+            {isMobile&&<button onClick={()=>setShowNavMenu(true)} title="Menu" aria-label="Open menu" style={{width:34,height:34,borderRadius:8,background:`linear-gradient(135deg,${T.goldMid},${T.gold})`,display:"flex",alignItems:"center",justifyContent:"center",color:T.goldLight,fontFamily:"Georgia,serif",fontWeight:700,fontSize:18,border:"none",cursor:"pointer",padding:0}}>G</button>}
             <div style={{fontWeight:700,fontSize:17,color:T.text}}>{NAV.find(n=>n.key===active)?.label}</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -3665,13 +3710,18 @@ export function GoldstoneShell(){
       </main>
       {isMobile&&(
         <nav className="gs-tabbar" style={{display:"flex",background:T.card,borderTop:`1px solid ${T.border}`,flexShrink:0,paddingTop:4}}>
-          {navItems.map(({key,label,short,icon})=>{const isActive=active===key;return(
+          {bottomItems.map(({key,label,short,icon})=>{const isActive=active===key;return(
             <button key={key} onClick={()=>setActive(key)} style={{flex:1,minWidth:0,minHeight:52,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,border:"none",background:"transparent",color:isActive?T.gold:T.textTert,cursor:"pointer",fontFamily:"inherit",padding:"4px 2px",overflow:"hidden"}}>
               <span style={{color:isActive?T.gold:T.textTert}}>{icon}</span>
               <span style={{fontSize:10,fontWeight:isActive?700:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{short||label}</span>
             </button>);})}
+          <button onClick={()=>setShowNavMenu(true)} title="More" style={{flex:1,minWidth:0,minHeight:52,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,border:"none",background:"transparent",color:T.textTert,cursor:"pointer",fontFamily:"inherit",padding:"4px 2px",overflow:"hidden"}}>
+            <span style={{fontSize:18,lineHeight:1}}>☰</span>
+            <span style={{fontSize:10,fontWeight:500}}>More</span>
+          </button>
         </nav>
       )}
+      {showNavMenu&&<NavMenu items={navItems} active={active} isPinned={isPinned} onNavigate={(k)=>{setActive(k);setShowNavMenu(false);}} onTogglePin={togglePin} onClose={()=>setShowNavMenu(false)}/>}
       {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}/>}
       {showProfile&&<ProfileModal current={displayName} onSave={updateName} onClose={()=>setShowProfile(false)}/>}
     </div>

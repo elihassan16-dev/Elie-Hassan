@@ -142,6 +142,14 @@ export function DataProvider({ children }) {
     if (!error && data) setTeam(data);
   }, []);
 
+  // Admin-only: mute/unmute a teammate's notifications (RLS lets admins update any user row).
+  const setUserMuted = useCallback(async (userId, muted) => {
+    const { error } = await supabase.from("users").update({ notify_muted: muted }).eq("id", userId);
+    if (error) return error;
+    await loadTeam();
+    return null;
+  }, [loadTeam]);
+
   const seedIfEmpty = useCallback(async () => {
     if (!isAdmin || seededRef.current) return;
     seededRef.current = true;
@@ -224,6 +232,7 @@ export function DataProvider({ children }) {
     flushOffice: officeC.flushNow,
     team,
     teamMembers,
+    setUserMuted,
     currentUser: displayName,
     saveError,
     clearSaveError: () => setSaveError(null),

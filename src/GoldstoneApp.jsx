@@ -5521,9 +5521,10 @@ function ProfileModal({current,onSave,onClose}){
 }
 
 // ─── Profile / team menu — opens from the EH avatar ───────────────────────────
-function ProfileMenu({displayName,role,isAdmin,teamMembers,onEditName,onAddTeammate,onSignOut,onClose}){
+function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,onEditName,onAddTeammate,onSignOut,onClose}){
   const initials=initialsOf(displayName)||"?";
   const others=(teamMembers||[]).filter(Boolean);
+  const rows=(team&&team.length)?team:null; // full user rows (for the admin mute switch)
   const rowBtn={display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 20px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:14,color:T.text,textAlign:"left"};
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:410,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(4px)"}}>
@@ -5539,14 +5540,25 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,onEditName,onAddTeamm
         <button onClick={onEditName} style={rowBtn}><span style={{fontSize:16,width:22,textAlign:"center"}}>✎</span> Edit your name</button>
         <NotificationToggle displayName={displayName}/>
         {isAdmin&&<button onClick={onAddTeammate} style={{...rowBtn,color:T.gold,fontWeight:700,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:18,width:22,textAlign:"center"}}>＋</span> Add a teammate</button>}
-        <div style={{padding:"12px 20px 6px",fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",borderTop:`1px solid ${T.border}`}}>Team ({others.length})</div>
+        <div style={{padding:"12px 20px 6px",fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",borderTop:`1px solid ${T.border}`}}>Team ({others.length}){isAdmin&&rows&&<span style={{textTransform:"none",fontWeight:400,letterSpacing:0}}> · tap 🔔 to mute someone</span>}</div>
         <div style={{padding:"0 20px 8px",display:"flex",flexDirection:"column",gap:2}}>
-          {others.map(m=>(
-            <div key={m} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0"}}>
-              <AssigneeAvatar name={m} size={28}/>
-              <div style={{fontSize:13.5,color:T.text}}>{m}{m===displayName?" (you)":""}</div>
-            </div>
-          ))}
+          {isAdmin&&rows
+            ? rows.map(u=>{const nm=u.name||u.email;const muted=!!u.notify_muted;const isSelf=nm===displayName;return(
+                <div key={u.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0"}}>
+                  <AssigneeAvatar name={nm} size={28}/>
+                  <div style={{flex:1,minWidth:0,fontSize:13.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nm}{isSelf?" (you)":""}</div>
+                  <button onClick={()=>setUserMuted&&setUserMuted(u.id,!muted)} title={muted?"Notifications muted — tap to allow":"Notifications on — tap to mute"}
+                    style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:16,border:`1px solid ${muted?T.border:T.green}`,background:muted?T.bg:"#EDFBF1",color:muted?T.textTert:"#15803D",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
+                    {muted?"🔕 Muted":"🔔 On"}
+                  </button>
+                </div>
+              );})
+            : others.map(m=>(
+                <div key={m} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0"}}>
+                  <AssigneeAvatar name={m} size={28}/>
+                  <div style={{fontSize:13.5,color:T.text}}>{m}{m===displayName?" (you)":""}</div>
+                </div>
+              ))}
         </div>
         <button onClick={onSignOut} style={{...rowBtn,color:T.red,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:16,width:22,textAlign:"center"}}>⎋</span> Sign out</button>
       </div>
@@ -5559,11 +5571,23 @@ function NotificationToggle({displayName}){
   const[perm,setPerm]=useState(supported?notificationPermission():"unsupported");
   const[busy,setBusy]=useState(false);
   const[err,setErr]=useState("");
+  const[testMsg,setTestMsg]=useState("");
   const on=perm==="granted";
   const enable=async()=>{
-    setBusy(true);setErr("");
+    setBusy(true);setErr("");setTestMsg("");
     try{ await enablePush(displayName); setPerm("granted"); }
     catch(e){ setErr(e.message||"Couldn't enable notifications."); setPerm(notificationPermission()); }
+    setBusy(false);
+  };
+  const sendTest=async()=>{
+    setBusy(true);setErr("");setTestMsg("Sending…");
+    try{
+      const r=await qbAuthFetch("/api/notify/test",{method:"POST"});
+      if(r.push==="sent") setTestMsg("Sent! Watch for the banner"+(r.email==="sent"?" and email.":". (Email off.)"));
+      else if(r.push==="no-subscriptions") setTestMsg("This device isn't registered yet — tap “Turn on notifications” above first.");
+      else if(r.push==="no-vapid-keys") setTestMsg("Server missing VAPID keys — add them in Vercel and redeploy.");
+      else setTestMsg(`Push: ${r.push}${r.subscriptions?` (${r.subscriptions} device${r.subscriptions>1?"s":""})`:""} · Email: ${r.email}`);
+    }catch(e){ setErr(e.message||"Test failed."); setTestMsg(""); }
     setBusy(false);
   };
   const rowBtn={display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 20px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:14,color:T.text,textAlign:"left",borderTop:`1px solid ${T.border}`};
@@ -5575,6 +5599,8 @@ function NotificationToggle({displayName}){
         {on&&<span style={{fontSize:12,fontWeight:700,color:T.green}}>✓ On</span>}
         {!on&&supported&&!busy&&<span style={{fontSize:12,fontWeight:700,color:T.blue}}>Enable ›</span>}
       </button>
+      {on&&<button onClick={sendTest} disabled={busy} style={{...rowBtn,paddingTop:6,paddingBottom:12,color:T.blue,fontSize:13,cursor:busy?"default":"pointer"}}><span style={{width:22,textAlign:"center"}}>📨</span><span style={{flex:1}}>Send a test notification to me</span></button>}
+      {testMsg&&<div style={{padding:"0 20px 10px 54px",fontSize:12,color:T.textSub,lineHeight:1.5}}>{testMsg}</div>}
       {err&&<div style={{padding:"0 20px 10px 54px",fontSize:12,color:T.red}}>{err}</div>}
       {!supported&&<div style={{padding:"0 20px 10px 54px",fontSize:11.5,color:T.textTert,lineHeight:1.5}}>On iPhone: add this app to your Home Screen (Share → Add to Home Screen), open it from there, then turn on notifications.</div>}
     </div>
@@ -6300,7 +6326,7 @@ function FinancialSectionPage({onNavigate}){
 const MEMBER_KEYS = new Set(NAV.map(n=>n.key).filter(k=>!ADMIN_ONLY_KEYS.has(k)));
 
 export function GoldstoneShell(){
-  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, officeMessages } = useData();
+  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, officeMessages } = useData();
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs } = useAuth();
   const isMobile = useIsMobile();
 
@@ -6481,7 +6507,7 @@ export function GoldstoneShell(){
       )}
       {showNavMenu&&<NavMenu items={navItems} active={active} isPinned={isPinned} onNavigate={(k)=>{setActive(k);setShowNavMenu(false);}} onTogglePin={togglePin} onClose={()=>setShowNavMenu(false)}/>}
       {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}/>}
-      {showProfileMenu&&<ProfileMenu displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers}
+      {showProfileMenu&&<ProfileMenu displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted}
         onEditName={()=>{setShowProfileMenu(false);setShowProfile(true);}}
         onAddTeammate={()=>{setShowProfileMenu(false);setShowAddTeammate(true);}}
         onSignOut={signOut} onClose={()=>setShowProfileMenu(false)}/>}

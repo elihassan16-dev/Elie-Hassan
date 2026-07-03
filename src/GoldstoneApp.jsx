@@ -5784,74 +5784,21 @@ function FinPaybackModal({draw,onConfirm,onClose}){
 const propAllIn=(f)=>{const useAct=!!(f&&f.useActualProfit);const g=(act,proj)=>{const a=n(f[act]);return useAct&&a?a:n(f[proj]);};return g("actualPurchasePrice","purchasePrice")+g("actualBuyingCosts","buyingCosts")+g("actualRehabCosts","rehabCosts");};
 const propHmLoan=(f)=>{const a=n(f&&f.acHmLoanAmt);if(a)return a;return Math.round(n(f&&f.purchasePrice)*(n((f&&f.hmLoanPct)||90)/100));};
 
-// ── Property BS Report ────────────────────────────────────────────────────────
-// Per-property balance sheet: all-in cost vs financing (HM loan + auto-matched LOC)
-// → your equity/exposure in each deal. Reads live from Properties + the LOC draws.
-function FinPropertyBS({sharedProps,draws,onNavigate,isMobile}){
-  const props=[...(sharedProps||[]).filter(p=>!p.archived&&p.status!=="New Leads")].sort((a,b)=>(a.address||"").localeCompare(b.address||""));
-  const rows=props.map(p=>{const f=p.financials||{};const allIn=propAllIn(f);const loc=drawsForProperty(p,draws).reduce((s,d)=>s+(Number(d.amount)||0),0);const hm=propHmLoan(f);const loans=hm+loc;return {p,allIn,loc,hm,loans,exposure:allIn-loans};});
-  const tot=rows.reduce((a,r)=>{a.allIn+=r.allIn;a.loc+=r.loc;a.hm+=r.hm;a.loans+=r.loans;a.exposure+=r.exposure;return a;},{allIn:0,loc:0,hm:0,loans:0,exposure:0});
-  const gcol=isMobile?"1.5fr 1fr 1fr 1fr":"2.2fr 1fr 1fr 1fr 1.1fr";
-  const cell=(v,c,bold)=>(<div style={{textAlign:"right",fontVariantNumeric:"tabular-nums",fontSize:isMobile?11:12.5,fontWeight:bold?800:600,color:c||T.text,overflow:"hidden",textOverflow:"ellipsis"}}>{fmtD(v)}</div>);
+// ── Property BS Report / Bank Reconciliation — placeholders (designing together) ─
+function FinComingSoon({title,note}){
+  const isMobile=useIsMobile();
   return(
-    <div style={{flex:1,overflowY:"auto",padding:isMobile?"12px 12px 40px":"18px 24px 40px"}}>
-      <div style={{fontSize:12,color:T.textTert,marginBottom:12}}>All-in cost (from your actuals) vs financing (HM loan + auto-matched line of credit). <b>Exposure = all-in − loans</b> — your own capital in the deal (negative = over-financed / cash pulled out).</div>
-      <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden"}}>
-        <div style={{display:"grid",gridTemplateColumns:gcol,gap:8,padding:"9px 14px",background:"#FAFAFA",borderBottom:`1px solid ${T.border}`,fontSize:9.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>
-          <span>Property</span><span style={{textAlign:"right"}}>All-in</span>{!isMobile&&<span style={{textAlign:"right"}}>HM loan</span>}<span style={{textAlign:"right"}}>LOC</span><span style={{textAlign:"right"}}>Exposure</span>
-        </div>
-        {rows.length===0&&<div style={{padding:20,textAlign:"center",color:T.textTert,fontSize:13}}>No properties.</div>}
-        {rows.map(r=>(
-          <div key={r.p.id} onClick={()=>onNavigate&&onNavigate(r.p.id)} style={{display:"grid",gridTemplateColumns:gcol,gap:8,padding:"10px 14px",borderTop:`1px solid ${T.border}`,cursor:onNavigate?"pointer":"default",alignItems:"center"}}>
-            <div style={{minWidth:0}}><div style={{fontSize:isMobile?12:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.p.address}{r.p.city?`, ${r.p.city}`:""}</div><div style={{fontSize:10,color:(SC[r.p.status]||{}).color}}>{r.p.status}</div></div>
-            {cell(r.allIn)}{!isMobile&&cell(r.hm,T.textSub)}{cell(r.loc,T.gold)}{cell(r.exposure,r.exposure<0?T.green:T.text,true)}
-          </div>
-        ))}
-        <div style={{display:"grid",gridTemplateColumns:gcol,gap:8,padding:"11px 14px",borderTop:`2px solid ${T.gold}`,background:T.goldLight,alignItems:"center"}}>
-          <span style={{fontSize:12,fontWeight:800,color:T.text}}>{rows.length} properties</span>
-          {cell(tot.allIn,T.text,true)}{!isMobile&&cell(tot.hm,T.textSub,true)}{cell(tot.loc,T.gold,true)}{cell(tot.exposure,tot.exposure<0?T.green:T.text,true)}
-        </div>
-      </div>
-      <div style={{fontSize:11,color:T.textTert,marginTop:10}}>HM loan is estimated from your loan-to-cost % when you haven't entered an actual amount. Tap a property to open it.</div>
-    </div>
-  );
-}
-
-// ── Bank Reconciliation (first pass) ──────────────────────────────────────────
-// Groups each property's reserve cash by bank account. For now cash = the LOC
-// still open on each property (a stand-in until you tag a real reserve balance).
-function FinBankRecon({sharedProps,draws,isMobile}){
-  const props=(sharedProps||[]).filter(p=>!p.archived&&p.status!=="New Leads");
-  const withCash=props.map(p=>{const open=drawsForProperty(p,draws).filter(d=>!d.paybackDate).reduce((s,d)=>s+(Number(d.amount)||0),0);const acct=(p.financials&&p.financials.bankAccount)||"Unassigned";return {p,cash:open,acct};}).filter(x=>x.cash>0);
-  const byAcct=Object.values(withCash.reduce((m,x)=>{(m[x.acct]=m[x.acct]||{acct:x.acct,total:0,items:[]});m[x.acct].total+=x.cash;m[x.acct].items.push(x);return m;},{})).sort((a,b)=>b.total-a.total);
-  const grand=withCash.reduce((s,x)=>s+x.cash,0);
-  return(
-    <div style={{flex:1,overflowY:"auto",padding:isMobile?"12px 12px 40px":"18px 24px 40px"}}>
-      <div style={{fontSize:12,color:T.textTert,marginBottom:12}}>Reserve cash grouped by bank account. This is a first pass — cash currently uses each property's <b>open LOC</b> as a stand-in until we add a real per-property reserve balance + account picker (next step).</div>
-      <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
-        <div style={{padding:"10px 14px",background:T.goldLight,display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:`1px solid ${T.border}`}}>
-          <div style={{fontSize:12,fontWeight:800,color:T.gold,textTransform:"uppercase",letterSpacing:"0.04em"}}>Account totals</div>
-          <div style={{fontSize:15,fontWeight:800,color:T.text,fontVariantNumeric:"tabular-nums"}}>{fmtD(grand)}</div>
-        </div>
-        {byAcct.length===0&&<div style={{padding:20,textAlign:"center",color:T.textTert,fontSize:13}}>No reserve cash to show.</div>}
-        {byAcct.map(a=>(
-          <div key={a.acct} style={{borderTop:`1px solid ${T.border}`}}>
-            <div style={{display:"flex",justifyContent:"space-between",padding:"9px 14px",background:"#FAFAFA"}}>
-              <span style={{fontSize:13,fontWeight:700,color:T.text}}>{a.acct}</span>
-              <span style={{fontSize:13,fontWeight:800,color:T.text,fontVariantNumeric:"tabular-nums"}}>{fmtD(a.total)}</span>
-            </div>
-            {a.items.map(x=>(
-              <div key={x.p.id} style={{display:"flex",justifyContent:"space-between",padding:"7px 14px 7px 24px",borderTop:`1px solid ${T.border}`}}>
-                <span style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.p.address}{x.p.city?`, ${x.p.city}`:""}</span>
-                <span style={{fontSize:12,fontWeight:600,color:T.text,fontVariantNumeric:"tabular-nums",flexShrink:0}}>{fmtD(x.cash)}</span>
-              </div>
-            ))}
-          </div>
-        ))}
+    <div style={{flex:1,overflowY:"auto",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,padding:isMobile?"28px 20px":"40px 34px",textAlign:"center",maxWidth:460}}>
+        <div style={{width:56,height:56,borderRadius:16,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",color:T.gold,fontSize:24}}>🛠️</div>
+        <div style={{fontSize:17,fontWeight:800,color:T.text,marginBottom:6}}>{title}</div>
+        <div style={{fontSize:13,color:T.textSub,lineHeight:1.6}}>{note}</div>
       </div>
     </div>
   );
 }
+function FinPropertyBS(){return <FinComingSoon title="Property BS Report" note="Working on it — we'll build this out together."/>;}
+function FinBankRecon(){return <FinComingSoon title="Bank Reconciliation" note="Working on it — we'll build this out together."/>;}
 
 function FinancialSectionPage({onNavigate}){
   const { funders, setFunders, flushFunders, draws, setDraws, flushDraws, sharedProps } = useData();

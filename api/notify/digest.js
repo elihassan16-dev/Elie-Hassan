@@ -94,26 +94,19 @@ function buildDigestPdf(name, d, dateStr) {
 }
 
 function digestHtml(name, d) {
-  const chip = (s) => `<span style="font-size:11px;font-weight:700;color:#8a6d1f;background:#f7edd3;border-radius:20px;padding:2px 9px;">${esc(s)}</span>`;
-  const group = (g, withTo) => `
-    <div style="margin:0 0 14px;">
-      <div style="font-size:14px;font-weight:700;color:#1b1a17;margin:0 0 4px;">${esc(g.addr)} ${g.status ? chip(g.status) : ""}</div>
-      <table role="presentation" width="100%" style="border-collapse:collapse;">
-        ${g.tasks.map((t) => `<tr>
-          <td style="padding:6px 0;border-top:1px solid #ece9e2;font-size:14px;color:#2a2823;">• ${esc(t.text)}${withTo && t.to ? ` <span style="color:#6b6862;">→ ${esc(String(t.to).split(" ")[0])}</span>` : ""}</td>
-          <td style="padding:6px 0;border-top:1px solid #ece9e2;font-size:12px;color:#6b6862;text-align:right;white-space:nowrap;">${esc(t.status)}</td>
-        </tr>`).join("")}
-      </table>
-    </div>`;
-  const section = (title, groups, withTo) => groups.length ? `
-    <div style="margin:20px 0 0;"><div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#b8953f;margin:0 0 8px;">${esc(title)}</div>${groups.map((g) => group(g, withTo)).join("")}</div>` : "";
+  const first = esc((name || "there").split(" ")[0]);
   return `<!doctype html><html><body style="margin:0;background:#f6f5f2;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-    <div style="max-width:600px;margin:0 auto;padding:24px 20px;">
-      <div style="font-size:20px;font-weight:800;color:#1b1a17;">Good morning, ${esc((name || "there").split(" ")[0])}.</div>
-      <div style="font-size:14px;color:#6b6862;margin:4px 0 2px;">Here's what's still open — ${d.open} task${d.open === 1 ? "" : "s"}. The attached PDF has the full report.</div>
-      ${section("Your open tasks", d.mine, false)}
-      ${section("Delegated by you (waiting on others)", d.delegated, true)}
-      <div style="margin:24px 0 0;font-size:12px;color:#a49f95;border-top:1px solid #ece9e2;padding-top:12px;">Goldstone Properties · completed tasks aren't shown.</div>
+    <div style="max-width:560px;margin:0 auto;padding:30px 22px;">
+      <div style="background:#ffffff;border:1px solid #e4e0d7;border-radius:14px;overflow:hidden;">
+        <div style="background:#B8953F;height:8px;"></div>
+        <div style="padding:26px 24px 28px;">
+          <div style="font-size:20px;font-weight:800;color:#1b1a17;margin:0 0 12px;">Good morning, ${first}! ☀️</div>
+          <div style="font-size:15px;color:#2a2823;line-height:1.6;">Please see your <b>open tasks</b> attached.</div>
+          <div style="font-size:15px;color:#2a2823;line-height:1.6;margin-top:10px;">Have a great day — and don't forget to mark items as done. ✅</div>
+          <div style="font-size:13px;color:#6b6862;margin-top:18px;">${d.open} open task${d.open === 1 ? "" : "s"} · full list in the attached PDF.</div>
+        </div>
+      </div>
+      <div style="text-align:center;font-size:12px;color:#a49f95;margin-top:16px;">Goldstone Properties</div>
     </div></body></html>`;
 }
 

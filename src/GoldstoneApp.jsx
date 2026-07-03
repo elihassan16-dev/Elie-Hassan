@@ -2816,6 +2816,7 @@ const LEAD_STATUS={"New Leads":{color:"#FF3B30",bg:"#FFF0EF"}};
 function LeadDetail({lead,onUpdate}){
   const { contacts: CONTACTS } = useData();
   const[tab,setTab]=useState("Financial Overview");
+  const[showInfo,setShowInfo]=useState(false); // Property Info popup
   const f=lead.financials;
   const up=(k,v)=>onUpdate(lead.id,"financials",{...f,[k]:v});
   const upMany=(ch)=>onUpdate(lead.id,"financials",{...f,...ch});
@@ -2883,13 +2884,16 @@ function LeadDetail({lead,onUpdate}){
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
 
       <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"18px 24px 0",flexShrink:0}}>
-        <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",marginBottom:6}}>{full}</div>
+        <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:6,minWidth:0}}>
+          <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis"}}>{full}</div>
+          <button onClick={()=>setShowInfo(true)} title="Property info" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,cursor:"pointer",fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>i</button>
+        </div>
         <div style={{fontSize:13,color:T.textSub,marginBottom:10}}>Lead added {lead.dateAdded||"—"}</div>
         <div style={{marginBottom:14}}>
           <span style={{padding:"6px 14px",borderRadius:20,background:"#FFF0EF",color:T.red,border:"1.5px solid #FF3B3033",fontWeight:700,fontSize:12}}>New Leads</span>
         </div>
         <div style={{display:"flex",background:T.bg,borderRadius:10,padding:3,gap:2,width:"fit-content"}}>
-          {["Financial Overview","Property Info","Tasks","Contacts"].map(t=>(
+          {["Financial Overview","Tasks","Contacts"].map(t=>(
             <button key={t} onClick={()=>setTab(t)} style={{padding:"7px 18px",borderRadius:8,border:"none",background:tab===t?T.card:"transparent",color:tab===t?T.text:T.textSub,fontWeight:tab===t?600:400,fontSize:13,cursor:"pointer",fontFamily:"inherit",boxShadow:tab===t?"0 1px 3px rgba(0,0,0,0.12)":"none",transition:"all 0.15s"}}>{t}</button>
           ))}
         </div>
@@ -2938,12 +2942,14 @@ function LeadDetail({lead,onUpdate}){
             </div>
           </div>
         )}
-        {tab==="Property Info"&&(
-          <div style={{padding:24,maxWidth:620,margin:"0 auto"}}>
-            <div style={{textAlign:"center",marginBottom:20}}>
-              <div style={{fontSize:18,fontWeight:700,color:T.text}}>Property Info</div>
-              <div style={{fontSize:13,color:T.blue,marginTop:2}}>Location and key details</div>
+        {showInfo&&(
+          <div onClick={()=>setShowInfo(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:20,width:"min(620px,96vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+            <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+              <div><div style={{fontSize:16,fontWeight:700,color:T.text}}>Property Info</div><div style={{fontSize:12,color:T.blue}}>Location and key details</div></div>
+              <button onClick={()=>setShowInfo(false)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
             </div>
+            <div style={{padding:"20px 20px 8px",overflowY:"auto"}}>
 
             {/* Address */}
             <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
@@ -2995,6 +3001,8 @@ function LeadDetail({lead,onUpdate}){
             </div>
 
             <Card><GHeader label="Notes"/><div style={{padding:"4px 16px 16px"}}><textarea style={{...iS,minHeight:120,resize:"vertical",lineHeight:1.7}} value={lead.notes||""} onChange={e=>onUpdate(lead.id,"notes",e.target.value)} placeholder="Add notes, follow-up reminders, seller details…"/></div></Card>
+            </div>
+          </div>
           </div>
         )}
         {tab==="Tasks"&&(

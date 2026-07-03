@@ -3562,8 +3562,6 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
   const templates=[
     {label:"Ask for update",text:`Hi ${who}, can you give me an update on this task?`},
     {label:"Follow up",text:`Hi ${who}, following up on this task — where are we holding?`},
-    {label:"Any blockers?",text:`Hi ${who}, are you blocked on anything here? Let me know how I can help.`},
-    {label:"Mark done 🙌",text:`Thanks ${who} — looks done on my end, closing this out.`},
   ];
   // One-tap links to reach the task's assigned (external) contact via text / WhatsApp.
   const tc=task?.taskContact;

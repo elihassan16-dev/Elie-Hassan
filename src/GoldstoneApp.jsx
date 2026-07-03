@@ -5579,15 +5579,26 @@ function NotificationToggle({displayName}){
     catch(e){ setErr(e.message||"Couldn't enable notifications."); setPerm(notificationPermission()); }
     setBusy(false);
   };
+  const emailLabel=(s)=>({sent:"email sent ✓","not-configured":"email not set up (add Resend keys + redeploy)"}[s]||`email: ${s}`);
   const sendTest=async()=>{
     setBusy(true);setErr("");setTestMsg("Sending…");
     try{
       const r=await qbAuthFetch("/api/notify/test",{method:"POST"});
-      if(r.push==="sent") setTestMsg("Sent! Watch for the banner"+(r.email==="sent"?" and email.":". (Email off.)"));
+      if(r.push==="sent") setTestMsg(`Push sent ✓ — watch for the banner. And ${emailLabel(r.email)}`);
       else if(r.push==="no-subscriptions") setTestMsg("This device isn't registered yet — tap “Turn on notifications” above first.");
       else if(r.push==="no-vapid-keys") setTestMsg("Server missing VAPID keys — add them in Vercel and redeploy.");
-      else setTestMsg(`Push: ${r.push}${r.subscriptions?` (${r.subscriptions} device${r.subscriptions>1?"s":""})`:""} · Email: ${r.email}`);
+      else setTestMsg(`Push: ${r.push}${r.subscriptions?` (${r.subscriptions} device${r.subscriptions>1?"s":""})`:""} · ${emailLabel(r.email)}`);
     }catch(e){ setErr(e.message||"Test failed."); setTestMsg(""); }
+    setBusy(false);
+  };
+  const sendDigest=async()=>{
+    setBusy(true);setErr("");setTestMsg("Building your task digest…");
+    try{
+      const r=await qbAuthFetch("/api/notify/digest?self=1",{method:"POST"});
+      if(r.emailed) setTestMsg(`Digest emailed ✓ — ${r.open} open task${r.open===1?"":"s"}. Check your inbox (and spam).`);
+      else if(r.open===0) setTestMsg("No open tasks right now — nothing to send. 🎉");
+      else setTestMsg(`Couldn't email the digest: ${emailLabel(r.email||"not-configured")}`);
+    }catch(e){ setErr(e.message||"Digest failed."); setTestMsg(""); }
     setBusy(false);
   };
   const rowBtn={display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 20px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:14,color:T.text,textAlign:"left",borderTop:`1px solid ${T.border}`};
@@ -5599,7 +5610,8 @@ function NotificationToggle({displayName}){
         {on&&<span style={{fontSize:12,fontWeight:700,color:T.green}}>✓ On</span>}
         {!on&&supported&&!busy&&<span style={{fontSize:12,fontWeight:700,color:T.blue}}>Enable ›</span>}
       </button>
-      {on&&<button onClick={sendTest} disabled={busy} style={{...rowBtn,paddingTop:6,paddingBottom:12,color:T.blue,fontSize:13,cursor:busy?"default":"pointer"}}><span style={{width:22,textAlign:"center"}}>📨</span><span style={{flex:1}}>Send a test notification to me</span></button>}
+      {on&&<button onClick={sendTest} disabled={busy} style={{...rowBtn,paddingTop:6,paddingBottom:8,color:T.blue,fontSize:13,cursor:busy?"default":"pointer"}}><span style={{width:22,textAlign:"center"}}>📨</span><span style={{flex:1}}>Send a test notification to me</span></button>}
+      <button onClick={sendDigest} disabled={busy} style={{...rowBtn,borderTop:"none",paddingTop:2,paddingBottom:12,color:T.blue,fontSize:13,cursor:busy?"default":"pointer"}}><span style={{width:22,textAlign:"center"}}>📋</span><span style={{flex:1}}>Email me my task digest now</span></button>
       {testMsg&&<div style={{padding:"0 20px 10px 54px",fontSize:12,color:T.textSub,lineHeight:1.5}}>{testMsg}</div>}
       {err&&<div style={{padding:"0 20px 10px 54px",fontSize:12,color:T.red}}>{err}</div>}
       {!supported&&<div style={{padding:"0 20px 10px 54px",fontSize:11.5,color:T.textTert,lineHeight:1.5}}>On iPhone: add this app to your Home Screen (Share → Add to Home Screen), open it from there, then turn on notifications.</div>}

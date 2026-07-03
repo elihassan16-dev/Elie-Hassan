@@ -25,10 +25,11 @@ export default async function handler(req, res) {
   if (!Array.isArray(recipients) || recipients.length === 0) { res.status(200).json({ pushed: 0, mailed: 0 }); return; }
 
   const db = admin();
-  // Resolve recipient display names -> user rows (id + email). Never notify the sender.
-  const { data: users } = await db.from("users").select("id,email,name");
+  // Resolve recipient display names -> user rows (id + email). Never notify the
+  // sender, and skip anyone an admin has muted.
+  const { data: users } = await db.from("users").select("id,email,name,notify_muted");
   const wanted = new Set(recipients.map((n) => String(n).trim().toLowerCase()).filter(Boolean));
-  const targets = (users || []).filter((u) => u.name && wanted.has(u.name.toLowerCase()) && u.id !== user.id);
+  const targets = (users || []).filter((u) => u.name && wanted.has(u.name.toLowerCase()) && u.id !== user.id && !u.notify_muted);
   if (targets.length === 0) { res.status(200).json({ pushed: 0, mailed: 0 }); return; }
   const ids = targets.map((u) => u.id);
 

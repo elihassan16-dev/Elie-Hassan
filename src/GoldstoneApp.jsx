@@ -1545,7 +1545,9 @@ const showingSms=(phone,body)=>{
 };
 // Lead disposition for a showing agent, ranked hottest → coldest (unset sorts last).
 const SHOWING_LEADS=[
-  {key:"offer",label:"🔥 Expecting an offer",short:"Expecting offer",color:"#15803D",bg:"#EDFBF1"},
+  {key:"buyer",label:"⭐ Selected buyer",short:"Selected buyer",color:"#8A6D1F",bg:"#F7EDD3"},
+  {key:"received",label:"✅ Offer received",short:"Offer received",color:"#15803D",bg:"#EDFBF1"},
+  {key:"offer",label:"🔥 Expecting an offer",short:"Expecting offer",color:"#C2410C",bg:"#FFEDD5"},
   {key:"interest",label:"Expressed interest",short:"Interested",color:"#B45309",bg:"#FEF3C7"},
   {key:"not",label:"Not interested",short:"Not interested",color:"#B91C1C",bg:"#FEE2E2"},
 ];
@@ -1562,7 +1564,15 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   // Persist right away (don't wait on the debounced sync) so a lead never gets lost
   // if the app is refreshed/backgrounded moments later.
   const saveNow=()=>{if(flush)setTimeout(flush,0);};
-  const setLead=(s,val)=>{const next={...leadMap};if(val)next[showingKey(s)]=val;else delete next[showingKey(s)];onUpdate(property.id,"showingLeads",next);saveNow();};
+  const setLead=(s,val)=>{
+    const next={...leadMap};if(val)next[showingKey(s)]=val;else delete next[showingKey(s)];
+    onUpdate(property.id,"showingLeads",next);
+    // Snapshot the "Selected buyer" agent details onto the property so the info
+    // popup can show the selling agent/buyer without needing the feed loaded.
+    const bs=all.find(x=>next[showingKey(x)]==="buyer");
+    onUpdate(property.id,"selectedBuyer",bs?{agent:bs.agent||"",broker:bs.broker||"",phone:bs.phone||"",email:bs.email||""}:null);
+    saveNow();
+  };
   const[hideNot,setHideNot]=useState(()=>{try{return localStorage.getItem("gs_hideNotInterested")==="1";}catch{return false;}});
   const toggleHide=()=>setHideNot(v=>{const n=!v;try{localStorage.setItem("gs_hideNotInterested",n?"1":"0");}catch{}return n;});
   const mine=all.filter(s=>showingMatchesProperty(s.location||s.summary||"",property)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
@@ -2545,6 +2555,23 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                 <button onClick={()=>setShowInfo(false)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
               </div>
               <div style={{padding:"20px 20px 8px",overflowY:"auto"}}>
+
+              {/* Selected buyer / selling agent — shown once a buyer is picked (e.g. In Closing) */}
+              {(()=>{const sb=property.selectedBuyer;if(!sb||!(sb.agent||sb.phone||sb.email))return null;const tel=String(sb.phone||"").replace(/[^\d+]/g,"");return(
+                <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16,border:`1px solid ${T.gold}`}}>
+                  <SectionHdr icon="⭐" label="SELECTED BUYER · SELLING AGENT" color="#F7EDD3"/>
+                  <div style={{padding:"12px 16px 14px"}}>
+                    {sb.agent&&<div style={{fontSize:15,fontWeight:700,color:T.text}}>{sb.agent}</div>}
+                    {sb.broker&&<div style={{fontSize:13,color:T.textSub,marginTop:1}}>{sb.broker}</div>}
+                    {sb.phone&&<div style={{fontSize:13,color:T.text,marginTop:6}}>{sb.phone}</div>}
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+                      {sb.phone&&<a href={`tel:${tel}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.border}`,color:T.textSub,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>📞 Call</a>}
+                      {sb.phone&&<a href={`sms:${tel}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",fontSize:12.5,fontWeight:600,textDecoration:"none"}}>💬 Text</a>}
+                      {sb.email&&<a href={`mailto:${sb.email}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>✉️ Email</a>}
+                    </div>
+                  </div>
+                </div>
+              );})()}
 
               {/* Address */}
               <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>

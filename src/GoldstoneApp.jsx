@@ -5295,8 +5295,22 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
     </div>
   );
 }
+const OFFICE_ID="__office__";
 function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}){
-  const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS } = useData();
+  const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS, officeMessages, setOfficeMessages } = useData();
+  const officeSorted=[...(officeMessages||[])].sort((a,b)=>msgTime(a.at)-msgTime(b.at));
+  const officeUnread=(officeMessages||[]).reduce((n,m)=>n+(isUnreadForUser(m,CURRENT_USER)?1:0),0);
+  const officeSend=(text,replyTarget,attachment,mentions)=>{
+    const t=(text||"").trim();if(!t&&!attachment)return;
+    const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
+    if(attachment)msg.attachment=attachment;
+    const tagged=new Set(mentions||[]);
+    if(replyTarget&&replyTarget.author&&replyTarget.author!==CURRENT_USER)tagged.add(replyTarget.author);
+    if(tagged.size)msg.mentions=[...tagged];
+    if(replyTarget){msg.replyToId=replyTarget.id;msg.replyTo={author:replyTarget.author||"",text:(replyTarget.text||"").slice(0,140),taskText:null};}
+    setOfficeMessages(prev=>[...prev,msg]);
+  };
+  const officeDelete=(ids)=>{const s=new Set(ids);setOfficeMessages(prev=>prev.filter(m=>!s.has(m.id)));};
   const isMobile=useIsMobile();
   const[selId,setSelId]=useState(initialSelId||null);
   useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);// eslint-disable-line
@@ -5318,6 +5332,8 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   }));
   const selUnread=sel?propUnreadCount(sel,CURRENT_USER):0;
   useEffect(()=>{if(sel&&selUnread>0)markRead(sel.id);},[selId,selUnread]);// eslint-disable-line
+  // Mark office-chat messages read once it's open.
+  useEffect(()=>{if(selId===OFFICE_ID&&officeUnread>0)setOfficeMessages(prev=>prev.map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}:m));},[selId,officeUnread]);// eslint-disable-line
   // Delete selected messages (from the general thread and any task threads).
   const deleteMessages=(ids)=>{
     if(!sel||!ids||!ids.length)return;
@@ -5352,7 +5368,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-      <div style={{width:isMobile?"100%":320,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+      <div style={{width:isMobile?"100%":320,flexShrink:0,display:isMobile&&(sel||selId===OFFICE_ID)?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{fontWeight:700,fontSize:15,color:T.text,marginBottom:10}}>Messages</div>
           <div style={{position:"relative"}}>
@@ -5361,6 +5377,26 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
           </div>
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
+          {/* Pinned general office chat — always at the very top, not tied to a property */}
+          {(()=>{
+            const isActive=selId===OFFICE_ID;
+            const last=officeSorted[officeSorted.length-1];
+            const hasUnread=officeUnread>0&&!isActive;
+            return(
+              <div onClick={()=>setSelId(OFFICE_ID)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?T.goldLight:T.goldLight+"80",borderLeft:isActive?`3px solid ${T.gold}`:`3px solid ${T.gold}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
+                  <span style={{fontWeight:700,fontSize:13,color:isActive?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>📌 Office Chat</span>
+                  {last&&<span style={{fontSize:10,color:hasUnread?T.red:T.textTert,fontWeight:hasUnread?700:400,flexShrink:0}}>{fmtShort(last.at)}</span>}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
+                  <div style={{flex:1,minWidth:0,fontSize:12,color:hasUnread?T.text:T.textSub,fontWeight:hasUnread?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {last?<>{last.author?`${last.author.split(" ")[0]}: `:""}{last.text||(last.attachment?(last.attachment.kind==="image"?"📷 Photo":last.attachment.kind==="audio"?"🎤 Voice note":"📎 Attachment"):"")}</>:<span style={{color:T.textTert}}>General team chat — not tied to a property</span>}
+                  </div>
+                  {hasUnread&&<UnreadBadge count={officeUnread}/>}
+                </div>
+              </div>
+            );
+          })()}
           {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No properties.</div>}
           {list.map(({p,last,unread})=>{
             const isActive=p.id===selId;
@@ -5383,8 +5419,10 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
           })}
         </div>
       </div>
-      <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
-        {sel
+      <div style={{flex:1,display:isMobile&&!sel&&selId!==OFFICE_ID?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
+        {selId===OFFICE_ID
+          ? <MessageThread property={{id:OFFICE_ID,address:"📌 Office Chat",city:"",status:"",tasks:[]}} messages={officeSorted} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={officeSend} onDelete={officeDelete} onBack={()=>setSelId(null)} isMobile={isMobile}/>
+          : sel
           ? <MessageThread property={sel} messages={mergePropertyMessages(sel)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onDelete={deleteMessages} onBack={()=>setSelId(null)} isMobile={isMobile}/>
           : <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:12,color:T.textSub}}>
               <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>💬</div>
@@ -6182,12 +6220,13 @@ function FinancialSectionPage({onNavigate}){
 const MEMBER_KEYS = new Set(NAV.map(n=>n.key).filter(k=>!ADMIN_ONLY_KEYS.has(k)));
 
 export function GoldstoneShell(){
-  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers } = useData();
+  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, officeMessages } = useData();
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs } = useAuth();
   const isMobile = useIsMobile();
 
   const navItems = isAdmin ? NAV : NAV.filter(n=>MEMBER_KEYS.has(n.key));
-  const unreadTotal = totalUnread(sharedProps, displayName);
+  const officeUnread = (officeMessages||[]).reduce((n,m)=>n+(isUnreadForUser(m,displayName)?1:0),0);
+  const unreadTotal = totalUnread(sharedProps, displayName) + officeUnread;
   const[active,setActive]=useState(isAdmin?"properties":"tasks");
   const[navPropId,setNavPropId]=useState(null);
   const[showSettings,setShowSettings]=useState(false);

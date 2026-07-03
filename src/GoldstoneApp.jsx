@@ -1226,28 +1226,37 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
             <div style={{fontSize:11,fontWeight:700,color:"#5AC8FA",textTransform:"uppercase",letterSpacing:"0.07em"}}>Gap / Outside Capital</div>
           </div>
           {/* Auto-matched private line of credit for this property (from the Financial Section) */}
-          {locDraws.length>0&&(
-            <div style={{background:T.goldLight,padding:"10px 18px 12px",borderTop:bdr}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:6}}>
-                <div style={{fontSize:12,fontWeight:800,color:T.gold}}>Line of Credit — auto-matched</div>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{fontSize:11,color:T.textSub}}>If sold by</span>
-                  <input type="date" value={assumedSell} onChange={e=>setAssumedSell(e.target.value)} style={{padding:"3px 6px",borderRadius:6,border:bdr,background:"#fff",fontSize:12,fontFamily:"inherit"}}/>
-                </div>
+          {locDraws.length>0&&(()=>{const gcol="1fr 84px 84px";return(
+            <div style={{margin:"8px 16px 4px",background:"#fff",border:`1px solid ${T.gold}`,borderRadius:12,overflow:"hidden",boxShadow:T.shadow}}>
+              <div style={{padding:"9px 14px",background:T.goldLight,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                <div style={{fontSize:11.5,fontWeight:800,color:T.gold,textTransform:"uppercase",letterSpacing:"0.05em"}}>Matched Line of Credit</div>
+                <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:T.textSub,whiteSpace:"nowrap"}}>If sold by
+                  <input type="date" value={assumedSell} onChange={e=>setAssumedSell(e.target.value)} style={{padding:"3px 6px",borderRadius:6,border:bdr,background:"#fff",fontSize:12,fontFamily:"inherit",color:T.text}}/>
+                </label>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:gcol,gap:10,padding:"7px 14px 4px",fontSize:9,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+                <span>Lender · Funded</span><span style={{textAlign:"right"}}>Amount</span><span style={{textAlign:"right"}}>Interest</span>
               </div>
               {locRows.map((r,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"3px 0",color:T.text}}>
-                  <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.funderName||"—"} · {finFmtDate(r.dateFunded)}{r.paybackDate?` → ${finFmtDate(r.paybackDate)}`:` → ${r.days}d`}</span>
-                  <span style={{whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums",flexShrink:0}}>{fmtD(r.amount)} · <span style={{color:T.gold,fontWeight:600}}>{fmtD(Math.round(r.interest))} int</span></span>
+                <div key={i} style={{display:"grid",gridTemplateColumns:gcol,gap:10,padding:"7px 14px",borderTop:`1px solid ${T.border}`,alignItems:"center"}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.funderName||"—"}</div>
+                    <div style={{fontSize:10.5,color:T.textTert}}>{finFmtDate(r.dateFunded)}{r.paybackDate?` → paid`:` · ${r.days}d`}</div>
+                  </div>
+                  <div style={{fontSize:13,fontWeight:600,color:T.text,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(r.amount)}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:T.gold,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(Math.round(r.interest))}</div>
                 </div>
               ))}
-              <div style={{display:"flex",justifyContent:"space-between",marginTop:6,paddingTop:6,borderTop:bdr,fontSize:13,fontWeight:700}}>
-                <span>{locRows.length} lender draw{locRows.length===1?"":"s"} · {fmtD(locFunded)}</span>
-                <span style={{color:T.gold,fontVariantNumeric:"tabular-nums"}}>interest {fmtD(locInterest)}</span>
+              <div style={{display:"grid",gridTemplateColumns:gcol,gap:10,padding:"9px 14px",borderTop:`2px solid ${T.gold}`,background:T.goldLight,alignItems:"center"}}>
+                <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>{locRows.length} draw{locRows.length===1?"":"s"}</span>
+                <span style={{fontSize:14,fontWeight:800,color:T.text,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(locFunded)}</span>
+                <span style={{fontSize:14,fontWeight:800,color:T.gold,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(locInterest)}</span>
               </div>
-              <button onClick={()=>{setGapLoanAmt(String(locFunded));setGapIntOverride(String(locInterest));}} style={{marginTop:9,width:"100%",padding:"9px",borderRadius:8,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Use as gap financing ↓</button>
+              <div style={{padding:"10px 14px",borderTop:`1px solid ${T.border}`}}>
+                <button onClick={()=>{setGapLoanAmt(String(locFunded));setGapIntOverride(String(locInterest));}} style={{width:"100%",padding:"9px",borderRadius:8,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Use as gap financing&nbsp;↓</button>
+              </div>
             </div>
-          )}
+          );})()}
           <div style={{background:T.card,paddingBottom:6}}>
             {iField("Gap Loan Amount",gapLoanAmt,setGapLoanAmt,"$","defaults to projected")}
             {iField("Gap Rate",gapRate,setGapRate,"% / yr")}

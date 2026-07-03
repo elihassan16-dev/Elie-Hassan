@@ -3556,9 +3556,14 @@ function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
 // In-app messages/notes on a single task.
 function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMembers,onSend,onClose}){
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
-  // Templates auto-tag the task's assignee so a quick nudge notifies the right person.
+  // Templates address + notify a chosen teammate. When a task is delegated, the
+  // owner (assignee) and the person doing the work (delegate) differ — let the
+  // user pick who the message is aimed at (default: the delegate, the doer).
   const assignee=task?.assignee||"";
-  const who=assignee?assignee.split(" ")[0]:"team";
+  const delegate=task?.delegate||"";
+  const involved=[...new Set([delegate,assignee].filter(Boolean))]; // doer first
+  const[recipient,setRecipient]=useState(involved[0]||"");
+  const who=recipient?recipient.split(" ")[0]:"team";
   // Name the actual task in the message instead of saying "this task".
   const taskName=(task?.text||"").trim();
   const onWhat=taskName?`“${taskName}”`:"this task";
@@ -3566,7 +3571,7 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
     {label:"Ask for update",text:`Hi ${who}, can you give me an update on ${onWhat}?`},
     {label:"Follow up",text:`Hi ${who}, following up on ${onWhat} — where are we holding?`},
   ];
-  const dm=assignee&&(teamMembers||[]).includes(assignee)&&assignee!==currentUser?assignee:null;
+  const dm=recipient&&(teamMembers||[]).includes(recipient)&&recipient!==currentUser?recipient:null;
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(520px,94vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
@@ -3589,6 +3594,14 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
           );})}
         </div>
         <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`}}>
+          {involved.length>1&&(
+            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:8,padding:"0 2px"}}>
+              <span style={{fontSize:11,color:T.textTert,fontWeight:700}}>Template addresses:</span>
+              {involved.map(n=>{const on=n===recipient;return(
+                <button key={n} onClick={()=>setRecipient(n)} style={{fontSize:12,fontWeight:on?700:600,color:on?"#fff":T.textSub,background:on?T.gold:"transparent",border:`1px solid ${on?T.gold:T.border}`,borderRadius:16,padding:"4px 11px",cursor:"pointer",fontFamily:"inherit"}}>{on?"✓ ":""}{n.split(" ")[0]}{n===delegate&&n!==assignee?" (doing it)":n===assignee&&delegate&&n!==delegate?" (owner)":""}</button>
+              );})}
+            </div>
+          )}
           <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn)} people={teamMembers} currentUser={currentUser} placeholder="Write a message…" templates={templates} defaultMention={dm}/>
         </div>
       </div>

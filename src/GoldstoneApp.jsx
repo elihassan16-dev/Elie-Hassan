@@ -1245,7 +1245,15 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, o
 
 function FinOverview({property,onUpdate}){
   const isMobile=useIsMobile();
+  const { draws } = useData();
   const f=property.financials;
+  // Auto-match this property's private-lender draws from the Financial Section:
+  // by explicit link, then by strong address match. Sums across multiple lenders.
+  const locDraws=drawsForProperty(property,draws);
+  const locTotal=locDraws.reduce((s,d)=>s+(Number(d.amount)||0),0);
+  const locOpen=locDraws.filter(d=>!d.paybackDate);
+  const locOpenTotal=locOpen.reduce((s,d)=>s+(Number(d.amount)||0),0);
+  const locByLender=Object.values(locDraws.reduce((m,d)=>{const k=(d.funderName||"—").trim()||"—";(m[k]=m[k]||{name:k,amount:0,open:0})&&(m[k].amount+=Number(d.amount)||0,m[k].open+=d.paybackDate?0:Number(d.amount)||0);return m;},{})).sort((a,b)=>b.amount-a.amount);
   const up=(k,v)=>onUpdate(property.id,"financials",{...f,[k]:v});
   const upMany=(ch)=>onUpdate(property.id,"financials",{...f,...ch});
   const[showBuying,setShowBuying]=useState(false);
@@ -1376,6 +1384,25 @@ function FinOverview({property,onUpdate}){
       {f.useActualProfit&&<div style={{textAlign:"center",fontSize:12,color:T.gold,marginBottom:14,marginTop:-12}}>Actual net profit now feeds Portfolio Overview totals · projected numbers shown faded for reference</div>}
 
       <div style={{maxWidth:showActual?900:520,margin:"0 auto"}}>
+        {/* Private Line of Credit — auto-matched from the Financial Section draws (admin data). */}
+        {locDraws.length>0&&(
+          <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
+            <div style={{padding:"12px 16px",background:T.goldLight,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+              <div style={{fontSize:13,fontWeight:800,color:T.gold}}>Private Line of Credit</div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:16,fontWeight:800,color:T.text,fontVariantNumeric:"tabular-nums"}}>{fmtD(locTotal)}</div>
+                <div style={{fontSize:10,color:T.textSub}}>{fmtD(locOpenTotal)} open · {locDraws.length} draw{locDraws.length===1?"":"s"}</div>
+              </div>
+            </div>
+            {locByLender.map(l=>(
+              <div key={l.name} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"8px 16px",borderTop:`1px solid ${T.border}`}}>
+                <div style={{fontSize:13,color:T.text,fontWeight:600}}>{l.name}{l.open>0&&l.open<l.amount&&<span style={{marginLeft:6,fontSize:9,fontWeight:700,color:"#15803D",background:"#EDFBF1",borderRadius:8,padding:"1px 6px"}}>partly paid</span>}{l.open===0&&<span style={{marginLeft:6,fontSize:9,fontWeight:700,color:"#15803D",background:"#EDFBF1",borderRadius:8,padding:"1px 6px"}}>paid</span>}</div>
+                <div style={{fontSize:13,fontWeight:700,color:T.text,fontVariantNumeric:"tabular-nums"}}>{fmtD(l.amount)}</div>
+              </div>
+            ))}
+            <div style={{padding:"8px 16px",borderTop:`1px solid ${T.border}`,fontSize:10.5,color:T.textTert}}>Auto-matched from the Financial Section by address. Add or edit draws there.</div>
+          </div>
+        )}
         <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
 
           {/* Column headers */}
@@ -5401,6 +5428,17 @@ const daysBetween=(a,b)=>{const s=new Date(a),e=new Date(b);if(isNaN(s)||isNaN(e
 const drawDays=(d)=>daysBetween(d.dateFunded,d.paybackDate||new Date());
 const drawInterest=(d)=>(Number(d.amount)||0)*(LOC_RATE/365)*drawDays(d);
 const sameName=(a,b)=>!!a&&!!b&&String(a).trim().toLowerCase()===String(b).trim().toLowerCase();
+// Which private-lender draws belong to a property: explicit link, else a strong
+// address match on the draw's label (reuses the QuickBooks address matcher).
+const drawsForProperty=(property,draws)=>{
+  if(!property)return [];
+  const addr=`${property.address||""} ${property.city||""}`.trim();
+  return (draws||[]).filter(d=>{
+    if(d.propertyId!=null&&String(d.propertyId)===String(property.id))return true;
+    const label=d.propertyLabel||"";
+    return qbMatchScore(addr,label)>=0.7||qbMatchScore(property.address||"",label)>=0.7;
+  });
+};
 const funderDraws=(f,draws)=>(draws||[]).filter(d=>String(d.funderId)===String(f.id)||sameName(d.funderName,f.name));
 const ledgerSum=(f,type)=>((f.ledger||[]).filter(e=>e.type===type).reduce((s,e)=>s+(Number(e.amount)||0),0));
 const funderStats=(f,draws)=>{

@@ -3414,19 +3414,23 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
   const msgCount=(t.messages||[]).length;
-  const D=isMobile?28:24; // circular icon-button size
+  // Match the green EH avatar's diameter exactly. Render these as <div>s (not
+  // <button>s) for the same reason the avatar stays perfectly round: iOS Safari
+  // forces its own sizing onto <button> elements, squashing them into ovals even
+  // with appearance:none. A div sidesteps that entirely.
+  const D=24; // circular icon size — same as AssigneeAvatar size below
   const[editing,setEditing]=useState(false);
   const[draft,setDraft]=useState(t.text||"");
   const editRef=useRef(null);
   useEffect(()=>{if(editing){setDraft(t.text||"");setTimeout(()=>{const el=editRef.current;if(el){el.focus();el.select();}},0);}},[editing]);
   const saveEdit=()=>{const v=draft.trim();if(v&&v!==(t.text||"")&&onRename)onRename(t.propId,t.id,v);setEditing(false);};
-  const circleBtn=(active)=>({boxSizing:"border-box",padding:0,WebkitAppearance:"none",appearance:"none",lineHeight:1,background:active?"#EBF4FF":"none",border:`1px solid ${active?T.blue:T.border}`,borderRadius:"50%",width:D,height:D,minWidth:D,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:isMobile?13:11,color:active?T.blue:T.textTert});
+  const circleBtn=(active)=>({boxSizing:"border-box",lineHeight:1,background:active?"#EBF4FF":"#fff",border:`1px solid ${active?T.blue:T.border}`,borderRadius:"50%",width:D,height:D,minWidth:D,maxWidth:D,flex:`0 0 ${D}px`,alignSelf:"center",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,color:active?T.blue:T.textTert});
   const contactBtnEl=(
-    <button onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name||""}`:"Link a contact"}
-      style={circleBtn(!!t.taskContact)}>{t.taskContact?.kind==="company"?"🏢":(t.taskContact?.name?.[0]||"👤")}</button>
+    <div role="button" onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name||""}`:"Link a contact"}
+      style={circleBtn(!!t.taskContact)}>{t.taskContact?.kind==="company"?"🏢":(t.taskContact?.name?.[0]||"👤")}</div>
   );
   const msgBtnEl=(
-    <button onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",...circleBtn(!!msgCount)}}>💬{msgCount>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgCount}</span>}</button>
+    <div role="button" onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",...circleBtn(!!msgCount)}}>💬{msgCount>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgCount}</span>}</div>
   );
   const selBox=selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:18,height:18,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>;
   // Address + property status are already shown in the group header above, so the
@@ -6192,7 +6196,7 @@ export function GoldstoneShell(){
           {navItems.map(({key,label,icon})=>{const isActive=active===key;return <button key={key} onClick={()=>setActive(key)} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:"none",background:isActive?T.goldLight:"transparent",color:isActive?T.gold:T.textSub,fontWeight:isActive?600:400,fontSize:14,cursor:"pointer",marginBottom:2,transition:"all 0.15s",textAlign:"left",fontFamily:"inherit"}}><span style={{color:isActive?T.gold:T.textTert}}>{icon}</span>{label}{key==="messages"&&<UnreadBadge count={unreadTotal} style={{marginLeft:"auto"}}/>}</button>;})}
         </nav>
         <div style={{padding:"14px 16px",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
-          <button onClick={()=>setShowProfileMenu(true)} title="Profile & team" style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:"#fff",flexShrink:0,border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>{initials}</button>
+          <button onClick={()=>setShowProfileMenu(true)} title="Profile & team" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:34,height:34,minWidth:34,maxWidth:34,flex:"0 0 34px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:"#fff",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>{initials}</button>
           <button onClick={()=>setShowProfileMenu(true)} title="Profile & team" style={{flex:1,minWidth:0,textAlign:"left",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{displayName} <span style={{color:T.textTert,fontWeight:400}}>▾</span></div><div style={{fontSize:11,color:T.textSub,textTransform:"capitalize"}}>{role}</div></button>
           <button onClick={signOut} title="Sign out" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,padding:"6px 10px"}}>Sign out</button>
         </div>
@@ -6205,7 +6209,7 @@ export function GoldstoneShell(){
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             {!isMobile&&<div style={{fontSize:13,color:T.textSub}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>}
-            {isMobile&&<button onClick={()=>setShowProfileMenu(true)} title="Profile & team" aria-label="Profile and team" style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,color:"#fff",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>{initials}</button>}
+            {isMobile&&<button onClick={()=>setShowProfileMenu(true)} title="Profile & team" aria-label="Profile and team" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:32,height:32,minWidth:32,maxWidth:32,flex:"0 0 32px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,color:"#fff",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>{initials}</button>}
             {isAdmin&&<button onClick={()=>setShowSettings(true)} title="Settings" aria-label="Settings" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:15,padding:"5px 9px",lineHeight:1}}>⚙</button>}
             {isMobile&&<button onClick={signOut} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,padding:"6px 10px"}}>Sign out</button>}
           </div>

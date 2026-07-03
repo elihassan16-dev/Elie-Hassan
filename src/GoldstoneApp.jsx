@@ -1,3 +1,4 @@
+// Deploy trigger: publish latest Financial Section (reinvest register) to production.
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";

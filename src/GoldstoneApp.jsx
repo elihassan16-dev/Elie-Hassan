@@ -5811,6 +5811,55 @@ function FinancialSectionPage(){
     document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
   };
 
+  // Per-lender printable statement → the browser's "Save as PDF".
+  const generateReport=(f)=>{
+    const s=funderStats(f,draws);
+    const mine=funderDraws(f,draws);
+    const open=[...mine.filter(d=>!d.paybackDate)].sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
+    const paid=[...mine.filter(d=>d.paybackDate)].sort((a,b)=>String(a.paybackDate||"").localeCompare(String(b.paybackDate||"")));
+    const sum=(arr,fn)=>arr.reduce((x,d)=>x+fn(d),0);
+    const openAmt=sum(open,d=>Number(d.amount)||0), openInt=Math.round(sum(open,drawInterest));
+    const paidAmt=sum(paid,d=>Number(d.amount)||0), paidInt=Math.round(sum(paid,drawInterest));
+    const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
+    const stat=(l,v,c)=>`<div class="stat"><div class="sl">${l}</div><div class="sv" style="color:${c||"#1C1C1E"}">${fmtD(v)}</div></div>`;
+    const rowOpen=(d)=>`<tr><td>${esc(d.propertyLabel||"—")}</td><td>${esc(finFmtDate(d.dateFunded))}</td><td>${drawDays(d)}d</td><td class="r">${fmtD(d.amount)}</td><td class="r gold">${fmtD(Math.round(drawInterest(d)))}</td></tr>`;
+    const rowPaid=(d)=>`<tr><td>${esc(d.propertyLabel||"—")}</td><td>${esc(finFmtDate(d.dateFunded))}</td><td>${esc(finFmtDate(d.paybackDate))}</td><td class="r">${fmtD(d.amount)}</td><td class="r gold">${fmtD(Math.round(drawInterest(d)))}</td></tr>`;
+    const openRows=open.length?open.map(rowOpen).join(""):`<tr><td colspan="5" class="empty">None outstanding.</td></tr>`;
+    const paidRows=paid.length?paid.map(rowPaid).join(""):`<tr><td colspan="5" class="empty">None yet.</td></tr>`;
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(f.name)} — Lender Statement</title><style>
+      *{box-sizing:border-box;}body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1C1C1E;margin:0;padding:36px;}
+      .brand{font-family:Georgia,serif;font-size:22px;font-weight:700;color:#B8953F;}
+      .sub{font-size:20px;font-weight:800;margin-top:2px;}.date{font-size:12px;color:#8A8A8E;margin-top:3px;}
+      .hdr{border-bottom:2px solid #B8953F;padding-bottom:12px;margin-bottom:20px;}
+      .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:24px;}
+      .stat{border:1px solid #ececec;border-radius:8px;padding:9px 12px;}
+      .sl{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#8A8A8E;font-weight:700;}
+      .sv{font-size:17px;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums;}
+      h2{font-size:13px;margin:22px 0 8px;text-transform:uppercase;letter-spacing:.04em;color:#555;}
+      table{width:100%;border-collapse:collapse;font-size:12px;}
+      th{text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:#8A8A8E;border-bottom:1px solid #ddd;padding:6px 8px;}
+      td{padding:7px 8px;border-bottom:1px solid #f2f2f2;}
+      .r{text-align:right;font-variant-numeric:tabular-nums;}.gold{color:#B8953F;font-weight:700;}
+      tfoot td{font-weight:800;border-top:2px solid #B8953F;border-bottom:none;}
+      .empty{color:#aaa;text-align:center;padding:16px;}
+      .foot{margin-top:28px;font-size:10px;color:#aaa;border-top:1px solid #eee;padding-top:10px;}
+      @media print{body{padding:0;}}
+    </style></head><body>
+      <div class="hdr"><div class="brand">Goldstone Properties</div><div class="sub">Lender Statement — ${esc(f.name)}</div><div class="date">Generated ${esc(today)}</div></div>
+      <div class="stats">${stat("Capital (owed)",s.capital)}${stat("Available",s.available,s.available<0?"#FF3B30":"#16A34A")}${stat("Deployed",s.deployed,"#007AFF")}${stat("Interest owed (open)",s.interest,"#B8953F")}${stat("Interest earned",s.interestRealized,"#16A34A")}${stat("Paid out to him",s.distribution,"#FF3B30")}</div>
+      <h2>Outstanding properties — standing interest</h2>
+      <table><thead><tr><th>Property</th><th>Funded</th><th>Days</th><th class="r">Amount</th><th class="r">Interest</th></tr></thead><tbody>${openRows}</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="r">${fmtD(openAmt)}</td><td class="r gold">${fmtD(openInt)}</td></tr></tfoot></table>
+      <h2>Sold / paid-back properties — interest paid</h2>
+      <table><thead><tr><th>Property</th><th>Funded</th><th>Paid back</th><th class="r">Amount</th><th class="r">Interest</th></tr></thead><tbody>${paidRows}</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="r">${fmtD(paidAmt)}</td><td class="r gold">${fmtD(paidInt)}</td></tr></tfoot></table>
+      <div class="foot">Interest accrues at 15% / yr, day-counted. Private &amp; confidential.</div>
+    </body></html>`;
+    const w=window.open("","_blank");
+    if(!w){alert("Please allow pop-ups for this site to generate the report.");return;}
+    w.document.write(html);w.document.close();w.focus();
+    setTimeout(()=>{try{w.print();}catch(e){/* user can print manually */}},450);
+  };
+
   const stat=(label,val,color)=>(
     <div style={{background:T.bg,borderRadius:10,padding:"10px 12px",minWidth:0}}>
       <div style={{fontSize:10,color:T.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</div>
@@ -5845,6 +5894,7 @@ function FinancialSectionPage(){
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
           {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:16,cursor:"pointer",padding:"2px 4px"}}>‹</button>}
           <div style={{fontSize:20,fontWeight:800,color:T.text,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
+          <button onClick={()=>generateReport(f)} title="Generate a PDF statement for this lender" style={{...finBtn(false),padding:"6px 12px"}}>⭳ PDF</button>
           <button onClick={()=>setFunderModal(f)} style={{...finBtn(false),padding:"6px 12px"}}>Edit</button>
           <button onClick={()=>deleteFunder(f.id)} title="Delete lender" style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>🗑</button>
         </div>

@@ -5920,6 +5920,15 @@ function FinancialSectionPage(){
           {stat("Paid out to him",s.distribution,T.red)}
           {stat("Interest owed",s.interestOwed,s.interestOwed<0?T.red:T.gold)}
         </div>
+        {/* How interest owed is derived — negative means he's been overpaid. */}
+        <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"9px 12px",marginBottom:16,fontSize:12,color:T.textSub,display:"flex",flexWrap:"wrap",alignItems:"center",gap:6}}>
+          <span style={{fontWeight:700,color:T.textTert,textTransform:"uppercase",fontSize:10,letterSpacing:"0.04em"}}>Interest owed</span>
+          <span>= earned <b style={{color:"#16A34A"}}>{fmtD(s.interestEarned)}</b></span>
+          {s.reinvest!==0&&<span>− reinvested <b style={{color:T.blue}}>{fmtD(s.reinvest)}</b></span>}
+          <span>− paid out <b style={{color:T.red}}>{fmtD(s.distribution)}</b></span>
+          {s.interestAdjust!==0&&<span>{s.interestAdjust<0?"−":"+"} adj <b>{fmtD(Math.abs(s.interestAdjust))}</b></span>}
+          <span>= <b style={{color:s.interestOwed<0?T.red:T.gold}}>{fmtD(s.interestOwed)}</b>{s.interestOwed<0&&<span style={{color:T.red,fontWeight:600}}> (overpaid)</span>}</span>
+        </div>
 
         {/* Toolbar */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8,flexWrap:"wrap"}}>

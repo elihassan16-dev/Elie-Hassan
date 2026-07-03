@@ -5472,9 +5472,13 @@ const funderStats=(f,draws)=>{
   const withdrawal=ledgerSum(f,"withdrawal")+paidWithdrawnPrincipal; // manual + principal he took back at payback
   const capital=principal+reinvest-withdrawal+adjustment;
   const deployed=open.reduce((s,d)=>s+(Number(d.amount)||0),0);
-  const interest=open.reduce((s,d)=>s+drawInterest(d),0);           // accruing / owed on open loans
+  const interest=open.reduce((s,d)=>s+drawInterest(d),0);           // accruing on open loans
   const interestRealized=paid.reduce((s,d)=>s+drawInterest(d),0);   // earned on closed loans
-  return {principal,reinvest,distribution,withdrawal,adjustment,capital,deployed,interest,interestRealized,available:capital-deployed,mine,open,paid};
+  const interestEarned=interest+interestRealized;                   // total interest accrued
+  // What's still owed to him in interest = earned − what's been reinvested or paid out.
+  // Paying out interest (a distribution) lowers this; overpaying takes it negative.
+  const interestOwed=interestEarned-reinvest-distribution;
+  return {principal,reinvest,distribution,withdrawal,adjustment,capital,deployed,interest,interestRealized,interestEarned,interestOwed,available:capital-deployed,mine,open,paid};
 };
 const LEDGER_TYPES=[
   {v:"principal",label:"Wire in (principal)",sign:1,color:"#16A34A"},
@@ -5784,7 +5788,7 @@ function FinancialSectionPage(){
   const sel=list.find(f=>String(f.id)===String(selId))||null;
 
   // Portfolio totals across all lenders.
-  const totals=list.reduce((acc,f)=>{const s=funderStats(f,draws);acc.capital+=s.capital;acc.deployed+=s.deployed;acc.interest+=s.interest;acc.available+=s.available;return acc;},{capital:0,deployed:0,interest:0,available:0});
+  const totals=list.reduce((acc,f)=>{const s=funderStats(f,draws);acc.capital+=s.capital;acc.deployed+=s.deployed;acc.interest+=s.interestOwed;acc.available+=s.available;return acc;},{capital:0,deployed:0,interest:0,available:0});
 
   const addFunder=(f)=>{setFunders(prev=>[...prev,f]);save();setSelId(f.id);};
   const updateFunder=(f)=>{setFunders(prev=>prev.map(x=>String(x.id)===String(f.id)?f:x));save();};
@@ -5849,7 +5853,7 @@ function FinancialSectionPage(){
       @media print{body{padding:0;}}
     </style></head><body>
       <div class="hdr"><div class="brand">Goldstone Properties</div><div class="sub">Lender Statement — ${esc(f.name)}</div><div class="date">Generated ${esc(today)}</div></div>
-      <div class="stats">${stat("Capital (owed)",s.capital)}${stat("Available",s.available,s.available<0?"#FF3B30":"#16A34A")}${stat("Deployed",s.deployed,"#007AFF")}${stat("Interest owed (open)",s.interest,"#B8953F")}${stat("Interest earned",s.interestRealized,"#16A34A")}${stat("Paid out to him",s.distribution,"#FF3B30")}</div>
+      <div class="stats">${stat("Capital (owed)",s.capital)}${stat("Available",s.available,s.available<0?"#FF3B30":"#16A34A")}${stat("Deployed",s.deployed,"#007AFF")}${stat("Interest earned",s.interestEarned,"#16A34A")}${stat("Paid out to him",s.distribution,"#FF3B30")}${stat("Interest owed",s.interestOwed,s.interestOwed<0?"#FF3B30":"#B8953F")}</div>
       <h2>Outstanding properties — standing interest</h2>
       <table><thead><tr><th>Property</th><th>Funded</th><th>Days</th><th class="r">Amount</th><th class="r">Interest</th></tr></thead><tbody>${openRows}</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="r">${fmtD(openAmt)}</td><td class="r gold">${fmtD(openInt)}</td></tr></tfoot></table>
       <h2>Sold / paid-back properties — interest paid</h2>
@@ -5877,7 +5881,7 @@ function FinancialSectionPage(){
           <span style={{fontWeight:700,fontSize:14,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</span>
           <span style={{fontSize:12,fontWeight:700,color:s.available<0?T.red:T.green,flexShrink:0}}>{fmtD(s.available)}</span>
         </div>
-        <div style={{fontSize:11,color:T.textSub,marginTop:2}}>{fmtD(s.deployed)} out · {s.open.length} open · {fmtD(s.interest)} int</div>
+        <div style={{fontSize:11,color:T.textSub,marginTop:2}}>{fmtD(s.deployed)} out · {s.open.length} open · {fmtD(s.interestOwed)} int owed</div>
       </div>
     );
   };
@@ -5905,9 +5909,9 @@ function FinancialSectionPage(){
           {stat("Available balance",s.available,s.available<0?T.red:T.green)}
           {stat("Deployed",s.deployed,T.blue)}
           {stat("Capital (owed)",s.capital)}
-          {stat("Interest owed (open)",s.interest,T.gold)}
-          {stat("Interest earned",s.interestRealized,"#16A34A")}
+          {stat("Interest earned",s.interestEarned,"#16A34A")}
           {stat("Paid out to him",s.distribution,T.red)}
+          {stat("Interest owed",s.interestOwed,s.interestOwed<0?T.red:T.gold)}
         </div>
 
         {/* Toolbar */}

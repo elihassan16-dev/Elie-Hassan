@@ -3590,6 +3590,7 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
                 {m.text}
                 {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
               </div>
+              {mine&&<div style={{textAlign:"right"}}><ReadReceipt readBy={m.readBy} author={m.author}/></div>}
             </div>
           );})}
         </div>
@@ -5144,6 +5145,15 @@ const isUnreadForUser=(m,user)=>{
 };
 const propUnreadCount=(p,user)=>mergePropertyMessages(p).reduce((n,m)=>n+(isUnreadForUser(m,user)?1:0),0);
 const totalUnread=(props,user)=>(props||[]).filter(p=>!p.archived).reduce((n,p)=>n+propUnreadCount(p,user),0);
+// WhatsApp-style read receipt shown under your OWN sent messages: who on the team
+// has opened it. readBy always includes the author, so we drop them to get "others".
+function ReadReceipt({readBy,author}){
+  const others=(readBy||[]).filter(n=>n&&n!==author);
+  const seen=others.length>0;
+  const names=others.map(n=>String(n).split(" ")[0]);
+  const label=!seen?"✓ Sent":`✓✓ Read${names.length<=2?" by "+names.join(", "):` by ${names.length}`}`;
+  return <div title={seen?`Read by ${others.join(", ")}`:"Delivered — not read yet"} style={{fontSize:10,fontWeight:600,color:seen?T.blue:T.textTert,marginTop:2}}>{label}</div>;
+}
 // A small count bubble used on nav items and the property list.
 function UnreadBadge({count,style={}}){
   if(!count)return null;
@@ -5228,6 +5238,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                 </div>
                 {/* Reply to THIS specific message (notifies its author) */}
                 {!selMode&&<button onClick={()=>setReply(m)} style={{background:"none",border:"none",color:reply&&reply.id===m.id?T.gold:T.textTert,cursor:"pointer",fontSize:11,fontFamily:"inherit",padding:"3px 2px 0",fontWeight:600}}>↩ Reply</button>}
+                {mine&&<ReadReceipt readBy={m.readBy} author={m.author}/>}
               </div>
             );
           };

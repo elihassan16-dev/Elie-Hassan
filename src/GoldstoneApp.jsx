@@ -5431,8 +5431,10 @@ const LEDGER_TYPES=[
 ];
 // One chronological register per lender: ledger entries + each draw's funded/payback
 // events (and the interest's reinvest/paid-out decision), time-sorted, with a running
-// available balance (what's un-deployed). Same-date order: fund → payback → interest.
-const REG_RANK={fund:0,principal:1,withdrawal:1,adjustment:1,payback:2,reinvest:3,distribution:3};
+// available balance (what's un-deployed). Same-date order: fund → wires/ledger →
+// payback (+principal) → its derived lines (principal-out / interest), so the balance
+// rises on the payback first, then the red lines pull it back — never dips negative.
+const regRank=(e)=>e.kind==="fund"?0:e.kind==="payback"?2:e.derived?3:1;
 const funderRegister=(f,draws)=>{
   const ev=[];
   (f.ledger||[]).forEach(e=>ev.push({id:"L"+e.id,kind:e.type,date:e.date||"",amount:Number(e.amount)||0,note:e.note||"",ledgerId:e.id}));
@@ -5446,7 +5448,7 @@ const funderRegister=(f,draws)=>{
       else if(d.interestHandling==="distribute")ev.push({id:"D"+d.id,kind:"distribution",date:d.paybackDate,amount:int,note:`Interest paid out — ${d.propertyLabel||""}`.trim(),draw:d,derived:true,field:"interest"});
     }
   });
-  ev.sort((a,b)=>String(a.date).localeCompare(String(b.date))||((REG_RANK[a.kind]??1)-(REG_RANK[b.kind]??1)));
+  ev.sort((a,b)=>String(a.date).localeCompare(String(b.date))||(regRank(a)-regRank(b)));
   let bal=0;
   ev.forEach(e=>{
     if(e.kind==="principal"||e.kind==="reinvest"||e.kind==="payback")bal+=e.amount;
@@ -5760,7 +5762,7 @@ function FinancialSectionPage(){
   const stat=(label,val,color)=>(
     <div style={{background:T.bg,borderRadius:10,padding:"10px 12px",minWidth:0}}>
       <div style={{fontSize:10,color:T.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</div>
-      <div style={{fontSize:isMobile?15:17,fontWeight:800,color:color||T.text,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fmtD(val)}</div>
+      <div style={{fontSize:isMobile?15:17,fontWeight:800,color:color||T.text,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontVariantNumeric:"tabular-nums"}}>{fmtD(val)}</div>
     </div>
   );
 
@@ -5817,17 +5819,14 @@ function FinancialSectionPage(){
         <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden"}}>
           {reg.length===0&&<div style={{padding:"18px",textAlign:"center",color:T.textTert,fontSize:13}}>Nothing yet. Start with <b>+ Wire / entry</b> for money he sent you, then <b>+ Funding</b> when you deploy it into a deal.</div>}
           {reg.map(e=>{const m=kindMeta(e);const isOpenFund=e.kind==="fund"&&e.draw&&!e.draw.paybackDate;return(
-            <div key={e.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderTop:`1px solid ${T.border}`}}>
+            <div key={e.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderTop:`1px solid ${T.border}`}}>
               <div style={{width:52,fontSize:10.5,color:T.textTert,flexShrink:0,lineHeight:1.25}}>{finFmtDate(e.date)||"—"}</div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.label}</div>
                 {m.extra&&<div style={{fontSize:11,color:"#16A34A"}}>{m.extra}</div>}
               </div>
-              <div style={{textAlign:"right",flexShrink:0}}>
-                <div style={{fontSize:13,fontWeight:700,color:m.color,whiteSpace:"nowrap"}}>{m.sign<0?"−":"+"}{fmtD(e.amount)}</div>
-                <div style={{fontSize:9.5,color:T.textTert,whiteSpace:"nowrap"}}>bal {fmtD(e.balance)}</div>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:3,flexShrink:0}}>
+              {/* actions sit BEFORE the amount so the amount column stays aligned across every row */}
+              <div style={{display:"flex",flexDirection:"column",gap:3,flexShrink:0,alignItems:"flex-end"}}>
                 {isOpenFund&&<button onClick={()=>setPaybackModal(e.draw)} style={{background:"none",border:`1px solid ${T.green}`,borderRadius:7,color:T.green,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:"2px 7px",fontFamily:"inherit"}}>Payback</button>}
                 {e.kind==="payback"&&e.draw&&(()=>{const p=e.draw.principalHandling,i=e.draw.interestHandling;const set=p||i;
                   const label=set?`${p==="withdraw"?"P out":"P kept"} · ${i==="reinvest"?"int reinv":i==="distribute"?"int paid":"int —"}`:"set ▾";
@@ -5835,6 +5834,10 @@ function FinancialSectionPage(){
                   <button onClick={()=>setPaybackModal(e.draw)} title="How were principal & interest handled?" style={{background:set?"none":T.goldLight,border:`1px solid ${set?T.border:T.gold}`,borderRadius:7,color:col,cursor:"pointer",fontSize:10,fontWeight:700,padding:"2px 7px",fontFamily:"inherit",whiteSpace:"nowrap"}}>{label}</button>
                 );})()}
                 {e.kind==="fund"&&e.draw&&<button onClick={()=>setDrawModal(e.draw)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:10.5,padding:"2px 7px",fontFamily:"inherit"}}>Edit</button>}
+              </div>
+              <div style={{width:isMobile?92:110,flexShrink:0,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>
+                <div style={{fontSize:13,fontWeight:700,color:m.color,whiteSpace:"nowrap"}}>{m.sign<0?"−":"+"}{fmtD(e.amount)}</div>
+                <div style={{fontSize:9.5,color:T.textTert,whiteSpace:"nowrap"}}>bal {fmtD(e.balance)}</div>
               </div>
               <button onClick={()=>delEvent(e)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
             </div>

@@ -5538,7 +5538,7 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,onE
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
         <button onClick={onEditName} style={rowBtn}><span style={{fontSize:16,width:22,textAlign:"center"}}>✎</span> Edit your name</button>
-        <NotificationToggle displayName={displayName}/>
+        <NotificationToggle displayName={displayName} isAdmin={isAdmin}/>
         {isAdmin&&<button onClick={onAddTeammate} style={{...rowBtn,color:T.gold,fontWeight:700,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:18,width:22,textAlign:"center"}}>＋</span> Add a teammate</button>}
         <div style={{padding:"12px 20px 6px",fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",borderTop:`1px solid ${T.border}`}}>Team ({others.length}){isAdmin&&rows&&<span style={{textTransform:"none",fontWeight:400,letterSpacing:0}}> · tap 🔔 to mute someone</span>}</div>
         <div style={{padding:"0 20px 8px",display:"flex",flexDirection:"column",gap:2}}>
@@ -5566,7 +5566,7 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,onE
   );
 }
 // Enable/att-a-glance notification status inside the profile sheet.
-function NotificationToggle({displayName}){
+function NotificationToggle({displayName,isAdmin}){
   const supported=notificationsSupported();
   const[perm,setPerm]=useState(supported?notificationPermission():"unsupported");
   const[busy,setBusy]=useState(false);
@@ -5601,6 +5601,15 @@ function NotificationToggle({displayName}){
     }catch(e){ setErr(e.message||"Digest failed."); setTestMsg(""); }
     setBusy(false);
   };
+  const sendDigestAll=async()=>{
+    if(!window.confirm("Email every teammate their own task digest right now?"))return;
+    setBusy(true);setErr("");setTestMsg("Sending everyone their digest…");
+    try{
+      const r=await qbAuthFetch("/api/notify/digest?all=1",{method:"POST"});
+      setTestMsg(`Sent to ${r.emailed} of ${r.recipients} teammate${r.recipients===1?"":"s"} ✓ (people with no open tasks are skipped).`);
+    }catch(e){ setErr(e.message||"Couldn't send."); setTestMsg(""); }
+    setBusy(false);
+  };
   const rowBtn={display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 20px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:14,color:T.text,textAlign:"left",borderTop:`1px solid ${T.border}`};
   return(
     <div style={{borderTop:`1px solid ${T.border}`}}>
@@ -5611,7 +5620,8 @@ function NotificationToggle({displayName}){
         {!on&&supported&&!busy&&<span style={{fontSize:12,fontWeight:700,color:T.blue}}>Enable ›</span>}
       </button>
       {on&&<button onClick={sendTest} disabled={busy} style={{...rowBtn,paddingTop:6,paddingBottom:8,color:T.blue,fontSize:13,cursor:busy?"default":"pointer"}}><span style={{width:22,textAlign:"center"}}>📨</span><span style={{flex:1}}>Send a test notification to me</span></button>}
-      <button onClick={sendDigest} disabled={busy} style={{...rowBtn,borderTop:"none",paddingTop:2,paddingBottom:12,color:T.blue,fontSize:13,cursor:busy?"default":"pointer"}}><span style={{width:22,textAlign:"center"}}>📋</span><span style={{flex:1}}>Email me my task digest now</span></button>
+      <button onClick={sendDigest} disabled={busy} style={{...rowBtn,borderTop:"none",paddingTop:2,paddingBottom:isAdmin?4:12,color:T.blue,fontSize:13,cursor:busy?"default":"pointer"}}><span style={{width:22,textAlign:"center"}}>📋</span><span style={{flex:1}}>Email me my task digest now</span></button>
+      {isAdmin&&<button onClick={sendDigestAll} disabled={busy} style={{...rowBtn,borderTop:"none",paddingTop:2,paddingBottom:12,color:T.gold,fontSize:13,fontWeight:600,cursor:busy?"default":"pointer"}}><span style={{width:22,textAlign:"center"}}>📤</span><span style={{flex:1}}>Send everyone their digest now</span></button>}
       {testMsg&&<div style={{padding:"0 20px 10px 54px",fontSize:12,color:T.textSub,lineHeight:1.5}}>{testMsg}</div>}
       {err&&<div style={{padding:"0 20px 10px 54px",fontSize:12,color:T.red}}>{err}</div>}
       {!supported&&<div style={{padding:"0 20px 10px 54px",fontSize:11.5,color:T.textTert,lineHeight:1.5}}>On iPhone: add this app to your Home Screen (Share → Add to Home Screen), open it from there, then turn on notifications.</div>}

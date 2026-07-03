@@ -3390,7 +3390,7 @@ function TaskStatusPicker({value,onChange,onDelete}){
   };
   return(
     <div style={{flexShrink:0}}>
-      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:isMobile?"6px 11px":"4px 10px",fontSize:isMobile?12:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
+      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
       {open&&(<>
         {/* fixed positioning so the menu isn't clipped by the property card's overflow:hidden */}
         <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:290}}/>
@@ -3437,7 +3437,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   // row omits them and just carries the task itself. Compact Monday-style layout:
   // [select?] task · assignee initials · contact · message · status (far right).
   return(
-    <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,padding:isMobile?"9px 12px":"11px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:"#fff"}}>
+    <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,padding:isMobile?"6px 12px":"9px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:"#fff"}}>
       {selBox}
       {editing
         ? <input ref={editRef} value={draft} onChange={e=>setDraft(e.target.value)} onBlur={saveEdit}
@@ -3698,8 +3698,9 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
               {companyPeople.map(c=>(
                 <div key={c.id} style={{padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
                   <div style={{display:"flex",alignItems:"center",gap:10}}>{avatar(c.name,32)}<div style={{minWidth:0,flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{c.name}</div>{c.role&&<div style={{fontSize:11,color:T.textSub}}>{c.role}</div>}</div></div>
-                  {c.phones[0]&&<div style={{fontSize:12,color:T.textSub,marginTop:5}}>{c.phones[0].label}: {c.phones[0].number}</div>}
-                  {c.phones[0]&&phoneRow(c.phones[0].number)}
+                  {(c.phones||[]).map((ph,i)=>(
+                    <div key={i} style={{marginTop:6}}><div style={{fontSize:12,color:T.textSub}}>{ph.label}: {ph.number}</div>{phoneRow(ph.number)}</div>
+                  ))}
                   {c.email&&<a href={`mailto:${c.email}`} style={{...actA,marginTop:6,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue,display:"inline-flex"}}>✉️ Email</a>}
                 </div>
               ))}
@@ -6209,9 +6210,9 @@ export function GoldstoneShell(){
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             {!isMobile&&<div style={{fontSize:13,color:T.textSub}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>}
-            {isMobile&&<button onClick={()=>setShowProfileMenu(true)} title="Profile & team" aria-label="Profile and team" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:32,height:32,minWidth:32,maxWidth:32,flex:"0 0 32px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,color:"#fff",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>{initials}</button>}
-            {isAdmin&&<button onClick={()=>setShowSettings(true)} title="Settings" aria-label="Settings" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:15,padding:"5px 9px",lineHeight:1}}>⚙</button>}
-            {isMobile&&<button onClick={signOut} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,padding:"6px 10px"}}>Sign out</button>}
+            {isMobile&&<div role="button" onClick={()=>setShowProfileMenu(true)} title="Profile & team" aria-label="Profile and team" style={{boxSizing:"border-box",lineHeight:1,width:28,height:28,minWidth:28,maxWidth:28,flex:"0 0 28px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff",cursor:"pointer"}}>{initials}</div>}
+            {isAdmin&&<button onClick={()=>setShowSettings(true)} title="Settings" aria-label="Settings" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",height:28,background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14,padding:"0 8px",lineHeight:1}}>⚙</button>}
+            {isMobile&&<button onClick={signOut} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",height:28,background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:11.5,padding:"0 10px",lineHeight:1}}>Sign out</button>}
           </div>
         </div>
         <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>

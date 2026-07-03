@@ -5520,23 +5520,38 @@ function ProfileModal({current,onSave,onClose}){
   );
 }
 
-// Change your login + notification email (admin-backed, no confirmation link).
+// Change your login + notification email — verified with a code sent to the NEW
+// address, so a typo can never lock you out (the change only applies after you
+// enter the code that was emailed to that exact address).
 function EmailChangeModal({current,onClose}){
+  const[step,setStep]=useState("enter"); // enter → code → done
   const[email,setEmail]=useState("");
+  const[code,setCode]=useState("");
+  const[token,setToken]=useState("");
   const[busy,setBusy]=useState(false);
   const[err,setErr]=useState("");
-  const[done,setDone]=useState(false);
   const valid=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const save=async()=>{
+  const sendCode=async()=>{
     if(!valid)return;
     setBusy(true);setErr("");
     try{
-      await qbAuthFetch("/api/team/update-email",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email.trim().toLowerCase()})});
-      try{ await supabase.auth.refreshSession(); }catch{ /* session updates on next login regardless */ }
-      setDone(true);
-    }catch(e){ setErr(e.message||"Couldn't change your email."); }
+      const r=await qbAuthFetch("/api/team/request-email-change",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email.trim().toLowerCase()})});
+      setToken(r.token);setStep("code");
+    }catch(e){ setErr(e.message||"Couldn't send the code."); }
     setBusy(false);
   };
+  const confirm=async()=>{
+    if(code.trim().length<6)return;
+    setBusy(true);setErr("");
+    try{
+      await qbAuthFetch("/api/team/confirm-email-change",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,code:code.trim()})});
+      try{ await supabase.auth.refreshSession(); }catch{ /* applies on next login regardless */ }
+      setStep("done");
+    }catch(e){ setErr(e.message||"Couldn't confirm."); }
+    setBusy(false);
+  };
+  const newEmail=email.trim().toLowerCase();
+  const inp={width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:15,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(420px,96vw)",boxShadow:"0 12px 48px rgba(0,0,0,0.25)",overflow:"hidden"}}>
@@ -5545,23 +5560,34 @@ function EmailChangeModal({current,onClose}){
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
         <div style={{padding:20}}>
-          {done?(
-            <div style={{fontSize:14,color:T.text,lineHeight:1.6}}>
-              ✅ Your email is now <b>{email.trim().toLowerCase()}</b>.<br/>
-              You'll use it to <b>log in</b> from now on, and notifications & digests go there.
-              <div style={{marginTop:16,textAlign:"right"}}><button onClick={onClose} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Done</button></div>
-            </div>
-          ):(<>
-            <div style={{fontSize:12.5,color:T.textSub,marginBottom:6,lineHeight:1.5}}>This changes <b>both</b> your login email and where your notifications/daily digest are sent.</div>
+          {step==="enter"&&(<>
+            <div style={{fontSize:12.5,color:T.textSub,marginBottom:6,lineHeight:1.5}}>This changes <b>both</b> your login email and where notifications/digests are sent. We'll email a code to the new address to confirm it's really yours.</div>
             <div style={{fontSize:12,color:T.textTert,marginBottom:12}}>Current: {current||"—"}</div>
-            <input autoFocus type="email" inputMode="email" autoCapitalize="none" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&save()} placeholder="you@yourcompany.com"
-              style={{width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:15,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+            <input autoFocus type="email" inputMode="email" autoCapitalize="none" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendCode()} placeholder="you@yourcompany.com" style={inp}/>
             {err&&<div style={{marginTop:10,color:T.red,fontSize:13}}>{err}</div>}
             <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:18}}>
               <button onClick={onClose} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
-              <button onClick={save} disabled={busy||!valid} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:busy||!valid?"default":"pointer",fontFamily:"inherit",fontSize:14,opacity:busy||!valid?0.6:1}}>{busy?"Saving…":"Change email"}</button>
+              <button onClick={sendCode} disabled={busy||!valid} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:busy||!valid?"default":"pointer",fontFamily:"inherit",fontSize:14,opacity:busy||!valid?0.6:1}}>{busy?"Sending…":"Send code"}</button>
             </div>
           </>)}
+          {step==="code"&&(<>
+            <div style={{fontSize:13.5,color:T.text,marginBottom:4,lineHeight:1.55}}>We sent a 6-digit code to <b>{newEmail}</b>.</div>
+            <div style={{fontSize:12,color:T.textSub,marginBottom:12}}>Enter it below to confirm. Don't see it? Check spam, or resend.</div>
+            <input autoFocus inputMode="numeric" pattern="[0-9]*" maxLength={6} value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,""))} onKeyDown={e=>e.key==="Enter"&&confirm()} placeholder="123456"
+              style={{...inp,letterSpacing:"0.4em",fontWeight:700,fontSize:20,textAlign:"center"}}/>
+            {err&&<div style={{marginTop:10,color:T.red,fontSize:13}}>{err}</div>}
+            <div style={{display:"flex",gap:10,justifyContent:"space-between",alignItems:"center",marginTop:18}}>
+              <button onClick={()=>{setStep("enter");setCode("");setErr("");}} disabled={busy} style={{padding:"10px 6px",background:"none",border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>‹ Back</button>
+              <button onClick={confirm} disabled={busy||code.trim().length<6} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:busy||code.trim().length<6?"default":"pointer",fontFamily:"inherit",fontSize:14,opacity:busy||code.trim().length<6?0.6:1}}>{busy?"Confirming…":"Confirm change"}</button>
+            </div>
+          </>)}
+          {step==="done"&&(
+            <div style={{fontSize:14,color:T.text,lineHeight:1.6}}>
+              ✅ Verified. Your email is now <b>{newEmail}</b>.<br/>
+              You'll <b>log in</b> with it from now on, and notifications & digests go there.
+              <div style={{marginTop:16,textAlign:"right"}}><button onClick={onClose} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Done</button></div>
+            </div>
+          )}
         </div>
       </div>
     </div>

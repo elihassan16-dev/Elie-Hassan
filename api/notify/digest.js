@@ -30,8 +30,12 @@ function buildDigest(name, props) {
   return { mine, delegated, open: mine.reduce((n, g) => n + g.tasks.length, 0) + delegated.reduce((n, g) => n + g.tasks.length, 0) };
 }
 
-// ── Wide, report-style PDF (landscape) ────────────────────────────────────────
-const GOLD = "#B8953F", INK = "#1B1A17", SUB = "#6B6862", LINE = "#E4E0D7", CARD = "#FAF8F3";
+// ── Wide, report-style PDF (landscape), styled like the app ──────────────────
+const GOLD = "#B8953F", INK = "#1B1A17", SUB = "#6B6862", LINE = "#E4E0D7";
+// Same status colors the website uses.
+const PROP_SC = { "Under Contract": { color: "#9333EA", bg: "#F3E8FF" }, "Purchased": { color: "#2563EB", bg: "#DBEAFE" }, "Under Construction": { color: "#EA580C", bg: "#FFEDD5" }, "On Market": { color: "#16A34A", bg: "#DCFCE7" }, "In Closing": { color: "#CA8A04", bg: "#FEF9C3" }, "Sold": { color: "#65A30D", bg: "#ECFCCB" }, "Rental": { color: "#0891B2", bg: "#CFFAFE" }, "New Leads": { color: "#DB2777", bg: "#FCE7F3" } };
+const TASK_SC = { "Not Started": { bg: "#F2F2F7", color: "#8A8A8E" }, "In Progress": { bg: "#FFF4E5", color: "#FF9500" }, "Completed": { bg: "#EDFBF1", color: "#34C759" }, "N/A": { bg: "#F2F2F7", color: "#AEAEB2" } };
+
 function buildDigestPdf(name, d, dateStr) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "letter", layout: "landscape", margin: 42 });
@@ -42,53 +46,64 @@ function buildDigestPdf(name, d, dateStr) {
 
     const L = doc.page.margins.left, R = doc.page.width - doc.page.margins.right, W = R - L;
     const bottom = doc.page.height - doc.page.margins.bottom;
-    const statusX = R - 150, textW = statusX - L - 12;
-
+    const statusColX = R - 128;                 // status pills sit in this right-hand lane
+    const textW = statusColX - (L + 16) - 8;    // task text width (leaves room for the pill)
     const ensure = (h) => { if (doc.y + h > bottom) doc.addPage(); };
 
+    // A rounded, colored status pill; returns its width. Right-aligns to endX.
+    const pill = (label, sc, endX, y, fs = 8) => {
+      doc.font("Helvetica-Bold").fontSize(fs);
+      const tw = doc.widthOfString(label), padX = 7, h = fs + 8, w = tw + padX * 2, x = endX - w;
+      doc.roundedRect(x, y, w, h, h / 2).fill(sc.bg);
+      doc.fillColor(sc.color).text(label, x + padX, y + (h - fs) / 2 - 0.5, { lineBreak: false });
+      return w;
+    };
+
     // Header band
-    doc.rect(0, 0, doc.page.width, 74).fill(GOLD);
-    doc.fillColor("#fff").font("Helvetica-Bold").fontSize(20).text("Goldstone Properties", L, 22);
-    doc.font("Helvetica").fontSize(11).fillColor("#fff").text(dateStr, L, 22, { width: W, align: "right" });
-    doc.fillColor("rgba(255,255,255,0.9)").fontSize(12).text(`Open tasks for ${name} — ${d.open} total`, L, 46);
-    doc.y = 92;
+    doc.rect(0, 0, doc.page.width, 76).fill(GOLD);
+    doc.fillColor("#fff").font("Helvetica-Bold").fontSize(21).text("Goldstone Properties", L, 20);
+    doc.font("Helvetica").fontSize(11).fillColor("#F7EDD3").text(dateStr, L, 24, { width: W, align: "right" });
+    doc.fillColor("#FBF6EC").fontSize(12).text(`Open tasks for ${name} — ${d.open} total`, L, 48);
+    doc.y = 96;
 
     const sectionTitle = (t) => {
-      ensure(34);
-      doc.moveDown(0.4);
-      doc.font("Helvetica-Bold").fontSize(12).fillColor(GOLD).text(t.toUpperCase(), L, doc.y, { characterSpacing: 1 });
-      doc.moveTo(L, doc.y + 2).lineTo(R, doc.y + 2).lineWidth(1).strokeColor(GOLD).stroke();
-      doc.moveDown(0.5);
+      ensure(36); doc.moveDown(0.5);
+      doc.font("Helvetica-Bold").fontSize(11.5).fillColor(GOLD).text(t.toUpperCase(), L, doc.y, { characterSpacing: 1 });
+      doc.moveTo(L, doc.y + 3).lineTo(R, doc.y + 3).lineWidth(1.2).strokeColor(GOLD).stroke();
+      doc.moveDown(0.7);
     };
     const propHeader = (g) => {
-      ensure(24);
+      ensure(30);
       const y = doc.y;
-      doc.font("Helvetica-Bold").fontSize(12.5).fillColor(INK).text(g.addr, L, y, { width: textW });
-      if (g.status) doc.font("Helvetica").fontSize(9.5).fillColor(SUB).text(g.status, statusX, y + 1, { width: 150, align: "right" });
-      doc.moveDown(0.2);
+      doc.roundedRect(L, y, W, 25, 6).fill("#F6F3EC");                     // subtle header band
+      doc.font("Helvetica-Bold").fontSize(12).fillColor(INK).text(g.addr, L + 12, y + 7, { width: textW, lineBreak: false });
+      if (g.status) pill(g.status, PROP_SC[g.status] || { bg: "#F1F5F9", color: "#64748B" }, R - 12, y + 5, 8.5);
+      doc.y = y + 25 + 7;
     };
     const taskRow = (t, withTo) => {
-      ensure(18);
+      const label = `${t.text}${withTo && t.to ? `   →  ${String(t.to).split(" ")[0]}` : ""}`;
+      doc.font("Helvetica").fontSize(10.5);
+      const th = Math.max(doc.heightOfString(label, { width: textW }), 13);
+      ensure(th + 12);
       const y = doc.y;
-      doc.font("Helvetica").fontSize(10.5).fillColor("#2A2823")
-        .text(`•  ${t.text}${withTo && t.to ? `   →  ${String(t.to).split(" ")[0]}` : ""}`, L + 6, y, { width: textW });
-      const yEnd = doc.y;
-      doc.font("Helvetica").fontSize(9.5).fillColor(SUB).text(t.status, statusX, y, { width: 150, align: "right" });
-      doc.y = yEnd;
-      doc.moveDown(0.15);
-      doc.moveTo(L + 6, doc.y).lineTo(R, doc.y).lineWidth(0.5).strokeColor(LINE).stroke();
-      doc.moveDown(0.2);
+      doc.circle(L + 8, y + 6, 1.6).fill(GOLD);                            // bullet
+      doc.font("Helvetica").fontSize(10.5).fillColor("#2A2823").text(label, L + 16, y, { width: textW });
+      pill(t.status, TASK_SC[t.status] || TASK_SC["Not Started"], R - 12, y - 1, 8);
+      doc.y = y + th + 6;
+      doc.moveTo(L + 16, doc.y).lineTo(R - 12, doc.y).lineWidth(0.5).strokeColor(LINE).stroke();
+      doc.moveDown(0.35);
     };
 
     if (d.open === 0) {
       doc.font("Helvetica").fontSize(13).fillColor(SUB).text("No open tasks. You're all caught up.", L, doc.y + 10);
     } else {
-      if (d.mine.length) { sectionTitle("Your open tasks"); d.mine.forEach((g) => { propHeader(g); g.tasks.forEach((t) => taskRow(t, false)); doc.moveDown(0.3); }); }
-      if (d.delegated.length) { sectionTitle("Delegated by you (waiting on others)"); d.delegated.forEach((g) => { propHeader(g); g.tasks.forEach((t) => taskRow(t, true)); doc.moveDown(0.3); }); }
+      if (d.mine.length) { sectionTitle("Your open tasks"); d.mine.forEach((g) => { propHeader(g); g.tasks.forEach((t) => taskRow(t, false)); doc.moveDown(0.6); }); }
+      if (d.delegated.length) { sectionTitle("Delegated by you (waiting on others)"); d.delegated.forEach((g) => { propHeader(g); g.tasks.forEach((t) => taskRow(t, true)); doc.moveDown(0.6); }); }
     }
 
+    ensure(16);
     doc.font("Helvetica").fontSize(8.5).fillColor("#A49F95")
-      .text("Completed tasks are not shown. Mark tasks done in the app and they drop off tomorrow.", L, bottom - 4, { width: W });
+      .text("Completed tasks are not shown. Mark tasks done in the app and they drop off tomorrow.", L, doc.y + 6, { width: W });
     doc.end();
   });
 }

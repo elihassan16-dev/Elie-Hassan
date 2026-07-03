@@ -1689,6 +1689,16 @@ function PropertyShowings({property,showings,onUpdate,flush}){
 }
 // Count showings from the feed that match a property (used for headers/sorting).
 const matchedShowings=(showings,p)=>(showings||[]).filter(s=>showingMatchesProperty(s.location||s.summary||"",p)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
+// One shared showings fetch for BOTH the top-level Showings page and each
+// property's Showings tab, so they always render the exact same showing rows
+// (and therefore the same saved leads). Cached ~60s; force=true refetches.
+let _shCache=null,_shAt=0,_shInflight=null;
+function fetchShowingsShared(force){
+  if(!force&&_shCache&&Date.now()-_shAt<60000) return Promise.resolve(_shCache);
+  if(_shInflight) return _shInflight;
+  _shInflight=qbAuthFetch("/api/showings").then(d=>{_shCache=d;_shAt=Date.now();_shInflight=null;return d;}).catch(e=>{_shInflight=null;throw e;});
+  return _shInflight;
+}
 function ShowingsTab({property,onUpdate}){
   const { isAdmin }=useAuth();
   const { flushProps }=useData();
@@ -1700,7 +1710,7 @@ function ShowingsTab({property,onUpdate}){
   const[saving,setSaving]=useState(false);
 
   useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
-  const load=useCallback(()=>{setLoading(true);setError("");qbAuthFetch("/api/showings").then(d=>setShowings(d.showings||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
+  const load=useCallback((force)=>{setLoading(true);setError("");fetchShowingsShared(force).then(d=>setShowings(d.showings||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
   useEffect(()=>{if(status&&status.configured)load();},[status,load]);
 
   const save=async()=>{
@@ -1736,7 +1746,7 @@ function ShowingsTab({property,onUpdate}){
     <div style={wrap}>
       <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
         <div style={{fontSize:13,color:T.textSub}}>{mineCount} showing{mineCount!==1?"s":""} for this property <span style={{color:T.textTert}}>· {all.length} in feed</span></div>
-        <button onClick={load} style={{marginLeft:"auto",padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻ Refresh</button>
+        <button onClick={()=>load(true)} style={{marginLeft:"auto",padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻ Refresh</button>
       </div>
       {loading&&<div style={{color:T.textSub,fontSize:14,padding:12}}>Loading showings…</div>}
       {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
@@ -1761,7 +1771,7 @@ function ShowingsPage(){
   const[showConn,setShowConn]=useState(false);
   const[copied,setCopied]=useState(false);
   useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
-  const load=useCallback(()=>{setLoading(true);setError("");qbAuthFetch("/api/showings").then(d=>setShowings(d.showings||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
+  const load=useCallback((force)=>{setLoading(true);setError("");fetchShowingsShared(force).then(d=>setShowings(d.showings||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
   useEffect(()=>{if(status&&status.configured)load();},[status,load]);
   const save=async()=>{
     if(!urlInput.trim())return;setSaving(true);setError("");
@@ -1815,7 +1825,7 @@ function ShowingsPage(){
               <div style={{fontWeight:700,fontSize:15,color:T.text}}>Showings</div>
               <div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>{totalUpcoming} upcoming · {rows.length} on market</div>
             </div>
-            <button onClick={load} title="Refresh" style={{padding:"6px 12px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻</button>
+            <button onClick={()=>load(true)} title="Refresh" style={{padding:"6px 12px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻</button>
           </div>
           <div style={{position:"relative"}}>
             <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:14,pointerEvents:"none"}}>⌕</span>
@@ -1876,7 +1886,7 @@ function ShowingsPage(){
                     <span style={{fontSize:11.5,color:T.textSub}}>{selMeta.upcoming} upcoming · {selMeta.total} total</span>
                   </div>
                 </div>
-                <button onClick={load} title="Refresh" style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻ Refresh</button>
+                <button onClick={()=>load(true)} title="Refresh" style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻ Refresh</button>
               </div>
               <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
                 <PropertyShowings key={sel.id} property={sel} showings={all} onUpdate={onUpdate} flush={flushProps}/>

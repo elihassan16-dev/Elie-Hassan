@@ -65,7 +65,9 @@ async function sendEmail(to, subject, html) {
       headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
       body: JSON.stringify({ from: FROM, to, subject, html }),
     });
-    return r.ok ? "sent" : `resend ${r.status}`;
+    if (r.ok) return "sent";
+    const j = await r.json().catch(() => null);
+    return `resend ${r.status}: ${(j && (j.message || j.error || j.name)) || ""}`.trim();
   } catch { return "error"; }
 }
 

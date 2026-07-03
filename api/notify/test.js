@@ -45,7 +45,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({ from: FROM, to: user.email, subject: "🔔 Goldstone test notification", text: "This is a test. Email notifications are working." }),
       });
       if (r.ok) { out.mailed = 1; out.email = "sent"; }
-      else { out.email = `resend ${r.status}`; }
+      else { const j = await r.json().catch(() => null); out.email = `resend ${r.status}: ${(j && (j.message || j.error || j.name)) || ""}`.trim(); }
     } catch (e) { out.email = "error"; }
   }
 

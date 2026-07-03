@@ -5475,18 +5475,22 @@ const funderStats=(f,draws)=>{
   const interest=open.reduce((s,d)=>s+drawInterest(d),0);           // accruing on open loans
   const interestRealized=paid.reduce((s,d)=>s+drawInterest(d),0);   // earned on closed loans
   const interestEarned=interest+interestRealized;                   // total interest accrued
-  // What's still owed to him in interest = earned − what's been reinvested or paid out.
+  const interestAdjust=ledgerSum(f,"interest_adjust");              // manual ± correction to interest owed
+  // What's still owed to him in interest = earned − what's been reinvested or paid out (± manual).
   // Paying out interest (a distribution) lowers this; overpaying takes it negative.
-  const interestOwed=interestEarned-reinvest-distribution;
-  return {principal,reinvest,distribution,withdrawal,adjustment,capital,deployed,interest,interestRealized,interestEarned,interestOwed,available:capital-deployed,mine,open,paid};
+  const interestOwed=interestEarned-reinvest-distribution+interestAdjust;
+  return {principal,reinvest,distribution,withdrawal,adjustment,interestAdjust,capital,deployed,interest,interestRealized,interestEarned,interestOwed,available:capital-deployed,mine,open,paid};
 };
 const LEDGER_TYPES=[
   {v:"principal",label:"Wire in (principal)",sign:1,color:"#16A34A"},
   {v:"reinvest",label:"Reinvested interest",sign:1,color:T.blue},
   {v:"distribution",label:"Interest paid out",sign:-1,color:T.red},
   {v:"withdrawal",label:"Principal withdrawn",sign:-1,color:T.red},
-  {v:"adjustment",label:"Adjustment",sign:1,color:T.textSub},
+  {v:"adjustment",label:"Capital adjustment (±)",sign:1,color:T.textSub},
+  {v:"interest_adjust",label:"Interest adjustment (±)",sign:1,color:T.gold},
 ];
+// Types whose amount can be entered negative to reduce a balance.
+const SIGNED_LEDGER=new Set(["adjustment","interest_adjust"]);
 // One chronological register per lender: ledger entries + each draw's funded/payback
 // events (and the interest's reinvest/paid-out decision), time-sorted, with a running
 // available balance (what's un-deployed). Same-date order: fund → wires/ledger →
@@ -5510,8 +5514,9 @@ const funderRegister=(f,draws)=>{
   let bal=0;
   ev.forEach(e=>{
     if(e.kind==="principal"||e.kind==="reinvest"||e.kind==="payback")bal+=e.amount;
+    else if(e.kind==="adjustment")bal+=e.amount;                 // signed capital correction
     else if(e.kind==="withdrawal"||e.kind==="fund")bal-=e.amount;
-    e.balance=bal; // "distribution" (interest paid out) doesn't move available capital
+    e.balance=bal; // "distribution" / "interest_adjust" don't move available capital
   });
   return ev;
 };
@@ -5572,8 +5577,10 @@ function FinLedgerModal({funderName,onSave,onClose}){
       footer={<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button onClick={save} disabled={!Number(numIn(amount))} style={{...finBtn(true),opacity:Number(numIn(amount))?1:0.5}}>Add</button></>}>
       <div><div style={finLabel}>Type</div>
         <select value={type} onChange={e=>setType(e.target.value)} style={finInput}>{LEDGER_TYPES.map(t=><option key={t.v} value={t.v}>{t.label}</option>)}</select>
+        {type==="adjustment"&&<div style={{fontSize:11,color:T.textTert,marginTop:4}}>Corrects his capital / available balance. Use a minus (e.g. −5000) to reduce.</div>}
+        {type==="interest_adjust"&&<div style={{fontSize:11,color:T.textTert,marginTop:4}}>Corrects interest owed only (not principal). Use a minus to reduce interest owed.</div>}
       </div>
-      <div><div style={finLabel}>Amount</div><input autoFocus value={amount} onChange={e=>setAmount(numIn(e.target.value))} inputMode="decimal" placeholder="0" style={finInput}/></div>
+      <div><div style={finLabel}>Amount</div><input autoFocus value={amount} onChange={e=>setAmount(numIn(e.target.value))} inputMode="decimal" placeholder={SIGNED_LEDGER.has(type)?"e.g. -5000":"0"} style={finInput}/></div>
       <div><div style={finLabel}>Date</div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={finInput}/></div>
       <div><div style={finLabel}>Note</div><input value={note} onChange={e=>setNote(e.target.value)} placeholder="Optional" style={finInput}/></div>
     </FinModal>
@@ -5944,7 +5951,7 @@ function FinancialSectionPage(){
                 {e.kind==="fund"&&e.draw&&<button onClick={()=>setDrawModal(e.draw)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:10.5,padding:"2px 7px",fontFamily:"inherit"}}>Edit</button>}
               </div>
               <div style={{width:isMobile?92:110,flexShrink:0,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>
-                <div style={{fontSize:13,fontWeight:700,color:m.color,whiteSpace:"nowrap"}}>{m.sign<0?"−":"+"}{fmtD(e.amount)}</div>
+                <div style={{fontSize:13,fontWeight:700,color:m.color,whiteSpace:"nowrap"}}>{((m.sign<0)!==(e.amount<0))?"−":"+"}{fmtD(Math.abs(e.amount))}</div>
                 <div style={{fontSize:9.5,color:T.textTert,whiteSpace:"nowrap"}}>bal {fmtD(e.balance)}</div>
               </div>
               <button onClick={()=>delEvent(e)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>

@@ -1658,12 +1658,12 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       Hide "not interested" leads{hideNot&&hiddenCount>0?` (${hiddenCount} hidden)`:""}
     </label>
     {upcomingShown.length>0&&<Card style={{marginBottom:12}}><GHeader label="Upcoming"/>{upcomingShown.map(Row)}</Card>}
-    {pastShown.length>0&&<Card style={{marginBottom:12}}><GHeader label="Past"/>{pastShown.slice(0,40).map(Row)}</Card>}
-    {mine.length===0&&<Card style={{marginBottom:12}}><div style={{padding:"18px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No showings matched this property's address yet.</div></Card>}
-    {/* Custom leads you add by hand */}
+    {/* One ranked list — showings AND leads you added, sorted by disposition
+        (Selected buyer → Offer received → Expecting → Interested → Not interested),
+        so a hand-added lead ranks right alongside the showings instead of at the bottom. */}
     <Card>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px 10px"}}>
-        <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.06em"}}>Leads you added</div>
+        <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.06em"}}>Leads &amp; past showings</div>
         {!showAdd&&<button onClick={()=>setShowAdd(true)} style={{padding:"5px 12px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add lead</button>}
       </div>
       {showAdd&&(
@@ -1676,8 +1676,14 @@ function PropertyShowings({property,showings,onUpdate,flush}){
           </div>
         </div>
       )}
-      {customLeads.length===0&&!showAdd&&<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>Add a lead to call or text a buyer/agent who isn't in your ShowingTime feed.</div>}
-      {leadsShown.map(LeadRow)}
+      {(()=>{
+        const combined=[
+          ...pastShown.slice(0,40).map(s=>({t:"s",item:s,k:leadMap[showingKey(s)]||"",ts:s.ts})),
+          ...leadsShown.map(l=>({t:"l",item:l,k:l.lead||"",ts:l.at?new Date(l.at).getTime():0})),
+        ].sort((a,b)=>{const ra=showingLeadRank(a.k),rb=showingLeadRank(b.k);return ra!==rb?ra-rb:b.ts-a.ts;});
+        if(combined.length===0&&!showAdd) return <div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>{mine.length===0?"No showings matched this property's address yet. Add a lead to call or text a buyer/agent who isn't in your ShowingTime feed.":"Add a lead to call or text a buyer/agent who isn't in your ShowingTime feed."}</div>;
+        return combined.map(x=>x.t==="s"?Row(x.item):LeadRow(x.item));
+      })()}
     </Card>
   </>);
 }

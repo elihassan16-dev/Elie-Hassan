@@ -3390,7 +3390,7 @@ function TaskStatusPicker({value,onChange,onDelete}){
   };
   return(
     <div style={{flexShrink:0}}>
-      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
+      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:22,padding:"0 11px",background:sc.bg,color:sc.color,border:"none",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
       {open&&(<>
         {/* fixed positioning so the menu isn't clipped by the property card's overflow:hidden */}
         <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:290}}/>
@@ -3437,7 +3437,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   // row omits them and just carries the task itself. Compact Monday-style layout:
   // [select?] task · assignee initials · contact · message · status (far right).
   return(
-    <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,padding:isMobile?"6px 12px":"9px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:"#fff"}}>
+    <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,padding:isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:"#fff"}}>
       {selBox}
       {editing
         ? <input ref={editRef} value={draft} onChange={e=>setDraft(e.target.value)} onBlur={saveEdit}
@@ -3554,8 +3554,30 @@ function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
 }
 
 // In-app messages/notes on a single task.
-function TaskMessagesPopup({title,messages,currentUser,teamMembers,onSend,onClose}){
+function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMembers,onSend,onClose}){
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
+  // Templates auto-tag the task's assignee so a quick nudge notifies the right person.
+  const assignee=task?.assignee||"";
+  const who=assignee?assignee.split(" ")[0]:"team";
+  const templates=[
+    {label:"Ask for update",text:`Hi ${who}, can you give me an update on this task?`},
+    {label:"Follow up",text:`Hi ${who}, following up on this task — where are we holding?`},
+    {label:"Any blockers?",text:`Hi ${who}, are you blocked on anything here? Let me know how I can help.`},
+    {label:"Mark done 🙌",text:`Thanks ${who} — looks done on my end, closing this out.`},
+  ];
+  // One-tap links to reach the task's assigned (external) contact via text / WhatsApp.
+  const tc=task?.taskContact;
+  const quickLinks=[];
+  if(tc&&tc.kind!=="company"){
+    const c=contacts.find(x=>String(x.id)===String(tc.id))||contacts.find(x=>(x.name||"").toLowerCase()===(tc.name||"").toLowerCase());
+    const phone=(c?.phones?.[0]?.number)||(Array.isArray(tc.phones)&&tc.phones[0]?.number)||"";
+    if(phone){
+      const first=(tc.name||c?.name||"contact").split(" ")[0];
+      quickLinks.push({label:`💬 Text ${first}`,href:`sms:${String(phone).replace(/[^\d+]/g,"")}`,style:{background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}});
+      quickLinks.push({label:"WhatsApp",href:`https://wa.me/${String(phone).replace(/\D/g,"")}`,target:"_blank",style:{background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B"}});
+    }
+  }
+  const dm=assignee&&(teamMembers||[]).includes(assignee)&&assignee!==currentUser?assignee:null;
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(520px,94vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
@@ -3578,7 +3600,7 @@ function TaskMessagesPopup({title,messages,currentUser,teamMembers,onSend,onClos
           );})}
         </div>
         <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`}}>
-          <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn)} people={teamMembers} currentUser={currentUser} placeholder="Write a message…"/>
+          <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn)} people={teamMembers} currentUser={currentUser} placeholder="Write a message…" templates={templates} defaultMention={dm} quickLinks={quickLinks}/>
         </div>
       </div>
     </div>
@@ -3762,7 +3784,7 @@ function PropertyTaskList({property}){
       {/* Task contact card */}
       {contactTarget&&(()=>{ const lt=(sharedProps.find(p=>p.id===contactTarget.propId)?.tasks||[]).find(tk=>tk.id===contactTarget.id)||contactTarget; return <TaskContactCard task={lt} contacts={dir} onAssign={(val)=>setTaskContact(contactTarget.propId,lt.id,val)} onCreateContact={addContactToDir} onClose={()=>setContactTarget(null)}/>; })()}
       {/* Task messages popup */}
-      {msgTarget&&(()=>{ const lt=(sharedProps.find(p=>p.id===msgTarget.propId)?.tasks||[]).find(tk=>tk.id===msgTarget.id); return <TaskMessagesPopup title={msgTarget.text||"Task"} messages={lt?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={(txt,att,mn)=>addTaskMessage(msgTarget.propId,msgTarget.id,txt,att,mn)} onClose={()=>setMsgTarget(null)}/>; })()}
+      {msgTarget&&(()=>{ const lt=(sharedProps.find(p=>p.id===msgTarget.propId)?.tasks||[]).find(tk=>tk.id===msgTarget.id); return <TaskMessagesPopup title={msgTarget.text||"Task"} task={lt} contacts={dir} messages={lt?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={(txt,att,mn)=>addTaskMessage(msgTarget.propId,msgTarget.id,txt,att,mn)} onClose={()=>setMsgTarget(null)}/>; })()}
       {/* Assign / delegate popup — owner (original) + optional delegate */}
       {assignTarget&&(()=>{
         const liveTask=(sharedProps.find(p=>p.id===assignTarget.propId)?.tasks||[]).find(tk=>tk.id===assignTarget.id)||assignTarget;
@@ -4010,7 +4032,7 @@ function TasksPage({onNavigate}){
       {/* Task messages popup */}
       {taskMsgTarget&&(()=>{
         const liveTask=(sharedProps.find(p=>p.id===taskMsgTarget.propId)?.tasks||[]).find(tk=>tk.id===taskMsgTarget.id);
-        return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} messages={liveTask?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
+        return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} task={liveTask} contacts={dir} messages={liveTask?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
           onSend={(txt,att,mn)=>addTaskMessage(taskMsgTarget.propId,taskMsgTarget.id,txt,att,mn)} onClose={()=>setTaskMsgTarget(null)}/>;
       })()}
       {/* Task contact popup */}
@@ -4865,7 +4887,7 @@ function MessageAttachment({att,mine}){
 // Shared chat input: text + 📎 attach (photo/PDF) + 🎤 voice note (MediaRecorder)
 // + 👥 tag teammates. onSend(text, attachment|null, mentions[]) — mentions is the list
 // of tagged names (empty = everyone). attachment is an uploaded {url,name,mime,kind}.
-function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
+function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,templates=[],defaultMention=null,quickLinks=[]}){
   const[text,setText]=useState("");
   const[busy,setBusy]=useState(false);
   const[recording,setRecording]=useState(false);
@@ -4885,6 +4907,14 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
   useEffect(()=>{const el=taRef.current;if(!el)return;el.style.height="auto";el.style.height=Math.min(el.scrollHeight,150)+"px";},[text]);
   const tagOptions=(people||[]).filter(n=>n&&n!==currentUser);
   const toggleMention=(n)=>setMentions(prev=>prev.includes(n)?prev.filter(x=>x!==n):[...prev,n]);
+  // Tap a template → drop it into the box (auto-tagging the task's assignee so it
+  // notifies them), ready to review and Send. We prefill rather than auto-send so
+  // nothing goes out by accident.
+  const insertTemplate=(tpl)=>{
+    setText(tpl);
+    if(defaultMention&&tagOptions.includes(defaultMention))setMentions([defaultMention]);
+    setTimeout(()=>{const el=taRef.current;if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},0);
+  };
   const send=async()=>{
     const t=text.trim();
     if((!t&&!pendingAtt)||busy)return;
@@ -4991,6 +5021,19 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser}){
             <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tagOptions.length?"Tag someone below, then Send":(pendingAtt.name||"Ready to send")}</div>
           </div>
           <button onClick={()=>setPendingAtt(null)} title="Remove" style={{background:"none",border:"none",color:T.textTert,fontSize:20,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+      )}
+      {/* Quick templates + one-tap links to the assigned contact (WhatsApp / text) */}
+      {!recording&&(templates.length>0||quickLinks.length>0)&&(
+        <div style={{display:"flex",gap:6,overflowX:"auto",padding:"0 2px 1px",WebkitOverflowScrolling:"touch"}}>
+          {templates.map((tpl,i)=>(
+            <button key={"t"+i} onClick={()=>insertTemplate(tpl.text||tpl)} title={tpl.text||tpl}
+              style={{whiteSpace:"nowrap",flexShrink:0,fontSize:12,fontWeight:600,padding:"5px 11px",borderRadius:16,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit"}}>{tpl.label||tpl}</button>
+          ))}
+          {quickLinks.map((q,i)=>(
+            <a key={"q"+i} href={q.href} target={q.target||undefined} rel="noreferrer"
+              style={{whiteSpace:"nowrap",flexShrink:0,fontSize:12,fontWeight:600,padding:"5px 11px",borderRadius:16,textDecoration:"none",...(q.style||{})}}>{q.label}</a>
+          ))}
         </div>
       )}
       <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>

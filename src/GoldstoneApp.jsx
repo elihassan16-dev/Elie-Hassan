@@ -5,6 +5,7 @@ import { useAuth } from "./auth/AuthProvider";
 import { useOneDrive } from "./onedrive/useOneDrive";
 import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
+import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
 
 // Authenticated fetch to our serverless API (sends the Supabase JWT). If the token
 // has gone stale (server replies 401 "Not signed in"), refresh the session once and
@@ -23,6 +24,20 @@ async function qbAuthFetch(path, opts = {}) {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status}).`);
   return json;
+}
+
+// Fire a push + email notification to teammates (by display name). Best-effort:
+// never blocks or throws into the UI. The sender is dropped server-side.
+async function notify(recipients, { title, body, tag, url } = {}) {
+  const list = [...new Set((recipients || []).filter(Boolean))];
+  if (!list.length) return;
+  try {
+    await qbAuthFetch("/api/notify/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recipients: list, title, body, url: url || "/", tag }),
+    });
+  } catch { /* notifications are best-effort */ }
 }
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
@@ -3838,13 +3853,16 @@ function PropertyTaskList({property}){
   const updateTaskText=(pid,tid,text)=>{const v=(text||"").trim();if(!v)return;setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===tid?{...t,text:v}:t)}));};
   const deleteTask=(pid,tid)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).filter(t=>t.id!==tid)}));
   const setTaskContact=(pid,tid,contact)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,taskContact:contact})}));
-  const setTaskRole=(pid,tid,role,member)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>{
-    if(tk.id!==tid)return tk;
-    if(role==="owner"){ if(!member)return {...tk,assignee:"",delegate:""}; return {...tk,assignee:member,delegate:tk.delegate===member?"":tk.delegate}; }
-    if(!member)return {...tk,delegate:""};
-    return {...tk,delegate:member===tk.assignee?"":member};
-  })}));
-  const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}; if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); };
+  const setTaskRole=(pid,tid,role,member)=>{
+    setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>{
+      if(tk.id!==tid)return tk;
+      if(role==="owner"){ if(!member)return {...tk,assignee:"",delegate:""}; return {...tk,assignee:member,delegate:tk.delegate===member?"":tk.delegate}; }
+      if(!member)return {...tk,delegate:""};
+      return {...tk,delegate:member===tk.assignee?"":member};
+    })}));
+    if(member&&member!==CURRENT_USER){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(t=>t.id===tid); notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}`,tag:`task-${tid}`}); }
+  };
+  const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}; if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`task-${tid}`}); } };
   const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
   useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
   const addTask=(text)=>{const t=(text||"").trim();if(!t)return;setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER}]}));};
@@ -3939,6 +3957,7 @@ function TasksPage({onNavigate}){
     if(attachment)msg.attachment=attachment;
     if(mentions&&mentions.length)msg.mentions=mentions;
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
+    if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===propId)?.tasks||[]).find(x=>x.id===taskId); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`task-${taskId}`}); }
   }
   // A task has an owner (assignee = the original responsible person) and an optional
   // delegate (someone the owner handed the work to). role is "owner" or "delegate".
@@ -3953,6 +3972,7 @@ function TasksPage({onNavigate}){
       if(!member)return {...tk,delegate:""};
       return {...tk,delegate:member===tk.assignee?"":member}; // no delegating to the owner
     })}));
+    if(member&&member!==CURRENT_USER){ const tsk=(sharedProps.find(p=>p.id===propId)?.tasks||[]).find(x=>x.id===taskId); notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}`,tag:`task-${taskId}`}); }
   }
   // Mark a task's messages read by me when I open its 💬 popup.
   function markTaskRead(propId,taskId){
@@ -5337,6 +5357,8 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     if(tagged.size)msg.mentions=[...tagged];
     if(replyTarget){msg.replyToId=replyTarget.id;msg.replyTo={author:replyTarget.author||"",text:(replyTarget.text||"").slice(0,140),taskText:null};}
     setOfficeMessages(prev=>[...prev,msg]);
+    // Office chat is the whole-team channel — notify everyone but the sender.
+    notify((TEAM_MEMBERS||[]).filter(n=>n!==CURRENT_USER),{title:"📌 Office Chat",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:"office"});
   };
   const officeDelete=(ids)=>{const s=new Set(ids);setOfficeMessages(prev=>prev.filter(m=>!s.has(m.id)));};
   const isMobile=useIsMobile();
@@ -5391,6 +5413,8 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     }else{
       setSharedProps(prev=>prev.map(p=>p.id!==sel.id?p:{...p,messages:[...(p.messages||[]),msg]}));
     }
+    // Notify the people this message is addressed to (mentions + who you replied to).
+    if(msg.mentions&&msg.mentions.length){ const addr=`${sel.address}${sel.city?`, ${sel.city}`:""}`; notify(msg.mentions.filter(n=>n!==CURRENT_USER),{title:addr,body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`prop-${sel.id}`}); }
   };
   const fmtShort=(iso)=>{if(!iso)return "";try{const d=new Date(iso),now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
@@ -5513,6 +5537,7 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,onEditName,onAddTeamm
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
         <button onClick={onEditName} style={rowBtn}><span style={{fontSize:16,width:22,textAlign:"center"}}>✎</span> Edit your name</button>
+        <NotificationToggle displayName={displayName}/>
         {isAdmin&&<button onClick={onAddTeammate} style={{...rowBtn,color:T.gold,fontWeight:700,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:18,width:22,textAlign:"center"}}>＋</span> Add a teammate</button>}
         <div style={{padding:"12px 20px 6px",fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",borderTop:`1px solid ${T.border}`}}>Team ({others.length})</div>
         <div style={{padding:"0 20px 8px",display:"flex",flexDirection:"column",gap:2}}>
@@ -5525,6 +5550,33 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,onEditName,onAddTeamm
         </div>
         <button onClick={onSignOut} style={{...rowBtn,color:T.red,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:16,width:22,textAlign:"center"}}>⎋</span> Sign out</button>
       </div>
+    </div>
+  );
+}
+// Enable/att-a-glance notification status inside the profile sheet.
+function NotificationToggle({displayName}){
+  const supported=notificationsSupported();
+  const[perm,setPerm]=useState(supported?notificationPermission():"unsupported");
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
+  const on=perm==="granted";
+  const enable=async()=>{
+    setBusy(true);setErr("");
+    try{ await enablePush(displayName); setPerm("granted"); }
+    catch(e){ setErr(e.message||"Couldn't enable notifications."); setPerm(notificationPermission()); }
+    setBusy(false);
+  };
+  const rowBtn={display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 20px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:14,color:T.text,textAlign:"left",borderTop:`1px solid ${T.border}`};
+  return(
+    <div style={{borderTop:`1px solid ${T.border}`}}>
+      <button onClick={on?undefined:enable} disabled={busy||on||!supported} style={{...rowBtn,borderTop:"none",cursor:on||!supported?"default":"pointer",opacity:busy?0.6:1}}>
+        <span style={{fontSize:16,width:22,textAlign:"center"}}>🔔</span>
+        <span style={{flex:1}}>{!supported?"Notifications not supported here":on?"Notifications are on":busy?"Enabling…":"Turn on notifications"}</span>
+        {on&&<span style={{fontSize:12,fontWeight:700,color:T.green}}>✓ On</span>}
+        {!on&&supported&&!busy&&<span style={{fontSize:12,fontWeight:700,color:T.blue}}>Enable ›</span>}
+      </button>
+      {err&&<div style={{padding:"0 20px 10px 54px",fontSize:12,color:T.red}}>{err}</div>}
+      {!supported&&<div style={{padding:"0 20px 10px 54px",fontSize:11.5,color:T.textTert,lineHeight:1.5}}>On iPhone: add this app to your Home Screen (Share → Add to Home Screen), open it from there, then turn on notifications.</div>}
     </div>
   );
 }
@@ -6350,6 +6402,10 @@ export function GoldstoneShell(){
     setNavChatId(propId);
     setActive("messages");
   }
+
+  // Register the push service worker, and keep this device's subscription fresh
+  // (only if the user already opted in — never prompts on its own).
+  useEffect(()=>{ registerServiceWorker(); if(displayName) refreshSubscription(displayName); },[displayName]);
 
   // Seed the seen-set the first time so pre-existing tasks don't all count as new.
   useEffect(()=>{ if(taskSeen===null && myTaskIds.length>0) savePrefs({taskSeenIds:myTaskIds}); },[taskSeen,myTaskIds.length]); // eslint-disable-line

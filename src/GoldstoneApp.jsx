@@ -1145,7 +1145,12 @@ function TotalGridRow({label,pVal,aVal,showActual,color,dimP}){
 }
 
 // ─── Actual Financing Popup — simple, user enters real loan amounts/rates ─────
-function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, onSave, onClose}){
+function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, locDraws=[], sellingDate, onSave, onClose}){
+  // Auto-matched line of credit for this property → projected interest to a sell date.
+  const[assumedSell,setAssumedSell]=useState(sellingDate||new Date().toISOString().slice(0,10));
+  const locRows=(locDraws||[]).map(d=>{const end=d.paybackDate||assumedSell;const days=daysBetween(d.dateFunded,end);return {...d,end,days,interest:(Number(d.amount)||0)*(LOC_RATE/365)*days};}).sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
+  const locFunded=locRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const locInterest=Math.round(locRows.reduce((s,r)=>s+r.interest,0));
   const[hmLoanAmt, setHmLoanAmt] = useState(f.acHmLoanAmt||String(liveHmTotal));
   const[hmRate,    setHmRate]    = useState(f.acHmRate!==undefined?f.acHmRate:String(f.hmRate||9));
   const[hmOrigPct, setHmOrigPct] = useState(f.acHmOrigPct!==undefined?f.acHmOrigPct:String(f.hmOrigPct||0));
@@ -1220,6 +1225,29 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, o
           <div style={{padding:"12px 18px 4px",background:T.card}}>
             <div style={{fontSize:11,fontWeight:700,color:"#5AC8FA",textTransform:"uppercase",letterSpacing:"0.07em"}}>Gap / Outside Capital</div>
           </div>
+          {/* Auto-matched private line of credit for this property (from the Financial Section) */}
+          {locDraws.length>0&&(
+            <div style={{background:T.goldLight,padding:"10px 18px 12px",borderTop:bdr}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:6}}>
+                <div style={{fontSize:12,fontWeight:800,color:T.gold}}>Line of Credit — auto-matched</div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:11,color:T.textSub}}>If sold by</span>
+                  <input type="date" value={assumedSell} onChange={e=>setAssumedSell(e.target.value)} style={{padding:"3px 6px",borderRadius:6,border:bdr,background:"#fff",fontSize:12,fontFamily:"inherit"}}/>
+                </div>
+              </div>
+              {locRows.map((r,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"3px 0",color:T.text}}>
+                  <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.funderName||"—"} · {finFmtDate(r.dateFunded)}{r.paybackDate?` → ${finFmtDate(r.paybackDate)}`:` → ${r.days}d`}</span>
+                  <span style={{whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums",flexShrink:0}}>{fmtD(r.amount)} · <span style={{color:T.gold,fontWeight:600}}>{fmtD(Math.round(r.interest))} int</span></span>
+                </div>
+              ))}
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:6,paddingTop:6,borderTop:bdr,fontSize:13,fontWeight:700}}>
+                <span>{locRows.length} lender draw{locRows.length===1?"":"s"} · {fmtD(locFunded)}</span>
+                <span style={{color:T.gold,fontVariantNumeric:"tabular-nums"}}>interest {fmtD(locInterest)}</span>
+              </div>
+              <button onClick={()=>{setGapLoanAmt(String(locFunded));setGapIntOverride(String(locInterest));}} style={{marginTop:9,width:"100%",padding:"9px",borderRadius:8,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Use as gap financing ↓</button>
+            </div>
+          )}
           <div style={{background:T.card,paddingBottom:6}}>
             {iField("Gap Loan Amount",gapLoanAmt,setGapLoanAmt,"$","defaults to projected")}
             {iField("Gap Rate",gapRate,setGapRate,"% / yr")}
@@ -1247,13 +1275,9 @@ function FinOverview({property,onUpdate}){
   const isMobile=useIsMobile();
   const { draws } = useData();
   const f=property.financials;
-  // Auto-match this property's private-lender draws from the Financial Section:
-  // by explicit link, then by strong address match. Sums across multiple lenders.
+  // Auto-match this property's private-lender draws from the Financial Section
+  // (by explicit link or strong address match) — surfaced in the Financing popup.
   const locDraws=drawsForProperty(property,draws);
-  const locTotal=locDraws.reduce((s,d)=>s+(Number(d.amount)||0),0);
-  const locOpen=locDraws.filter(d=>!d.paybackDate);
-  const locOpenTotal=locOpen.reduce((s,d)=>s+(Number(d.amount)||0),0);
-  const locByLender=Object.values(locDraws.reduce((m,d)=>{const k=(d.funderName||"—").trim()||"—";(m[k]=m[k]||{name:k,amount:0,open:0})&&(m[k].amount+=Number(d.amount)||0,m[k].open+=d.paybackDate?0:Number(d.amount)||0);return m;},{})).sort((a,b)=>b.amount-a.amount);
   const up=(k,v)=>onUpdate(property.id,"financials",{...f,[k]:v});
   const upMany=(ch)=>onUpdate(property.id,"financials",{...f,...ch});
   const[showBuying,setShowBuying]=useState(false);
@@ -1357,7 +1381,7 @@ function FinOverview({property,onUpdate}){
       {showHolding&&<HoldingCostsPopup items={holdingItems} holdPeriod={f.holdPeriod} onChange={(items,total)=>upMany({holdingCostItems:items,annualHoldingCosts:String(total)})} onClose={()=>setShowHolding(false)}/>}
       {showActualSelling&&<SellingCostsPopup items={acSellingItems} salePrice={f.actualSalePrice||f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({actualSellingCostItems:items,actualSellingCosts:String(total)})} onClose={()=>setShowActualSelling(false)}/>}
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
-      {showActualFinancing&&<ActualFinancingPopup f={f} liveHmTotal={liveHmTotal} liveGapPrinc={equityRequired} actualHoldMonths={actualHoldMonths}
+      {showActualFinancing&&<ActualFinancingPopup f={f} liveHmTotal={liveHmTotal} liveGapPrinc={equityRequired} actualHoldMonths={actualHoldMonths} locDraws={locDraws} sellingDate={f.sellingDate}
         onSave={(vals)=>upMany(vals)} onClose={()=>setShowActualFinancing(false)}/>}
 
       {/* Toggle bar */}
@@ -1384,25 +1408,6 @@ function FinOverview({property,onUpdate}){
       {f.useActualProfit&&<div style={{textAlign:"center",fontSize:12,color:T.gold,marginBottom:14,marginTop:-12}}>Actual net profit now feeds Portfolio Overview totals · projected numbers shown faded for reference</div>}
 
       <div style={{maxWidth:showActual?900:520,margin:"0 auto"}}>
-        {/* Private Line of Credit — auto-matched from the Financial Section draws (admin data). */}
-        {locDraws.length>0&&(
-          <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
-            <div style={{padding:"12px 16px",background:T.goldLight,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-              <div style={{fontSize:13,fontWeight:800,color:T.gold}}>Private Line of Credit</div>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:16,fontWeight:800,color:T.text,fontVariantNumeric:"tabular-nums"}}>{fmtD(locTotal)}</div>
-                <div style={{fontSize:10,color:T.textSub}}>{fmtD(locOpenTotal)} open · {locDraws.length} draw{locDraws.length===1?"":"s"}</div>
-              </div>
-            </div>
-            {locByLender.map(l=>(
-              <div key={l.name} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"8px 16px",borderTop:`1px solid ${T.border}`}}>
-                <div style={{fontSize:13,color:T.text,fontWeight:600}}>{l.name}{l.open>0&&l.open<l.amount&&<span style={{marginLeft:6,fontSize:9,fontWeight:700,color:"#15803D",background:"#EDFBF1",borderRadius:8,padding:"1px 6px"}}>partly paid</span>}{l.open===0&&<span style={{marginLeft:6,fontSize:9,fontWeight:700,color:"#15803D",background:"#EDFBF1",borderRadius:8,padding:"1px 6px"}}>paid</span>}</div>
-                <div style={{fontSize:13,fontWeight:700,color:T.text,fontVariantNumeric:"tabular-nums"}}>{fmtD(l.amount)}</div>
-              </div>
-            ))}
-            <div style={{padding:"8px 16px",borderTop:`1px solid ${T.border}`,fontSize:10.5,color:T.textTert}}>Auto-matched from the Financial Section by address. Add or edit draws there.</div>
-          </div>
-        )}
         <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
 
           {/* Column headers */}

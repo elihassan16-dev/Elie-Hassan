@@ -5520,8 +5520,56 @@ function ProfileModal({current,onSave,onClose}){
   );
 }
 
+// Change your login + notification email (admin-backed, no confirmation link).
+function EmailChangeModal({current,onClose}){
+  const[email,setEmail]=useState("");
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
+  const[done,setDone]=useState(false);
+  const valid=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const save=async()=>{
+    if(!valid)return;
+    setBusy(true);setErr("");
+    try{
+      await qbAuthFetch("/api/team/update-email",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email.trim().toLowerCase()})});
+      try{ await supabase.auth.refreshSession(); }catch{ /* session updates on next login regardless */ }
+      setDone(true);
+    }catch(e){ setErr(e.message||"Couldn't change your email."); }
+    setBusy(false);
+  };
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(420px,96vw)",boxShadow:"0 12px 48px rgba(0,0,0,0.25)",overflow:"hidden"}}>
+        <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:17,fontWeight:700,color:T.text}}>Change your email</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{padding:20}}>
+          {done?(
+            <div style={{fontSize:14,color:T.text,lineHeight:1.6}}>
+              ✅ Your email is now <b>{email.trim().toLowerCase()}</b>.<br/>
+              You'll use it to <b>log in</b> from now on, and notifications & digests go there.
+              <div style={{marginTop:16,textAlign:"right"}}><button onClick={onClose} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Done</button></div>
+            </div>
+          ):(<>
+            <div style={{fontSize:12.5,color:T.textSub,marginBottom:6,lineHeight:1.5}}>This changes <b>both</b> your login email and where your notifications/daily digest are sent.</div>
+            <div style={{fontSize:12,color:T.textTert,marginBottom:12}}>Current: {current||"—"}</div>
+            <input autoFocus type="email" inputMode="email" autoCapitalize="none" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&save()} placeholder="you@yourcompany.com"
+              style={{width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:15,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+            {err&&<div style={{marginTop:10,color:T.red,fontSize:13}}>{err}</div>}
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:18}}>
+              <button onClick={onClose} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
+              <button onClick={save} disabled={busy||!valid} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:busy||!valid?"default":"pointer",fontFamily:"inherit",fontSize:14,opacity:busy||!valid?0.6:1}}>{busy?"Saving…":"Change email"}</button>
+            </div>
+          </>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Profile / team menu — opens from the EH avatar ───────────────────────────
-function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,onEditName,onAddTeammate,onSignOut,onClose}){
+function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,onEditName,onEditEmail,onAddTeammate,onSignOut,onClose}){
   const initials=initialsOf(displayName)||"?";
   const others=(teamMembers||[]).filter(Boolean);
   const rows=(team&&team.length)?team:null; // full user rows (for the admin mute switch)
@@ -5538,6 +5586,7 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,onE
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
         <button onClick={onEditName} style={rowBtn}><span style={{fontSize:16,width:22,textAlign:"center"}}>✎</span> Edit your name</button>
+        <button onClick={onEditEmail} style={rowBtn}><span style={{fontSize:16,width:22,textAlign:"center"}}>✉️</span> Change your email</button>
         <NotificationToggle displayName={displayName} isAdmin={isAdmin}/>
         {isAdmin&&<button onClick={onAddTeammate} style={{...rowBtn,color:T.gold,fontWeight:700,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:18,width:22,textAlign:"center"}}>＋</span> Add a teammate</button>}
         <div style={{padding:"12px 20px 6px",fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",borderTop:`1px solid ${T.border}`}}>Team ({others.length}){isAdmin&&rows&&<span style={{textTransform:"none",fontWeight:400,letterSpacing:0}}> · tap 🔔 to mute someone</span>}</div>
@@ -6349,7 +6398,7 @@ const MEMBER_KEYS = new Set(NAV.map(n=>n.key).filter(k=>!ADMIN_ONLY_KEYS.has(k))
 
 export function GoldstoneShell(){
   const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, officeMessages } = useData();
-  const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs } = useAuth();
+  const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
   const isMobile = useIsMobile();
 
   const navItems = isAdmin ? NAV : NAV.filter(n=>MEMBER_KEYS.has(n.key));
@@ -6372,6 +6421,7 @@ export function GoldstoneShell(){
   const[navChatId,setNavChatId]=useState(null);
   const[showSettings,setShowSettings]=useState(false);
   const[showProfile,setShowProfile]=useState(false);
+  const[showEmail,setShowEmail]=useState(false);
   const[showProfileMenu,setShowProfileMenu]=useState(false);
   const[showAddTeammate,setShowAddTeammate]=useState(false);
   const[showNavMenu,setShowNavMenu]=useState(false);
@@ -6531,8 +6581,10 @@ export function GoldstoneShell(){
       {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}/>}
       {showProfileMenu&&<ProfileMenu displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted}
         onEditName={()=>{setShowProfileMenu(false);setShowProfile(true);}}
+        onEditEmail={()=>{setShowProfileMenu(false);setShowEmail(true);}}
         onAddTeammate={()=>{setShowProfileMenu(false);setShowAddTeammate(true);}}
         onSignOut={signOut} onClose={()=>setShowProfileMenu(false)}/>}
+      {showEmail&&<EmailChangeModal current={user?.email} onClose={()=>setShowEmail(false)}/>}
       {showAddTeammate&&<AddTeammateModal onClose={()=>setShowAddTeammate(false)}/>}
       {showProfile&&<ProfileModal current={displayName} onSave={updateName} onClose={()=>setShowProfile(false)}/>}
     </div>

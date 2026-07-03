@@ -3607,6 +3607,8 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
   const[adding,setAdding]=useState(false); // showing the "new contact" form
   const[draft,setDraft]=useState({name:"",phone:"",company:"",role:"",email:""});
   const[confirmC,setConfirmC]=useState(null); // built contact awaiting the save-to-directory decision
+  const[compose,setCompose]=useState(null); // {channel,target,name} — template chooser open for a number/email
+  const[custom,setCustom]=useState("");
   const ql=q.trim().toLowerCase();
   // Attach a freshly-created contact to the task; optionally also save it to the directory.
   const assignNew=(c,saveToDir)=>{
@@ -3619,22 +3621,29 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
   const coMatches=companies.filter(co=>!ql||co.toLowerCase().includes(ql));
   const dig=(n)=>String(n||"").replace(/\D/g,"");
   const actA={display:"inline-flex",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:T.radiusSm,fontSize:12,fontWeight:600,textDecoration:"none",whiteSpace:"nowrap"};
-  // Pre-written message that rides along into Messages / WhatsApp / email so the
-  // draft opens ready to send. References the property this task belongs to.
+  // Tapping Text / WhatsApp / Email opens a small chooser: pick a ready-made
+  // template or type your own, then it launches the app with that draft.
   const propAddr=task?.propAddr||task?.address||"";
-  const msgFor=(name)=>{const first=String(name||"").split(" ")[0]||"there";return `Hi ${first}, `+(propAddr?`reaching out regarding ${propAddr}.`:`reaching out regarding a property.`);};
-  const phoneRow=(num,name)=>{
-    const tel=String(num||"").replace(/[^\d+]/g,"");
-    const body=encodeURIComponent(msgFor(name));
-    return(
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
-        <a href={`tel:${tel}`} style={{...actA,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
-        <a href={`sms:${tel}?&body=${body}`} style={{...actA,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a>
-        <a href={`https://wa.me/${dig(num)}?text=${body}`} target="_blank" rel="noreferrer" style={{...actA,background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B"}}>WhatsApp</a>
-      </div>
-    );
+  const outTemplates=(name)=>{const f=String(name||"").split(" ")[0]||"there";const re=propAddr?propAddr:"the property";return[
+    {label:"Following up",text:`Hi ${f}, following up regarding ${re}.`},
+    {label:"Ask for an update",text:`Hi ${f}, can you provide an update on ${re}?`},
+  ];};
+  const linkFor=(channel,target,body)=>{
+    const enc=encodeURIComponent(body||"");
+    if(channel==="text")return `sms:${String(target||"").replace(/[^\d+]/g,"")}?&body=${enc}`;
+    if(channel==="whatsapp")return `https://wa.me/${dig(target)}?text=${enc}`;
+    if(channel==="email")return `mailto:${target}?subject=${encodeURIComponent(propAddr||"Following up")}&body=${enc}`;
+    return "#";
   };
-  const mailHref=(email,name)=>`mailto:${email}?subject=${encodeURIComponent(propAddr||"Following up")}&body=${encodeURIComponent(msgFor(name))}`;
+  const openCompose=(channel,target,name)=>{setCustom("");setCompose({channel,target,name});};
+  const phoneRow=(num,name)=>(
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
+      <a href={`tel:${String(num||"").replace(/[^\d+]/g,"")}`} style={{...actA,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
+      <button onClick={()=>openCompose("text",num,name)} style={{...actA,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D",cursor:"pointer",fontFamily:"inherit"}}>💬 Text</button>
+      <button onClick={()=>openCompose("whatsapp",num,name)} style={{...actA,background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B",cursor:"pointer",fontFamily:"inherit"}}>WhatsApp</button>
+    </div>
+  );
+  const emailBtn=(email,name,extra)=><button onClick={()=>openCompose("email",email,name)} style={{...actA,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",...(extra||{})}}>✉️ Email</button>;
   const avatar=(name,size=36)=><div style={{width:size,height:size,borderRadius:"50%",background:avatarColor(name),display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:size*0.4,color:"#fff",flexShrink:0}}>{initialsOf(name)||"?"}</div>;
   const footer=(
     <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8}}>
@@ -3721,7 +3730,7 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
                   {(c.phones||[]).map((ph,i)=>(
                     <div key={i} style={{marginTop:6}}><div style={{fontSize:12,color:T.textSub}}>{ph.label}: {ph.number}</div>{phoneRow(ph.number,c.name)}</div>
                   ))}
-                  {c.email&&<a href={mailHref(c.email,c.name)} style={{...actA,marginTop:6,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue,display:"inline-flex"}}>✉️ Email</a>}
+                  {c.email&&emailBtn(c.email,c.name,{marginTop:6})}
                 </div>
               ))}
             </div>
@@ -3734,13 +3743,45 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
               {(person?.phones||[]).map((p,i)=>(
                 <div key={i} style={{marginBottom:10}}><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em"}}>{p.label||"Phone"}</div><div style={{fontSize:14,color:T.text}}>{p.number}</div>{phoneRow(p.number,person?.name)}</div>
               ))}
-              {person?.email&&<div><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}}>Email</div><a href={mailHref(person.email,person?.name)} style={{...actA,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue,display:"inline-flex"}}>✉️ Email {person.email}</a></div>}
+              {person?.email&&<div><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}}>Email</div>{emailBtn(person.email,person?.name)}</div>}
               {(!person||((person.phones||[]).length===0&&!person.email))&&<div style={{fontSize:13,color:T.textTert}}>No phone or email on this contact.</div>}
             </div>
             {footer}
           </>
         )}
       </div>
+      {/* Template chooser — pick a ready message or write a custom one, then launch */}
+      {compose&&(()=>{
+        const chLabel=compose.channel==="text"?"Text message":compose.channel==="whatsapp"?"WhatsApp":"Email";
+        const first=String(compose.name||"").split(" ")[0]||"contact";
+        const customBody=custom.trim();
+        return(
+          <div onClick={(e)=>{e.stopPropagation();setCompose(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:500,padding:16,boxSizing:"border-box"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(420px,96vw)",boxShadow:"0 8px 40px rgba(0,0,0,0.25)",overflow:"hidden",marginBottom:"env(safe-area-inset-bottom)"}}>
+              <div style={{padding:"14px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div><div style={{fontSize:14,fontWeight:700,color:T.text}}>{chLabel} {first}</div><div style={{fontSize:11,color:T.textSub}}>Pick a message or write your own</div></div>
+                <button onClick={()=>setCompose(null)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+              </div>
+              <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:8}}>
+                {outTemplates(compose.name).map((t,i)=>(
+                  <a key={i} href={linkFor(compose.channel,compose.target,t.text)} target={compose.channel==="whatsapp"?"_blank":undefined} rel="noreferrer" onClick={()=>setCompose(null)}
+                    style={{display:"block",padding:"11px 13px",borderRadius:12,border:`1px solid ${T.border}`,background:T.bg,textDecoration:"none"}}>
+                    <div style={{fontSize:12,fontWeight:700,color:T.gold,marginBottom:2}}>{t.label}</div>
+                    <div style={{fontSize:13,color:T.text,lineHeight:1.4}}>{t.text}</div>
+                  </a>
+                ))}
+                <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",marginTop:4}}>Custom message</div>
+                <textarea value={custom} onChange={e=>setCustom(e.target.value)} placeholder={`Write your own message to ${first}…`} rows={3}
+                  style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:12,border:`1px solid ${T.border}`,fontSize:14,fontFamily:"inherit",resize:"vertical",outline:"none",lineHeight:1.4}}/>
+                <a href={customBody?linkFor(compose.channel,compose.target,customBody):undefined}
+                  target={compose.channel==="whatsapp"?"_blank":undefined} rel="noreferrer"
+                  onClick={(e)=>{if(!customBody){e.preventDefault();return;}setCompose(null);}}
+                  style={{display:"block",textAlign:"center",padding:"11px",borderRadius:12,border:"none",background:customBody?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",cursor:customBody?"pointer":"default"}}>Open in {chLabel}</a>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

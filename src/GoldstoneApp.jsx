@@ -1496,7 +1496,7 @@ function FinOverview({property,onUpdate}){
 }
 
 // ─── Property Detail ──────────────────────────────────────────────────────────
-const PTABS=["Financial Overview","QuickBooks","Property Info","Tasks","Contacts","Files","Showings"];
+const PTABS=["Financial Overview","QuickBooks","Tasks","Contacts","Files","Showings"];
 
 // ─── Showings tab — pull ShowingTime calendar feed, match to this property ─────
 function showingMatchesProperty(text,p){
@@ -2467,11 +2467,12 @@ function FilesTab({property,onUpdate}){
     </div>
   );
 }
-function PropDetail({property,onUpdate,onArchive}){
+function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const { contacts: CONTACTS, teamMembers: TEAM_MEMBERS } = useData();
   const isMobile=useIsMobile();
   const[tab,setTab]=useState("Financial Overview");
   const[taskPopup,setTaskPopup]=useState(null);
+  const[showInfo,setShowInfo]=useState(false); // Property Info popup
   // Showings tab only shows while the property is actively On Market / In Closing.
   const showShowings=property.status==="On Market"||property.status==="In Closing";
   // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.
@@ -2493,7 +2494,11 @@ function PropDetail({property,onUpdate,onArchive}){
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
       <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"18px 24px 0",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:10}}>
-          <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px"}}>{full}</div>
+          <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
+            <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis"}}>{full}</div>
+            <button onClick={()=>setShowInfo(true)} title="Property info" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,cursor:"pointer",fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>i</button>
+            {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>💬</button>}
+          </div>
           {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
         </div>
@@ -2511,18 +2516,20 @@ function PropDetail({property,onUpdate,onArchive}){
       </div>
       <div style={{flex:1,overflowY:"auto"}}>
         {tab==="Financial Overview"&&<FinOverview property={property} onUpdate={onUpdate}/>}
-        {tab==="Property Info"&&(()=>{
+        {showInfo&&(()=>{
           const pi=property.propertyInfo;
           const fullAddr=`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`;
           const mapsUrl=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr)}`;
           const zillowUrl=`https://www.zillow.com/homes/${encodeURIComponent(fullAddr.replace(/,/g,""))}_rb/`;
 
           return(
-            <div style={{padding:24,maxWidth:620,margin:"0 auto"}}>
-              <div style={{textAlign:"center",marginBottom:20}}>
-                <div style={{fontSize:18,fontWeight:700,color:T.text}}>Property Info</div>
-                <div style={{fontSize:13,color:T.blue,marginTop:2}}>Location and key details</div>
+            <div onClick={()=>setShowInfo(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:20,width:"min(620px,96vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+              <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+                <div><div style={{fontSize:16,fontWeight:700,color:T.text}}>Property Info</div><div style={{fontSize:12,color:T.blue}}>Location and key details</div></div>
+                <button onClick={()=>setShowInfo(false)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
               </div>
+              <div style={{padding:"20px 20px 8px",overflowY:"auto"}}>
 
               {/* Address */}
               <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
@@ -2574,6 +2581,8 @@ function PropDetail({property,onUpdate,onArchive}){
               </div>
 
               <Card><GHeader label="Notes"/><div style={{padding:"4px 16px 16px"}}><textarea style={{...iS,minHeight:120,resize:"vertical",lineHeight:1.7}} value={pi.notes} onChange={e=>upP("notes",e.target.value)}/></div></Card>
+              </div>
+            </div>
             </div>
           );
         })()}
@@ -2685,7 +2694,7 @@ function SortModal({order,hidden,onSave,onClose}){
 }
 
 // ─── Properties Page ──────────────────────────────────────────────────────────
-function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,onArchive}){
+function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,onArchive,onOpenChat}){
   const { leads, setLeads }=useData();
   const props=sharedProps.filter(p=>!p.archived&&p.status!=="New Leads"); // New Leads live in the Leads section
   const setProps=setSharedProps;
@@ -2768,7 +2777,7 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
       </div>
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
         {isMobile&&sel&&<button onClick={()=>setSelId(null)} style={{display:"flex",alignItems:"center",gap:4,padding:"11px 14px",background:T.card,border:"none",borderBottom:`1px solid ${T.border}`,color:T.gold,fontWeight:600,fontSize:15,fontFamily:"inherit",cursor:"pointer",flexShrink:0,textAlign:"left",minHeight:44}}>‹ All properties</button>}
-        {sel?<PropDetail property={sel} onUpdate={upProp} onArchive={onArchive?(id)=>{onArchive(id);setSelId(null);}:undefined}/>:
+        {sel?<PropDetail property={sel} onUpdate={upProp} onArchive={onArchive?(id)=>{onArchive(id);setSelId(null);}:undefined} onOpenChat={onOpenChat}/>:
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:14}}>
             <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🏠</div>
             <div style={{fontSize:16,fontWeight:600,color:T.textSub}}>Select a property</div>
@@ -6240,6 +6249,7 @@ export function GoldstoneShell(){
   const unreadTotal = totalUnread(sharedProps, displayName) + officeUnread;
   const[active,setActive]=useState(isAdmin?"properties":"tasks");
   const[navPropId,setNavPropId]=useState(null);
+  const[navChatId,setNavChatId]=useState(null);
   const[showSettings,setShowSettings]=useState(false);
   const[showProfile,setShowProfile]=useState(false);
   const[showProfileMenu,setShowProfileMenu]=useState(false);
@@ -6316,12 +6326,16 @@ export function GoldstoneShell(){
     setNavPropId(propId);
     setActive("properties");
   }
+  function navigateToChat(propId){
+    setNavChatId(propId);
+    setActive("messages");
+  }
 
   const initials=initialsOf(displayName)||"?";
   const pageEl = active==="properties"
-    ? <PropertiesPage sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navPropId} onNavConsumed={()=>setNavPropId(null)} onArchive={archiveProperty}/>
+    ? <PropertiesPage sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navPropId} onNavConsumed={()=>setNavPropId(null)} onArchive={archiveProperty} onOpenChat={navigateToChat}/>
     : active==="leads" ? <NewLeadsPage/>
-    : active==="messages" ? <MessagingCenter sharedProps={sharedProps} setSharedProps={setSharedProps}/>
+    : active==="messages" ? <MessagingCenter sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navChatId} onNavConsumed={()=>setNavChatId(null)}/>
     : active==="showings" ? <ShowingsPage/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage onNavigate={navigateToProperty}/>

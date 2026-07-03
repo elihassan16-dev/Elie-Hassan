@@ -3374,6 +3374,7 @@ function TaskStatusPicker({value,onChange,onDelete}){
   const[open,setOpen]=useState(false);
   const[pos,setPos]=useState({top:0,left:0});
   const btnRef=useRef(null);
+  const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[value]||TASK_STATUS_COLORS["Not Started"];
   const MENU_W=160,MENU_H=250;
   const openMenu=()=>{
@@ -3389,7 +3390,7 @@ function TaskStatusPicker({value,onChange,onDelete}){
   };
   return(
     <div style={{flexShrink:0}}>
-      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
+      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,background:sc.bg,color:sc.color,border:"none",borderRadius:20,padding:isMobile?"6px 11px":"4px 10px",fontSize:isMobile?12:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
       {open&&(<>
         {/* fixed positioning so the menu isn't clipped by the property card's overflow:hidden */}
         <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:290}}/>
@@ -3413,12 +3414,14 @@ function TaskRow({t,onStatusChange,onDelete,onContact,onMessage,onAssign,current
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
   const msgCount=(t.messages||[]).length;
+  const D=isMobile?28:24; // circular icon-button size
+  const circleBtn=(active)=>({boxSizing:"border-box",padding:0,WebkitAppearance:"none",appearance:"none",lineHeight:1,background:active?"#EBF4FF":"none",border:`1px solid ${active?T.blue:T.border}`,borderRadius:"50%",width:D,height:D,minWidth:D,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:isMobile?13:11,color:active?T.blue:T.textTert});
   const contactBtnEl=(
     <button onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name||""}`:"Link a contact"}
-      style={{background:t.taskContact?"#EBF4FF":"none",border:t.taskContact?`1px solid ${T.blue}`:`1px solid ${T.border}`,borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,flexShrink:0,color:t.taskContact?T.blue:T.textTert}}>{t.taskContact?.kind==="company"?"🏢":(t.taskContact?.name?.[0]||"👤")}</button>
+      style={circleBtn(!!t.taskContact)}>{t.taskContact?.kind==="company"?"🏢":(t.taskContact?.name?.[0]||"👤")}</button>
   );
   const msgBtnEl=(
-    <button onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",background:msgCount?"#EBF4FF":"none",border:`1px solid ${msgCount?T.blue:T.border}`,borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,flexShrink:0,color:msgCount?T.blue:T.textTert}}>💬{msgCount>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgCount}</span>}</button>
+    <button onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",...circleBtn(!!msgCount)}}>💬{msgCount>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgCount}</span>}</button>
   );
   const selBox=selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:18,height:18,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>;
   // Address + property status are already shown in the group header above, so the

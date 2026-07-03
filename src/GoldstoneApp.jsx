@@ -3559,21 +3559,26 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
   // Templates auto-tag the task's assignee so a quick nudge notifies the right person.
   const assignee=task?.assignee||"";
   const who=assignee?assignee.split(" ")[0]:"team";
+  // Name the actual task in the message instead of saying "this task".
+  const taskName=(task?.text||"").trim();
+  const onWhat=taskName?`“${taskName}”`:"this task";
   const templates=[
-    {label:"Ask for update",text:`Hi ${who}, can you give me an update on this task?`},
-    {label:"Follow up",text:`Hi ${who}, following up on this task — where are we holding?`},
+    {label:"Ask for update",text:`Hi ${who}, can you give me an update on ${onWhat}?`},
+    {label:"Follow up",text:`Hi ${who}, following up on ${onWhat} — where are we holding?`},
   ];
-  // One-tap links to reach the task's assigned (external) contact via text / WhatsApp.
+  // One-tap links to reach the task's assigned (external) contact via text / WhatsApp / email.
   const tc=task?.taskContact;
   const quickLinks=[];
   if(tc&&tc.kind!=="company"){
     const c=contacts.find(x=>String(x.id)===String(tc.id))||contacts.find(x=>(x.name||"").toLowerCase()===(tc.name||"").toLowerCase());
     const phone=(c?.phones?.[0]?.number)||(Array.isArray(tc.phones)&&tc.phones[0]?.number)||"";
+    const email=(c?.email)||tc.email||"";
+    const first=(tc.name||c?.name||"contact").split(" ")[0];
     if(phone){
-      const first=(tc.name||c?.name||"contact").split(" ")[0];
       quickLinks.push({label:`💬 Text ${first}`,href:`sms:${String(phone).replace(/[^\d+]/g,"")}`,style:{background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}});
       quickLinks.push({label:"WhatsApp",href:`https://wa.me/${String(phone).replace(/\D/g,"")}`,target:"_blank",style:{background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B"}});
     }
+    if(email)quickLinks.push({label:`✉️ Email ${first}`,href:`mailto:${email}`,style:{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue}});
   }
   const dm=assignee&&(teamMembers||[]).includes(assignee)&&assignee!==currentUser?assignee:null;
   return(

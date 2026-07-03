@@ -81,15 +81,18 @@ function buildDigestPdf(name, d, dateStr) {
       doc.y = y + 25 + 7;
     };
     const taskRow = (t, withTo) => {
-      const label = `${t.text}${withTo && t.to ? `   →  ${String(t.to).split(" ")[0]}` : ""}`;
       doc.font("Helvetica").fontSize(10.5);
-      const th = Math.max(doc.heightOfString(label, { width: textW }), 13);
-      ensure(th + 12);
+      const th = Math.max(doc.heightOfString(t.text, { width: textW }), 13);
+      const showTo = withTo && t.to;
+      const subH = showTo ? 14 : 0;
+      ensure(th + subH + 12);
       const y = doc.y;
       doc.circle(L + 8, y + 6, 1.6).fill(GOLD);                            // bullet
-      doc.font("Helvetica").fontSize(10.5).fillColor("#2A2823").text(label, L + 16, y, { width: textW });
+      doc.font("Helvetica").fontSize(10.5).fillColor("#2A2823").text(t.text, L + 16, y, { width: textW });
+      if (showTo) doc.font("Helvetica-Oblique").fontSize(9).fillColor(GOLD)
+        .text(`Delegated to ${t.to}`, L + 16, y + th + 2, { width: textW, lineBreak: false });
       pill(t.status, TASK_SC[t.status] || TASK_SC["Not Started"], R - 12, y - 1, 8);
-      doc.y = y + th + 6;
+      doc.y = y + th + subH + 6;
       doc.moveTo(L + 16, doc.y).lineTo(R - 12, doc.y).lineWidth(0.5).strokeColor(LINE).stroke();
       doc.moveDown(0.35);
     };

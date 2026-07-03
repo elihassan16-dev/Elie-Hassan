@@ -6255,6 +6255,18 @@ export function GoldstoneShell(){
   const navItems = isAdmin ? NAV : NAV.filter(n=>MEMBER_KEYS.has(n.key));
   const officeUnread = (officeMessages||[]).reduce((n,m)=>n+(isUnreadForUser(m,displayName)?1:0),0);
   const unreadTotal = totalUnread(sharedProps, displayName) + officeUnread;
+
+  // "New tasks assigned to me" badge on the Tasks tab. We remember (per account,
+  // in prefs) the set of task ids assigned to me that I've already seen; anything
+  // assigned to me and not in that set is "new" until I open the Tasks tab.
+  const myTaskIds = useMemo(()=>{
+    const ids=[];
+    (sharedProps||[]).forEach(p=>(p.tasks||[]).forEach(t=>{ if(!t.deleted&&(t.assignee===displayName||t.delegate===displayName)) ids.push(String(t.id)); }));
+    return ids;
+  },[sharedProps,displayName]);
+  const taskSeen = Array.isArray(prefs.taskSeenIds)?prefs.taskSeenIds:null;
+  const taskSeenSet = useMemo(()=>new Set(taskSeen||[]),[prefs.taskSeenIds]); // eslint-disable-line
+  const newTaskCount = taskSeen===null?0:myTaskIds.filter(id=>!taskSeenSet.has(id)).length;
   const[active,setActive]=useState(isAdmin?"properties":"tasks");
   const[navPropId,setNavPropId]=useState(null);
   const[navChatId,setNavChatId]=useState(null);
@@ -6339,6 +6351,11 @@ export function GoldstoneShell(){
     setActive("messages");
   }
 
+  // Seed the seen-set the first time so pre-existing tasks don't all count as new.
+  useEffect(()=>{ if(taskSeen===null && myTaskIds.length>0) savePrefs({taskSeenIds:myTaskIds}); },[taskSeen,myTaskIds.length]); // eslint-disable-line
+  // Opening the Tasks tab marks everything currently assigned to me as seen.
+  useEffect(()=>{ if(active==="tasks" && taskSeen!==null && newTaskCount>0) savePrefs({taskSeenIds:myTaskIds}); },[active,newTaskCount]); // eslint-disable-line
+
   const initials=initialsOf(displayName)||"?";
   const pageEl = active==="properties"
     ? <PropertiesPage sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navPropId} onNavConsumed={()=>setNavPropId(null)} onArchive={archiveProperty} onOpenChat={navigateToChat}/>
@@ -6368,7 +6385,7 @@ export function GoldstoneShell(){
           </div>
         </div>
         <nav style={{flex:1,minHeight:0,overflowY:"auto",padding:"12px 10px"}}>
-          {navItems.map(({key,label,icon})=>{const isActive=active===key;return <button key={key} onClick={()=>setActive(key)} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:"none",background:isActive?T.goldLight:"transparent",color:isActive?T.gold:T.textSub,fontWeight:isActive?600:400,fontSize:14,cursor:"pointer",marginBottom:2,transition:"all 0.15s",textAlign:"left",fontFamily:"inherit"}}><span style={{color:isActive?T.gold:T.textTert}}>{icon}</span>{label}{key==="messages"&&<UnreadBadge count={unreadTotal} style={{marginLeft:"auto"}}/>}</button>;})}
+          {navItems.map(({key,label,icon})=>{const isActive=active===key;return <button key={key} onClick={()=>setActive(key)} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:"none",background:isActive?T.goldLight:"transparent",color:isActive?T.gold:T.textSub,fontWeight:isActive?600:400,fontSize:14,cursor:"pointer",marginBottom:2,transition:"all 0.15s",textAlign:"left",fontFamily:"inherit"}}><span style={{color:isActive?T.gold:T.textTert}}>{icon}</span>{label}{key==="messages"&&<UnreadBadge count={unreadTotal} style={{marginLeft:"auto"}}/>}{key==="tasks"&&<UnreadBadge count={newTaskCount} style={{marginLeft:"auto"}}/>}</button>;})}
         </nav>
         <div style={{padding:"14px 16px",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
           <button onClick={()=>setShowProfileMenu(true)} title="Profile & team" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:34,height:34,minWidth:34,maxWidth:34,flex:"0 0 34px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:"#fff",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>{initials}</button>
@@ -6397,11 +6414,11 @@ export function GoldstoneShell(){
         <nav className="gs-tabbar" style={{display:"flex",background:T.card,borderTop:`1px solid ${T.border}`,flexShrink:0,paddingTop:4}}>
           {bottomItems.map(({key,label,short,icon})=>{const isActive=active===key;return(
             <button key={key} onClick={()=>setActive(key)} style={{flex:1,minWidth:0,minHeight:52,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,border:"none",background:"transparent",color:isActive?T.gold:T.textTert,cursor:"pointer",fontFamily:"inherit",padding:"4px 2px",overflow:"hidden"}}>
-              <span style={{color:isActive?T.gold:T.textTert,position:"relative",display:"inline-flex"}}>{icon}{key==="messages"&&unreadTotal>0&&<UnreadBadge count={unreadTotal} style={{position:"absolute",top:-6,left:12,minWidth:16,height:16,fontSize:10}}/>}</span>
+              <span style={{color:isActive?T.gold:T.textTert,position:"relative",display:"inline-flex"}}>{icon}{key==="messages"&&unreadTotal>0&&<UnreadBadge count={unreadTotal} style={{position:"absolute",top:-6,left:12,minWidth:16,height:16,fontSize:10}}/>}{key==="tasks"&&newTaskCount>0&&<UnreadBadge count={newTaskCount} style={{position:"absolute",top:-6,left:12,minWidth:16,height:16,fontSize:10}}/>}</span>
               <span style={{fontSize:10,fontWeight:isActive?700:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{short||label}</span>
             </button>);})}
           <button onClick={()=>setShowNavMenu(true)} title="More" style={{flex:1,minWidth:0,minHeight:52,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,border:"none",background:"transparent",color:T.textTert,cursor:"pointer",fontFamily:"inherit",padding:"4px 2px",overflow:"hidden"}}>
-            <span style={{fontSize:18,lineHeight:1,position:"relative",display:"inline-flex"}}>☰{unreadTotal>0&&!bottomItems.some(n=>n.key==="messages")&&<UnreadBadge count={unreadTotal} style={{position:"absolute",top:-6,left:14,minWidth:16,height:16,fontSize:10}}/>}</span>
+            <span style={{fontSize:18,lineHeight:1,position:"relative",display:"inline-flex"}}>☰{(()=>{const hidden=(!bottomItems.some(n=>n.key==="messages")?unreadTotal:0)+(!bottomItems.some(n=>n.key==="tasks")?newTaskCount:0);return hidden>0&&<UnreadBadge count={hidden} style={{position:"absolute",top:-6,left:14,minWidth:16,height:16,fontSize:10}}/>;})()}</span>
             <span style={{fontSize:10,fontWeight:500}}>More</span>
           </button>
         </nav>

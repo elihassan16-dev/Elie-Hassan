@@ -3566,26 +3566,6 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
     {label:"Ask for update",text:`Hi ${who}, can you give me an update on ${onWhat}?`},
     {label:"Follow up",text:`Hi ${who}, following up on ${onWhat} — where are we holding?`},
   ];
-  // One-tap links to reach the task's assigned (external) contact via text / WhatsApp / email.
-  // Works for a person OR a company (lists each person in that company who has a number/email).
-  const tc=task?.taskContact;
-  const quickLinks=[];
-  const linksFor=(c,nameForLabel)=>{
-    const phone=(c?.phones?.[0]?.number)||"";
-    const email=c?.email||"";
-    const nm=(nameForLabel||c?.name||"contact").split(" ")[0];
-    if(phone){
-      quickLinks.push({label:`💬 Text ${nm}`,href:`sms:${String(phone).replace(/[^\d+]/g,"")}`,style:{background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}});
-      quickLinks.push({label:`WhatsApp ${nm}`,href:`https://wa.me/${String(phone).replace(/\D/g,"")}`,target:"_blank",style:{background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B"}});
-    }
-    if(email)quickLinks.push({label:`✉️ Email ${nm}`,href:`mailto:${email}`,style:{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue}});
-  };
-  if(tc&&tc.kind==="company"){
-    contacts.filter(x=>sameCompany(x.company,tc.name)).forEach(c=>linksFor(c,c.name));
-  }else if(tc){
-    const c=contacts.find(x=>String(x.id)===String(tc.id))||contacts.find(x=>(x.name||"").toLowerCase()===(tc.name||"").toLowerCase())||{name:tc.name,phones:tc.phones,email:tc.email};
-    linksFor(c,tc.name||c.name);
-  }
   const dm=assignee&&(teamMembers||[]).includes(assignee)&&assignee!==currentUser?assignee:null;
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
@@ -3609,7 +3589,7 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
           );})}
         </div>
         <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`}}>
-          <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn)} people={teamMembers} currentUser={currentUser} placeholder="Write a message…" templates={templates} defaultMention={dm} quickLinks={quickLinks}/>
+          <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn)} people={teamMembers} currentUser={currentUser} placeholder="Write a message…" templates={templates} defaultMention={dm}/>
         </div>
       </div>
     </div>
@@ -3639,13 +3619,22 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
   const coMatches=companies.filter(co=>!ql||co.toLowerCase().includes(ql));
   const dig=(n)=>String(n||"").replace(/\D/g,"");
   const actA={display:"inline-flex",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:T.radiusSm,fontSize:12,fontWeight:600,textDecoration:"none",whiteSpace:"nowrap"};
-  const phoneRow=(num)=>(
-    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
-      <a href={`tel:${String(num||"").replace(/[^\d+]/g,"")}`} style={{...actA,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
-      <a href={`sms:${String(num||"").replace(/[^\d+]/g,"")}`} style={{...actA,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a>
-      <a href={`https://wa.me/${dig(num)}`} target="_blank" rel="noreferrer" style={{...actA,background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B"}}>WhatsApp</a>
-    </div>
-  );
+  // Pre-written message that rides along into Messages / WhatsApp / email so the
+  // draft opens ready to send. References the property this task belongs to.
+  const propAddr=task?.propAddr||task?.address||"";
+  const msgFor=(name)=>{const first=String(name||"").split(" ")[0]||"there";return `Hi ${first}, `+(propAddr?`reaching out regarding ${propAddr}.`:`reaching out regarding a property.`);};
+  const phoneRow=(num,name)=>{
+    const tel=String(num||"").replace(/[^\d+]/g,"");
+    const body=encodeURIComponent(msgFor(name));
+    return(
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
+        <a href={`tel:${tel}`} style={{...actA,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
+        <a href={`sms:${tel}?&body=${body}`} style={{...actA,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a>
+        <a href={`https://wa.me/${dig(num)}?text=${body}`} target="_blank" rel="noreferrer" style={{...actA,background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B"}}>WhatsApp</a>
+      </div>
+    );
+  };
+  const mailHref=(email,name)=>`mailto:${email}?subject=${encodeURIComponent(propAddr||"Following up")}&body=${encodeURIComponent(msgFor(name))}`;
   const avatar=(name,size=36)=><div style={{width:size,height:size,borderRadius:"50%",background:avatarColor(name),display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:size*0.4,color:"#fff",flexShrink:0}}>{initialsOf(name)||"?"}</div>;
   const footer=(
     <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8}}>
@@ -3730,9 +3719,9 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
                 <div key={c.id} style={{padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
                   <div style={{display:"flex",alignItems:"center",gap:10}}>{avatar(c.name,32)}<div style={{minWidth:0,flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{c.name}</div>{c.role&&<div style={{fontSize:11,color:T.textSub}}>{c.role}</div>}</div></div>
                   {(c.phones||[]).map((ph,i)=>(
-                    <div key={i} style={{marginTop:6}}><div style={{fontSize:12,color:T.textSub}}>{ph.label}: {ph.number}</div>{phoneRow(ph.number)}</div>
+                    <div key={i} style={{marginTop:6}}><div style={{fontSize:12,color:T.textSub}}>{ph.label}: {ph.number}</div>{phoneRow(ph.number,c.name)}</div>
                   ))}
-                  {c.email&&<a href={`mailto:${c.email}`} style={{...actA,marginTop:6,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue,display:"inline-flex"}}>✉️ Email</a>}
+                  {c.email&&<a href={mailHref(c.email,c.name)} style={{...actA,marginTop:6,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue,display:"inline-flex"}}>✉️ Email</a>}
                 </div>
               ))}
             </div>
@@ -3743,9 +3732,9 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
             <div style={{overflowY:"auto",padding:"8px 16px 12px"}}>
               <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>{avatar(person?.name,48)}<div style={{minWidth:0}}><div style={{fontSize:17,fontWeight:700,color:T.text}}>{person?.name||"(unknown)"}</div>{(person?.company||person?.role)&&<div style={{fontSize:12,color:T.textSub,marginTop:1}}>{[person.role,person.company].filter(Boolean).join(" · ")}</div>}</div></div>
               {(person?.phones||[]).map((p,i)=>(
-                <div key={i} style={{marginBottom:10}}><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em"}}>{p.label||"Phone"}</div><div style={{fontSize:14,color:T.text}}>{p.number}</div>{phoneRow(p.number)}</div>
+                <div key={i} style={{marginBottom:10}}><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em"}}>{p.label||"Phone"}</div><div style={{fontSize:14,color:T.text}}>{p.number}</div>{phoneRow(p.number,person?.name)}</div>
               ))}
-              {person?.email&&<div><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}}>Email</div><a href={`mailto:${person.email}`} style={{...actA,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue,display:"inline-flex"}}>✉️ Email {person.email}</a></div>}
+              {person?.email&&<div><div style={{fontSize:11,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}}>Email</div><a href={mailHref(person.email,person?.name)} style={{...actA,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue,display:"inline-flex"}}>✉️ Email {person.email}</a></div>}
               {(!person||((person.phones||[]).length===0&&!person.email))&&<div style={{fontSize:13,color:T.textTert}}>No phone or email on this contact.</div>}
             </div>
             {footer}

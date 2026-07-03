@@ -213,7 +213,9 @@ const TASK_STATUS_COLORS={"Not Started":{bg:"#F2F2F7",color:"#8A8A8E"},"In Progr
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function n(v){const x=parseFloat(String(v).replace(/,/g,""));return isNaN(x)?0:x;}
 function pct(v){const x=parseFloat(String(v));return isNaN(x)?0:x/100;}
-function fmtD(v){const x=Math.round(v||0);return (x<0?"-$":"$")+Math.abs(x).toLocaleString();}
+// Currency: show cents only when the value actually has them (so $1,225.81 keeps
+// its cents, but $740,000 stays clean). Negatives read as -$X.
+function fmtD(v){const x=v||0,neg=x<0,a=Math.abs(x),r2=Math.round(a*100),cents=r2%100!==0;return (neg?"-$":"$")+(r2/100).toLocaleString(undefined,{minimumFractionDigits:cents?2:0,maximumFractionDigits:2});}
 // A value counts as "entered" when it isn't blank — so 0 and negatives (credits) still
 // display, and only a truly empty field shows the "tap to enter" placeholder.
 const hasVal=(v)=>v!==null&&v!==undefined&&String(v).trim()!=="";
@@ -1150,7 +1152,7 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
   const[assumedSell,setAssumedSell]=useState(sellingDate||new Date().toISOString().slice(0,10));
   const locRows=(locDraws||[]).map(d=>{const end=d.paybackDate||assumedSell;const days=daysBetween(d.dateFunded,end);return {...d,end,days,interest:(Number(d.amount)||0)*(LOC_RATE/365)*days};}).sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
   const locFunded=locRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
-  const locInterest=Math.round(locRows.reduce((s,r)=>s+r.interest,0));
+  const locInterest=locRows.reduce((s,r)=>s+r.interest,0);
   const[hmLoanAmt, setHmLoanAmt] = useState(f.acHmLoanAmt||String(liveHmTotal));
   const[hmRate,    setHmRate]    = useState(f.acHmRate!==undefined?f.acHmRate:String(f.hmRate||9));
   const[hmOrigPct, setHmOrigPct] = useState(f.acHmOrigPct!==undefined?f.acHmOrigPct:String(f.hmOrigPct||0));
@@ -1244,7 +1246,7 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
                     <div style={{fontSize:10.5,color:T.textTert}}>{finFmtDate(r.dateFunded)}{r.paybackDate?` → paid`:` · ${r.days}d`}</div>
                   </div>
                   <div style={{fontSize:13,fontWeight:600,color:T.text,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(r.amount)}</div>
-                  <div style={{fontSize:13,fontWeight:700,color:T.gold,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(Math.round(r.interest))}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:T.gold,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(r.interest)}</div>
                 </div>
               ))}
               <div style={{display:"grid",gridTemplateColumns:gcol,gap:10,padding:"9px 14px",borderTop:`2px solid ${T.gold}`,background:T.goldLight,alignItems:"center"}}>
@@ -1253,7 +1255,7 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
                 <span style={{fontSize:14,fontWeight:800,color:T.gold,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(locInterest)}</span>
               </div>
               <div style={{padding:"10px 14px",borderTop:`1px solid ${T.border}`}}>
-                <button onClick={()=>{setGapLoanAmt(String(locFunded));setGapIntOverride(String(locInterest));}} style={{width:"100%",padding:"9px",borderRadius:8,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Use as gap financing&nbsp;↓</button>
+                <button onClick={()=>{setGapLoanAmt(String(Math.round(locFunded)));setGapIntOverride(String(Math.round(locInterest)));}} style={{width:"100%",padding:"9px",borderRadius:8,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Use as gap financing&nbsp;↓</button>
               </div>
             </div>
           );})()}
@@ -5462,8 +5464,8 @@ const funderStats=(f,draws)=>{
   const mine=funderDraws(f,draws);
   const open=mine.filter(d=>!d.paybackDate);
   const paid=mine.filter(d=>d.paybackDate);
-  const paidReinvest=paid.filter(d=>d.interestHandling==="reinvest").reduce((s,d)=>s+Math.round(drawInterest(d)),0);
-  const paidDistrib=paid.filter(d=>d.interestHandling==="distribute").reduce((s,d)=>s+Math.round(drawInterest(d)),0);
+  const paidReinvest=paid.filter(d=>d.interestHandling==="reinvest").reduce((s,d)=>s+drawInterest(d),0);
+  const paidDistrib=paid.filter(d=>d.interestHandling==="distribute").reduce((s,d)=>s+drawInterest(d),0);
   const paidWithdrawnPrincipal=paid.filter(d=>d.principalHandling==="withdraw").reduce((s,d)=>s+(Number(d.amount)||0),0);
   const reinvest=ledgerSum(f,"reinvest")+paidReinvest;             // manual reinvest entries + reinvested payback interest
   const distribution=ledgerSum(f,"distribution")+paidDistrib;      // manual + interest paid out at payback
@@ -5493,7 +5495,7 @@ const funderRegister=(f,draws)=>{
   funderDraws(f,draws).forEach(d=>{
     ev.push({id:"F"+d.id,kind:"fund",date:d.dateFunded||"",amount:Number(d.amount)||0,note:d.propertyLabel||"",draw:d});
     if(d.paybackDate){
-      const int=Math.round(drawInterest(d));
+      const int=drawInterest(d);
       ev.push({id:"P"+d.id,kind:"payback",date:d.paybackDate,amount:Number(d.amount)||0,interest:int,note:d.propertyLabel||"",draw:d});
       if(d.principalHandling==="withdraw")ev.push({id:"W"+d.id,kind:"withdrawal",date:d.paybackDate,amount:Number(d.amount)||0,note:`Principal paid back to him — ${d.propertyLabel||""}`.trim(),draw:d,derived:true,field:"principal"});
       if(d.interestHandling==="reinvest")ev.push({id:"R"+d.id,kind:"reinvest",date:d.paybackDate,amount:int,note:`Interest reinvested — ${d.propertyLabel||""}`.trim(),draw:d,derived:true,field:"interest"});
@@ -5818,13 +5820,13 @@ function FinancialSectionPage(){
     const open=[...mine.filter(d=>!d.paybackDate)].sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
     const paid=[...mine.filter(d=>d.paybackDate)].sort((a,b)=>String(a.paybackDate||"").localeCompare(String(b.paybackDate||"")));
     const sum=(arr,fn)=>arr.reduce((x,d)=>x+fn(d),0);
-    const openAmt=sum(open,d=>Number(d.amount)||0), openInt=Math.round(sum(open,drawInterest));
-    const paidAmt=sum(paid,d=>Number(d.amount)||0), paidInt=Math.round(sum(paid,drawInterest));
+    const openAmt=sum(open,d=>Number(d.amount)||0), openInt=sum(open,drawInterest);
+    const paidAmt=sum(paid,d=>Number(d.amount)||0), paidInt=sum(paid,drawInterest);
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
     const stat=(l,v,c)=>`<div class="stat"><div class="sl">${l}</div><div class="sv" style="color:${c||"#1C1C1E"}">${fmtD(v)}</div></div>`;
-    const rowOpen=(d)=>`<tr><td>${esc(d.propertyLabel||"—")}</td><td>${esc(finFmtDate(d.dateFunded))}</td><td>${drawDays(d)}d</td><td class="r">${fmtD(d.amount)}</td><td class="r gold">${fmtD(Math.round(drawInterest(d)))}</td></tr>`;
-    const rowPaid=(d)=>`<tr><td>${esc(d.propertyLabel||"—")}</td><td>${esc(finFmtDate(d.dateFunded))}</td><td>${esc(finFmtDate(d.paybackDate))}</td><td class="r">${fmtD(d.amount)}</td><td class="r gold">${fmtD(Math.round(drawInterest(d)))}</td></tr>`;
+    const rowOpen=(d)=>`<tr><td>${esc(d.propertyLabel||"—")}</td><td>${esc(finFmtDate(d.dateFunded))}</td><td>${drawDays(d)}d</td><td class="r">${fmtD(d.amount)}</td><td class="r gold">${fmtD(drawInterest(d))}</td></tr>`;
+    const rowPaid=(d)=>`<tr><td>${esc(d.propertyLabel||"—")}</td><td>${esc(finFmtDate(d.dateFunded))}</td><td>${esc(finFmtDate(d.paybackDate))}</td><td class="r">${fmtD(d.amount)}</td><td class="r gold">${fmtD(drawInterest(d))}</td></tr>`;
     const openRows=open.length?open.map(rowOpen).join(""):`<tr><td colspan="5" class="empty">None outstanding.</td></tr>`;
     const paidRows=paid.length?paid.map(rowPaid).join(""):`<tr><td colspan="5" class="empty">None yet.</td></tr>`;
     const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(f.name)} — Lender Statement</title><style>

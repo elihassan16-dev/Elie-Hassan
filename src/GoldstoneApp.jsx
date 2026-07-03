@@ -1561,6 +1561,13 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const address=`${property.address}${property.city?`, ${property.city}`:""}`;
   const leadMap=property.showingLeads||{};
   const customLeads=property.customLeads||[];
+  const showingPhones=property.showingPhones||{}; // manually-added numbers, keyed by showingKey
+  const[agentSearch,setAgentSearch]=useState("");
+  const[addNumFor,setAddNumFor]=useState(null); // which row's "add number" input is open
+  const[numDraft,setNumDraft]=useState("");
+  const extraPhones=(s)=>showingPhones[showingKey(s)]||[];
+  const addShowingPhone=(s)=>{const n=numDraft.trim();if(!n)return;const k=showingKey(s);onUpdate(property.id,"showingPhones",{...showingPhones,[k]:[...(showingPhones[k]||[]),n]});setNumDraft("");setAddNumFor(null);saveNow();};
+  const addLeadPhone=(l)=>{const n=numDraft.trim();if(!n)return;const phone=(l.phone?l.phone+", ":"")+n;onUpdate(property.id,"customLeads",customLeads.map(x=>x.id===l.id?{...x,phone}:x));setNumDraft("");setAddNumFor(null);saveNow();};
   // Persist right away (don't wait on the debounced sync) so a lead never gets lost
   // if the app is refreshed/backgrounded moments later.
   const saveNow=()=>{if(flush)setTimeout(flush,0);};
@@ -1594,6 +1601,16 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       {SHOWING_LEADS.map(l=><option key={l.key} value={l.key}>{l.short}</option>)}
     </select>
   );
+  // "+ Add number" — for when ShowingTime didn't pull a phone, or you want a 2nd one.
+  const addNumberUI=(key,onSave)=>(
+    addNumFor===key
+      ? <div style={{display:"flex",gap:6,marginTop:8,alignItems:"center"}}>
+          <input autoFocus value={numDraft} onChange={e=>setNumDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")onSave();if(e.key==="Escape"){setAddNumFor(null);setNumDraft("");}}} placeholder="Add a number…" inputMode="tel" style={{flex:1,minWidth:0,padding:"7px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit"}}/>
+          <button onClick={onSave} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Add</button>
+          <button onClick={()=>{setAddNumFor(null);setNumDraft("");}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+      : <button onClick={()=>{setAddNumFor(key);setNumDraft("");}} style={{marginTop:8,padding:"5px 11px",borderRadius:20,background:"transparent",border:`1px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600}}>+ Add number</button>
+  );
   // Actions for one phone number — plain Text (no template) + the two templates.
   const phoneActions=(ph,name)=>(
     <div style={{marginTop:8}}>
@@ -1607,7 +1624,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     </div>
   );
   const Row=(s)=>{
-    const phones=parseShowingPhones(s.phone);
+    const phones=[...parseShowingPhones(s.phone),...extraPhones(s)];
     const leadKey=leadMap[showingKey(s)]||"";
     const lead=SHOWING_LEADS.find(l=>l.key===leadKey);
     return(
@@ -1625,6 +1642,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         <div style={{marginTop:8}}>{leadSelect(leadKey,e=>setLead(s,e.target.value),lead)}</div>
         {phones.map((ph,i)=><div key={i}>{phoneActions(ph,s.agent)}</div>)}
         {!s.agent&&phones.length===0&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>}
+        {addNumberUI(showingKey(s),()=>addShowingPhone(s))}
       </div>
       {s.status&&<span style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",flexShrink:0,marginTop:3}}>{s.status}</span>}
     </div>
@@ -1641,6 +1659,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         <div style={{marginTop:8}}>{leadSelect(l.lead||"",e=>setCustomStatus(l.id,e.target.value),lead)}</div>
         {phones.map((ph,i)=><div key={i}>{phoneActions(ph,l.name)}</div>)}
         {phones.length===0&&<div style={{fontSize:12,color:T.textTert,marginTop:6}}>No phone number.</div>}
+        {addNumberUI("lead-"+l.id,()=>addLeadPhone(l))}
       </div>
       <button onClick={()=>removeLead(l.id)} title="Remove lead" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
     </div>
@@ -1648,11 +1667,20 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   };
   const inpS={width:"100%",padding:"9px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   const notNot=(leadKey)=>!hideNot||leadKey!=="not";
-  const upcomingShown=upcoming.filter(s=>notNot(leadMap[showingKey(s)]));
-  const pastShown=past.filter(s=>notNot(leadMap[showingKey(s)]));
-  const leadsShown=customLeads.filter(l=>notNot(l.lead));
+  const aq=agentSearch.trim().toLowerCase();
+  const showingSearchOk=(s)=>!aq||[s.agent,s.broker,s.summary,s.phone].filter(Boolean).join(" ").toLowerCase().includes(aq);
+  const leadSearchOk=(l)=>!aq||[l.name,l.phone].filter(Boolean).join(" ").toLowerCase().includes(aq);
+  const upcomingShown=upcoming.filter(s=>notNot(leadMap[showingKey(s)])&&showingSearchOk(s));
+  const pastShown=past.filter(s=>notNot(leadMap[showingKey(s)])&&showingSearchOk(s));
+  const leadsShown=customLeads.filter(l=>notNot(l.lead)&&leadSearchOk(l));
   const hiddenCount=(past.length-pastShown.length)+(customLeads.length-leadsShown.length)+(upcoming.length-upcomingShown.length);
   return(<>
+    <div style={{position:"relative",marginBottom:10}}>
+      <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:14,pointerEvents:"none"}}>⌕</span>
+      <input value={agentSearch} onChange={e=>setAgentSearch(e.target.value)} placeholder="Search an agent's name…"
+        style={{width:"100%",padding:"9px 12px 9px 30px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,fontSize:13.5,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+      {agentSearch&&<button onClick={()=>setAgentSearch("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>}
+    </div>
     <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:12.5,color:T.textSub,cursor:"pointer"}}>
       <input type="checkbox" checked={hideNot} onChange={toggleHide} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>
       Hide "not interested" leads{hideNot&&hiddenCount>0?` (${hiddenCount} hidden)`:""}

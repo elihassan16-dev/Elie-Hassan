@@ -3567,18 +3567,24 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
     {label:"Follow up",text:`Hi ${who}, following up on ${onWhat} — where are we holding?`},
   ];
   // One-tap links to reach the task's assigned (external) contact via text / WhatsApp / email.
+  // Works for a person OR a company (lists each person in that company who has a number/email).
   const tc=task?.taskContact;
   const quickLinks=[];
-  if(tc&&tc.kind!=="company"){
-    const c=contacts.find(x=>String(x.id)===String(tc.id))||contacts.find(x=>(x.name||"").toLowerCase()===(tc.name||"").toLowerCase());
-    const phone=(c?.phones?.[0]?.number)||(Array.isArray(tc.phones)&&tc.phones[0]?.number)||"";
-    const email=(c?.email)||tc.email||"";
-    const first=(tc.name||c?.name||"contact").split(" ")[0];
+  const linksFor=(c,nameForLabel)=>{
+    const phone=(c?.phones?.[0]?.number)||"";
+    const email=c?.email||"";
+    const nm=(nameForLabel||c?.name||"contact").split(" ")[0];
     if(phone){
-      quickLinks.push({label:`💬 Text ${first}`,href:`sms:${String(phone).replace(/[^\d+]/g,"")}`,style:{background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}});
-      quickLinks.push({label:"WhatsApp",href:`https://wa.me/${String(phone).replace(/\D/g,"")}`,target:"_blank",style:{background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B"}});
+      quickLinks.push({label:`💬 Text ${nm}`,href:`sms:${String(phone).replace(/[^\d+]/g,"")}`,style:{background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}});
+      quickLinks.push({label:`WhatsApp ${nm}`,href:`https://wa.me/${String(phone).replace(/\D/g,"")}`,target:"_blank",style:{background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B"}});
     }
-    if(email)quickLinks.push({label:`✉️ Email ${first}`,href:`mailto:${email}`,style:{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue}});
+    if(email)quickLinks.push({label:`✉️ Email ${nm}`,href:`mailto:${email}`,style:{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue}});
+  };
+  if(tc&&tc.kind==="company"){
+    contacts.filter(x=>sameCompany(x.company,tc.name)).forEach(c=>linksFor(c,c.name));
+  }else if(tc){
+    const c=contacts.find(x=>String(x.id)===String(tc.id))||contacts.find(x=>(x.name||"").toLowerCase()===(tc.name||"").toLowerCase())||{name:tc.name,phones:tc.phones,email:tc.email};
+    linksFor(c,tc.name||c.name);
   }
   const dm=assignee&&(teamMembers||[]).includes(assignee)&&assignee!==currentUser?assignee:null;
   return(
@@ -5026,16 +5032,23 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
           <button onClick={()=>setPendingAtt(null)} title="Remove" style={{background:"none",border:"none",color:T.textTert,fontSize:20,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
         </div>
       )}
-      {/* Quick templates + one-tap links to the assigned contact (WhatsApp / text) */}
-      {!recording&&(templates.length>0||quickLinks.length>0)&&(
+      {/* One-tap links to reach the assigned outside contact (text / WhatsApp / email).
+          Own wrapping row so every link stays visible — never hidden behind the templates. */}
+      {!recording&&quickLinks.length>0&&(
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",padding:"0 2px 1px"}}>
+          <span style={{fontSize:11,color:T.textTert,fontWeight:700}}>Contact:</span>
+          {quickLinks.map((q,i)=>(
+            <a key={"q"+i} href={q.href} target={q.target||undefined} rel="noreferrer"
+              style={{whiteSpace:"nowrap",fontSize:12,fontWeight:600,padding:"5px 11px",borderRadius:16,textDecoration:"none",...(q.style||{})}}>{q.label}</a>
+          ))}
+        </div>
+      )}
+      {/* Quick message templates (prefill the box, review, Send) */}
+      {!recording&&templates.length>0&&(
         <div style={{display:"flex",gap:6,overflowX:"auto",padding:"0 2px 1px",WebkitOverflowScrolling:"touch"}}>
           {templates.map((tpl,i)=>(
             <button key={"t"+i} onClick={()=>insertTemplate(tpl.text||tpl)} title={tpl.text||tpl}
               style={{whiteSpace:"nowrap",flexShrink:0,fontSize:12,fontWeight:600,padding:"5px 11px",borderRadius:16,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit"}}>{tpl.label||tpl}</button>
-          ))}
-          {quickLinks.map((q,i)=>(
-            <a key={"q"+i} href={q.href} target={q.target||undefined} rel="noreferrer"
-              style={{whiteSpace:"nowrap",flexShrink:0,fontSize:12,fontWeight:600,padding:"5px 11px",borderRadius:16,textDecoration:"none",...(q.style||{})}}>{q.label}</a>
           ))}
         </div>
       )}

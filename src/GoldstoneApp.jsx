@@ -6471,6 +6471,7 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
   const isMobile=useIsMobile();
   const[q,setQ]=useState("");
   const[openKey,setOpenKey]=useState("");    // which grouped transaction is expanded
+  const[lineData,setLineData]=useState({});  // group key -> {loading, lines} full splits from QuickBooks
   const term=q.trim().toLowerCase();
   // Group every posting line of the same transaction together, so one journal entry
   // is a single row (with its lines nested) instead of one row per account — which
@@ -6485,7 +6486,21 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
     return order.map(k=>by[k]);
   },[txns]);
   const shown=groups.filter(g=>!term||g.items.some(t=>[t.vendor,t.memo,t.type,t.account,t.date].filter(Boolean).join(" ").toLowerCase().includes(term))).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
-  const lineOf=(g,t,idx)=>({...t,lineKey:`${g.key}#${idx}`}); // stable per-line key within a group
+  const lineOf=(g,t,idx)=>({...t,lineKey:`${g.key}#${idx}`});                       // fallback: a P&L line of the group
+  const fullLineOf=(g,l)=>({date:g.date,type:(g.type||"")+" · line",num:g.num,vendor:l.description||l.account||g.vendor,account:l.account,memo:l.description,amount:l.amount,lineKey:`${g.items[0]?.id}#${l.lineIdx}`}); // a full QuickBooks split
+  // Open a group and pull its full splits from QuickBooks (includes balance-sheet
+  // lines like deposits/wires that the P&L view omits). Falls back to the P&L lines.
+  const openGroup=(g)=>{
+    if(openKey===g.key){setOpenKey("");return;}
+    setOpenKey(g.key);
+    const id=g.items[0]?.id;
+    if(id&&!lineData[g.key]){
+      setLineData(d=>({...d,[g.key]:{loading:true,lines:[]}}));
+      qbAuthFetch(`/api/quickbooks/txn-lines?id=${encodeURIComponent(id)}&type=${encodeURIComponent(g.type||"")}`)
+        .then(r=>setLineData(d=>({...d,[g.key]:{loading:false,lines:r.lines||[]}})))
+        .catch(()=>setLineData(d=>({...d,[g.key]:{loading:false,lines:[]}})));
+    }
+  };
   const inS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
@@ -6502,49 +6517,57 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
           {loading&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>Loading transactions…</div>}
           {!loading&&shown.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>{(txns||[]).length===0?"No transactions on this QuickBooks project.":"No transactions match your search."}</div>}
           {shown.map((g,gi)=>{
-            // Single-line transaction → a plain pinnable row.
-            if(g.items.length===1){
-              const t=g.items[0];const on=pinnedKeys.has(txKey(t));
-              return(
-                <label key={gi} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px",borderTop:gi===0?"none":`1px solid ${T.border}`,cursor:"pointer",background:on?T.goldLight:"transparent"}}>
-                  <input type="checkbox" checked={on} onChange={()=>onToggle(t)} style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
-                    <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account,t.memo].filter(Boolean).join(" · ")}</div>
-                  </div>
-                  <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{fmtD(t.amount)}</span>
-                </label>
-              );
-            }
-            // Multi-line transaction (journal entry) → one parent row; open to pin lines.
-            const total=g.items.reduce((s,t)=>s+t.amount,0);
             const expanded=openKey===g.key;
-            const pinnedCount=g.items.filter((t,idx)=>pinnedKeys.has(txKey(lineOf(g,t,idx)))).length;
+            const ld=lineData[g.key];
+            const full=ld&&!ld.loading&&ld.lines.length>0?ld.lines:null;   // full QuickBooks splits, once loaded
+            const single=g.items.length===1;
+            // Pinned count: from full splits if loaded, else from the P&L lines.
+            const pinnedCount=full
+              ? full.filter(l=>pinnedKeys.has(txKey(fullLineOf(g,l)))).length
+              : g.items.filter((t,idx)=>pinnedKeys.has(txKey(single?t:lineOf(g,t,idx)))).length;
+            const total=g.items.reduce((s,t)=>s+t.amount,0);
+            const openable=!!g.items[0]?.id;
             return(
-              <div key={gi} style={{borderTop:gi===0?"none":`1px solid ${T.border}`}}>
-                <div onClick={()=>setOpenKey(expanded?"":g.key)} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px",cursor:"pointer",background:pinnedCount?T.goldLight:"transparent"}}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.type||"Journal Entry"} <span style={{fontSize:11,color:T.textTert,fontWeight:400}}>· {g.items.length} lines</span></div>
-                    <div style={{fontSize:11,color:T.textTert}}>{[g.date,pinnedCount?`${pinnedCount} pinned`:null].filter(Boolean).join(" · ")}</div>
+              <div key={gi} style={{borderTop:gi===0?"none":`1px solid ${T.border}`,background:pinnedCount?T.goldLight:"transparent"}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px"}}>
+                  {single&&<input type="checkbox" checked={pinnedKeys.has(txKey(g.items[0]))} onChange={()=>onToggle(g.items[0])} style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>}
+                  <div style={{flex:1,minWidth:0,cursor:openable?"pointer":"default"}} onClick={()=>openable&&openGroup(g)}>
+                    <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{single?(g.items[0].vendor||g.type||"—"):(g.type||"Journal Entry")}{!single&&<span style={{fontSize:11,color:T.textTert,fontWeight:400}}> · {g.items.length} lines</span>}</div>
+                    <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[g.date,single?g.items[0].account:null,pinnedCount&&!single?`${pinnedCount} pinned`:null].filter(Boolean).join(" · ")}</div>
                   </div>
                   <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{fmtD(total)}</span>
-                  <span style={{color:T.blue,fontSize:16,lineHeight:1,flexShrink:0}}>{expanded?"▾":"›"}</span>
+                  {openable&&<button onClick={()=>openGroup(g)} title="Open line items" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:16,lineHeight:1,padding:"0 2px",flexShrink:0}}>{expanded?"▾":single?"⋯":"›"}</button>}
                 </div>
                 {expanded&&(
                   <div style={{padding:"0 18px 8px 30px"}}>
-                    {g.items.map((t,idx)=>{
-                      const lo=lineOf(g,t,idx);const on=pinnedKeys.has(txKey(lo));
-                      return(
-                        <label key={idx} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderTop:idx?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
-                          <input type="checkbox" checked={on} onChange={()=>onToggle(lo)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.account||t.vendor||"—"}</div>
-                            {t.memo&&<div style={{fontSize:10.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.memo}</div>}
-                          </div>
-                          <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(t.amount)}</span>
-                        </label>
-                      );
-                    })}
+                    {ld?.loading&&<div style={{fontSize:12,color:T.textTert,padding:"6px 0"}}>Loading line items…</div>}
+                    {full
+                      ? full.map((l,idx)=>{
+                          const lo=fullLineOf(g,l);const on=pinnedKeys.has(txKey(lo));
+                          return(
+                            <label key={idx} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderTop:idx?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
+                              <input type="checkbox" checked={on} onChange={()=>onToggle(lo)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.account||l.description||"—"}{l.postingType&&<span style={{fontSize:10,color:T.textTert,fontWeight:400}}> · {l.postingType}</span>}</div>
+                                {l.description&&l.account&&<div style={{fontSize:10.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.description}</div>}
+                              </div>
+                              <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(l.amount)}</span>
+                            </label>
+                          );
+                        })
+                      : (ld&&!ld.loading?g.items.map((t,idx)=>{
+                          const lo=single?t:lineOf(g,t,idx);const on=pinnedKeys.has(txKey(lo));
+                          return(
+                            <label key={idx} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderTop:idx?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
+                              <input type="checkbox" checked={on} onChange={()=>onToggle(lo)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.account||t.vendor||"—"}</div>
+                                {t.memo&&<div style={{fontSize:10.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.memo}</div>}
+                              </div>
+                              <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(t.amount)}</span>
+                            </label>
+                          );
+                        }):null)}
                   </div>
                 )}
               </div>

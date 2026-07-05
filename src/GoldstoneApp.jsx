@@ -7467,6 +7467,7 @@ function FinReportCenter({sharedProps,isMobile}){
     return ()=>{alive=false;};
   },[holdbackFor]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggleHb=(t)=>{if(!hbProp)return;const arr=hbProp.qbHoldbackTxns||[];const k=txKey(t);const has=arr.some(x=>txKey(x)===k);updateProp(hbProp.id,"qbHoldbackTxns",has?arr.filter(x=>txKey(x)!==k):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}]);};
+  const toggleFunded=(propId)=>{const p=(sharedProps||[]).find(x=>x.id===propId);updateProp(propId,"holdbackFunded",!(p&&p.holdbackFunded));};
 
   // Report 1 — every outstanding LOC draw: property, funder, amount; oldest purchase first.
   const rptLoc=useMemo(()=>{
@@ -7512,7 +7513,7 @@ function FinReportCenter({sharedProps,isMobile}){
       const hasManual=raw!=null&&raw!=="";
       const hasPins=(p.qbHoldbackTxns||[]).length>0;
       const holdback=(hasPins||hasManual)?pins+(hasManual?Number(raw):0):null;
-      return {propId:p.id,address:p.address,est,holdback,pins:hasPins,diff:holdback==null?null:holdback-est};
+      return {propId:p.id,address:p.address,est,holdback,pins:hasPins,funded:!!p.holdbackFunded,diff:holdback==null?null:holdback-est};
     });
     const total={est:0,hold:0,anyHold:false};
     rows.forEach(r=>{total.est+=r.est;if(r.holdback!=null){total.hold+=r.holdback;total.anyHold=true;}});
@@ -7557,7 +7558,9 @@ function FinReportCenter({sharedProps,isMobile}){
         {t:r.address},
         {t:fmtD(r.est),align:"right"},
         {edit:{propId:r.propId},t:r.holdback==null?"Tap to set":(r.pins?fmtD(r.holdback)+" 📌":fmtD(r.holdback)),align:"right",color:r.holdback==null?T.blue:undefined},
-        {t:r.diff==null?"—":fmtD(r.diff),align:"right",strong:true,color:r.diff==null?T.textTert:(r.diff<0?T.red:T.green)},
+        r.diff==null?{t:"—",align:"right",color:T.textTert}
+          :r.diff<0?{fund:{propId:r.propId,checked:r.funded},t:fmtD(r.diff),align:"right",strong:true,color:T.red}
+          :{t:fmtD(r.diff),align:"right",strong:true,color:T.green},
       ]),
       foot:[[{t:"Portfolio",strong:true},{t:fmtD(rptHold.total.est),align:"right",strong:true},{t:rptHold.total.anyHold?fmtD(rptHold.total.hold):"—",align:"right",strong:true},{t:rptHold.total.anyHold?fmtD(rptHold.total.hold-rptHold.total.est):"—",align:"right",strong:true,color:(rptHold.total.hold-rptHold.total.est)<0?T.red:T.green}]],
       empty:"No active properties.",
@@ -7568,7 +7571,7 @@ function FinReportCenter({sharedProps,isMobile}){
   const exportReport=(rep)=>{
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
-    const cellText=(c)=>c.plan?(c.plan==="takeback"?"Take back":"Reinvest"):esc(c.edit?(c.t==="Tap to set"?"—":String(c.t).replace(" 📌","")):c.t);
+    const cellText=(c)=>c.plan?(c.plan==="takeback"?"Take back":"Reinvest"):c.fund?esc(c.fund.checked?c.t+" ✓ funded":c.t):esc(c.edit?(c.t==="Tap to set"?"—":String(c.t).replace(" 📌","")):c.t);
     const th=rep.cols.map(c=>`<th style="text-align:${c.align||"left"}">${esc(c.label)}</th>`).join("");
     const trs=rep.rows.length?rep.rows.map((cells,ri)=>`<tr${ri%2?' style="background:#faf6ea"':''}>${cells.map(c=>`<td style="text-align:${c.align||"left"};${c.strong?"font-weight:700;":""}${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${rep.cols.length}" class="empty">${esc(rep.empty)}</td></tr>`;
     const foot=rep.foot&&rep.rows.length?rep.foot.map((frow,fi)=>`<tr class="${fi===0?"tot":"tot2"}">${frow.map(c=>`<td style="text-align:${c.align||"left"};font-weight:${c.strong?"800":"600"};${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):"";
@@ -7635,6 +7638,8 @@ function FinReportCenter({sharedProps,isMobile}){
                         ?<button onClick={(e)=>{e.stopPropagation();setPlan(c.drawId,c.plan==="reinvest"?"takeback":"reinvest");}} title="Tap to switch" style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11.5,fontWeight:700,background:c.plan==="reinvest"?T.green+"22":T.red+"22",color:c.plan==="reinvest"?"#1a8f43":T.red}}>{c.plan==="reinvest"?"Reinvest":"Take back"}</button>
                         :c.edit
                         ?<span onClick={(e)=>{e.stopPropagation();setHoldbackFor(c.edit.propId);}} title="Tap to set" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>
+                        :c.fund
+                        ?<span style={{display:"inline-flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}><span style={{filter:c.fund.checked?"blur(1.6px)":"none",opacity:c.fund.checked?0.4:1,textDecoration:c.fund.checked?"line-through":"none"}}>{c.t}</span><input type="checkbox" checked={c.fund.checked} onClick={(e)=>e.stopPropagation()} onChange={()=>toggleFunded(c.fund.propId)} title="Secured additional funding — dim the shortfall" style={{width:15,height:15,cursor:"pointer",accentColor:T.gold,flexShrink:0}}/></span>
                         :c.t}</td>)}</tr>;})}
                   {rep.rows.length>0&&rep.foot&&rep.foot.map((frow,fi)=><tr key={"f"+fi}>{frow.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:fi===0?"11px 10px 8px":"2px 10px 8px",...(fi===0?{borderTop:`2px solid ${T.gold}`}:{}),fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{background:T.card})}}>{c.t}</td>)}</tr>)}
                 </tbody>

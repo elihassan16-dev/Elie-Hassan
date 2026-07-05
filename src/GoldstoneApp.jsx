@@ -609,6 +609,7 @@ function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}
 
 // ─── Selling Costs Popup ──────────────────────────────────────────────────────
 function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, blank}){
+  const isMobile=useIsMobile();
   const calc = calcNJRTF(n(salePrice));
   const RESP_AUTO   = ["Buyer Pays","Seller Pays","Split","N/A","Maybe"];
   const RESP_CUSTOM = ["Buyer Pays","Seller Pays"];
@@ -642,61 +643,73 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(6px)"}}>
       <div style={{background:T.bg,borderRadius:22,width:"min(680px,94vw)",maxHeight:"90vh",boxShadow:T.shadowMd,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <div style={{padding:"22px 28px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div style={{padding:isMobile?"18px 18px 14px":"22px 28px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{fontWeight:700,fontSize:20,color:T.text}}>Selling Costs</div>
             <div style={{fontSize:14,color:T.textSub,marginTop:3}}>Sale price: <strong style={{color:T.text}}>{fmtD(n(salePrice))}</strong></div>
           </div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:24,color:T.textTert,cursor:"pointer",lineHeight:1,padding:"0 4px"}}>×</button>
         </div>
-        <div style={{flex:1,overflowY:"auto",padding:"20px 28px"}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 130px 150px 36px",gap:10,marginBottom:10,padding:"0 4px"}}>
+        <div style={{flex:1,overflowY:"auto",padding:isMobile?"16px 14px":"20px 28px"}}>
+          {!isMobile&&<div style={{display:"grid",gridTemplateColumns:"1fr 130px 150px 36px",gap:10,marginBottom:10,padding:"0 4px"}}>
             <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em"}}>Description</div>
             <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Amount</div>
             <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em"}}>Who Pays</div>
             <div/>
-          </div>
+          </div>}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {displayItems.map(item=>{
               const isNA=item.resp==="N/A"||item.resp==="Maybe";
+              // Description cell (auto label + optional % input + badge, or free text).
+              const descEl=item.auto
+                ? <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{item.title}</span>
+                    {item.autoType==="commission"&&(
+                      <div style={{display:"flex",alignItems:"center",gap:4}}>
+                        <input value={item.commissionPct} onChange={e=>up(item.id,"commissionPct",e.target.value.replace(/[^\d.]/g,""))}
+                          style={{width:44,padding:"3px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:13,textAlign:"right",outline:"none",fontFamily:"inherit",background:"#fff"}}/>
+                        <span style={{fontSize:13,color:T.textSub}}>%</span>
+                      </div>
+                    )}
+                    <span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>
+                  </div>
+                : <input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>;
+              const amountEl=(item.auto||isNA)
+                ? <span style={{fontSize:15,fontWeight:700,color:isNA?T.textTert:T.gold}}>{isNA?"—":fmtD(item.computedAmt)}</span>
+                : <EditableAmount value={item.amount} onChange={v=>up(item.id,"amount",v)}/>;
+              const respEl=<select value={item.resp} onChange={e=>up(item.id,"resp",e.target.value)} style={{...iS,cursor:"pointer"}}>
+                {(item.auto?RESP_AUTO:RESP_CUSTOM).map(o=><option key={o}>{o}</option>)}
+              </select>;
+              const actionEl=item.auto
+                ?<div style={{textAlign:"center",fontSize:12,color:T.textTert}}>🔒</div>
+                :<button onClick={()=>delItem(item.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:20,lineHeight:1,textAlign:"center"}}>×</button>;
+              // On phones the 4-wide grid overflows, so stack: description on its own
+              // line, then an aligned Amount / Who-Pays / × row beneath it.
+              if(isMobile){
+                return(
+                  <div key={item.id} style={{display:"flex",flexDirection:"column",gap:10,padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow,opacity:isNA?0.45:1}}>
+                    {descEl}
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 128px 22px",gap:8,alignItems:"center"}}>
+                      <div style={{textAlign:"left",fontWeight:600}}>{amountEl}</div>
+                      {respEl}
+                      {actionEl}
+                    </div>
+                  </div>
+                );
+              }
               return(
                 <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr 130px 150px 36px",gap:10,alignItems:"center",padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow,opacity:isNA?0.45:1}}>
-                  {/* Description + optional % input for commission */}
-                  {item.auto
-                    ? <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{item.title}</span>
-                        {item.autoType==="commission"&&(
-                          <div style={{display:"flex",alignItems:"center",gap:4}}>
-                            <input value={item.commissionPct} onChange={e=>up(item.id,"commissionPct",e.target.value.replace(/[^\d.]/g,""))}
-                              style={{width:44,padding:"3px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:13,textAlign:"right",outline:"none",fontFamily:"inherit",background:"#fff"}}/>
-                            <span style={{fontSize:13,color:T.textSub}}>%</span>
-                          </div>
-                        )}
-                        <span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>
-                      </div>
-                    : <input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>
-                  }
-                  {/* Amount */}
-                  <div style={{textAlign:"right"}}>
-                    {item.auto||isNA
-                      ? <span style={{fontSize:15,fontWeight:700,color:isNA?T.textTert:T.gold}}>{isNA?"—":fmtD(item.computedAmt)}</span>
-                      : <EditableAmount value={item.amount} onChange={v=>up(item.id,"amount",v)}/>
-                    }
-                  </div>
-                  <select value={item.resp} onChange={e=>up(item.id,"resp",e.target.value)} style={{...iS,cursor:"pointer"}}>
-                    {(item.auto?RESP_AUTO:RESP_CUSTOM).map(o=><option key={o}>{o}</option>)}
-                  </select>
-                  {item.auto
-                    ?<div style={{textAlign:"center",fontSize:12,color:T.textTert}}>🔒</div>
-                    :<button onClick={()=>delItem(item.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:20,lineHeight:1,textAlign:"center"}}>×</button>
-                  }
+                  {descEl}
+                  <div style={{textAlign:"right"}}>{amountEl}</div>
+                  {respEl}
+                  {actionEl}
                 </div>
               );
             })}
           </div>
           <button onClick={addItem} style={{marginTop:12,width:"100%",padding:"13px",borderRadius:T.radiusSm,background:"transparent",border:`2px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontSize:14,fontFamily:"inherit",fontWeight:500}}>+ Add Line Item</button>
         </div>
-        <div style={{background:T.card,borderTop:`1px solid ${T.border}`,padding:"18px 28px",flexShrink:0}}>
+        <div style={{background:T.card,borderTop:`1px solid ${T.border}`,padding:isMobile?"16px 16px":"18px 28px",flexShrink:0}}>
           <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
             {displayItems.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe"&&i.computedAmt>0).map(item=>(
               <div key={item.id} style={{display:"flex",justifyContent:"space-between"}}>

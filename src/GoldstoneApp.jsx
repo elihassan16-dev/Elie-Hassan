@@ -6630,7 +6630,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
   const pot=pinned.filter(id=>inPot(id)).reduce((s,id)=>s+loanBal(acct(id)),0)+loanCustom.filter(l=>inPot("c"+l.id)).reduce((s,l)=>s+(Number(l.amount)||0),0);
   const floatSum=sumArr(floatTxns)+sumArr(property.qbFloatCustom||[]);
   const debtSum=sumArr(debtTxns)+sumArr(property.qbDebtCustom||[]);
-  const interestReserve=pot-floatSum-debtSum;
+  const interestReserve=Math.max(0,pot-floatSum-debtSum); // a reserve can't go below zero
 
   const inS={padding:"7px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
   const amt=(v,{size=15,weight=800,color=T.text}={})=><span style={{fontSize:size,fontWeight:weight,color,whiteSpace:"nowrap"}}>{v}</span>;
@@ -6878,7 +6878,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
   const equityOf=(p)=>{const a=allInOf(p);return a==null?null:a-totalLoansOf(p)+sumAmt(p.qbBsCustom);};
   const rows=props.map(p=>{
     const setUp=(p.qbLoanAccounts||[]).length||(p.qbLoanCustom||[]).length||(p.qbLocPotIds||[]).length||(p.qbFloatTxns||[]).length||(p.qbFloatCustom||[]).length||(p.qbDebtTxns||[]).length||(p.qbDebtCustom||[]).length;
-    const ir=potOf(p)-floatOf(p)-debtOf(p);         // interest reserve left
+    const ir=Math.max(0,potOf(p)-floatOf(p)-debtOf(p)); // interest reserve left (can't go below zero)
     const eq=equityOf(p);                            // personal equity (needs all-in cost)
     const cf=eq==null?null:eq-ir;                    // construction float = equity − reserve
     return {p,cf,ir,setUp};

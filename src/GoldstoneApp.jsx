@@ -2652,8 +2652,20 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
               </div>
               <div style={{padding:"20px 20px 8px",overflowY:"auto"}}>
 
-              {/* Selected buyer / selling agent — shown once a buyer is picked (e.g. In Closing) */}
-              {(()=>{const sb=property.selectedBuyer;if(!sb||!(sb.agent||sb.phone||sb.email))return null;const tel=String(sb.phone||"").replace(/[^\d+]/g,"");return(
+              {/* Selected buyer / selling agent — shown once a buyer is picked (e.g. In Closing).
+                  Derive it live from the property's own leads/snapshots so it shows even if the
+                  stored selectedBuyer field was never populated (older tags / migrated keys). */}
+              {(()=>{
+                let sb=property.selectedBuyer;
+                if(!sb||!(sb.agent||sb.phone||sb.email)){
+                  const leads=property.showingLeads||{},snaps=property.showingSnapshots||{};
+                  const k=Object.keys(leads).find(x=>leads[x]==="buyer");
+                  const snap=k?snaps[k]:null;
+                  const cl=(property.customLeads||[]).find(l=>l.lead==="buyer");
+                  if(snap&&(snap.agent||snap.phone||snap.email)) sb={agent:snap.agent||"",broker:snap.broker||"",phone:snap.phone||"",email:snap.email||""};
+                  else if(cl&&(cl.name||cl.phone||cl.email)) sb={agent:cl.name||"",broker:"",phone:cl.phone||"",email:cl.email||""};
+                }
+                if(!sb||!(sb.agent||sb.phone||sb.email))return null;const tel=String(sb.phone||"").replace(/[^\d+]/g,"");return(
                 <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16,border:`1px solid ${T.gold}`}}>
                   <SectionHdr icon="⭐" label="SELECTED BUYER · SELLING AGENT" color="#F7EDD3"/>
                   <div style={{padding:"12px 16px 14px"}}>

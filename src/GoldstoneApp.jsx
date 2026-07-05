@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from "rea
 import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";
 import { useOneDrive } from "./onedrive/useOneDrive";
+import { useOutlookMail } from "./outlook/useOutlookMail";
 import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
@@ -359,6 +360,7 @@ const ICONS={
   share:<Ico p="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" p2="M16 6l-4-4-4 4" lines={[[12,2,12,15]]}/>,
   sort:<Ico lines={[[3,6,21,6],[3,12,15,12],[3,18,9,18]]}/>,
   financials:<Ico p="M12 1v22" p2="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>,
+  email:<Ico r={[2,4,20,16,2]} p2="M22 6l-10 7L2 6"/>,
 };
 const NAV=[
   {key:"tasks",label:"Tasks",short:"Tasks",icon:ICONS.tasks},
@@ -369,6 +371,7 @@ const NAV=[
   {key:"calendar",label:"Calendar",short:"Calendar",icon:ICONS.calendar},
   {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
   {key:"contacts",label:"Contacts",short:"Contacts",icon:ICONS.contacts},
+  {key:"email",label:"Email",short:"Email",icon:ICONS.email},
   {key:"financials",label:"Financial Section",short:"Financials",icon:ICONS.financials},
 ];
 // Sections only the admin (Elie) can see. Everyone else never gets these nav items.
@@ -7978,6 +7981,186 @@ const MEMBER_KEYS = new Set(NAV.map(n=>n.key).filter(k=>!ADMIN_ONLY_KEYS.has(k))
 // Admin-only sections members may still OPEN read-only (view rights, no editing).
 const VIEW_ONLY_MEMBER_KEYS = new Set(["financials"]);
 
+// ─── Email (Outlook / Microsoft 365 via Graph) ──────────────────────────────
+// Each teammate's OWN mailbox. Reuses the Files-tab Microsoft sign-in, plus the
+// Mail.Read + Mail.Send scopes. View threaded chains, reply / reply-all, compose.
+const mailEsc=(s)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const mailAddr=(r)=>r?.emailAddress?.name||r?.emailAddress?.address||"";
+const mailWhen=(iso)=>{if(!iso)return "";try{const d=new Date(iso);const now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:d.getFullYear()===now.getFullYear()?undefined:"numeric"});}catch{return iso;}};
+// Render an email body safely: sandboxed iframe (no scripts run), auto-height.
+function MailBody({message}){
+  const ref=useRef(null);
+  const html=message?.body?.contentType==="text"
+    ? `<pre style="white-space:pre-wrap;font-family:inherit;margin:0">${mailEsc(message.body.content)}</pre>`
+    : (message?.body?.content||"");
+  const doc=`<!doctype html><html><head><base target="_blank"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:8px 10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#1C1C1E;word-wrap:break-word;overflow-wrap:anywhere;}img{max-width:100%;height:auto;}table{max-width:100%;}a{color:#007AFF;}</style></head><body>${html}</body></html>`;
+  const onLoad=(e)=>{try{const h=e.target.contentWindow.document.body.scrollHeight;e.target.style.height=Math.min(h+16,1400)+"px";}catch{/* ignore */}};
+  return <iframe ref={ref} title="email" onLoad={onLoad} sandbox="allow-same-origin allow-popups" srcDoc={doc} style={{width:"100%",border:"none",height:120,background:"#fff"}}/>;
+}
+function EmailPage({isMobile}){
+  const mail=useOutlookMail();
+  const[chains,setChains]=useState(null);   // null = loading
+  const[error,setError]=useState("");
+  const[sel,setSel]=useState(null);          // selected chain
+  const[msgs,setMsgs]=useState(null);        // conversation messages
+  const[expanded,setExpanded]=useState({});  // message id -> open
+  const[replyDraft,setReplyDraft]=useState(null); // {all:boolean, text:string}
+  const[sending,setSending]=useState(false);
+  const[compose,setCompose]=useState(null);  // {to,cc,subject,body}
+  const[refreshKey,setRefreshKey]=useState(0);
+
+  useEffect(()=>{
+    if(!mail.signedIn)return;let alive=true;setChains(null);setError("");
+    mail.listChains().then(c=>{if(alive)setChains(c);}).catch(e=>{if(alive){setChains([]);setError(e.message||"Couldn't load your email.");}});
+    return ()=>{alive=false;};
+  },[mail.signedIn,refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(()=>{
+    if(!sel){setMsgs(null);setReplyDraft(null);return;}
+    let alive=true;setMsgs(null);setExpanded({});
+    mail.getConversation(sel.key).then(m=>{if(alive){setMsgs(m);setExpanded(m.length?{[m[m.length-1].id]:true}:{});}}).catch(()=>{if(alive)setMsgs([]);});
+    if(sel.anyUnread&&sel.latest?.id)mail.markRead(sel.latest.id);
+    return ()=>{alive=false;};
+  },[sel]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sendReply=async()=>{
+    if(!replyDraft||!msgs?.length)return;const last=msgs[msgs.length-1];
+    const body=`<div>${mailEsc(replyDraft.text).replace(/\n/g,"<br>")}</div>`;
+    setSending(true);
+    try{await mail.reply(last.id,body,replyDraft.all);setReplyDraft(null);
+      const m=await mail.getConversation(sel.key);setMsgs(m);setRefreshKey(k=>k+1);
+    }catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
+    setSending(false);
+  };
+  const sendCompose=async()=>{
+    if(!compose)return;const body=`<div>${mailEsc(compose.body).replace(/\n/g,"<br>")}</div>`;
+    setSending(true);
+    try{await mail.sendNew({to:compose.to,cc:compose.cc,subject:compose.subject,html:body});setCompose(null);setRefreshKey(k=>k+1);}
+    catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
+    setSending(false);
+  };
+
+  const btn=(label,primary,onClick,extra={})=><button onClick={onClick} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:primary?"none":`1px solid ${T.border}`,background:primary?T.gold:T.card,color:primary?"#fff":T.textSub,fontWeight:primary?700:600,fontSize:14,cursor:"pointer",fontFamily:"inherit",...extra}}>{label}</button>;
+  const iS={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
+
+  // ── Not connected ──
+  if(!mail.ready) return <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.textSub,fontSize:14}}>Loading…</div>;
+  if(!mail.signedIn) return (
+    <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,padding:24,textAlign:"center"}}>
+      <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",color:T.gold,fontSize:30}}>✉️</div>
+      <div style={{fontSize:18,fontWeight:800,color:T.text}}>Connect your email</div>
+      <div style={{fontSize:13.5,color:T.textSub,maxWidth:360,lineHeight:1.5}}>Sign in with your Microsoft 365 account to read and reply to your email chains right here. You'll only see your own mailbox.</div>
+      {btn("Connect Outlook",true,()=>mail.signIn())}
+    </div>
+  );
+
+  return(
+    <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
+      {/* Header */}
+      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"12px 14px":"14px 24px",flexShrink:0,display:"flex",alignItems:"center",gap:10}}>
+        <div style={{fontSize:isMobile?19:22,fontWeight:800,color:T.text}}>Email</div>
+        {mail.account?.username&&<span style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mail.account.username}</span>}
+        <div style={{marginLeft:"auto",display:"flex",gap:8}}>
+          <button onClick={()=>setRefreshKey(k=>k+1)} title="Refresh" style={{padding:"8px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>⟳</button>
+          {btn("✎ Compose",true,()=>setCompose({to:"",cc:"",subject:"",body:""}),{padding:"8px 14px"})}
+        </div>
+      </div>
+
+      <div style={{flex:1,display:"flex",overflow:"hidden"}}>
+        {/* Chain list */}
+        <div style={{width:isMobile?"100%":380,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+          <div style={{flex:1,overflowY:"auto"}}>
+            {chains===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Loading your inbox…</div>}
+            {chains&&error&&<div style={{padding:18,fontSize:12.5,color:"#8a6d1f",lineHeight:1.5}}>{error}<div style={{marginTop:10}}>{btn("Grant email access",true,()=>mail.signIn())}</div></div>}
+            {chains&&!error&&chains.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No email in your inbox.</div>}
+            {chains&&chains.map(c=>{const m=c.latest;const active=sel&&sel.key===c.key;return(
+              <div key={c.key} onClick={()=>setSel(c)} style={{display:"flex",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:active?T.goldLight:(c.anyUnread?"#fff":"transparent")}}>
+                <div style={{width:8,flexShrink:0,paddingTop:5}}>{c.anyUnread&&<span style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+                    <span style={{fontSize:13.5,fontWeight:c.anyUnread?800:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</span>
+                    <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{mailWhen(m.receivedDateTime)}</span>
+                  </div>
+                  <div style={{fontSize:12.5,fontWeight:c.anyUnread?700:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{m.subject||"(no subject)"}{c.count>1&&<span style={{fontSize:10.5,color:T.textTert,fontWeight:600}}> · {c.count}</span>}</div>
+                  <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{m.bodyPreview||""}</div>
+                </div>
+                {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
+              </div>
+            );})}
+          </div>
+        </div>
+
+        {/* Thread */}
+        <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
+          {!sel
+            ? <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,color:T.textSub,padding:24,textAlign:"center"}}>
+                <div style={{fontSize:30}}>✉️</div><div style={{fontSize:15,fontWeight:700}}>Pick a conversation</div>
+                <div style={{fontSize:13,color:T.textTert,maxWidth:320}}>Your email chains show here. Open one to read the whole thread and reply.</div>
+              </div>
+            : <>
+              <div style={{padding:isMobile?"12px 14px":"14px 20px",borderBottom:`1px solid ${T.border}`,background:T.card,flexShrink:0,display:"flex",alignItems:"center",gap:10}}>
+                {isMobile&&<button onClick={()=>setSel(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>‹</button>}
+                <div style={{fontSize:15,fontWeight:800,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.latest.subject||"(no subject)"}</div>
+              </div>
+              <div style={{flex:1,overflowY:"auto",padding:isMobile?12:18}}>
+                {msgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Loading conversation…</div>}
+                {msgs&&msgs.map(m=>{const open=!!expanded[m.id];return(
+                  <div key={m.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,marginBottom:10,overflow:"hidden"}}>
+                    <div onClick={()=>setExpanded(e=>({...e,[m.id]:!open}))} style={{display:"flex",gap:10,padding:"11px 14px",cursor:"pointer",alignItems:"center"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</div>
+                        <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>to {(m.toRecipients||[]).map(mailAddr).join(", ")||"—"}</div>
+                      </div>
+                      <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</span>
+                    </div>
+                    {open
+                      ? <div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m}/></div>
+                      : <div style={{padding:"0 14px 11px",fontSize:12.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</div>}
+                  </div>
+                );})}
+              </div>
+              {/* Reply bar */}
+              <div style={{borderTop:`1px solid ${T.border}`,background:T.card,padding:isMobile?"10px 12px":"12px 18px",flexShrink:0}}>
+                {!replyDraft
+                  ? <div style={{display:"flex",gap:8}}>{btn("↩ Reply",true,()=>setReplyDraft({all:false,text:""}),{padding:"9px 16px"})}{btn("↩ Reply all",false,()=>setReplyDraft({all:true,text:""}),{padding:"9px 16px"})}</div>
+                  : <div>
+                      <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{replyDraft.all?"Reply all":"Reply"} to {mailAddr(msgs?.[msgs.length-1]?.from)}</div>
+                      <textarea autoFocus value={replyDraft.text} onChange={e=>setReplyDraft(d=>({...d,text:e.target.value}))} placeholder="Write your reply…" style={{...iS,minHeight:90,resize:"vertical",lineHeight:1.5}}/>
+                      <div style={{display:"flex",gap:8,marginTop:8,justifyContent:"flex-end"}}>
+                        {btn("Cancel",false,()=>setReplyDraft(null))}
+                        {btn(sending?"Sending…":"Send",true,sendReply,{opacity:sending?0.6:1,pointerEvents:sending?"none":"auto"})}
+                      </div>
+                    </div>}
+              </div>
+            </>}
+        </div>
+      </div>
+
+      {/* Compose modal */}
+      {compose&&(
+        <div onClick={()=>!sending&&setCompose(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"92vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+            <div style={{padding:"16px 18px 12px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{fontSize:16,fontWeight:800,color:T.text}}>New email</div>
+              <button onClick={()=>!sending&&setCompose(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"12px 18px",display:"flex",flexDirection:"column",gap:10}}>
+              <input value={compose.to} onChange={e=>setCompose(c=>({...c,to:e.target.value}))} placeholder="To (comma-separated)" style={iS}/>
+              <input value={compose.cc} onChange={e=>setCompose(c=>({...c,cc:e.target.value}))} placeholder="Cc (optional)" style={iS}/>
+              <input value={compose.subject} onChange={e=>setCompose(c=>({...c,subject:e.target.value}))} placeholder="Subject" style={iS}/>
+              <textarea value={compose.body} onChange={e=>setCompose(c=>({...c,body:e.target.value}))} placeholder="Write your message…" style={{...iS,minHeight:160,resize:"vertical",lineHeight:1.5}}/>
+            </div>
+            <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              {btn("Cancel",false,()=>!sending&&setCompose(null))}
+              {btn(sending?"Sending…":"Send",true,sendCompose,{opacity:(sending||!compose.to.trim())?0.6:1,pointerEvents:(sending||!compose.to.trim())?"none":"auto"})}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function GoldstoneShell(){
   const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, officeMessages } = useData();
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
@@ -8101,6 +8284,7 @@ export function GoldstoneShell(){
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage onNavigate={navigateToProperty}/>
     : active==="contacts" ? <ContactsPage/>
+    : active==="email" ? <EmailPage isMobile={isMobile}/>
     : active==="financials" ? <FinancialSectionPage onNavigate={navigateToProperty} canEdit={isAdmin}/>
     : <ComingSoon label={NAV.find(n=>n.key===active)?.label}/>;
 

@@ -2144,6 +2144,7 @@ function QuickBooksTab({property,onUpdate}){
   const[pnl,setPnl]=useState(null);
   const[txns,setTxns]=useState(null);        // transaction-level detail for drill-down
   const[openBucket,setOpenBucket]=useState("");// which cost bucket is expanded
+  const[modalBucket,setModalBucket]=useState(null); // bucket row whose transactions popup is open
   const[txSort,setTxSort]=useState("vendor"); // vendor | date | amount
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState("");
@@ -2360,7 +2361,6 @@ function QuickBooksTab({property,onUpdate}){
             <div style={{padding:"8px 16px 2px",fontSize:11,color:T.textTert}}>Checked lines import into your Actual columns (and auto-sync). Uncheck any you'd rather keep manual. Tap a line to see its transactions.</div>
             {BUCKET_ROWS.map(row=>{
               const list=txByBucket[row.key]||[];
-              const open=openBucket===row.key;
               return(
                 <div key={row.key} style={{borderTop:`1px solid ${T.border}`}}>
                   <div style={{display:"flex",alignItems:"center"}}>
@@ -2369,47 +2369,21 @@ function QuickBooksTab({property,onUpdate}){
                     : <input type="checkbox" checked={importSel[row.key]} onChange={()=>toggleImport(row.key)}
                         title={importSel[row.key]?"This line imports into Actuals — uncheck to keep it manual":"Excluded from Import — check to include it"}
                         style={{margin:"0 2px 0 14px",width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>}
-                  <button onClick={()=>setOpenBucket(open?"":row.key)} style={{flex:1,minWidth:0,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"12px 16px 12px 10px",background:open?T.bg:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left",opacity:row.noImport?0.6:(importSel[row.key]?1:0.45)}}>
+                  <button onClick={()=>setModalBucket(row)} style={{flex:1,minWidth:0,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"12px 16px 12px 10px",background:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left",opacity:row.noImport?0.6:(importSel[row.key]?1:0.45)}}>
                     <span style={{fontSize:14,color:T.text,display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{color:T.textTert,fontSize:11,display:"inline-block",transform:open?"rotate(90deg)":"none",transition:"transform .15s"}}>▶</span>
                       {row.label}
                       {list.length>0&&<span style={{fontSize:11,color:T.textTert}}>({list.length})</span>}
                       {row.noImport&&<span style={{fontSize:10,color:T.textTert,fontStyle:"italic"}}>· not imported</span>}
+                      <span style={{color:T.blue,fontSize:12}}>›</span>
                     </span>
                     <span style={{fontSize:14,fontWeight:700,color:row.key==="income"?T.green:T.text}}>{money(row.total)}</span>
                   </button>
                   </div>
-                  {open&&(
-                    <div style={{padding:"0 16px 12px"}}>
-                      {txns===null?(
-                        <div style={{fontSize:12,color:T.textTert,padding:"8px 0"}}>Loading transactions…</div>
-                      ):list.length===0?(
-                        <div style={{fontSize:12,color:T.textTert,padding:"8px 0"}}>No transactions in this line.</div>
-                      ):(
-                        <>
-                          <div style={{display:"flex",gap:6,margin:"4px 0 8px"}}>
-                            <span style={{fontSize:11,color:T.textTert,alignSelf:"center"}}>Sort:</span>
-                            {[["vendor","Vendor"],["date","Date"],["amount","Amount"]].map(([k,l])=>(
-                              <button key={k} onClick={()=>setTxSort(k)} style={{padding:"4px 10px",borderRadius:20,border:`1px solid ${txSort===k?T.gold:T.border}`,background:txSort===k?T.goldLight:"#fff",color:txSort===k?T.gold:T.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
-                            ))}
-                          </div>
-                          {sortTx(list).map((t,i)=>(
-                            <div key={i} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 0",borderTop:i?`1px solid ${T.border}`:"none"}}>
-                              <div style={{minWidth:0}}>
-                                <div style={{fontSize:13,color:T.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
-                                <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.type,t.memo].filter(Boolean).join(" · ")}</div>
-                              </div>
-                              <span style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{money(t.amount)}</span>
-                            </div>
-                          ))}
-                        </>
-                      )}
-                    </div>
-                  )}
                 </div>
               );
             })}
           </Card>
+          {modalBucket&&<QbBucketTxnsModal label={modalBucket.label} txns={txByBucket[modalBucket.key]||[]} allTxns={txns||[]} loading={txns===null} onClose={()=>setModalBucket(null)}/>}
           <div style={{fontSize:12,color:T.textTert,textAlign:"center",marginTop:8}}>Numbers come live from QuickBooks. Use the checkboxes to choose which lines Import writes into the Actual columns.</div>
         </>
       )}
@@ -6391,33 +6365,44 @@ function QbAccountsPickerModal({accounts,pinnedIds,address,onToggle,onClose}){
   );
 }
 
-// ─── Transactions for one all-in-cost bucket (drill-down from the breakdown) ────
-function QbBucketTxnsModal({label,txns,loading,onClose}){
+// ─── Transactions for one bucket (drill-down) — with a vendor search across the
+// whole project so you can pull every payment to a vendor and the total paid. ───
+function QbBucketTxnsModal({label,txns,allTxns,loading,onClose}){
   const isMobile=useIsMobile();
-  const list=[...(txns||[])].sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
+  const[q,setQ]=useState("");
+  const term=q.trim().toLowerCase();
+  // No search → this bucket's transactions. Searching → search ALL of the project's
+  // transactions by vendor (or memo), so the total reflects everything paid to them.
+  const base=term?(allTxns||txns||[]):(txns||[]);
+  const list=[...base].filter(t=>!term||[t.vendor,t.memo,t.type].filter(Boolean).join(" ").toLowerCase().includes(term)).sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
   const total=list.reduce((s,t)=>s+t.amount,0);
+  const inS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:260,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 10px"}}>
-          <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>{label}</div><div style={{fontSize:12,color:T.textTert}}>{loading?"loading…":`${list.length} transaction${list.length!==1?"s":""}`}</div></div>
+          <div style={{minWidth:0}}><div style={{fontWeight:700,fontSize:17,color:T.text}}>{term?`Paid to “${q.trim()}”`:label}</div><div style={{fontSize:12,color:T.textTert}}>{loading?"loading…":`${list.length} transaction${list.length!==1?"s":""}${term?" · across all sections":""}`}</div></div>
           <button onClick={onClose} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,flexShrink:0}}>×</button>
         </div>
+        {allTxns&&<div style={{padding:"0 18px 12px",position:"relative"}}>
+          <span style={{position:"absolute",left:28,top:"50%",transform:"translateY(-50%)",fontSize:13,color:T.textTert,pointerEvents:"none"}}>🔍</span>
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search a vendor…" style={inS}/>
+        </div>}
         <div style={{overflowY:"auto",padding:"0 0 max(16px,env(safe-area-inset-bottom))"}}>
           {loading&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>Loading transactions…</div>}
-          {!loading&&list.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>No transactions in this line.</div>}
+          {!loading&&list.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>{term?"No transactions match that vendor.":"No transactions in this line."}</div>}
           {list.map((t,i)=>(
             <div key={i} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"10px 18px",borderTop:i?`1px solid ${T.border}`:"none"}}>
               <div style={{minWidth:0}}>
                 <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
-                <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.type,t.memo].filter(Boolean).join(" · ")}</div>
+                <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.type,term?t.account:null,t.memo].filter(Boolean).join(" · ")}</div>
               </div>
               <span style={{fontSize:13.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(t.amount)}</span>
             </div>
           ))}
           {!loading&&list.length>0&&(
             <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"12px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
-              <span style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Total</span>
+              <span style={{fontSize:13.5,fontWeight:800,color:T.gold}}>{term?`Total paid to “${q.trim()}”`:"Total"}</span>
               <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(total)}</span>
             </div>
           )}
@@ -6473,7 +6458,7 @@ function QbAllInBreakdownModal({pnl,total,projectId,onClose}){
           </div>
         </div>
       </div>
-      {openBucket&&<QbBucketTxnsModal label={openBucket.l} txns={bucketTx(openBucket.k)} loading={txns===null} onClose={()=>setOpenBucket(null)}/>}
+      {openBucket&&<QbBucketTxnsModal label={openBucket.l} txns={bucketTx(openBucket.k)} allTxns={txns||[]} loading={txns===null} onClose={()=>setOpenBucket(null)}/>}
     </div>
   );
 }

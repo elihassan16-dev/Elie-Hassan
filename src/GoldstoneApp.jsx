@@ -6508,9 +6508,11 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
 
 // ─── Property BS detail — loans, balance sheet, and the interest-reserve box ─────
 function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
+  const isMobile=useIsMobile();
   const[pickerOpen,setPickerOpen]=useState(false);
   const[floatPicker,setFloatPicker]=useState(false);
   const[debtPicker,setDebtPicker]=useState(false);
+  const[sectionModal,setSectionModal]=useState(""); // "pot" | "float" | "debt" — which interest-reserve section popup is open
   const[showBreak,setShowBreak]=useState(false);
   const[addFor,setAddFor]=useState("");            // which custom-line form is open (a property field key)
   const[draft,setDraft]=useState({label:"",amount:""});
@@ -6582,26 +6584,62 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
       <span style={{flex:1,fontSize:13,fontWeight:800,color:T.text}}>{label}</span>{amt(money(val))}{slot()}
     </div>
   );
-  // A section that pins QuickBooks transactions (deployed / debt service).
-  const pinSection=(title,arr,field,onPin,customField,sum)=>(<>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 16px 7px",borderTop:`1px solid ${T.border}`}}>
-      <span style={{fontSize:11.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em"}}>{title}</span>
-      <button onClick={onPin} style={{padding:"5px 11px",borderRadius:20,background:T.goldLight,border:`1px solid ${T.gold}`,color:T.gold,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>🔍 Pin</button>
+  // Compact tappable row on the Interest Reserve card → opens a manage popup.
+  const reserveRow=(label,sub,val,onOpen)=>(
+    <div onClick={onOpen} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:14,fontWeight:600,color:T.text}}>{label}</div>
+        <div style={{fontSize:11,color:T.textTert}}>{sub}</div>
+      </div>
+      {amt(money(val),{size:15})}
+      <span style={{color:T.textTert,fontSize:16,flexShrink:0}}>›</span>
     </div>
-    {arr.map(t=>(
-      <div key={txKey(t)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderTop:`1px solid ${T.border}`}}>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
-          <div style={{fontSize:10.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account].filter(Boolean).join(" · ")}</div>
+  );
+  // Centered (desktop) / bottom-sheet (mobile) popup shell for a reserve section.
+  const modalShell=(title,body)=>(
+    <div onClick={()=>setSectionModal("")} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:245,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:520,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 10px"}}>
+          <div style={{fontWeight:700,fontSize:17,color:T.text}}>{title}</div>
+          <button onClick={()=>setSectionModal("")} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,flexShrink:0}}>×</button>
         </div>
-        {amt(money(Number(t.amount)||0),{size:13,weight:700})}
+        <div style={{overflowY:"auto",padding:"0 0 max(16px,env(safe-area-inset-bottom))"}}>{body}</div>
+      </div>
+    </div>
+  );
+  // Body of a pin-transactions section (deployed / debt service), shown inside a popup.
+  const txnSectionBody=(arr,field,onPin,customField,sum)=>(<>
+    <div style={{padding:"2px 18px 12px"}}>
+      <button onClick={onPin} style={{padding:"8px 14px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🔍 Pin transactions</button>
+    </div>
+    {arr.length===0&&(property[customField]||[]).length===0&&addFor!==customField&&<div style={{padding:"0 18px 14px",fontSize:13,color:T.textTert}}>Nothing pinned yet.</div>}
+    {arr.map(t=>(
+      <div key={txKey(t)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 18px",borderTop:`1px solid ${T.border}`}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
+          <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account].filter(Boolean).join(" · ")}</div>
+        </div>
+        {amt(money(Number(t.amount)||0),{size:13.5,weight:700})}
         {slot(xBtn(()=>toggleTx(field,arr,t),"Unpin"))}
       </div>
     ))}
-    {(property[customField]||[]).map(l=>customRow(customField,l))}
-    {addFor===customField?addForm(customField):addBtn(customField)}
-    <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",background:T.bg}}>
-      <span style={{flex:1,fontSize:12.5,fontWeight:700,color:T.text}}>{title} total</span>{amt(money(sum),{size:13.5})}{slot()}
+    {(property[customField]||[]).map(l=>(
+      <div key={l.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 18px",borderTop:`1px solid ${T.border}`}}>
+        <span style={{flex:1,minWidth:0,fontSize:13.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label} <span style={{fontSize:10,color:T.textTert}}>· manual</span></span>
+        {amt(money(Number(l.amount)||0),{size:13.5,weight:700})}
+        {slot(xBtn(()=>delCustom(customField,l.id),"Remove"))}
+      </div>
+    ))}
+    {addFor===customField
+      ?<div style={{display:"flex",gap:6,padding:"10px 18px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
+         <input autoFocus value={draft.label} onChange={e=>setDraft(d=>({...d,label:e.target.value}))} placeholder="Label" style={{...inS,flex:1,minWidth:110}}/>
+         <input value={draft.amount} onChange={e=>setDraft(d=>({...d,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addCustom(customField)} placeholder="Amount" inputMode="decimal" style={{...inS,width:104,textAlign:"right"}}/>
+         <button onClick={()=>addCustom(customField)} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Add</button>
+         <button onClick={()=>{setAddFor("");setDraft({label:"",amount:""});}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
+       </div>
+      :<button onClick={()=>{setDraft({label:"",amount:""});setAddFor(customField);}} style={{width:"100%",padding:"10px 18px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add manual line</button>}
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+      <span style={{flex:1,fontSize:13.5,fontWeight:800,color:T.gold}}>Total</span>{amt(money(sum),{size:16})}
     </div>
   </>);
 
@@ -6661,35 +6699,41 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
         </div>
       </Card>
 
-      {/* Box 3 — interest reserve: LOC pot − deployed − debt service */}
+      {/* Box 3 — interest reserve: compact rows; each opens a popup to manage its lines */}
       <Card style={{border:`1px solid ${T.gold}`}}>
         <GHeader label="Interest Reserve"/>
-        <div style={{padding:"10px 16px 6px",fontSize:11,color:T.textTert,lineHeight:1.45}}>Check which loans make up the <b>LOC pot</b> (usually excludes the hard-money loan).</div>
-        {pinned.length===0&&loanCustom.length===0&&<div style={{padding:"4px 16px 12px",fontSize:12.5,color:T.textTert}}>Pin loans in the Loans box above first.</div>}
-        {pinned.map(id=>{const a=acct(id);return(
-          <label key={id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
-            <input type="checkbox" checked={inPot(id)} onChange={()=>togglePot(id)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
-            <span style={{flex:1,minWidth:0,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a?a.name:"(account)"}</span>
-            {amt(a?money(loanBal(a)):"—",{size:13,weight:600})}{slot()}
-          </label>
-        );})}
-        {loanCustom.map(l=>(
-          <label key={l.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
-            <input type="checkbox" checked={inPot("c"+l.id)} onChange={()=>togglePot("c"+l.id)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
-            <span style={{flex:1,minWidth:0,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label}</span>
-            {amt(money(Number(l.amount)||0),{size:13,weight:600})}{slot()}
-          </label>
-        ))}
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderTop:`1px solid ${T.border}`,background:T.bg}}>
-          <span style={{flex:1,fontSize:12.5,fontWeight:700,color:T.text}}>LOC pot total</span>{amt(money(pot),{size:13.5})}{slot()}
-        </div>
-        {pinSection("Deployed (down payment, deposit)",floatTxns,"qbFloatTxns",()=>setFloatPicker(true),"qbFloatCustom",floatSum)}
-        {pinSection("Debt service paid",debtTxns,"qbDebtTxns",()=>setDebtPicker(true),"qbDebtCustom",debtSum)}
+        {reserveRow("LOC pot",`${potIds.length} of ${pinned.length+loanCustom.length} loan${pinned.length+loanCustom.length!==1?"s":""}`,pot,()=>setSectionModal("pot"))}
+        {reserveRow("Deployed",`${floatTxns.length+(property.qbFloatCustom||[]).length} item${floatTxns.length+(property.qbFloatCustom||[]).length!==1?"s":""} · down payment, deposit`,floatSum,()=>setSectionModal("float"))}
+        {reserveRow("Debt service paid",`${debtTxns.length+(property.qbDebtCustom||[]).length} item${debtTxns.length+(property.qbDebtCustom||[]).length!==1?"s":""}`,debtSum,()=>setSectionModal("debt"))}
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
           <div style={{flex:1}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Interest Reserve left</div><div style={{fontSize:11,color:T.textTert}}>LOC pot − deployed − debt service</div></div>
           {amt(money(interestReserve),{size:19,color:interestReserve>=0?T.green:T.red})}{slot()}
         </div>
       </Card>
+
+      {sectionModal==="pot"&&modalShell("LOC pot",<>
+        <div style={{padding:"4px 18px 10px",fontSize:12,color:T.textTert,lineHeight:1.45}}>Check which loans make up the LOC pot (usually excludes the hard-money loan).</div>
+        {pinned.length===0&&loanCustom.length===0&&<div style={{padding:"6px 18px 16px",fontSize:13,color:T.textTert}}>Pin loans in the Loans box first.</div>}
+        {pinned.map(id=>{const a=acct(id);return(
+          <label key={id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
+            <input type="checkbox" checked={inPot(id)} onChange={()=>togglePot(id)} style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+            <span style={{flex:1,minWidth:0,fontSize:14,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a?a.name:"(account)"}</span>
+            {amt(a?money(loanBal(a)):"—",{size:13.5,weight:600})}
+          </label>
+        );})}
+        {loanCustom.map(l=>(
+          <label key={l.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
+            <input type="checkbox" checked={inPot("c"+l.id)} onChange={()=>togglePot("c"+l.id)} style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+            <span style={{flex:1,minWidth:0,fontSize:14,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label}</span>
+            {amt(money(Number(l.amount)||0),{size:13.5,weight:600})}
+          </label>
+        ))}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+          <span style={{flex:1,fontSize:13.5,fontWeight:800,color:T.gold}}>LOC pot total</span>{amt(money(pot),{size:16})}
+        </div>
+      </>)}
+      {sectionModal==="float"&&modalShell("Deployed — down payment, deposit",txnSectionBody(floatTxns,"qbFloatTxns",()=>setFloatPicker(true),"qbFloatCustom",floatSum))}
+      {sectionModal==="debt"&&modalShell("Debt service paid",txnSectionBody(debtTxns,"qbDebtTxns",()=>setDebtPicker(true),"qbDebtCustom",debtSum))}
 
       {pickerOpen&&<QbAccountsPickerModal accounts={accounts} pinnedIds={pinned} address={`${property.address}${property.city?`, ${property.city}`:""}`} onToggle={toggle} onClose={()=>setPickerOpen(false)}/>}
       {floatPicker&&<QbTxnsPickerModal txns={txns} loading={txns===null} pinnedKeys={new Set(floatTxns.map(txKey))} onToggle={t=>toggleTx("qbFloatTxns",floatTxns,t)} onClose={()=>setFloatPicker(false)}/>}

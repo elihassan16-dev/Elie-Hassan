@@ -7185,6 +7185,9 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
   const[spend,setSpend]=useState({});
   const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const inClosing=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&p.status==="In Closing"),[sharedProps]);
+  // The month a property closes: its scheduled closing date, else the selling
+  // date on the Sale Timeline (either one is where you put the sale date).
+  const cfDate=(p)=>((p.propertyInfo||{}).closingDateScheduled||(p.financials||{}).sellingDate||"");
 
   // Pull the live QuickBooks loan balances + all-in spend, exactly like the BS
   // report / bank reconciliation, so "Total loans" here matches those pages.
@@ -7202,7 +7205,7 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
   const groups=useMemo(()=>{
     const byKey={};
     inClosing.forEach(p=>{
-      const iso=(p.propertyInfo||{}).closingDateScheduled||"";
+      const iso=cfDate(p);
       const m=/^(\d{4})-(\d{2})/.exec(iso);
       const key=m?`${m[1]}-${m[2]}`:"unscheduled";
       const label=m?`${MONTHS[parseInt(m[2],10)-1]} ${m[1]}`:"Unscheduled";
@@ -7211,7 +7214,7 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
     const arr=Object.values(byKey);
     arr.sort((a,b)=>a.key==="unscheduled"?-1:b.key==="unscheduled"?1:a.key.localeCompare(b.key));
     arr.forEach(g=>{
-      g.items.sort((a,b)=>String((a.propertyInfo||{}).closingDateScheduled||"").localeCompare(String((b.propertyInfo||{}).closingDateScheduled||"")));
+      g.items.sort((a,b)=>String(cfDate(a)).localeCompare(String(cfDate(b))));
       g.total=g.items.reduce((s,p)=>s+cashFlowNet(p,accounts,spend).net,0);
     });
     return arr;
@@ -7252,13 +7255,13 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
           {g.items.map((p,i)=>{
             const cf=cashFlowNet(p,accounts,spend);
             const open=openId===p.id;
-            const iso=(p.propertyInfo||{}).closingDateScheduled||"";
+            const iso=cfDate(p);
             return(
               <div key={p.id} style={{borderTop:i===0?"none":`1px solid ${T.border}`}}>
                 <div onClick={()=>setOpenId(open?null:p.id)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:isMobile?"11px 16px":"12px 20px",cursor:"pointer"}}>
                   <div style={{minWidth:0,flex:1}}>
                     <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</div>
-                    <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{iso?finFmtDate(iso):"No closing date set"}{cf.useActual?" · contract price":" · target price"} · tap for breakdown</div>
+                    <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{iso?finFmtDate(iso):"No closing / selling date set"}{cf.useActual?" · contract price":" · target price"} · tap for breakdown</div>
                   </div>
                   <span style={{fontSize:15,fontWeight:800,color:cf.net<0?T.red:T.green,flexShrink:0}}>{fmtD(cf.net)}</span>
                 </div>

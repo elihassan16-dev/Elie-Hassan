@@ -6660,7 +6660,7 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
 }
 
 // ─── Property BS detail — loans, balance sheet, and the interest-reserve box ─────
-function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts,onUpdate}){
+function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts,onUpdate,canEdit=true}){
   const isMobile=useIsMobile();
   const[pickerOpen,setPickerOpen]=useState(false);
   const[floatPicker,setFloatPicker]=useState(false);
@@ -6719,7 +6719,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
   const amt=(v,{size=15,weight=800,color=T.text}={})=><span style={{fontSize:size,fontWeight:weight,color,whiteSpace:"nowrap"}}>{v}</span>;
   const slot=(el)=><span style={{width:SLOT,flexShrink:0,display:"flex",justifyContent:"center"}}>{el||null}</span>;
   const xBtn=(fn,title)=><button onClick={fn} title={title} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,padding:0}}>×</button>;
-  const addBtn=(key)=><button onClick={()=>{setDraft({label:"",amount:""});setEditId(null);setAddFor(key);}} style={{width:"100%",padding:"9px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add manual line</button>;
+  const addBtn=(key)=>canEdit?<button onClick={()=>{setDraft({label:"",amount:""});setEditId(null);setAddFor(key);}} style={{width:"100%",padding:"9px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add manual line</button>:null;
   const addForm=(key)=>(
     <div style={{display:"flex",gap:6,padding:"10px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
       <input autoFocus value={draft.label} onChange={e=>setDraft(d=>({...d,label:e.target.value}))} placeholder="Label" style={{...inS,flex:1,minWidth:110}}/>
@@ -6768,7 +6768,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
   // Body of a pin-transactions section (deployed / debt service), shown inside a popup.
   const txnSectionBody=(arr,field,onPin,customField,sum)=>(<>
     <div style={{padding:"2px 18px 12px"}}>
-      <button onClick={onPin} style={{padding:"8px 14px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🔍 Pin transactions</button>
+      {canEdit&&<button onClick={onPin} style={{padding:"8px 14px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🔍 Pin transactions</button>}
     </div>
     {arr.length===0&&(property[customField]||[]).length===0&&addFor!==customField&&<div style={{padding:"0 18px 14px",fontSize:13,color:T.textTert}}>Nothing pinned yet.</div>}
     {arr.map(t=>(
@@ -6809,7 +6809,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
       <Card style={{marginBottom:16}}>
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`,flexWrap:"wrap"}}>
           <span style={{fontSize:12.5,fontWeight:700,color:T.textSub,flexShrink:0}}>Held in bank</span>
-          <select value={property.bsBankAccount||""} onChange={e=>onUpdate(property.id,"bsBankAccount",e.target.value)} style={{flex:1,minWidth:140,padding:"8px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none"}}>
+          <select value={property.bsBankAccount||""} disabled={!canEdit} onChange={e=>onUpdate(property.id,"bsBankAccount",e.target.value)} style={{flex:1,minWidth:140,padding:"8px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none"}}>
             <option value="">— Select a bank account —</option>
             {(bankAccounts||[]).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
@@ -6817,7 +6817,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
         <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 16px",flexWrap:"wrap"}}>
           <span style={{fontSize:12.5,fontWeight:700,color:T.textSub,flexShrink:0}}>Calculate</span>
           {[["reserve","Interest Reserve"],["equity","Personal Equity"]].map(([k,l])=>{const on=calcMode===k;return(
-            <button key={k} onClick={()=>onUpdate(property.id,"bsCalcMode",k)} style={{padding:"6px 12px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub}}>{l}</button>
+            <button key={k} onClick={canEdit?()=>onUpdate(property.id,"bsCalcMode",k):undefined} style={{padding:"6px 12px",borderRadius:20,fontSize:12,fontWeight:700,cursor:canEdit?"pointer":"default",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub,opacity:canEdit||on?1:0.6}}>{l}</button>
           );})}
         </div>
       </Card>
@@ -6825,7 +6825,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
       <Card style={{marginBottom:16}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{fontSize:12.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Loans</div>
-          <button onClick={()=>setPickerOpen(true)} style={{padding:"7px 13px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🔍 Search &amp; pin</button>
+          {canEdit&&<button onClick={()=>setPickerOpen(true)} style={{padding:"7px 13px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🔍 Search &amp; pin</button>}
         </div>
         {pinned.length===0&&loanCustom.length===0&&addFor!=="qbLoanCustom"&&<div style={{padding:"14px 16px",fontSize:13,color:T.textTert}}>No loans pinned yet. Tap <b>Search &amp; pin</b> to add this property&rsquo;s loan accounts (pin as many as you need), or add a manual line.</div>}
         {pinned.map(id=>{const a=acct(id);return(
@@ -6859,8 +6859,8 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
             {editAllIn
               ?<><input autoFocus value={allInDraft} onChange={e=>setAllInDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){onUpdate(property.id,"qbAllInCost",String(num(allInDraft)));setEditAllIn(false);}}} placeholder="Amount" inputMode="decimal" style={{...inS,width:120,textAlign:"right"}}/>
                  {slot(<button onClick={()=>{onUpdate(property.id,"qbAllInCost",String(num(allInDraft)));setEditAllIn(false);}} style={{background:"none",border:"none",color:T.gold,cursor:"pointer",fontSize:15,fontWeight:800,fontFamily:"inherit",padding:0}}>✓</button>)}</>
-              :<><span onClick={()=>{if(pnl)setShowBreak(true);else{setAllInDraft(allInVal!=null?String(allInVal):"");setEditAllIn(true);}}} style={{cursor:"pointer"}}>{amt(allInVal==null?(allInLoading?"…":"—"):money(allInVal))}</span>
-                 {slot(<button onClick={()=>{setAllInDraft(allInVal!=null?String(allInVal):"");setEditAllIn(true);}} title="Edit / override" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:0}}>✎</button>)}</>}
+              :<><span onClick={()=>{if(pnl)setShowBreak(true);else if(canEdit){setAllInDraft(allInVal!=null?String(allInVal):"");setEditAllIn(true);}}} style={{cursor:(pnl||canEdit)?"pointer":"default"}}>{amt(allInVal==null?(allInLoading?"…":"—"):money(allInVal))}</span>
+                 {slot(canEdit?<button onClick={()=>{setAllInDraft(allInVal!=null?String(allInVal):"");setEditAllIn(true);}} title="Edit / override" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:0}}>✎</button>:null)}</>}
           </div>
           {allInVal==null&&!allInLoading&&<div style={{fontSize:11.5,color:T.textTert,marginTop:4}}>Map this property to its QuickBooks project (QuickBooks tab), or tap ✎ to set a manual amount.</div>}
         </div>
@@ -6949,9 +6949,9 @@ const qbCache={
 // Slim the spend map to just {allIn} per project before caching (drop bulky pnl/loading).
 const slimSpend=(spend)=>Object.fromEntries(Object.entries(spend||{}).map(([k,v])=>[k,{allIn:v&&v.allIn!=null?v.allIn:null}]));
 
-function FinPropertyBS({sharedProps,onNavigate,initialSelId,isMobile}){
+function FinPropertyBS({sharedProps,onNavigate,initialSelId,isMobile,canEdit=true}){
   const { setSharedProps, flushProps, bankAccounts }=useData();
-  const onUpdate=(id,key,val)=>{setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
+  const onUpdate=(id,key,val)=>{if(!canEdit)return;setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
   const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status))
     .sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")),[sharedProps]);
   const[connected,setConnected]=useState(null);
@@ -7088,7 +7088,7 @@ function FinPropertyBS({sharedProps,onNavigate,initialSelId,isMobile}){
                 {onNavigate&&<button onClick={()=>onNavigate(sel.id)} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Open →</button>}
               </div>
               <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
-                <PropertyBSDetail key={sel.id} property={sel} accounts={accounts} allIn={sp&&sp.allIn!=null?sp.allIn:null} allInLoading={!!sp?.loading} pnl={sp?.pnl||null} bankAccounts={bankAccounts} onUpdate={onUpdate}/>
+                <PropertyBSDetail key={sel.id} property={sel} accounts={accounts} allIn={sp&&sp.allIn!=null?sp.allIn:null} allInLoading={!!sp?.loading} pnl={sp?.pnl||null} bankAccounts={bankAccounts} onUpdate={onUpdate} canEdit={canEdit}/>
               </div>
             </>
           );
@@ -7103,8 +7103,9 @@ function FinPropertyBS({sharedProps,onNavigate,initialSelId,isMobile}){
     </div>
   );
 }
-function FinBankRecon({sharedProps,onOpenProperty,isMobile}){
-  const { bankAccounts, setBankAccounts, flushBank }=useData();
+function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
+  const { bankAccounts, setBankAccounts:rawSetBankAccounts, flushBank }=useData();
+  const setBankAccounts = canEdit ? rawSetBankAccounts : ()=>{};   // view-only: block writes
   const save=()=>{if(flushBank)setTimeout(flushBank,0);};
   const[connected,setConnected]=useState(null);
   const[accounts,setAccounts]=useState(()=>qbCache.get("accounts",null));
@@ -7150,13 +7151,13 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile}){
   return(
     <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?"14px":"18px 24px"}}>
       {connected===false&&<div style={{marginBottom:14,padding:"11px 14px",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:T.radiusSm,color:"#8a6d1f",fontSize:12.5,lineHeight:1.5}}>Connect QuickBooks to fill in the expected balances. You can still add and organize bank accounts here.</div>}
-      <Card style={{marginBottom:16}}>
+      {canEdit&&<Card style={{marginBottom:16}}>
         <GHeader label="Add a bank account"/>
         <div style={{display:"flex",gap:8,padding:"12px 16px",flexWrap:"wrap"}}>
           <input value={addName} onChange={e=>setAddName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addBank()} placeholder="Bank account name (e.g. Chase Reserve)" style={{...inS,flex:1,minWidth:200}}/>
           <button onClick={addBank} disabled={!addName.trim()} style={{padding:"9px 18px",borderRadius:T.radiusSm,background:addName.trim()?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:addName.trim()?"pointer":"default",fontFamily:"inherit"}}>+ Add</button>
         </div>
-      </Card>
+      </Card>}
 
       {bank.length===0&&<div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No bank accounts yet. Add one above.</div>}
       {bank.length>1&&(()=>{const allCol=bank.every(b=>collapsed[b.id]);return(
@@ -7173,9 +7174,11 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile}){
           <Card key={b.id} style={{marginBottom:14,border:`1px solid ${T.gold}`}}>
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
               <button onClick={()=>toggleCollapse(b.id)} title={isCol?"Expand line items":"Collapse line items"} style={{background:"none",border:"none",color:T.gold,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:0,width:16,transform:isCol?"rotate(-90deg)":"none",transition:"transform 0.15s"}}>▾</button>
-              <span style={{fontSize:15,flexShrink:0}}>✎</span>
-              <input value={b.name||""} onChange={e=>rename(b.id,e.target.value)} placeholder="Bank account name" title="Tap to rename" style={{...inS,flex:1,minWidth:0,fontWeight:700,fontSize:15}}/>
-              <button onClick={()=>del(b.id)} title="Delete" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+              {canEdit&&<span style={{fontSize:15,flexShrink:0}}>✎</span>}
+              {canEdit
+                ?<input value={b.name||""} onChange={e=>rename(b.id,e.target.value)} placeholder="Bank account name" title="Tap to rename" style={{...inS,flex:1,minWidth:0,fontWeight:700,fontSize:15}}/>
+                :<div style={{flex:1,minWidth:0,fontWeight:700,fontSize:15,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.name||"Bank account"}</div>}
+              {canEdit&&<button onClick={()=>del(b.id)} title="Delete" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>}
             </div>
             <div onClick={()=>setBalModal(b.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",background:T.gold+"14",cursor:"pointer"}}>
               <div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Expected balance</div><div style={{fontSize:11,color:T.textTert}}>{list.length} propert{list.length!==1?"ies":"y"}{isCol?" · collapsed":""} · tap to reconcile</div></div>
@@ -7194,12 +7197,12 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile}){
             ))}
             {adjustments.map(a=>(
               <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:`1px solid ${T.border}`}}>
-                <span onClick={()=>{setAdjDraft({label:a.label,amount:String(a.amount)});setEditAdjId(a.id);setAddAdjFor(b.id);}} title="Tap to edit" style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{a.label} <span style={{fontSize:10,color:T.textTert}}>· tap to edit</span></span>
-                <span onClick={()=>{setAdjDraft({label:a.label,amount:String(a.amount)});setEditAdjId(a.id);setAddAdjFor(b.id);}} style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap",cursor:"pointer"}}>{fmtD(Number(a.amount)||0)}</span>
-                <button onClick={()=>delAdj(b.id,a.id)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
+                <span onClick={canEdit?()=>{setAdjDraft({label:a.label,amount:String(a.amount)});setEditAdjId(a.id);setAddAdjFor(b.id);}:undefined} title={canEdit?"Tap to edit":undefined} style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>{a.label}{canEdit&&<span style={{fontSize:10,color:T.textTert}}> · tap to edit</span>}</span>
+                <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(Number(a.amount)||0)}</span>
+                {canEdit&&<button onClick={()=>delAdj(b.id,a.id)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>}
               </div>
             ))}
-            {addAdjFor===b.id
+            {!canEdit?null:addAdjFor===b.id
               ?<div style={{display:"flex",gap:6,padding:"10px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
                  <input autoFocus value={adjDraft.label} onChange={e=>setAdjDraft(d=>({...d,label:e.target.value}))} placeholder="Adjustment (e.g. small loan)" style={{...inS,flex:1,minWidth:120}}/>
                  <button onClick={()=>setAdjDraft(d=>({...d,amount:d.amount.trim().startsWith("-")?d.amount.replace("-",""):"-"+d.amount.trim()}))} title="Make negative / positive" style={{padding:"8px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>±</button>
@@ -7232,7 +7235,9 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile}){
               </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"11px 18px",borderTop:`1px solid ${T.border}`}}>
                 <span style={{fontSize:14,fontWeight:600,color:T.text}}>Actual bank balance</span>
-                <input autoFocus value={b.actual||""} onChange={e=>setActual(b.id,e.target.value)} placeholder="Enter…" inputMode="decimal" style={{...inS,width:140,textAlign:"right"}}/>
+                {canEdit
+                  ?<input autoFocus value={b.actual||""} onChange={e=>setActual(b.id,e.target.value)} placeholder="Enter…" inputMode="decimal" style={{...inS,width:140,textAlign:"right"}}/>
+                  :<span style={{fontSize:15,fontWeight:700,color:b.actual?T.text:T.textTert,width:140,textAlign:"right"}}>{b.actual?fmtD(num(b.actual)):"—"}</span>}
               </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"13px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
                 <div><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Difference</div><div style={{fontSize:11,color:T.textTert}}>{diff==null?"Enter the actual balance":Math.abs(diff)<1?"Reconciled ✓":diff<0?`Transfer ${fmtD(-diff)} in`:`${fmtD(diff)} more than expected`}</div></div>
@@ -7425,10 +7430,10 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
 // A set of one-tap reports that open in a preview popup and can be exported /
 // saved as a PDF (via the browser's print dialog). Reports run off the same data
 // as the rest of the Financial Section so the numbers always agree.
-function FinReportCenter({sharedProps,isMobile}){
+function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const { draws, setDraws, flushDraws, setSharedProps, flushProps }=useData();
-  const setPlan=(drawId,plan)=>{setDraws(prev=>prev.map(d=>d.id===drawId?{...d,futureFundsPlan:plan}:d));if(flushDraws)setTimeout(flushDraws,0);};
-  const updateProp=(id,key,val)=>{setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
+  const setPlan=(drawId,plan)=>{if(!canEdit)return;setDraws(prev=>prev.map(d=>d.id===drawId?{...d,futureFundsPlan:plan}:d));if(flushDraws)setTimeout(flushDraws,0);};
+  const updateProp=(id,key,val)=>{if(!canEdit)return;setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
   const[connected,setConnected]=useState(null);
   const[accounts,setAccounts]=useState(()=>qbCache.get("accounts",null));
   const[spend,setSpend]=useState(()=>qbCache.get("spend",{}));
@@ -7633,11 +7638,11 @@ function FinReportCenter({sharedProps,isMobile}){
                   {rep.rows.length===0
                     ?<tr><td colSpan={rep.cols.length} style={{textAlign:"center",color:T.textTert,padding:"28px 10px",fontSize:13}}>{rep.empty}</td></tr>
                     :rep.rows.map((cells,ri)=>{const rowBg=ri%2?T.gold+"12":T.card;return <tr key={ri} style={{background:rowBg}}>{cells.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"8px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:c.strong?700:400,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:rowBg,borderRight:`1px solid ${T.border}`}:{})}}>{c.plan
-                        ?<button onClick={(e)=>{e.stopPropagation();setPlan(c.drawId,c.plan==="reinvest"?"takeback":"reinvest");}} title="Tap to switch" style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11.5,fontWeight:700,background:c.plan==="reinvest"?T.green+"22":T.red+"22",color:c.plan==="reinvest"?"#1a8f43":T.red}}>{c.plan==="reinvest"?"Reinvest":"Take back"}</button>
+                        ?<button onClick={canEdit?(e)=>{e.stopPropagation();setPlan(c.drawId,c.plan==="reinvest"?"takeback":"reinvest");}:undefined} title={canEdit?"Tap to switch":undefined} style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:canEdit?"pointer":"default",fontFamily:"inherit",fontSize:11.5,fontWeight:700,background:c.plan==="reinvest"?T.green+"22":T.red+"22",color:c.plan==="reinvest"?"#1a8f43":T.red}}>{c.plan==="reinvest"?"Reinvest":"Take back"}</button>
                         :c.edit
-                        ?<span onClick={(e)=>{e.stopPropagation();setHoldbackFor(c.edit.propId);}} title="Tap to set" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>
+                        ?(canEdit?<span onClick={(e)=>{e.stopPropagation();setHoldbackFor(c.edit.propId);}} title="Tap to set" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>:<span>{c.t==="Tap to set"?"—":c.t}</span>)
                         :c.fund
-                        ?<span style={{display:"inline-flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}><span style={{filter:c.fund.show&&c.fund.checked?"blur(1.6px)":"none",opacity:c.fund.show&&c.fund.checked?0.4:1,textDecoration:c.fund.show&&c.fund.checked?"line-through":"none"}}>{c.t}</span>{c.fund.show?<input type="checkbox" checked={c.fund.checked} onClick={(e)=>e.stopPropagation()} onChange={()=>toggleFunded(c.fund.propId)} title="Secured additional funding — dim the shortfall" style={{width:15,height:15,cursor:"pointer",accentColor:T.gold,flexShrink:0}}/>:<span style={{width:15,flexShrink:0,display:"inline-block"}}/>}</span>
+                        ?<span style={{display:"inline-flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}><span style={{filter:c.fund.show&&c.fund.checked?"blur(1.6px)":"none",opacity:c.fund.show&&c.fund.checked?0.4:1,textDecoration:c.fund.show&&c.fund.checked?"line-through":"none"}}>{c.t}</span>{c.fund.show?<input type="checkbox" checked={c.fund.checked} disabled={!canEdit} onClick={(e)=>e.stopPropagation()} onChange={()=>toggleFunded(c.fund.propId)} title="Secured additional funding — dim the shortfall" style={{width:15,height:15,cursor:canEdit?"pointer":"default",accentColor:T.gold,flexShrink:0}}/>:<span style={{width:15,flexShrink:0,display:"inline-block"}}/>}</span>
                         :c.t}</td>)}</tr>;})}
                   {rep.rows.length>0&&rep.foot&&rep.foot.map((frow,fi)=><tr key={"f"+fi}>{frow.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:fi===0?"11px 10px 8px":"2px 10px 8px",...(fi===0?{borderTop:`2px solid ${T.gold}`}:{}),fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{background:T.card})}}>{c.t}</td>)}</tr>)}
                 </tbody>
@@ -7706,8 +7711,11 @@ function FinReportCenter({sharedProps,isMobile}){
   );
 }
 
-function FinancialSectionPage({onNavigate}){
-  const { funders, setFunders, flushFunders, draws, setDraws, flushDraws, sharedProps } = useData();
+function FinancialSectionPage({onNavigate,canEdit=true}){
+  const { funders, setFunders:rawSetFunders, flushFunders, draws, setDraws:rawSetDraws, flushDraws, sharedProps } = useData();
+  // View-only members: block every write path (setters become no-ops).
+  const setFunders = canEdit ? rawSetFunders : ()=>{};
+  const setDraws = canEdit ? rawSetDraws : ()=>{};
   const isMobile=useIsMobile();
   const[subTab,setSubTab]=useState("loc");
   const[bsSel,setBsSel]=useState(null); // property to open in the BS report (e.g. from Bank Reconciliation)
@@ -7913,7 +7921,8 @@ function FinancialSectionPage({onNavigate}){
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <div style={{fontSize:isMobile?19:22,fontWeight:800,color:T.text}}>Financial Section</div>
           <span style={{fontSize:9,fontWeight:800,background:T.gold,color:"#fff",borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>Private</span>
-          {subTab==="loc"&&<div style={{marginLeft:"auto",display:"flex",gap:8}}>
+          {!canEdit&&<span style={{fontSize:9,fontWeight:800,background:T.bg,color:T.textSub,border:`1px solid ${T.border}`,borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>View only</span>}
+          {canEdit&&subTab==="loc"&&<div style={{marginLeft:"auto",display:"flex",gap:8}}>
             <button onClick={downloadBackup} title="Download a backup file of all financial data" style={{...finBtn(false),padding:"8px 12px"}}>⬇ Backup</button>
             <button onClick={()=>setFunderModal({})} style={{...finBtn(false),padding:"8px 12px"}}>+ Lender</button>
             <button onClick={()=>setDrawModal({})} style={{...finBtn(true),padding:"8px 14px"}}>+ Draw</button>
@@ -7953,10 +7962,10 @@ function FinancialSectionPage({onNavigate}){
           </div>
         </div>
       </>}
-      {subTab==="bs"&&<FinPropertyBS sharedProps={sharedProps} draws={draws} onNavigate={onNavigate} initialSelId={bsSel} isMobile={isMobile}/>}
-      {subTab==="bank"&&<FinBankRecon sharedProps={sharedProps} onOpenProperty={goToBS} isMobile={isMobile}/>}
+      {subTab==="bs"&&<FinPropertyBS sharedProps={sharedProps} draws={draws} onNavigate={onNavigate} initialSelId={bsSel} isMobile={isMobile} canEdit={canEdit}/>}
+      {subTab==="bank"&&<FinBankRecon sharedProps={sharedProps} onOpenProperty={goToBS} isMobile={isMobile} canEdit={canEdit}/>}
       {subTab==="flow"&&<CashFlowProjection sharedProps={sharedProps} onNavigate={onNavigate} isMobile={isMobile}/>}
-      {subTab==="reports"&&<FinReportCenter sharedProps={sharedProps} isMobile={isMobile}/>}
+      {subTab==="reports"&&<FinReportCenter sharedProps={sharedProps} isMobile={isMobile} canEdit={canEdit}/>}
     </div>
   );
 }
@@ -7966,13 +7975,15 @@ function FinancialSectionPage({onNavigate}){
 // Which nav tabs non-admin members can open. Admin-only sections (see
 // ADMIN_ONLY_KEYS) are excluded so members never get them.
 const MEMBER_KEYS = new Set(NAV.map(n=>n.key).filter(k=>!ADMIN_ONLY_KEYS.has(k)));
+// Admin-only sections members may still OPEN read-only (view rights, no editing).
+const VIEW_ONLY_MEMBER_KEYS = new Set(["financials"]);
 
 export function GoldstoneShell(){
   const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, officeMessages } = useData();
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
   const isMobile = useIsMobile();
 
-  const navItems = isAdmin ? NAV : NAV.filter(n=>MEMBER_KEYS.has(n.key));
+  const navItems = isAdmin ? NAV : NAV.filter(n=>MEMBER_KEYS.has(n.key)||VIEW_ONLY_MEMBER_KEYS.has(n.key));
   const officeUnread = (officeMessages||[]).reduce((n,m)=>n+(isUnreadForUser(m,displayName)?1:0),0);
   const unreadTotal = totalUnread(sharedProps, displayName) + officeUnread;
 
@@ -8090,7 +8101,7 @@ export function GoldstoneShell(){
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage onNavigate={navigateToProperty}/>
     : active==="contacts" ? <ContactsPage/>
-    : active==="financials" ? (isAdmin ? <FinancialSectionPage onNavigate={navigateToProperty}/> : <ComingSoon label="Financial Section"/>)
+    : active==="financials" ? <FinancialSectionPage onNavigate={navigateToProperty} canEdit={isAdmin}/>
     : <ComingSoon label={NAV.find(n=>n.key===active)?.label}/>;
 
   if(loading) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.gold,fontWeight:700,fontSize:16,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif"}}>Loading Goldstone…</div>;

@@ -6470,29 +6470,28 @@ const txKey=(t)=>t.lineKey||[t.date,t.type,t.num,t.vendor,t.amount].join("|");
 function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
   const isMobile=useIsMobile();
   const[q,setQ]=useState("");
-  const[openKey,setOpenKey]=useState("");    // which transaction is expanded to its line items
-  const[lineData,setLineData]=useState({});  // txKey -> {loading, lines}
+  const[openKey,setOpenKey]=useState("");    // which grouped transaction is expanded
   const term=q.trim().toLowerCase();
-  const list=[...(txns||[])].filter(t=>!term||[t.vendor,t.memo,t.type,t.account,t.date].filter(Boolean).join(" ").toLowerCase().includes(term)).sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
-  const inS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
-  // Build a pinnable object for one line of a transaction.
-  const lineObj=(t,l)=>({date:t.date,type:(t.type||"")+" · line",num:t.num,vendor:l.description||l.account||t.vendor,account:l.account,memo:l.description,amount:l.amount,lineKey:`${t.id}#${l.lineIdx}`});
-  const openLines=(t)=>{
-    const k=txKey(t);
-    if(openKey===k){setOpenKey("");return;}
-    setOpenKey(k);
-    if(!lineData[k]&&t.id){
-      setLineData(d=>({...d,[k]:{loading:true,lines:[]}}));
-      qbAuthFetch(`/api/quickbooks/txn-lines?id=${encodeURIComponent(t.id)}&type=${encodeURIComponent(t.type||"")}`)
-        .then(r=>setLineData(d=>({...d,[k]:{loading:false,lines:r.lines||[]}})))
-        .catch(()=>setLineData(d=>({...d,[k]:{loading:false,lines:[]}})));
+  // Group every posting line of the same transaction together, so one journal entry
+  // is a single row (with its lines nested) instead of one row per account — which
+  // is what caused the same amounts to appear several times and risk double-pinning.
+  const groups=useMemo(()=>{
+    const by={},order=[];
+    for(const t of (txns||[])){
+      const gk=t.id||`${t.type}|${t.num}|${t.date}`;
+      if(!by[gk]){by[gk]={key:gk,type:t.type||"",date:t.date||"",num:t.num||"",vendor:t.vendor||"",items:[]};order.push(gk);}
+      by[gk].items.push(t);
     }
-  };
+    return order.map(k=>by[k]);
+  },[txns]);
+  const shown=groups.filter(g=>!term||g.items.some(t=>[t.vendor,t.memo,t.type,t.account,t.date].filter(Boolean).join(" ").toLowerCase().includes(term))).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const lineOf=(g,t,idx)=>({...t,lineKey:`${g.key}#${idx}`}); // stable per-line key within a group
+  const inS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 12px"}}>
-          <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>Pin transactions</div><div style={{fontSize:12,color:T.textTert}}>Tap to pin the whole line, or ⋯ to open a split and pin only some lines</div></div>
+          <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>Pin transactions</div><div style={{fontSize:12,color:T.textTert}}>A journal entry shows as one row — open it to pin only the lines you want</div></div>
           <button onClick={onClose} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,flexShrink:0}}>×</button>
         </div>
         <div style={{padding:"0 18px 12px",position:"relative"}}>
@@ -6501,38 +6500,48 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
         </div>
         <div style={{overflowY:"auto",padding:"0 0 max(16px,env(safe-area-inset-bottom))"}}>
           {loading&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>Loading transactions…</div>}
-          {!loading&&list.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>{(txns||[]).length===0?"No transactions on this QuickBooks project.":"No transactions match your search."}</div>}
-          {list.map((t,i)=>{
-            const on=pinnedKeys.has(txKey(t));
-            const k=txKey(t);
-            const expanded=openKey===k;
-            const ld=lineData[k];
-            return(
-              <div key={i} style={{borderTop:i===0?"none":`1px solid ${T.border}`,background:on?T.goldLight:"transparent"}}>
-                <div style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px"}}>
+          {!loading&&shown.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>{(txns||[]).length===0?"No transactions on this QuickBooks project.":"No transactions match your search."}</div>}
+          {shown.map((g,gi)=>{
+            // Single-line transaction → a plain pinnable row.
+            if(g.items.length===1){
+              const t=g.items[0];const on=pinnedKeys.has(txKey(t));
+              return(
+                <label key={gi} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px",borderTop:gi===0?"none":`1px solid ${T.border}`,cursor:"pointer",background:on?T.goldLight:"transparent"}}>
                   <input type="checkbox" checked={on} onChange={()=>onToggle(t)} style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
-                  <div style={{flex:1,minWidth:0,cursor:t.id?"pointer":"default"}} onClick={()=>t.id&&openLines(t)}>
+                  <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
                     <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account,t.memo].filter(Boolean).join(" · ")}</div>
                   </div>
                   <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{fmtD(t.amount)}</span>
-                  {t.id&&<button onClick={()=>openLines(t)} title="Open line items" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:16,lineHeight:1,padding:"0 2px",flexShrink:0}}>{expanded?"▾":"⋯"}</button>}
+                </label>
+              );
+            }
+            // Multi-line transaction (journal entry) → one parent row; open to pin lines.
+            const total=g.items.reduce((s,t)=>s+t.amount,0);
+            const expanded=openKey===g.key;
+            const pinnedCount=g.items.filter((t,idx)=>pinnedKeys.has(txKey(lineOf(g,t,idx)))).length;
+            return(
+              <div key={gi} style={{borderTop:gi===0?"none":`1px solid ${T.border}`}}>
+                <div onClick={()=>setOpenKey(expanded?"":g.key)} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px",cursor:"pointer",background:pinnedCount?T.goldLight:"transparent"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.type||"Journal Entry"} <span style={{fontSize:11,color:T.textTert,fontWeight:400}}>· {g.items.length} lines</span></div>
+                    <div style={{fontSize:11,color:T.textTert}}>{[g.date,pinnedCount?`${pinnedCount} pinned`:null].filter(Boolean).join(" · ")}</div>
+                  </div>
+                  <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{fmtD(total)}</span>
+                  <span style={{color:T.blue,fontSize:16,lineHeight:1,flexShrink:0}}>{expanded?"▾":"›"}</span>
                 </div>
                 {expanded&&(
-                  <div style={{padding:"0 18px 8px 44px"}}>
-                    {ld?.loading&&<div style={{fontSize:12,color:T.textTert,padding:"6px 0"}}>Loading line items…</div>}
-                    {ld&&!ld.loading&&ld.lines.length===0&&<div style={{fontSize:12,color:T.textTert,padding:"6px 0"}}>No separate line items on this transaction.</div>}
-                    {ld&&!ld.loading&&ld.lines.map((l,li)=>{
-                      const lo=lineObj(t,l);
-                      const lon=pinnedKeys.has(txKey(lo));
+                  <div style={{padding:"0 18px 8px 30px"}}>
+                    {g.items.map((t,idx)=>{
+                      const lo=lineOf(g,t,idx);const on=pinnedKeys.has(txKey(lo));
                       return(
-                        <label key={li} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderTop:li?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
-                          <input type="checkbox" checked={lon} onChange={()=>onToggle(lo)} style={{width:15,height:15,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+                        <label key={idx} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderTop:idx?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
+                          <input type="checkbox" checked={on} onChange={()=>onToggle(lo)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.account||l.description||"—"}{l.postingType&&<span style={{fontSize:10,color:T.textTert}}> · {l.postingType}</span>}</div>
-                            {l.description&&l.account&&<div style={{fontSize:10.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.description}</div>}
+                            <div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.account||t.vendor||"—"}</div>
+                            {t.memo&&<div style={{fontSize:10.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.memo}</div>}
                           </div>
-                          <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(l.amount)}</span>
+                          <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(t.amount)}</span>
                         </label>
                       );
                     })}

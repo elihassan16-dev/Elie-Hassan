@@ -1596,10 +1596,41 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const toggleHide=()=>setHideNot(v=>{const n=!v;try{localStorage.setItem("gs_hideNotInterested",n?"1":"0");}catch{}return n;});
   const mineRaw=all.filter(s=>showingMatchesProperty(s.location||s.summary||"",property)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
   const feedKeys=new Set(mineRaw.map(s=>showingKey(s)));
+  // One-time heal: leads saved under an old ShowingTime UID (which the feed
+  // regenerates on every export) get moved onto the same showing's stable
+  // date+agent key now that it's live again — so old leads re-attach with no
+  // re-tagging, and don't linger as a duplicate "orphan" row next to the live one.
+  useEffect(()=>{
+    const nextLeads={...leadMap},nextSnaps={...showingSnapshots},nextPhones={...showingPhones};
+    let changed=false;
+    for(const k of Object.keys(leadMap)){
+      if(feedKeys.has(k)) continue;               // already on the right key
+      const snap=showingSnapshots[k];
+      if(!snap) continue;
+      const sk=showingKey(snap);                  // stable key of that same showing
+      if(sk===k||!feedKeys.has(sk)) continue;     // only migrate if it's live under a new key
+      if(!nextLeads[sk]) nextLeads[sk]=leadMap[k]; // don't clobber a manual re-tag
+      delete nextLeads[k];
+      if(nextSnaps[k]&&!nextSnaps[sk]) nextSnaps[sk]=nextSnaps[k];
+      delete nextSnaps[k];
+      if(nextPhones[k]&&!nextPhones[sk]) nextPhones[sk]=nextPhones[k];
+      delete nextPhones[k];
+      changed=true;
+    }
+    if(changed){
+      onUpdate(property.id,"showingLeads",nextLeads);
+      onUpdate(property.id,"showingSnapshots",nextSnaps);
+      onUpdate(property.id,"showingPhones",nextPhones);
+      if(flush)setTimeout(flush,0);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[property.id,[...feedKeys].sort().join("|"),Object.keys(leadMap).sort().join("|")]);
   // Any lead whose showing has dropped out of the live feed: rebuild the row from
-  // the snapshot we saved when the lead was set (or a minimal placeholder), so the
-  // lead never disappears from view just because the feed rolled forward.
-  const orphans=Object.keys(leadMap).filter(k=>!feedKeys.has(k)&&showingSnapshots[k]).map(k=>{
+  // the snapshot we saved when the lead was set, so the lead never disappears from
+  // view just because the feed rolled forward. Suppress it when the same showing is
+  // live under a different key (its snapshot's stable key is in the feed) — the live
+  // row covers it, and showing both is the duplicate we're avoiding.
+  const orphans=Object.keys(leadMap).filter(k=>!feedKeys.has(k)&&showingSnapshots[k]&&!feedKeys.has(showingKey(showingSnapshots[k]))).map(k=>{
     const snap=showingSnapshots[k];
     return {...snap,ts:snap.start?new Date(snap.start).getTime():0};
   });

@@ -6937,14 +6937,28 @@ function bsMetrics(p,accounts,spend){
   const equity=allIn==null?null:allIn-totalLoans+bsSum(p.qbBsCustom);
   return {pot,deployed,debt,reserve,totalLoans,allIn,equity};
 }
+
+// Persist the last-known QuickBooks numbers (loan-account balances + per-project
+// all-in spend) in the browser, so the financial reports render correct figures
+// INSTANTLY on open from cache, then silently refresh when the live scan returns —
+// instead of flashing wrong numbers while the fetch is in flight.
+const qbCache={
+  get(key,fallback){try{const v=localStorage.getItem("gs_qbcache_"+key);return v?JSON.parse(v):fallback;}catch{return fallback;}},
+  set(key,val){try{localStorage.setItem("gs_qbcache_"+key,JSON.stringify(val));}catch{/* ignore quota/private-mode */}},
+};
+// Slim the spend map to just {allIn} per project before caching (drop bulky pnl/loading).
+const slimSpend=(spend)=>Object.fromEntries(Object.entries(spend||{}).map(([k,v])=>[k,{allIn:v&&v.allIn!=null?v.allIn:null}]));
+
 function FinPropertyBS({sharedProps,onNavigate,initialSelId,isMobile}){
   const { setSharedProps, flushProps, bankAccounts }=useData();
   const onUpdate=(id,key,val)=>{setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
   const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status))
     .sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")),[sharedProps]);
   const[connected,setConnected]=useState(null);
-  const[accounts,setAccounts]=useState(null);
-  const[spend,setSpend]=useState({});
+  const[accounts,setAccounts]=useState(()=>qbCache.get("accounts",null));
+  const[spend,setSpend]=useState(()=>qbCache.get("spend",{}));
+  useEffect(()=>{if(accounts)qbCache.set("accounts",accounts);},[accounts]);
+  useEffect(()=>{qbCache.set("spend",slimSpend(spend));},[spend]);
   const[selId,setSelId]=useState(initialSelId||null);
   const[search,setSearch]=useState("");
   const[acctKey,setAcctKey]=useState(0);   // bump to refetch QuickBooks account balances
@@ -7093,8 +7107,10 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile}){
   const { bankAccounts, setBankAccounts, flushBank }=useData();
   const save=()=>{if(flushBank)setTimeout(flushBank,0);};
   const[connected,setConnected]=useState(null);
-  const[accounts,setAccounts]=useState(null);
-  const[spend,setSpend]=useState({});
+  const[accounts,setAccounts]=useState(()=>qbCache.get("accounts",null));
+  const[spend,setSpend]=useState(()=>qbCache.get("spend",{}));
+  useEffect(()=>{if(accounts)qbCache.set("accounts",accounts);},[accounts]);
+  useEffect(()=>{qbCache.set("spend",slimSpend(spend));},[spend]);
   const[addName,setAddName]=useState("");
   const[balModal,setBalModal]=useState("");   // bank id whose reconcile popup is open
   const[addAdjFor,setAddAdjFor]=useState("");  // bank id whose adjustment form is open
@@ -7287,9 +7303,12 @@ function cashFlowNet(p,accounts,spend,intPaid){
 function CashFlowProjection({sharedProps,onNavigate,isMobile}){
   const[openId,setOpenId]=useState(null);
   const[connected,setConnected]=useState(null);
-  const[accounts,setAccounts]=useState(null);
-  const[spend,setSpend]=useState({});
-  const[intPaid,setIntPaid]=useState({}); // projectId → hard-money interest paid to date (from QB)
+  const[accounts,setAccounts]=useState(()=>qbCache.get("accounts",null));
+  const[spend,setSpend]=useState(()=>qbCache.get("spend",{}));
+  const[intPaid,setIntPaid]=useState(()=>qbCache.get("intPaid",{})); // projectId → hard-money interest paid to date (from QB)
+  useEffect(()=>{if(accounts)qbCache.set("accounts",accounts);},[accounts]);
+  useEffect(()=>{qbCache.set("spend",slimSpend(spend));},[spend]);
+  useEffect(()=>{qbCache.set("intPaid",intPaid);},[intPaid]);
   const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const inClosing=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&p.status==="In Closing"),[sharedProps]);
   // The month a property closes: its scheduled closing date, else the selling
@@ -7410,8 +7429,10 @@ function FinReportCenter({sharedProps,isMobile}){
   const { draws, setDraws, flushDraws }=useData();
   const setPlan=(drawId,plan)=>{setDraws(prev=>prev.map(d=>d.id===drawId?{...d,futureFundsPlan:plan}:d));if(flushDraws)setTimeout(flushDraws,0);};
   const[connected,setConnected]=useState(null);
-  const[accounts,setAccounts]=useState(null);
-  const[spend,setSpend]=useState({});
+  const[accounts,setAccounts]=useState(()=>qbCache.get("accounts",null));
+  const[spend,setSpend]=useState(()=>qbCache.get("spend",{}));
+  useEffect(()=>{if(accounts)qbCache.set("accounts",accounts);},[accounts]);
+  useEffect(()=>{qbCache.set("spend",slimSpend(spend));},[spend]);
   const[open,setOpen]=useState(null); // report id being previewed
 
   const bsProps=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status)),[sharedProps]);

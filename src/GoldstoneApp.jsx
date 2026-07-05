@@ -6640,7 +6640,8 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
   const addForm=(key)=>(
     <div style={{display:"flex",gap:6,padding:"10px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
       <input autoFocus value={draft.label} onChange={e=>setDraft(d=>({...d,label:e.target.value}))} placeholder="Label" style={{...inS,flex:1,minWidth:110}}/>
-      <input value={draft.amount} onChange={e=>setDraft(d=>({...d,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addCustom(key)} placeholder="Amount" inputMode="decimal" style={{...inS,width:104,textAlign:"right"}}/>
+      <button onClick={()=>setDraft(d=>({...d,amount:d.amount.trim().startsWith("-")?d.amount.replace("-",""):"-"+d.amount.trim()}))} title="Make negative / positive" style={{padding:"7px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>±</button>
+      <input value={draft.amount} onChange={e=>setDraft(d=>({...d,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addCustom(key)} placeholder="Amount" inputMode="decimal" style={{...inS,width:96,textAlign:"right"}}/>
       <button onClick={()=>addCustom(key)} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Add</button>
       <button onClick={()=>{setAddFor("");setDraft({label:"",amount:""});}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
     </div>
@@ -7087,7 +7088,8 @@ function FinBankRecon({sharedProps,isMobile}){
             {addAdjFor===b.id
               ?<div style={{display:"flex",gap:6,padding:"10px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
                  <input autoFocus value={adjDraft.label} onChange={e=>setAdjDraft(d=>({...d,label:e.target.value}))} placeholder="Adjustment (e.g. small loan)" style={{...inS,flex:1,minWidth:120}}/>
-                 <input value={adjDraft.amount} onChange={e=>setAdjDraft(d=>({...d,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addAdj(b.id)} placeholder="Amount" inputMode="decimal" style={{...inS,width:110,textAlign:"right"}}/>
+                 <button onClick={()=>setAdjDraft(d=>({...d,amount:d.amount.trim().startsWith("-")?d.amount.replace("-",""):"-"+d.amount.trim()}))} title="Make negative / positive" style={{padding:"8px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>±</button>
+                 <input value={adjDraft.amount} onChange={e=>setAdjDraft(d=>({...d,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addAdj(b.id)} placeholder="Amount" inputMode="decimal" style={{...inS,width:100,textAlign:"right"}}/>
                  <button onClick={()=>addAdj(b.id)} style={{padding:"8px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Add</button>
                  <button onClick={()=>{setAddAdjFor("");setAdjDraft({label:"",amount:""});}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
                </div>

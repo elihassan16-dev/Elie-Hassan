@@ -6390,28 +6390,72 @@ function QbAccountsPickerModal({accounts,pinnedIds,address,onToggle,onClose}){
   );
 }
 
+// ─── Transactions for one all-in-cost bucket (drill-down from the breakdown) ────
+function QbBucketTxnsModal({label,txns,loading,onClose}){
+  const list=[...(txns||[])].sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
+  const total=list.reduce((s,t)=>s+t.amount,0);
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:260,backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:"20px 20px 0 0",width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 10px"}}>
+          <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>{label}</div><div style={{fontSize:12,color:T.textTert}}>{loading?"loading…":`${list.length} transaction${list.length!==1?"s":""}`}</div></div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,flexShrink:0}}>×</button>
+        </div>
+        <div style={{overflowY:"auto",padding:"0 0 max(16px,env(safe-area-inset-bottom))"}}>
+          {loading&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>Loading transactions…</div>}
+          {!loading&&list.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>No transactions in this line.</div>}
+          {list.map((t,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"10px 18px",borderTop:i?`1px solid ${T.border}`:"none"}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
+                <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.type,t.memo].filter(Boolean).join(" · ")}</div>
+              </div>
+              <span style={{fontSize:13.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(t.amount)}</span>
+            </div>
+          ))}
+          {!loading&&list.length>0&&(
+            <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"12px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+              <span style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Total</span>
+              <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(total)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── All-in cost breakdown — how the QuickBooks number was reached, by bucket ────
-function QbAllInBreakdownModal({pnl,total,onClose}){
+function QbAllInBreakdownModal({pnl,total,projectId,onClose}){
   const rows=(pnl?.rows||[]).filter(r=>r.section!=="Income");
   const BKT=[["purchase","Purchase Price"],["buying","Buying Costs"],["rehab","Rehab Costs"],["holding","Holding Costs"],["debt","Debt Service / Interest"],["selling","Selling Costs"]];
   const groups=BKT.map(([k,l])=>{const items=rows.filter(r=>qbBucket(r.name)===k);const sum=items.reduce((s,r)=>s+r.amount,0);return {k,l,items,sum};}).filter(g=>g.items.length||g.sum);
+  const[txns,setTxns]=useState(null);
+  const[openBucket,setOpenBucket]=useState(null); // {k,l}
+  useEffect(()=>{
+    if(!projectId){setTxns([]);return;}
+    let alive=true;
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(projectId)}`).then(d=>{if(alive)setTxns(d.items||[]);}).catch(()=>{if(alive)setTxns([]);});
+    return ()=>{alive=false;};
+  },[projectId]);
+  const bucketTx=(k)=>(txns||[]).filter(t=>qbBucket(t.account)===k);
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:"20px 20px 0 0",width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 10px"}}>
-          <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>All-in cost breakdown</div><div style={{fontSize:12,color:T.textTert}}>How QuickBooks got to this number</div></div>
+          <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>All-in cost breakdown</div><div style={{fontSize:12,color:T.textTert}}>Tap a line to see its transactions</div></div>
           <button onClick={onClose} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,flexShrink:0}}>×</button>
         </div>
         <div style={{overflowY:"auto",padding:"0 0 max(16px,env(safe-area-inset-bottom))"}}>
           {groups.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>No cost line items on this QuickBooks project.</div>}
-          {groups.map(g=>(
+          {groups.map(g=>{
+            const n=bucketTx(g.k).length;
+            return(
             <div key={g.k}>
-              <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"11px 18px",background:T.bg,borderTop:`1px solid ${T.border}`}}>
-                <span style={{fontSize:11.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em"}}>{g.l}</span>
+              <div onClick={()=>setOpenBucket({k:g.k,l:g.l})} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,padding:"11px 18px",background:T.bg,borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
+                <span style={{fontSize:11.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em",display:"flex",alignItems:"center",gap:6}}>{g.l}{txns!==null&&n>0&&<span style={{fontSize:10,color:T.textTert}}>({n})</span>}<span style={{color:T.blue,fontSize:12}}>›</span></span>
                 <span style={{fontSize:13,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(g.sum)}</span>
               </div>
-              {/* Only list individual accounts when a bucket has more than one — a single
-                  account just repeats the bucket header, so we skip it. */}
               {g.items.length>1&&g.items.map((r,i)=>(
                 <div key={i} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"7px 18px 7px 26px"}}>
                   <span style={{fontSize:13,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
@@ -6419,13 +6463,14 @@ function QbAllInBreakdownModal({pnl,total,onClose}){
                 </div>
               ))}
             </div>
-          ))}
+          );})}
           <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"13px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
             <span style={{fontSize:14,fontWeight:800,color:T.gold}}>All-in cost</span>
             <span style={{fontSize:16,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(total)}</span>
           </div>
         </div>
       </div>
+      {openBucket&&<QbBucketTxnsModal label={openBucket.l} txns={bucketTx(openBucket.k)} loading={txns===null} onClose={()=>setOpenBucket(null)}/>}
     </div>
   );
 }
@@ -6549,7 +6594,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
       </Card>
 
       {pickerOpen&&<QbAccountsPickerModal accounts={accounts} pinnedIds={pinned} address={`${property.address}${property.city?`, ${property.city}`:""}`} onToggle={toggle} onClose={()=>setPickerOpen(false)}/>}
-      {showBreak&&pnl&&<QbAllInBreakdownModal pnl={pnl} total={allIn} onClose={()=>setShowBreak(false)}/>}
+      {showBreak&&pnl&&<QbAllInBreakdownModal pnl={pnl} total={allIn} projectId={property.qbProjectId} onClose={()=>setShowBreak(false)}/>}
     </div>
   );
 }

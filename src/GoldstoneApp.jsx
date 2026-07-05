@@ -6406,11 +6406,13 @@ function QbAllInBreakdownModal({pnl,total,onClose}){
           {groups.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>No cost line items on this QuickBooks project.</div>}
           {groups.map(g=>(
             <div key={g.k}>
-              <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"10px 18px 6px",background:T.bg,borderTop:`1px solid ${T.border}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"11px 18px",background:T.bg,borderTop:`1px solid ${T.border}`}}>
                 <span style={{fontSize:11.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em"}}>{g.l}</span>
                 <span style={{fontSize:13,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(g.sum)}</span>
               </div>
-              {g.items.map((r,i)=>(
+              {/* Only list individual accounts when a bucket has more than one — a single
+                  account just repeats the bucket header, so we skip it. */}
+              {g.items.length>1&&g.items.map((r,i)=>(
                 <div key={i} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"7px 18px 7px 26px"}}>
                   <span style={{fontSize:13,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
                   <span style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(r.amount)}</span>

@@ -7342,6 +7342,168 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
   );
 }
 
+// ─── Report Center ────────────────────────────────────────────────────────────
+// A set of one-tap reports that open in a preview popup and can be exported /
+// saved as a PDF (via the browser's print dialog). Reports run off the same data
+// as the rest of the Financial Section so the numbers always agree.
+function FinReportCenter({sharedProps,isMobile}){
+  const { draws }=useData();
+  const[connected,setConnected]=useState(null);
+  const[accounts,setAccounts]=useState(null);
+  const[spend,setSpend]=useState({});
+  const[open,setOpen]=useState(null); // report id being previewed
+
+  const bsProps=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status)),[sharedProps]);
+  // Live QuickBooks account balances + all-in spend for the balance-sheet report.
+  useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
+  useEffect(()=>{if(!connected)return;qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[connected]);
+  const projKey=bsProps.map(p=>p.qbProjectId).filter(Boolean).join(",");
+  useEffect(()=>{
+    if(!connected)return;const ids=[...new Set(bsProps.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
+    const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
+      try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);if(!cancelled)setSpend(s=>({...s,[id]:{allIn:(d?.expenses||0)+(d?.cogs||0)}}));}catch{/* ignore */}}};
+    Promise.all([run(),run(),run(),run()]);return ()=>{cancelled=true;};
+  },[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openDraws=useMemo(()=>(draws||[]).filter(d=>!d.paybackDate),[draws]);
+  const propForDraw=(d)=>{if(d.propertyId!=null){const p=(sharedProps||[]).find(x=>String(x.id)===String(d.propertyId));if(p)return p;}return (sharedProps||[]).find(p=>drawsForProperty(p,[d]).length>0)||null;};
+  const cfDate=(p)=>((p.propertyInfo||{}).closingDateScheduled||(p.financials||{}).sellingDate||"");
+
+  // Report 1 — every outstanding LOC draw: property, funder, amount; oldest purchase first.
+  const rptLoc=useMemo(()=>{
+    const rows=openDraws.map(d=>{const p=propForDraw(d);return {address:d.propertyLabel||p?.address||"—",funder:d.funderName||"—",amount:Number(d.amount)||0,purchaseDate:(p?.financials?.purchaseDate)||""};});
+    rows.sort((a,b)=>(!a.purchaseDate&&!b.purchaseDate)?0:!a.purchaseDate?1:!b.purchaseDate?-1:a.purchaseDate.localeCompare(b.purchaseDate));
+    return {rows,total:rows.reduce((s,r)=>s+r.amount,0)};
+  },[openDraws,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Report 2 — LOC capital freeing up as in-closing deals settle.
+  const rptFuture=useMemo(()=>{
+    const inClosing=(sharedProps||[]).filter(p=>!p.archived&&p.status==="In Closing");
+    const rows=inClosing.map(p=>{const ds=drawsForProperty(p,openDraws);const amount=ds.reduce((s,d)=>s+(Number(d.amount)||0),0);const funders=[...new Set(ds.map(d=>d.funderName).filter(Boolean))].join(", ");return {address:p.address,closing:cfDate(p),amount,funders};}).filter(r=>r.amount>0);
+    rows.sort((a,b)=>(!a.closing&&!b.closing)?0:!a.closing?1:!b.closing?-1:a.closing.localeCompare(b.closing));
+    return {rows,total:rows.reduce((s,r)=>s+r.amount,0)};
+  },[openDraws,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Report 3 — property balance sheet, spreadsheet style (same figures as the BS report).
+  const rptBS=useMemo(()=>{
+    const rows=[...bsProps].sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")).map(p=>{
+      const m=bsMetrics(p,accounts,spend);const cf=m.equity==null?null:Math.max(0,m.equity-m.reserve);
+      return {address:p.address,totalLoans:m.totalLoans,allIn:m.allIn,cf,ir:m.reserve,equity:m.equity};
+    });
+    const total={totalLoans:0,allIn:0,cf:0,ir:0,equity:0,anyAllIn:false};
+    rows.forEach(r=>{total.totalLoans+=r.totalLoans||0;if(r.allIn!=null){total.allIn+=r.allIn;total.anyAllIn=true;}total.cf+=r.cf||0;total.ir+=r.ir||0;if(r.equity!=null)total.equity+=r.equity;});
+    return {rows,total};
+  },[bsProps,accounts,spend]);
+
+  const D=(iso)=>iso?finFmtDate(iso):"—";
+  const M=(v)=>v==null?"—":fmtD(v);
+  const REPORTS={
+    loc:{
+      title:"Outstanding Line-of-Credit by Deal",
+      subtitle:"Every open LOC draw — who funded it and how much you owe, oldest purchase date first.",
+      cols:[{label:"Property"},{label:"Funder"},{label:"Purchase date"},{label:"LOC amount",align:"right"}],
+      rows:rptLoc.rows.map(r=>[{t:r.address},{t:r.funder},{t:D(r.purchaseDate)},{t:fmtD(r.amount),align:"right",strong:true}]),
+      foot:[{t:`${rptLoc.rows.length} deal${rptLoc.rows.length!==1?"s":""}`,strong:true},{t:""},{t:""},{t:fmtD(rptLoc.total),align:"right",strong:true,gold:true}],
+      empty:"No outstanding LOC draws.",
+    },
+    future:{
+      title:"Available Future Funds — Upcoming Closings",
+      subtitle:"Line-of-credit capital freeing up as your in-closing deals settle.",
+      cols:[{label:"Property"},{label:"Closing"},{label:"Funder"},{label:"LOC returning",align:"right"}],
+      rows:rptFuture.rows.map(r=>[{t:r.address},{t:D(r.closing)},{t:r.funders||"—"},{t:fmtD(r.amount),align:"right",strong:true}]),
+      foot:[{t:`${rptFuture.rows.length} closing${rptFuture.rows.length!==1?"s":""}`,strong:true},{t:""},{t:""},{t:fmtD(rptFuture.total),align:"right",strong:true,gold:true}],
+      empty:"No in-closing deals with outstanding LOC.",
+    },
+    bs:{
+      title:"Property Balance Sheet",
+      subtitle:"Loans, all-in cost, reserves and equity across every active property. Equity ± is all-in cost minus total loans.",
+      cols:[{label:"Property"},{label:"Total loans",align:"right"},{label:"All-in cost",align:"right"},{label:"Constr. reserve",align:"right"},{label:"Interest reserve",align:"right"},{label:"Equity ±",align:"right"}],
+      rows:rptBS.rows.map(r=>[{t:r.address},{t:M(r.totalLoans),align:"right"},{t:M(r.allIn),align:"right"},{t:r.cf==null?"—":fmtD(r.cf),align:"right"},{t:fmtD(r.ir),align:"right"},{t:r.equity==null?"—":fmtD(r.equity),align:"right",strong:true,color:r.equity<0?T.red:T.green}]),
+      foot:[{t:"Portfolio",strong:true},{t:fmtD(rptBS.total.totalLoans),align:"right",strong:true},{t:rptBS.total.anyAllIn?fmtD(rptBS.total.allIn):"—",align:"right",strong:true},{t:fmtD(rptBS.total.cf),align:"right",strong:true},{t:fmtD(rptBS.total.ir),align:"right",strong:true},{t:fmtD(rptBS.total.equity),align:"right",strong:true,color:rptBS.total.equity<0?T.red:T.green}],
+      empty:"No active properties.",
+    },
+  };
+
+  // Export → open a print window (the browser's "Save as PDF" / print / share).
+  const exportReport=(rep)=>{
+    const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
+    const th=rep.cols.map(c=>`<th style="text-align:${c.align||"left"}">${esc(c.label)}</th>`).join("");
+    const trs=rep.rows.length?rep.rows.map(cells=>`<tr>${cells.map(c=>`<td style="text-align:${c.align||"left"};${c.strong?"font-weight:700;":""}${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${esc(c.t)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${rep.cols.length}" class="empty">${esc(rep.empty)}</td></tr>`;
+    const foot=rep.foot&&rep.rows.length?`<tr class="tot">${rep.foot.map(c=>`<td style="text-align:${c.align||"left"};font-weight:800;${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${esc(c.t)}</td>`).join("")}</tr>`:"";
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(rep.title)}</title><style>
+      *{box-sizing:border-box;}body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1C1C1E;margin:0;padding:36px;}
+      .brand{font-family:Georgia,serif;font-size:22px;font-weight:700;color:#B8953F;}
+      .sub{font-size:20px;font-weight:800;margin-top:2px;}.desc{font-size:12.5px;color:#6b6b70;margin-top:4px;}.date{font-size:12px;color:#8A8A8E;margin-top:3px;}
+      .hdr{border-bottom:2px solid #B8953F;padding-bottom:12px;margin-bottom:20px;}
+      table{width:100%;border-collapse:collapse;font-size:13px;}
+      th{text-transform:uppercase;font-size:10px;letter-spacing:0.06em;color:#8A8A8E;padding:8px 10px;border-bottom:1px solid #ddd;}
+      td{padding:8px 10px;border-bottom:1px solid #f0f0f0;}
+      tr.tot td{border-top:2px solid #B8953F;border-bottom:none;font-size:14px;}
+      .empty{text-align:center;color:#8A8A8E;padding:24px;}
+      @media print{body{padding:16px;}}
+    </style></head><body>
+      <div class="hdr"><div class="brand">Goldstone Properties</div><div class="sub">${esc(rep.title)}</div><div class="desc">${esc(rep.subtitle)}</div><div class="date">${esc(today)}</div></div>
+      <table><thead><tr>${th}</tr></thead><tbody>${trs}${foot}</tbody></table>
+    </body></html>`;
+    const w=window.open("","_blank");if(!w){alert("Please allow pop-ups to export the report.");return;}
+    w.document.write(html);w.document.close();w.focus();setTimeout(()=>{try{w.print();}catch{/* user can print manually */}},350);
+  };
+
+  const cards=[
+    {id:"loc",icon:"📄",title:"Outstanding LOC by Deal",desc:"Who you owe line-of-credit to, by property — oldest purchase first."},
+    {id:"future",icon:"📈",title:"Available Future Funds",desc:"LOC capital freeing up from your upcoming closings."},
+    {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Loans, all-in cost, reserves and equity — spreadsheet style."},
+  ];
+  const rep=open?REPORTS[open]:null;
+
+  return(
+    <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?"14px":"18px 24px"}}>
+      <div style={{fontSize:12.5,color:T.textSub,marginBottom:14,lineHeight:1.5}}>Tap a report to preview it, then export or save it as a PDF.</div>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:12}}>
+        {cards.map(c=>(
+          <button key={c.id} onClick={()=>setOpen(c.id)} style={{textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,padding:"16px 18px",cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,display:"flex",gap:12,alignItems:"flex-start"}}>
+            <div style={{width:40,height:40,borderRadius:12,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{c.icon}</div>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:15,fontWeight:700,color:T.text}}>{c.title}</div>
+              <div style={{fontSize:12,color:T.textSub,marginTop:3,lineHeight:1.4}}>{c.desc}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {rep&&(
+        <div onClick={()=>setOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:900,maxWidth:"100%",maxHeight:isMobile?"92vh":"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+            <div style={{padding:isMobile?"16px 16px 12px":"18px 22px 14px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"flex-start",gap:12}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:isMobile?16:18,fontWeight:800,color:T.text}}>{rep.title}</div>
+                <div style={{fontSize:12,color:T.textSub,marginTop:3,lineHeight:1.4}}>{rep.subtitle}</div>
+              </div>
+              <button onClick={()=>setOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+            <div style={{flex:1,overflow:"auto",padding:isMobile?"4px 4px 12px":"6px 10px 14px"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?12:13}}>
+                <thead><tr>{rep.cols.map((c,i)=><th key={i} style={{textAlign:c.align||"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"8px 10px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:T.card}}>{c.label}</th>)}</tr></thead>
+                <tbody>
+                  {rep.rows.length===0
+                    ?<tr><td colSpan={rep.cols.length} style={{textAlign:"center",color:T.textTert,padding:"28px 10px",fontSize:13}}>{rep.empty}</td></tr>
+                    :rep.rows.map((cells,ri)=><tr key={ri}>{cells.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"8px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:c.strong?700:400,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap"}}>{c.t}</td>)}</tr>)}
+                  {rep.rows.length>0&&rep.foot&&<tr>{rep.foot.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"10px",borderTop:`2px solid ${T.gold}`,fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap"}}>{c.t}</td>)}</tr>}
+                </tbody>
+              </table>
+            </div>
+            <div style={{padding:isMobile?"12px 16px":"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:10}}>
+              <button onClick={()=>setOpen(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
+              <button onClick={()=>exportReport(rep)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export / PDF</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FinancialSectionPage({onNavigate}){
   const { funders, setFunders, flushFunders, draws, setDraws, flushDraws, sharedProps } = useData();
   const isMobile=useIsMobile();
@@ -7556,7 +7718,7 @@ function FinancialSectionPage({onNavigate}){
           </div>}
         </div>
         <div style={{display:"flex",gap:4,marginTop:12,overflowX:"auto"}}>
-          {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["flow","Cash Flow Projection"]].map(([k,l])=>(
+          {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["flow","Cash Flow Projection"],["reports","Report Center"]].map(([k,l])=>(
             <button key={k} onClick={()=>{setSubTab(k);setBsSel(null);}} style={{padding:"9px 14px",border:"none",borderBottom:subTab===k?`2.5px solid ${T.gold}`:"2.5px solid transparent",background:"none",color:subTab===k?T.gold:T.textSub,fontWeight:subTab===k?800:600,fontSize:isMobile?12.5:13.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
           ))}
         </div>
@@ -7592,6 +7754,7 @@ function FinancialSectionPage({onNavigate}){
       {subTab==="bs"&&<FinPropertyBS sharedProps={sharedProps} draws={draws} onNavigate={onNavigate} initialSelId={bsSel} isMobile={isMobile}/>}
       {subTab==="bank"&&<FinBankRecon sharedProps={sharedProps} onOpenProperty={goToBS} isMobile={isMobile}/>}
       {subTab==="flow"&&<CashFlowProjection sharedProps={sharedProps} onNavigate={onNavigate} isMobile={isMobile}/>}
+      {subTab==="reports"&&<FinReportCenter sharedProps={sharedProps} isMobile={isMobile}/>}
     </div>
   );
 }

@@ -1365,79 +1365,6 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
   );
 }
 
-// ─── Property Balance Sheet — link QuickBooks loan accounts, compare to all-in cost
-// Self-contained: fetches its own QuickBooks connection status, liability accounts,
-// and (for all-in cost) the mapped project's P&L. Rendered in the Financial section
-// so each property's loans and surplus live right next to its numbers.
-function PropertyBalanceSheetCard({property,onUpdate}){
-  const[connected,setConnected]=useState(null);
-  const[accounts,setAccounts]=useState(null);
-  const[pnl,setPnl]=useState(null);
-  useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
-  useEffect(()=>{if(!connected)return;qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[connected]);
-  useEffect(()=>{
-    if(!connected||!property.qbProjectId){setPnl(null);return;}
-    qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(property.qbProjectId)}`).then(setPnl).catch(()=>setPnl(null));
-  },[connected,property.qbProjectId]);
-  if(connected===false)return null; // QuickBooks not connected — keep the financial view uncluttered
-  const money=(v)=>fmtD(v);
-  const linkedLoanIds=property.qbLoanAccounts||[];
-  const toggleLoan=(id)=>{const has=linkedLoanIds.includes(id);onUpdate(property.id,"qbLoanAccounts",has?linkedLoanIds.filter(x=>x!==id):[...linkedLoanIds,id]);};
-  const loanAccts=(accounts||[]).filter(a=>linkedLoanIds.includes(a.id));
-  const activeLoans=loanAccts.reduce((s,a)=>s+(a.balance||0),0);
-  const ranked=(accounts||[]).map(a=>({...a,score:qbMatchScore(property.address,a.name)})).sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name));
-  const allInQB=(pnl?.expenses||0)+(pnl?.cogs||0); // QuickBooks actual spend for the mapped project
-  const surplus=activeLoans-allInQB;
-  return(
-    <div style={{marginTop:16}}>
-      <Card style={{marginBottom:16}}>
-        <GHeader label="Active Loans (QuickBooks)"/>
-        <div style={{padding:"10px 16px 4px",fontSize:12,color:T.textTert,lineHeight:1.5}}>Pick the QuickBooks liability accounts financing this property — your line of credit, hard-money note, etc. Balances update live from QuickBooks.</div>
-        {accounts===null&&<div style={{padding:"8px 16px 14px",fontSize:12,color:T.textTert}}>Loading accounts…</div>}
-        {accounts&&accounts.length===0&&<div style={{padding:"8px 16px 14px",fontSize:12,color:T.textTert}}>No liability accounts found in QuickBooks.</div>}
-        {accounts&&accounts.length>0&&(
-          <div style={{padding:"4px 8px 10px"}}>
-            {ranked.map(a=>{
-              const on=linkedLoanIds.includes(a.id);
-              return(
-                <label key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 8px",borderRadius:T.radiusSm,cursor:"pointer",background:on?T.goldLight:"transparent"}}>
-                  <input type="checkbox" checked={on} onChange={()=>toggleLoan(a.id)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}{a.score>=0.7&&<span style={{marginLeft:6,fontSize:10,fontWeight:700,color:T.green}}>★ match</span>}</div>
-                    <div style={{fontSize:11,color:T.textTert}}>{a.subType||a.type}</div>
-                  </div>
-                  <span style={{fontSize:13,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{money(a.balance)}</span>
-                </label>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-      {linkedLoanIds.length>0&&(
-        <Card style={{border:`1px solid ${T.gold}`}}>
-          <GHeader label="Property Balance Sheet"/>
-          <div style={{padding:"12px 16px"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"6px 0"}}>
-              <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Active loans</div><div style={{fontSize:11,color:T.textTert}}>{loanAccts.length} account{loanAccts.length!==1?"s":""} · live from QuickBooks</div></div>
-              <span style={{fontSize:16,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{money(activeLoans)}</span>
-            </div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"6px 0",borderTop:`1px solid ${T.border}`}}>
-              <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>All-in cost</div><div style={{fontSize:11,color:T.textTert}}>{pnl?"QuickBooks actual spend":"Map a QuickBooks project to load spend"}</div></div>
-              <span style={{fontSize:16,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{pnl?money(allInQB):"—"}</span>
-            </div>
-            {pnl
-              ?<div style={{borderTop:`2px solid ${T.gold}`,marginTop:8,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
-                  <div><div style={{fontSize:13,fontWeight:800,color:T.gold}}>{surplus>=0?"Surplus (unused loan funds)":"Cash invested (equity)"}</div><div style={{fontSize:11,color:T.textTert}}>Active loans − all-in cost</div></div>
-                  <span style={{fontSize:20,fontWeight:800,color:surplus>=0?T.green:T.gold,whiteSpace:"nowrap"}}>{money(Math.abs(surplus))}</span>
-                </div>
-              :<div style={{marginTop:8,fontSize:12,color:T.textTert,textAlign:"center"}}>Map this property to its QuickBooks project (QuickBooks tab) to compare against your all-in spend.</div>}
-          </div>
-        </Card>
-      )}
-    </div>
-  );
-}
-
 function FinOverview({property,onUpdate}){
   const isMobile=useIsMobile();
   const { draws } = useData();
@@ -6421,6 +6348,116 @@ function FinComingSoon({title,note}){
     </div>
   );
 }
+// ─── QuickBooks accounts picker — searchable popup to pin accounts to a property ─
+function QbAccountsPickerModal({accounts,pinnedIds,address,onToggle,onClose}){
+  const[q,setQ]=useState("");
+  const term=q.trim().toLowerCase();
+  const ranked=(accounts||[]).map(a=>({...a,score:qbMatchScore(address,a.name)})).sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name));
+  const list=term?ranked.filter(a=>[a.name,a.subType,a.type].filter(Boolean).join(" ").toLowerCase().includes(term)):ranked;
+  const inS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:240,backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:"20px 20px 0 0",width:540,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 12px"}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontWeight:700,fontSize:17,color:T.text}}>Pin QuickBooks accounts</div>
+            <div style={{fontSize:12,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{address}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,flexShrink:0}}>×</button>
+        </div>
+        <div style={{padding:"0 18px 12px",position:"relative"}}>
+          <span style={{position:"absolute",left:28,top:"50%",transform:"translateY(-50%)",fontSize:13,color:T.textTert,pointerEvents:"none"}}>🔍</span>
+          <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search accounts or address…" style={inS}/>
+        </div>
+        <div style={{overflowY:"auto",padding:"0 0 max(16px,env(safe-area-inset-bottom))"}}>
+          {list.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>{(accounts||[]).length===0?"No liability accounts found in QuickBooks.":"No accounts match your search."}</div>}
+          {list.map((a,i)=>{
+            const on=pinnedIds.includes(a.id);
+            return(
+              <label key={a.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 18px",borderTop:i===0?"none":`1px solid ${T.border}`,cursor:"pointer",background:on?T.goldLight:"transparent"}}>
+                <input type="checkbox" checked={on} onChange={()=>onToggle(a.id)} style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}{a.score>=0.7&&<span style={{marginLeft:6,fontSize:10,fontWeight:700,color:T.green}}>★ match</span>}</div>
+                  <div style={{fontSize:11,color:T.textTert}}>{a.subType||a.type}</div>
+                </div>
+                <span style={{fontSize:13,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{fmtD(a.balance)}</span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Property BS detail — pin accounts (as construction loan / interest reserve) + all-in cost
+const BS_ROLES=[["construction","Construction Loan"],["reserve","Interest Reserve"]];
+function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
+  const[pickerOpen,setPickerOpen]=useState(false);
+  const pinned=property.qbLoanAccounts||[];
+  const roles=property.qbAccountRoles||{};
+  const roleOf=(id)=>roles[id]||"construction";
+  const setRole=(id,role)=>onUpdate(property.id,"qbAccountRoles",{...roles,[id]:role});
+  const toggle=(id)=>{
+    const has=pinned.includes(id);
+    onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);
+    if(!has&&!roles[id])setRole(id,"construction");
+  };
+  const acct=(id)=>(accounts||[]).find(a=>a.id===id);
+  const sumRole=(role)=>pinned.filter(id=>roleOf(id)===role).reduce((s,id)=>s+(acct(id)?.balance||0),0);
+  const construction=sumRole("construction"), reserve=sumRole("reserve");
+  const money=(v)=>fmtD(v);
+  return(
+    <div>
+      <Card style={{marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:pinned.length?`1px solid ${T.border}`:"none"}}>
+          <div style={{fontSize:12.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Pinned Accounts</div>
+          <button onClick={()=>setPickerOpen(true)} style={{padding:"7px 13px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🔍 Search &amp; pin</button>
+        </div>
+        {pinned.length===0
+          ?<div style={{padding:"14px 16px",fontSize:13,color:T.textTert}}>No accounts pinned yet. Tap <b>Search &amp; pin</b> to find this property&rsquo;s QuickBooks accounts and pin them.</div>
+          :pinned.map(id=>{
+            const a=acct(id);
+            return(
+              <div key={id} style={{padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a?a.name:"(account not found)"}</div>
+                    {a&&<div style={{fontSize:11,color:T.textTert}}>{a.subType||a.type}</div>}
+                  </div>
+                  <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{a?money(a.balance):"—"}</span>
+                  <button onClick={()=>toggle(id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+                </div>
+                <div style={{display:"flex",gap:6,marginTop:8}}>
+                  {BS_ROLES.map(([k,l])=>{const on=roleOf(id)===k;return <button key={k} onClick={()=>setRole(id,k)} style={{padding:"5px 11px",borderRadius:20,fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub}}>{l}</button>;})}
+                </div>
+              </div>
+            );
+          })}
+      </Card>
+
+      <Card style={{border:`1px solid ${T.gold}`}}>
+        <GHeader label="Balance Sheet"/>
+        <div style={{padding:"10px 16px"}}>
+          {[["Construction Loan",construction],["Interest Reserve",reserve]].map(([l,v],i)=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"7px 0",borderTop:i?`1px solid ${T.border}`:"none"}}>
+              <span style={{fontSize:14,fontWeight:600,color:T.text}}>{l}</span>
+              <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{money(v)}</span>
+            </div>
+          ))}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"9px 0 4px",borderTop:`2px solid ${T.gold}`,marginTop:6}}>
+            <div><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>All-in cost</div><div style={{fontSize:11,color:T.textTert}}>{allInLoading?"loading…":"QuickBooks actual spend"}</div></div>
+            <span style={{fontSize:17,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{allInLoading?"…":allIn==null?"—":money(allIn)}</span>
+          </div>
+          {allIn==null&&!allInLoading&&<div style={{fontSize:11.5,color:T.textTert,marginTop:4}}>Map this property to its QuickBooks project (QuickBooks tab) to pull the all-in cost.</div>}
+        </div>
+      </Card>
+
+      {pickerOpen&&<QbAccountsPickerModal accounts={accounts} pinnedIds={pinned} address={`${property.address}${property.city?`, ${property.city}`:""}`} onToggle={toggle} onClose={()=>setPickerOpen(false)}/>}
+    </div>
+  );
+}
+
 // Owned/active properties we show on the Property Balance Sheet (excludes Under Contract).
 const BS_STATUSES=["Purchased","Under Construction","On Market","In Closing"];
 function FinPropertyBS({sharedProps,onNavigate,isMobile}){
@@ -6430,12 +6467,11 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
     .sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")),[sharedProps]);
   const[connected,setConnected]=useState(null);
   const[accounts,setAccounts]=useState(null);
-  const[spend,setSpend]=useState({}); // qbProjectId -> {loading, allIn}
+  const[spend,setSpend]=useState({});
   const[selId,setSelId]=useState(null);
   useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
   useEffect(()=>{if(!connected)return;qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[connected]);
   const projKey=props.map(p=>p.qbProjectId).filter(Boolean).join(",");
-  // Pull each mapped project's all-in spend, a few at a time so we don't hammer QuickBooks.
   useEffect(()=>{
     if(!connected)return;
     const ids=[...new Set(props.map(p=>p.qbProjectId).filter(Boolean))];
@@ -6455,34 +6491,30 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
   },[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const acctBal=(id)=>{const a=(accounts||[]).find(x=>x.id===id);return a?a.balance:0;};
-  const rows=props.map(p=>{
-    const loans=(p.qbLoanAccounts||[]).reduce((s,id)=>s+acctBal(id),0);
-    const sp=p.qbProjectId?spend[p.qbProjectId]:null;
-    const dealCost=sp&&sp.allIn!=null?sp.allIn:null; // "Deal & Cost" = QuickBooks actual spend
-    return {p,loans,dealCost,loading:!!sp?.loading};
-  });
-  const tot=rows.reduce((a,r)=>({loans:a.loans+r.loans,dealCost:a.dealCost+(r.dealCost||0)}),{loans:0,dealCost:0});
+  const roleOf=(p,id)=>(p.qbAccountRoles||{})[id]||"construction";
+  const sumRole=(p,role)=>(p.qbLoanAccounts||[]).filter(id=>roleOf(p,id)===role).reduce((s,id)=>s+acctBal(id),0);
+  const rows=props.map(p=>({p,construction:sumRole(p,"construction"),reserve:sumRole(p,"reserve")}));
+  const tot=rows.reduce((a,r)=>({construction:a.construction+r.construction,reserve:a.reserve+r.reserve}),{construction:0,reserve:0});
   const sel=(selId&&props.find(p=>p.id===selId))||(!isMobile?props[0]:null)||null;
-  const num=(v,loading)=>loading?"…":v==null?"—":fmtD(v);
-  const cols="1fr 96px 96px";
+  const cols="1fr 104px 104px";
 
   return(
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-      {/* Left: wider property list with Deal & Cost + Total Loans columns */}
-      <div style={{width:isMobile?"100%":440,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+      {/* Left: property list with Construction Loan + Interest Reserve columns */}
+      <div style={{width:isMobile?"100%":460,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"12px 16px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{fontSize:14,fontWeight:800,color:T.text}}>Property Balance Sheet</div>
           <div style={{fontSize:11.5,color:T.textTert,marginTop:1}}>{rows.length} owned {rows.length===1?"property":"properties"}</div>
         </div>
-        {connected===false&&<div style={{padding:"10px 14px",fontSize:11.5,color:"#8a6d1f",background:T.goldLight,borderBottom:`1px solid ${T.gold}`,lineHeight:1.45}}>Connect QuickBooks (any property&rsquo;s QuickBooks tab) to populate loan balances and deal cost.</div>}
+        {connected===false&&<div style={{padding:"10px 14px",fontSize:11.5,color:"#8a6d1f",background:T.goldLight,borderBottom:`1px solid ${T.gold}`,lineHeight:1.45}}>Connect QuickBooks (any property&rsquo;s QuickBooks tab) to populate account balances.</div>}
         {rows.length>0&&(
           <div style={{display:"grid",gridTemplateColumns:cols,gap:8,padding:"8px 16px",background:"#FAFAFA",borderBottom:`1px solid ${T.border}`,fontSize:9.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em"}}>
-            <span>Property</span><span style={{textAlign:"right"}}>Deal &amp; Cost</span><span style={{textAlign:"right"}}>Total Loans</span>
+            <span>Property</span><span style={{textAlign:"right"}}>Construction Loan</span><span style={{textAlign:"right"}}>Interest Reserve</span>
           </div>
         )}
         <div style={{flex:1,overflowY:"auto"}}>
           {rows.length===0&&<div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No purchased, under-construction, on-market, or in-closing properties yet.</div>}
-          {rows.map(({p,loans,dealCost,loading})=>{
+          {rows.map(({p,construction,reserve})=>{
             const sc=SC[p.status]||{};
             const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
             const active=sel&&sel.id===p.id;
@@ -6492,8 +6524,8 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
                   <div style={{fontSize:13,fontWeight:active?700:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
                   <span style={{display:"inline-block",marginTop:3,fontSize:9,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 7px",borderRadius:20}}>{p.status}</span>
                 </div>
-                <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{num(dealCost,loading)}</span>
-                <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{num(loans)}</span>
+                <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:construction?T.text:T.textTert,whiteSpace:"nowrap"}}>{fmtD(construction)}</span>
+                <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:reserve?T.text:T.textTert,whiteSpace:"nowrap"}}>{fmtD(reserve)}</span>
               </div>
             );
           })}
@@ -6501,16 +6533,17 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
         {rows.length>0&&(
           <div style={{display:"grid",gridTemplateColumns:cols,gap:8,alignItems:"center",padding:"12px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14",flexShrink:0}}>
             <span style={{fontSize:12.5,fontWeight:800,color:T.gold}}>Portfolio</span>
-            <span style={{textAlign:"right",fontSize:12.5,fontWeight:800,color:T.text}}>{fmtD(tot.dealCost)}</span>
-            <span style={{textAlign:"right",fontSize:12.5,fontWeight:800,color:T.text}}>{fmtD(tot.loans)}</span>
+            <span style={{textAlign:"right",fontSize:12.5,fontWeight:800,color:T.text}}>{fmtD(tot.construction)}</span>
+            <span style={{textAlign:"right",fontSize:12.5,fontWeight:800,color:T.text}}>{fmtD(tot.reserve)}</span>
           </div>
         )}
       </div>
-      {/* Right: selected property's breakdown (loan linking happens here) */}
+      {/* Right: detail — pin accounts here */}
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
         {sel?(()=>{
           const sc=SC[sel.status]||{};
           const addr=`${sel.address}${sel.city?`, ${sel.city}`:""}`;
+          const sp=sel.qbProjectId?spend[sel.qbProjectId]:null;
           return(
             <>
               <div style={{padding:"12px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
@@ -6522,7 +6555,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
                 {onNavigate&&<button onClick={()=>onNavigate(sel.id)} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Open →</button>}
               </div>
               <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
-                <PropertyBalanceSheetCard key={sel.id} property={sel} onUpdate={onUpdate}/>
+                <PropertyBSDetail key={sel.id} property={sel} accounts={accounts} allIn={sp&&sp.allIn!=null?sp.allIn:null} allInLoading={!!sp?.loading} onUpdate={onUpdate}/>
               </div>
             </>
           );
@@ -6530,7 +6563,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:T.textSub,padding:24,textAlign:"center"}}>
             <div style={{width:60,height:60,borderRadius:16,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>📊</div>
             <div style={{fontSize:16,fontWeight:700}}>Select a property</div>
-            <div style={{fontSize:13,color:T.textTert,maxWidth:320}}>Pick a property to link its loan accounts and see the breakdown.</div>
+            <div style={{fontSize:13,color:T.textTert,maxWidth:320}}>Pick a property to pin its loan accounts and see the breakdown.</div>
           </div>
         )}
       </div>

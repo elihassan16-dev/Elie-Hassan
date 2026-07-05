@@ -7139,6 +7139,128 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile}){
   );
 }
 
+// ─── Cash Flow Projection ─────────────────────────────────────────────────────
+// Selling / closing costs for a sale price — same rule the property page uses
+// (percentage commission, NJ transfer tax, or flat line items).
+function cfSellingOf(sp,items,flat){
+  if(items&&items.length>0){
+    return items.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe").reduce((s,i)=>{
+      if(i.autoType==="commission")return s+Math.round(n(sp)*(parseFloat(i.commissionPct||0)/100));
+      if(i.autoType==="tax"){const rtf=calcNJRTF(n(sp));return i.resp==="Seller Pays"?s+rtf.total:i.resp==="Split"?s+Math.round(rtf.total/2):s;}
+      return s+n(i.amount);
+    },0);
+  }
+  return n(flat)||0;
+}
+
+// The net CASH the owner walks away with at the closing table — NOT profit. Sale
+// price less every dollar that must be paid off at the table: selling/closing
+// costs, the line-of-credit principal + its accrued (unpaid) interest, and any
+// outstanding loans (hard money + its interest). Equity already sunk into
+// purchase/rehab is money coming BACK, so it is deliberately NOT subtracted.
+function cashFlowNet(p){
+  const f=(p&&p.financials)||{};
+  const useActual=n(f.actualSalePrice)>0;                 // prefer the contract price once set
+  const sale=useActual?n(f.actualSalePrice):n(f.salePrice);
+  const sellItems=(useActual?f.actualSellingCostItems:f.sellingCostItems)||[];
+  const sellFlat=useActual?f.actualSellingCosts:f.sellingCosts;
+  const sellingCosts=cfSellingOf(sale,sellItems,sellFlat);
+  const loc=n(f.locLoan), locInt=n(f.locInterest);
+  const hm=n(f.hmLoan), hmInt=n(f.hmInterest);
+  const payoff=loc+locInt+hm+hmInt;
+  const net=sale-sellingCosts-payoff;
+  return {sale,sellingCosts,loc,locInt,hm,hmInt,payoff,net,useActual};
+}
+
+// Group In-Closing properties by their scheduled closing MONTH and show the net
+// cash landing each month. Properties with no scheduled date fall into an
+// "Unscheduled" bucket surfaced first so they're never silently dropped.
+function CashFlowProjection({sharedProps,onNavigate,isMobile}){
+  const[openId,setOpenId]=useState(null);
+  const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const inClosing=(sharedProps||[]).filter(p=>!p.archived&&p.status==="In Closing");
+
+  // Bucket by YYYY-MM (or "unscheduled") → chronological list of month groups.
+  const groups=useMemo(()=>{
+    const byKey={};
+    inClosing.forEach(p=>{
+      const iso=(p.propertyInfo||{}).closingDateScheduled||"";
+      const m=/^(\d{4})-(\d{2})/.exec(iso);
+      const key=m?`${m[1]}-${m[2]}`:"unscheduled";
+      const label=m?`${MONTHS[parseInt(m[2],10)-1]} ${m[1]}`:"Unscheduled";
+      (byKey[key]=byKey[key]||{key,label,items:[]}).items.push(p);
+    });
+    const arr=Object.values(byKey);
+    arr.sort((a,b)=>a.key==="unscheduled"?-1:b.key==="unscheduled"?1:a.key.localeCompare(b.key));
+    arr.forEach(g=>{
+      g.items.sort((a,b)=>String((a.propertyInfo||{}).closingDateScheduled||"").localeCompare(String((b.propertyInfo||{}).closingDateScheduled||"")));
+      g.total=g.items.reduce((s,p)=>s+cashFlowNet(p).net,0);
+    });
+    return arr;
+  },[sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const grandTotal=groups.reduce((s,g)=>s+g.total,0);
+  const card={background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden",marginBottom:14};
+  const row=(label,val,color,bold)=>(
+    <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"6px 0"}}>
+      <span style={{fontSize:13,color:bold?T.text:T.textSub,fontWeight:bold?700:500}}>{label}</span>
+      <span style={{fontSize:13,fontWeight:bold?800:600,color:color||T.text}}>{fmtD(val)}</span>
+    </div>
+  );
+
+  return(
+    <div style={{flex:1,overflowY:"auto",padding:isMobile?14:24}}>
+      {/* Portfolio summary */}
+      <div style={{...card,padding:isMobile?"16px 18px":"18px 22px",background:T.goldLight,border:`1px solid ${T.gold}44`}}>
+        <div style={{fontSize:12,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Projected cash from closings</div>
+        <div style={{fontSize:isMobile?30:36,fontWeight:800,color:grandTotal<0?T.red:T.gold,marginTop:4,lineHeight:1.1}}>{fmtD(grandTotal)}</div>
+        <div style={{fontSize:12.5,color:T.textSub,marginTop:4}}>{inClosing.length} propert{inClosing.length===1?"y":"ies"} in closing · net cash to you (sale − closing costs − loan payoffs)</div>
+      </div>
+
+      {inClosing.length===0&&(
+        <div style={{textAlign:"center",color:T.textTert,fontSize:13.5,padding:"40px 24px"}}>No properties are in closing right now. Once a property moves to <b>In Closing</b>, its projected payout shows up here month by month.</div>
+      )}
+
+      {groups.map(g=>(
+        <div key={g.key} style={card}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:isMobile?"11px 16px":"12px 20px",background:T.cardAlt,borderBottom:`1px solid ${T.border}`}}>
+            <span style={{fontSize:14,fontWeight:800,color:g.key==="unscheduled"?T.orange:T.text}}>{g.label}</span>
+            <span style={{fontSize:14,fontWeight:800,color:g.total<0?T.red:T.green}}>{fmtD(g.total)}</span>
+          </div>
+          {g.items.map((p,i)=>{
+            const cf=cashFlowNet(p);
+            const open=openId===p.id;
+            const iso=(p.propertyInfo||{}).closingDateScheduled||"";
+            return(
+              <div key={p.id} style={{borderTop:i===0?"none":`1px solid ${T.border}`}}>
+                <div onClick={()=>setOpenId(open?null:p.id)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:isMobile?"11px 16px":"12px 20px",cursor:"pointer"}}>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</div>
+                    <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{iso?finFmtDate(iso):"No closing date set"}{cf.useActual?" · contract price":" · target price"} · tap for breakdown</div>
+                  </div>
+                  <span style={{fontSize:15,fontWeight:800,color:cf.net<0?T.red:T.green,flexShrink:0}}>{fmtD(cf.net)}</span>
+                </div>
+                {open&&(
+                  <div style={{padding:isMobile?"4px 16px 14px":"4px 20px 16px",background:T.cardAlt}}>
+                    {row("Sale price",cf.sale,T.text)}
+                    {row("− Closing costs",-cf.sellingCosts,T.red)}
+                    {(cf.loc>0||cf.locInt>0)&&row("− LOC principal",-cf.loc,T.red)}
+                    {(cf.loc>0||cf.locInt>0)&&row("− LOC interest (accrued)",-cf.locInt,T.red)}
+                    {cf.hm>0&&row("− Hard-money loan",-cf.hm,T.red)}
+                    {cf.hmInt>0&&row("− Hard-money interest",-cf.hmInt,T.red)}
+                    <div style={{borderTop:`1px solid ${T.border}`,marginTop:6,paddingTop:2}}>{row("Net cash at closing",cf.net,cf.net<0?T.red:T.green,true)}</div>
+                    {onNavigate&&<button onClick={(e)=>{e.stopPropagation();onNavigate(p.id);}} style={{marginTop:10,padding:"8px 14px",borderRadius:T.radiusSm,background:T.card,border:`1px solid ${T.border}`,color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Open property →</button>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function FinancialSectionPage({onNavigate}){
   const { funders, setFunders, flushFunders, draws, setDraws, flushDraws, sharedProps } = useData();
   const isMobile=useIsMobile();
@@ -7353,7 +7475,7 @@ function FinancialSectionPage({onNavigate}){
           </div>}
         </div>
         <div style={{display:"flex",gap:4,marginTop:12,overflowX:"auto"}}>
-          {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"]].map(([k,l])=>(
+          {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["flow","Cash Flow Projection"]].map(([k,l])=>(
             <button key={k} onClick={()=>{setSubTab(k);setBsSel(null);}} style={{padding:"9px 14px",border:"none",borderBottom:subTab===k?`2.5px solid ${T.gold}`:"2.5px solid transparent",background:"none",color:subTab===k?T.gold:T.textSub,fontWeight:subTab===k?800:600,fontSize:isMobile?12.5:13.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
           ))}
         </div>
@@ -7388,6 +7510,7 @@ function FinancialSectionPage({onNavigate}){
       </>}
       {subTab==="bs"&&<FinPropertyBS sharedProps={sharedProps} draws={draws} onNavigate={onNavigate} initialSelId={bsSel} isMobile={isMobile}/>}
       {subTab==="bank"&&<FinBankRecon sharedProps={sharedProps} onOpenProperty={goToBS} isMobile={isMobile}/>}
+      {subTab==="flow"&&<CashFlowProjection sharedProps={sharedProps} onNavigate={onNavigate} isMobile={isMobile}/>}
     </div>
   );
 }

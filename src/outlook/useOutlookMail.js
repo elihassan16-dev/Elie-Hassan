@@ -67,7 +67,18 @@ export function useOutlookMail() {
     return res.json();
   }, [getToken]);
 
-  const SELECT = "id,conversationId,subject,from,sender,toRecipients,ccRecipients,receivedDateTime,sentDateTime,bodyPreview,isRead,hasAttachments,webLink";
+  const SELECT = "id,conversationId,internetMessageId,subject,from,sender,toRecipients,ccRecipients,receivedDateTime,sentDateTime,bodyPreview,isRead,hasAttachments,webLink";
+
+  // Find a message in THIS mailbox by its global Internet Message-ID (same across
+  // every recipient's mailbox), so a thread pinned by one teammate can still be
+  // opened by another who was also on it. Returns {id, conversationId, ...} or null.
+  const findByInternetId = useCallback(async (internetMessageId) => {
+    if (!internetMessageId) return null;
+    try {
+      const d = await graph(`/me/messages?$filter=internetMessageId eq '${internetMessageId.replace(/'/g, "''")}'&$select=id,conversationId,subject&$top=1`);
+      return (d.value || [])[0] || null;
+    } catch { return null; }
+  }, [graph]);
 
   // Recent inbox messages, grouped into conversation "chains" (latest message per
   // conversation, with a count). One page (top N), newest first.
@@ -120,5 +131,5 @@ export function useOutlookMail() {
     });
   }, [graph]);
 
-  return { ready, account, signedIn: !!account, signIn, signOut, listChains, getConversation, getConversation2: getConversation, markRead, reply, sendNew };
+  return { ready, account, signedIn: !!account, signIn, signOut, listChains, getConversation, findByInternetId, markRead, reply, sendNew };
 }

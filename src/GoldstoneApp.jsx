@@ -1662,7 +1662,7 @@ function FinOverview({property,onUpdate}){
 }
 
 // ─── Property Detail ──────────────────────────────────────────────────────────
-const PTABS=["Financial Overview","QuickBooks","Tasks","Contacts","Files","Showings"];
+const PTABS=["Financial Overview","QuickBooks","Tasks","Contacts","Files","Emails","Showings"];
 
 // ─── Showings tab — pull ShowingTime calendar feed, match to this property ─────
 function showingMatchesProperty(text,p){
@@ -2925,6 +2925,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           </div>
         )}
         {tab==="Files"&&<FilesTab property={property} onUpdate={onUpdate}/>}
+        {tab==="Emails"&&<PropertyEmails property={property} onUpdate={onUpdate} isMobile={isMobile}/>}
         {tab==="QuickBooks"&&<QuickBooksTab property={property} onUpdate={onUpdate}/>}
         {tab==="Showings"&&<ShowingsTab property={property} onUpdate={onUpdate}/>}
       </div>
@@ -8153,6 +8154,168 @@ function EmailPage({isMobile}){
             <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
               {btn("Cancel",false,()=>!sending&&setCompose(null))}
               {btn(sending?"Sending…":"Send",true,sendCompose,{opacity:(sending||!compose.to.trim())?0.6:1,pointerEvents:(sending||!compose.to.trim())?"none":"auto"})}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Pinned email chains on a property ──────────────────────────────────────
+// Pin relevant email threads (attorney, septic, title…) to a property, and get
+// suggestions for chains whose subject/preview matches the address. Each pin
+// stores the thread's global Internet Message-ID so any teammate on the thread
+// can open it from their own mailbox.
+function propAddrTokens(property){
+  const addr=(property.address||"").toLowerCase().trim();
+  const num=(addr.match(/^\d+/)||[])[0]||"";
+  const STOP=new Set(["rd","st","ave","dr","ln","ct","blvd","way","pl","ter","road","street","avenue","drive","lane","court","boulevard","place","terrace","cir","circle"]);
+  const words=addr.replace(/^\d+\s*/,"").split(/[\s,]+/).filter(w=>w.length>2&&!STOP.has(w));
+  return {num,words};
+}
+function chainMatchesProperty(chain,property){
+  const {num,words}=propAddrTokens(property);
+  if(!words.length&&!num)return false;
+  const hay=((chain.latest.subject||"")+" "+(chain.latest.bodyPreview||"")).toLowerCase();
+  const numHit=num&&hay.includes(num);
+  const wordHit=words.some(w=>hay.includes(w));
+  return (numHit&&wordHit)||(words.length>=2&&words.every(w=>hay.includes(w)));
+}
+function PropertyEmails({property,onUpdate,isMobile}){
+  const mail=useOutlookMail();
+  const pinned=property.pinnedEmails||[];
+  const[picker,setPicker]=useState(false);
+  const[chains,setChains]=useState(null);
+  const[pickErr,setPickErr]=useState("");
+  const[q,setQ]=useState("");
+  const[viewer,setViewer]=useState(null);      // pinned email being opened
+  const[viewMsgs,setViewMsgs]=useState(null);   // resolved thread messages (or [] if not in mailbox)
+
+  const savePinned=(next)=>{onUpdate(property.id,"pinnedEmails",next);};
+  const pinChain=(c)=>{const m=c.latest;if(pinned.some(p=>p.internetMessageId&&p.internetMessageId===m.internetMessageId))return;
+    savePinned([...pinned,{id:Date.now()+"_"+Math.round(Math.random()*1e6),conversationId:c.key,internetMessageId:m.internetMessageId||"",subject:m.subject||"",from:mailAddr(m.from),fromAddr:m.from?.emailAddress?.address||"",date:m.receivedDateTime||"",preview:m.bodyPreview||""}]);};
+  const unpin=(id)=>savePinned(pinned.filter(p=>p.id!==id));
+
+  useEffect(()=>{
+    if(!picker||!mail.signedIn)return;let alive=true;setChains(null);setPickErr("");
+    mail.listChains("inbox",60).then(c=>{if(alive)setChains(c);}).catch(e=>{if(alive){setChains([]);setPickErr(e.message||"Couldn't load email.");}});
+    return ()=>{alive=false;};
+  },[picker,mail.signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Open a pinned thread: resolve it in the current user's mailbox by Message-ID.
+  useEffect(()=>{
+    if(!viewer){setViewMsgs(null);return;}let alive=true;setViewMsgs(null);
+    (async()=>{
+      let convId=null;
+      const hit=await mail.findByInternetId(viewer.internetMessageId);
+      if(hit)convId=hit.conversationId;else if(viewer.conversationId)convId=viewer.conversationId;
+      if(!convId){if(alive)setViewMsgs([]);return;}
+      try{const m=await mail.getConversation(convId);if(alive)setViewMsgs(m);}catch{if(alive)setViewMsgs([]);}
+    })();
+    return ()=>{alive=false;};
+  },[viewer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isPinned=(c)=>pinned.some(p=>(p.internetMessageId&&p.internetMessageId===c.latest.internetMessageId)||p.conversationId===c.key);
+  const term=q.trim().toLowerCase();
+  const suggestions=(chains||[]).filter(c=>!isPinned(c)&&chainMatchesProperty(c,property));
+  const others=(chains||[]).filter(c=>!isPinned(c)&&!chainMatchesProperty(c,property)&&(!term||((c.latest.subject||"")+" "+mailAddr(c.latest.from)+" "+(c.latest.bodyPreview||"")).toLowerCase().includes(term)));
+
+  const iS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  const chainRow=(c,suggested)=>(
+    <div key={c.key} style={{display:"flex",gap:10,alignItems:"center",padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.latest.subject||"(no subject)"}</div>
+        <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(c.latest.from)} · {mailWhen(c.latest.receivedDateTime)}{c.count>1?` · ${c.count}`:""}</div>
+      </div>
+      <button onClick={()=>pinChain(c)} style={{padding:"6px 13px",borderRadius:20,background:suggested?T.gold:T.goldLight,border:suggested?"none":`1px solid ${T.gold}`,color:suggested?"#fff":T.gold,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>📌 Pin</button>
+    </div>
+  );
+
+  return(
+    <div style={{padding:isMobile?"14px":"20px 24px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+        <div style={{fontSize:15,fontWeight:800,color:T.text}}>Pinned email chains</div>
+        <div style={{marginLeft:"auto"}}>
+          {mail.signedIn
+            ? <button onClick={()=>setPicker(true)} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>📌 Pin an email</button>
+            : <button onClick={()=>mail.signIn()} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.card,border:`1px solid ${T.border}`,color:T.blue,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Connect Outlook to pin</button>}
+        </div>
+      </div>
+
+      {pinned.length===0
+        ? <div style={{padding:"24px 16px",textAlign:"center",color:T.textTert,fontSize:13,background:T.card,borderRadius:T.radius,border:`1px dashed ${T.border}`}}>No emails pinned yet. Pin the chains that relate to this property — attorney, septic, title, inspection — so they live right here.</div>
+        : <div style={{background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden"}}>
+            {pinned.map((p,i)=>(
+              <div key={p.id} style={{display:"flex",gap:10,alignItems:"center",padding:"12px 16px",borderTop:i===0?"none":`1px solid ${T.border}`}}>
+                <div onClick={()=>setViewer(p)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
+                  <div style={{fontSize:13.5,fontWeight:700,color:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
+                  <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.from} · {mailWhen(p.date)}</div>
+                  {p.preview&&<div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{p.preview}</div>}
+                </div>
+                <button onClick={()=>unpin(p.id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+              </div>
+            ))}
+          </div>}
+
+      {/* Picker */}
+      {picker&&(
+        <div onClick={()=>setPicker(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+            <div style={{padding:"16px 18px 10px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div><div style={{fontWeight:800,fontSize:16,color:T.text}}>Pin an email chain</div><div style={{fontSize:11.5,color:T.textTert}}>{property.address}</div></div>
+              <button onClick={()=>setPicker(false)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+            <div style={{padding:"0 18px 12px",position:"relative"}}>
+              <span style={{position:"absolute",left:28,top:"50%",transform:"translateY(-50%)",fontSize:13,color:T.textTert}}>🔍</span>
+              <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search your email (subject, sender)…" style={iS}/>
+            </div>
+            <div style={{overflowY:"auto"}}>
+              {chains===null&&<div style={{padding:"22px 18px",textAlign:"center",color:T.textTert,fontSize:13}}>Loading your inbox…</div>}
+              {pickErr&&<div style={{padding:"16px 18px",fontSize:12.5,color:"#8a6d1f",lineHeight:1.5}}>{pickErr}<div style={{marginTop:8}}><button onClick={()=>mail.signIn()} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Grant email access</button></div></div>}
+              {chains&&!pickErr&&(
+                <>
+                  {suggestions.length>0&&<>
+                    <div style={{padding:"8px 16px 4px",fontSize:10.5,fontWeight:800,color:T.gold,textTransform:"uppercase",letterSpacing:"0.05em"}}>Suggested for this property</div>
+                    {suggestions.map(c=>chainRow(c,true))}
+                  </>}
+                  <div style={{padding:"10px 16px 4px",fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>{term?"Search results":"Recent email"}</div>
+                  {others.length===0&&<div style={{padding:"14px 16px",fontSize:12.5,color:T.textTert}}>{term?"No matches.":"Nothing else recent."}</div>}
+                  {others.map(c=>chainRow(c,false))}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Viewer */}
+      {viewer&&(
+        <div onClick={()=>setViewer(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:251,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:isMobile?"20px 20px 0 0":20,width:680,maxWidth:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+            <div style={{padding:"14px 18px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+              <div style={{flex:1,minWidth:0,fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewer.subject||"(no subject)"}</div>
+              <button onClick={()=>setViewer(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:isMobile?12:16}}>
+              {viewMsgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Opening the thread…</div>}
+              {viewMsgs&&viewMsgs.length===0&&(
+                <div style={{padding:"18px",background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`}}>
+                  <div style={{fontSize:13.5,fontWeight:700,color:T.text}}>{viewer.subject||"(no subject)"}</div>
+                  <div style={{fontSize:12,color:T.textTert,marginTop:3}}>{viewer.from} · {mailWhen(viewer.date)}</div>
+                  {viewer.preview&&<div style={{fontSize:13,color:T.textSub,marginTop:8,lineHeight:1.5}}>{viewer.preview}</div>}
+                  <div style={{fontSize:11.5,color:T.textTert,marginTop:12,lineHeight:1.5,paddingTop:10,borderTop:`1px solid ${T.border}`}}>This thread isn't in your mailbox, so the full conversation can't open here — but the pinned details above stay as a reference for the property.</div>
+                </div>
+              )}
+              {viewMsgs&&viewMsgs.map(m=>(
+                <div key={m.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,marginBottom:10,overflow:"hidden"}}>
+                  <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.border}`}}>
+                    <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</div>
+                    <div style={{fontSize:11,color:T.textTert}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div>
+                  </div>
+                  <MailBody message={m}/>
+                </div>
+              ))}
             </div>
           </div>
         </div>

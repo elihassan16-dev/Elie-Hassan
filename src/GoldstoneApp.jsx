@@ -1189,6 +1189,46 @@ function PhotosLinkCard({value,onChange}){
   );
 }
 
+// ─── Add-from-directory — a button that opens a searchable contacts picker ────
+function AddFromDirectory({avail,onAdd}){
+  const[open,setOpen]=useState(false);
+  const[q,setQ]=useState("");
+  const term=q.trim().toLowerCase();
+  const list=term?avail.filter(c=>[c.name,c.role,c.company,c.phone].filter(Boolean).join(" ").toLowerCase().includes(term)):avail;
+  const inS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  return(<>
+    <Card>
+      <button onClick={()=>{setOpen(true);setQ("");}} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"15px 16px",background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:15,fontFamily:"inherit",cursor:"pointer"}}>
+        <span style={{fontSize:18,lineHeight:1}}>＋</span> Import contacts from directory
+      </button>
+    </Card>
+    {open&&(
+      <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:220,backdropFilter:"blur(4px)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:"20px 20px 0 0",width:520,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 12px"}}>
+            <div style={{fontWeight:700,fontSize:17,color:T.text}}>Import from directory</div>
+            <button onClick={()=>setOpen(false)} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0}}>×</button>
+          </div>
+          <div style={{padding:"0 18px 12px",position:"relative"}}>
+            <span style={{position:"absolute",left:28,top:"50%",transform:"translateY(-50%)",fontSize:13,color:T.textTert,pointerEvents:"none"}}>🔍</span>
+            <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search contacts…" style={inS}/>
+          </div>
+          <div style={{overflowY:"auto",padding:"0 0 max(16px,env(safe-area-inset-bottom))"}}>
+            {list.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>{avail.length===0?"All your contacts are already linked to this property.":"No contacts match your search."}</div>}
+            {list.map((c,i)=>(
+              <div key={c.id} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 18px",borderTop:i===0?"none":`1px solid ${T.border}`}}>
+                <div style={{width:40,height:40,borderRadius:"50%",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:15,color:T.textSub,flexShrink:0}}>{(c.name||"?")[0]}</div>
+                <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:15,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{[c.role,c.phone].filter(Boolean).join(" · ")}</div></div>
+                <button onClick={()=>onAdd(c.id)} style={{padding:"6px 16px",borderRadius:20,background:T.goldLight,border:`1px solid ${T.gold}`,color:T.gold,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"inherit",flexShrink:0}}>+ Add</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
+  </>);
+}
+
 // ─── Actual Financing Popup — simple, user enters real loan amounts/rates ─────
 function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, locDraws=[], sellingDate, onSave, onClose}){
   // Auto-matched line of credit for this property → projected interest to a sell date.
@@ -2799,19 +2839,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                 ))}
               </div>
             </Card>
-            {avail.length>0&&(
-              <Card><GHeader label="Add from Contacts"/>
-                <div style={{padding:"4px 0 8px"}}>
-                  {avail.map((c,i)=>(
-                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderTop:i===0?"none":`1px solid ${T.border}`}}>
-                      <div style={{width:40,height:40,borderRadius:"50%",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:15,color:T.textSub,flexShrink:0}}>{c.name[0]}</div>
-                      <div style={{flex:1}}><div style={{fontWeight:600,fontSize:15,color:T.textSub}}>{c.name}</div><div style={{fontSize:13,color:T.textTert}}>{c.role} · {c.phone}</div></div>
-                      <button onClick={()=>addC(c.id)} style={{padding:"6px 16px",borderRadius:20,background:T.goldLight,border:`1px solid ${T.gold}`,color:T.gold,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>+ Add</button>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            )}
+            <AddFromDirectory avail={avail} onAdd={addC}/>
           </div>
         )}
         {tab==="Files"&&<FilesTab property={property} onUpdate={onUpdate}/>}
@@ -3197,19 +3225,7 @@ function LeadDetail({lead,onUpdate}){
                 ))}
               </div>
             </Card>
-            {avail.length>0&&(
-              <Card><GHeader label="Add from Contacts"/>
-                <div style={{padding:"4px 0 8px"}}>
-                  {avail.map((c,i)=>(
-                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderTop:i===0?"none":`1px solid ${T.border}`}}>
-                      <div style={{width:40,height:40,borderRadius:"50%",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:15,color:T.textSub,flexShrink:0}}>{c.name[0]}</div>
-                      <div style={{flex:1}}><div style={{fontWeight:600,fontSize:15,color:T.textSub}}>{c.name}</div><div style={{fontSize:13,color:T.textTert}}>{c.role} · {c.phone}</div></div>
-                      <button onClick={()=>addC(c.id)} style={{padding:"6px 16px",borderRadius:20,background:T.goldLight,border:`1px solid ${T.gold}`,color:T.gold,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>+ Add</button>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            )}
+            <AddFromDirectory avail={avail} onAdd={addC}/>
           </div>
         )}
       </div>

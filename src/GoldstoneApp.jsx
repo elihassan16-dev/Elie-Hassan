@@ -6463,45 +6463,105 @@ function QbAllInBreakdownModal({pnl,total,projectId,onClose}){
   );
 }
 
-// ─── Property BS detail — pinned accounts + a small balance sheet (loans vs all-in) ─
+// Stable-ish key for a QuickBooks transaction (the report has no id).
+const txKey=(t)=>[t.date,t.type,t.num,t.vendor,t.amount].join("|");
+
+// ─── Pick QuickBooks transactions to pin (down payment, deposit, etc.) ──────────
+function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
+  const isMobile=useIsMobile();
+  const[q,setQ]=useState("");
+  const term=q.trim().toLowerCase();
+  const list=[...(txns||[])].filter(t=>!term||[t.vendor,t.memo,t.type,t.account,t.date].filter(Boolean).join(" ").toLowerCase().includes(term)).sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
+  const inS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 12px"}}>
+          <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>Pin transactions</div><div style={{fontSize:12,color:T.textTert}}>Down payment, deposit, etc. — tap to pin to Construction Float</div></div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,flexShrink:0}}>×</button>
+        </div>
+        <div style={{padding:"0 18px 12px",position:"relative"}}>
+          <span style={{position:"absolute",left:28,top:"50%",transform:"translateY(-50%)",fontSize:13,color:T.textTert,pointerEvents:"none"}}>🔍</span>
+          <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search a transaction (vendor, memo, account)…" style={inS}/>
+        </div>
+        <div style={{overflowY:"auto",padding:"0 0 max(16px,env(safe-area-inset-bottom))"}}>
+          {loading&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>Loading transactions…</div>}
+          {!loading&&list.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>{(txns||[]).length===0?"No transactions on this QuickBooks project.":"No transactions match your search."}</div>}
+          {list.map((t,i)=>{
+            const on=pinnedKeys.has(txKey(t));
+            return(
+              <label key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px",borderTop:i===0?"none":`1px solid ${T.border}`,cursor:"pointer",background:on?T.goldLight:"transparent"}}>
+                <input type="checkbox" checked={on} onChange={()=>onToggle(t)} style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
+                  <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account,t.memo].filter(Boolean).join(" · ")}</div>
+                </div>
+                <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{fmtD(t.amount)}</span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Property BS detail — LOC pot, construction float, and the monthly interest reserve ─
 function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
   const[pickerOpen,setPickerOpen]=useState(false);
+  const[floatPicker,setFloatPicker]=useState(false);
   const[showBreak,setShowBreak]=useState(false);
-  const[addFor,setAddFor]=useState("");            // "loan" | "bs" — which custom-line form is open
+  const[debtOpen,setDebtOpen]=useState(false);
+  const[addFor,setAddFor]=useState("");            // which custom-line form is open (the property field key)
   const[draft,setDraft]=useState({label:"",amount:""});
   const[editAllIn,setEditAllIn]=useState(false);
   const[allInDraft,setAllInDraft]=useState("");
+  const[txns,setTxns]=useState(null);
   const pinned=property.qbLoanAccounts||[];
   const loanCustom=property.qbLoanCustom||[];
   const bsCustom=property.qbBsCustom||[];
+  const floatTxns=property.qbFloatTxns||[];
+  const floatCustom=property.qbFloatCustom||[];
   const acct=(id)=>(accounts||[]).find(a=>a.id===id);
   const money=(v)=>fmtD(v);
   const num=(v)=>{const x=parseFloat(String(v).replace(/[^0-9.-]/g,""));return isNaN(x)?0:x;};
-  // QuickBooks returns liability balances as negatives; flip so a loan shows as the
-  // positive amount owed (and Total loans − all-in reads the intuitive way).
-  const loanBal=(a)=>a?-(a.balance||0):0;
-  const SLOT=26; // fixed trailing slot so every row's amount right-aligns to the same edge
+  const loanBal=(a)=>a?-(a.balance||0):0; // QuickBooks stores liabilities as negatives; flip to positive
+  const SLOT=26;
+
+  // Project transactions (for the float picker + the debt-service drill-down).
+  useEffect(()=>{
+    if(!property.qbProjectId){setTxns([]);return;}
+    let alive=true;
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(property.qbProjectId)}`).then(d=>{if(alive)setTxns(d.items||[]);}).catch(()=>{if(alive)setTxns([]);});
+    return ()=>{alive=false;};
+  },[property.qbProjectId]);
 
   const toggle=(id)=>{const has=pinned.includes(id);onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);};
   const addCustom=(key)=>{const label=draft.label.trim();const amount=num(draft.amount);if(!label&&!amount)return;const arr=property[key]||[];onUpdate(property.id,key,[...arr,{id:Date.now(),label:label||"Adjustment",amount}]);setDraft({label:"",amount:""});setAddFor("");};
   const delCustom=(key,id)=>{onUpdate(property.id,key,(property[key]||[]).filter(l=>l.id!==id));};
+  const floatKeys=new Set(floatTxns.map(txKey));
+  const toggleFloatTx=(t)=>{const k=txKey(t);onUpdate(property.id,"qbFloatTxns",floatKeys.has(k)?floatTxns.filter(x=>txKey(x)!==k):[...floatTxns,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount}]);};
 
   const pinnedSum=pinned.reduce((s,id)=>s+loanBal(acct(id)),0);
   const loanCustomSum=loanCustom.reduce((s,l)=>s+(Number(l.amount)||0),0);
-  const totalLoans=pinnedSum+loanCustomSum;
+  const totalLoans=pinnedSum+loanCustomSum;                         // the LOC pot
+  const floatTxSum=floatTxns.reduce((s,t)=>s+(Number(t.amount)||0),0);
+  const floatCustomSum=floatCustom.reduce((s,l)=>s+(Number(l.amount)||0),0);
+  const constructionFloat=floatTxSum+floatCustomSum;
+  const debtTxns=(txns||[]).filter(t=>qbBucket(t.account)==="debt");
+  const debtServicePaid=(pnl?.rows||[]).filter(r=>r.section!=="Income"&&qbBucket(r.name)==="debt").reduce((s,r)=>s+r.amount,0);
+  const interestReserve=totalLoans-constructionFloat-debtServicePaid;
   const manual=property.qbAllInCost;
   const hasManual=manual!==undefined&&manual!==null&&manual!=="";
   const allInVal=hasManual?Number(manual):(allIn!=null?allIn:null);
   const bsCustomSum=bsCustom.reduce((s,l)=>s+(Number(l.amount)||0),0);
-  // Personal equity = money you put in = all-in cost − total loans (+ adjustments).
-  // Positive (green) = your own cash in the deal; negative (red) = loans exceed the all-in cost.
   const equity=allInVal!=null?allInVal-totalLoans+bsCustomSum:null;
 
   const inS={padding:"7px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
   const amt=(v,{size=15,weight=800,color=T.text}={})=><span style={{fontSize:size,fontWeight:weight,color,whiteSpace:"nowrap"}}>{v}</span>;
   const slot=(el)=><span style={{width:SLOT,flexShrink:0,display:"flex",justifyContent:"center"}}>{el||null}</span>;
   const xBtn=(fn,title)=><button onClick={fn} title={title} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,padding:0}}>×</button>;
-  const addBtn=(key)=><button onClick={()=>{setDraft({label:"",amount:""});setAddFor(key==="qbLoanCustom"?"loan":"bs");}} style={{width:"100%",padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add custom line</button>;
+  const addBtn=(key)=><button onClick={()=>{setDraft({label:"",amount:""});setAddFor(key);}} style={{width:"100%",padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add custom line</button>;
   const addForm=(key)=>(
     <div style={{display:"flex",gap:6,padding:"10px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
       <input autoFocus value={draft.label} onChange={e=>setDraft(d=>({...d,label:e.target.value}))} placeholder="Label" style={{...inS,flex:1,minWidth:110}}/>
@@ -6517,16 +6577,21 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
       {slot(xBtn(()=>delCustom(key,l.id),"Remove"))}
     </div>
   );
+  const subtotal=(label,val)=>(
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`2px solid ${T.border}`,background:T.bg}}>
+      <span style={{flex:1,fontSize:13,fontWeight:800,color:T.text}}>{label}</span>{amt(money(val))}{slot()}
+    </div>
+  );
 
   return(
     <div>
-      {/* Box 1 — pinned accounts + custom loan lines → Total loans */}
+      {/* LOC loans → the pot */}
       <Card style={{marginBottom:16}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}>
-          <div style={{fontSize:12.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Pinned Accounts</div>
+          <div style={{fontSize:12.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>LOC Loans</div>
           <button onClick={()=>setPickerOpen(true)} style={{padding:"7px 13px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🔍 Search &amp; pin</button>
         </div>
-        {pinned.length===0&&loanCustom.length===0&&addFor!=="loan"&&<div style={{padding:"14px 16px",fontSize:13,color:T.textTert}}>No accounts pinned yet. Tap <b>Search &amp; pin</b> to add this property&rsquo;s QuickBooks accounts, or add a custom line below.</div>}
+        {pinned.length===0&&loanCustom.length===0&&addFor!=="qbLoanCustom"&&<div style={{padding:"14px 16px",fontSize:13,color:T.textTert}}>No loans pinned yet. Tap <b>Search &amp; pin</b> to add this property&rsquo;s LOC / loan accounts (pin as many as you need), or add a manual line.</div>}
         {pinned.map(id=>{const a=acct(id);return(
           <div key={id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
             <div style={{flex:1,minWidth:0}}>
@@ -6538,15 +6603,52 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
           </div>
         );})}
         {loanCustom.map(l=>customRow("qbLoanCustom",l))}
-        {addFor==="loan"?addForm("qbLoanCustom"):addBtn("qbLoanCustom")}
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`2px solid ${T.border}`,background:T.bg}}>
-          <span style={{flex:1,fontSize:13,fontWeight:800,color:T.text}}>Total loans</span>
-          {amt(money(totalLoans))}
-          {slot()}
+        {addFor==="qbLoanCustom"?addForm("qbLoanCustom"):addBtn("qbLoanCustom")}
+        {subtotal("Total loans (pot)",totalLoans)}
+      </Card>
+
+      {/* Construction Float — money deployed to the deal (pinned transactions + manual) */}
+      <Card style={{marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}>
+          <div style={{fontSize:12.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Construction Float</div>
+          <button onClick={()=>setFloatPicker(true)} style={{padding:"7px 13px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🔍 Pin transactions</button>
+        </div>
+        {floatTxns.length===0&&floatCustom.length===0&&addFor!=="qbFloatCustom"&&<div style={{padding:"14px 16px",fontSize:13,color:T.textTert}}>Nothing deployed yet. Tap <b>Pin transactions</b> to pin the down payment, deposit, etc., or add a manual line.</div>}
+        {floatTxns.map(t=>(
+          <div key={txKey(t)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
+              <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account].filter(Boolean).join(" · ")}</div>
+            </div>
+            {amt(money(Number(t.amount)||0),{size:13.5,weight:700})}
+            {slot(xBtn(()=>toggleFloatTx(t),"Unpin"))}
+          </div>
+        ))}
+        {floatCustom.map(l=>customRow("qbFloatCustom",l))}
+        {addFor==="qbFloatCustom"?addForm("qbFloatCustom"):addBtn("qbFloatCustom")}
+        {subtotal("Construction Float",constructionFloat)}
+      </Card>
+
+      {/* Interest Reserve — pot minus what's deployed minus debt service paid to date */}
+      <Card style={{border:`1px solid ${T.gold}`,marginBottom:16}}>
+        <GHeader label="Interest Reserve"/>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
+          <span style={{flex:1,fontSize:14,fontWeight:600,color:T.text}}>LOC pot (total loans)</span>{amt(money(totalLoans))}{slot()}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
+          <span style={{flex:1,fontSize:14,color:T.text}}>Less: Construction Float</span>{amt("−"+money(constructionFloat),{weight:700})}{slot()}
+        </div>
+        <div onClick={()=>debtTxns.length&&setDebtOpen(true)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`,cursor:debtTxns.length?"pointer":"default"}}>
+          <span style={{flex:1,minWidth:0,fontSize:14,color:T.text}}>Less: Debt service paid {debtTxns.length>0&&<span style={{fontSize:11,color:T.blue,fontWeight:600}}>ⓘ {debtTxns.length}</span>}<div style={{fontSize:11,color:T.textTert}}>Monthly interest, live from QuickBooks</div></span>
+          {amt("−"+money(debtServicePaid),{weight:700})}{slot()}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 16px",background:T.gold+"14"}}>
+          <div style={{flex:1}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Interest Reserve left</div><div style={{fontSize:11,color:T.textTert}}>Pot − float − debt service</div></div>
+          {amt(money(interestReserve),{size:19,color:interestReserve>=0?T.green:T.red})}{slot()}
         </div>
       </Card>
 
-      {/* Box 2 — balance sheet: all-in cost, total loans, and personal equity (all-in − loans) */}
+      {/* Balance sheet — all-in cost, total loans, personal equity */}
       <Card style={{border:`1px solid ${T.gold}`}}>
         <GHeader label="Balance Sheet"/>
         <div style={{padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
@@ -6568,20 +6670,19 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
           {allInVal==null&&!allInLoading&&<div style={{fontSize:11.5,color:T.textTert,marginTop:4}}>Map this property to its QuickBooks project (QuickBooks tab), or tap ✎ to set a manual amount.</div>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
-          <span style={{flex:1,fontSize:14,fontWeight:600,color:T.text}}>Total loans</span>
-          {amt(money(totalLoans))}
-          {slot()}
+          <span style={{flex:1,fontSize:14,fontWeight:600,color:T.text}}>Total loans</span>{amt(money(totalLoans))}{slot()}
         </div>
         {bsCustom.map(l=>customRow("qbBsCustom",l))}
-        {addFor==="bs"?addForm("qbBsCustom"):addBtn("qbBsCustom")}
+        {addFor==="qbBsCustom"?addForm("qbBsCustom"):addBtn("qbBsCustom")}
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 16px",background:T.gold+"14"}}>
           <div style={{flex:1}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Personal equity</div><div style={{fontSize:11,color:T.textTert}}>All-in cost − total loans{bsCustom.length?" + adjustments":""}</div></div>
-          {amt(equity==null?"—":money(equity),{size:19,color:equity==null?T.textTert:(equity>=0?T.green:T.red)})}
-          {slot()}
+          {amt(equity==null?"—":money(equity),{size:19,color:equity==null?T.textTert:(equity>=0?T.green:T.red)})}{slot()}
         </div>
       </Card>
 
       {pickerOpen&&<QbAccountsPickerModal accounts={accounts} pinnedIds={pinned} address={`${property.address}${property.city?`, ${property.city}`:""}`} onToggle={toggle} onClose={()=>setPickerOpen(false)}/>}
+      {floatPicker&&<QbTxnsPickerModal txns={txns} loading={txns===null} pinnedKeys={floatKeys} onToggle={toggleFloatTx} onClose={()=>setFloatPicker(false)}/>}
+      {debtOpen&&<QbBucketTxnsModal label="Debt Service / Interest" txns={debtTxns} allTxns={txns||[]} loading={txns===null} onClose={()=>setDebtOpen(false)}/>}
       {showBreak&&pnl&&<QbAllInBreakdownModal pnl={pnl} total={allIn} projectId={property.qbProjectId} onClose={()=>setShowBreak(false)}/>}
     </div>
   );
@@ -6637,8 +6738,18 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
     return ()=>{cancelled=true;};
   },[connected,projKey,spendKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Column formulas are intentionally not computed yet — pinning only for now.
-  const rows=props.map(p=>({p}));
+  // Cover columns: Construction Float and the monthly Interest Reserve.
+  const acctBal=(id)=>{const a=(accounts||[]).find(x=>x.id===id);return a?-(a.balance||0):0;}; // flip QB liability sign
+  const potOf=(p)=>(p.qbLoanAccounts||[]).reduce((s,id)=>s+acctBal(id),0)+(p.qbLoanCustom||[]).reduce((s,l)=>s+(Number(l.amount)||0),0);
+  const floatOf=(p)=>(p.qbFloatTxns||[]).reduce((s,t)=>s+(Number(t.amount)||0),0)+(p.qbFloatCustom||[]).reduce((s,l)=>s+(Number(l.amount)||0),0);
+  const debtOf=(p)=>{const d=p.qbProjectId?spend[p.qbProjectId]?.pnl:null;return (d?.rows||[]).filter(r=>r.section!=="Income"&&qbBucket(r.name)==="debt").reduce((s,r)=>s+r.amount,0);};
+  const rows=props.map(p=>{
+    const setUp=(p.qbLoanAccounts||[]).length||(p.qbLoanCustom||[]).length||(p.qbFloatTxns||[]).length||(p.qbFloatCustom||[]).length;
+    const cf=floatOf(p);
+    const ir=potOf(p)-cf-debtOf(p);
+    return {p,cf,ir,setUp};
+  });
+  const tot=rows.reduce((a,r)=>r.setUp?{cf:a.cf+r.cf,ir:a.ir+r.ir}:a,{cf:0,ir:0});
   const sel=(selId&&props.find(p=>p.id===selId))||(!isMobile?props[0]:null)||null;
   const cols="1fr 104px 104px";
 
@@ -6661,7 +6772,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
         )}
         <div style={{flex:1,overflowY:"auto"}}>
           {rows.length===0&&<div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No purchased, under-construction, on-market, or in-closing properties yet.</div>}
-          {rows.map(({p})=>{
+          {rows.map(({p,cf,ir,setUp})=>{
             const sc=SC[p.status]||{};
             const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
             const active=sel&&sel.id===p.id;
@@ -6671,12 +6782,19 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
                   <div style={{fontSize:13,fontWeight:active?700:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
                   <span style={{display:"inline-block",marginTop:3,fontSize:9,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 7px",borderRadius:20}}>{p.status}</span>
                 </div>
-                <span style={{textAlign:"right",fontSize:12.5,color:T.textTert,whiteSpace:"nowrap"}}>—</span>
-                <span style={{textAlign:"right",fontSize:12.5,color:T.textTert,whiteSpace:"nowrap"}}>—</span>
+                <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:setUp?T.text:T.textTert,whiteSpace:"nowrap"}}>{setUp?fmtD(cf):"—"}</span>
+                <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:!setUp?T.textTert:(ir>=0?T.text:T.red),whiteSpace:"nowrap"}}>{setUp?fmtD(ir):"—"}</span>
               </div>
             );
           })}
         </div>
+        {rows.some(r=>r.setUp)&&(
+          <div style={{display:"grid",gridTemplateColumns:cols,gap:8,alignItems:"center",padding:"12px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14",flexShrink:0}}>
+            <span style={{fontSize:12.5,fontWeight:800,color:T.gold}}>Portfolio</span>
+            <span style={{textAlign:"right",fontSize:12.5,fontWeight:800,color:T.text}}>{fmtD(tot.cf)}</span>
+            <span style={{textAlign:"right",fontSize:12.5,fontWeight:800,color:tot.ir>=0?T.text:T.red}}>{fmtD(tot.ir)}</span>
+          </div>
+        )}
       </div>
       {/* Right: detail — pin accounts here */}
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>

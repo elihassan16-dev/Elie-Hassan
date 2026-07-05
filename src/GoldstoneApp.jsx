@@ -6390,22 +6390,12 @@ function QbAccountsPickerModal({accounts,pinnedIds,address,onToggle,onClose}){
   );
 }
 
-// ─── Property BS detail — pin accounts (as construction loan / interest reserve) + all-in cost
-const BS_ROLES=[["construction","Construction Float"],["reserve","Interest Reserve"]];
+// ─── Property BS detail — pin the property's QuickBooks accounts (formulas TBD) ─
 function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
   const[pickerOpen,setPickerOpen]=useState(false);
   const pinned=property.qbLoanAccounts||[];
-  const roles=property.qbAccountRoles||{};
-  const roleOf=(id)=>roles[id]||"construction";
-  const setRole=(id,role)=>onUpdate(property.id,"qbAccountRoles",{...roles,[id]:role});
-  const toggle=(id)=>{
-    const has=pinned.includes(id);
-    onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);
-    if(!has&&!roles[id])setRole(id,"construction");
-  };
+  const toggle=(id)=>{const has=pinned.includes(id);onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);};
   const acct=(id)=>(accounts||[]).find(a=>a.id===id);
-  const sumRole=(role)=>pinned.filter(id=>roleOf(id)===role).reduce((s,id)=>s+(acct(id)?.balance||0),0);
-  const construction=sumRole("construction"), reserve=sumRole("reserve");
   const money=(v)=>fmtD(v);
   return(
     <div>
@@ -6419,38 +6409,25 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
           :pinned.map(id=>{
             const a=acct(id);
             return(
-              <div key={id} style={{padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
-                <div style={{display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a?a.name:"(account not found)"}</div>
-                    {a&&<div style={{fontSize:11,color:T.textTert}}>{a.subType||a.type}</div>}
-                  </div>
-                  <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{a?money(a.balance):"—"}</span>
-                  <button onClick={()=>toggle(id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+              <div key={id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a?a.name:"(account not found)"}</div>
+                  {a&&<div style={{fontSize:11,color:T.textTert}}>{a.subType||a.type}</div>}
                 </div>
-                <div style={{display:"flex",gap:6,marginTop:8}}>
-                  {BS_ROLES.map(([k,l])=>{const on=roleOf(id)===k;return <button key={k} onClick={()=>setRole(id,k)} style={{padding:"5px 11px",borderRadius:20,fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub}}>{l}</button>;})}
-                </div>
+                <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{a?money(a.balance):"—"}</span>
+                <button onClick={()=>toggle(id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
               </div>
             );
           })}
       </Card>
 
-      <Card style={{border:`1px solid ${T.gold}`}}>
-        <GHeader label="Balance Sheet"/>
-        <div style={{padding:"10px 16px"}}>
-          {[["Construction Float",construction],["Interest Reserve",reserve]].map(([l,v],i)=>(
-            <div key={l} style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"7px 0",borderTop:i?`1px solid ${T.border}`:"none"}}>
-              <span style={{fontSize:14,fontWeight:600,color:T.text}}>{l}</span>
-              <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{money(v)}</span>
-            </div>
-          ))}
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"9px 0 4px",borderTop:`2px solid ${T.gold}`,marginTop:6}}>
-            <div><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>All-in cost</div><div style={{fontSize:11,color:T.textTert}}>{allInLoading?"loading…":"QuickBooks actual spend"}</div></div>
-            <span style={{fontSize:17,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{allInLoading?"…":allIn==null?"—":money(allIn)}</span>
-          </div>
-          {allIn==null&&!allInLoading&&<div style={{fontSize:11.5,color:T.textTert,marginTop:4}}>Map this property to its QuickBooks project (QuickBooks tab) to pull the all-in cost.</div>}
+      <Card>
+        <GHeader label="All-in Cost"/>
+        <div style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+          <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>All-in cost</div><div style={{fontSize:11,color:T.textTert}}>{allInLoading?"loading…":"QuickBooks actual spend"}</div></div>
+          <span style={{fontSize:17,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{allInLoading?"…":allIn==null?"—":money(allIn)}</span>
         </div>
+        {allIn==null&&!allInLoading&&<div style={{fontSize:11.5,color:T.textTert,padding:"0 16px 12px"}}>Map this property to its QuickBooks project (QuickBooks tab) to pull the all-in cost.</div>}
       </Card>
 
       {pickerOpen&&<QbAccountsPickerModal accounts={accounts} pinnedIds={pinned} address={`${property.address}${property.city?`, ${property.city}`:""}`} onToggle={toggle} onClose={()=>setPickerOpen(false)}/>}
@@ -6490,11 +6467,8 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
     return ()=>{cancelled=true;};
   },[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const acctBal=(id)=>{const a=(accounts||[]).find(x=>x.id===id);return a?a.balance:0;};
-  const roleOf=(p,id)=>(p.qbAccountRoles||{})[id]||"construction";
-  const sumRole=(p,role)=>(p.qbLoanAccounts||[]).filter(id=>roleOf(p,id)===role).reduce((s,id)=>s+acctBal(id),0);
-  const rows=props.map(p=>({p,construction:sumRole(p,"construction"),reserve:sumRole(p,"reserve")}));
-  const tot=rows.reduce((a,r)=>({construction:a.construction+r.construction,reserve:a.reserve+r.reserve}),{construction:0,reserve:0});
+  // Column formulas are intentionally not computed yet — pinning only for now.
+  const rows=props.map(p=>({p}));
   const sel=(selId&&props.find(p=>p.id===selId))||(!isMobile?props[0]:null)||null;
   const cols="1fr 104px 104px";
 
@@ -6514,7 +6488,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
         )}
         <div style={{flex:1,overflowY:"auto"}}>
           {rows.length===0&&<div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No purchased, under-construction, on-market, or in-closing properties yet.</div>}
-          {rows.map(({p,construction,reserve})=>{
+          {rows.map(({p})=>{
             const sc=SC[p.status]||{};
             const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
             const active=sel&&sel.id===p.id;
@@ -6524,19 +6498,12 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
                   <div style={{fontSize:13,fontWeight:active?700:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
                   <span style={{display:"inline-block",marginTop:3,fontSize:9,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 7px",borderRadius:20}}>{p.status}</span>
                 </div>
-                <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:construction?T.text:T.textTert,whiteSpace:"nowrap"}}>{fmtD(construction)}</span>
-                <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:reserve?T.text:T.textTert,whiteSpace:"nowrap"}}>{fmtD(reserve)}</span>
+                <span style={{textAlign:"right",fontSize:12.5,color:T.textTert,whiteSpace:"nowrap"}}>—</span>
+                <span style={{textAlign:"right",fontSize:12.5,color:T.textTert,whiteSpace:"nowrap"}}>—</span>
               </div>
             );
           })}
         </div>
-        {rows.length>0&&(
-          <div style={{display:"grid",gridTemplateColumns:cols,gap:8,alignItems:"center",padding:"12px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14",flexShrink:0}}>
-            <span style={{fontSize:12.5,fontWeight:800,color:T.gold}}>Portfolio</span>
-            <span style={{textAlign:"right",fontSize:12.5,fontWeight:800,color:T.text}}>{fmtD(tot.construction)}</span>
-            <span style={{textAlign:"right",fontSize:12.5,fontWeight:800,color:T.text}}>{fmtD(tot.reserve)}</span>
-          </div>
-        )}
       </div>
       {/* Right: detail — pin accounts here */}
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>

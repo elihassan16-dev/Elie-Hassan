@@ -1,5 +1,5 @@
 // Deploy trigger: publish latest Financial Section (reinvest register) to production.
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from "react";
 import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";
 import { useOneDrive } from "./onedrive/useOneDrive";
@@ -1642,6 +1642,9 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const[agentSearch,setAgentSearch]=useState("");
   const[addNumFor,setAddNumFor]=useState(null); // which row's "add number" input is open
   const[numDraft,setNumDraft]=useState("");
+  const[dateMode,setDateMode]=useState("all"); // all | 3d | 7d | custom
+  const[cFrom,setCFrom]=useState("");
+  const[cTo,setCTo]=useState("");
   const extraPhones=(s)=>showingPhones[showingKey(s)]||[];
   const addShowingPhone=(s)=>{const n=numDraft.trim();if(!n)return;const k=showingKey(s);onUpdate(property.id,"showingPhones",{...showingPhones,[k]:[...(showingPhones[k]||[]),n]});setNumDraft("");setAddNumFor(null);saveNow();};
   const addLeadPhone=(l)=>{const n=numDraft.trim();if(!n)return;const phone=(l.phone?l.phone+", ":"")+n;onUpdate(property.id,"customLeads",customLeads.map(x=>x.id===l.id?{...x,phone}:x));setNumDraft("");setAddNumFor(null);saveNow();};
@@ -1790,8 +1793,14 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const aq=agentSearch.trim().toLowerCase();
   const showingSearchOk=(s)=>!aq||[s.agent,s.broker,s.summary,s.phone].filter(Boolean).join(" ").toLowerCase().includes(aq);
   const leadSearchOk=(l)=>!aq||[l.name,l.phone].filter(Boolean).join(" ").toLowerCase().includes(aq);
-  const upcomingShown=upcoming.filter(s=>notNot(leadMap[showingKey(s)])&&showingSearchOk(s));
-  const pastShown=past.filter(s=>notNot(leadMap[showingKey(s)])&&showingSearchOk(s));
+  // Date-window filter: presets show showings from N days ago onward (keeping
+  // upcoming visible); custom picks an explicit from/to range.
+  const dayMs=86400000, nowMs=Date.now();
+  const rFrom=dateMode==="3d"?nowMs-3*dayMs:dateMode==="7d"?nowMs-7*dayMs:dateMode==="custom"&&cFrom?new Date(cFrom+"T00:00:00").getTime():-Infinity;
+  const rTo=dateMode==="custom"&&cTo?new Date(cTo+"T23:59:59").getTime():Infinity;
+  const inRange=(ts)=>ts>=rFrom&&ts<=rTo;
+  const upcomingShown=upcoming.filter(s=>notNot(leadMap[showingKey(s)])&&showingSearchOk(s)&&inRange(s.ts));
+  const pastShown=past.filter(s=>notNot(leadMap[showingKey(s)])&&showingSearchOk(s)&&inRange(s.ts));
   const leadsShown=customLeads.filter(l=>notNot(l.lead)&&leadSearchOk(l));
   const hiddenCount=(past.length-pastShown.length)+(customLeads.length-leadsShown.length)+(upcoming.length-upcomingShown.length);
   return(<>
@@ -1801,6 +1810,19 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         style={{width:"100%",padding:"9px 12px 9px 30px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,fontSize:13.5,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
       {agentSearch&&<button onClick={()=>setAgentSearch("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>}
     </div>
+    <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+      {[["all","All dates"],["3d","Last 3 days"],["7d","Last 7 days"],["custom","Custom"]].map(([k,label])=>{
+        const on=dateMode===k;
+        return <button key={k} onClick={()=>setDateMode(k)} style={{padding:"6px 12px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub}}>{label}</button>;
+      })}
+    </div>
+    {dateMode==="custom"&&(
+      <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
+        <input type="date" value={cFrom} onChange={e=>setCFrom(e.target.value)} style={{padding:"7px 9px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none"}}/>
+        <span style={{color:T.textTert,fontSize:12}}>to</span>
+        <input type="date" value={cTo} onChange={e=>setCTo(e.target.value)} style={{padding:"7px 9px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none"}}/>
+      </div>
+    )}
     <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:12.5,color:T.textSub,cursor:"pointer"}}>
       <input type="checkbox" checked={hideNot} onChange={toggleHide} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>
       Hide "not interested" leads{hideNot&&hiddenCount>0?` (${hiddenCount} hidden)`:""}
@@ -1948,13 +1970,14 @@ function ShowingsPage(){
 
   const all=showings||[];
   const cutoff=Date.now()-3600000;
+  const statusRank=(s)=>s==="On Market"?0:1; // On Market group first, then In Closing
   const rows=sharedProps.filter(p=>!p.archived&&(p.status==="On Market"||p.status==="In Closing"))
     .map(p=>{
       const mine=matchedShowings(all,p);
       const upTs=mine.filter(s=>s.ts>=cutoff).map(s=>s.ts).sort((a,b)=>a-b);
       return {p,total:mine.length,upcoming:upTs.length,next:upTs[0]??Infinity};
     })
-    .sort((a,b)=>a.next-b.next||b.total-a.total||a.p.address.localeCompare(b.p.address));
+    .sort((a,b)=>statusRank(a.p.status)-statusRank(b.p.status)||a.next-b.next||b.total-a.total||a.p.address.localeCompare(b.p.address));
   const totalUpcoming=rows.reduce((n,x)=>n+x.upcoming,0);
   const q=search.toLowerCase();
   const list=rows.filter(x=>(x.p.address+" "+(x.p.city||"")).toLowerCase().includes(q));
@@ -1983,12 +2006,14 @@ function ShowingsPage(){
         <div style={{flex:1,overflowY:"auto"}}>
           {loading&&<div style={{padding:16,color:T.textSub,fontSize:13}}>Loading showings…</div>}
           {error&&<div style={{margin:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:12.5}}>{error}</div>}
-          {!loading&&list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{rows.length===0?"No properties are on market.":"No matches."}</div>}
-          {list.map(({p,total,upcoming})=>{
+          {!loading&&list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{rows.length===0?"No properties are on market or in closing.":"No matches."}</div>}
+          {(()=>{let lastStatus=null;return list.map(({p,total,upcoming})=>{
             const active=sel&&sel.id===p.id;
             const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
             const sc=SC[p.status]||{};
-            return(
+            const groupHdr=p.status!==lastStatus?p.status:null; lastStatus=p.status;
+            return(<Fragment key={p.id}>
+              {groupHdr&&<div style={{padding:"9px 14px 5px",fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",background:T.bg}}>{groupHdr}</div>}
               <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:active?T.goldLight:"transparent",borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{flex:1,minWidth:0,fontWeight:active?700:600,fontSize:13,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</span>
@@ -1999,8 +2024,8 @@ function ShowingsPage(){
                   <span style={{fontSize:11,color:T.textSub}}>{upcoming>0?`${upcoming} upcoming`:total>0?"No upcoming":"No showings yet"}{total>0?` · ${total} total`:""}</span>
                 </div>
               </div>
-            );
-          })}
+            </Fragment>);
+          });})()}
         </div>
         {isAdmin&&status.configured&&(
           <div style={{padding:"10px 14px",borderTop:`1px solid ${T.border}`,fontSize:11,color:T.textTert,flexShrink:0}}>

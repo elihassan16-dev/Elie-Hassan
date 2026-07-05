@@ -6561,8 +6561,26 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
   const[accounts,setAccounts]=useState(null);
   const[spend,setSpend]=useState({});
   const[selId,setSelId]=useState(null);
+  const[acctKey,setAcctKey]=useState(0);   // bump to refetch QuickBooks account balances
+  const[spendKey,setSpendKey]=useState(0);  // bump to refetch project all-in spend
+  const[refreshing,setRefreshing]=useState(false);
+  const refreshAll=useCallback(()=>{setRefreshing(true);setAcctKey(k=>k+1);setSpendKey(k=>k+1);},[]);
   useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
-  useEffect(()=>{if(!connected)return;qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[connected]);
+  // Live account balances — refetch on load, on refresh, and update in place (no flash).
+  useEffect(()=>{
+    if(!connected)return;let alive=true;
+    qbAuthFetch("/api/quickbooks/accounts").then(d=>{if(alive){setAccounts(d.items||[]);setRefreshing(false);}}).catch(()=>{if(alive){setAccounts(a=>a||[]);setRefreshing(false);}});
+    return ()=>{alive=false;};
+  },[connected,acctKey]);
+  // Keep balances fresh: pull accounts every 60s and whenever the tab is refocused.
+  useEffect(()=>{
+    if(!connected)return;
+    const onShow=()=>{if(document.visibilityState==="visible"){setAcctKey(k=>k+1);setSpendKey(k=>k+1);}};
+    const iv=setInterval(()=>setAcctKey(k=>k+1),60000);
+    window.addEventListener("focus",onShow);
+    document.addEventListener("visibilitychange",onShow);
+    return ()=>{clearInterval(iv);window.removeEventListener("focus",onShow);document.removeEventListener("visibilitychange",onShow);};
+  },[connected]);
   const projKey=props.map(p=>p.qbProjectId).filter(Boolean).join(",");
   useEffect(()=>{
     if(!connected)return;
@@ -6580,7 +6598,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
     };
     Promise.all([run(),run(),run(),run()]);
     return ()=>{cancelled=true;};
-  },[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[connected,projKey,spendKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Column formulas are intentionally not computed yet — pinning only for now.
   const rows=props.map(p=>({p}));
@@ -6591,9 +6609,12 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
       {/* Left: property list with Construction Float + Interest Reserve columns */}
       <div style={{width:isMobile?"100%":460,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
-        <div style={{padding:"12px 16px 10px",borderBottom:`1px solid ${T.border}`}}>
-          <div style={{fontSize:14,fontWeight:800,color:T.text}}>Property Balance Sheet</div>
-          <div style={{fontSize:11.5,color:T.textTert,marginTop:1}}>{rows.length} owned {rows.length===1?"property":"properties"}</div>
+        <div style={{padding:"12px 16px 10px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:800,color:T.text}}>Property Balance Sheet</div>
+            <div style={{fontSize:11.5,color:T.textTert,marginTop:1}}>{rows.length} owned {rows.length===1?"property":"properties"} · live from QuickBooks</div>
+          </div>
+          {connected&&<button onClick={refreshAll} title="Refresh balances from QuickBooks" style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>{refreshing?"↻ …":"↻ Refresh"}</button>}
         </div>
         {connected===false&&<div style={{padding:"10px 14px",fontSize:11.5,color:"#8a6d1f",background:T.goldLight,borderBottom:`1px solid ${T.gold}`,lineHeight:1.45}}>Connect QuickBooks (any property&rsquo;s QuickBooks tab) to populate account balances.</div>}
         {rows.length>0&&(

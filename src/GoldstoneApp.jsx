@@ -2162,6 +2162,22 @@ function QuickBooksTab({property,onUpdate}){
     qbAuthFetch("/api/quickbooks/projects").then(d=>setProjects(d.items||[])).catch(e=>setError(e.message));
   },[status,projects]);
 
+  // QuickBooks liability accounts (LOC, hard-money notes) for the loan-linking picker.
+  const[accounts,setAccounts]=useState(null);
+  useEffect(()=>{
+    if(!status?.connected||accounts)return;
+    qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));
+  },[status,accounts]);
+  const linkedLoanIds=property.qbLoanAccounts||[];
+  const toggleLoan=(id)=>{const has=linkedLoanIds.includes(id);onUpdate(property.id,"qbLoanAccounts",has?linkedLoanIds.filter(x=>x!==id):[...linkedLoanIds,id]);};
+  const loanAccts=(accounts||[]).filter(a=>linkedLoanIds.includes(a.id));
+  const activeLoans=loanAccts.reduce((s,a)=>s+(a.balance||0),0);
+  // Rank accounts so any that match this property's address surface first.
+  const rankedAccounts=useMemo(()=>{
+    if(!accounts)return[];
+    return accounts.map(a=>({...a,score:qbMatchScore(property.address,a.name)})).sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name));
+  },[accounts,property.address]);
+
   // Ranked suggested projects for this property's address (best first).
   const suggestions=useMemo(()=>{
     if(!projects)return [];
@@ -2322,6 +2338,58 @@ function QuickBooksTab({property,onUpdate}){
           </div>
         )}
       </Card>
+
+      {/* Active loans — link the QuickBooks liability accounts (LOC, hard money) financing this property */}
+      <Card style={{marginBottom:16}}>
+        <GHeader label="Active Loans (QuickBooks)"/>
+        <div style={{padding:"10px 16px 4px",fontSize:12,color:T.textTert,lineHeight:1.5}}>Pick the QuickBooks liability accounts financing this property — your line of credit, hard-money note, etc. Balances update live from QuickBooks.</div>
+        {accounts===null&&<div style={{padding:"8px 16px 14px",fontSize:12,color:T.textTert}}>Loading accounts…</div>}
+        {accounts&&accounts.length===0&&<div style={{padding:"8px 16px 14px",fontSize:12,color:T.textTert}}>No liability accounts found in QuickBooks.</div>}
+        {accounts&&accounts.length>0&&(
+          <div style={{padding:"4px 8px 10px"}}>
+            {rankedAccounts.map(a=>{
+              const on=linkedLoanIds.includes(a.id);
+              return(
+                <label key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 8px",borderRadius:T.radiusSm,cursor:"pointer",background:on?T.goldLight:"transparent"}}>
+                  <input type="checkbox" checked={on} onChange={()=>toggleLoan(a.id)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}{a.score>=0.7&&<span style={{marginLeft:6,fontSize:10,fontWeight:700,color:T.green}}>★ match</span>}</div>
+                    <div style={{fontSize:11,color:T.textTert}}>{a.subType||a.type}</div>
+                  </div>
+                  <span style={{fontSize:13,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{money(a.balance)}</span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      {/* Property Balance Sheet — active loans vs all-in cost (QuickBooks spend) vs surplus */}
+      {linkedLoanIds.length>0&&(()=>{
+        const allInQB=(pnl?.expenses||0)+(pnl?.cogs||0); // QuickBooks actual spend for this project
+        const surplus=activeLoans-allInQB;
+        return(
+          <Card style={{marginBottom:16,border:`1px solid ${T.gold}`}}>
+            <GHeader label="Property Balance Sheet"/>
+            <div style={{padding:"12px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"6px 0"}}>
+                <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Active loans</div><div style={{fontSize:11,color:T.textTert}}>{loanAccts.length} account{loanAccts.length!==1?"s":""} · live from QuickBooks</div></div>
+                <span style={{fontSize:16,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{money(activeLoans)}</span>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"6px 0",borderTop:`1px solid ${T.border}`}}>
+                <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>All-in cost</div><div style={{fontSize:11,color:T.textTert}}>{pnl?"QuickBooks actual spend":"Map a project above to load spend"}</div></div>
+                <span style={{fontSize:16,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{pnl?money(allInQB):"—"}</span>
+              </div>
+              {pnl
+                ?<div style={{borderTop:`2px solid ${T.gold}`,marginTop:8,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                    <div><div style={{fontSize:13,fontWeight:800,color:T.gold}}>{surplus>=0?"Surplus (unused loan funds)":"Cash invested (equity)"}</div><div style={{fontSize:11,color:T.textTert}}>Active loans − all-in cost</div></div>
+                    <span style={{fontSize:20,fontWeight:800,color:surplus>=0?T.green:T.gold,whiteSpace:"nowrap"}}>{money(Math.abs(surplus))}</span>
+                  </div>
+                :<div style={{marginTop:8,fontSize:12,color:T.textTert,textAlign:"center"}}>Map this property to its QuickBooks project above to compare against your all-in spend.</div>}
+            </div>
+          </Card>
+        );
+      })()}
 
       {error&&<div style={{marginBottom:14,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>
         <div style={{marginBottom:8,wordBreak:"break-word"}}>{error}</div>

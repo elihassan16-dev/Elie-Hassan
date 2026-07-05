@@ -6403,12 +6403,16 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
   const acct=(id)=>(accounts||[]).find(a=>a.id===id);
   const money=(v)=>fmtD(v);
   const num=(v)=>{const x=parseFloat(String(v).replace(/[^0-9.-]/g,""));return isNaN(x)?0:x;};
+  // QuickBooks returns liability balances as negatives; flip so a loan shows as the
+  // positive amount owed (and Total loans − all-in reads the intuitive way).
+  const loanBal=(a)=>a?-(a.balance||0):0;
+  const SLOT=26; // fixed trailing slot so every row's amount right-aligns to the same edge
 
   const toggle=(id)=>{const has=pinned.includes(id);onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);};
   const addCustom=(key)=>{const label=draft.label.trim();const amount=num(draft.amount);if(!label&&!amount)return;const arr=property[key]||[];onUpdate(property.id,key,[...arr,{id:Date.now(),label:label||"Adjustment",amount}]);setDraft({label:"",amount:""});setAddFor("");};
   const delCustom=(key,id)=>{onUpdate(property.id,key,(property[key]||[]).filter(l=>l.id!==id));};
 
-  const pinnedSum=pinned.reduce((s,id)=>s+(acct(id)?.balance||0),0);
+  const pinnedSum=pinned.reduce((s,id)=>s+loanBal(acct(id)),0);
   const loanCustomSum=loanCustom.reduce((s,l)=>s+(Number(l.amount)||0),0);
   const totalLoans=pinnedSum+loanCustomSum;
   const manual=property.qbAllInCost;
@@ -6418,6 +6422,9 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
   const net=allInVal!=null?totalLoans-allInVal+bsCustomSum:null;
 
   const inS={padding:"7px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
+  const amt=(v,{size=15,weight=800,color=T.text}={})=><span style={{fontSize:size,fontWeight:weight,color,whiteSpace:"nowrap"}}>{v}</span>;
+  const slot=(el)=><span style={{width:SLOT,flexShrink:0,display:"flex",justifyContent:"center"}}>{el||null}</span>;
+  const xBtn=(fn,title)=><button onClick={fn} title={title} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,padding:0}}>×</button>;
   const addBtn=(key)=><button onClick={()=>{setDraft({label:"",amount:""});setAddFor(key==="qbLoanCustom"?"loan":"bs");}} style={{width:"100%",padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add custom line</button>;
   const addForm=(key)=>(
     <div style={{display:"flex",gap:6,padding:"10px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
@@ -6430,8 +6437,8 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
   const customRow=(key,l)=>(
     <div key={l.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
       <span style={{flex:1,minWidth:0,fontSize:13.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label} <span style={{fontSize:10,color:T.textTert}}>· manual</span></span>
-      <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{money(Number(l.amount)||0)}</span>
-      <button onClick={()=>delCustom(key,l.id)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+      {amt(money(Number(l.amount)||0),{size:13.5,weight:700})}
+      {slot(xBtn(()=>delCustom(key,l.id),"Remove"))}
     </div>
   );
 
@@ -6450,49 +6457,51 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
               <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a?a.name:"(account not found)"}</div>
               {a&&<div style={{fontSize:11,color:T.textTert}}>{a.subType||a.type}</div>}
             </div>
-            <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{a?money(a.balance):"—"}</span>
-            <button onClick={()=>toggle(id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+            {amt(a?money(loanBal(a)):"—",{size:13.5,weight:700})}
+            {slot(xBtn(()=>toggle(id),"Unpin"))}
           </div>
         );})}
         {loanCustom.map(l=>customRow("qbLoanCustom",l))}
         {addFor==="loan"?addForm("qbLoanCustom"):addBtn("qbLoanCustom")}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"11px 16px",borderTop:`2px solid ${T.border}`,background:T.bg}}>
-          <span style={{fontSize:13,fontWeight:800,color:T.text}}>Total loans</span>
-          <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{money(totalLoans)}</span>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`2px solid ${T.border}`,background:T.bg}}>
+          <span style={{flex:1,fontSize:13,fontWeight:800,color:T.text}}>Total loans</span>
+          {amt(money(totalLoans))}
+          {slot()}
         </div>
       </Card>
 
       {/* Box 2 — balance sheet: Total loans − all-in cost (± custom adjustments) */}
       <Card style={{border:`1px solid ${T.gold}`}}>
         <GHeader label="Balance Sheet"/>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
-          <span style={{fontSize:14,fontWeight:600,color:T.text}}>Total loans</span>
-          <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{money(totalLoans)}</span>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
+          <span style={{flex:1,fontSize:14,fontWeight:600,color:T.text}}>Total loans</span>
+          {amt(money(totalLoans))}
+          {slot()}
         </div>
         <div style={{padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10}}>
-            <div style={{minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:14,fontWeight:600,color:T.text}}>All-in cost</div>
-              <div style={{fontSize:11,color:T.textTert}}>{hasManual?"manual entry":allInLoading?"loading…":"QuickBooks actual spend"}</div>
+              <div style={{fontSize:11,color:T.textTert}}>
+                {hasManual
+                  ?<>manual · <span onClick={()=>onUpdate(property.id,"qbAllInCost","")} style={{color:T.blue,cursor:"pointer",fontWeight:600}}>use QuickBooks</span></>
+                  :allInLoading?"loading…":"QuickBooks actual spend"}
+              </div>
             </div>
             {editAllIn
-              ?<div style={{display:"flex",gap:6,alignItems:"center"}}>
-                 <input autoFocus value={allInDraft} onChange={e=>setAllInDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){onUpdate(property.id,"qbAllInCost",String(num(allInDraft)));setEditAllIn(false);}}} placeholder="Amount" inputMode="decimal" style={{...inS,width:120,textAlign:"right"}}/>
-                 <button onClick={()=>{onUpdate(property.id,"qbAllInCost",String(num(allInDraft)));setEditAllIn(false);}} style={{padding:"6px 10px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
-               </div>
-              :<div style={{display:"flex",gap:8,alignItems:"center"}}>
-                 <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{allInVal==null?(allInLoading?"…":"—"):money(allInVal)}</span>
-                 <button onClick={()=>{setAllInDraft(allInVal!=null?String(allInVal):"");setEditAllIn(true);}} title="Set manually" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>✎</button>
-                 {hasManual&&<button onClick={()=>onUpdate(property.id,"qbAllInCost","")} title="Use QuickBooks value" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>}
-               </div>}
+              ?<><input autoFocus value={allInDraft} onChange={e=>setAllInDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){onUpdate(property.id,"qbAllInCost",String(num(allInDraft)));setEditAllIn(false);}}} placeholder="Amount" inputMode="decimal" style={{...inS,width:120,textAlign:"right"}}/>
+                 {slot(<button onClick={()=>{onUpdate(property.id,"qbAllInCost",String(num(allInDraft)));setEditAllIn(false);}} style={{background:"none",border:"none",color:T.gold,cursor:"pointer",fontSize:15,fontWeight:800,fontFamily:"inherit",padding:0}}>✓</button>)}</>
+              :<><span onClick={()=>{setAllInDraft(allInVal!=null?String(allInVal):"");setEditAllIn(true);}} style={{cursor:"pointer"}}>{amt(allInVal==null?(allInLoading?"…":"—"):money(allInVal))}</span>
+                 {slot(<button onClick={()=>{setAllInDraft(allInVal!=null?String(allInVal):"");setEditAllIn(true);}} title="Edit" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:0}}>✎</button>)}</>}
           </div>
-          {allInVal==null&&!allInLoading&&<div style={{fontSize:11.5,color:T.textTert,marginTop:4}}>Map this property to its QuickBooks project (QuickBooks tab), or set a manual amount with ✎.</div>}
+          {allInVal==null&&!allInLoading&&<div style={{fontSize:11.5,color:T.textTert,marginTop:4}}>Map this property to its QuickBooks project (QuickBooks tab), or tap ✎ to set a manual amount.</div>}
         </div>
         {bsCustom.map(l=>customRow("qbBsCustom",l))}
         {addFor==="bs"?addForm("qbBsCustom"):addBtn("qbBsCustom")}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"13px 16px",background:T.gold+"14"}}>
-          <div><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Net</div><div style={{fontSize:11,color:T.textTert}}>Total loans − all-in cost{bsCustom.length?" + adjustments":""}</div></div>
-          <span style={{fontSize:19,fontWeight:800,color:net==null?T.textTert:(net>=0?T.green:T.red),whiteSpace:"nowrap"}}>{net==null?"—":money(net)}</span>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 16px",background:T.gold+"14"}}>
+          <div style={{flex:1}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Net</div><div style={{fontSize:11,color:T.textTert}}>Total loans − all-in cost{bsCustom.length?" + adjustments":""}</div></div>
+          {amt(net==null?"—":money(net),{size:19,color:net==null?T.textTert:(net>=0?T.green:T.red)})}
+          {slot()}
         </div>
       </Card>
 

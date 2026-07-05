@@ -1163,6 +1163,32 @@ function TotalGridRow({label,pVal,aVal,showActual,color,dimP}){
   );
 }
 
+// ─── Link to photos — collapses to a tidy blue "Photos" link once one is set ──
+function PhotosLinkCard({value,onChange}){
+  const[editing,setEditing]=useState(false);
+  const has=!!(value&&String(value).trim());
+  const show=editing||!has;                       // input shows while empty or being edited
+  const url=has?((String(value).match(/https?:\/\/\S+/)||[String(value).trim()])[0]):"";
+  const inS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:12.5,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  const btn={border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontSize:12.5,fontWeight:600,padding:"7px 13px",borderRadius:8,cursor:"pointer",fontFamily:"inherit",flexShrink:0};
+  return(
+    <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
+      <SectionHdr icon="🖼️" label="LINK TO PHOTOS" color="#FFF1E6"/>
+      <div style={{padding:"14px 16px"}}>
+        {!show
+          ?<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+             <a href={url} target="_blank" rel="noopener noreferrer" style={{fontSize:15,color:T.blue,fontWeight:600,textDecoration:"underline",display:"inline-flex",alignItems:"center",gap:7}}>🖼️ Photos</a>
+             <button onClick={()=>setEditing(true)} style={btn}>Edit</button>
+           </div>
+          :<div style={{display:"flex",alignItems:"center",gap:8}}>
+             <input value={value||""} onChange={e=>onChange(e.target.value)} placeholder="Paste photos link…" autoFocus={editing} style={inS}/>
+             {has&&<button onClick={()=>setEditing(false)} style={{...btn,borderColor:T.gold,color:T.gold,fontWeight:700}}>Done</button>}
+           </div>}
+      </div>
+    </div>
+  );
+}
+
 // ─── Actual Financing Popup — simple, user enters real loan amounts/rates ─────
 function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, locDraws=[], sellingDate, onSave, onClose}){
   // Auto-matched line of credit for this property → projected interest to a sell date.
@@ -2712,17 +2738,8 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                 <DateRow label="Date" value={pi.closingDateScheduled} onChange={v=>upP("closingDateScheduled",v)}/>
               </div>
 
-              {/* Dropbox Link */}
-              <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
-                <SectionHdr icon="📦" label="DROPBOX LINK" color="#FFF1E6"/>
-                <div style={{padding:"14px 16px"}}>
-                  {pi.dropboxLink
-                    ?<a href={pi.dropboxLink} target="_blank" rel="noopener noreferrer" style={{fontSize:13,color:T.blue,wordBreak:"break-all"}}>{pi.dropboxLink}</a>
-                    :<div style={{fontSize:13,color:T.textTert,textAlign:"center"}}>No link set</div>}
-                  <input value={pi.dropboxLink||""} onChange={e=>upP("dropboxLink",e.target.value)} placeholder="Paste Dropbox link…"
-                    style={{...iS,marginTop:8,fontSize:12}}/>
-                </div>
-              </div>
+              {/* Link to photos */}
+              <PhotosLinkCard value={pi.dropboxLink} onChange={v=>upP("dropboxLink",v)}/>
 
               {/* Sale Timeline */}
               <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
@@ -3132,17 +3149,8 @@ function LeadDetail({lead,onUpdate}){
               <DateRow label="Date" value={pi.closingDateScheduled} onChange={v=>upPI("closingDateScheduled",v)}/>
             </div>
 
-            {/* Dropbox Link */}
-            <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
-              <SectionHdr icon="📦" label="DROPBOX LINK" color="#FFF1E6"/>
-              <div style={{padding:"14px 16px"}}>
-                {pi.dropboxLink
-                  ?<a href={pi.dropboxLink} target="_blank" rel="noopener noreferrer" style={{fontSize:13,color:T.blue,wordBreak:"break-all"}}>{pi.dropboxLink}</a>
-                  :<div style={{fontSize:13,color:T.textTert,textAlign:"center"}}>No link set</div>}
-                <input value={pi.dropboxLink||""} onChange={e=>upPI("dropboxLink",e.target.value)} placeholder="Paste Dropbox link…"
-                  style={{...iS,marginTop:8,fontSize:12}}/>
-              </div>
-            </div>
+            {/* Link to photos */}
+            <PhotosLinkCard value={pi.dropboxLink} onChange={v=>upPI("dropboxLink",v)}/>
 
             {/* Sale Timeline */}
             <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>

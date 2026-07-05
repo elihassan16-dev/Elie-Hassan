@@ -1091,10 +1091,12 @@ function DateGridRow({label,value,onChange,showActual}){
     <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`}}>
       <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:13,color:T.text}}>{label}</div>
       {!isMobile&&<div/>}
-      {/* On mobile the date has no Projected value, so let it use both number columns for room. */}
-      <div style={{gridColumn:isMobile?"2 / span 2":"auto",padding:isMobile?"6px 12px 6px 0":"6px 14px",textAlign:"right",minWidth:0,overflow:"hidden"}}>
+      {/* The date has no separate Projected/Actual value, so it spans both number
+          columns but sits compact on the right — aligned with the dollar rows'
+          right edge rather than stretching into a full-width empty bar. */}
+      <div style={{gridColumn:isMobile?"2 / span 2":"auto",padding:isMobile?"6px 8px":"6px 14px",textAlign:"right",minWidth:0,overflow:"hidden"}}>
         <input type="date" value={value||""} onChange={e=>onChange(e.target.value)}
-          style={{fontSize:12,padding:"4px 7px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,color:T.text,outline:"none",fontFamily:"inherit",cursor:"pointer",width:isMobile?"100%":"auto",minWidth:0,maxWidth:"100%",boxSizing:"border-box"}}/>
+          style={{fontSize:12,padding:"4px 7px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,color:T.text,outline:"none",fontFamily:"inherit",cursor:"pointer",width:"auto",minWidth:0,maxWidth:"100%",boxSizing:"border-box"}}/>
       </div>
     </div>
   );

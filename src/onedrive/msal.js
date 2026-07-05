@@ -10,9 +10,10 @@ export const GRAPH_SCOPES = ["User.Read", "Files.ReadWrite.All"];
 // the core OneDrive login. Needs admin consent for Sites.Read.All in Azure.
 export const SITE_SCOPES = ["Sites.Read.All"];
 // Requested separately by the Email tab so it never blocks the core login.
-// Add Mail.Read + Mail.Send (delegated) to the Azure app registration and grant
-// consent, or the first Email sign-in will prompt for these permissions.
-export const MAIL_SCOPES = ["Mail.Read", "Mail.Send"];
+// Add Mail.ReadWrite + Mail.Send (delegated) to the Azure app registration and
+// grant consent, or the first Email sign-in will prompt for these permissions.
+// Mail.ReadWrite (superset of Mail.Read) also lets us mark messages read.
+export const MAIL_SCOPES = ["Mail.ReadWrite", "Mail.Send"];
 
 export const msalInstance = new PublicClientApplication({
   auth: {

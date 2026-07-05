@@ -7020,6 +7020,8 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile}){
   const[addAdjFor,setAddAdjFor]=useState("");  // bank id whose adjustment form is open
   const[adjDraft,setAdjDraft]=useState({label:"",amount:""});
   const[editAdjId,setEditAdjId]=useState(null); // adjustment being edited (else null = adding new)
+  const[collapsed,setCollapsed]=useState({});   // bank id → line items hidden
+  const toggleCollapse=(id)=>setCollapsed(c=>({...c,[id]:!c[id]}));
   const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status)),[sharedProps]);
   useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
   useEffect(()=>{if(!connected)return;qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[connected]);
@@ -7061,22 +7063,30 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile}){
       </Card>
 
       {bank.length===0&&<div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No bank accounts yet. Add one above.</div>}
+      {bank.length>1&&(()=>{const allCol=bank.every(b=>collapsed[b.id]);return(
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
+          <button onClick={()=>{const next={};if(!allCol)bank.forEach(b=>{next[b.id]=true;});setCollapsed(next);}} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",padding:"4px 6px"}}>{allCol?"Expand all":"Collapse all"}</button>
+        </div>
+      );})()}
       {bank.map(b=>{
         const list=assigned(b.id);
         const adjustments=b.adjustments||[];
         const expected=expectedOf(b);
+        const isCol=!!collapsed[b.id];
         return(
           <Card key={b.id} style={{marginBottom:14,border:`1px solid ${T.gold}`}}>
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
+              <button onClick={()=>toggleCollapse(b.id)} title={isCol?"Expand line items":"Collapse line items"} style={{background:"none",border:"none",color:T.gold,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:0,width:16,transform:isCol?"rotate(-90deg)":"none",transition:"transform 0.15s"}}>▾</button>
               <span style={{fontSize:15,flexShrink:0}}>✎</span>
               <input value={b.name||""} onChange={e=>rename(b.id,e.target.value)} placeholder="Bank account name" title="Tap to rename" style={{...inS,flex:1,minWidth:0,fontWeight:700,fontSize:15}}/>
               <button onClick={()=>del(b.id)} title="Delete" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
             </div>
             <div onClick={()=>setBalModal(b.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",background:T.gold+"14",cursor:"pointer"}}>
-              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Expected balance</div><div style={{fontSize:11,color:T.textTert}}>{list.length} propert{list.length!==1?"ies":"y"} · tap to reconcile</div></div>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Expected balance</div><div style={{fontSize:11,color:T.textTert}}>{list.length} propert{list.length!==1?"ies":"y"}{isCol?" · collapsed":""} · tap to reconcile</div></div>
               <span style={{fontSize:17,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(expected)}</span>
               <span style={{color:T.gold,fontSize:16,flexShrink:0}}>›</span>
             </div>
+            {!isCol&&<>
             {list.map((p,i)=>(
               <div key={p.id} onClick={()=>onOpenProperty&&onOpenProperty(p.id)} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 16px",borderTop:i===0?`1px solid ${T.border}`:"none",cursor:onOpenProperty?"pointer":"default"}}>
                 <div style={{minWidth:0}}>
@@ -7102,6 +7112,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile}){
                  <button onClick={()=>{setAddAdjFor("");setAdjDraft({label:"",amount:""});setEditAdjId(null);}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
                </div>
               :<button onClick={()=>{setAdjDraft({label:"",amount:""});setEditAdjId(null);setAddAdjFor(b.id);}} style={{width:"100%",padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add adjustment</button>}
+            </>}
           </Card>
         );
       })}

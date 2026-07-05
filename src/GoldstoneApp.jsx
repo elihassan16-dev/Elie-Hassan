@@ -6867,19 +6867,23 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
     return ()=>{cancelled=true;};
   },[connected,projKey,spendKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cover columns: Construction Float and the monthly Interest Reserve.
+  // Cover columns: Construction Float (= personal equity − interest reserve) and the Interest Reserve.
   const acctBal=(id)=>{const a=(accounts||[]).find(x=>x.id===id);return a?-(a.balance||0):0;}; // flip QB liability sign
   const sumAmt=(arr)=>(arr||[]).reduce((s,l)=>s+(Number(l.amount)||0),0);
   const potOf=(p)=>{const ids=p.qbLocPotIds||[];return (p.qbLoanAccounts||[]).filter(id=>ids.includes(id)).reduce((s,id)=>s+acctBal(id),0)+(p.qbLoanCustom||[]).filter(l=>ids.includes("c"+l.id)).reduce((s,l)=>s+(Number(l.amount)||0),0);};
   const floatOf=(p)=>sumAmt(p.qbFloatTxns)+sumAmt(p.qbFloatCustom);
   const debtOf=(p)=>sumAmt(p.qbDebtTxns)+sumAmt(p.qbDebtCustom);
+  const totalLoansOf=(p)=>(p.qbLoanAccounts||[]).reduce((s,id)=>s+acctBal(id),0)+sumAmt(p.qbLoanCustom);
+  const allInOf=(p)=>{const m=p.qbAllInCost;if(m!==undefined&&m!==null&&m!=="")return Number(m);const d=p.qbProjectId?spend[p.qbProjectId]:null;return d&&d.allIn!=null?d.allIn:null;};
+  const equityOf=(p)=>{const a=allInOf(p);return a==null?null:a-totalLoansOf(p)+sumAmt(p.qbBsCustom);};
   const rows=props.map(p=>{
-    const setUp=(p.qbLocPotIds||[]).length||(p.qbFloatTxns||[]).length||(p.qbFloatCustom||[]).length||(p.qbDebtTxns||[]).length||(p.qbDebtCustom||[]).length;
-    const cf=floatOf(p);
-    const ir=potOf(p)-cf-debtOf(p);
+    const setUp=(p.qbLoanAccounts||[]).length||(p.qbLoanCustom||[]).length||(p.qbLocPotIds||[]).length||(p.qbFloatTxns||[]).length||(p.qbFloatCustom||[]).length||(p.qbDebtTxns||[]).length||(p.qbDebtCustom||[]).length;
+    const ir=potOf(p)-floatOf(p)-debtOf(p);         // interest reserve left
+    const eq=equityOf(p);                            // personal equity (needs all-in cost)
+    const cf=eq==null?null:eq-ir;                    // construction float = equity − reserve
     return {p,cf,ir,setUp};
   });
-  const tot=rows.reduce((a,r)=>r.setUp?{cf:a.cf+r.cf,ir:a.ir+r.ir}:a,{cf:0,ir:0});
+  const tot=rows.reduce((a,r)=>r.setUp?{cf:a.cf+(r.cf||0),ir:a.ir+r.ir}:a,{cf:0,ir:0});
   const sel=(selId&&props.find(p=>p.id===selId))||(!isMobile?props[0]:null)||null;
   const cols="1fr 104px 104px";
 
@@ -6920,7 +6924,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
                   <div style={{fontSize:13,fontWeight:active?700:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
                   <span style={{display:"inline-block",marginTop:3,fontSize:9,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 7px",borderRadius:20}}>{p.status}</span>
                 </div>
-                <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:setUp?T.text:T.textTert,whiteSpace:"nowrap"}}>{setUp?fmtD(cf):"—"}</span>
+                <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:(setUp&&cf!=null)?T.text:T.textTert,whiteSpace:"nowrap"}}>{setUp&&cf!=null?fmtD(cf):"—"}</span>
                 <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:!setUp?T.textTert:(ir>=0?T.text:T.red),whiteSpace:"nowrap"}}>{setUp?fmtD(ir):"—"}</span>
               </div>
             );

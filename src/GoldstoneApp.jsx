@@ -480,6 +480,7 @@ function calcBuyingTotal(items, purchasePrice){
 
 // ─── Buying Costs Popup ───────────────────────────────────────────────────────
 function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}){
+  const isMobile=useIsMobile();
   const calc = calcNJRTF(n(purchasePrice));
   const titleCalc = calcNJTitle(n(purchasePrice));
 
@@ -517,7 +518,7 @@ function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}
       <div style={{background:T.bg,borderRadius:22,width:"min(680px,94vw)",maxHeight:"90vh",boxShadow:T.shadowMd,display:"flex",flexDirection:"column",overflow:"hidden"}}>
 
         {/* Header */}
-        <div style={{padding:"22px 28px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div style={{padding:isMobile?"18px 18px 14px":"22px 28px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{fontWeight:700,fontSize:20,color:T.text}}>Buying Costs</div>
             <div style={{fontSize:14,color:T.textSub,marginTop:3}}>Purchase price: <strong style={{color:T.text}}>{fmtD(n(purchasePrice))}</strong></div>
@@ -526,46 +527,54 @@ function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}
         </div>
 
         {/* Table */}
-        <div style={{flex:1,overflowY:"auto",padding:"20px 28px"}}>
+        <div style={{flex:1,overflowY:"auto",padding:isMobile?"16px 14px":"20px 28px"}}>
 
           {/* Column headers */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 130px 150px 36px",gap:10,marginBottom:10,padding:"0 4px"}}>
+          {!isMobile&&<div style={{display:"grid",gridTemplateColumns:"1fr 130px 150px 36px",gap:10,marginBottom:10,padding:"0 4px"}}>
             <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em"}}>Description</div>
             <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Amount</div>
             <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em"}}>Who Pays</div>
             <div/>
-          </div>
+          </div>}
 
           {/* Rows */}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {displayItems.map(item=>{
               const isNA = item.resp==="N/A" || item.resp==="Maybe";
+              const descEl=item.auto
+                ? <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{item.title}</span>
+                    <span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>
+                  </div>
+                : <input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>;
+              const amountEl=(item.auto || isNA)
+                ? <span style={{fontSize:15,fontWeight:700,color:isNA?T.textTert:T.gold}}>{isNA?"—":fmtD(item.computedAmt)}</span>
+                : <EditableAmount value={item.amount} onChange={v=>up(item.id,"amount",v)}/>;
+              const respEl=<select value={item.resp} onChange={e=>up(item.id,"resp",e.target.value)} style={selS}>
+                {(item.auto ? RESP_OPTIONS_AUTO : RESP_OPTIONS_CUSTOM).map(o=><option key={o}>{o}</option>)}
+              </select>;
+              const actionEl=item.auto
+                ? <div style={{textAlign:"center",fontSize:12,color:T.textTert}}>🔒</div>
+                : <button onClick={()=>delItem(item.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:20,lineHeight:1,textAlign:"center"}}>×</button>;
+              // Phones: stack description above an aligned Amount / Who-Pays / × row.
+              if(isMobile){
+                return(
+                  <div key={item.id} style={{display:"flex",flexDirection:"column",gap:10,padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow,opacity:isNA?0.5:1}}>
+                    {descEl}
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 128px 22px",gap:8,alignItems:"center"}}>
+                      <div style={{textAlign:"left",fontWeight:600}}>{amountEl}</div>
+                      {respEl}
+                      {actionEl}
+                    </div>
+                  </div>
+                );
+              }
               return(
                 <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr 130px 150px 36px",gap:10,alignItems:"center",padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow,opacity:isNA?0.5:1}}>
-                  {/* Description */}
-                  {item.auto
-                    ? <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{item.title}</span>
-                        <span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>
-                      </div>
-                    : <input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>
-                  }
-                  {/* Amount */}
-                  <div style={{textAlign:"right"}}>
-                    {item.auto || isNA
-                      ? <span style={{fontSize:15,fontWeight:700,color:isNA?T.textTert:T.gold}}>{isNA?"—":fmtD(item.computedAmt)}</span>
-                      : <EditableAmount value={item.amount} onChange={v=>up(item.id,"amount",v)}/>
-                    }
-                  </div>
-                  {/* Who Pays dropdown */}
-                  <select value={item.resp} onChange={e=>up(item.id,"resp",e.target.value)} style={selS}>
-                    {(item.auto ? RESP_OPTIONS_AUTO : RESP_OPTIONS_CUSTOM).map(o=><option key={o}>{o}</option>)}
-                  </select>
-                  {/* Delete */}
-                  {item.auto
-                    ? <div style={{textAlign:"center",fontSize:12,color:T.textTert}}>🔒</div>
-                    : <button onClick={()=>delItem(item.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:20,lineHeight:1,textAlign:"center"}}>×</button>
-                  }
+                  {descEl}
+                  <div style={{textAlign:"right"}}>{amountEl}</div>
+                  {respEl}
+                  {actionEl}
                 </div>
               );
             })}
@@ -577,7 +586,7 @@ function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}
         </div>
 
         {/* Footer */}
-        <div style={{background:T.card,borderTop:`1px solid ${T.border}`,padding:"18px 28px",flexShrink:0}}>
+        <div style={{background:T.card,borderTop:`1px solid ${T.border}`,padding:isMobile?"16px 16px":"18px 28px",flexShrink:0}}>
           <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
             {displayItems.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe"&&i.computedAmt>0).map(item=>(
               <div key={item.id} style={{display:"flex",justifyContent:"space-between"}}>

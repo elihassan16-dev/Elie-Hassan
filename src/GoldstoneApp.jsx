@@ -1562,6 +1562,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const leadMap=property.showingLeads||{};
   const customLeads=property.customLeads||[];
   const showingPhones=property.showingPhones||{}; // manually-added numbers, keyed by showingKey
+  const showingSnapshots=property.showingSnapshots||{}; // captured showing details, keyed by showingKey, so a lead survives the showing aging out of the feed
   const[agentSearch,setAgentSearch]=useState("");
   const[addNumFor,setAddNumFor]=useState(null); // which row's "add number" input is open
   const[numDraft,setNumDraft]=useState("");
@@ -1574,15 +1575,28 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const setLead=(s,val)=>{
     const next={...leadMap};if(val)next[showingKey(s)]=val;else delete next[showingKey(s)];
     onUpdate(property.id,"showingLeads",next);
-    // Snapshot the "Selected buyer" agent details onto the property so the info
-    // popup can show the selling agent/buyer without needing the feed loaded.
-    const bs=all.find(x=>next[showingKey(x)]==="buyer");
+    // Snapshot this showing's details onto the property so its lead still displays
+    // after the showing ages out of ShowingTime's rolling feed.
+    if(val){ const k=showingKey(s); onUpdate(property.id,"showingSnapshots",{...showingSnapshots,[k]:{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""}}); }
+    // Selected-buyer details for the info popup (from the feed, this showing, or a snapshot).
+    const buyerKey=Object.keys(next).find(k=>next[k]==="buyer");
+    const bs=buyerKey?(all.find(x=>showingKey(x)===buyerKey)||(showingKey(s)===buyerKey?s:null)||showingSnapshots[buyerKey]||null):null;
     onUpdate(property.id,"selectedBuyer",bs?{agent:bs.agent||"",broker:bs.broker||"",phone:bs.phone||"",email:bs.email||""}:null);
     saveNow();
   };
   const[hideNot,setHideNot]=useState(()=>{try{return localStorage.getItem("gs_hideNotInterested")==="1";}catch{return false;}});
   const toggleHide=()=>setHideNot(v=>{const n=!v;try{localStorage.setItem("gs_hideNotInterested",n?"1":"0");}catch{}return n;});
-  const mine=all.filter(s=>showingMatchesProperty(s.location||s.summary||"",property)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
+  const mineRaw=all.filter(s=>showingMatchesProperty(s.location||s.summary||"",property)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
+  const feedKeys=new Set(mineRaw.map(s=>showingKey(s)));
+  // Any lead whose showing has dropped out of the live feed: rebuild the row from
+  // the snapshot we saved when the lead was set (or a minimal placeholder), so the
+  // lead never disappears from view just because the feed rolled forward.
+  const orphans=Object.keys(leadMap).filter(k=>!feedKeys.has(k)).map(k=>{
+    const snap=showingSnapshots[k];
+    if(snap)return {...snap,ts:snap.start?new Date(snap.start).getTime():0};
+    return {uid:k,summary:"Showing no longer in the ShowingTime feed",start:"",ts:0};
+  });
+  const mine=[...mineRaw,...orphans];
   const cutoff=Date.now()-3600000;
   const upcoming=mine.filter(s=>s.ts>=cutoff).sort((a,b)=>a.ts-b.ts);
   const past=mine.filter(s=>s.ts<cutoff).sort((a,b)=>{

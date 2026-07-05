@@ -7022,10 +7022,8 @@ function FinBankRecon({sharedProps,isMobile}){
   },[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const bank=[...(bankAccounts||[])].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-  const num=(v)=>{const x=parseFloat(String(v).replace(/[^0-9.-]/g,""));return isNaN(x)?0:x;};
-  const addBank=()=>{const n=addName.trim();if(!n)return;setBankAccounts(prev=>[...prev,{id:Date.now(),name:n,actual:""}]);setAddName("");save();};
+  const addBank=()=>{const n=addName.trim();if(!n)return;setBankAccounts(prev=>[...prev,{id:Date.now(),name:n}]);setAddName("");save();};
   const rename=(id,name)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,name}:b));save();};
-  const setActual=(id,actual)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,actual}:b));save();};
   const del=(id)=>{if(!window.confirm("Delete this bank account?"))return;setBankAccounts(prev=>prev.filter(b=>b.id!==id));save();};
   const heldOf=(p)=>{const m=bsMetrics(p,accounts,spend);const v=(p.bsCalcMode||"reserve")==="equity"?m.equity:m.reserve;return v==null?0:v;};
   const assigned=(id)=>props.filter(p=>String(p.bsBankAccount||"")===String(id));
@@ -7047,25 +7045,16 @@ function FinBankRecon({sharedProps,isMobile}){
       {bank.map(b=>{
         const list=assigned(b.id);
         const expected=list.reduce((s,p)=>s+heldOf(p),0);
-        const actual=b.actual!==""&&b.actual!=null?num(b.actual):null;
-        const diff=actual!=null?actual-expected:null;
         return(
           <Card key={b.id} style={{marginBottom:14,border:`1px solid ${T.gold}`}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}>
-              <input value={b.name||""} onChange={e=>rename(b.id,e.target.value)} style={{...inS,flex:1,minWidth:0,fontWeight:700,fontSize:15,border:"none",background:"transparent",padding:"2px 0"}}/>
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
+              <span style={{fontSize:15,flexShrink:0}}>✎</span>
+              <input value={b.name||""} onChange={e=>rename(b.id,e.target.value)} placeholder="Bank account name" title="Tap to rename" style={{...inS,flex:1,minWidth:0,fontWeight:700,fontSize:15}}/>
               <button onClick={()=>del(b.id)} title="Delete" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
             </div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"10px 16px",borderBottom:`1px solid ${T.border}`}}>
-              <div><div style={{fontSize:13.5,fontWeight:600,color:T.text}}>Expected balance</div><div style={{fontSize:11,color:T.textTert}}>{list.length} propert{list.length!==1?"ies":"y"} held here</div></div>
-              <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(expected)}</span>
-            </div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:`1px solid ${T.border}`}}>
-              <span style={{fontSize:13.5,fontWeight:600,color:T.text}}>Actual bank balance</span>
-              <input value={b.actual||""} onChange={e=>setActual(b.id,e.target.value)} placeholder="Enter…" inputMode="decimal" style={{...inS,width:130,textAlign:"right"}}/>
-            </div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"11px 16px",background:T.gold+"14"}}>
-              <span style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Difference</span>
-              <span style={{fontSize:16,fontWeight:800,color:diff==null?T.textTert:(Math.abs(diff)<1?T.green:T.red),whiteSpace:"nowrap"}}>{diff==null?"—":fmtD(diff)}</span>
+              <div><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Expected balance</div><div style={{fontSize:11,color:T.textTert}}>{list.length} propert{list.length!==1?"ies":"y"} held here</div></div>
+              <span style={{fontSize:17,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(expected)}</span>
             </div>
             {list.map((p,i)=>(
               <div key={p.id} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 16px",borderTop:i===0?`1px solid ${T.border}`:"none"}}>

@@ -6580,7 +6580,7 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
 }
 
 // ─── Property BS detail — loans, balance sheet, and the interest-reserve box ─────
-function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
+function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts,onUpdate}){
   const isMobile=useIsMobile();
   const[pickerOpen,setPickerOpen]=useState(false);
   const[floatPicker,setFloatPicker]=useState(false);
@@ -6716,8 +6716,25 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
     </div>
   </>);
 
+  const calcMode=property.bsCalcMode||"reserve"; // which number this property contributes to its bank
   return(
     <div>
+      {/* Where this property's money sits + which number it contributes to that bank */}
+      <Card style={{marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`,flexWrap:"wrap"}}>
+          <span style={{fontSize:12.5,fontWeight:700,color:T.textSub,flexShrink:0}}>Held in bank</span>
+          <select value={property.bsBankAccount||""} onChange={e=>onUpdate(property.id,"bsBankAccount",e.target.value)} style={{flex:1,minWidth:140,padding:"8px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none"}}>
+            <option value="">— Select a bank account —</option>
+            {(bankAccounts||[]).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 16px",flexWrap:"wrap"}}>
+          <span style={{fontSize:12.5,fontWeight:700,color:T.textSub,flexShrink:0}}>Calculate</span>
+          {[["reserve","Interest Reserve"],["equity","Personal Equity"]].map(([k,l])=>{const on=calcMode===k;return(
+            <button key={k} onClick={()=>onUpdate(property.id,"bsCalcMode",k)} style={{padding:"6px 12px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub}}>{l}</button>
+          );})}
+        </div>
+      </Card>
       {/* Box 1 — LOC / loans → total loans */}
       <Card style={{marginBottom:16}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}>
@@ -6818,8 +6835,24 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
 
 // Owned/active properties we show on the Property Balance Sheet (excludes Under Contract).
 const BS_STATUSES=["Purchased","Under Construction","On Market","In Closing"];
+// Shared calc for a property's interest reserve and personal equity (needs the live
+// QuickBooks account balances + all-in spend). Used by the BS report and Bank Recon.
+const bsAcctBal=(accounts,id)=>{const a=(accounts||[]).find(x=>x.id===id);return a?-(a.balance||0):0;};
+const bsSum=(arr)=>(arr||[]).reduce((s,l)=>s+(Number(l.amount)||0),0);
+function bsMetrics(p,accounts,spend){
+  const potIds=p.qbLocPotIds||[];
+  const pot=(p.qbLoanAccounts||[]).filter(id=>potIds.includes(id)).reduce((s,id)=>s+bsAcctBal(accounts,id),0)+(p.qbLoanCustom||[]).filter(l=>potIds.includes("c"+l.id)).reduce((s,l)=>s+(Number(l.amount)||0),0);
+  const deployed=bsSum(p.qbFloatTxns)+bsSum(p.qbFloatCustom);
+  const debt=bsSum(p.qbDebtTxns)+bsSum(p.qbDebtCustom);
+  const reserve=Math.max(0,pot-deployed-debt);
+  const totalLoans=(p.qbLoanAccounts||[]).reduce((s,id)=>s+bsAcctBal(accounts,id),0)+bsSum(p.qbLoanCustom);
+  const m=p.qbAllInCost;
+  const allIn=(m!==undefined&&m!==null&&m!=="")?Number(m):(p.qbProjectId&&spend&&spend[p.qbProjectId]&&spend[p.qbProjectId].allIn!=null?spend[p.qbProjectId].allIn:null);
+  const equity=allIn==null?null:allIn-totalLoans+bsSum(p.qbBsCustom);
+  return {pot,deployed,debt,reserve,totalLoans,allIn,equity};
+}
 function FinPropertyBS({sharedProps,onNavigate,isMobile}){
-  const { setSharedProps, flushProps }=useData();
+  const { setSharedProps, flushProps, bankAccounts }=useData();
   const onUpdate=(id,key,val)=>{setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
   const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status))
     .sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")),[sharedProps]);
@@ -6955,7 +6988,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
                 {onNavigate&&<button onClick={()=>onNavigate(sel.id)} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Open →</button>}
               </div>
               <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
-                <PropertyBSDetail key={sel.id} property={sel} accounts={accounts} allIn={sp&&sp.allIn!=null?sp.allIn:null} allInLoading={!!sp?.loading} pnl={sp?.pnl||null} onUpdate={onUpdate}/>
+                <PropertyBSDetail key={sel.id} property={sel} accounts={accounts} allIn={sp&&sp.allIn!=null?sp.allIn:null} allInLoading={!!sp?.loading} pnl={sp?.pnl||null} bankAccounts={bankAccounts} onUpdate={onUpdate}/>
               </div>
             </>
           );
@@ -6970,7 +7003,86 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
     </div>
   );
 }
-function FinBankRecon(){return <FinComingSoon title="Bank Reconciliation" note="Working on it — we'll build this out together."/>;}
+function FinBankRecon({sharedProps,isMobile}){
+  const { bankAccounts, setBankAccounts, flushBank }=useData();
+  const save=()=>{if(flushBank)setTimeout(flushBank,0);};
+  const[connected,setConnected]=useState(null);
+  const[accounts,setAccounts]=useState(null);
+  const[spend,setSpend]=useState({});
+  const[addName,setAddName]=useState("");
+  const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status)),[sharedProps]);
+  useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
+  useEffect(()=>{if(!connected)return;qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[connected]);
+  const projKey=props.map(p=>p.qbProjectId).filter(Boolean).join(",");
+  useEffect(()=>{
+    if(!connected)return;const ids=[...new Set(props.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
+    const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
+      try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);if(!cancelled)setSpend(s=>({...s,[id]:{allIn:(d?.expenses||0)+(d?.cogs||0)}}));}catch{/* ignore */}}};
+    Promise.all([run(),run(),run(),run()]);return ()=>{cancelled=true;};
+  },[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const bank=[...(bankAccounts||[])].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const num=(v)=>{const x=parseFloat(String(v).replace(/[^0-9.-]/g,""));return isNaN(x)?0:x;};
+  const addBank=()=>{const n=addName.trim();if(!n)return;setBankAccounts(prev=>[...prev,{id:Date.now(),name:n,actual:""}]);setAddName("");save();};
+  const rename=(id,name)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,name}:b));save();};
+  const setActual=(id,actual)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,actual}:b));save();};
+  const del=(id)=>{if(!window.confirm("Delete this bank account?"))return;setBankAccounts(prev=>prev.filter(b=>b.id!==id));save();};
+  const heldOf=(p)=>{const m=bsMetrics(p,accounts,spend);const v=(p.bsCalcMode||"reserve")==="equity"?m.equity:m.reserve;return v==null?0:v;};
+  const assigned=(id)=>props.filter(p=>String(p.bsBankAccount||"")===String(id));
+  const unassigned=props.filter(p=>!p.bsBankAccount);
+  const inS={padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text};
+
+  return(
+    <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?"14px":"18px 24px"}}>
+      {connected===false&&<div style={{marginBottom:14,padding:"11px 14px",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:T.radiusSm,color:"#8a6d1f",fontSize:12.5,lineHeight:1.5}}>Connect QuickBooks to fill in the expected balances. You can still add and organize bank accounts here.</div>}
+      <Card style={{marginBottom:16}}>
+        <GHeader label="Add a bank account"/>
+        <div style={{display:"flex",gap:8,padding:"12px 16px",flexWrap:"wrap"}}>
+          <input value={addName} onChange={e=>setAddName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addBank()} placeholder="Bank account name (e.g. Chase Reserve)" style={{...inS,flex:1,minWidth:200}}/>
+          <button onClick={addBank} disabled={!addName.trim()} style={{padding:"9px 18px",borderRadius:T.radiusSm,background:addName.trim()?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:addName.trim()?"pointer":"default",fontFamily:"inherit"}}>+ Add</button>
+        </div>
+      </Card>
+
+      {bank.length===0&&<div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No bank accounts yet. Add one above.</div>}
+      {bank.map(b=>{
+        const list=assigned(b.id);
+        const expected=list.reduce((s,p)=>s+heldOf(p),0);
+        const actual=b.actual!==""&&b.actual!=null?num(b.actual):null;
+        const diff=actual!=null?actual-expected:null;
+        return(
+          <Card key={b.id} style={{marginBottom:14,border:`1px solid ${T.gold}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}>
+              <input value={b.name||""} onChange={e=>rename(b.id,e.target.value)} style={{...inS,flex:1,minWidth:0,fontWeight:700,fontSize:15,border:"none",background:"transparent",padding:"2px 0"}}/>
+              <button onClick={()=>del(b.id)} title="Delete" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"10px 16px",borderBottom:`1px solid ${T.border}`}}>
+              <div><div style={{fontSize:13.5,fontWeight:600,color:T.text}}>Expected balance</div><div style={{fontSize:11,color:T.textTert}}>{list.length} propert{list.length!==1?"ies":"y"} held here</div></div>
+              <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(expected)}</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:`1px solid ${T.border}`}}>
+              <span style={{fontSize:13.5,fontWeight:600,color:T.text}}>Actual bank balance</span>
+              <input value={b.actual||""} onChange={e=>setActual(b.id,e.target.value)} placeholder="Enter…" inputMode="decimal" style={{...inS,width:130,textAlign:"right"}}/>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"11px 16px",background:T.gold+"14"}}>
+              <span style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Difference</span>
+              <span style={{fontSize:16,fontWeight:800,color:diff==null?T.textTert:(Math.abs(diff)<1?T.green:T.red),whiteSpace:"nowrap"}}>{diff==null?"—":fmtD(diff)}</span>
+            </div>
+            {list.map((p,i)=>(
+              <div key={p.id} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 16px",borderTop:i===0?`1px solid ${T.border}`:"none"}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</div>
+                  <div style={{fontSize:10.5,color:T.textTert}}>{(p.bsCalcMode||"reserve")==="equity"?"Personal equity":"Interest reserve"}</div>
+                </div>
+                <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(heldOf(p))}</span>
+              </div>
+            ))}
+          </Card>
+        );
+      })}
+      {unassigned.length>0&&<div style={{fontSize:11.5,color:T.textTert,textAlign:"center",marginTop:8,lineHeight:1.5}}>{unassigned.length} propert{unassigned.length!==1?"ies aren't":"y isn't"} assigned to a bank account yet — set one on each property in the Property BS Report.</div>}
+    </div>
+  );
+}
 
 function FinancialSectionPage({onNavigate}){
   const { funders, setFunders, flushFunders, draws, setDraws, flushDraws, sharedProps } = useData();
@@ -7218,7 +7330,7 @@ function FinancialSectionPage({onNavigate}){
         </div>
       </>}
       {subTab==="bs"&&<FinPropertyBS sharedProps={sharedProps} draws={draws} onNavigate={onNavigate} isMobile={isMobile}/>}
-      {subTab==="bank"&&<FinBankRecon sharedProps={sharedProps} draws={draws} isMobile={isMobile}/>}
+      {subTab==="bank"&&<FinBankRecon sharedProps={sharedProps} isMobile={isMobile}/>}
     </div>
   );
 }

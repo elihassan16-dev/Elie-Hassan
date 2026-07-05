@@ -1552,7 +1552,15 @@ const SHOWING_LEADS=[
   {key:"not",label:"Not interested",short:"Not interested",color:"#B91C1C",bg:"#FEE2E2"},
 ];
 const showingLeadRank=(k)=>{const i=SHOWING_LEADS.findIndex(x=>x.key===k);return i<0?99:i;};
-const showingKey=(s)=>String(s.uid||`${s.ts||""}-${s.summary||s.start||""}`);
+// Stable identity of a showing: its date/time (to the minute) + agent name.
+// We deliberately DON'T use the calendar UID — ShowingTime regenerates a new UID
+// for every event on every feed export, which would detach saved leads on refresh.
+// Date + agent stays constant across exports, so leads stay attached.
+const showingKey=(s)=>{
+  const when=String(s.start||"").slice(0,16); // e.g. "2026-07-01T14:00"
+  const who=String(s.agent||s.summary||s.location||"").trim().toLowerCase().replace(/\s+/g," ");
+  return (when||who)?`${when}|${who}`:String(s.uid||"");
+};
 // Renders one property's showings from an already-loaded feed: upcoming + past
 // (past ranked by lead disposition), each row with call/text templates. Shared by
 // the per-property Showings tab and the top-level Showings page.
@@ -1591,10 +1599,9 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   // Any lead whose showing has dropped out of the live feed: rebuild the row from
   // the snapshot we saved when the lead was set (or a minimal placeholder), so the
   // lead never disappears from view just because the feed rolled forward.
-  const orphans=Object.keys(leadMap).filter(k=>!feedKeys.has(k)).map(k=>{
+  const orphans=Object.keys(leadMap).filter(k=>!feedKeys.has(k)&&showingSnapshots[k]).map(k=>{
     const snap=showingSnapshots[k];
-    if(snap)return {...snap,ts:snap.start?new Date(snap.start).getTime():0};
-    return {uid:k,summary:"Showing no longer in the ShowingTime feed",start:"",ts:0};
+    return {...snap,ts:snap.start?new Date(snap.start).getTime():0};
   });
   const mine=[...mineRaw,...orphans];
   const cutoff=Date.now()-3600000;

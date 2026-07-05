@@ -7010,6 +7010,9 @@ function FinBankRecon({sharedProps,isMobile}){
   const[accounts,setAccounts]=useState(null);
   const[spend,setSpend]=useState({});
   const[addName,setAddName]=useState("");
+  const[balModal,setBalModal]=useState("");   // bank id whose reconcile popup is open
+  const[addAdjFor,setAddAdjFor]=useState("");  // bank id whose adjustment form is open
+  const[adjDraft,setAdjDraft]=useState({label:"",amount:""});
   const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status)),[sharedProps]);
   useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
   useEffect(()=>{if(!connected)return;qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[connected]);
@@ -7025,8 +7028,13 @@ function FinBankRecon({sharedProps,isMobile}){
   const addBank=()=>{const n=addName.trim();if(!n)return;setBankAccounts(prev=>[...prev,{id:Date.now(),name:n}]);setAddName("");save();};
   const rename=(id,name)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,name}:b));save();};
   const del=(id)=>{if(!window.confirm("Delete this bank account?"))return;setBankAccounts(prev=>prev.filter(b=>b.id!==id));save();};
+  const num=(v)=>{const x=parseFloat(String(v).replace(/[^0-9.-]/g,""));return isNaN(x)?0:x;};
+  const setActual=(id,actual)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,actual}:b));save();};
+  const addAdj=(id)=>{const label=adjDraft.label.trim();const amount=num(adjDraft.amount);if(!label&&!amount)return;setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:[...(b.adjustments||[]),{id:Date.now(),label:label||"Adjustment",amount}]}:b));setAdjDraft({label:"",amount:""});setAddAdjFor("");save();};
+  const delAdj=(id,adjId)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:(b.adjustments||[]).filter(a=>a.id!==adjId)}:b));save();};
   const heldOf=(p)=>{const m=bsMetrics(p,accounts,spend);const v=(p.bsCalcMode||"reserve")==="equity"?m.equity:m.reserve;return v==null?0:v;};
   const assigned=(id)=>props.filter(p=>String(p.bsBankAccount||"")===String(id));
+  const expectedOf=(b)=>assigned(b.id).reduce((s,p)=>s+heldOf(p),0)+(b.adjustments||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
   const unassigned=props.filter(p=>!p.bsBankAccount);
   const inS={padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text};
 
@@ -7044,7 +7052,8 @@ function FinBankRecon({sharedProps,isMobile}){
       {bank.length===0&&<div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No bank accounts yet. Add one above.</div>}
       {bank.map(b=>{
         const list=assigned(b.id);
-        const expected=list.reduce((s,p)=>s+heldOf(p),0);
+        const adjustments=b.adjustments||[];
+        const expected=expectedOf(b);
         return(
           <Card key={b.id} style={{marginBottom:14,border:`1px solid ${T.gold}`}}>
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
@@ -7052,9 +7061,10 @@ function FinBankRecon({sharedProps,isMobile}){
               <input value={b.name||""} onChange={e=>rename(b.id,e.target.value)} placeholder="Bank account name" title="Tap to rename" style={{...inS,flex:1,minWidth:0,fontWeight:700,fontSize:15}}/>
               <button onClick={()=>del(b.id)} title="Delete" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
             </div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"11px 16px",background:T.gold+"14"}}>
-              <div><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Expected balance</div><div style={{fontSize:11,color:T.textTert}}>{list.length} propert{list.length!==1?"ies":"y"} held here</div></div>
+            <div onClick={()=>setBalModal(b.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",background:T.gold+"14",cursor:"pointer"}}>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Expected balance</div><div style={{fontSize:11,color:T.textTert}}>{list.length} propert{list.length!==1?"ies":"y"} · tap to reconcile</div></div>
               <span style={{fontSize:17,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(expected)}</span>
+              <span style={{color:T.gold,fontSize:16,flexShrink:0}}>›</span>
             </div>
             {list.map((p,i)=>(
               <div key={p.id} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 16px",borderTop:i===0?`1px solid ${T.border}`:"none"}}>
@@ -7065,10 +7075,54 @@ function FinBankRecon({sharedProps,isMobile}){
                 <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(heldOf(p))}</span>
               </div>
             ))}
+            {adjustments.map(a=>(
+              <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:`1px solid ${T.border}`}}>
+                <span style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.label} <span style={{fontSize:10,color:T.textTert}}>· adjustment</span></span>
+                <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(Number(a.amount)||0)}</span>
+                <button onClick={()=>delAdj(b.id,a.id)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
+              </div>
+            ))}
+            {addAdjFor===b.id
+              ?<div style={{display:"flex",gap:6,padding:"10px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
+                 <input autoFocus value={adjDraft.label} onChange={e=>setAdjDraft(d=>({...d,label:e.target.value}))} placeholder="Adjustment (e.g. small loan)" style={{...inS,flex:1,minWidth:120}}/>
+                 <input value={adjDraft.amount} onChange={e=>setAdjDraft(d=>({...d,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addAdj(b.id)} placeholder="Amount" inputMode="decimal" style={{...inS,width:110,textAlign:"right"}}/>
+                 <button onClick={()=>addAdj(b.id)} style={{padding:"8px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Add</button>
+                 <button onClick={()=>{setAddAdjFor("");setAdjDraft({label:"",amount:""});}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
+               </div>
+              :<button onClick={()=>{setAdjDraft({label:"",amount:""});setAddAdjFor(b.id);}} style={{width:"100%",padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add adjustment</button>}
           </Card>
         );
       })}
       {unassigned.length>0&&<div style={{fontSize:11.5,color:T.textTert,textAlign:"center",marginTop:8,lineHeight:1.5}}>{unassigned.length} propert{unassigned.length!==1?"ies aren't":"y isn't"} assigned to a bank account yet — set one on each property in the Property BS Report.</div>}
+
+      {balModal&&(()=>{
+        const b=bank.find(x=>String(x.id)===String(balModal));if(!b)return null;
+        const expected=expectedOf(b);
+        const actual=(b.actual!==""&&b.actual!=null&&b.actual!==undefined)?num(b.actual):null;
+        const diff=actual!=null?actual-expected:null;
+        return(
+          <div onClick={()=>setBalModal("")} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:245,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:440,maxWidth:"100%",boxShadow:T.shadowMd}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 12px"}}>
+                <div style={{fontWeight:700,fontSize:17,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.name||"Bank account"}</div>
+                <button onClick={()=>setBalModal("")} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,flexShrink:0}}>×</button>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"11px 18px",borderTop:`1px solid ${T.border}`}}>
+                <span style={{fontSize:14,fontWeight:600,color:T.text}}>Expected balance</span>
+                <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(expected)}</span>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"11px 18px",borderTop:`1px solid ${T.border}`}}>
+                <span style={{fontSize:14,fontWeight:600,color:T.text}}>Actual bank balance</span>
+                <input autoFocus value={b.actual||""} onChange={e=>setActual(b.id,e.target.value)} placeholder="Enter…" inputMode="decimal" style={{...inS,width:140,textAlign:"right"}}/>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"13px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+                <div><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Difference</div><div style={{fontSize:11,color:T.textTert}}>{diff==null?"Enter the actual balance":Math.abs(diff)<1?"Reconciled ✓":diff<0?`Transfer ${fmtD(-diff)} in`:`${fmtD(diff)} more than expected`}</div></div>
+                <span style={{fontSize:19,fontWeight:800,color:diff==null?T.textTert:(Math.abs(diff)<1?T.green:T.red),whiteSpace:"nowrap"}}>{diff==null?"—":fmtD(diff)}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

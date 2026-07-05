@@ -7553,14 +7553,12 @@ function FinReportCenter({sharedProps,isMobile}){
     hold:{
       title:"Construction Holdback vs Underwriting",
       subtitle:"What the bank is holding back for construction versus what you underwrote it to cost (rehab estimate). Tap a holdback to pin it from QuickBooks or enter it. Difference = holdback − estimate (red = short of your estimate).",
-      cols:[{label:"Property"},{label:"Est. construction",align:"right"},{label:"Bank holdback",align:"right"},{label:"Difference",align:"right"}],
+      cols:[{label:"Property"},{label:"Est. construction",align:"right"},{label:"Bank holdback",align:"right"},{label:"Difference",align:"right",gutter:true}],
       rows:rptHold.rows.map(r=>[
         {t:r.address},
         {t:fmtD(r.est),align:"right"},
         {edit:{propId:r.propId},t:r.holdback==null?"Tap to set":(r.pins?fmtD(r.holdback)+" 📌":fmtD(r.holdback)),align:"right",color:r.holdback==null?T.blue:undefined},
-        r.diff==null?{t:"—",align:"right",color:T.textTert}
-          :r.diff<0?{fund:{propId:r.propId,checked:r.funded},t:fmtD(r.diff),align:"right",strong:true,color:T.red}
-          :{t:fmtD(r.diff),align:"right",strong:true,color:T.green},
+        {fund:{propId:r.propId,checked:r.funded,show:r.diff!=null&&r.diff<0},t:r.diff==null?"—":fmtD(r.diff),align:"right",strong:r.diff!=null,color:r.diff==null?T.textTert:(r.diff<0?T.red:T.green)},
       ]),
       foot:[[{t:"Portfolio",strong:true},{t:fmtD(rptHold.total.est),align:"right",strong:true},{t:rptHold.total.anyHold?fmtD(rptHold.total.hold):"—",align:"right",strong:true},{t:rptHold.total.anyHold?fmtD(rptHold.total.hold-rptHold.total.est):"—",align:"right",strong:true,color:(rptHold.total.hold-rptHold.total.est)<0?T.red:T.green}]],
       empty:"No active properties.",
@@ -7630,7 +7628,7 @@ function FinReportCenter({sharedProps,isMobile}){
             </div>
             <div style={{flex:1,overflow:"auto",padding:isMobile?"4px 4px 12px":"6px 10px 14px"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?12:13}}>
-                <thead><tr>{rep.cols.map((c,i)=><th key={i} style={{textAlign:c.align||"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"8px 10px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:T.card,...(i===0?{left:0,zIndex:3,borderRight:`1px solid ${T.border}`}:{zIndex:1})}}>{c.label}</th>)}</tr></thead>
+                <thead><tr>{rep.cols.map((c,i)=><th key={i} style={{textAlign:c.align||"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"8px 10px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:T.card,...(i===0?{left:0,zIndex:3,borderRight:`1px solid ${T.border}`}:{zIndex:1}),...(c.gutter?{paddingRight:31}:null)}}>{c.label}</th>)}</tr></thead>
                 <tbody>
                   {rep.rows.length===0
                     ?<tr><td colSpan={rep.cols.length} style={{textAlign:"center",color:T.textTert,padding:"28px 10px",fontSize:13}}>{rep.empty}</td></tr>
@@ -7639,7 +7637,7 @@ function FinReportCenter({sharedProps,isMobile}){
                         :c.edit
                         ?<span onClick={(e)=>{e.stopPropagation();setHoldbackFor(c.edit.propId);}} title="Tap to set" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>
                         :c.fund
-                        ?<span style={{display:"inline-flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}><span style={{filter:c.fund.checked?"blur(1.6px)":"none",opacity:c.fund.checked?0.4:1,textDecoration:c.fund.checked?"line-through":"none"}}>{c.t}</span><input type="checkbox" checked={c.fund.checked} onClick={(e)=>e.stopPropagation()} onChange={()=>toggleFunded(c.fund.propId)} title="Secured additional funding — dim the shortfall" style={{width:15,height:15,cursor:"pointer",accentColor:T.gold,flexShrink:0}}/></span>
+                        ?<span style={{display:"inline-flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}><span style={{filter:c.fund.show&&c.fund.checked?"blur(1.6px)":"none",opacity:c.fund.show&&c.fund.checked?0.4:1,textDecoration:c.fund.show&&c.fund.checked?"line-through":"none"}}>{c.t}</span>{c.fund.show?<input type="checkbox" checked={c.fund.checked} onClick={(e)=>e.stopPropagation()} onChange={()=>toggleFunded(c.fund.propId)} title="Secured additional funding — dim the shortfall" style={{width:15,height:15,cursor:"pointer",accentColor:T.gold,flexShrink:0}}/>:<span style={{width:15,flexShrink:0,display:"inline-block"}}/>}</span>
                         :c.t}</td>)}</tr>;})}
                   {rep.rows.length>0&&rep.foot&&rep.foot.map((frow,fi)=><tr key={"f"+fi}>{frow.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:fi===0?"11px 10px 8px":"2px 10px 8px",...(fi===0?{borderTop:`2px solid ${T.gold}`}:{}),fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{background:T.card})}}>{c.t}</td>)}</tr>)}
                 </tbody>

@@ -7428,13 +7428,16 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
 function FinReportCenter({sharedProps,isMobile}){
   const { draws, setDraws, flushDraws, setSharedProps, flushProps }=useData();
   const setPlan=(drawId,plan)=>{setDraws(prev=>prev.map(d=>d.id===drawId?{...d,futureFundsPlan:plan}:d));if(flushDraws)setTimeout(flushDraws,0);};
-  const setHoldback=(propId,cur)=>{const raw=window.prompt("Construction holdback the bank is holding for this property ($):",cur!=null&&cur!==""?String(cur):"");if(raw===null)return;const t=raw.trim();const v=t===""?"":String(Math.round(Number(t.replace(/[^0-9.-]/g,""))||0));setSharedProps(prev=>prev.map(p=>p.id===propId?{...p,constrHoldback:v}:p));if(flushProps)setTimeout(flushProps,0);};
+  const updateProp=(id,key,val)=>{setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
   const[connected,setConnected]=useState(null);
   const[accounts,setAccounts]=useState(()=>qbCache.get("accounts",null));
   const[spend,setSpend]=useState(()=>qbCache.get("spend",{}));
   useEffect(()=>{if(accounts)qbCache.set("accounts",accounts);},[accounts]);
   useEffect(()=>{qbCache.set("spend",slimSpend(spend));},[spend]);
   const[open,setOpen]=useState(null); // report id being previewed
+  const[holdbackFor,setHoldbackFor]=useState(null); // property id whose holdback editor is open
+  const[hbTxns,setHbTxns]=useState(null);           // that property's QuickBooks transactions
+  const[hbPicker,setHbPicker]=useState(false);      // the pin-transactions modal
 
   const bsProps=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status)),[sharedProps]);
   // Live QuickBooks account balances + all-in spend for the balance-sheet report.
@@ -7451,6 +7454,19 @@ function FinReportCenter({sharedProps,isMobile}){
   const openDraws=useMemo(()=>(draws||[]).filter(d=>!d.paybackDate),[draws]);
   const propForDraw=(d)=>{if(d.propertyId!=null){const p=(sharedProps||[]).find(x=>String(x.id)===String(d.propertyId));if(p)return p;}return (sharedProps||[]).find(p=>drawsForProperty(p,[d]).length>0)||null;};
   const cfDate=(p)=>((p.propertyInfo||{}).closingDateScheduled||(p.financials||{}).sellingDate||"");
+
+  // Holdback editor: pull the tapped property's QuickBooks transactions so its
+  // holdback can be pinned to a transaction / journal-entry line.
+  const hbProp=holdbackFor!=null?(sharedProps||[]).find(x=>x.id===holdbackFor):null;
+  useEffect(()=>{
+    if(holdbackFor==null){setHbTxns(null);setHbPicker(false);return;}
+    const p=(sharedProps||[]).find(x=>x.id===holdbackFor);
+    if(!p||!p.qbProjectId){setHbTxns([]);return;}
+    let alive=true;setHbTxns(null);
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(p.qbProjectId)}`).then(d=>{if(alive)setHbTxns(d.items||[]);}).catch(()=>{if(alive)setHbTxns([]);});
+    return ()=>{alive=false;};
+  },[holdbackFor]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggleHb=(t)=>{if(!hbProp)return;const arr=hbProp.qbHoldbackTxns||[];const k=txKey(t);const has=arr.some(x=>txKey(x)===k);updateProp(hbProp.id,"qbHoldbackTxns",has?arr.filter(x=>txKey(x)!==k):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}]);};
 
   // Report 1 — every outstanding LOC draw: property, funder, amount; oldest purchase first.
   const rptLoc=useMemo(()=>{
@@ -7492,8 +7508,11 @@ function FinReportCenter({sharedProps,isMobile}){
       const f=p.financials||{};
       const est=n(f.rehabCosts)||n(f.actualRehabCosts)||0;
       const raw=p.constrHoldback;
-      const holdback=(raw!=null&&raw!=="")?Number(raw):null;
-      return {propId:p.id,address:p.address,est,holdback,holdbackRaw:raw,diff:holdback==null?null:holdback-est};
+      const pins=bsSum(p.qbHoldbackTxns);
+      const hasManual=raw!=null&&raw!=="";
+      const hasPins=(p.qbHoldbackTxns||[]).length>0;
+      const holdback=(hasPins||hasManual)?pins+(hasManual?Number(raw):0):null;
+      return {propId:p.id,address:p.address,est,holdback,pins:hasPins,diff:holdback==null?null:holdback-est};
     });
     const total={est:0,hold:0,anyHold:false};
     rows.forEach(r=>{total.est+=r.est;if(r.holdback!=null){total.hold+=r.holdback;total.anyHold=true;}});
@@ -7532,12 +7551,12 @@ function FinReportCenter({sharedProps,isMobile}){
     },
     hold:{
       title:"Construction Holdback vs Underwriting",
-      subtitle:"What the bank is holding back for construction versus what you underwrote it to cost (rehab estimate). Tap a holdback to set it. Difference = holdback − estimate (red = short of your estimate).",
+      subtitle:"What the bank is holding back for construction versus what you underwrote it to cost (rehab estimate). Tap a holdback to pin it from QuickBooks or enter it. Difference = holdback − estimate (red = short of your estimate).",
       cols:[{label:"Property"},{label:"Est. construction",align:"right"},{label:"Bank holdback",align:"right"},{label:"Difference",align:"right"}],
       rows:rptHold.rows.map(r=>[
         {t:r.address},
         {t:fmtD(r.est),align:"right"},
-        {edit:{propId:r.propId,cur:r.holdbackRaw},t:r.holdback==null?"Tap to set":fmtD(r.holdback),align:"right",color:r.holdback==null?T.blue:undefined},
+        {edit:{propId:r.propId},t:r.holdback==null?"Tap to set":(r.pins?fmtD(r.holdback)+" 📌":fmtD(r.holdback)),align:"right",color:r.holdback==null?T.blue:undefined},
         {t:r.diff==null?"—":fmtD(r.diff),align:"right",strong:true,color:r.diff==null?T.textTert:(r.diff<0?T.red:T.green)},
       ]),
       foot:[[{t:"Portfolio",strong:true},{t:fmtD(rptHold.total.est),align:"right",strong:true},{t:rptHold.total.anyHold?fmtD(rptHold.total.hold):"—",align:"right",strong:true},{t:rptHold.total.anyHold?fmtD(rptHold.total.hold-rptHold.total.est):"—",align:"right",strong:true,color:(rptHold.total.hold-rptHold.total.est)<0?T.red:T.green}]],
@@ -7549,7 +7568,7 @@ function FinReportCenter({sharedProps,isMobile}){
   const exportReport=(rep)=>{
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
-    const cellText=(c)=>c.plan?(c.plan==="takeback"?"Take back":"Reinvest"):esc(c.edit&&c.t==="Tap to set"?"—":c.t);
+    const cellText=(c)=>c.plan?(c.plan==="takeback"?"Take back":"Reinvest"):esc(c.edit?(c.t==="Tap to set"?"—":String(c.t).replace(" 📌","")):c.t);
     const th=rep.cols.map(c=>`<th style="text-align:${c.align||"left"}">${esc(c.label)}</th>`).join("");
     const trs=rep.rows.length?rep.rows.map((cells,ri)=>`<tr${ri%2?' style="background:#faf6ea"':''}>${cells.map(c=>`<td style="text-align:${c.align||"left"};${c.strong?"font-weight:700;":""}${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${rep.cols.length}" class="empty">${esc(rep.empty)}</td></tr>`;
     const foot=rep.foot&&rep.rows.length?rep.foot.map((frow,fi)=>`<tr class="${fi===0?"tot":"tot2"}">${frow.map(c=>`<td style="text-align:${c.align||"left"};font-weight:${c.strong?"800":"600"};${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):"";
@@ -7615,7 +7634,7 @@ function FinReportCenter({sharedProps,isMobile}){
                     :rep.rows.map((cells,ri)=>{const rowBg=ri%2?T.gold+"12":T.card;return <tr key={ri} style={{background:rowBg}}>{cells.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"8px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:c.strong?700:400,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:rowBg,borderRight:`1px solid ${T.border}`}:{})}}>{c.plan
                         ?<button onClick={(e)=>{e.stopPropagation();setPlan(c.drawId,c.plan==="reinvest"?"takeback":"reinvest");}} title="Tap to switch" style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11.5,fontWeight:700,background:c.plan==="reinvest"?T.green+"22":T.red+"22",color:c.plan==="reinvest"?"#1a8f43":T.red}}>{c.plan==="reinvest"?"Reinvest":"Take back"}</button>
                         :c.edit
-                        ?<span onClick={(e)=>{e.stopPropagation();setHoldback(c.edit.propId,c.edit.cur);}} title="Tap to set" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>
+                        ?<span onClick={(e)=>{e.stopPropagation();setHoldbackFor(c.edit.propId);}} title="Tap to set" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>
                         :c.t}</td>)}</tr>;})}
                   {rep.rows.length>0&&rep.foot&&rep.foot.map((frow,fi)=><tr key={"f"+fi}>{frow.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:fi===0?"11px 10px 8px":"2px 10px 8px",...(fi===0?{borderTop:`2px solid ${T.gold}`}:{}),fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{background:T.card})}}>{c.t}</td>)}</tr>)}
                 </tbody>
@@ -7628,6 +7647,58 @@ function FinReportCenter({sharedProps,isMobile}){
           </div>
         </div>
       )}
+
+      {hbProp&&(()=>{
+        const pins=hbProp.qbHoldbackTxns||[];
+        const man=hbProp.constrHoldback||"";
+        const total=bsSum(pins)+(man!==""?Number(man)||0:0);
+        const iS2={padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text};
+        return(
+          <div onClick={()=>setHoldbackFor(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:255,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:520,maxWidth:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+              <div style={{padding:"16px 18px 12px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"flex-start",gap:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:16,fontWeight:800,color:T.text}}>Construction Holdback</div>
+                  <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{hbProp.address}</div>
+                </div>
+                <button onClick={()=>setHoldbackFor(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+              </div>
+              <div style={{flex:1,overflowY:"auto"}}>
+                <div style={{padding:"12px 18px"}}>
+                  <button onClick={()=>hbProp.qbProjectId&&setHbPicker(true)} disabled={!hbProp.qbProjectId} style={{padding:"9px 16px",borderRadius:20,background:hbProp.qbProjectId?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:hbProp.qbProjectId?"pointer":"default",fontFamily:"inherit"}}>🔍 Pin from QuickBooks</button>
+                  {!hbProp.qbProjectId&&<div style={{fontSize:11,color:T.textTert,marginTop:6}}>Link this property to a QuickBooks project (on the BS Report) to pin transactions.</div>}
+                </div>
+                {pins.length===0&&<div style={{padding:"0 18px 12px",fontSize:12.5,color:T.textTert}}>Nothing pinned yet. Open the closing journal entry and pin the holdback line, or enter it manually below.</div>}
+                {pins.map(t=>(
+                  <div key={txKey(t)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 18px",borderTop:`1px solid ${T.border}`}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.account||t.vendor||t.type||"—"}</div>
+                      <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.vendor].filter(Boolean).join(" · ")}</div>
+                    </div>
+                    <span style={{fontSize:13,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{fmtD(Number(t.amount)||0)}</span>
+                    <button onClick={()=>toggleHb(t)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+                  </div>
+                ))}
+                <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 18px",borderTop:`1px solid ${T.border}`}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:T.text}}>Manual amount</div>
+                    <div style={{fontSize:11,color:T.textTert}}>Adds to any pinned lines</div>
+                  </div>
+                  <input value={man} onChange={e=>updateProp(hbProp.id,"constrHoldback",e.target.value.replace(/[^0-9.-]/g,""))} placeholder="0" inputMode="decimal" style={{...iS2,width:120,textAlign:"right"}}/>
+                </div>
+              </div>
+              <div style={{padding:"12px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"10",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:14,fontWeight:800,color:T.text}}>Total holdback</span>
+                <span style={{fontSize:18,fontWeight:800,color:T.gold}}>{fmtD(total)}</span>
+              </div>
+              <div style={{padding:"12px 18px",display:"flex",justifyContent:"flex-end"}}>
+                <button onClick={()=>setHoldbackFor(null)} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Done</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+      {hbPicker&&hbProp&&<QbTxnsPickerModal txns={hbTxns} loading={hbTxns===null} pinnedKeys={new Set((hbProp.qbHoldbackTxns||[]).map(txKey))} onToggle={toggleHb} onClose={()=>setHbPicker(false)}/>}
     </div>
   );
 }

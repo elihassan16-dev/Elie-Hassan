@@ -298,10 +298,10 @@ function finProfit(f){
   const acGapLoanAmt=n(f.acGapLoanAmt)||equityRequired;
   const acGapRate=f.acGapRate!==undefined?n(f.acGapRate):n(f.gapRate||15);
   const acHmMonthlyInt=Math.round(acHmLoanAmt*(acHmRate/100)/12);
-  // "From today forward": treat interest paid so far as settled and only owe the
-  // interest still to accrue between now and the scheduled payoff date.
-  const acHmFwd=Math.round(acHmLoanAmt*(acHmRate/100)/365*daysBetween(new Date().toISOString().slice(0,10),f.acHmPayoffDate||""));
-  const acHmInterest=f.acHmInterestOverride!==undefined&&f.acHmInterestOverride!==""?n(f.acHmInterestOverride):((f.acHmFromToday&&f.acHmPayoffDate)?acHmFwd:Math.round(acHmMonthlyInt*actualHoldMonths)+Math.round(acHmLoanAmt*(acHmOrigPct/100))+acHmDocAmt);
+  // "From today forward" mode: total HM interest = paid so far (from QuickBooks) +
+  // interest still to accrue to close. The popup computes and stores that total in
+  // hmInterest, so read it back here rather than re-deriving without QuickBooks.
+  const acHmInterest=f.acHmInterestOverride!==undefined&&f.acHmInterestOverride!==""?n(f.acHmInterestOverride):(f.acHmFromToday?n(f.hmInterest):Math.round(acHmMonthlyInt*actualHoldMonths)+Math.round(acHmLoanAmt*(acHmOrigPct/100))+acHmDocAmt);
   const acGapBalloon=f.acGapInterestOverride!==undefined&&f.acGapInterestOverride!==""?n(f.acGapInterestOverride):Math.round(acGapLoanAmt*(acGapRate/100)/12*actualHoldMonths);
   const acNet=acSalePrice>0?acSalePrice-acSelling-(acHmInterest+acGapBalloon)-acCosts:0;
 
@@ -1255,7 +1255,7 @@ function AddFromDirectory({avail,onAdd}){
 }
 
 // ─── Actual Financing Popup — simple, user enters real loan amounts/rates ─────
-function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, locDraws=[], sellingDate, closingDate, bsHm, bsLoc, bsAvailable, onSave, onClose}){
+function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, locDraws=[], sellingDate, closingDate, bsHm, bsLoc, bsAvailable, hmPaidSoFar, onSave, onClose}){
   // Auto-matched line of credit for this property → projected interest to a sell date.
   const[assumedSell,setAssumedSell]=useState(sellingDate||new Date().toISOString().slice(0,10));
   const locRows=(locDraws||[]).map(d=>{const end=d.paybackDate||assumedSell;const days=daysBetween(d.dateFunded,end);return {...d,end,days,interest:(Number(d.amount)||0)*(LOC_RATE/365)*days};}).sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
@@ -1280,8 +1280,10 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
   const today = new Date().toISOString().slice(0,10);
   const daysLeft = closingDate?daysBetween(today,closingDate):0;
   const forwardHmInterest = Math.round(n(hmLoanAmt)*(n(hmRate)/100)/365*daysLeft);
+  const paidSoFar = Math.max(0,n(hmPaidSoFar)||0);
   const useFwd = hmFromToday&&!!closingDate;
-  const baseHmInterest = useFwd?forwardHmInterest:calcHmInterest;
+  // Total HM interest in from-today mode = what's been paid (from QuickBooks) + what's still to accrue.
+  const baseHmInterest = useFwd?(paidSoFar+forwardHmInterest):calcHmInterest;
   const calcGapBalloon = Math.round(n(gapLoanAmt)*(n(gapRate)/100)/12*months);
   const finalHmInt = hmIntOverride!==""?n(hmIntOverride):baseHmInterest;
   const finalGapInt = gapIntOverride!==""?n(gapIntOverride):calcGapBalloon;
@@ -1349,12 +1351,18 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
             {iField("Doc Fee",hmDocFee,setHmDocFee,"$")}
             <div style={iRow}>
               <div>
-                <div style={iLbl}>Interest from today forward</div>
-                <div style={{fontSize:11,color:T.textTert,marginTop:1}}>{closingDate?`Prior interest counts as paid · ${daysLeft} days to close @ ${n(hmRate)}%/yr`:"Set a Scheduled Closing Date to use this"}</div>
+                <div style={iLbl}>Interest paid-to-date + from today</div>
+                <div style={{fontSize:11,color:T.textTert,marginTop:1}}>{closingDate?`Paid so far (QuickBooks) + ${daysLeft} days left @ ${n(hmRate)}%/yr`:"Set a Scheduled Closing Date to use this"}</div>
               </div>
               <button onClick={()=>closingDate&&setHmFromToday(v=>!v)} disabled={!closingDate} style={{padding:"5px 14px",borderRadius:20,border:"none",cursor:closingDate?"pointer":"default",fontFamily:"inherit",fontSize:12,fontWeight:700,background:useFwd?T.green+"22":T.bg,color:useFwd?"#1a8f43":T.textTert,opacity:closingDate?1:0.6}}>{useFwd?"On":"Off"}</button>
             </div>
-            <div style={iRow}><span style={iLbl}>{useFwd?"Interest from today (remaining)":"Calculated Interest + Fees"}</span><span style={iVal}>{fmtD(baseHmInterest)}</span></div>
+            {useFwd?(<>
+              <div style={iRow}><span style={iLbl}>Paid so far <span style={{fontSize:10.5,color:T.textTert}}>(QuickBooks)</span></span><span style={iVal}>{hmPaidSoFar==null?"…":fmtD(paidSoFar)}</span></div>
+              <div style={iRow}><span style={iLbl}>Remaining <span style={{fontSize:10.5,color:T.textTert}}>· {daysLeft}d @ {n(hmRate)}%</span></span><span style={iVal}>{fmtD(forwardHmInterest)}</span></div>
+              <div style={iRow}><span style={{...iLbl,fontWeight:700}}>Total HM Interest</span><span style={{...iVal,fontWeight:800}}>{fmtD(baseHmInterest)}</span></div>
+            </>):(
+              <div style={iRow}><span style={iLbl}>Calculated Interest + Fees</span><span style={iVal}>{fmtD(calcHmInterest)}</span></div>
+            )}
             {iField("Override Total HM Interest",hmIntOverride,setHmIntOverride,"$","leave blank to use calculated")}
           </div>
 
@@ -1438,9 +1446,13 @@ function FinOverview({property,onUpdate}){
   // cross-check the hard-money / LOC amounts against what's pinned on the BS report.
   // Fetched lazily the first time the Actuals popup is opened (needs QuickBooks).
   const[qbAccounts,setQbAccounts]=useState(null);
+  const[qbPaidInt,setQbPaidInt]=useState(null);  // interest/debt-service paid to date on this property
   useEffect(()=>{
     if(!showActualFinancing||qbAccounts)return;let alive=true;
-    fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>{if(s.connected)qbAuthFetch("/api/quickbooks/accounts").then(d=>{if(alive)setQbAccounts(d.items||[]);}).catch(()=>{if(alive)setQbAccounts([]);});}).catch(()=>{});
+    fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>{if(!s.connected)return;
+      qbAuthFetch("/api/quickbooks/accounts").then(d=>{if(alive)setQbAccounts(d.items||[]);}).catch(()=>{if(alive)setQbAccounts([]);});
+      if(property.qbProjectId)qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(property.qbProjectId)}`).then(d=>{const paid=(d.items||[]).filter(x=>/interest|debt/i.test(x.account||"")).reduce((sum,x)=>sum+(Number(x.amount)||0),0);if(alive)setQbPaidInt(paid);}).catch(()=>{if(alive)setQbPaidInt(0);});
+    }).catch(()=>{});
     return ()=>{alive=false;};
   },[showActualFinancing]); // eslint-disable-line react-hooks/exhaustive-deps
   const bsHasLoans=((property.qbLoanAccounts||[]).length||(property.qbLoanCustom||[]).length);
@@ -1523,10 +1535,9 @@ function FinOverview({property,onUpdate}){
   const acGapLoanAmt   = n(f.acGapLoanAmt)||equityRequired;
   const acGapRate      = f.acGapRate!==undefined?n(f.acGapRate):n(f.gapRate||15);
   const acHmMonthlyInt = Math.round(acHmLoanAmt*(acHmRate/100)/12);
-  const acHmFwd        = Math.round(acHmLoanAmt*(acHmRate/100)/365*daysBetween(new Date().toISOString().slice(0,10),f.acHmPayoffDate||""));
   const acHmInterest   = f.acHmInterestOverride!==undefined&&f.acHmInterestOverride!==""
     ? n(f.acHmInterestOverride)
-    : ((f.acHmFromToday&&f.acHmPayoffDate)?acHmFwd:Math.round(acHmMonthlyInt*actualHoldMonths)+Math.round(acHmLoanAmt*(acHmOrigPct/100))+acHmDocAmt);
+    : (f.acHmFromToday?n(f.hmInterest):Math.round(acHmMonthlyInt*actualHoldMonths)+Math.round(acHmLoanAmt*(acHmOrigPct/100))+acHmDocAmt);
   const acGapBalloon   = f.acGapInterestOverride!==undefined&&f.acGapInterestOverride!==""
     ? n(f.acGapInterestOverride)
     : Math.round(acGapLoanAmt*(acGapRate/100)/12*actualHoldMonths);
@@ -1544,7 +1555,7 @@ function FinOverview({property,onUpdate}){
       {showActualSelling&&<SellingCostsPopup items={acSellingItems} salePrice={f.actualSalePrice||f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({actualSellingCostItems:items,actualSellingCosts:String(total)})} onClose={()=>setShowActualSelling(false)}/>}
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
       {showActualFinancing&&<ActualFinancingPopup f={f} liveHmTotal={liveHmTotal} liveGapPrinc={equityRequired} actualHoldMonths={actualHoldMonths} locDraws={locDraws} sellingDate={f.sellingDate} closingDate={(property.propertyInfo||{}).closingDateScheduled||f.sellingDate}
-        bsHm={bsHm} bsLoc={bsLoc} bsAvailable={bsAvailable}
+        bsHm={bsHm} bsLoc={bsLoc} bsAvailable={bsAvailable} hmPaidSoFar={qbPaidInt}
         onSave={(vals)=>upMany(vals)} onClose={()=>setShowActualFinancing(false)}/>}
 
       {/* Toggle bar */}
@@ -7258,10 +7269,10 @@ function cashFlowNet(p,accounts,spend,intPaid){
   const auto=(intPaid&&p.qbProjectId&&intPaid[p.qbProjectId]!=null)?intPaid[p.qbProjectId]:0;
   // Best available source: the live QuickBooks interest/debt-service expense OR the
   // debt service pinned on the BS report — whichever is larger (a live 0 must not
-  // wipe out a pinned figure). Capped at the projected hard-money interest. But if
-  // the property's Actuals already use "interest from today forward", hmInterest is
-  // ALREADY the remaining balance — don't credit paid interest again (double count).
-  const paidRaw=f.acHmFromToday?0:Math.max(auto||0,m.debt||0);
+  // wipe out a pinned figure). Capped at the projected hard-money interest. hmInterest
+  // is the TOTAL HM interest (incl. what's been paid), so crediting the paid portion
+  // leaves only the remaining balance owed at closing.
+  const paidRaw=Math.max(auto||0,m.debt||0);
   const hmPaid=Math.min(hmIntGross,Math.max(0,paidRaw));
   const hmInt=hmIntGross-hmPaid;                          // remaining hard-money interest due at closing
   const interest=locInt+hmInt;

@@ -53,7 +53,10 @@ export default async function handler(req, res) {
           const date = g(iDate), type = g(iType), vendor = g(iName);
           // A real transaction line has a date/type/vendor (not a bare subtotal).
           if (acct && (date || type || vendor)) {
-            items.push({ date, type, num: g(iNum), vendor, memo: g(iMemo), account: acct, amount: num(g(iAmt)) });
+            // The tx_date cell carries the transaction's Id in detail reports; keep it
+            // so the client can fetch the full transaction (all splits) on demand.
+            const id = r.ColData[iDate >= 0 ? iDate : 0]?.id || r.ColData.find((c) => c && c.id)?.id || "";
+            items.push({ id, date, type, num: g(iNum), vendor, memo: g(iMemo), account: acct, amount: num(g(iAmt)) });
           }
         }
         if (r.Rows?.Row) walk(r.Rows.Row, acct);

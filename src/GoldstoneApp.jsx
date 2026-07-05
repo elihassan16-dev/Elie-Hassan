@@ -6390,44 +6390,110 @@ function QbAccountsPickerModal({accounts,pinnedIds,address,onToggle,onClose}){
   );
 }
 
-// ─── Property BS detail — pin the property's QuickBooks accounts (formulas TBD) ─
+// ─── Property BS detail — pinned accounts + a small balance sheet (loans vs all-in) ─
 function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
   const[pickerOpen,setPickerOpen]=useState(false);
+  const[addFor,setAddFor]=useState("");            // "loan" | "bs" — which custom-line form is open
+  const[draft,setDraft]=useState({label:"",amount:""});
+  const[editAllIn,setEditAllIn]=useState(false);
+  const[allInDraft,setAllInDraft]=useState("");
   const pinned=property.qbLoanAccounts||[];
-  const toggle=(id)=>{const has=pinned.includes(id);onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);};
+  const loanCustom=property.qbLoanCustom||[];
+  const bsCustom=property.qbBsCustom||[];
   const acct=(id)=>(accounts||[]).find(a=>a.id===id);
   const money=(v)=>fmtD(v);
+  const num=(v)=>{const x=parseFloat(String(v).replace(/[^0-9.-]/g,""));return isNaN(x)?0:x;};
+
+  const toggle=(id)=>{const has=pinned.includes(id);onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);};
+  const addCustom=(key)=>{const label=draft.label.trim();const amount=num(draft.amount);if(!label&&!amount)return;const arr=property[key]||[];onUpdate(property.id,key,[...arr,{id:Date.now(),label:label||"Adjustment",amount}]);setDraft({label:"",amount:""});setAddFor("");};
+  const delCustom=(key,id)=>{onUpdate(property.id,key,(property[key]||[]).filter(l=>l.id!==id));};
+
+  const pinnedSum=pinned.reduce((s,id)=>s+(acct(id)?.balance||0),0);
+  const loanCustomSum=loanCustom.reduce((s,l)=>s+(Number(l.amount)||0),0);
+  const totalLoans=pinnedSum+loanCustomSum;
+  const manual=property.qbAllInCost;
+  const hasManual=manual!==undefined&&manual!==null&&manual!=="";
+  const allInVal=hasManual?Number(manual):(allIn!=null?allIn:null);
+  const bsCustomSum=bsCustom.reduce((s,l)=>s+(Number(l.amount)||0),0);
+  const net=allInVal!=null?totalLoans-allInVal+bsCustomSum:null;
+
+  const inS={padding:"7px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
+  const addBtn=(key)=><button onClick={()=>{setDraft({label:"",amount:""});setAddFor(key==="qbLoanCustom"?"loan":"bs");}} style={{width:"100%",padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add custom line</button>;
+  const addForm=(key)=>(
+    <div style={{display:"flex",gap:6,padding:"10px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
+      <input autoFocus value={draft.label} onChange={e=>setDraft(d=>({...d,label:e.target.value}))} placeholder="Label" style={{...inS,flex:1,minWidth:110}}/>
+      <input value={draft.amount} onChange={e=>setDraft(d=>({...d,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addCustom(key)} placeholder="Amount" inputMode="decimal" style={{...inS,width:104,textAlign:"right"}}/>
+      <button onClick={()=>addCustom(key)} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Add</button>
+      <button onClick={()=>{setAddFor("");setDraft({label:"",amount:""});}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
+    </div>
+  );
+  const customRow=(key,l)=>(
+    <div key={l.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
+      <span style={{flex:1,minWidth:0,fontSize:13.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label} <span style={{fontSize:10,color:T.textTert}}>· manual</span></span>
+      <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{money(Number(l.amount)||0)}</span>
+      <button onClick={()=>delCustom(key,l.id)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+    </div>
+  );
+
   return(
     <div>
+      {/* Box 1 — pinned accounts + custom loan lines → Total loans */}
       <Card style={{marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:pinned.length?`1px solid ${T.border}`:"none"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{fontSize:12.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Pinned Accounts</div>
           <button onClick={()=>setPickerOpen(true)} style={{padding:"7px 13px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🔍 Search &amp; pin</button>
         </div>
-        {pinned.length===0
-          ?<div style={{padding:"14px 16px",fontSize:13,color:T.textTert}}>No accounts pinned yet. Tap <b>Search &amp; pin</b> to find this property&rsquo;s QuickBooks accounts and pin them.</div>
-          :pinned.map(id=>{
-            const a=acct(id);
-            return(
-              <div key={id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a?a.name:"(account not found)"}</div>
-                  {a&&<div style={{fontSize:11,color:T.textTert}}>{a.subType||a.type}</div>}
-                </div>
-                <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{a?money(a.balance):"—"}</span>
-                <button onClick={()=>toggle(id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
-              </div>
-            );
-          })}
+        {pinned.length===0&&loanCustom.length===0&&addFor!=="loan"&&<div style={{padding:"14px 16px",fontSize:13,color:T.textTert}}>No accounts pinned yet. Tap <b>Search &amp; pin</b> to add this property&rsquo;s QuickBooks accounts, or add a custom line below.</div>}
+        {pinned.map(id=>{const a=acct(id);return(
+          <div key={id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a?a.name:"(account not found)"}</div>
+              {a&&<div style={{fontSize:11,color:T.textTert}}>{a.subType||a.type}</div>}
+            </div>
+            <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{a?money(a.balance):"—"}</span>
+            <button onClick={()=>toggle(id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+          </div>
+        );})}
+        {loanCustom.map(l=>customRow("qbLoanCustom",l))}
+        {addFor==="loan"?addForm("qbLoanCustom"):addBtn("qbLoanCustom")}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"11px 16px",borderTop:`2px solid ${T.border}`,background:T.bg}}>
+          <span style={{fontSize:13,fontWeight:800,color:T.text}}>Total loans</span>
+          <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{money(totalLoans)}</span>
+        </div>
       </Card>
 
-      <Card>
-        <GHeader label="All-in Cost"/>
-        <div style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
-          <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>All-in cost</div><div style={{fontSize:11,color:T.textTert}}>{allInLoading?"loading…":"QuickBooks actual spend"}</div></div>
-          <span style={{fontSize:17,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{allInLoading?"…":allIn==null?"—":money(allIn)}</span>
+      {/* Box 2 — balance sheet: Total loans − all-in cost (± custom adjustments) */}
+      <Card style={{border:`1px solid ${T.gold}`}}>
+        <GHeader label="Balance Sheet"/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
+          <span style={{fontSize:14,fontWeight:600,color:T.text}}>Total loans</span>
+          <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{money(totalLoans)}</span>
         </div>
-        {allIn==null&&!allInLoading&&<div style={{fontSize:11.5,color:T.textTert,padding:"0 16px 12px"}}>Map this property to its QuickBooks project (QuickBooks tab) to pull the all-in cost.</div>}
+        <div style={{padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10}}>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:14,fontWeight:600,color:T.text}}>All-in cost</div>
+              <div style={{fontSize:11,color:T.textTert}}>{hasManual?"manual entry":allInLoading?"loading…":"QuickBooks actual spend"}</div>
+            </div>
+            {editAllIn
+              ?<div style={{display:"flex",gap:6,alignItems:"center"}}>
+                 <input autoFocus value={allInDraft} onChange={e=>setAllInDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){onUpdate(property.id,"qbAllInCost",String(num(allInDraft)));setEditAllIn(false);}}} placeholder="Amount" inputMode="decimal" style={{...inS,width:120,textAlign:"right"}}/>
+                 <button onClick={()=>{onUpdate(property.id,"qbAllInCost",String(num(allInDraft)));setEditAllIn(false);}} style={{padding:"6px 10px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+               </div>
+              :<div style={{display:"flex",gap:8,alignItems:"center"}}>
+                 <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{allInVal==null?(allInLoading?"…":"—"):money(allInVal)}</span>
+                 <button onClick={()=>{setAllInDraft(allInVal!=null?String(allInVal):"");setEditAllIn(true);}} title="Set manually" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>✎</button>
+                 {hasManual&&<button onClick={()=>onUpdate(property.id,"qbAllInCost","")} title="Use QuickBooks value" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>}
+               </div>}
+          </div>
+          {allInVal==null&&!allInLoading&&<div style={{fontSize:11.5,color:T.textTert,marginTop:4}}>Map this property to its QuickBooks project (QuickBooks tab), or set a manual amount with ✎.</div>}
+        </div>
+        {bsCustom.map(l=>customRow("qbBsCustom",l))}
+        {addFor==="bs"?addForm("qbBsCustom"):addBtn("qbBsCustom")}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"13px 16px",background:T.gold+"14"}}>
+          <div><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Net</div><div style={{fontSize:11,color:T.textTert}}>Total loans − all-in cost{bsCustom.length?" + adjustments":""}</div></div>
+          <span style={{fontSize:19,fontWeight:800,color:net==null?T.textTert:(net>=0?T.green:T.red),whiteSpace:"nowrap"}}>{net==null?"—":money(net)}</span>
+        </div>
       </Card>
 
       {pickerOpen&&<QbAccountsPickerModal accounts={accounts} pinnedIds={pinned} address={`${property.address}${property.city?`, ${property.city}`:""}`} onToggle={toggle} onClose={()=>setPickerOpen(false)}/>}

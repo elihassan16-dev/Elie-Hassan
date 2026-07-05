@@ -6589,6 +6589,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
   const[showBreak,setShowBreak]=useState(false);
   const[addFor,setAddFor]=useState("");            // which custom-line form is open (a property field key)
   const[draft,setDraft]=useState({label:"",amount:""});
+  const[editId,setEditId]=useState(null);          // manual line being edited (else null = adding new)
   const[editAllIn,setEditAllIn]=useState(false);
   const[allInDraft,setAllInDraft]=useState("");
   const[txns,setTxns]=useState(null);
@@ -6613,7 +6614,9 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
   },[property.qbProjectId]);
 
   const toggle=(id)=>{const has=pinned.includes(id);onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);};
-  const addCustom=(key)=>{const label=draft.label.trim();const amount=num(draft.amount);if(!label&&!amount)return;const arr=property[key]||[];onUpdate(property.id,key,[...arr,{id:Date.now(),label:label||"Adjustment",amount}]);setDraft({label:"",amount:""});setAddFor("");};
+  const addCustom=(key)=>{const label=draft.label.trim();const amount=num(draft.amount);if(!label&&!amount)return;const arr=property[key]||[];
+    onUpdate(property.id,key,editId!=null?arr.map(l=>l.id===editId?{...l,label:label||"Adjustment",amount}:l):[...arr,{id:Date.now(),label:label||"Adjustment",amount}]);
+    setDraft({label:"",amount:""});setAddFor("");setEditId(null);};
   const delCustom=(key,id)=>{onUpdate(property.id,key,(property[key]||[]).filter(l=>l.id!==id));};
   const toggleTx=(field,arr,t)=>{const k=txKey(t);const has=arr.some(x=>txKey(x)===k);onUpdate(property.id,field,has?arr.filter(x=>txKey(x)!==k):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}]);};
   const inPot=(key)=>potIds.includes(key);
@@ -6636,20 +6639,21 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
   const amt=(v,{size=15,weight=800,color=T.text}={})=><span style={{fontSize:size,fontWeight:weight,color,whiteSpace:"nowrap"}}>{v}</span>;
   const slot=(el)=><span style={{width:SLOT,flexShrink:0,display:"flex",justifyContent:"center"}}>{el||null}</span>;
   const xBtn=(fn,title)=><button onClick={fn} title={title} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,padding:0}}>×</button>;
-  const addBtn=(key)=><button onClick={()=>{setDraft({label:"",amount:""});setAddFor(key);}} style={{width:"100%",padding:"9px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add manual line</button>;
+  const addBtn=(key)=><button onClick={()=>{setDraft({label:"",amount:""});setEditId(null);setAddFor(key);}} style={{width:"100%",padding:"9px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add manual line</button>;
   const addForm=(key)=>(
     <div style={{display:"flex",gap:6,padding:"10px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
       <input autoFocus value={draft.label} onChange={e=>setDraft(d=>({...d,label:e.target.value}))} placeholder="Label" style={{...inS,flex:1,minWidth:110}}/>
       <button onClick={()=>setDraft(d=>({...d,amount:d.amount.trim().startsWith("-")?d.amount.replace("-",""):"-"+d.amount.trim()}))} title="Make negative / positive" style={{padding:"7px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>±</button>
       <input value={draft.amount} onChange={e=>setDraft(d=>({...d,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addCustom(key)} placeholder="Amount" inputMode="decimal" style={{...inS,width:96,textAlign:"right"}}/>
-      <button onClick={()=>addCustom(key)} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Add</button>
-      <button onClick={()=>{setAddFor("");setDraft({label:"",amount:""});}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
+      <button onClick={()=>addCustom(key)} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{editId!=null?"Save":"Add"}</button>
+      <button onClick={()=>{setAddFor("");setDraft({label:"",amount:""});setEditId(null);}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
     </div>
   );
+  const editLine=(key,l)=>{setDraft({label:l.label,amount:String(l.amount)});setEditId(l.id);setAddFor(key);};
   const customRow=(key,l)=>(
     <div key={l.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderTop:`1px solid ${T.border}`}}>
-      <span style={{flex:1,minWidth:0,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label} <span style={{fontSize:10,color:T.textTert}}>· manual</span></span>
-      {amt(money(Number(l.amount)||0),{size:13,weight:700})}
+      <span onClick={()=>editLine(key,l)} title="Tap to edit" style={{flex:1,minWidth:0,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{l.label} <span style={{fontSize:10,color:T.textTert}}>· tap to edit</span></span>
+      <span onClick={()=>editLine(key,l)} style={{cursor:"pointer"}}>{amt(money(Number(l.amount)||0),{size:13,weight:700})}</span>
       {slot(xBtn(()=>delCustom(key,l.id),"Remove"))}
     </div>
   );
@@ -6699,19 +6703,20 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
     ))}
     {(property[customField]||[]).map(l=>(
       <div key={l.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 18px",borderTop:`1px solid ${T.border}`}}>
-        <span style={{flex:1,minWidth:0,fontSize:13.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label} <span style={{fontSize:10,color:T.textTert}}>· manual</span></span>
-        {amt(money(Number(l.amount)||0),{size:13.5,weight:700})}
+        <span onClick={()=>editLine(customField,l)} title="Tap to edit" style={{flex:1,minWidth:0,fontSize:13.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{l.label} <span style={{fontSize:10,color:T.textTert}}>· tap to edit</span></span>
+        <span onClick={()=>editLine(customField,l)} style={{cursor:"pointer"}}>{amt(money(Number(l.amount)||0),{size:13.5,weight:700})}</span>
         {slot(xBtn(()=>delCustom(customField,l.id),"Remove"))}
       </div>
     ))}
     {addFor===customField
       ?<div style={{display:"flex",gap:6,padding:"10px 18px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
          <input autoFocus value={draft.label} onChange={e=>setDraft(d=>({...d,label:e.target.value}))} placeholder="Label" style={{...inS,flex:1,minWidth:110}}/>
-         <input value={draft.amount} onChange={e=>setDraft(d=>({...d,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addCustom(customField)} placeholder="Amount" inputMode="decimal" style={{...inS,width:104,textAlign:"right"}}/>
-         <button onClick={()=>addCustom(customField)} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Add</button>
-         <button onClick={()=>{setAddFor("");setDraft({label:"",amount:""});}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
+         <button onClick={()=>setDraft(d=>({...d,amount:d.amount.trim().startsWith("-")?d.amount.replace("-",""):"-"+d.amount.trim()}))} title="Make negative / positive" style={{padding:"7px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>±</button>
+         <input value={draft.amount} onChange={e=>setDraft(d=>({...d,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addCustom(customField)} placeholder="Amount" inputMode="decimal" style={{...inS,width:96,textAlign:"right"}}/>
+         <button onClick={()=>addCustom(customField)} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{editId!=null?"Save":"Add"}</button>
+         <button onClick={()=>{setAddFor("");setDraft({label:"",amount:""});setEditId(null);}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
        </div>
-      :<button onClick={()=>{setDraft({label:"",amount:""});setAddFor(customField);}} style={{width:"100%",padding:"10px 18px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add manual line</button>}
+      :<button onClick={()=>{setDraft({label:"",amount:""});setEditId(null);setAddFor(customField);}} style={{width:"100%",padding:"10px 18px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add manual line</button>}
     <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
       <span style={{flex:1,fontSize:13.5,fontWeight:800,color:T.gold}}>Total</span>{amt(money(sum),{size:16})}
     </div>
@@ -6852,7 +6857,7 @@ function bsMetrics(p,accounts,spend){
   const equity=allIn==null?null:allIn-totalLoans+bsSum(p.qbBsCustom);
   return {pot,deployed,debt,reserve,totalLoans,allIn,equity};
 }
-function FinPropertyBS({sharedProps,onNavigate,isMobile}){
+function FinPropertyBS({sharedProps,onNavigate,initialSelId,isMobile}){
   const { setSharedProps, flushProps, bankAccounts }=useData();
   const onUpdate=(id,key,val)=>{setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
   const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status))
@@ -6860,7 +6865,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
   const[connected,setConnected]=useState(null);
   const[accounts,setAccounts]=useState(null);
   const[spend,setSpend]=useState({});
-  const[selId,setSelId]=useState(null);
+  const[selId,setSelId]=useState(initialSelId||null);
   const[search,setSearch]=useState("");
   const[acctKey,setAcctKey]=useState(0);   // bump to refetch QuickBooks account balances
   const[spendKey,setSpendKey]=useState(0);  // bump to refetch project all-in spend
@@ -7004,7 +7009,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
     </div>
   );
 }
-function FinBankRecon({sharedProps,isMobile}){
+function FinBankRecon({sharedProps,onOpenProperty,isMobile}){
   const { bankAccounts, setBankAccounts, flushBank }=useData();
   const save=()=>{if(flushBank)setTimeout(flushBank,0);};
   const[connected,setConnected]=useState(null);
@@ -7014,6 +7019,7 @@ function FinBankRecon({sharedProps,isMobile}){
   const[balModal,setBalModal]=useState("");   // bank id whose reconcile popup is open
   const[addAdjFor,setAddAdjFor]=useState("");  // bank id whose adjustment form is open
   const[adjDraft,setAdjDraft]=useState({label:"",amount:""});
+  const[editAdjId,setEditAdjId]=useState(null); // adjustment being edited (else null = adding new)
   const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status)),[sharedProps]);
   useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
   useEffect(()=>{if(!connected)return;qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[connected]);
@@ -7031,7 +7037,9 @@ function FinBankRecon({sharedProps,isMobile}){
   const del=(id)=>{if(!window.confirm("Delete this bank account?"))return;setBankAccounts(prev=>prev.filter(b=>b.id!==id));save();};
   const num=(v)=>{const x=parseFloat(String(v).replace(/[^0-9.-]/g,""));return isNaN(x)?0:x;};
   const setActual=(id,actual)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,actual}:b));save();};
-  const addAdj=(id)=>{const label=adjDraft.label.trim();const amount=num(adjDraft.amount);if(!label&&!amount)return;setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:[...(b.adjustments||[]),{id:Date.now(),label:label||"Adjustment",amount}]}:b));setAdjDraft({label:"",amount:""});setAddAdjFor("");save();};
+  const addAdj=(id)=>{const label=adjDraft.label.trim();const amount=num(adjDraft.amount);if(!label&&!amount)return;
+    setBankAccounts(prev=>prev.map(b=>b.id!==id?b:{...b,adjustments:editAdjId!=null?(b.adjustments||[]).map(a=>a.id===editAdjId?{...a,label:label||"Adjustment",amount}:a):[...(b.adjustments||[]),{id:Date.now(),label:label||"Adjustment",amount}]}));
+    setAdjDraft({label:"",amount:""});setAddAdjFor("");setEditAdjId(null);save();};
   const delAdj=(id,adjId)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:(b.adjustments||[]).filter(a=>a.id!==adjId)}:b));save();};
   // Money physically held in the bank for a property — always ≥ 0. In equity mode it's
   // the surplus financing (loans − all-in = −equity) you're holding to finish the job.
@@ -7070,9 +7078,9 @@ function FinBankRecon({sharedProps,isMobile}){
               <span style={{color:T.gold,fontSize:16,flexShrink:0}}>›</span>
             </div>
             {list.map((p,i)=>(
-              <div key={p.id} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 16px",borderTop:i===0?`1px solid ${T.border}`:"none"}}>
+              <div key={p.id} onClick={()=>onOpenProperty&&onOpenProperty(p.id)} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 16px",borderTop:i===0?`1px solid ${T.border}`:"none",cursor:onOpenProperty?"pointer":"default"}}>
                 <div style={{minWidth:0}}>
-                  <div style={{fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</div>
+                  <div style={{fontSize:12.5,color:onOpenProperty?T.blue:T.text,fontWeight:onOpenProperty?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</div>
                   <div style={{fontSize:10.5,color:T.textTert}}>{(p.bsCalcMode||"reserve")==="equity"?"Personal equity":"Interest reserve"}</div>
                 </div>
                 <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(heldOf(p))}</span>
@@ -7080,8 +7088,8 @@ function FinBankRecon({sharedProps,isMobile}){
             ))}
             {adjustments.map(a=>(
               <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:`1px solid ${T.border}`}}>
-                <span style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.label} <span style={{fontSize:10,color:T.textTert}}>· adjustment</span></span>
-                <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(Number(a.amount)||0)}</span>
+                <span onClick={()=>{setAdjDraft({label:a.label,amount:String(a.amount)});setEditAdjId(a.id);setAddAdjFor(b.id);}} title="Tap to edit" style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{a.label} <span style={{fontSize:10,color:T.textTert}}>· tap to edit</span></span>
+                <span onClick={()=>{setAdjDraft({label:a.label,amount:String(a.amount)});setEditAdjId(a.id);setAddAdjFor(b.id);}} style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap",cursor:"pointer"}}>{fmtD(Number(a.amount)||0)}</span>
                 <button onClick={()=>delAdj(b.id,a.id)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
               </div>
             ))}
@@ -7090,10 +7098,10 @@ function FinBankRecon({sharedProps,isMobile}){
                  <input autoFocus value={adjDraft.label} onChange={e=>setAdjDraft(d=>({...d,label:e.target.value}))} placeholder="Adjustment (e.g. small loan)" style={{...inS,flex:1,minWidth:120}}/>
                  <button onClick={()=>setAdjDraft(d=>({...d,amount:d.amount.trim().startsWith("-")?d.amount.replace("-",""):"-"+d.amount.trim()}))} title="Make negative / positive" style={{padding:"8px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>±</button>
                  <input value={adjDraft.amount} onChange={e=>setAdjDraft(d=>({...d,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addAdj(b.id)} placeholder="Amount" inputMode="decimal" style={{...inS,width:100,textAlign:"right"}}/>
-                 <button onClick={()=>addAdj(b.id)} style={{padding:"8px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Add</button>
-                 <button onClick={()=>{setAddAdjFor("");setAdjDraft({label:"",amount:""});}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
+                 <button onClick={()=>addAdj(b.id)} style={{padding:"8px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{editAdjId!=null?"Save":"Add"}</button>
+                 <button onClick={()=>{setAddAdjFor("");setAdjDraft({label:"",amount:""});setEditAdjId(null);}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
                </div>
-              :<button onClick={()=>{setAdjDraft({label:"",amount:""});setAddAdjFor(b.id);}} style={{width:"100%",padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add adjustment</button>}
+              :<button onClick={()=>{setAdjDraft({label:"",amount:""});setEditAdjId(null);setAddAdjFor(b.id);}} style={{width:"100%",padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add adjustment</button>}
           </Card>
         );
       })}
@@ -7135,6 +7143,8 @@ function FinancialSectionPage({onNavigate}){
   const { funders, setFunders, flushFunders, draws, setDraws, flushDraws, sharedProps } = useData();
   const isMobile=useIsMobile();
   const[subTab,setSubTab]=useState("loc");
+  const[bsSel,setBsSel]=useState(null); // property to open in the BS report (e.g. from Bank Reconciliation)
+  const goToBS=(propId)=>{setBsSel(propId);setSubTab("bs");};
   const[selId,setSelId]=useState(null);
   const[funderModal,setFunderModal]=useState(null);   // {} new, or funder obj to edit
   const[ledgerModal,setLedgerModal]=useState(false);
@@ -7344,7 +7354,7 @@ function FinancialSectionPage({onNavigate}){
         </div>
         <div style={{display:"flex",gap:4,marginTop:12,overflowX:"auto"}}>
           {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"]].map(([k,l])=>(
-            <button key={k} onClick={()=>setSubTab(k)} style={{padding:"9px 14px",border:"none",borderBottom:subTab===k?`2.5px solid ${T.gold}`:"2.5px solid transparent",background:"none",color:subTab===k?T.gold:T.textSub,fontWeight:subTab===k?800:600,fontSize:isMobile?12.5:13.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
+            <button key={k} onClick={()=>{setSubTab(k);setBsSel(null);}} style={{padding:"9px 14px",border:"none",borderBottom:subTab===k?`2.5px solid ${T.gold}`:"2.5px solid transparent",background:"none",color:subTab===k?T.gold:T.textSub,fontWeight:subTab===k?800:600,fontSize:isMobile?12.5:13.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
           ))}
         </div>
       </div>
@@ -7376,8 +7386,8 @@ function FinancialSectionPage({onNavigate}){
           </div>
         </div>
       </>}
-      {subTab==="bs"&&<FinPropertyBS sharedProps={sharedProps} draws={draws} onNavigate={onNavigate} isMobile={isMobile}/>}
-      {subTab==="bank"&&<FinBankRecon sharedProps={sharedProps} isMobile={isMobile}/>}
+      {subTab==="bs"&&<FinPropertyBS sharedProps={sharedProps} draws={draws} onNavigate={onNavigate} initialSelId={bsSel} isMobile={isMobile}/>}
+      {subTab==="bank"&&<FinBankRecon sharedProps={sharedProps} onOpenProperty={goToBS} isMobile={isMobile}/>}
     </div>
   );
 }

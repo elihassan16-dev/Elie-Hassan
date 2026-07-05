@@ -6804,6 +6804,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
   const[accounts,setAccounts]=useState(null);
   const[spend,setSpend]=useState({});
   const[selId,setSelId]=useState(null);
+  const[search,setSearch]=useState("");
   const[acctKey,setAcctKey]=useState(0);   // bump to refetch QuickBooks account balances
   const[spendKey,setSpendKey]=useState(0);  // bump to refetch project all-in spend
   const[refreshing,setRefreshing]=useState(false);
@@ -6870,6 +6871,12 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
           </div>
           {connected&&<button onClick={refreshAll} title="Refresh balances from QuickBooks" style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>{refreshing?"↻ …":"↻ Refresh"}</button>}
         </div>
+        {rows.length>0&&(
+          <div style={{padding:"10px 14px 8px",borderBottom:`1px solid ${T.border}`,position:"relative"}}>
+            <span style={{position:"absolute",left:23,top:"50%",transform:"translateY(-50%)",fontSize:13,color:T.textTert,pointerEvents:"none"}}>🔍</span>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search a property…" style={{width:"100%",padding:"8px 12px 8px 32px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+          </div>
+        )}
         {connected===false&&<div style={{padding:"10px 14px",fontSize:11.5,color:"#8a6d1f",background:T.goldLight,borderBottom:`1px solid ${T.gold}`,lineHeight:1.45}}>Connect QuickBooks (any property&rsquo;s QuickBooks tab) to populate account balances.</div>}
         {rows.length>0&&(
           <div style={{display:"grid",gridTemplateColumns:cols,gap:8,padding:"8px 16px",background:"#FAFAFA",borderBottom:`1px solid ${T.border}`,fontSize:9.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em"}}>
@@ -6878,7 +6885,9 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
         )}
         <div style={{flex:1,overflowY:"auto"}}>
           {rows.length===0&&<div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No purchased, under-construction, on-market, or in-closing properties yet.</div>}
-          {rows.map(({p,cf,ir,setUp})=>{
+          {(()=>{const q=search.trim().toLowerCase();const shown=q?rows.filter(({p})=>`${p.address} ${p.city||""}`.toLowerCase().includes(q)):rows;
+            if(rows.length>0&&shown.length===0)return <div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No properties match your search.</div>;
+            return shown.map(({p,cf,ir,setUp})=>{
             const sc=SC[p.status]||{};
             const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
             const active=sel&&sel.id===p.id;
@@ -6892,7 +6901,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
                 <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:!setUp?T.textTert:(ir>=0?T.text:T.red),whiteSpace:"nowrap"}}>{setUp?fmtD(ir):"—"}</span>
               </div>
             );
-          })}
+          });})()}
         </div>
         {rows.some(r=>r.setUp)&&(
           <div style={{display:"grid",gridTemplateColumns:cols,gap:8,alignItems:"center",padding:"12px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14",flexShrink:0}}>

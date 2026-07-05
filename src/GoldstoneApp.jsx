@@ -6390,9 +6390,48 @@ function QbAccountsPickerModal({accounts,pinnedIds,address,onToggle,onClose}){
   );
 }
 
+// ─── All-in cost breakdown — how the QuickBooks number was reached, by bucket ────
+function QbAllInBreakdownModal({pnl,total,onClose}){
+  const rows=(pnl?.rows||[]).filter(r=>r.section!=="Income");
+  const BKT=[["purchase","Purchase Price"],["buying","Buying Costs"],["rehab","Rehab Costs"],["holding","Holding Costs"],["debt","Debt Service / Interest"],["selling","Selling Costs"]];
+  const groups=BKT.map(([k,l])=>{const items=rows.filter(r=>qbBucket(r.name)===k);const sum=items.reduce((s,r)=>s+r.amount,0);return {k,l,items,sum};}).filter(g=>g.items.length||g.sum);
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:"20px 20px 0 0",width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 10px"}}>
+          <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>All-in cost breakdown</div><div style={{fontSize:12,color:T.textTert}}>How QuickBooks got to this number</div></div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,flexShrink:0}}>×</button>
+        </div>
+        <div style={{overflowY:"auto",padding:"0 0 max(16px,env(safe-area-inset-bottom))"}}>
+          {groups.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>No cost line items on this QuickBooks project.</div>}
+          {groups.map(g=>(
+            <div key={g.k}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"10px 18px 6px",background:T.bg,borderTop:`1px solid ${T.border}`}}>
+                <span style={{fontSize:11.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em"}}>{g.l}</span>
+                <span style={{fontSize:13,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(g.sum)}</span>
+              </div>
+              {g.items.map((r,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"7px 18px 7px 26px"}}>
+                  <span style={{fontSize:13,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
+                  <span style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(r.amount)}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+          <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"13px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+            <span style={{fontSize:14,fontWeight:800,color:T.gold}}>All-in cost</span>
+            <span style={{fontSize:16,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(total)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Property BS detail — pinned accounts + a small balance sheet (loans vs all-in) ─
-function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
+function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
   const[pickerOpen,setPickerOpen]=useState(false);
+  const[showBreak,setShowBreak]=useState(false);
   const[addFor,setAddFor]=useState("");            // "loan" | "bs" — which custom-line form is open
   const[draft,setDraft]=useState({label:"",amount:""});
   const[editAllIn,setEditAllIn]=useState(false);
@@ -6480,19 +6519,19 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
         </div>
         <div style={{padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:14,fontWeight:600,color:T.text}}>All-in cost</div>
+            <div onClick={()=>pnl&&setShowBreak(true)} style={{flex:1,minWidth:0,cursor:pnl?"pointer":"default"}}>
+              <div style={{fontSize:14,fontWeight:600,color:T.text}}>All-in cost {pnl&&<span style={{fontSize:11,color:T.blue,fontWeight:600}}>ⓘ breakdown</span>}</div>
               <div style={{fontSize:11,color:T.textTert}}>
                 {hasManual
-                  ?<>manual · <span onClick={()=>onUpdate(property.id,"qbAllInCost","")} style={{color:T.blue,cursor:"pointer",fontWeight:600}}>use QuickBooks</span></>
+                  ?<>manual · <span onClick={e=>{e.stopPropagation();onUpdate(property.id,"qbAllInCost","");}} style={{color:T.blue,cursor:"pointer",fontWeight:600}}>use QuickBooks</span></>
                   :allInLoading?"loading…":"QuickBooks actual spend"}
               </div>
             </div>
             {editAllIn
               ?<><input autoFocus value={allInDraft} onChange={e=>setAllInDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){onUpdate(property.id,"qbAllInCost",String(num(allInDraft)));setEditAllIn(false);}}} placeholder="Amount" inputMode="decimal" style={{...inS,width:120,textAlign:"right"}}/>
                  {slot(<button onClick={()=>{onUpdate(property.id,"qbAllInCost",String(num(allInDraft)));setEditAllIn(false);}} style={{background:"none",border:"none",color:T.gold,cursor:"pointer",fontSize:15,fontWeight:800,fontFamily:"inherit",padding:0}}>✓</button>)}</>
-              :<><span onClick={()=>{setAllInDraft(allInVal!=null?String(allInVal):"");setEditAllIn(true);}} style={{cursor:"pointer"}}>{amt(allInVal==null?(allInLoading?"…":"—"):money(allInVal))}</span>
-                 {slot(<button onClick={()=>{setAllInDraft(allInVal!=null?String(allInVal):"");setEditAllIn(true);}} title="Edit" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:0}}>✎</button>)}</>}
+              :<><span onClick={()=>{if(pnl)setShowBreak(true);else{setAllInDraft(allInVal!=null?String(allInVal):"");setEditAllIn(true);}}} style={{cursor:"pointer"}}>{amt(allInVal==null?(allInLoading?"…":"—"):money(allInVal))}</span>
+                 {slot(<button onClick={()=>{setAllInDraft(allInVal!=null?String(allInVal):"");setEditAllIn(true);}} title="Edit / override" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:0}}>✎</button>)}</>}
           </div>
           {allInVal==null&&!allInLoading&&<div style={{fontSize:11.5,color:T.textTert,marginTop:4}}>Map this property to its QuickBooks project (QuickBooks tab), or tap ✎ to set a manual amount.</div>}
         </div>
@@ -6506,6 +6545,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
       </Card>
 
       {pickerOpen&&<QbAccountsPickerModal accounts={accounts} pinnedIds={pinned} address={`${property.address}${property.city?`, ${property.city}`:""}`} onToggle={toggle} onClose={()=>setPickerOpen(false)}/>}
+      {showBreak&&pnl&&<QbAllInBreakdownModal pnl={pnl} total={allIn} onClose={()=>setShowBreak(false)}/>}
     </div>
   );
 }
@@ -6532,9 +6572,9 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
     const run=async()=>{
       while(queue.length&&!cancelled){
         const id=queue.shift();
-        setSpend(s=>({...s,[id]:{loading:true,allIn:s[id]?.allIn}}));
+        setSpend(s=>({...s,[id]:{loading:true,allIn:s[id]?.allIn,pnl:s[id]?.pnl}}));
         try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);
-          if(!cancelled)setSpend(s=>({...s,[id]:{loading:false,allIn:(d?.expenses||0)+(d?.cogs||0)}}));
+          if(!cancelled)setSpend(s=>({...s,[id]:{loading:false,allIn:(d?.expenses||0)+(d?.cogs||0),pnl:d}}));
         }catch{if(!cancelled)setSpend(s=>({...s,[id]:{loading:false,allIn:null}}));}
       }
     };
@@ -6597,7 +6637,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
                 {onNavigate&&<button onClick={()=>onNavigate(sel.id)} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Open →</button>}
               </div>
               <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
-                <PropertyBSDetail key={sel.id} property={sel} accounts={accounts} allIn={sp&&sp.allIn!=null?sp.allIn:null} allInLoading={!!sp?.loading} onUpdate={onUpdate}/>
+                <PropertyBSDetail key={sel.id} property={sel} accounts={accounts} allIn={sp&&sp.allIn!=null?sp.allIn:null} allInLoading={!!sp?.loading} pnl={sp?.pnl||null} onUpdate={onUpdate}/>
               </div>
             </>
           );

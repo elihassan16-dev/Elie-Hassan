@@ -7484,12 +7484,12 @@ function FinReportCenter({sharedProps,isMobile}){
             </div>
             <div style={{flex:1,overflow:"auto",padding:isMobile?"4px 4px 12px":"6px 10px 14px"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?12:13}}>
-                <thead><tr>{rep.cols.map((c,i)=><th key={i} style={{textAlign:c.align||"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"8px 10px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:T.card}}>{c.label}</th>)}</tr></thead>
+                <thead><tr>{rep.cols.map((c,i)=><th key={i} style={{textAlign:c.align||"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"8px 10px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:T.card,...(i===0?{left:0,zIndex:3,borderRight:`1px solid ${T.border}`}:{zIndex:1})}}>{c.label}</th>)}</tr></thead>
                 <tbody>
                   {rep.rows.length===0
                     ?<tr><td colSpan={rep.cols.length} style={{textAlign:"center",color:T.textTert,padding:"28px 10px",fontSize:13}}>{rep.empty}</td></tr>
-                    :rep.rows.map((cells,ri)=><tr key={ri}>{cells.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"8px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:c.strong?700:400,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap"}}>{c.t}</td>)}</tr>)}
-                  {rep.rows.length>0&&rep.foot&&<tr>{rep.foot.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"10px",borderTop:`2px solid ${T.gold}`,fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap"}}>{c.t}</td>)}</tr>}
+                    :rep.rows.map((cells,ri)=><tr key={ri}>{cells.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"8px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:c.strong?700:400,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{})}}>{c.t}</td>)}</tr>)}
+                  {rep.rows.length>0&&rep.foot&&<tr>{rep.foot.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"10px",borderTop:`2px solid ${T.gold}`,fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{})}}>{c.t}</td>)}</tr>}
                 </tbody>
               </table>
             </div>

@@ -7426,8 +7426,9 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
 // saved as a PDF (via the browser's print dialog). Reports run off the same data
 // as the rest of the Financial Section so the numbers always agree.
 function FinReportCenter({sharedProps,isMobile}){
-  const { draws, setDraws, flushDraws }=useData();
+  const { draws, setDraws, flushDraws, setSharedProps, flushProps }=useData();
   const setPlan=(drawId,plan)=>{setDraws(prev=>prev.map(d=>d.id===drawId?{...d,futureFundsPlan:plan}:d));if(flushDraws)setTimeout(flushDraws,0);};
+  const setHoldback=(propId,cur)=>{const raw=window.prompt("Construction holdback the bank is holding for this property ($):",cur!=null&&cur!==""?String(cur):"");if(raw===null)return;const t=raw.trim();const v=t===""?"":String(Math.round(Number(t.replace(/[^0-9.-]/g,""))||0));setSharedProps(prev=>prev.map(p=>p.id===propId?{...p,constrHoldback:v}:p));if(flushProps)setTimeout(flushProps,0);};
   const[connected,setConnected]=useState(null);
   const[accounts,setAccounts]=useState(()=>qbCache.get("accounts",null));
   const[spend,setSpend]=useState(()=>qbCache.get("spend",{}));
@@ -7484,6 +7485,21 @@ function FinReportCenter({sharedProps,isMobile}){
     return {rows,total};
   },[bsProps,accounts,spend]);
 
+  // Report 4 — construction holdback (what the bank holds) vs the underwriting
+  // construction estimate (the rehab figure). Holdback is entered per property.
+  const rptHold=useMemo(()=>{
+    const rows=[...bsProps].sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")).map(p=>{
+      const f=p.financials||{};
+      const est=n(f.rehabCosts)||n(f.actualRehabCosts)||0;
+      const raw=p.constrHoldback;
+      const holdback=(raw!=null&&raw!=="")?Number(raw):null;
+      return {propId:p.id,address:p.address,est,holdback,holdbackRaw:raw,diff:holdback==null?null:holdback-est};
+    });
+    const total={est:0,hold:0,anyHold:false};
+    rows.forEach(r=>{total.est+=r.est;if(r.holdback!=null){total.hold+=r.holdback;total.anyHold=true;}});
+    return {rows,total};
+  },[bsProps,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const D=(iso)=>iso?finFmtDate(iso):"—";
   const M=(v)=>v==null?"—":fmtD(v);
   const REPORTS={
@@ -7514,13 +7530,26 @@ function FinReportCenter({sharedProps,isMobile}){
       foot:[[{t:"Portfolio",strong:true},{t:fmtD(rptBS.total.totalLoans),align:"right",strong:true},{t:rptBS.total.anyAllIn?fmtD(rptBS.total.allIn):"—",align:"right",strong:true},{t:fmtD(rptBS.total.cf),align:"right",strong:true},{t:fmtD(rptBS.total.ir),align:"right",strong:true},{t:fmtD(rptBS.total.equity),align:"right",strong:true,color:rptBS.total.equity<0?T.red:T.green}]],
       empty:"No active properties.",
     },
+    hold:{
+      title:"Construction Holdback vs Underwriting",
+      subtitle:"What the bank is holding back for construction versus what you underwrote it to cost (rehab estimate). Tap a holdback to set it. Difference = holdback − estimate (red = short of your estimate).",
+      cols:[{label:"Property"},{label:"Est. construction",align:"right"},{label:"Bank holdback",align:"right"},{label:"Difference",align:"right"}],
+      rows:rptHold.rows.map(r=>[
+        {t:r.address},
+        {t:fmtD(r.est),align:"right"},
+        {edit:{propId:r.propId,cur:r.holdbackRaw},t:r.holdback==null?"Tap to set":fmtD(r.holdback),align:"right",color:r.holdback==null?T.blue:undefined},
+        {t:r.diff==null?"—":fmtD(r.diff),align:"right",strong:true,color:r.diff==null?T.textTert:(r.diff<0?T.red:T.green)},
+      ]),
+      foot:[[{t:"Portfolio",strong:true},{t:fmtD(rptHold.total.est),align:"right",strong:true},{t:rptHold.total.anyHold?fmtD(rptHold.total.hold):"—",align:"right",strong:true},{t:rptHold.total.anyHold?fmtD(rptHold.total.hold-rptHold.total.est):"—",align:"right",strong:true,color:(rptHold.total.hold-rptHold.total.est)<0?T.red:T.green}]],
+      empty:"No active properties.",
+    },
   };
 
   // Export → open a print window (the browser's "Save as PDF" / print / share).
   const exportReport=(rep)=>{
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
-    const cellText=(c)=>c.plan?(c.plan==="takeback"?"Take back":"Reinvest"):esc(c.t);
+    const cellText=(c)=>c.plan?(c.plan==="takeback"?"Take back":"Reinvest"):esc(c.edit&&c.t==="Tap to set"?"—":c.t);
     const th=rep.cols.map(c=>`<th style="text-align:${c.align||"left"}">${esc(c.label)}</th>`).join("");
     const trs=rep.rows.length?rep.rows.map((cells,ri)=>`<tr${ri%2?' style="background:#faf6ea"':''}>${cells.map(c=>`<td style="text-align:${c.align||"left"};${c.strong?"font-weight:700;":""}${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${rep.cols.length}" class="empty">${esc(rep.empty)}</td></tr>`;
     const foot=rep.foot&&rep.rows.length?rep.foot.map((frow,fi)=>`<tr class="${fi===0?"tot":"tot2"}">${frow.map(c=>`<td style="text-align:${c.align||"left"};font-weight:${c.strong?"800":"600"};${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):"";
@@ -7548,6 +7577,7 @@ function FinReportCenter({sharedProps,isMobile}){
     {id:"loc",icon:"📄",title:"Outstanding LOC by Deal",desc:"Who you owe line-of-credit to, by property — oldest purchase first."},
     {id:"future",icon:"📈",title:"Available Future Funds",desc:"LOC capital freeing up from your upcoming closings."},
     {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Loans, all-in cost, reserves and equity — spreadsheet style."},
+    {id:"hold",icon:"🏗️",title:"Construction Holdback vs Actuals",desc:"Bank's construction holdback vs your underwriting estimate, per property."},
   ];
   const rep=open?REPORTS[open]:null;
 
@@ -7584,6 +7614,8 @@ function FinReportCenter({sharedProps,isMobile}){
                     ?<tr><td colSpan={rep.cols.length} style={{textAlign:"center",color:T.textTert,padding:"28px 10px",fontSize:13}}>{rep.empty}</td></tr>
                     :rep.rows.map((cells,ri)=>{const rowBg=ri%2?T.gold+"12":T.card;return <tr key={ri} style={{background:rowBg}}>{cells.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"8px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:c.strong?700:400,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:rowBg,borderRight:`1px solid ${T.border}`}:{})}}>{c.plan
                         ?<button onClick={(e)=>{e.stopPropagation();setPlan(c.drawId,c.plan==="reinvest"?"takeback":"reinvest");}} title="Tap to switch" style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11.5,fontWeight:700,background:c.plan==="reinvest"?T.green+"22":T.red+"22",color:c.plan==="reinvest"?"#1a8f43":T.red}}>{c.plan==="reinvest"?"Reinvest":"Take back"}</button>
+                        :c.edit
+                        ?<span onClick={(e)=>{e.stopPropagation();setHoldback(c.edit.propId,c.edit.cur);}} title="Tap to set" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>
                         :c.t}</td>)}</tr>;})}
                   {rep.rows.length>0&&rep.foot&&rep.foot.map((frow,fi)=><tr key={"f"+fi}>{frow.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:fi===0?"11px 10px 8px":"2px 10px 8px",...(fi===0?{borderTop:`2px solid ${T.gold}`}:{}),fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{background:T.card})}}>{c.t}</td>)}</tr>)}
                 </tbody>

@@ -6391,7 +6391,7 @@ function QbAccountsPickerModal({accounts,pinnedIds,address,onToggle,onClose}){
 }
 
 // ─── Property BS detail — pin accounts (as construction loan / interest reserve) + all-in cost
-const BS_ROLES=[["construction","Construction Loan"],["reserve","Interest Reserve"]];
+const BS_ROLES=[["construction","Construction Float"],["reserve","Interest Reserve"]];
 function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
   const[pickerOpen,setPickerOpen]=useState(false);
   const pinned=property.qbLoanAccounts||[];
@@ -6439,7 +6439,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,onUpdate}){
       <Card style={{border:`1px solid ${T.gold}`}}>
         <GHeader label="Balance Sheet"/>
         <div style={{padding:"10px 16px"}}>
-          {[["Construction Loan",construction],["Interest Reserve",reserve]].map(([l,v],i)=>(
+          {[["Construction Float",construction],["Interest Reserve",reserve]].map(([l,v],i)=>(
             <div key={l} style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"7px 0",borderTop:i?`1px solid ${T.border}`:"none"}}>
               <span style={{fontSize:14,fontWeight:600,color:T.text}}>{l}</span>
               <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{money(v)}</span>
@@ -6500,7 +6500,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
 
   return(
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-      {/* Left: property list with Construction Loan + Interest Reserve columns */}
+      {/* Left: property list with Construction Float + Interest Reserve columns */}
       <div style={{width:isMobile?"100%":460,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"12px 16px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{fontSize:14,fontWeight:800,color:T.text}}>Property Balance Sheet</div>
@@ -6509,7 +6509,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
         {connected===false&&<div style={{padding:"10px 14px",fontSize:11.5,color:"#8a6d1f",background:T.goldLight,borderBottom:`1px solid ${T.gold}`,lineHeight:1.45}}>Connect QuickBooks (any property&rsquo;s QuickBooks tab) to populate account balances.</div>}
         {rows.length>0&&(
           <div style={{display:"grid",gridTemplateColumns:cols,gap:8,padding:"8px 16px",background:"#FAFAFA",borderBottom:`1px solid ${T.border}`,fontSize:9.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em"}}>
-            <span>Property</span><span style={{textAlign:"right"}}>Construction Loan</span><span style={{textAlign:"right"}}>Interest Reserve</span>
+            <span>Property</span><span style={{textAlign:"right"}}>Construction Float</span><span style={{textAlign:"right"}}>Interest Reserve</span>
           </div>
         )}
         <div style={{flex:1,overflowY:"auto"}}>

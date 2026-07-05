@@ -7648,7 +7648,7 @@ function FinReportCenter({sharedProps,isMobile}){
         </div>
       )}
 
-      {hbProp&&(()=>{
+      {hbProp&&!hbPicker&&(()=>{
         const pins=hbProp.qbHoldbackTxns||[];
         const man=hbProp.constrHoldback||"";
         const total=bsSum(pins)+(man!==""?Number(man)||0:0);

@@ -6913,7 +6913,7 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
     const setUp=(p.qbLoanAccounts||[]).length||(p.qbLoanCustom||[]).length||(p.qbLocPotIds||[]).length||(p.qbFloatTxns||[]).length||(p.qbFloatCustom||[]).length||(p.qbDebtTxns||[]).length||(p.qbDebtCustom||[]).length;
     const ir=Math.max(0,potOf(p)-floatOf(p)-debtOf(p)); // interest reserve left (can't go below zero)
     const eq=equityOf(p);                            // personal equity (needs all-in cost)
-    const cf=eq==null?null:eq-ir;                    // construction float = equity − reserve
+    const cf=eq==null?null:Math.max(0,eq-ir);        // construction float = equity − reserve (own money for construction, can't be < 0)
     return {p,cf,ir,setUp};
   });
   const tot=rows.reduce((a,r)=>r.setUp?{cf:a.cf+(r.cf||0),ir:a.ir+r.ir}:a,{cf:0,ir:0});
@@ -7032,7 +7032,9 @@ function FinBankRecon({sharedProps,isMobile}){
   const setActual=(id,actual)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,actual}:b));save();};
   const addAdj=(id)=>{const label=adjDraft.label.trim();const amount=num(adjDraft.amount);if(!label&&!amount)return;setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:[...(b.adjustments||[]),{id:Date.now(),label:label||"Adjustment",amount}]}:b));setAdjDraft({label:"",amount:""});setAddAdjFor("");save();};
   const delAdj=(id,adjId)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:(b.adjustments||[]).filter(a=>a.id!==adjId)}:b));save();};
-  const heldOf=(p)=>{const m=bsMetrics(p,accounts,spend);const v=(p.bsCalcMode||"reserve")==="equity"?m.equity:m.reserve;return v==null?0:v;};
+  // Money physically held in the bank for a property — always ≥ 0. In equity mode it's
+  // the surplus financing (loans − all-in = −equity) you're holding to finish the job.
+  const heldOf=(p)=>{const m=bsMetrics(p,accounts,spend);if((p.bsCalcMode||"reserve")==="equity")return m.equity==null?0:Math.max(0,-m.equity);return m.reserve||0;};
   const assigned=(id)=>props.filter(p=>String(p.bsBankAccount||"")===String(id));
   const expectedOf=(b)=>assigned(b.id).reduce((s,p)=>s+heldOf(p),0)+(b.adjustments||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
   const unassigned=props.filter(p=>!p.bsBankAccount);

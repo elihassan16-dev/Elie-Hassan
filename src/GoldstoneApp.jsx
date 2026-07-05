@@ -6422,7 +6422,108 @@ function FinComingSoon({title,note}){
     </div>
   );
 }
-function FinPropertyBS(){return <FinComingSoon title="Property BS Report" note="Working on it — we'll build this out together."/>;}
+// Owned/active properties we show on the Property Balance Sheet (excludes Under Contract).
+const BS_STATUSES=["Purchased","Under Construction","On Market","In Closing"];
+function FinPropertyBS({sharedProps,onNavigate,isMobile}){
+  const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status))
+    .sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")),[sharedProps]);
+  const[connected,setConnected]=useState(null);
+  const[accounts,setAccounts]=useState(null);
+  const[spend,setSpend]=useState({}); // qbProjectId -> {loading, allIn}
+  useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
+  useEffect(()=>{if(!connected)return;qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[connected]);
+  const projKey=props.map(p=>p.qbProjectId).filter(Boolean).join(",");
+  // Pull each mapped project's all-in spend, a few at a time so we don't hammer QuickBooks.
+  useEffect(()=>{
+    if(!connected)return;
+    const ids=[...new Set(props.map(p=>p.qbProjectId).filter(Boolean))];
+    let cancelled=false;
+    const queue=[...ids];
+    const run=async()=>{
+      while(queue.length&&!cancelled){
+        const id=queue.shift();
+        setSpend(s=>({...s,[id]:{loading:true,allIn:s[id]?.allIn}}));
+        try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);
+          if(!cancelled)setSpend(s=>({...s,[id]:{loading:false,allIn:(d?.expenses||0)+(d?.cogs||0)}}));
+        }catch{if(!cancelled)setSpend(s=>({...s,[id]:{loading:false,allIn:null}}));}
+      }
+    };
+    Promise.all([run(),run(),run(),run()]);
+    return ()=>{cancelled=true;};
+  },[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const acctBal=(id)=>{const a=(accounts||[]).find(x=>x.id===id);return a?a.balance:0;};
+  const rows=props.map(p=>{
+    const loans=(p.qbLoanAccounts||[]).reduce((s,id)=>s+acctBal(id),0);
+    const sp=p.qbProjectId?spend[p.qbProjectId]:null;
+    const allIn=sp&&sp.allIn!=null?sp.allIn:null;
+    const surplus=allIn!=null?loans-allIn:null;
+    return {p,loans,allIn,surplus,loading:!!sp?.loading};
+  });
+  const tot=rows.reduce((a,r)=>({loans:a.loans+r.loans,allIn:a.allIn+(r.allIn||0),surplus:a.surplus+(r.surplus||0)}),{loans:0,allIn:0,surplus:0});
+  const surplusColor=(v)=>v==null?T.textTert:v>=0?T.green:T.gold;
+  const numCell=(v,{color,loading}={})=>(
+    <span style={{fontSize:13.5,fontWeight:700,color:color||T.text,whiteSpace:"nowrap"}}>{loading?"…":v==null?"—":fmtD(v)}</span>
+  );
+  const cols="1fr 120px 120px 130px";
+
+  return(
+    <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?"14px":"18px 24px"}}>
+      {connected===false&&<div style={{marginBottom:14,padding:"11px 14px",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:T.radiusSm,color:"#8a6d1f",fontSize:12.5,lineHeight:1.5}}>Connect QuickBooks (on any property's QuickBooks tab) to populate live loan balances and all-in spend. The property list shows below either way.</div>}
+      <Card>
+        <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{fontSize:13,fontWeight:800,color:T.text}}>Property Balance Sheet</div>
+          <div style={{fontSize:11.5,color:T.textTert}}>{rows.length} owned {rows.length===1?"property":"properties"} · live from QuickBooks</div>
+        </div>
+        {!isMobile&&rows.length>0&&(
+          <div style={{display:"grid",gridTemplateColumns:cols,gap:8,padding:"9px 16px",background:"#FAFAFA",borderBottom:`1px solid ${T.border}`,fontSize:10.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+            <span>Property</span><span style={{textAlign:"right"}}>Active Loans</span><span style={{textAlign:"right"}}>All-in Cost</span><span style={{textAlign:"right"}}>Surplus</span>
+          </div>
+        )}
+        {rows.length===0&&<div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No purchased, under-construction, on-market, or in-closing properties yet.</div>}
+        {rows.map(({p,loans,allIn,surplus,loading})=>{
+          const sc=SC[p.status]||{};
+          const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
+          const statusPill=<span style={{fontSize:9,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap"}}>{p.status}</span>;
+          return isMobile
+            ?(<div key={p.id} onClick={()=>onNavigate&&onNavigate(p.id)} style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                  <span style={{flex:1,minWidth:0,fontSize:14,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</span>{statusPill}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+                  {[["Active loans",numCell(loans)],["All-in",numCell(allIn,{loading})],["Surplus",numCell(surplus==null?null:Math.abs(surplus),{color:surplusColor(surplus),loading})]].map(([l,cell],i)=>(
+                    <div key={i} style={{background:T.bg,borderRadius:T.radiusSm,padding:"8px 10px",minWidth:0}}>
+                      <div style={{fontSize:10,color:T.textTert,fontWeight:600,marginBottom:2}}>{l}</div>{cell}
+                    </div>
+                  ))}
+                </div>
+              </div>)
+            :(<div key={p.id} onClick={()=>onNavigate&&onNavigate(p.id)} style={{display:"grid",gridTemplateColumns:cols,gap:8,alignItems:"center",padding:"12px 16px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+                  <span style={{minWidth:0,fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</span>{statusPill}
+                </div>
+                <div style={{textAlign:"right"}}>{numCell(loans)}</div>
+                <div style={{textAlign:"right"}}>{numCell(allIn,{loading})}</div>
+                <div style={{textAlign:"right"}}>{numCell(surplus==null?null:Math.abs(surplus),{color:surplusColor(surplus),loading})}</div>
+              </div>);
+        })}
+        {rows.length>0&&(
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr auto":cols,gap:8,alignItems:"center",padding:"13px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+            <span style={{fontSize:13,fontWeight:800,color:T.gold}}>Portfolio total</span>
+            {isMobile
+              ?<div style={{display:"flex",gap:14}}><span style={{fontSize:12,fontWeight:700,color:T.text}}>Loans {fmtD(tot.loans)}</span><span style={{fontSize:12,fontWeight:700,color:surplusColor(tot.surplus)}}>Surplus {fmtD(tot.surplus)}</span></div>
+              :<>
+                <span style={{textAlign:"right",fontSize:13.5,fontWeight:800,color:T.text}}>{fmtD(tot.loans)}</span>
+                <span style={{textAlign:"right",fontSize:13.5,fontWeight:800,color:T.text}}>{fmtD(tot.allIn)}</span>
+                <span style={{textAlign:"right",fontSize:13.5,fontWeight:800,color:surplusColor(tot.surplus)}}>{fmtD(Math.abs(tot.surplus))}</span>
+              </>}
+          </div>
+        )}
+      </Card>
+      <div style={{fontSize:11.5,color:T.textTert,textAlign:"center",marginTop:12,lineHeight:1.5}}>Active loans = linked QuickBooks loan-account balances · All-in cost = QuickBooks actual spend · Surplus = loans − all-in cost. Tap a property to open it and adjust its linked accounts.</div>
+    </div>
+  );
+}
 function FinBankRecon(){return <FinComingSoon title="Bank Reconciliation" note="Working on it — we'll build this out together."/>;}
 
 function FinancialSectionPage({onNavigate}){

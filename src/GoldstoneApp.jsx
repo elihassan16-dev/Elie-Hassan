@@ -1255,7 +1255,7 @@ function AddFromDirectory({avail,onAdd}){
 }
 
 // ─── Actual Financing Popup — simple, user enters real loan amounts/rates ─────
-function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, locDraws=[], sellingDate, closingDate, onSave, onClose}){
+function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, locDraws=[], sellingDate, closingDate, bsHm, bsLoc, bsAvailable, onSave, onClose}){
   // Auto-matched line of credit for this property → projected interest to a sell date.
   const[assumedSell,setAssumedSell]=useState(sellingDate||new Date().toISOString().slice(0,10));
   const locRows=(locDraws||[]).map(d=>{const end=d.paybackDate||assumedSell;const days=daysBetween(d.dateFunded,end);return {...d,end,days,interest:(Number(d.amount)||0)*(LOC_RATE/365)*days};}).sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
@@ -1305,6 +1305,15 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
     </div>
   );
 
+  // Cross-check against the Balance Sheet: flag when your loan amount differs from
+  // what's pinned there, with a one-tap "Use BS" to pull their number in.
+  const mismatchFlag=(mine,bs,onUse,kind)=>(bsAvailable&&bs!=null&&bs>0&&Math.abs(n(mine)-bs)>1)?(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"8px 18px",background:T.gold+"14",borderTop:bdr}}>
+      <span style={{fontSize:11.5,color:"#8a6d1f",lineHeight:1.4}}>Balance Sheet shows <b>{fmtD(bs)}</b> for {kind} (yours: {fmtD(n(mine))})</span>
+      <button onClick={onUse} style={{padding:"5px 11px",borderRadius:14,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>Use BS</button>
+    </div>
+  ):null;
+
   function save(){
     onSave({
       acHmLoanAmt:hmLoanAmt, acHmRate:hmRate, acHmOrigPct:hmOrigPct, acHmDocFee:hmDocFee,
@@ -1334,6 +1343,7 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
           </div>
           <div style={{background:T.card}}>
             {iField("Loan Amount",hmLoanAmt,setHmLoanAmt,"$","defaults to projected")}
+            {mismatchFlag(hmLoanAmt,bsHm,()=>setHmLoanAmt(String(Math.round(bsHm))),"hard money")}
             {iField("Interest Rate",hmRate,setHmRate,"% / yr")}
             {iField("Origination Fee",hmOrigPct,setHmOrigPct,"%")}
             {iField("Doc Fee",hmDocFee,setHmDocFee,"$")}
@@ -1385,6 +1395,7 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
           );})()}
           <div style={{background:T.card,paddingBottom:6}}>
             {iField("Gap Loan Amount",gapLoanAmt,setGapLoanAmt,"$","defaults to projected")}
+            {mismatchFlag(gapLoanAmt,bsLoc,()=>setGapLoanAmt(String(Math.round(bsLoc))),"LOC")}
             {iField("Gap Rate",gapRate,setGapRate,"% / yr")}
             <div style={iRow}><span style={iLbl}>Calculated Balloon</span><span style={iVal}>{fmtD(calcGapBalloon)}</span></div>
             {iField("Override Gap Balloon Paid",gapIntOverride,setGapIntOverride,"$","leave blank to use calculated")}
@@ -1422,6 +1433,21 @@ function FinOverview({property,onUpdate}){
   const[showActualFinancing,setShowActualFinancing]=useState(false);
   const[showFinancingP,setShowFinancingP]=useState(false);
   const[showActual,setShowActual]=useState(!!f.useActualProfit);
+
+  // Balance Sheet loan totals for this property, so the Actual Financing popup can
+  // cross-check the hard-money / LOC amounts against what's pinned on the BS report.
+  // Fetched lazily the first time the Actuals popup is opened (needs QuickBooks).
+  const[qbAccounts,setQbAccounts]=useState(null);
+  useEffect(()=>{
+    if(!showActualFinancing||qbAccounts)return;let alive=true;
+    fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>{if(s.connected)qbAuthFetch("/api/quickbooks/accounts").then(d=>{if(alive)setQbAccounts(d.items||[]);}).catch(()=>{if(alive)setQbAccounts([]);});}).catch(()=>{});
+    return ()=>{alive=false;};
+  },[showActualFinancing]); // eslint-disable-line react-hooks/exhaustive-deps
+  const bsHasLoans=((property.qbLoanAccounts||[]).length||(property.qbLoanCustom||[]).length);
+  const bsM=qbAccounts?bsMetrics(property,qbAccounts,{}):null;   // pot = LOC pinned as the pot; rest = hard money
+  const bsHm=bsM?bsM.totalLoans-bsM.pot:null;
+  const bsLoc=bsM?bsM.pot:null;
+  const bsAvailable=!!(qbAccounts&&bsHasLoans);
 
   const buyingItems=f.buyingCostItems||[];
   const buyingTotal=buyingItems.length>0?calcBuyingTotal(buyingItems,f.purchasePrice):n(f.buyingCosts)||0;
@@ -1518,6 +1544,7 @@ function FinOverview({property,onUpdate}){
       {showActualSelling&&<SellingCostsPopup items={acSellingItems} salePrice={f.actualSalePrice||f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({actualSellingCostItems:items,actualSellingCosts:String(total)})} onClose={()=>setShowActualSelling(false)}/>}
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
       {showActualFinancing&&<ActualFinancingPopup f={f} liveHmTotal={liveHmTotal} liveGapPrinc={equityRequired} actualHoldMonths={actualHoldMonths} locDraws={locDraws} sellingDate={f.sellingDate} closingDate={(property.propertyInfo||{}).closingDateScheduled||f.sellingDate}
+        bsHm={bsHm} bsLoc={bsLoc} bsAvailable={bsAvailable}
         onSave={(vals)=>upMany(vals)} onClose={()=>setShowActualFinancing(false)}/>}
 
       {/* Toggle bar */}

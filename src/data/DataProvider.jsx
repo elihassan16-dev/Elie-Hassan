@@ -136,6 +136,7 @@ export function DataProvider({ children }) {
   const fundersC = useSyncedCollection("funders", idToRow, mapData, reportError);
   const drawsC = useSyncedCollection("draws", idToRow, mapData, reportError);
   const officeC = useSyncedCollection("office_messages", idToRow, mapData, reportError);
+  const bankC = useSyncedCollection("bank_accounts", idToRow, mapData, reportError);
 
   const loadTeam = useCallback(async () => {
     const { data, error } = await supabase.from("users").select("*").order("name");
@@ -172,7 +173,7 @@ export function DataProvider({ children }) {
     (async () => {
       setLoading(true);
       await seedIfEmpty();
-      await Promise.all([propsC.load(), leadsC.load(), contactsC.load(), autosC.load(), fundersC.load(), drawsC.load(), officeC.load(), loadTeam()]);
+      await Promise.all([propsC.load(), leadsC.load(), contactsC.load(), autosC.load(), fundersC.load(), drawsC.load(), officeC.load(), bankC.load(), loadTeam()]);
       if (!cancelled) setLoading(false);
     })();
 
@@ -188,12 +189,13 @@ export function DataProvider({ children }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "funders" }, () => debounce("f", fundersC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "draws" }, () => debounce("d", drawsC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "office_messages" }, () => debounce("o", officeC.load))
+      .on("postgres_changes", { event: "*", schema: "public", table: "bank_accounts" }, () => debounce("b", bankC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "users" }, () => debounce("u", loadTeam))
       .subscribe();
 
     // Safety net: flush any pending edits when the tab is hidden or the page is
     // being unloaded/backgrounded (covers a PWA refresh or app switch).
-    const flushAll = () => { propsC.flushNow(); leadsC.flushNow(); autosC.flushNow(); contactsC.flushNow(); fundersC.flushNow(); drawsC.flushNow(); officeC.flushNow(); };
+    const flushAll = () => { propsC.flushNow(); leadsC.flushNow(); autosC.flushNow(); contactsC.flushNow(); fundersC.flushNow(); drawsC.flushNow(); officeC.flushNow(); bankC.flushNow(); };
     const onHide = () => { if (document.visibilityState === "hidden") flushAll(); };
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("pagehide", flushAll);
@@ -205,7 +207,7 @@ export function DataProvider({ children }) {
       window.removeEventListener("pagehide", flushAll);
       supabase.removeChannel(channel);
     };
-  }, [userId, seedIfEmpty, propsC.load, leadsC.load, autosC.load, contactsC.load, fundersC.load, drawsC.load, officeC.load, propsC.flushNow, leadsC.flushNow, autosC.flushNow, contactsC.flushNow, fundersC.flushNow, drawsC.flushNow, officeC.flushNow, loadTeam]);
+  }, [userId, seedIfEmpty, propsC.load, leadsC.load, autosC.load, contactsC.load, fundersC.load, drawsC.load, officeC.load, bankC.load, propsC.flushNow, leadsC.flushNow, autosC.flushNow, contactsC.flushNow, fundersC.flushNow, drawsC.flushNow, officeC.flushNow, bankC.flushNow, loadTeam]);
 
   const teamMembers = Array.from(new Set([...team.map((u) => u.name || u.email).filter(Boolean), displayName].filter(Boolean)));
 
@@ -230,6 +232,9 @@ export function DataProvider({ children }) {
     officeMessages: officeC.items,
     setOfficeMessages: officeC.set,
     flushOffice: officeC.flushNow,
+    bankAccounts: bankC.items,
+    setBankAccounts: bankC.set,
+    flushBank: bankC.flushNow,
     team,
     teamMembers,
     setUserMuted,

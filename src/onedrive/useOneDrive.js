@@ -29,7 +29,11 @@ export function useOneDrive() {
   // works in PWAs / popup-blocking browsers. Returns to the current page after.
   const signIn = useCallback(async () => {
     await ensureMsalReady();
-    await msalInstance.loginRedirect({ scopes: GRAPH_SCOPES, redirectStartPage: window.location.href });
+    // prompt:"select_account" forces Microsoft's account picker instead of silently
+    // reusing a cached account. Without it, a personal Microsoft account that shares
+    // your work email (…@goldstonepropertiesnj.com) gets reused and rejected by the
+    // company tenant (AADSTS50020) — this lets you pick/add the work account.
+    await msalInstance.loginRedirect({ scopes: GRAPH_SCOPES, prompt: "select_account", redirectStartPage: window.location.href });
   }, []);
 
   // Disconnect locally (don't sign the user out of Microsoft entirely).

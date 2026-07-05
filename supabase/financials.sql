@@ -3,10 +3,11 @@
 -- Paste this whole file into:  Supabase Dashboard → SQL Editor → New query → Run
 -- Safe to run more than once (idempotent).
 --
--- These two tables back the admin-only Financial Section: private-lender
--- "funders" (each with a capital ledger) and the "draws" (money lent against a
--- property). RLS locks BOTH tables to admins only — members can't read or write
--- them at all, so this data never even reaches a non-admin's browser.
+-- These two tables back the Financial Section: private-lender "funders" (each
+-- with a capital ledger) and the "draws" (money lent against a property). RLS
+-- lets any signed-in team member READ them (the Financial Section is view-only
+-- for members in the app), while INSERT/UPDATE/DELETE stay admin-only — so
+-- members can view the numbers but can never change them.
 -- ============================================================================
 
 create table if not exists public.funders (
@@ -23,7 +24,7 @@ create table if not exists public.draws (
   updated_by uuid default auth.uid()
 );
 
--- ── Row Level Security — admin-only for both tables ─────────────────────────
+-- ── Row Level Security — any member can READ, only admins can WRITE ──────────
 alter table public.funders enable row level security;
 alter table public.draws   enable row level security;
 
@@ -31,8 +32,9 @@ do $$
 declare tbl text;
 begin
   foreach tbl in array array['funders','draws'] loop
+    -- Read: any signed-in team member (Financial Section is view-only for members).
     execute format('drop policy if exists %1$s_select on public.%1$s', tbl);
-    execute format('create policy %1$s_select on public.%1$s for select to authenticated using (public.is_admin())', tbl);
+    execute format('create policy %1$s_select on public.%1$s for select to authenticated using (true)', tbl);
 
     execute format('drop policy if exists %1$s_insert on public.%1$s', tbl);
     execute format('create policy %1$s_insert on public.%1$s for insert to authenticated with check (public.is_admin())', tbl);
@@ -45,7 +47,7 @@ begin
   end loop;
 end $$;
 
--- ── Realtime: broadcast changes to connected (admin) clients ────────────────
+-- ── Realtime: broadcast changes to connected clients ────────────────────────
 do $$
 declare tbl text;
 begin

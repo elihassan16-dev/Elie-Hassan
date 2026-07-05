@@ -6458,7 +6458,9 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
   const hasManual=manual!==undefined&&manual!==null&&manual!=="";
   const allInVal=hasManual?Number(manual):(allIn!=null?allIn:null);
   const bsCustomSum=bsCustom.reduce((s,l)=>s+(Number(l.amount)||0),0);
-  const net=allInVal!=null?totalLoans-allInVal+bsCustomSum:null;
+  // Personal equity = money you put in = all-in cost − total loans (+ adjustments).
+  // Positive (green) = your own cash in the deal; negative (red) = loans exceed the all-in cost.
+  const equity=allInVal!=null?allInVal-totalLoans+bsCustomSum:null;
 
   const inS={padding:"7px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
   const amt=(v,{size=15,weight=800,color=T.text}={})=><span style={{fontSize:size,fontWeight:weight,color,whiteSpace:"nowrap"}}>{v}</span>;
@@ -6509,14 +6511,9 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
         </div>
       </Card>
 
-      {/* Box 2 — balance sheet: Total loans − all-in cost (± custom adjustments) */}
+      {/* Box 2 — balance sheet: all-in cost, total loans, and personal equity (all-in − loans) */}
       <Card style={{border:`1px solid ${T.gold}`}}>
         <GHeader label="Balance Sheet"/>
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
-          <span style={{flex:1,fontSize:14,fontWeight:600,color:T.text}}>Total loans</span>
-          {amt(money(totalLoans))}
-          {slot()}
-        </div>
         <div style={{padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <div onClick={()=>pnl&&setShowBreak(true)} style={{flex:1,minWidth:0,cursor:pnl?"pointer":"default"}}>
@@ -6535,11 +6532,16 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
           </div>
           {allInVal==null&&!allInLoading&&<div style={{fontSize:11.5,color:T.textTert,marginTop:4}}>Map this property to its QuickBooks project (QuickBooks tab), or tap ✎ to set a manual amount.</div>}
         </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
+          <span style={{flex:1,fontSize:14,fontWeight:600,color:T.text}}>Total loans</span>
+          {amt(money(totalLoans))}
+          {slot()}
+        </div>
         {bsCustom.map(l=>customRow("qbBsCustom",l))}
         {addFor==="bs"?addForm("qbBsCustom"):addBtn("qbBsCustom")}
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 16px",background:T.gold+"14"}}>
-          <div style={{flex:1}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Net</div><div style={{fontSize:11,color:T.textTert}}>Total loans − all-in cost{bsCustom.length?" + adjustments":""}</div></div>
-          {amt(net==null?"—":money(net),{size:19,color:net==null?T.textTert:(net>=0?T.green:T.red)})}
+          <div style={{flex:1}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Personal equity</div><div style={{fontSize:11,color:T.textTert}}>All-in cost − total loans{bsCustom.length?" + adjustments":""}</div></div>
+          {amt(equity==null?"—":money(equity),{size:19,color:equity==null?T.textTert:(equity>=0?T.green:T.red)})}
           {slot()}
         </div>
       </Card>

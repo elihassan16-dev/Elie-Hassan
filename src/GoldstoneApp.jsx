@@ -6506,13 +6506,13 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
   );
 }
 
-// ─── Property BS detail — LOC pot, construction float, and the monthly interest reserve ─
+// ─── Property BS detail — loans, balance sheet, and the interest-reserve box ─────
 function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
   const[pickerOpen,setPickerOpen]=useState(false);
   const[floatPicker,setFloatPicker]=useState(false);
+  const[debtPicker,setDebtPicker]=useState(false);
   const[showBreak,setShowBreak]=useState(false);
-  const[debtOpen,setDebtOpen]=useState(false);
-  const[addFor,setAddFor]=useState("");            // which custom-line form is open (the property field key)
+  const[addFor,setAddFor]=useState("");            // which custom-line form is open (a property field key)
   const[draft,setDraft]=useState({label:"",amount:""});
   const[editAllIn,setEditAllIn]=useState(false);
   const[allInDraft,setAllInDraft]=useState("");
@@ -6521,14 +6521,15 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
   const loanCustom=property.qbLoanCustom||[];
   const bsCustom=property.qbBsCustom||[];
   const floatTxns=property.qbFloatTxns||[];
-  const floatCustom=property.qbFloatCustom||[];
+  const debtTxns=property.qbDebtTxns||[];
+  const potIds=property.qbLocPotIds||[];
   const acct=(id)=>(accounts||[]).find(a=>a.id===id);
   const money=(v)=>fmtD(v);
   const num=(v)=>{const x=parseFloat(String(v).replace(/[^0-9.-]/g,""));return isNaN(x)?0:x;};
   const loanBal=(a)=>a?-(a.balance||0):0; // QuickBooks stores liabilities as negatives; flip to positive
   const SLOT=26;
+  const sumArr=(arr)=>arr.reduce((s,t)=>s+(Number(t.amount)||0),0);
 
-  // Project transactions (for the float picker + the debt-service drill-down).
   useEffect(()=>{
     if(!property.qbProjectId){setTxns([]);return;}
     let alive=true;
@@ -6539,29 +6540,28 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
   const toggle=(id)=>{const has=pinned.includes(id);onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);};
   const addCustom=(key)=>{const label=draft.label.trim();const amount=num(draft.amount);if(!label&&!amount)return;const arr=property[key]||[];onUpdate(property.id,key,[...arr,{id:Date.now(),label:label||"Adjustment",amount}]);setDraft({label:"",amount:""});setAddFor("");};
   const delCustom=(key,id)=>{onUpdate(property.id,key,(property[key]||[]).filter(l=>l.id!==id));};
-  const floatKeys=new Set(floatTxns.map(txKey));
-  const toggleFloatTx=(t)=>{const k=txKey(t);onUpdate(property.id,"qbFloatTxns",floatKeys.has(k)?floatTxns.filter(x=>txKey(x)!==k):[...floatTxns,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount}]);};
+  const toggleTx=(field,arr,t)=>{const k=txKey(t);const has=arr.some(x=>txKey(x)===k);onUpdate(property.id,field,has?arr.filter(x=>txKey(x)!==k):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount}]);};
+  const inPot=(key)=>potIds.includes(key);
+  const togglePot=(key)=>onUpdate(property.id,"qbLocPotIds",inPot(key)?potIds.filter(x=>x!==key):[...potIds,key]);
 
   const pinnedSum=pinned.reduce((s,id)=>s+loanBal(acct(id)),0);
-  const loanCustomSum=loanCustom.reduce((s,l)=>s+(Number(l.amount)||0),0);
-  const totalLoans=pinnedSum+loanCustomSum;                         // the LOC pot
-  const floatTxSum=floatTxns.reduce((s,t)=>s+(Number(t.amount)||0),0);
-  const floatCustomSum=floatCustom.reduce((s,l)=>s+(Number(l.amount)||0),0);
-  const constructionFloat=floatTxSum+floatCustomSum;
-  const debtTxns=(txns||[]).filter(t=>qbBucket(t.account)==="debt");
-  const debtServicePaid=(pnl?.rows||[]).filter(r=>r.section!=="Income"&&qbBucket(r.name)==="debt").reduce((s,r)=>s+r.amount,0);
-  const interestReserve=totalLoans-constructionFloat-debtServicePaid;
+  const loanCustomSum=sumArr(loanCustom);
+  const totalLoans=pinnedSum+loanCustomSum;
   const manual=property.qbAllInCost;
   const hasManual=manual!==undefined&&manual!==null&&manual!=="";
   const allInVal=hasManual?Number(manual):(allIn!=null?allIn:null);
-  const bsCustomSum=bsCustom.reduce((s,l)=>s+(Number(l.amount)||0),0);
+  const bsCustomSum=sumArr(bsCustom);
   const equity=allInVal!=null?allInVal-totalLoans+bsCustomSum:null;
+  const pot=pinned.filter(id=>inPot(id)).reduce((s,id)=>s+loanBal(acct(id)),0)+loanCustom.filter(l=>inPot("c"+l.id)).reduce((s,l)=>s+(Number(l.amount)||0),0);
+  const floatSum=sumArr(floatTxns)+sumArr(property.qbFloatCustom||[]);
+  const debtSum=sumArr(debtTxns)+sumArr(property.qbDebtCustom||[]);
+  const interestReserve=pot-floatSum-debtSum;
 
   const inS={padding:"7px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
   const amt=(v,{size=15,weight=800,color=T.text}={})=><span style={{fontSize:size,fontWeight:weight,color,whiteSpace:"nowrap"}}>{v}</span>;
   const slot=(el)=><span style={{width:SLOT,flexShrink:0,display:"flex",justifyContent:"center"}}>{el||null}</span>;
   const xBtn=(fn,title)=><button onClick={fn} title={title} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,padding:0}}>×</button>;
-  const addBtn=(key)=><button onClick={()=>{setDraft({label:"",amount:""});setAddFor(key);}} style={{width:"100%",padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add custom line</button>;
+  const addBtn=(key)=><button onClick={()=>{setDraft({label:"",amount:""});setAddFor(key);}} style={{width:"100%",padding:"9px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add manual line</button>;
   const addForm=(key)=>(
     <div style={{display:"flex",gap:6,padding:"10px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
       <input autoFocus value={draft.label} onChange={e=>setDraft(d=>({...d,label:e.target.value}))} placeholder="Label" style={{...inS,flex:1,minWidth:110}}/>
@@ -6571,27 +6571,49 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
     </div>
   );
   const customRow=(key,l)=>(
-    <div key={l.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
-      <span style={{flex:1,minWidth:0,fontSize:13.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label} <span style={{fontSize:10,color:T.textTert}}>· manual</span></span>
-      {amt(money(Number(l.amount)||0),{size:13.5,weight:700})}
+    <div key={l.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderTop:`1px solid ${T.border}`}}>
+      <span style={{flex:1,minWidth:0,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label} <span style={{fontSize:10,color:T.textTert}}>· manual</span></span>
+      {amt(money(Number(l.amount)||0),{size:13,weight:700})}
       {slot(xBtn(()=>delCustom(key,l.id),"Remove"))}
     </div>
   );
-  const subtotal=(label,val)=>(
+  const bigSubtotal=(label,val)=>(
     <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`2px solid ${T.border}`,background:T.bg}}>
       <span style={{flex:1,fontSize:13,fontWeight:800,color:T.text}}>{label}</span>{amt(money(val))}{slot()}
     </div>
   );
+  // A section that pins QuickBooks transactions (deployed / debt service).
+  const pinSection=(title,arr,field,onPin,customField,sum)=>(<>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 16px 7px",borderTop:`1px solid ${T.border}`}}>
+      <span style={{fontSize:11.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em"}}>{title}</span>
+      <button onClick={onPin} style={{padding:"5px 11px",borderRadius:20,background:T.goldLight,border:`1px solid ${T.gold}`,color:T.gold,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>🔍 Pin</button>
+    </div>
+    {arr.map(t=>(
+      <div key={txKey(t)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderTop:`1px solid ${T.border}`}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
+          <div style={{fontSize:10.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account].filter(Boolean).join(" · ")}</div>
+        </div>
+        {amt(money(Number(t.amount)||0),{size:13,weight:700})}
+        {slot(xBtn(()=>toggleTx(field,arr,t),"Unpin"))}
+      </div>
+    ))}
+    {(property[customField]||[]).map(l=>customRow(customField,l))}
+    {addFor===customField?addForm(customField):addBtn(customField)}
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",background:T.bg}}>
+      <span style={{flex:1,fontSize:12.5,fontWeight:700,color:T.text}}>{title} total</span>{amt(money(sum),{size:13.5})}{slot()}
+    </div>
+  </>);
 
   return(
     <div>
-      {/* LOC loans → the pot */}
+      {/* Box 1 — LOC / loans → total loans */}
       <Card style={{marginBottom:16}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}>
-          <div style={{fontSize:12.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>LOC Loans</div>
+          <div style={{fontSize:12.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Loans</div>
           <button onClick={()=>setPickerOpen(true)} style={{padding:"7px 13px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🔍 Search &amp; pin</button>
         </div>
-        {pinned.length===0&&loanCustom.length===0&&addFor!=="qbLoanCustom"&&<div style={{padding:"14px 16px",fontSize:13,color:T.textTert}}>No loans pinned yet. Tap <b>Search &amp; pin</b> to add this property&rsquo;s LOC / loan accounts (pin as many as you need), or add a manual line.</div>}
+        {pinned.length===0&&loanCustom.length===0&&addFor!=="qbLoanCustom"&&<div style={{padding:"14px 16px",fontSize:13,color:T.textTert}}>No loans pinned yet. Tap <b>Search &amp; pin</b> to add this property&rsquo;s loan accounts (pin as many as you need), or add a manual line.</div>}
         {pinned.map(id=>{const a=acct(id);return(
           <div key={id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
             <div style={{flex:1,minWidth:0}}>
@@ -6604,52 +6626,11 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
         );})}
         {loanCustom.map(l=>customRow("qbLoanCustom",l))}
         {addFor==="qbLoanCustom"?addForm("qbLoanCustom"):addBtn("qbLoanCustom")}
-        {subtotal("Total loans (pot)",totalLoans)}
+        {bigSubtotal("Total loans",totalLoans)}
       </Card>
 
-      {/* Construction Float — money deployed to the deal (pinned transactions + manual) */}
-      <Card style={{marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}>
-          <div style={{fontSize:12.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Construction Float</div>
-          <button onClick={()=>setFloatPicker(true)} style={{padding:"7px 13px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🔍 Pin transactions</button>
-        </div>
-        {floatTxns.length===0&&floatCustom.length===0&&addFor!=="qbFloatCustom"&&<div style={{padding:"14px 16px",fontSize:13,color:T.textTert}}>Nothing deployed yet. Tap <b>Pin transactions</b> to pin the down payment, deposit, etc., or add a manual line.</div>}
-        {floatTxns.map(t=>(
-          <div key={txKey(t)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
-              <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account].filter(Boolean).join(" · ")}</div>
-            </div>
-            {amt(money(Number(t.amount)||0),{size:13.5,weight:700})}
-            {slot(xBtn(()=>toggleFloatTx(t),"Unpin"))}
-          </div>
-        ))}
-        {floatCustom.map(l=>customRow("qbFloatCustom",l))}
-        {addFor==="qbFloatCustom"?addForm("qbFloatCustom"):addBtn("qbFloatCustom")}
-        {subtotal("Construction Float",constructionFloat)}
-      </Card>
-
-      {/* Interest Reserve — pot minus what's deployed minus debt service paid to date */}
+      {/* Box 2 — balance sheet: all-in cost, total loans, personal equity */}
       <Card style={{border:`1px solid ${T.gold}`,marginBottom:16}}>
-        <GHeader label="Interest Reserve"/>
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
-          <span style={{flex:1,fontSize:14,fontWeight:600,color:T.text}}>LOC pot (total loans)</span>{amt(money(totalLoans))}{slot()}
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
-          <span style={{flex:1,fontSize:14,color:T.text}}>Less: Construction Float</span>{amt("−"+money(constructionFloat),{weight:700})}{slot()}
-        </div>
-        <div onClick={()=>debtTxns.length&&setDebtOpen(true)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`,cursor:debtTxns.length?"pointer":"default"}}>
-          <span style={{flex:1,minWidth:0,fontSize:14,color:T.text}}>Less: Debt service paid {debtTxns.length>0&&<span style={{fontSize:11,color:T.blue,fontWeight:600}}>ⓘ {debtTxns.length}</span>}<div style={{fontSize:11,color:T.textTert}}>Monthly interest, live from QuickBooks</div></span>
-          {amt("−"+money(debtServicePaid),{weight:700})}{slot()}
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 16px",background:T.gold+"14"}}>
-          <div style={{flex:1}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Interest Reserve left</div><div style={{fontSize:11,color:T.textTert}}>Pot − float − debt service</div></div>
-          {amt(money(interestReserve),{size:19,color:interestReserve>=0?T.green:T.red})}{slot()}
-        </div>
-      </Card>
-
-      {/* Balance sheet — all-in cost, total loans, personal equity */}
-      <Card style={{border:`1px solid ${T.gold}`}}>
         <GHeader label="Balance Sheet"/>
         <div style={{padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -6680,9 +6661,39 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
         </div>
       </Card>
 
+      {/* Box 3 — interest reserve: LOC pot − deployed − debt service */}
+      <Card style={{border:`1px solid ${T.gold}`}}>
+        <GHeader label="Interest Reserve"/>
+        <div style={{padding:"10px 16px 6px",fontSize:11,color:T.textTert,lineHeight:1.45}}>Check which loans make up the <b>LOC pot</b> (usually excludes the hard-money loan).</div>
+        {pinned.length===0&&loanCustom.length===0&&<div style={{padding:"4px 16px 12px",fontSize:12.5,color:T.textTert}}>Pin loans in the Loans box above first.</div>}
+        {pinned.map(id=>{const a=acct(id);return(
+          <label key={id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
+            <input type="checkbox" checked={inPot(id)} onChange={()=>togglePot(id)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+            <span style={{flex:1,minWidth:0,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a?a.name:"(account)"}</span>
+            {amt(a?money(loanBal(a)):"—",{size:13,weight:600})}{slot()}
+          </label>
+        );})}
+        {loanCustom.map(l=>(
+          <label key={l.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
+            <input type="checkbox" checked={inPot("c"+l.id)} onChange={()=>togglePot("c"+l.id)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+            <span style={{flex:1,minWidth:0,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label}</span>
+            {amt(money(Number(l.amount)||0),{size:13,weight:600})}{slot()}
+          </label>
+        ))}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderTop:`1px solid ${T.border}`,background:T.bg}}>
+          <span style={{flex:1,fontSize:12.5,fontWeight:700,color:T.text}}>LOC pot total</span>{amt(money(pot),{size:13.5})}{slot()}
+        </div>
+        {pinSection("Deployed (down payment, deposit)",floatTxns,"qbFloatTxns",()=>setFloatPicker(true),"qbFloatCustom",floatSum)}
+        {pinSection("Debt service paid",debtTxns,"qbDebtTxns",()=>setDebtPicker(true),"qbDebtCustom",debtSum)}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+          <div style={{flex:1}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Interest Reserve left</div><div style={{fontSize:11,color:T.textTert}}>LOC pot − deployed − debt service</div></div>
+          {amt(money(interestReserve),{size:19,color:interestReserve>=0?T.green:T.red})}{slot()}
+        </div>
+      </Card>
+
       {pickerOpen&&<QbAccountsPickerModal accounts={accounts} pinnedIds={pinned} address={`${property.address}${property.city?`, ${property.city}`:""}`} onToggle={toggle} onClose={()=>setPickerOpen(false)}/>}
-      {floatPicker&&<QbTxnsPickerModal txns={txns} loading={txns===null} pinnedKeys={floatKeys} onToggle={toggleFloatTx} onClose={()=>setFloatPicker(false)}/>}
-      {debtOpen&&<QbBucketTxnsModal label="Debt Service / Interest" txns={debtTxns} allTxns={txns||[]} loading={txns===null} onClose={()=>setDebtOpen(false)}/>}
+      {floatPicker&&<QbTxnsPickerModal txns={txns} loading={txns===null} pinnedKeys={new Set(floatTxns.map(txKey))} onToggle={t=>toggleTx("qbFloatTxns",floatTxns,t)} onClose={()=>setFloatPicker(false)}/>}
+      {debtPicker&&<QbTxnsPickerModal txns={txns} loading={txns===null} pinnedKeys={new Set(debtTxns.map(txKey))} onToggle={t=>toggleTx("qbDebtTxns",debtTxns,t)} onClose={()=>setDebtPicker(false)}/>}
       {showBreak&&pnl&&<QbAllInBreakdownModal pnl={pnl} total={allIn} projectId={property.qbProjectId} onClose={()=>setShowBreak(false)}/>}
     </div>
   );
@@ -6740,11 +6751,12 @@ function FinPropertyBS({sharedProps,onNavigate,isMobile}){
 
   // Cover columns: Construction Float and the monthly Interest Reserve.
   const acctBal=(id)=>{const a=(accounts||[]).find(x=>x.id===id);return a?-(a.balance||0):0;}; // flip QB liability sign
-  const potOf=(p)=>(p.qbLoanAccounts||[]).reduce((s,id)=>s+acctBal(id),0)+(p.qbLoanCustom||[]).reduce((s,l)=>s+(Number(l.amount)||0),0);
-  const floatOf=(p)=>(p.qbFloatTxns||[]).reduce((s,t)=>s+(Number(t.amount)||0),0)+(p.qbFloatCustom||[]).reduce((s,l)=>s+(Number(l.amount)||0),0);
-  const debtOf=(p)=>{const d=p.qbProjectId?spend[p.qbProjectId]?.pnl:null;return (d?.rows||[]).filter(r=>r.section!=="Income"&&qbBucket(r.name)==="debt").reduce((s,r)=>s+r.amount,0);};
+  const sumAmt=(arr)=>(arr||[]).reduce((s,l)=>s+(Number(l.amount)||0),0);
+  const potOf=(p)=>{const ids=p.qbLocPotIds||[];return (p.qbLoanAccounts||[]).filter(id=>ids.includes(id)).reduce((s,id)=>s+acctBal(id),0)+(p.qbLoanCustom||[]).filter(l=>ids.includes("c"+l.id)).reduce((s,l)=>s+(Number(l.amount)||0),0);};
+  const floatOf=(p)=>sumAmt(p.qbFloatTxns)+sumAmt(p.qbFloatCustom);
+  const debtOf=(p)=>sumAmt(p.qbDebtTxns)+sumAmt(p.qbDebtCustom);
   const rows=props.map(p=>{
-    const setUp=(p.qbLoanAccounts||[]).length||(p.qbLoanCustom||[]).length||(p.qbFloatTxns||[]).length||(p.qbFloatCustom||[]).length;
+    const setUp=(p.qbLocPotIds||[]).length||(p.qbFloatTxns||[]).length||(p.qbFloatCustom||[]).length||(p.qbDebtTxns||[]).length||(p.qbDebtCustom||[]).length;
     const cf=floatOf(p);
     const ir=potOf(p)-cf-debtOf(p);
     return {p,cf,ir,setUp};

@@ -7347,7 +7347,8 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
 // saved as a PDF (via the browser's print dialog). Reports run off the same data
 // as the rest of the Financial Section so the numbers always agree.
 function FinReportCenter({sharedProps,isMobile}){
-  const { draws }=useData();
+  const { draws, setDraws, flushDraws }=useData();
+  const setPlan=(drawId,plan)=>{setDraws(prev=>prev.map(d=>d.id===drawId?{...d,futureFundsPlan:plan}:d));if(flushDraws)setTimeout(flushDraws,0);};
   const[connected,setConnected]=useState(null);
   const[accounts,setAccounts]=useState(null);
   const[spend,setSpend]=useState({});
@@ -7376,12 +7377,19 @@ function FinReportCenter({sharedProps,isMobile}){
     return {rows,total:rows.reduce((s,r)=>s+r.amount,0)};
   },[openDraws,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Report 2 — LOC capital freeing up as in-closing deals settle.
+  // Report 2 — LOC capital freeing up as in-closing deals settle, one row per
+  // funder so each lender's money can be marked Reinvest (stays available to
+  // redeploy) or Take back (excluded — you're handing it back to them).
   const rptFuture=useMemo(()=>{
     const inClosing=(sharedProps||[]).filter(p=>!p.archived&&p.status==="In Closing");
-    const rows=inClosing.map(p=>{const ds=drawsForProperty(p,openDraws);const amount=ds.reduce((s,d)=>s+(Number(d.amount)||0),0);const funders=[...new Set(ds.map(d=>d.funderName).filter(Boolean))].join(", ");return {address:p.address,closing:cfDate(p),amount,funders};}).filter(r=>r.amount>0);
-    rows.sort((a,b)=>(!a.closing&&!b.closing)?0:!a.closing?1:!b.closing?-1:a.closing.localeCompare(b.closing));
-    return {rows,total:rows.reduce((s,r)=>s+r.amount,0)};
+    const rows=[];
+    inClosing.forEach(p=>{drawsForProperty(p,openDraws).forEach(d=>{
+      rows.push({drawId:d.id,address:p.address,closing:cfDate(p),funder:d.funderName||"—",amount:Number(d.amount)||0,plan:d.futureFundsPlan||"reinvest"});
+    });});
+    rows.sort((a,b)=>((!a.closing&&!b.closing)?0:!a.closing?1:!b.closing?-1:a.closing.localeCompare(b.closing))||(a.address||"").localeCompare(b.address||""));
+    const available=rows.filter(r=>r.plan==="reinvest").reduce((s,r)=>s+r.amount,0);
+    const takeback=rows.filter(r=>r.plan==="takeback").reduce((s,r)=>s+r.amount,0);
+    return {rows,available,takeback};
   },[openDraws,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Report 3 — property balance sheet, spreadsheet style (same figures as the BS report).
@@ -7403,15 +7411,18 @@ function FinReportCenter({sharedProps,isMobile}){
       subtitle:"Every open LOC draw — who funded it and how much you owe, oldest purchase date first.",
       cols:[{label:"Property"},{label:"Funder"},{label:"Purchase date"},{label:"LOC amount",align:"right"}],
       rows:rptLoc.rows.map(r=>[{t:r.address},{t:r.funder},{t:D(r.purchaseDate)},{t:fmtD(r.amount),align:"right",strong:true}]),
-      foot:[{t:`${rptLoc.rows.length} deal${rptLoc.rows.length!==1?"s":""}`,strong:true},{t:""},{t:""},{t:fmtD(rptLoc.total),align:"right",strong:true,gold:true}],
+      foot:[[{t:`${rptLoc.rows.length} deal${rptLoc.rows.length!==1?"s":""}`,strong:true},{t:""},{t:""},{t:fmtD(rptLoc.total),align:"right",strong:true,gold:true}]],
       empty:"No outstanding LOC draws.",
     },
     future:{
       title:"Available Future Funds — Upcoming Closings",
-      subtitle:"Line-of-credit capital freeing up as your in-closing deals settle.",
-      cols:[{label:"Property"},{label:"Closing"},{label:"Funder"},{label:"LOC returning",align:"right"}],
-      rows:rptFuture.rows.map(r=>[{t:r.address},{t:D(r.closing)},{t:r.funders||"—"},{t:fmtD(r.amount),align:"right",strong:true}]),
-      foot:[{t:`${rptFuture.rows.length} closing${rptFuture.rows.length!==1?"s":""}`,strong:true},{t:""},{t:""},{t:fmtD(rptFuture.total),align:"right",strong:true,gold:true}],
+      subtitle:"Line-of-credit capital freeing up as your in-closing deals settle. Tap a funder's plan to mark whether they reinvest (stays available) or take it back (excluded).",
+      cols:[{label:"Property"},{label:"Closing"},{label:"Funder"},{label:"Plan"},{label:"LOC amount",align:"right"}],
+      rows:rptFuture.rows.map(r=>[{t:r.address},{t:D(r.closing)},{t:r.funder},{plan:r.plan,drawId:r.drawId},{t:fmtD(r.amount),align:"right",strong:true,color:r.plan==="takeback"?T.textTert:undefined}]),
+      foot:[
+        [{t:"Available for future disbursements",strong:true},{t:""},{t:""},{t:""},{t:fmtD(rptFuture.available),align:"right",strong:true,gold:true}],
+        [{t:"Being taken back (excluded)",color:T.textSub},{t:""},{t:""},{t:""},{t:fmtD(rptFuture.takeback),align:"right",color:T.textSub}],
+      ],
       empty:"No in-closing deals with outstanding LOC.",
     },
     bs:{
@@ -7419,7 +7430,7 @@ function FinReportCenter({sharedProps,isMobile}){
       subtitle:"Loans, all-in cost, reserves and equity across every active property. Equity ± is all-in cost minus total loans.",
       cols:[{label:"Property"},{label:"Total loans",align:"right"},{label:"All-in cost",align:"right"},{label:"Constr. reserve",align:"right"},{label:"Interest reserve",align:"right"},{label:"Equity ±",align:"right"}],
       rows:rptBS.rows.map(r=>[{t:r.address},{t:M(r.totalLoans),align:"right"},{t:M(r.allIn),align:"right"},{t:r.cf==null?"—":fmtD(r.cf),align:"right"},{t:fmtD(r.ir),align:"right"},{t:r.equity==null?"—":fmtD(r.equity),align:"right",strong:true,color:r.equity<0?T.red:T.green}]),
-      foot:[{t:"Portfolio",strong:true},{t:fmtD(rptBS.total.totalLoans),align:"right",strong:true},{t:rptBS.total.anyAllIn?fmtD(rptBS.total.allIn):"—",align:"right",strong:true},{t:fmtD(rptBS.total.cf),align:"right",strong:true},{t:fmtD(rptBS.total.ir),align:"right",strong:true},{t:fmtD(rptBS.total.equity),align:"right",strong:true,color:rptBS.total.equity<0?T.red:T.green}],
+      foot:[[{t:"Portfolio",strong:true},{t:fmtD(rptBS.total.totalLoans),align:"right",strong:true},{t:rptBS.total.anyAllIn?fmtD(rptBS.total.allIn):"—",align:"right",strong:true},{t:fmtD(rptBS.total.cf),align:"right",strong:true},{t:fmtD(rptBS.total.ir),align:"right",strong:true},{t:fmtD(rptBS.total.equity),align:"right",strong:true,color:rptBS.total.equity<0?T.red:T.green}]],
       empty:"No active properties.",
     },
   };
@@ -7428,9 +7439,10 @@ function FinReportCenter({sharedProps,isMobile}){
   const exportReport=(rep)=>{
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
+    const cellText=(c)=>c.plan?(c.plan==="takeback"?"Take back":"Reinvest"):esc(c.t);
     const th=rep.cols.map(c=>`<th style="text-align:${c.align||"left"}">${esc(c.label)}</th>`).join("");
-    const trs=rep.rows.length?rep.rows.map(cells=>`<tr>${cells.map(c=>`<td style="text-align:${c.align||"left"};${c.strong?"font-weight:700;":""}${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${esc(c.t)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${rep.cols.length}" class="empty">${esc(rep.empty)}</td></tr>`;
-    const foot=rep.foot&&rep.rows.length?`<tr class="tot">${rep.foot.map(c=>`<td style="text-align:${c.align||"left"};font-weight:800;${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${esc(c.t)}</td>`).join("")}</tr>`:"";
+    const trs=rep.rows.length?rep.rows.map((cells,ri)=>`<tr${ri%2?' style="background:#faf6ea"':''}>${cells.map(c=>`<td style="text-align:${c.align||"left"};${c.strong?"font-weight:700;":""}${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${rep.cols.length}" class="empty">${esc(rep.empty)}</td></tr>`;
+    const foot=rep.foot&&rep.rows.length?rep.foot.map((frow,fi)=>`<tr class="${fi===0?"tot":"tot2"}">${frow.map(c=>`<td style="text-align:${c.align||"left"};font-weight:${c.strong?"800":"600"};${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):"";
     const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(rep.title)}</title><style>
       *{box-sizing:border-box;}body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1C1C1E;margin:0;padding:36px;}
       .brand{font-family:Georgia,serif;font-size:22px;font-weight:700;color:#B8953F;}
@@ -7440,6 +7452,7 @@ function FinReportCenter({sharedProps,isMobile}){
       th{text-transform:uppercase;font-size:10px;letter-spacing:0.06em;color:#8A8A8E;padding:8px 10px;border-bottom:1px solid #ddd;}
       td{padding:8px 10px;border-bottom:1px solid #f0f0f0;}
       tr.tot td{border-top:2px solid #B8953F;border-bottom:none;font-size:14px;}
+      tr.tot2 td{border-top:none;border-bottom:none;font-size:13px;}
       .empty{text-align:center;color:#8A8A8E;padding:24px;}
       @media print{body{padding:16px;}}
     </style></head><body>
@@ -7488,8 +7501,10 @@ function FinReportCenter({sharedProps,isMobile}){
                 <tbody>
                   {rep.rows.length===0
                     ?<tr><td colSpan={rep.cols.length} style={{textAlign:"center",color:T.textTert,padding:"28px 10px",fontSize:13}}>{rep.empty}</td></tr>
-                    :rep.rows.map((cells,ri)=><tr key={ri}>{cells.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"8px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:c.strong?700:400,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{})}}>{c.t}</td>)}</tr>)}
-                  {rep.rows.length>0&&rep.foot&&<tr>{rep.foot.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"10px",borderTop:`2px solid ${T.gold}`,fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{})}}>{c.t}</td>)}</tr>}
+                    :rep.rows.map((cells,ri)=>{const rowBg=ri%2?T.gold+"12":T.card;return <tr key={ri} style={{background:rowBg}}>{cells.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"8px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:c.strong?700:400,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:rowBg,borderRight:`1px solid ${T.border}`}:{})}}>{c.plan
+                        ?<button onClick={(e)=>{e.stopPropagation();setPlan(c.drawId,c.plan==="reinvest"?"takeback":"reinvest");}} title="Tap to switch" style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11.5,fontWeight:700,background:c.plan==="reinvest"?T.green+"22":T.red+"22",color:c.plan==="reinvest"?"#1a8f43":T.red}}>{c.plan==="reinvest"?"Reinvest":"Take back"}</button>
+                        :c.t}</td>)}</tr>;})}
+                  {rep.rows.length>0&&rep.foot&&rep.foot.map((frow,fi)=><tr key={"f"+fi}>{frow.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:fi===0?"11px 10px 8px":"2px 10px 8px",...(fi===0?{borderTop:`2px solid ${T.gold}`}:{}),fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{background:T.card})}}>{c.t}</td>)}</tr>)}
                 </tbody>
               </table>
             </div>

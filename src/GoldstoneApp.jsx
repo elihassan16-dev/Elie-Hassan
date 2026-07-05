@@ -6463,21 +6463,36 @@ function QbAllInBreakdownModal({pnl,total,projectId,onClose}){
   );
 }
 
-// Stable-ish key for a QuickBooks transaction (the report has no id).
-const txKey=(t)=>[t.date,t.type,t.num,t.vendor,t.amount].join("|");
+// Stable-ish key for a pinned QuickBooks transaction (or a single line of one).
+const txKey=(t)=>t.lineKey||[t.date,t.type,t.num,t.vendor,t.amount].join("|");
 
 // ─── Pick QuickBooks transactions to pin (down payment, deposit, etc.) ──────────
 function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
   const isMobile=useIsMobile();
   const[q,setQ]=useState("");
+  const[openKey,setOpenKey]=useState("");    // which transaction is expanded to its line items
+  const[lineData,setLineData]=useState({});  // txKey -> {loading, lines}
   const term=q.trim().toLowerCase();
   const list=[...(txns||[])].filter(t=>!term||[t.vendor,t.memo,t.type,t.account,t.date].filter(Boolean).join(" ").toLowerCase().includes(term)).sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
   const inS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  // Build a pinnable object for one line of a transaction.
+  const lineObj=(t,l)=>({date:t.date,type:(t.type||"")+" · line",num:t.num,vendor:l.description||l.account||t.vendor,account:l.account,memo:l.description,amount:l.amount,lineKey:`${t.id}#${l.lineIdx}`});
+  const openLines=(t)=>{
+    const k=txKey(t);
+    if(openKey===k){setOpenKey("");return;}
+    setOpenKey(k);
+    if(!lineData[k]&&t.id){
+      setLineData(d=>({...d,[k]:{loading:true,lines:[]}}));
+      qbAuthFetch(`/api/quickbooks/txn-lines?id=${encodeURIComponent(t.id)}&type=${encodeURIComponent(t.type||"")}`)
+        .then(r=>setLineData(d=>({...d,[k]:{loading:false,lines:r.lines||[]}})))
+        .catch(()=>setLineData(d=>({...d,[k]:{loading:false,lines:[]}})));
+    }
+  };
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 12px"}}>
-          <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>Pin transactions</div><div style={{fontSize:12,color:T.textTert}}>Down payment, deposit, etc. — tap to pin to Construction Float</div></div>
+          <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>Pin transactions</div><div style={{fontSize:12,color:T.textTert}}>Tap to pin the whole line, or ⋯ to open a split and pin only some lines</div></div>
           <button onClick={onClose} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,flexShrink:0}}>×</button>
         </div>
         <div style={{padding:"0 18px 12px",position:"relative"}}>
@@ -6489,15 +6504,41 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
           {!loading&&list.length===0&&<div style={{padding:"22px 18px",fontSize:14,color:T.textTert,textAlign:"center"}}>{(txns||[]).length===0?"No transactions on this QuickBooks project.":"No transactions match your search."}</div>}
           {list.map((t,i)=>{
             const on=pinnedKeys.has(txKey(t));
+            const k=txKey(t);
+            const expanded=openKey===k;
+            const ld=lineData[k];
             return(
-              <label key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px",borderTop:i===0?"none":`1px solid ${T.border}`,cursor:"pointer",background:on?T.goldLight:"transparent"}}>
-                <input type="checkbox" checked={on} onChange={()=>onToggle(t)} style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
-                  <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account,t.memo].filter(Boolean).join(" · ")}</div>
+              <div key={i} style={{borderTop:i===0?"none":`1px solid ${T.border}`,background:on?T.goldLight:"transparent"}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px"}}>
+                  <input type="checkbox" checked={on} onChange={()=>onToggle(t)} style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+                  <div style={{flex:1,minWidth:0,cursor:t.id?"pointer":"default"}} onClick={()=>t.id&&openLines(t)}>
+                    <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
+                    <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account,t.memo].filter(Boolean).join(" · ")}</div>
+                  </div>
+                  <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{fmtD(t.amount)}</span>
+                  {t.id&&<button onClick={()=>openLines(t)} title="Open line items" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:16,lineHeight:1,padding:"0 2px",flexShrink:0}}>{expanded?"▾":"⋯"}</button>}
                 </div>
-                <span style={{fontSize:13.5,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{fmtD(t.amount)}</span>
-              </label>
+                {expanded&&(
+                  <div style={{padding:"0 18px 8px 44px"}}>
+                    {ld?.loading&&<div style={{fontSize:12,color:T.textTert,padding:"6px 0"}}>Loading line items…</div>}
+                    {ld&&!ld.loading&&ld.lines.length===0&&<div style={{fontSize:12,color:T.textTert,padding:"6px 0"}}>No separate line items on this transaction.</div>}
+                    {ld&&!ld.loading&&ld.lines.map((l,li)=>{
+                      const lo=lineObj(t,l);
+                      const lon=pinnedKeys.has(txKey(lo));
+                      return(
+                        <label key={li} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderTop:li?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
+                          <input type="checkbox" checked={lon} onChange={()=>onToggle(lo)} style={{width:15,height:15,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.account||l.description||"—"}{l.postingType&&<span style={{fontSize:10,color:T.textTert}}> · {l.postingType}</span>}</div>
+                            {l.description&&l.account&&<div style={{fontSize:10.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.description}</div>}
+                          </div>
+                          <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(l.amount)}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
@@ -6542,7 +6583,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,onUpdate}){
   const toggle=(id)=>{const has=pinned.includes(id);onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);};
   const addCustom=(key)=>{const label=draft.label.trim();const amount=num(draft.amount);if(!label&&!amount)return;const arr=property[key]||[];onUpdate(property.id,key,[...arr,{id:Date.now(),label:label||"Adjustment",amount}]);setDraft({label:"",amount:""});setAddFor("");};
   const delCustom=(key,id)=>{onUpdate(property.id,key,(property[key]||[]).filter(l=>l.id!==id));};
-  const toggleTx=(field,arr,t)=>{const k=txKey(t);const has=arr.some(x=>txKey(x)===k);onUpdate(property.id,field,has?arr.filter(x=>txKey(x)!==k):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount}]);};
+  const toggleTx=(field,arr,t)=>{const k=txKey(t);const has=arr.some(x=>txKey(x)===k);onUpdate(property.id,field,has?arr.filter(x=>txKey(x)!==k):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}]);};
   const inPot=(key)=>potIds.includes(key);
   const togglePot=(key)=>onUpdate(property.id,"qbLocPotIds",inPot(key)?potIds.filter(x=>x!==key):[...potIds,key]);
 

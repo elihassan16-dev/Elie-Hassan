@@ -7160,7 +7160,7 @@ function cfSellingOf(sp,items,flat){
 // money mortgage + any LOC recorded as a mortgage), and the accrued (unpaid)
 // LOC / hard-money interest that settles at closing. Equity already sunk into
 // purchase/rehab is money coming BACK, so it is deliberately NOT subtracted.
-function cashFlowNet(p,accounts,spend){
+function cashFlowNet(p,accounts,spend,intPaid){
   const f=(p&&p.financials)||{};
   const useActual=n(f.actualSalePrice)>0;                 // prefer the contract price once set
   const sale=useActual?n(f.actualSalePrice):n(f.salePrice);
@@ -7171,11 +7171,13 @@ function cashFlowNet(p,accounts,spend){
   const loans=m.totalLoans;                               // active loans — same figure as the BS report
   const locInt=n(f.locInterest);                          // LOC is a balloon → full amount settles at closing
   // Hard-money interest is paid MONTHLY, so only the part not yet paid comes out
-  // of the closing proceeds. Credit back the debt service already paid on this
-  // property — the "Debt service" transactions pinned from QuickBooks on the BS
-  // report (bsMetrics.debt). LOC is deliberately NOT credited.
+  // of the closing proceeds. Credit back what's already been paid: the interest
+  // expense pulled live from QuickBooks for this property (intPaid), falling back
+  // to the "Debt service" pinned on the BS report. LOC is deliberately NOT credited.
   const hmIntGross=n(f.hmInterest);
-  const hmPaid=Math.min(hmIntGross,Math.max(0,m.debt||0));
+  const auto=(intPaid&&p.qbProjectId&&intPaid[p.qbProjectId]!=null)?intPaid[p.qbProjectId]:null;
+  const paidRaw=auto!=null?auto:(m.debt||0);
+  const hmPaid=Math.min(hmIntGross,Math.max(0,paidRaw));
   const hmInt=hmIntGross-hmPaid;                          // remaining hard-money interest due at closing
   const interest=locInt+hmInt;
   const payoff=loans+interest;
@@ -7191,6 +7193,7 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
   const[connected,setConnected]=useState(null);
   const[accounts,setAccounts]=useState(null);
   const[spend,setSpend]=useState({});
+  const[intPaid,setIntPaid]=useState({}); // projectId → hard-money interest paid to date (from QB)
   const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const inClosing=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&p.status==="In Closing"),[sharedProps]);
   // The month a property closes: its scheduled closing date, else the selling
@@ -7205,7 +7208,15 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
   useEffect(()=>{
     if(!connected)return;const ids=[...new Set(inClosing.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
     const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
-      try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);if(!cancelled)setSpend(s=>({...s,[id]:{allIn:(d?.expenses||0)+(d?.cogs||0)}}));}catch{/* ignore */}}};
+      try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);if(!cancelled)setSpend(s=>({...s,[id]:{allIn:(d?.expenses||0)+(d?.cogs||0)}}));}catch{/* ignore */}
+      // Sum the interest actually PAID on this property so far — any expense whose
+      // account name mentions "interest". Since LOC is a balloon (unpaid until
+      // closing), what's been paid is the monthly hard-money interest, which we
+      // credit back against the projected hard-money interest.
+      try{const t=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);
+        const paid=(t.items||[]).filter(x=>/interest/i.test(x.account||"")).reduce((s,x)=>s+(Number(x.amount)||0),0);
+        if(!cancelled)setIntPaid(m=>({...m,[id]:paid}));
+      }catch{/* ignore */}}};
     Promise.all([run(),run(),run(),run()]);return ()=>{cancelled=true;};
   },[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -7223,10 +7234,10 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
     arr.sort((a,b)=>a.key==="unscheduled"?-1:b.key==="unscheduled"?1:a.key.localeCompare(b.key));
     arr.forEach(g=>{
       g.items.sort((a,b)=>String(cfDate(a)).localeCompare(String(cfDate(b))));
-      g.total=g.items.reduce((s,p)=>s+cashFlowNet(p,accounts,spend).net,0);
+      g.total=g.items.reduce((s,p)=>s+cashFlowNet(p,accounts,spend,intPaid).net,0);
     });
     return arr;
-  },[inClosing,accounts,spend]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[inClosing,accounts,spend,intPaid]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const grandTotal=groups.reduce((s,g)=>s+g.total,0);
   const card={background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden",marginBottom:14};
@@ -7261,7 +7272,7 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
             <span style={{fontSize:14,fontWeight:800,color:g.total<0?T.red:T.green}}>{fmtD(g.total)}</span>
           </div>
           {g.items.map((p,i)=>{
-            const cf=cashFlowNet(p,accounts,spend);
+            const cf=cashFlowNet(p,accounts,spend,intPaid);
             const open=openId===p.id;
             const iso=cfDate(p);
             return(
@@ -7282,7 +7293,7 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
                     {cf.hmIntGross>0&&row("− Hard-money interest",-cf.hmIntGross,T.red)}
                     {cf.hmPaid>0&&row("+ HM interest paid to date (QB)",cf.hmPaid,T.green)}
                     <div style={{borderTop:`1px solid ${T.border}`,marginTop:6,paddingTop:2}}>{row("Net cash at closing",cf.net,cf.net<0?T.red:T.green,true)}</div>
-                    <div style={{fontSize:10.5,color:T.textTert,marginTop:6,lineHeight:1.5}}>Outstanding loans = your Property BS Report "Total loans" (pinned QuickBooks loan accounts, incl. the hard-money mortgage). Hard-money interest is paid monthly, so debt service already paid (pinned from QuickBooks) is credited back — only the unpaid balance settles at closing. LOC interest is a balloon, so it's not credited.</div>
+                    <div style={{fontSize:10.5,color:T.textTert,marginTop:6,lineHeight:1.5}}>Outstanding loans = your Property BS Report "Total loans" (pinned QuickBooks loan accounts, incl. the hard-money mortgage). Hard-money interest is paid monthly, so the interest already paid on this address — pulled live from QuickBooks (any "interest" expense account) — is credited back, and only the unpaid balance settles at closing. LOC interest is a balloon, so it's not credited.</div>
                     {onNavigate&&<button onClick={(e)=>{e.stopPropagation();onNavigate(p.id);}} style={{marginTop:10,padding:"8px 14px",borderRadius:T.radiusSm,background:T.card,border:`1px solid ${T.border}`,color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Open property →</button>}
                   </div>
                 )}

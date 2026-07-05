@@ -6350,14 +6350,15 @@ function FinComingSoon({title,note}){
 }
 // ─── QuickBooks accounts picker — searchable popup to pin accounts to a property ─
 function QbAccountsPickerModal({accounts,pinnedIds,address,onToggle,onClose}){
+  const isMobile=useIsMobile();
   const[q,setQ]=useState("");
   const term=q.trim().toLowerCase();
   const ranked=(accounts||[]).map(a=>({...a,score:qbMatchScore(address,a.name)})).sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name));
   const list=term?ranked.filter(a=>[a.name,a.subType,a.type].filter(Boolean).join(" ").toLowerCase().includes(term)):ranked;
   const inS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:240,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:"20px 20px 0 0",width:540,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:240,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:540,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 12px"}}>
           <div style={{minWidth:0}}>
             <div style={{fontWeight:700,fontSize:17,color:T.text}}>Pin QuickBooks accounts</div>
@@ -6392,11 +6393,12 @@ function QbAccountsPickerModal({accounts,pinnedIds,address,onToggle,onClose}){
 
 // ─── Transactions for one all-in-cost bucket (drill-down from the breakdown) ────
 function QbBucketTxnsModal({label,txns,loading,onClose}){
+  const isMobile=useIsMobile();
   const list=[...(txns||[])].sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
   const total=list.reduce((s,t)=>s+t.amount,0);
   return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:260,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:"20px 20px 0 0",width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:260,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 10px"}}>
           <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>{label}</div><div style={{fontSize:12,color:T.textTert}}>{loading?"loading…":`${list.length} transaction${list.length!==1?"s":""}`}</div></div>
           <button onClick={onClose} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,flexShrink:0}}>×</button>
@@ -6427,6 +6429,7 @@ function QbBucketTxnsModal({label,txns,loading,onClose}){
 
 // ─── All-in cost breakdown — how the QuickBooks number was reached, by bucket ────
 function QbAllInBreakdownModal({pnl,total,projectId,onClose}){
+  const isMobile=useIsMobile();
   const rows=(pnl?.rows||[]).filter(r=>r.section!=="Income");
   const BKT=[["purchase","Purchase Price"],["buying","Buying Costs"],["rehab","Rehab Costs"],["holding","Holding Costs"],["debt","Debt Service / Interest"],["selling","Selling Costs"]];
   const groups=BKT.map(([k,l])=>{const items=rows.filter(r=>qbBucket(r.name)===k);const sum=items.reduce((s,r)=>s+r.amount,0);return {k,l,items,sum};}).filter(g=>g.items.length||g.sum);
@@ -6440,8 +6443,8 @@ function QbAllInBreakdownModal({pnl,total,projectId,onClose}){
   },[projectId]);
   const bucketTx=(k)=>(txns||[]).filter(t=>qbBucket(t.account)===k);
   return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:"20px 20px 0 0",width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 10px"}}>
           <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>All-in cost breakdown</div><div style={{fontSize:12,color:T.textTert}}>Tap a line to see its transactions</div></div>
           <button onClick={onClose} style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,flexShrink:0}}>×</button>

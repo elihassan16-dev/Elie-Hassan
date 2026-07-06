@@ -9080,15 +9080,21 @@ function EmailAttachments({messageId,mail,od,folder}){
     try{ const file=base64ToFile(a.contentBytes,a.name,a.contentType); await od.uploadFile(folder.driveId,folder.id,file); setSt(s=>({...s,[a.id]:"done"})); }
     catch(e){ setSt(s=>({...s,[a.id]:"error"})); alert("Couldn't save to Files: "+(e.message||"unknown error")); }
   };
+  // Open the attachment in a new tab straight from its bytes (PDFs & images render).
+  const preview=(a)=>{
+    try{ const file=base64ToFile(a.contentBytes,a.name,a.contentType); const url=URL.createObjectURL(file); window.open(url,"_blank"); setTimeout(()=>URL.revokeObjectURL(url),60000); }
+    catch(e){ alert("Couldn't open: "+(e.message||"unknown error")); }
+  };
   if(atts===null)return null;
   if(atts.length===0)return null;
   return(
     <div style={{padding:"8px 14px 12px",borderTop:`1px solid ${T.border}`,display:"flex",flexDirection:"column",gap:6}}>
       <div style={{fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>Attachments</div>
       {atts.map(a=>{const s=st[a.id];const isPdf=/pdf/i.test(a.contentType||"")||/\.pdf$/i.test(a.name||"");return(
-        <div key={a.id} style={{display:"flex",alignItems:"center",gap:8}}>
+        <div key={a.id} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <span style={{fontSize:16,flexShrink:0}}>{isPdf?"📄":"📎"}</span>
-          <div style={{flex:1,minWidth:0}}><div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div><div style={{fontSize:10.5,color:T.textTert}}>{fmtBytes(a.size)}</div></div>
+          <div style={{flex:1,minWidth:120}}><div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div><div style={{fontSize:10.5,color:T.textTert}}>{fmtBytes(a.size)}</div></div>
+          <button onClick={()=>preview(a)} title="Open / preview" style={{flexShrink:0,padding:"6px 11px",borderRadius:16,border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>👁 Preview</button>
           <button onClick={()=>save(a)} disabled={s==="saving"||s==="done"} style={{flexShrink:0,padding:"6px 11px",borderRadius:16,border:`1px solid ${s==="done"?T.green:T.gold}`,background:s==="done"?"#EDFBF1":T.goldLight,color:s==="done"?"#15803D":T.gold,fontWeight:700,fontSize:11.5,cursor:s==="saving"||s==="done"?"default":"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:s==="saving"?0.7:1}}>{s==="done"?"✓ Saved":s==="saving"?"Saving…":s==="error"?"↻ Retry":"⬇ Save to Files"}</button>
         </div>
       );})}

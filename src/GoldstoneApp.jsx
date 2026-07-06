@@ -2418,6 +2418,174 @@ function ShowingsPage(){
   );
 }
 
+// ─── Calendar — today's showings, key deal dates, and overdue nudges ───────────
+// Key date types tracked per property. `get` reads the date; `overdue` decides if a
+// passed date still needs attention (e.g. purchase date gone but status unchanged).
+const CAL_EVENTS=[
+  {type:"purchase",label:"Purchase / Close",icon:"🏠",color:T.blue,top:"financials",key:"purchaseDate",
+   get:(p)=>(p.financials||{}).purchaseDate, overdue:(p)=>["New Leads","Under Contract"].includes(p.status),
+   ask:(p)=>`Did you close on this purchase? If it moved, push the date.`, done:{label:"✓ Purchased",status:"Purchased"}},
+  {type:"sale",label:"Sale Close",icon:"💰",color:T.green,top:"propertyInfo",key:"closingDateScheduled",
+   get:(p)=>((p.propertyInfo||{}).closingDateScheduled||(p.financials||{}).sellingDate||""), overdue:(p)=>p.status!=="Sold",
+   ask:(p)=>`Did this sale close? If it moved, push the date.`, done:{label:"✓ Sold",status:"Sold"}},
+  {type:"inspectionDue",label:"Inspection Due",icon:"🔎",color:T.orange,top:"propertyInfo",key:"inspectionDue",
+   get:(p)=>(p.propertyInfo||{}).inspectionDue, overdue:()=>true,
+   ask:(p)=>`Inspection period is up — did you handle it / reach out?`, done:{label:"✓ Handled"}},
+  {type:"mortgageCommitment",label:"Mortgage Commitment",icon:"📝",color:"#8B5CF6",top:"propertyInfo",key:"mortgageCommitment",
+   get:(p)=>(p.propertyInfo||{}).mortgageCommitment, overdue:()=>true,
+   ask:(p)=>`Mortgage commitment date passed — is it in?`, done:{label:"✓ Done"}},
+];
+function CalendarPage({sharedProps,setSharedProps,onNavigate}){
+  const isMobile=useIsMobile();
+  const[view,setView]=useState("today"); // "today" | "dates"
+  const[showings,setShowings]=useState(null);
+  const[shStatus,setShStatus]=useState(null);
+  useEffect(()=>{qbAuthFetch("/api/showings/status").then(setShStatus).catch(()=>setShStatus({configured:false}));},[]);
+  useEffect(()=>{ if(shStatus&&shStatus.configured) fetchShowingsShared().then(d=>setShowings(d.showings||[])).catch(()=>setShowings([])); },[shStatus]);
+
+  const upd=(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));
+  const active=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived),[sharedProps]);
+  const todayISO=new Date().toISOString().slice(0,10);
+  const isToday=(iso)=>String(iso||"").slice(0,10)===todayISO;
+  const fmtDate=(iso)=>{const d=new Date(iso+"T00:00:00");return isNaN(d.getTime())?iso:d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});};
+  const relDays=(iso)=>{const d=Math.round((new Date(iso+"T00:00:00")-new Date(todayISO+"T00:00:00"))/86400000);return d===0?"today":d===1?"tomorrow":d===-1?"yesterday":d<0?`${-d} days ago`:`in ${d} days`;};
+  const addr=(p)=>`${p.address||""}${p.city?`, ${p.city}`:""}`;
+
+  // Build the flat list of dated events across every active property.
+  const events=useMemo(()=>{
+    const out=[];
+    active.forEach(p=>CAL_EVENTS.forEach(e=>{
+      const date=String(e.get(p)||"").slice(0,10);
+      if(!date)return;
+      const past=date<todayISO;
+      const dismissed=!!(p.calDismissed||{})[`${e.type}:${date}`];
+      out.push({p,e,date,past,isToday:date===todayISO,overdue:past&&e.overdue(p)&&!dismissed});
+    }));
+    out.sort((a,b)=>a.date.localeCompare(b.date));
+    return out;
+  },[active,todayISO]);
+  const overdue=events.filter(x=>x.overdue);
+  const upcoming=events.filter(x=>!x.past);
+  const pastDone=events.filter(x=>x.past&&!x.overdue);
+
+  // Date setters / dismissal / status.
+  const setEventDate=(p,e,val)=>upd(p.id,e.top,{...(p[e.top]||{}),[e.key]:val});
+  const dismiss=(p,type,date)=>upd(p.id,"calDismissed",{...(p.calDismissed||{}),[`${type}:${date}`]:true});
+  const setStatus=(p,st)=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:st}:x));
+
+  const shToday=useMemo(()=>(showings||[]).filter(s=>isToday(s.start))
+    .map(s=>({s,prop:active.find(p=>showingMatchesProperty(s.location||s.summary||"",p))}))
+    .sort((a,b)=>String(a.s.start||"").localeCompare(String(b.s.start||""))),[showings,active]); // eslint-disable-line
+
+  const wrap={padding:isMobile?"14px 14px 40px":"18px 24px 40px",maxWidth:640,margin:"0 auto",width:"100%",boxSizing:"border-box"};
+  const card={background:T.card,borderRadius:T.radius,boxShadow:T.shadow,border:`1px solid ${T.border}`,overflow:"hidden"};
+
+  const OverdueCard=({x})=>{
+    const {p,e,date}=x;
+    return(
+      <div style={{border:`1px solid ${T.red}44`,background:"#FFF7F6",borderRadius:T.radius,padding:"12px 14px",marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
+          <span style={{fontSize:15}}>{e.icon}</span>
+          <span onClick={()=>onNavigate&&onNavigate(p.id)} style={{fontSize:14,fontWeight:700,color:T.blue,cursor:"pointer",flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr(p)}</span>
+          <span style={{fontSize:11,fontWeight:700,color:T.red,flexShrink:0}}>{e.label} · {relDays(date)}</span>
+        </div>
+        <div style={{fontSize:12.5,color:T.textSub,marginBottom:10,lineHeight:1.4}}>{e.ask(p)}</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"center"}}>
+          {e.done&&<button onClick={()=>{if(e.done.status)setStatus(p,e.done.status);dismiss(p,e.type,date);}}
+            style={{padding:"7px 13px",borderRadius:20,border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{e.done.label}</button>}
+          <label style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,color:T.textSub}}>
+            📅 Push to
+            <input type="date" defaultValue={date} onChange={ev=>ev.target.value&&setEventDate(p,e,ev.target.value)}
+              style={{fontSize:12.5,padding:"5px 8px",borderRadius:8,border:`1px solid ${T.border}`,background:"#fff",color:T.text,outline:"none",fontFamily:"inherit",cursor:"pointer"}}/>
+          </label>
+          <button onClick={()=>dismiss(p,e.type,date)} style={{marginLeft:"auto",padding:"7px 12px",borderRadius:20,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Dismiss</button>
+        </div>
+      </div>
+    );
+  };
+
+  const DateRowItem=({x})=>(
+    <div onClick={()=>onNavigate&&onNavigate(x.p.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
+      <div style={{width:44,textAlign:"center",flexShrink:0}}>
+        <div style={{fontSize:16}}>{x.e.icon}</div>
+      </div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:14,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr(x.p)}</div>
+        <div style={{fontSize:12,color:x.e.color,fontWeight:600}}>{x.e.label}</div>
+      </div>
+      <div style={{textAlign:"right",flexShrink:0}}>
+        <div style={{fontSize:12.5,fontWeight:700,color:T.text}}>{fmtDate(x.date)}</div>
+        <div style={{fontSize:11,color:x.isToday?T.gold:T.textTert,fontWeight:x.isToday?700:400}}>{relDays(x.date)}</div>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+      <div style={wrap}>
+        {/* Segmented control */}
+        <div style={{display:"flex",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:3,gap:3,marginBottom:16}}>
+          {[["today","📋 Today's Showings"],["dates","🗓 Key Dates"]].map(([k,l])=>(
+            <button key={k} onClick={()=>setView(k)} style={{flex:1,padding:"9px 10px",borderRadius:9,border:"none",background:view===k?T.gold:"transparent",color:view===k?"#fff":T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+          ))}
+        </div>
+
+        {/* Needs attention — overdue key dates, shown on both views */}
+        {overdue.length>0&&(
+          <div style={{marginBottom:18}}>
+            <div style={{fontSize:12,fontWeight:800,color:T.red,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:9}}>⚠ Needs attention · {overdue.length}</div>
+            {overdue.map((x,i)=><OverdueCard key={i} x={x}/>)}
+          </div>
+        )}
+
+        {view==="today"?(
+          <div style={card}>
+            <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{fontSize:15,fontWeight:800,color:T.text}}>Showings today</div>
+              <div style={{fontSize:12,color:T.textSub}}>{fmtDate(todayISO)}</div>
+            </div>
+            {shStatus&&!shStatus.configured
+              ?<div style={{padding:"22px 16px",textAlign:"center",fontSize:13,color:T.textSub}}>Connect ShowingTime in the <strong>Showings</strong> tab to see today's showings here.</div>
+              :showings===null
+              ?<div style={{padding:"22px 16px",textAlign:"center",fontSize:13,color:T.textTert}}>Loading showings…</div>
+              :shToday.length===0
+              ?<div style={{padding:"26px 16px",textAlign:"center",fontSize:13.5,color:T.textTert}}>No showings scheduled today. 🎉</div>
+              :shToday.map(({s,prop},i)=>{
+                  const t=new Date(s.start);const time=isNaN(t.getTime())?"":t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+                  return(
+                    <div key={i} onClick={()=>prop&&onNavigate&&onNavigate(prop.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderTop:i?`1px solid ${T.border}`:"none",cursor:prop?"pointer":"default"}}>
+                      <div style={{width:66,flexShrink:0,textAlign:"center"}}>
+                        <div style={{fontSize:14,fontWeight:800,color:T.gold}}>{time}</div>
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,fontWeight:600,color:prop?T.blue:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prop?addr(prop):(s.location||"Unmatched property")}</div>
+                        {s.agent&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👤 {s.agent}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+          </div>
+        ):(
+          <>
+            <div style={card}>
+              <div style={{padding:"12px 16px",borderBottom:upcoming.length?`1px solid ${T.border}`:"none",fontSize:15,fontWeight:800,color:T.text}}>Upcoming</div>
+              {upcoming.length===0
+                ?<div style={{padding:"22px 16px",textAlign:"center",fontSize:13.5,color:T.textTert}}>No upcoming dates. Add purchase, sale, inspection or commitment dates on a property.</div>
+                :upcoming.map((x,i)=><DateRowItem key={i} x={x}/>)}
+            </div>
+            {pastDone.length>0&&(
+              <div style={{...card,marginTop:16,opacity:0.85}}>
+                <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,fontSize:13,fontWeight:700,color:T.textSub}}>Past</div>
+                {pastDone.slice(-40).reverse().map((x,i)=><DateRowItem key={i} x={x}/>)}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── QuickBooks tab — map a property to its QB project, view P&L, import actuals ─
 // Heuristic bucketing of expense accounts into the app's Actual fields.
 function qbBucket(name){
@@ -9966,6 +10134,7 @@ export function GoldstoneShell(){
     : active==="leads" ? <NewLeadsPage/>
     : active==="messages" ? <MessagingCenter sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navChatId} onNavConsumed={()=>setNavChatId(null)}/>
     : active==="showings" ? <ShowingsPage/>
+    : active==="calendar" ? <CalendarPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage onNavigate={navigateToProperty}/>
     : active==="contacts" ? <ContactsPage/>

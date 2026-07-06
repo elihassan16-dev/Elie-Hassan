@@ -60,7 +60,14 @@ function parcelQueryUrl(base, lon, lat, distance) {
     f: "json",
   });
   if (distance) { q.set("distance", String(distance)); q.set("units", "esriSRUnit_Meter"); }
-  return `${base}/0/query?${q.toString()}`;
+  return `${layerQuery(base)}?${q.toString()}`;
+}
+
+// The resolved service URL may be a service root (…/FeatureServer, …/MapServer) or
+// already a specific layer (…/MapServer/0). The query op lives at <layer>/query, so
+// only append /0 when the URL isn't already a layer.
+function layerQuery(base) {
+  return /\/\d+$/.test(base) ? `${base}/query` : `${base}/0/query`;
 }
 
 // Query NJ parcels layer 0 at a point (optionally within `distance` metres).

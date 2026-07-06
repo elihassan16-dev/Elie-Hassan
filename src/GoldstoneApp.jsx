@@ -8811,9 +8811,89 @@ function AssignEmailModal({chain,properties,onAssign,onClose}){
     </div>
   );
 }
+// Merge app contacts + Outlook people into one deduped suggestion list.
+function mergeSuggestions(appMatches,people){
+  const seen=new Set(),out=[];
+  [...appMatches.map(c=>({name:c.name,email:c.email,src:"app"})),...people.map(p=>({...p,src:"outlook"}))].forEach(p=>{
+    const k=(p.email||"").toLowerCase();if(k&&!seen.has(k)){seen.add(k);out.push(p);}
+  });
+  return out;
+}
+// A To/Cc field with autocomplete from your app contacts and your Outlook people.
+function RecipientInput({value,onChange,placeholder,style,contacts,mail}){
+  const[focus,setFocus]=useState(false);
+  const[people,setPeople]=useState([]);
+  const ref=useRef(null);
+  const lastDelim=Math.max(value.lastIndexOf(","),value.lastIndexOf(";"));
+  const token=value.slice(lastDelim+1).trim();
+  useEffect(()=>{ if(!focus||token.length<2){setPeople([]);return;} let alive=true;const t=setTimeout(async()=>{const r=await mail.searchPeople(token);if(alive)setPeople(r);},300);return ()=>{alive=false;clearTimeout(t);}; },[token,focus]); // eslint-disable-line
+  const appMatches=token?(contacts||[]).filter(c=>c.email&&`${c.name} ${c.email}`.toLowerCase().includes(token.toLowerCase())).slice(0,6):[];
+  const list=mergeSuggestions(appMatches,people).slice(0,8);
+  const pick=(p)=>{
+    const before=lastDelim>=0?value.slice(0,lastDelim+1)+" ":"";
+    onChange(`${before}${p.name?`${p.name} <${p.email}>`:p.email}, `);
+    setPeople([]);setTimeout(()=>ref.current&&ref.current.focus(),0);
+  };
+  return(
+    <div style={{position:"relative"}}>
+      <input ref={ref} value={value} onChange={e=>onChange(e.target.value)} onFocus={()=>setFocus(true)} onBlur={()=>setTimeout(()=>setFocus(false),150)} placeholder={placeholder} autoCapitalize="none" style={style}/>
+      {focus&&token.length>=2&&list.length>0&&(
+        <div style={{position:"absolute",top:"calc(100% + 3px)",left:0,right:0,zIndex:40,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,boxShadow:"0 8px 26px rgba(0,0,0,0.16)",maxHeight:220,overflowY:"auto"}}>
+          {list.map((p,i)=>(
+            <div key={i} onMouseDown={e=>{e.preventDefault();pick(p);}} style={{padding:"8px 12px",cursor:"pointer",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
+              <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name||p.email}</div>
+              <div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.email}{p.src==="outlook"?" · Outlook":""}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+// A reply/compose textarea where typing "@name" tags someone: it suggests people,
+// inserts @Name, and records the mention so they're added + Outlook-mentioned.
+function MentionTextarea({value,onChange,mentions,onMentionsChange,contacts,mail,placeholder,style}){
+  const ref=useRef(null);
+  const[q,setQ]=useState(null);
+  const[people,setPeople]=useState([]);
+  const detect=(v,caret)=>{const up=v.slice(0,caret);const m=up.match(/(?:^|\s)@([^\s@]*)$/);return m?m[1]:null;};
+  const handle=(e)=>{onChange(e.target.value);setQ(detect(e.target.value,e.target.selectionStart));};
+  useEffect(()=>{ if(q==null||q.length<1){setPeople([]);return;} let alive=true;const t=setTimeout(async()=>{const r=await mail.searchPeople(q);if(alive)setPeople(r);},300);return ()=>{alive=false;clearTimeout(t);}; },[q]); // eslint-disable-line
+  const appMatches=q?(contacts||[]).filter(c=>c.email&&`${c.name}`.toLowerCase().includes(q.toLowerCase())).slice(0,6):[];
+  const list=mergeSuggestions(appMatches,people).slice(0,8);
+  const pick=(p)=>{
+    const el=ref.current;const caret=el?el.selectionStart:value.length;
+    const up=value.slice(0,caret);const atIdx=up.lastIndexOf("@");
+    const nm=p.name||p.email;
+    onChange(value.slice(0,atIdx)+"@"+nm+" "+value.slice(caret));
+    if(!(mentions||[]).some(m=>m.address.toLowerCase()===p.email.toLowerCase()))onMentionsChange([...(mentions||[]),{name:nm,address:p.email}]);
+    setQ(null);setPeople([]);
+    setTimeout(()=>{if(el){el.focus();const pos=atIdx+1+nm.length+1;el.setSelectionRange(pos,pos);}},0);
+  };
+  return(
+    <div style={{position:"relative"}}>
+      <textarea ref={ref} value={value} onChange={handle} onBlur={()=>setTimeout(()=>setQ(null),150)} placeholder={placeholder} style={style}/>
+      {q!=null&&list.length>0&&(
+        <div style={{position:"absolute",bottom:"calc(100% + 3px)",left:0,right:0,zIndex:40,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,boxShadow:"0 8px 26px rgba(0,0,0,0.16)",maxHeight:200,overflowY:"auto"}}>
+          <div style={{padding:"6px 12px 3px",fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>Mention someone</div>
+          {list.map((p,i)=>(
+            <div key={i} onMouseDown={e=>{e.preventDefault();pick(p);}} style={{padding:"8px 12px",cursor:"pointer",borderTop:`1px solid ${T.border}`}}>
+              <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name||p.email}</div>
+              <div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.email}{p.src==="outlook"?" · Outlook":""}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {(mentions||[]).length>0&&<div style={{marginTop:7,display:"flex",flexWrap:"wrap",gap:6}}>
+        {mentions.map((m,i)=>(<span key={i} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11.5,fontWeight:700,color:T.blue,background:"#EBF4FF",borderRadius:12,padding:"2px 8px"}}>@{m.name}<button onMouseDown={e=>{e.preventDefault();onMentionsChange(mentions.filter((_,j)=>j!==i));}} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>×</button></span>))}
+      </div>}
+    </div>
+  );
+}
 function EmailPage({isMobile}){
   const mail=useOutlookMail();
-  const{sharedProps,setSharedProps}=useData()||{};
+  const{sharedProps,setSharedProps,contacts}=useData()||{};
+  const appPeople=(contacts||[]).filter(c=>c&&c.email).map(c=>({name:c.name||c.email,email:c.email}));
   const[assignChain,setAssignChain]=useState(null);
   const[items,setItems]=useState(null);     // flat accumulated messages (null = loading)
   const[next,setNext]=useState(null);        // pagination token (@odata.nextLink)
@@ -8887,7 +8967,7 @@ function EmailPage({isMobile}){
     if(!replyDraft||!msgs?.length)return;const last=msgs[msgs.length-1];
     const body=`<div>${mailEsc(replyDraft.text).replace(/\n/g,"<br>")}</div>`;
     setSending(true);
-    try{await mail.reply(last.id,body,replyDraft.all,replyDraft.cc||"");setReplyDraft(null);
+    try{await mail.reply(last.id,body,replyDraft.all,replyDraft.cc||"",replyDraft.mentions||[]);setReplyDraft(null);
       const m=await mail.getConversation(sel.key);setMsgs(m);setRefreshKey(k=>k+1);
     }catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
     setSending(false);
@@ -8895,7 +8975,7 @@ function EmailPage({isMobile}){
   const sendCompose=async()=>{
     if(!compose)return;const body=`<div>${mailEsc(compose.body).replace(/\n/g,"<br>")}</div>`;
     setSending(true);
-    try{await mail.sendNew({to:compose.to,cc:compose.cc,subject:compose.subject,html:body});setCompose(null);setRefreshKey(k=>k+1);}
+    try{await mail.sendNew({to:compose.to,cc:compose.cc,subject:compose.subject,html:body,mentions:compose.mentions||[]});setCompose(null);setRefreshKey(k=>k+1);}
     catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
     setSending(false);
   };
@@ -8935,7 +9015,7 @@ function EmailPage({isMobile}){
         {mail.account?.username&&<span style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mail.account.username}</span>}
         <div style={{marginLeft:"auto",display:"flex",gap:8}}>
           <button onClick={()=>setRefreshKey(k=>k+1)} title="Refresh" style={{padding:"8px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>⟳</button>
-          {btn("✎ Compose",true,()=>setCompose({to:"",cc:"",subject:"",body:""}),{padding:"8px 14px"})}
+          {btn("✎ Compose",true,()=>setCompose({to:"",cc:"",subject:"",body:"",mentions:[]}),{padding:"8px 14px"})}
         </div>
       </div>
 
@@ -9025,11 +9105,11 @@ function EmailPage({isMobile}){
               {/* Reply bar */}
               <div style={{borderTop:`1px solid ${T.border}`,background:T.card,padding:isMobile?"10px 12px":"12px 18px",flexShrink:0}}>
                 {!replyDraft
-                  ? <div style={{display:"flex",gap:8}}>{btn("↩ Reply",true,()=>setReplyDraft({all:false,text:"",cc:""}),{padding:"9px 16px"})}{btn("↩ Reply all",false,()=>setReplyDraft({all:true,text:"",cc:""}),{padding:"9px 16px"})}</div>
+                  ? <div style={{display:"flex",gap:8}}>{btn("↩ Reply",true,()=>setReplyDraft({all:false,text:"",cc:"",mentions:[]}),{padding:"9px 16px"})}{btn("↩ Reply all",false,()=>setReplyDraft({all:true,text:"",cc:"",mentions:[]}),{padding:"9px 16px"})}</div>
                   : <div>
                       <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{replyDraft.all?"Reply all":"Reply"} to {mailAddr(msgs?.[msgs.length-1]?.from)}</div>
-                      <input value={replyDraft.cc} onChange={e=>setReplyDraft(d=>({...d,cc:e.target.value}))} placeholder="Cc (comma-separated) — add people to this reply" style={{...iS,marginBottom:8}}/>
-                      <textarea autoFocus value={replyDraft.text} onChange={e=>setReplyDraft(d=>({...d,text:e.target.value}))} placeholder="Write your reply…" style={{...iS,minHeight:90,resize:"vertical",lineHeight:1.5}}/>
+                      <RecipientInput value={replyDraft.cc} onChange={v=>setReplyDraft(d=>({...d,cc:v}))} placeholder="Cc — add people to this reply" style={{...iS,marginBottom:8}} contacts={appPeople} mail={mail}/>
+                      <MentionTextarea value={replyDraft.text} onChange={v=>setReplyDraft(d=>({...d,text:v}))} mentions={replyDraft.mentions||[]} onMentionsChange={ms=>setReplyDraft(d=>({...d,mentions:ms}))} contacts={appPeople} mail={mail} placeholder="Write your reply…  (type @ to tag someone)" style={{...iS,minHeight:90,resize:"vertical",lineHeight:1.5}}/>
                       <div style={{display:"flex",gap:8,marginTop:8,justifyContent:"flex-end"}}>
                         {btn("Cancel",false,()=>setReplyDraft(null))}
                         {btn(sending?"Sending…":"Send",true,sendReply,{opacity:sending?0.6:1,pointerEvents:sending?"none":"auto"})}
@@ -9049,10 +9129,10 @@ function EmailPage({isMobile}){
               <button onClick={()=>!sending&&setCompose(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1}}>×</button>
             </div>
             <div style={{flex:1,overflowY:"auto",padding:"12px 18px",display:"flex",flexDirection:"column",gap:10}}>
-              <input value={compose.to} onChange={e=>setCompose(c=>({...c,to:e.target.value}))} placeholder="To (comma-separated)" style={iS}/>
-              <input value={compose.cc} onChange={e=>setCompose(c=>({...c,cc:e.target.value}))} placeholder="Cc (optional)" style={iS}/>
+              <RecipientInput value={compose.to} onChange={v=>setCompose(c=>({...c,to:v}))} placeholder="To" style={iS} contacts={appPeople} mail={mail}/>
+              <RecipientInput value={compose.cc} onChange={v=>setCompose(c=>({...c,cc:v}))} placeholder="Cc (optional)" style={iS} contacts={appPeople} mail={mail}/>
               <input value={compose.subject} onChange={e=>setCompose(c=>({...c,subject:e.target.value}))} placeholder="Subject" style={iS}/>
-              <textarea value={compose.body} onChange={e=>setCompose(c=>({...c,body:e.target.value}))} placeholder="Write your message…" style={{...iS,minHeight:160,resize:"vertical",lineHeight:1.5}}/>
+              <MentionTextarea value={compose.body} onChange={v=>setCompose(c=>({...c,body:v}))} mentions={compose.mentions||[]} onMentionsChange={ms=>setCompose(c=>({...c,mentions:ms}))} contacts={appPeople} mail={mail} placeholder="Write your message…  (type @ to tag someone)" style={{...iS,minHeight:160,resize:"vertical",lineHeight:1.5}}/>
             </div>
             <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
               {btn("Cancel",false,()=>!sending&&setCompose(null))}
@@ -9130,6 +9210,8 @@ function chainMatchesProperty(chain,property){
 function PropertyEmails({property,onUpdate,isMobile}){
   const mail=useOutlookMail();
   const od=useOneDrive();
+  const{contacts}=useData()||{};
+  const appPeople=(contacts||[]).filter(c=>c&&c.email).map(c=>({name:c.name||c.email,email:c.email}));
   const filesFolder=property.filesFolder||null; // OneDrive/SharePoint folder for this property's Files
   const pinned=property.pinnedEmails||[];
   const[picker,setPicker]=useState(false);
@@ -9206,7 +9288,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
     if(!vReply||!viewMsgs?.length)return;const last=viewMsgs[viewMsgs.length-1];
     const body=`<div>${mailEsc(vReply.text).replace(/\n/g,"<br>")}</div>`;
     setVSending(true);
-    try{ await mail.reply(last.id,body,vReply.all,vReply.cc||""); setVReply(null);
+    try{ await mail.reply(last.id,body,vReply.all,vReply.cc||"",vReply.mentions||[]); setVReply(null);
       const convId=last.conversationId||viewer.conversationId;
       if(convId){const m=await mail.getConversation(convId);setViewMsgs(m);setVExpanded(m.length?{[m[m.length-1].id]:true}:{});}
     }catch(e){ alert("Couldn't send: "+(e.message||"unknown error")); }
@@ -9333,13 +9415,13 @@ function PropertyEmails({property,onUpdate,isMobile}){
               <div style={{borderTop:`1px solid ${T.border}`,background:T.card,padding:isMobile?"10px 12px max(10px,env(safe-area-inset-bottom))":"12px 18px",flexShrink:0}}>
                 {!vReply
                   ? <div style={{display:"flex",gap:8}}>
-                      <button onClick={()=>setVReply({all:false,text:"",cc:""})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply</button>
-                      <button onClick={()=>setVReply({all:true,text:"",cc:""})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply all</button>
+                      <button onClick={()=>setVReply({all:false,text:"",cc:"",mentions:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply</button>
+                      <button onClick={()=>setVReply({all:true,text:"",cc:"",mentions:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply all</button>
                     </div>
                   : <div>
                       <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{vReply.all?"Reply all":"Reply"} to {mailAddr(viewMsgs[viewMsgs.length-1]?.from)}</div>
-                      <input value={vReply.cc} onChange={e=>setVReply(d=>({...d,cc:e.target.value}))} placeholder="Cc (comma-separated) — add people to this reply" style={{width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>
-                      <textarea autoFocus value={vReply.text} onChange={e=>setVReply(d=>({...d,text:e.target.value}))} placeholder="Write your reply…" style={{width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",minHeight:90,resize:"vertical",lineHeight:1.5}}/>
+                      <RecipientInput value={vReply.cc} onChange={v=>setVReply(d=>({...d,cc:v}))} placeholder="Cc — add people to this reply" style={{width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}} contacts={appPeople} mail={mail}/>
+                      <MentionTextarea value={vReply.text} onChange={v=>setVReply(d=>({...d,text:v}))} mentions={vReply.mentions||[]} onMentionsChange={ms=>setVReply(d=>({...d,mentions:ms}))} contacts={appPeople} mail={mail} placeholder="Write your reply…  (type @ to tag someone)" style={{width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",minHeight:90,resize:"vertical",lineHeight:1.5}}/>
                       <div style={{display:"flex",gap:8,marginTop:8,justifyContent:"flex-end"}}>
                         <button onClick={()=>setVReply(null)} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
                         <button onClick={vSendReply} disabled={vSending||!vReply.text.trim()} style={{padding:"9px 18px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",opacity:(vSending||!vReply.text.trim())?0.6:1,pointerEvents:vSending?"none":"auto"}}>{vSending?"Sending…":"Send"}</button>

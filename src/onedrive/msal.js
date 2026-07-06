@@ -15,7 +15,9 @@ export const SITE_SCOPES = ["Sites.Read.All"];
 // Add Mail.ReadWrite + Mail.Send (delegated) to the Azure app registration and
 // grant consent, or the first Email sign-in will prompt for these permissions.
 // Mail.ReadWrite (superset of Mail.Read) also lets us mark messages read.
-export const MAIL_SCOPES = ["Mail.ReadWrite", "Mail.Send", "offline_access"];
+// People.Read → suggest recipients from the user's Outlook people/contacts as
+// they type an address.
+export const MAIL_SCOPES = ["Mail.ReadWrite", "Mail.Send", "People.Read", "offline_access"];
 
 export const msalInstance = new PublicClientApplication({
   auth: {

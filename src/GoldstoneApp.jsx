@@ -8570,6 +8570,7 @@ function EmailPage({isMobile}){
   const[compose,setCompose]=useState(null);  // {to,cc,subject,body}
   const[refreshKey,setRefreshKey]=useState(0);
   const[threadErr,setThreadErr]=useState("");
+  const threadRef=useRef(null);
   // Per-mailbox chain labels (this device). { [conversationId]: {kind, note} }
   const[labels,setLabels]=useState({});
   const[filterKind,setFilterKind]=useState("all");
@@ -8599,6 +8600,15 @@ function EmailPage({isMobile}){
     if(sel.anyUnread&&sel.latest?.id)mail.markRead(sel.latest.id);
     return ()=>{alive=false;};
   },[sel]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Land on the most recent message (scroll to the bottom) when a thread loads.
+  useEffect(()=>{
+    if(!msgs||!msgs.length)return;
+    const el=threadRef.current;if(!el)return;
+    const go=()=>{el.scrollTop=el.scrollHeight;};
+    requestAnimationFrame(go);const t=setTimeout(go,350);
+    return ()=>clearTimeout(t);
+  },[msgs]);
 
   const sendReply=async()=>{
     if(!replyDraft||!msgs?.length)return;const last=msgs[msgs.length-1];
@@ -8695,7 +8705,7 @@ function EmailPage({isMobile}){
                 <button onClick={()=>setLabelOpen(o=>!o)} title="Label this chain" style={{flexShrink:0,padding:"6px 12px",borderRadius:16,border:`1px solid ${labels[sel.key]?T.gold:T.border}`,background:labels[sel.key]?T.goldLight:T.card,color:labels[sel.key]?T.gold:T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🏷 {labels[sel.key]?"Label":"Label"}</button>
                 {labelOpen&&<MailLabelPopover current={labels[sel.key]} onClose={()=>setLabelOpen(false)} onSet={v=>{setLabel(sel.key,v);setLabelOpen(false);}}/>}
               </div>
-              <div style={{flex:1,overflowY:"auto",padding:isMobile?12:18}}>
+              <div ref={threadRef} style={{flex:1,overflowY:"auto",padding:isMobile?12:18}}>
                 {msgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Loading conversation…</div>}
                 {msgs&&msgs.length===0&&threadErr&&<div style={{padding:18,fontSize:12.5,color:"#8a6d1f",lineHeight:1.5,background:"#FFF8E6",border:`1px solid ${T.border}`,borderRadius:T.radius}}>Couldn't load this conversation: {threadErr}<div style={{marginTop:8}}>{btn("Try again",false,()=>{const s=sel;setSel(null);setTimeout(()=>setSel(s),0);})}</div></div>}
                 {msgs&&msgs.length===0&&!threadErr&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No messages in this conversation.</div>}
@@ -8785,6 +8795,10 @@ function PropertyEmails({property,onUpdate,isMobile}){
   const[q,setQ]=useState("");
   const[viewer,setViewer]=useState(null);      // pinned email being opened
   const[viewMsgs,setViewMsgs]=useState(null);   // resolved thread messages (or [] if not in mailbox)
+  const[vExpanded,setVExpanded]=useState({});   // message id -> open (latest opens by default)
+  const[vReply,setVReply]=useState(null);       // {all:boolean, text:string}
+  const[vSending,setVSending]=useState(false);
+  const vScrollRef=useRef(null);
 
   const savePinned=(next)=>{onUpdate(property.id,"pinnedEmails",next);};
   const pinChain=(c)=>{const m=c.latest;if(pinned.some(p=>p.internetMessageId&&p.internetMessageId===m.internetMessageId))return;
@@ -8799,16 +8813,37 @@ function PropertyEmails({property,onUpdate,isMobile}){
 
   // Open a pinned thread: resolve it in the current user's mailbox by Message-ID.
   useEffect(()=>{
-    if(!viewer){setViewMsgs(null);return;}let alive=true;setViewMsgs(null);
+    if(!viewer){setViewMsgs(null);setVReply(null);setVExpanded({});return;}
+    let alive=true;setViewMsgs(null);setVReply(null);setVExpanded({});
     (async()=>{
       let convId=null;
       const hit=await mail.findByInternetId(viewer.internetMessageId);
       if(hit)convId=hit.conversationId;else if(viewer.conversationId)convId=viewer.conversationId;
       if(!convId){if(alive)setViewMsgs([]);return;}
-      try{const m=await mail.getConversation(convId);if(alive)setViewMsgs(m);}catch{if(alive)setViewMsgs([]);}
+      try{const m=await mail.getConversation(convId);if(alive){setViewMsgs(m);setVExpanded(m.length?{[m[m.length-1].id]:true}:{});}}catch{if(alive)setViewMsgs([]);}
     })();
     return ()=>{alive=false;};
   },[viewer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Land on the most recent message when a thread opens (scroll to the bottom).
+  useEffect(()=>{
+    if(!viewMsgs||!viewMsgs.length)return;
+    const el=vScrollRef.current;if(!el)return;
+    const go=()=>{el.scrollTop=el.scrollHeight;};
+    requestAnimationFrame(go);const t=setTimeout(go,350);
+    return ()=>clearTimeout(t);
+  },[viewMsgs]);
+
+  const vSendReply=async()=>{
+    if(!vReply||!viewMsgs?.length)return;const last=viewMsgs[viewMsgs.length-1];
+    const body=`<div>${mailEsc(vReply.text).replace(/\n/g,"<br>")}</div>`;
+    setVSending(true);
+    try{ await mail.reply(last.id,body,vReply.all); setVReply(null);
+      const convId=last.conversationId||viewer.conversationId;
+      if(convId){const m=await mail.getConversation(convId);setViewMsgs(m);setVExpanded(m.length?{[m[m.length-1].id]:true}:{});}
+    }catch(e){ alert("Couldn't send: "+(e.message||"unknown error")); }
+    setVSending(false);
+  };
 
   const isPinned=(c)=>pinned.some(p=>(p.internetMessageId&&p.internetMessageId===c.latest.internetMessageId)||p.conversationId===c.key);
   const term=q.trim().toLowerCase();
@@ -8891,7 +8926,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
               <div style={{flex:1,minWidth:0,fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewer.subject||"(no subject)"}</div>
               <button onClick={()=>setViewer(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
             </div>
-            <div style={{flex:1,overflowY:"auto",padding:isMobile?12:16}}>
+            <div ref={vScrollRef} style={{flex:1,overflowY:"auto",padding:isMobile?12:16}}>
               {viewMsgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Opening the thread…</div>}
               {viewMsgs&&viewMsgs.length===0&&(
                 <div style={{padding:"18px",background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`}}>
@@ -8901,16 +8936,39 @@ function PropertyEmails({property,onUpdate,isMobile}){
                   <div style={{fontSize:11.5,color:T.textTert,marginTop:12,lineHeight:1.5,paddingTop:10,borderTop:`1px solid ${T.border}`}}>This thread isn't in your mailbox, so the full conversation can't open here — but the pinned details above stay as a reference for the property.</div>
                 </div>
               )}
-              {viewMsgs&&viewMsgs.map(m=>(
+              {viewMsgs&&viewMsgs.map(m=>{const open=!!vExpanded[m.id];return(
                 <div key={m.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,marginBottom:10,overflow:"hidden"}}>
-                  <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.border}`}}>
-                    <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</div>
-                    <div style={{fontSize:11,color:T.textTert}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div>
+                  <div onClick={()=>setVExpanded(e=>({...e,[m.id]:!open}))} style={{display:"flex",gap:10,alignItems:"center",padding:"10px 14px",cursor:"pointer"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</div>
+                      <div style={{fontSize:11,color:T.textTert}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div>
+                    </div>
+                    <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{open?"▾":"▸"}</span>
                   </div>
-                  <MailBody message={m}/>
+                  {open
+                    ? <div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m}/></div>
+                    : <div style={{padding:"0 14px 10px",fontSize:12.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</div>}
                 </div>
-              ))}
+              );})}
             </div>
+            {/* Reply bar */}
+            {viewMsgs&&viewMsgs.length>0&&(
+              <div style={{borderTop:`1px solid ${T.border}`,background:T.card,padding:isMobile?"10px 12px max(10px,env(safe-area-inset-bottom))":"12px 18px",flexShrink:0}}>
+                {!vReply
+                  ? <div style={{display:"flex",gap:8}}>
+                      <button onClick={()=>setVReply({all:false,text:""})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply</button>
+                      <button onClick={()=>setVReply({all:true,text:""})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply all</button>
+                    </div>
+                  : <div>
+                      <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{vReply.all?"Reply all":"Reply"} to {mailAddr(viewMsgs[viewMsgs.length-1]?.from)}</div>
+                      <textarea autoFocus value={vReply.text} onChange={e=>setVReply(d=>({...d,text:e.target.value}))} placeholder="Write your reply…" style={{width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",minHeight:90,resize:"vertical",lineHeight:1.5}}/>
+                      <div style={{display:"flex",gap:8,marginTop:8,justifyContent:"flex-end"}}>
+                        <button onClick={()=>setVReply(null)} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                        <button onClick={vSendReply} disabled={vSending||!vReply.text.trim()} style={{padding:"9px 18px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",opacity:(vSending||!vReply.text.trim())?0.6:1,pointerEvents:vSending?"none":"auto"}}>{vSending?"Sending…":"Send"}</button>
+                      </div>
+                    </div>}
+              </div>
+            )}
           </div>
         </div>
       )}

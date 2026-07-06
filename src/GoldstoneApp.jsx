@@ -399,6 +399,11 @@ function finProfit(f){
   const acHmDocAmt=f.acHmDocFee!==undefined?n(f.acHmDocFee):n(f.hmDocFee||1000);
   const equityRequired=n(f.locLoan)||liveGapPrinc;
   const acGapLoanAmt=n(f.acGapLoanAmt)||equityRequired;
+  // Insurance is paid in full at closing (you're reimbursed the unused portion when
+  // you cancel after the sale), so the whole annual premium is cash you need for the
+  // down payment — even though profit only carries the prorated hold-period portion
+  // (already handled in holdingTotal above). Add the full premium on top of the gap.
+  const annualInsurance=(holdingItems||[]).filter(i=>(i.title||"").toLowerCase().includes("insurance")).reduce((s,i)=>s+(i.perYear?n(i.amount):n(i.amount)*12),0);
   const acGapRate=f.acGapRate!==undefined?n(f.acGapRate):n(f.gapRate||15);
   const acHmMonthlyInt=Math.round(acHmLoanAmt*(acHmRate/100)/12);
   // "From today forward" mode: total HM interest = paid so far (from QuickBooks) +
@@ -409,7 +414,7 @@ function finProfit(f){
   const acNet=acSalePrice>0?acSalePrice-acSelling-(acHmInterest+acGapBalloon)-acCosts:0;
 
   const useActual=!!(f.useActualProfit&&acSalePrice>0);
-  return {netProfit,acNet,effective:useActual?acNet:netProfit,useActual,equityRequired};
+  return {netProfit,acNet,effective:useActual?acNet:netProfit,useActual,equityRequired:equityRequired+annualInsurance};
 }
 
 // ─── NJ Realty Transfer Tax ───────────────────────────────────────────────────
@@ -1179,8 +1184,8 @@ function FinancingPopup({fin, onSave, onClose}){
             <div style={iRow}><span style={iLbl}>HM Interest Reserve</span><span style={iVal}>{fmtD(hmIntReserve)}</span></div>
             {hmOrigFee>0&&<div style={iRow}><span style={iLbl}>HM Origination Fee</span><span style={iVal}>{fmtD(hmOrigFee)}</span></div>}
             <div style={iRow}><span style={iLbl}>HM Doc Fee</span><span style={iVal}>{fmtD(hmDoc)}</span></div>
-            {insAmt>0&&<div style={iRow}><span style={iLbl}>Insurance Premium</span><span style={iVal}>{fmtD(insAmt)}</span></div>}
-            <div style={{...iRow,background:"#EAF9FD"}}><span style={{fontSize:13,fontWeight:700,color:"#0EA5C5"}}>Total Capital to Raise</span><span style={{fontSize:13,fontWeight:700,color:"#0EA5C5"}}>{fmtD(gapPrincipal)}</span></div>
+            {insAmt>0&&<div style={iRow}><span style={iLbl}>Insurance Premium <span style={{fontSize:11,color:T.textTert}}>(full yr, paid at closing)</span></span><span style={iVal}>{fmtD(insAmt)}</span></div>}
+            <div style={{...iRow,background:"#EAF9FD"}}><span style={{fontSize:13,fontWeight:700,color:"#0EA5C5"}}>Total Capital to Raise</span><span style={{fontSize:13,fontWeight:700,color:"#0EA5C5"}}>{fmtD(gapPrincipal+insAmt)}</span></div>
             <div style={{...iRow,background:"#FFF8F0"}}><span style={{fontSize:13,color:T.textSub}}>Gap Balloon Interest — at sale</span><span style={{fontSize:13,fontWeight:600,color:T.orange}}>{fmtD(gapBalloon)}</span></div>
           </div>
 

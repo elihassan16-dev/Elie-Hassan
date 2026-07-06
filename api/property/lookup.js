@@ -119,23 +119,28 @@ export default async function handler(req, res) {
       return;
     }
 
-    // The Census geocoder interpolates a point along the STREET centerline, which
-    // often lands just outside the parcel polygon (parcels don't include the road).
-    // So: try an exact point-in-parcel hit first, then fall back to a buffered
-    // search and disambiguate by leading street number.
-    let feats = await queryParcel(base, geo.lon, geo.lat, 0);
-    if (!feats.length) feats = await queryParcel(base, geo.lon, geo.lat, 60);
-    if (!feats.length) { res.status(200).json({ found: false, reason: `No NJ parcel found near ${geo.matched || address}.`, matched: geo.matched }); return; }
-
+    // The Census geocoder interpolates a point that can land in a NEIGHBOR's parcel
+    // (it put "28 Messenger" inside the "24 Messenger" lot). So gather the containing
+    // parcel plus nearby parcels within a buffer, then pick the one whose assessment
+    // address actually matches the input — the point-in-polygon hit alone is unreliable.
     const streetNum = (address.match(/\d+/) || [])[0] || "";
-    let feat = feats[0];
-    if (feats.length > 1 && streetNum) {
-      const m = feats.find((f) => {
-        const loc = String(pick(f.attributes, ["PROP_LOC", "PROPLOC", "PROP_ADDR", "ADDRESS"]) || "").trim();
-        return loc.startsWith(streetNum + " ") || loc.startsWith(streetNum + "-");
-      });
-      if (m) feat = m;
+    const streetName = ((address.match(/\d+\s+([A-Za-z][A-Za-z.]*)/) || [])[1] || "").toUpperCase();
+    const addrMatch = (f) => {
+      if (!streetNum) return false;
+      const loc = String(pick(f.attributes, ["PROP_LOC", "PROPLOC", "PROP_ADDR", "ADDRESS"]) || "").toUpperCase().trim();
+      const numOk = loc.startsWith(streetNum + " ") || loc.startsWith(streetNum + "-");
+      const nameOk = !streetName || loc.includes(streetName);
+      return numOk && nameOk;
+    };
+
+    const near = await queryParcel(base, geo.lon, geo.lat, 60);
+    let feat = near.find(addrMatch) || null;
+    if (!feat) {
+      // No address match nearby — fall back to the parcel that contains the point.
+      const exact = await queryParcel(base, geo.lon, geo.lat, 0);
+      feat = exact[0] || near[0] || null;
     }
+    if (!feat) { res.status(200).json({ found: false, reason: `No NJ parcel found near ${geo.matched || address}.`, matched: geo.matched }); return; }
     const a = feat.attributes || {};
 
     const block = pick(a, ["PCLBLOCK", "BLOCK", "MOD4_BLOCK", "BLK"]);
@@ -149,8 +154,14 @@ export default async function handler(req, res) {
     // MOD-IV usually carries the last-billed tax; if not present here we fall back
     // to assessed value × the municipal general tax rate (per $100) when that field exists.
     const taxRate = num(pick(a, ["GEN_TAX_RATE", "TAX_RATE", "GENERAL_TAX_RATE", "GTR"]));
-    let annualTax = num(pick(a, ["LST_YR_TAX", "LAST_YEAR_TAX", "TAX_AMT", "TAXES", "CALC_TAXES", "LAST_TAX", "TAX_AMOUNT", "TAX_AMT_1", "TAXES_1", "PRYRTAX", "TAXAMT"]));
+    let annualTax = num(pick(a, ["LAST_YR_TX", "LST_YR_TAX", "LAST_YEAR_TAX", "TAX_AMT", "TAXES", "CALC_TAXES", "LAST_TAX", "TAX_AMOUNT", "TAX_AMT_1", "TAXES_1", "PRYRTAX", "TAXAMT"]));
     if (annualTax == null && netVal != null && taxRate != null) annualTax = Math.round(netVal * taxRate / 100);
+
+    // No dedicated sqft field on this layer — the living area is the trailing number
+    // in BLDG_DESC (e.g. "2F1G       1776" → 1776).
+    const bldgDesc = String(pick(a, ["BLDG_DESC", "BLDG_DESCRIPTION", "BUILD_DESC"]) || "");
+    let sqft = num(pick(a, ["SQ_FT", "SQFT", "BLD_SF", "LIV_SF", "BUILDING_SF", "FINISHED_SF"]));
+    if (sqft == null) { const mm = bldgDesc.match(/(\d{3,6})\s*$/); if (mm) sqft = parseInt(mm[1], 10); }
 
     const pamsPin = pick(a, ["PAMS_PIN", "PAMSPIN", "GIS_PIN", "PIN", "PIN_NODUP"]) ?? null;
     // NJParcels.com per-parcel page: /property/{CCMM municipality code}/{block}/{lot}.
@@ -175,7 +186,7 @@ export default async function handler(req, res) {
       municipality: pick(a, ["MUN_NAME", "MUNICIPALITY", "MUN", "PCL_MUN"]) ?? null,
       county: pick(a, ["COUNTY", "COUNTY_NAME"]) ?? null,
       yearBuilt: num(pick(a, ["YR_CONSTR", "YEAR_BUILT", "YRBUILT", "BUILT_YR", "YR_BUILT"])),
-      sqft: num(pick(a, ["SQ_FT", "SQFT", "BLD_SF", "LIV_SF", "BUILDING_SF", "FINISHED_SF"])),
+      sqft,
       lotAcres: num(pick(a, ["CALC_ACRE", "ACREAGE", "ACRES", "CALC_ACRES"])),
       landValue: num(pick(a, ["LAND_VAL", "LANDVALUE", "LAND_VALUE"])),
       improvementValue: num(pick(a, ["IMPRVT_VAL", "IMPROVEMENT_VALUE", "IMP_VALUE", "BLDG_VAL"])),

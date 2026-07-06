@@ -15,7 +15,9 @@ async function qbAuthFetch(path, opts = {}) {
   const call = async () => {
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
-    return fetch(path, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
+    // no-store so a refresh always pulls live QuickBooks numbers (e.g. loan
+    // balances after a mortgage payment) instead of a stale browser-cached copy.
+    return fetch(path, { cache: "no-store", ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
   };
   let res = await call();
   if (res.status === 401) {

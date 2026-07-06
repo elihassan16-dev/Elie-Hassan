@@ -8647,33 +8647,37 @@ function MailLabelPopover({current,onSet,onClose,tasks,centered}){
   const save=()=>{ if(!valid)return; onSet({kind,note:note.trim(),taskId:taskId||""}); };
   const inner=(
     <div onClick={e=>e.stopPropagation()} style={centered
-      ?{width:"min(340px,94vw)",background:"#fff",borderRadius:16,boxShadow:"0 12px 40px rgba(0,0,0,0.25)",padding:14,border:`1px solid ${T.border}`}
+      ?{width:"min(360px,94vw)",background:"#fff",borderRadius:16,boxShadow:"0 12px 40px rgba(0,0,0,0.25)",padding:16,border:`1px solid ${T.border}`}
       :{position:"absolute",top:"calc(100% + 4px)",right:12,width:260,background:"#fff",borderRadius:14,boxShadow:"0 8px 30px rgba(0,0,0,0.2)",zIndex:261,padding:12,border:`1px solid ${T.border}`}}>
-      <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Label this chain</div>
+      {/* Property view leads with the task link — the whole point here. */}
+      {tasks&&<div style={{marginBottom:14}}>
+        <div style={{fontSize:12,fontWeight:800,color:T.text,marginBottom:2}}>🔗 Link this chain to a task</div>
+        <div style={{fontSize:11,color:T.textSub,marginBottom:7,lineHeight:1.4}}>Then, on that task's contact, “Email” lets you reply right on this chain.</div>
+        <select value={taskId} onChange={e=>setTaskId(e.target.value)} style={{width:"100%",padding:"10px 10px",borderRadius:8,border:`1.5px solid ${taskId?T.gold:T.border}`,background:taskId?T.goldLight:"#fff",color:taskId?T.text:T.textTert,fontSize:13.5,fontWeight:taskId?700:400,outline:"none",fontFamily:"inherit"}}>
+          <option value="">— Not linked to a task —</option>
+          {tasks.length===0&&<option value="" disabled>No tasks on this property yet</option>}
+          {tasks.map(t=><option key={t.id} value={String(t.id)}>{t.text}</option>)}
+        </select>
+      </div>}
+      <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>{tasks?"Label (optional)":"Label this chain"}</div>
       <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
         {Object.entries(MAIL_LABELS).map(([k,v])=>{const on=kind===k;return(
           <button key={k} onClick={()=>setKind(on?"":k)} style={{padding:"5px 10px",borderRadius:14,border:`1px solid ${on?v.color:T.border}`,background:on?v.bg:"transparent",color:on?v.color:T.textSub,fontWeight:on?700:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{v.icon} {v.name}</button>
         );})}
       </div>
       <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (e.g. name / what it's about)" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-      {tasks&&<div style={{marginTop:10}}>
-        <div style={{fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}}>Link to a task</div>
-        <select value={taskId} onChange={e=>setTaskId(e.target.value)} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:"#fff",color:taskId?T.text:T.textTert,fontSize:13,outline:"none",fontFamily:"inherit"}}>
-          <option value="">— none —</option>
-          {tasks.map(t=><option key={t.id} value={String(t.id)}>{t.text}</option>)}
-        </select>
-        {taskId&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4,lineHeight:1.4}}>Emailing this task's contact will offer to reply here.</div>}
-      </div>}
-      <div style={{display:"flex",gap:8,marginTop:12,justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"space-between",alignItems:"center"}}>
         {current?<button onClick={()=>onSet(null)} style={{padding:"7px 10px",borderRadius:8,background:"none",border:"none",color:T.red,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Remove</button>:<span/>}
         <div style={{display:"flex",gap:8}}>
-          <button onClick={onClose} style={{padding:"7px 12px",borderRadius:8,background:T.bg,border:"none",color:T.textSub,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
-          <button onClick={save} disabled={!valid} style={{padding:"7px 14px",borderRadius:8,background:valid?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:valid?"pointer":"default",fontFamily:"inherit"}}>Save</button>
+          <button onClick={onClose} style={{padding:"8px 14px",borderRadius:8,background:T.bg,border:"none",color:T.textSub,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+          <button onClick={save} disabled={!valid} style={{padding:"8px 18px",borderRadius:8,background:valid?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:valid?"pointer":"default",fontFamily:"inherit"}}>Save</button>
         </div>
       </div>
     </div>
   );
-  if(centered)return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:340,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>{inner}</div>;
+  // Centered modal: don't close on an accidental backdrop tap while picking a task
+  // — only the X/Cancel/Save close it, so a selection is never lost.
+  if(centered)return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:340,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>{inner}</div>;
   return <><div onClick={onClose} style={{position:"fixed",inset:0,zIndex:260}}/>{inner}</>;
 }
 function EmailPage({isMobile}){
@@ -9004,7 +9008,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
                   <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.from} · {mailWhen(p.date)}</div>
                   {(p.label||p.preview)&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,minWidth:0}}>
                     {p.label&&<MailLabelChip lab={p.label} small/>}
-                    {p.label?.taskId&&taskName(p.label.taskId)&&<span style={{display:"inline-flex",alignItems:"center",gap:2,fontSize:10,fontWeight:700,color:T.gold,background:T.goldLight,borderRadius:12,padding:"1px 7px",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>🔗 {taskName(p.label.taskId)}</span>}
+                    {p.label?.taskId&&<span style={{display:"inline-flex",alignItems:"center",gap:2,fontSize:10,fontWeight:700,color:T.gold,background:T.goldLight,borderRadius:12,padding:"1px 7px",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>🔗 {taskName(p.label.taskId)||"Linked task"}</span>}
                     {p.preview&&<span style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{p.preview}</span>}
                   </div>}
                 </div>

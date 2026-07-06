@@ -63,8 +63,12 @@ export function useOutlookMail() {
       try { const j = await res.json(); msg = j?.error?.message || msg; } catch { /* ignore */ }
       const err = new Error(msg); err.status = res.status; throw err;
     }
-    if (res.status === 204) return null;
-    return res.json();
+    // Action endpoints (reply / replyAll / sendMail) return 202/204 with an EMPTY
+    // body — calling res.json() on that throws, so treat any empty body as "ok".
+    if (res.status === 204 || res.status === 202) return null;
+    const text = await res.text();
+    if (!text) return null;
+    try { return JSON.parse(text); } catch { return null; }
   }, [getToken]);
 
   const SELECT = "id,conversationId,internetMessageId,subject,from,sender,toRecipients,ccRecipients,receivedDateTime,sentDateTime,bodyPreview,isRead,hasAttachments,webLink";
@@ -75,7 +79,8 @@ export function useOutlookMail() {
   const findByInternetId = useCallback(async (internetMessageId) => {
     if (!internetMessageId) return null;
     try {
-      const d = await graph(`/me/messages?$filter=internetMessageId eq '${internetMessageId.replace(/'/g, "''")}'&$select=id,conversationId,subject&$top=1`);
+      const filter = encodeURIComponent(`internetMessageId eq '${String(internetMessageId).replace(/'/g, "''")}'`);
+      const d = await graph(`/me/messages?$filter=${filter}&$select=id,conversationId,subject&$top=1`);
       return (d.value || [])[0] || null;
     } catch { return null; }
   }, [graph]);
@@ -96,9 +101,16 @@ export function useOutlookMail() {
   }, [graph]);
 
   // All messages in a conversation, oldest first, with full body.
+  // The conversationId is base64-ish (+, /, =) so it MUST be URL-encoded — an
+  // unencoded '+' decodes to a space and the filter silently matches nothing.
+  // Graph also refuses to combine a conversationId $filter with $orderby ("too
+  // complex to process"), so we drop $orderby and sort the results here.
   const getConversation = useCallback(async (conversationId) => {
-    const d = await graph(`/me/messages?$filter=conversationId eq '${conversationId.replace(/'/g, "''")}'&$select=${SELECT},body&$orderby=receivedDateTime asc&$top=50`);
-    return d.value || [];
+    const filter = encodeURIComponent(`conversationId eq '${String(conversationId).replace(/'/g, "''")}'`);
+    const d = await graph(`/me/messages?$filter=${filter}&$select=${SELECT},body&$top=50`);
+    const items = d.value || [];
+    items.sort((a, b) => String(a.receivedDateTime || a.sentDateTime || "").localeCompare(String(b.receivedDateTime || b.sentDateTime || "")));
+    return items;
   }, [graph]);
 
   // Mark a message read.

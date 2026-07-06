@@ -3198,6 +3198,29 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
   const props=sharedProps.filter(p=>!p.archived&&p.status!=="New Leads"); // New Leads live in the Leads section
   const setProps=setSharedProps;
   const isMobile=useIsMobile();
+  // Unread-email badge per property: count unread messages across each property's
+  // pinned chains (only properties that actually have pinned emails, in the
+  // background). Shows a 📧 badge on the row so you notice a new email at a glance.
+  const mail=useOutlookMail();
+  const[unreadByProp,setUnreadByProp]=useState({});
+  const pinSig=useMemo(()=>props.filter(p=>(p.pinnedEmails||[]).length).map(p=>`${p.id}:${(p.pinnedEmails||[]).map(pe=>pe.id).join("|")}`).join(","),[props]);
+  useEffect(()=>{
+    if(!mail.signedIn){setUnreadByProp({});return;}let alive=true;
+    (async()=>{
+      for(const p of props.filter(x=>(x.pinnedEmails||[]).length)){
+        let total=0;
+        for(const pe of (p.pinnedEmails||[])){
+          let convId=pe.conversationId;
+          if(pe.internetMessageId){try{const hit=await mail.findByInternetId(pe.internetMessageId);if(hit)convId=hit.conversationId;}catch{/* keep stored */}}
+          total+=await mail.conversationUnread(convId);
+        }
+        if(!alive)return;
+        setUnreadByProp(m=>({...m,[p.id]:total}));
+      }
+    })();
+    return ()=>{alive=false;};
+  },[mail.signedIn,pinSig]); // eslint-disable-line react-hooks/exhaustive-deps
+  const emailBadge=(pid)=>{const n=unreadByProp[pid]||0;return n>0?<span title={`${n} unread email${n>1?"s":""} on a pinned chain`} style={{display:"inline-flex",alignItems:"center",gap:3,flexShrink:0,fontSize:10,fontWeight:800,color:"#fff",background:T.blue,borderRadius:12,padding:"1px 7px",whiteSpace:"nowrap"}}>📧 {n}</span>:null;};
   const[selId,setSelId]=useState(initialSelId||null);
   useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);
   const[search,setSearch]=useState("");
@@ -3773,6 +3796,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                 <div key={p.id} style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
                     <span onClick={()=>onNavigate&&onNavigate(p.id)} style={{fontSize:14,fontWeight:600,color:T.blue,cursor:"pointer",flex:1,minWidth:0}}>{addr}</span>
+                    {emailBadge(p.id)}
                     {p.financials.useActualProfit&&<span style={{fontSize:9,fontWeight:700,background:T.green,color:"#fff",borderRadius:10,padding:"2px 8px",textTransform:"uppercase",flexShrink:0}}>actual</span>}
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 62px 62px 70px",alignItems:"center",gap:8}}>
@@ -3822,7 +3846,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                 const autoFunded=p.status!=="Under Contract";
                 return(
                   <tr key={p.id} style={{cursor:"default"}} onMouseEnter={e=>e.currentTarget.style.background="#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                    <td style={{...tdS,fontWeight:500,color:T.blue,cursor:"pointer",textDecoration:"underline"}} onClick={()=>onNavigate&&onNavigate(p.id)}>{addr}</td>
+                    <td style={{...tdS}}><span onClick={()=>onNavigate&&onNavigate(p.id)} style={{color:T.blue,cursor:"pointer",textDecoration:"underline",fontWeight:500}}>{addr}</span>{unreadByProp[p.id]>0&&<span style={{marginLeft:8}}>{emailBadge(p.id)}</span>}</td>
                     <td style={{...tdS,textAlign:"center"}}>
                       <StatusPicker value={p.status} size="sm" property={p} onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}
                         onGateSave={(to,answers,note,fieldValues)=>setSharedProps(prev=>prev.map(x=>{

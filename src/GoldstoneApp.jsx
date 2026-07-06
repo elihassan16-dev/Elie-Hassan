@@ -8901,7 +8901,19 @@ function EmailPage({isMobile}){
   const[query,setQuery]=useState("");        // search box text
   const[dq,setDq]=useState("");              // debounced query actually searched
   const chains=useMemo(()=>items?groupChains(items):null,[items]);
+  // Which conversations are already pinned to a property (and which task) — so the
+  // inbox and thread can show "📌 Pinned to <property>" instead of re-pinning.
+  const pinnedIndex=useMemo(()=>{
+    const idx={};
+    (sharedProps||[]).forEach(p=>{(p.pinnedEmails||[]).forEach(pe=>{
+      if(!pe.conversationId)return;
+      const taskText=pe.label&&pe.label.taskId?((p.tasks||[]).find(t=>String(t.id)===String(pe.label.taskId))||{}).text||"":"";
+      idx[pe.conversationId]={propId:p.id,propAddr:p.address+(p.city?`, ${p.city}`:""),taskText};
+    });});
+    return idx;
+  },[sharedProps]);
   const[error,setError]=useState("");
+  const[readMsg,setReadMsg]=useState(null);  // a single message opened in the reader popup
   const[sel,setSel]=useState(null);          // selected chain
   const[msgs,setMsgs]=useState(null);        // conversation messages
   const[expanded,setExpanded]=useState({});  // message id -> open
@@ -9042,7 +9054,7 @@ function EmailPage({isMobile}){
             {chains&&!error&&chains.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{dq?`No emails match “${dq}”.`:"No email in your inbox."}</div>}
             {chains&&(()=>{const shown=chains.filter(c=>filterKind==="all"||(labels[c.key]&&labels[c.key].kind===filterKind));
               if(chains.length>0&&shown.length===0)return <div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No chains labeled “{MAIL_LABELS[filterKind]?.name||filterKind}”.</div>;
-              return shown.map(c=>{const m=c.latest;const active=sel&&sel.key===c.key;const lab=labels[c.key];return(
+              return shown.map(c=>{const m=c.latest;const active=sel&&sel.key===c.key;const lab=labels[c.key];const pin=pinnedIndex[c.key];return(
               <div key={c.key} onClick={()=>setSel(c)} style={{display:"flex",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:active?T.goldLight:(c.anyUnread?"#fff":"transparent")}}>
                 <div style={{width:8,flexShrink:0,paddingTop:5}}>{c.anyUnread&&<span style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
                 <div style={{flex:1,minWidth:0}}>
@@ -9052,6 +9064,7 @@ function EmailPage({isMobile}){
                   </div>
                   <div style={{fontSize:12.5,fontWeight:c.anyUnread?700:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{m.subject||"(no subject)"}{c.count>1&&<span style={{fontSize:10.5,color:T.textTert,fontWeight:600}}> · {c.count}</span>}</div>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                    {pin&&<span title={`Pinned to ${pin.propAddr}${pin.taskText?` · ${pin.taskText}`:""}`} style={{display:"inline-flex",alignItems:"center",gap:2,fontSize:10,fontWeight:700,color:T.gold,background:T.goldLight,borderRadius:12,padding:"1px 7px",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>📌 {pin.propAddr}</span>}
                     {lab&&<MailLabelChip lab={lab} small/>}
                     <span style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{m.bodyPreview||""}</span>
                   </div>
@@ -9077,9 +9090,12 @@ function EmailPage({isMobile}){
                 {isMobile&&<button onClick={()=>setSel(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>‹</button>}
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.latest.subject||"(no subject)"}</div>
-                  {labels[sel.key]&&<div style={{marginTop:3}}><MailLabelChip lab={labels[sel.key]}/></div>}
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,flexWrap:"wrap"}}>
+                    {pinnedIndex[sel.key]&&<span style={{display:"inline-flex",alignItems:"center",gap:3,fontSize:11,fontWeight:700,color:T.gold,background:T.goldLight,borderRadius:12,padding:"2px 9px"}}>📌 Pinned to {pinnedIndex[sel.key].propAddr}{pinnedIndex[sel.key].taskText?` · ${pinnedIndex[sel.key].taskText}`:""}</span>}
+                    {labels[sel.key]&&<MailLabelChip lab={labels[sel.key]}/>}
+                  </div>
                 </div>
-                {setSharedProps&&<button onClick={()=>setAssignChain(sel)} title="Pin this email to a property" style={{flexShrink:0,padding:"6px 12px",borderRadius:16,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>📌 {isMobile?"":"Pin"}</button>}
+                {setSharedProps&&<button onClick={()=>setAssignChain(sel)} title={pinnedIndex[sel.key]?"Pinned — tap to change or add":"Pin this email to a property"} style={{flexShrink:0,padding:"6px 12px",borderRadius:16,border:`1px solid ${pinnedIndex[sel.key]?T.gold:T.border}`,background:pinnedIndex[sel.key]?T.goldLight:T.card,color:pinnedIndex[sel.key]?T.gold:T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>📌 {isMobile?"":(pinnedIndex[sel.key]?"Pinned":"Pin")}</button>}
                 <button onClick={()=>setLabelOpen(o=>!o)} title="Label this chain" style={{flexShrink:0,padding:"6px 12px",borderRadius:16,border:`1px solid ${labels[sel.key]?T.gold:T.border}`,background:labels[sel.key]?T.goldLight:T.card,color:labels[sel.key]?T.gold:T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🏷 {isMobile?"":"Label"}</button>
                 {labelOpen&&<MailLabelPopover current={labels[sel.key]} onClose={()=>setLabelOpen(false)} onSet={v=>{setLabel(sel.key,v);setLabelOpen(false);}}/>}
               </div>
@@ -9094,11 +9110,12 @@ function EmailPage({isMobile}){
                         <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</div>
                         <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>to {(m.toRecipients||[]).map(mailAddr).join(", ")||"—"}</div>
                       </div>
+                      <button onClick={e=>{e.stopPropagation();setReadMsg(m);}} title="Open this message full-screen" style={{flexShrink:0,background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:12,fontFamily:"inherit",padding:"3px 8px"}}>⤢ Open</button>
                       <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</span>
                     </div>
                     {open
                       ? <div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m}/></div>
-                      : <div style={{padding:"0 14px 11px",fontSize:12.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</div>}
+                      : <div onClick={()=>setReadMsg(m)} style={{padding:"0 14px 11px",fontSize:12.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{m.bodyPreview||""}</div>}
                   </div>
                 );})}
               </div>
@@ -9144,6 +9161,31 @@ function EmailPage({isMobile}){
 
       {/* Pin the open chain to a property (optionally a task) */}
       {assignChain&&<AssignEmailModal chain={assignChain} properties={(sharedProps||[]).filter(p=>!p.archived).sort((a,b)=>(a.address||"").localeCompare(b.address||""))} onAssign={assignEmail} onClose={()=>setAssignChain(null)}/>}
+
+      {/* Full-screen single-message reader — a clean, roomy view of one email */}
+      {readMsg&&(
+        <div onClick={()=>setReadMsg(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,display:"flex",alignItems:isMobile?"stretch":"center",justifyContent:"center",backdropFilter:"blur(6px)",padding:isMobile?0:24,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:isMobile?0:18,width:"min(820px,100%)",maxHeight:isMobile?"100%":"92vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.3)",overflow:"hidden"}}>
+            <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"flex-start",gap:12,flexShrink:0}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:16,fontWeight:800,color:T.text,marginBottom:3}}>{readMsg.subject||sel?.latest?.subject||"(no subject)"}</div>
+                <div style={{fontSize:12.5,color:T.text,fontWeight:600}}>{mailAddr(readMsg.from)||"(unknown)"}</div>
+                <div style={{fontSize:11.5,color:T.textTert}}>to {(readMsg.toRecipients||[]).map(mailAddr).join(", ")||"—"}{(readMsg.ccRecipients||[]).length?` · cc ${(readMsg.ccRecipients||[]).map(mailAddr).join(", ")}`:""}</div>
+                <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{mailWhen(readMsg.receivedDateTime||readMsg.sentDateTime)}</div>
+              </div>
+              <button onClick={()=>setReadMsg(null)} style={{flexShrink:0,background:"none",border:"none",fontSize:24,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"6px 4px 12px"}}>
+              <MailBody message={readMsg}/>
+              {readMsg.hasAttachments&&<EmailAttachments messageId={readMsg.id} mail={mail} od={null} folder={null}/>}
+            </div>
+            <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8,justifyContent:"flex-end",flexShrink:0}}>
+              {btn("Reply",true,()=>{setReadMsg(null);setReplyDraft({all:false,text:"",cc:"",mentions:[]});})}
+              {btn("Reply all",false,()=>{setReadMsg(null);setReplyDraft({all:true,text:"",cc:"",mentions:[]});})}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

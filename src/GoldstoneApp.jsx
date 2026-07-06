@@ -3912,7 +3912,7 @@ function TaskStatusPicker({value,onChange,onDelete}){
 }
 
 // ─── Task Row (module level to avoid React #31) ───────────────────────────────
-function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,currentUser,selectMode,selected,onToggleSelect}){
+function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onPushToBottom,currentUser,selectMode,selected,onToggleSelect}){
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
@@ -3958,11 +3958,41 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       </button>
       {contactBtnEl}
       {msgBtnEl}
+      {onPushToBottom&&!selectMode&&<div role="button" onClick={()=>onPushToBottom(t.propId,t.id)} title="Send to bottom — move this task to the end of the list" style={circleBtn(false)}>⤓</div>}
       <TaskStatusPicker value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
     </div>
   );
 }
 
+// Popup: tasks put on my plate in the last 48 hours (I added them or someone did).
+function RecentAssignedModal({tasks,currentUser,onOpenTask,onClose}){
+  const rel=(ts)=>{const d=Date.now()-Number(ts||0);const h=Math.floor(d/3600000);if(h<1)return "just now";if(h<24)return `${h}h ago`;return `${Math.floor(h/24)}d ago`;};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:420,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(460px,96vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.28)",overflow:"hidden"}}>
+        <div style={{padding:"15px 18px",borderBottom:`1px solid ${T.border}`,background:T.goldLight,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontSize:15,fontWeight:800,color:T.text}}>🔔 Recently assigned to you</div><div style={{fontSize:11.5,color:T.textSub}}>Tasks put on your plate in the last 48 hours</div></div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{overflowY:"auto",padding:"10px 14px 14px"}}>
+          {tasks.length===0&&<div style={{padding:"28px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>Nothing new in the last 48 hours.</div>}
+          {tasks.map(t=>{const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
+            const byMe=(t.assignedBy||"")===currentUser||(!t.assignedBy&&t.assignee===currentUser);
+            const who=t.delegate===currentUser&&t.assignee?`Delegated to you by ${t.assignedBy||t.assignee}`:byMe?"You added this":`Assigned by ${t.assignedBy||"a teammate"}`;
+            return(
+            <div key={`${t.propId}:${t.id}`} onClick={()=>onOpenTask(t)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,marginTop:8,cursor:"pointer",background:T.bg}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text||"(untitled task)"}</div>
+                <div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{t.propAddr} · {who} · {rel(t.assignedAt||t.id)}</div>
+              </div>
+              <span style={{flexShrink:0,fontSize:10.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}}>{t.status||"Not Started"}</span>
+            </div>
+          );})}
+        </div>
+      </div>
+    </div>
+  );
+}
 // Compact multi-select dropdown — tap to open a checklist, pick as many as you want.
 function MultiSelect({placeholder,options,selected,onToggle,style}){
   const[open,setOpen]=useState(false);
@@ -4442,18 +4472,20 @@ function PropertyTaskList({property}){
   const deleteTask=(pid,tid)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).filter(t=>t.id!==tid)}));
   const setTaskContact=(pid,tid,contact)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,taskContact:contact})}));
   const setTaskRole=(pid,tid,role,member)=>{
+    const stamp=member?{assignedAt:Date.now(),assignedBy:CURRENT_USER}:{};
     setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>{
       if(tk.id!==tid)return tk;
-      if(role==="owner"){ if(!member)return {...tk,assignee:"",delegate:""}; return {...tk,assignee:member,delegate:tk.delegate===member?"":tk.delegate}; }
+      if(role==="owner"){ if(!member)return {...tk,assignee:"",delegate:""}; return {...tk,assignee:member,delegate:tk.delegate===member?"":tk.delegate,...stamp}; }
       if(!member)return {...tk,delegate:""};
-      return {...tk,delegate:member===tk.assignee?"":member};
+      return {...tk,delegate:member===tk.assignee?"":member,...stamp};
     })}));
     if(member&&member!==CURRENT_USER){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(t=>t.id===tid); notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}`,tag:`task-${tid}`}); }
   };
+  const pushToBottom=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{if(p.id!==pid)return p;const a=[...(p.tasks||[])];const i=a.findIndex(t=>t.id===tid);if(i<0)return p;const[m]=a.splice(i,1);a.push(m);return {...p,tasks:a};}));
   const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}; if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`task-${tid}`}); } };
   const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
   useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
-  const addTask=(text)=>{const t=(text||"").trim();if(!t)return;setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER}]}));};
+  const addTask=(text)=>{const t=(text||"").trim();if(!t)return;setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER,assignedAt:Date.now(),assignedBy:CURRENT_USER}]}));};
 
   return(
     <>
@@ -4510,7 +4542,7 @@ function PropertyTaskList({property}){
       {/* Rows — same TaskRow as the Tasks tab */}
       <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
         {rows.length===0&&<div style={{padding:"22px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No tasks yet. Add one below, or set up a rule in <strong>Settings → Automations</strong> to create tasks automatically.</div>}
-        {rows.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setContactTarget} onMessage={setMsgTarget} onAssign={setAssignTarget} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
+        {rows.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setContactTarget} onMessage={setMsgTarget} onAssign={setAssignTarget} onPushToBottom={pushToBottom} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
         <AddTaskInline onAdd={addTask}/>
       </div>
     </>
@@ -4529,7 +4561,7 @@ function TasksPage({onNavigate}){
   const saveOffice=()=>{if(flushOfficeTasks)setTimeout(flushOfficeTasks,0);};
   const upOfficeTask=(taskId,fn)=>{setOfficeTasks(prev=>(prev||[]).map(t=>t.id===taskId?fn(t):t));saveOffice();};
   const findLiveTask=(pid,tid)=>isOffice(pid)?(officeTasks||[]).find(t=>t.id===tid):(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(tk=>tk.id===tid);
-  const addOfficeTask=(text)=>{const t=(text||"").trim();if(!t)return;setOfficeTasks(prev=>[...(prev||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER}]);saveOffice();};
+  const addOfficeTask=(text)=>{const t=(text||"").trim();if(!t)return;setOfficeTasks(prev=>[...(prev||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER,assignedAt:Date.now(),assignedBy:CURRENT_USER}]);saveOffice();};
   const dir=CONTACTS.map(normContact); // normalized contact directory (phones[], company, tags)
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
   const { isAdmin } = useAuth();
@@ -4572,12 +4604,14 @@ function TasksPage({onNavigate}){
   // delegate (someone the owner handed the work to). role is "owner" or "delegate".
   function setTaskRole(propId,taskId,role,member){
     const applyRole=(tk)=>{
+      // Stamp when someone gets put on the task, so "recently assigned to me" can find it.
+      const stamp=member?{assignedAt:Date.now(),assignedBy:CURRENT_USER}:{};
       if(role==="owner"){
         if(!member)return {...tk,assignee:"",delegate:""}; // clearing owner clears delegate too
-        return {...tk,assignee:member,delegate:tk.delegate===member?"":tk.delegate};
+        return {...tk,assignee:member,delegate:tk.delegate===member?"":tk.delegate,...stamp};
       }
       if(!member)return {...tk,delegate:""};
-      return {...tk,delegate:member===tk.assignee?"":member}; // no delegating to the owner
+      return {...tk,delegate:member===tk.assignee?"":member,...stamp}; // no delegating to the owner
     };
     if(isOffice(propId))upOfficeTask(taskId,applyRole);
     else setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:applyRole(tk))}));
@@ -4621,6 +4655,7 @@ function TasksPage({onNavigate}){
   }
   const[statusFilter,setStatusFilter]=useState(new Set()); // empty = show all
   const[showAutoBuilder,setShowAutoBuilder]=useState(false);
+  const[showRecent,setShowRecent]=useState(false); // "recently assigned to me" popup
 
   // Collect real tasks from all properties (archived excluded). Tasks now come only
   // from manual entry or automation rules — no auto-generated status checklists.
@@ -4631,6 +4666,16 @@ function TasksPage({onNavigate}){
     });
   });
 
+  // Tasks put on my plate (owner or delegate) in the last 48h — whether I added
+  // them or a teammate did. assignedAt is stamped on assign/create; fall back to
+  // the task id (its creation time) for older tasks.
+  const RECENT_WINDOW_MS=48*60*60*1000;
+  const assignTsOf=(t)=>Number(t.assignedAt||t.id)||0;
+  const officeMappedAll=(officeTasks||[]).filter(t=>!t.deleted&&(t.text||"").trim()).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company Tasks",propStatus:""}));
+  const recentAssigned=[...allTasks,...officeMappedAll]
+    .filter(t=>(t.assignee===CURRENT_USER||t.delegate===CURRENT_USER)&&(Date.now()-assignTsOf(t))<=RECENT_WINDOW_MS)
+    .sort((a,b)=>assignTsOf(b)-assignTsOf(a));
+
   function updateTaskStatus(propId,taskId,status){
     if(isOffice(propId)){upOfficeTask(taskId,t=>({...t,status}));return;}
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===taskId?{...t,status}:t)}));
@@ -4640,6 +4685,13 @@ function TasksPage({onNavigate}){
     if(isOffice(propId)){setOfficeTasks(prev=>(prev||[]).filter(t=>t.id!==taskId));saveOffice();return;}
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).filter(t=>t.id!==taskId)}));
   }
+  // Move a task to the end of its list — the "flip through my tasks" triage: once
+  // you've dealt with the top one, send it to the bottom and the next comes up.
+  function pushToBottom(propId,taskId){
+    const toEnd=(arr)=>{const a=[...(arr||[])];const i=a.findIndex(t=>t.id===taskId);if(i<0)return arr;const[m]=a.splice(i,1);a.push(m);return a;};
+    if(isOffice(propId)){setOfficeTasks(prev=>toEnd(prev));saveOffice();return;}
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:toEnd(p.tasks)}));
+  }
   function updateTaskText(propId,taskId,text){
     const v=(text||"").trim();if(!v)return;
     if(isOffice(propId)){upOfficeTask(taskId,t=>({...t,text:v}));return;}
@@ -4648,16 +4700,17 @@ function TasksPage({onNavigate}){
   // Add a task straight from the Task Center — assigned to me so it stays visible.
   function addTaskToProp(propId,text){
     const t=(text||"").trim();if(!t)return;
-    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER}]}));
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER,assignedAt:Date.now(),assignedBy:CURRENT_USER}]}));
   }
   // Bulk-add tasks to any property. Assigning here just sets who's responsible — it
   // does NOT set assignedBy, so these don't show up as "delegated by me".
   function addTasksBulk(propId,rows){
     const clean=(rows||[]).map(r=>({text:(r.text||"").trim(),assignee:r.assignee||"",delegate:r.delegate||""})).filter(r=>r.text);
     if(!propId||!clean.length)return;
+    const at=Date.now();
     // NOTE: the <select> hands back a STRING id, property ids are numbers — coerce
     // both so the task lands on the right property instead of being dropped.
-    setSharedProps(prev=>prev.map(p=>String(p.id)!==String(propId)?p:{...p,tasks:[...(p.tasks||[]),...clean.map((r,i)=>({id:Date.now()+i,text:r.text,status:"Not Started",assignee:r.assignee,delegate:(r.delegate&&r.delegate!==r.assignee)?r.delegate:"",cat:"Custom"}))]}));
+    setSharedProps(prev=>prev.map(p=>String(p.id)!==String(propId)?p:{...p,tasks:[...(p.tasks||[]),...clean.map((r,i)=>({id:Date.now()+i,text:r.text,status:"Not Started",assignee:r.assignee,delegate:(r.delegate&&r.delegate!==r.assignee)?r.delegate:"",cat:"Custom",assignedAt:at,assignedBy:CURRENT_USER}))]}));
     clean.forEach(r=>{const who=[...new Set([r.assignee,r.delegate].filter(n=>n&&n!==CURRENT_USER))];if(who.length)notify(who,{title:"New task for you",body:`${CURRENT_USER}: ${r.text}`,tag:`newtask-${Date.now()}-${Math.round(Math.random()*1e5)}`});});
   }
 
@@ -4807,6 +4860,16 @@ function TasksPage({onNavigate}){
 
       <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
 
+        {/* Recently-assigned-to-me banner + popup */}
+        {!showAutomations&&(
+          <button onClick={()=>setShowRecent(true)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",maxWidth:840,padding:"11px 14px",marginBottom:14,borderRadius:T.radius,border:`1px solid ${recentAssigned.length?T.gold:T.border}`,background:recentAssigned.length?T.goldLight:T.card,color:recentAssigned.length?T.gold:T.textSub,fontWeight:600,fontSize:13.5,cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,textAlign:"left"}}>
+            <span style={{fontSize:16}}>🔔</span>
+            <span style={{flex:1}}>{recentAssigned.length>0?`${recentAssigned.length} task${recentAssigned.length>1?"s":""} assigned to you in the last 48 hours`:"Recently assigned to you (last 48 hours)"}</span>
+            <span style={{fontSize:12,fontWeight:700}}>View ›</span>
+          </button>
+        )}
+        {showRecent&&<RecentAssignedModal tasks={recentAssigned} currentUser={CURRENT_USER} onClose={()=>setShowRecent(false)} onOpenTask={(t)=>{setShowRecent(false);if(t.propId!==OFFICE_TASK_PID&&onNavigate)onNavigate(t.propId);}}/>}
+
         {!showAutomations&&(()=>{
           const oTasks=(officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company Tasks",propStatus:""}));
           const doneCount=oTasks.filter(t=>t.status==="Completed").length;
@@ -4828,7 +4891,7 @@ function TasksPage({onNavigate}){
                   <span style={{fontSize:11,color:T.textSub}}>{doneCount}/{oTasks.length} done</span>
                 </div>
               </div>
-              {oTasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+              {oTasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} onPushToBottom={pushToBottom} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
               <AddTaskInline onAdd={addOfficeTask} placeholder="Add a company task…"/>
             </div>
           );
@@ -5008,7 +5071,7 @@ function TasksPage({onNavigate}){
                     <span style={{fontSize:11,color:T.textSub}}>{ptasks.filter(t=>t.status==="Completed").length}/{ptasks.length} done</span>
                   </div>
                 </div>
-                {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+                {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} onPushToBottom={pushToBottom} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
                 <AddTaskInline onAdd={(text)=>addTaskToProp(ptasks[0].propId,text)}/>
               </div>
             ))}
@@ -9337,7 +9400,7 @@ export function GoldstoneShell(){
       toApply.forEach((a,ai)=>{
         (a.tasks||[]).forEach((t,ti)=>{
           if(!t.text||!t.text.trim()) return;
-          add.push({id:Date.now()+ai*1000+ti,text:t.text,cat:t.category||"Automation",status:"Not Started",assignee:t.assignTo||"",delegate:(t.delegateTo&&t.delegateTo!==t.assignTo)?t.delegateTo:"",autoId:a.id});
+          add.push({id:Date.now()+ai*1000+ti,text:t.text,cat:t.category||"Automation",status:"Not Started",assignee:t.assignTo||"",delegate:(t.delegateTo&&t.delegateTo!==t.assignTo)?t.delegateTo:"",autoId:a.id,assignedAt:Date.now()});
         });
         applied.add(a.id);
       });

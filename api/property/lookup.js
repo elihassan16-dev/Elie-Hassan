@@ -44,11 +44,10 @@ function pick(attrs, names) {
 }
 const num = (v) => { if (v == null) return null; const x = parseFloat(String(v).replace(/[^\d.-]/g, "")); return isNaN(x) ? null : x; };
 
-// Query NJ parcels layer 0 at a point (optionally within `distance` metres).
-// Surfaces ArcGIS error objects (returned with HTTP 200) instead of masking them.
-async function queryParcel(base, lon, lat, distance) {
-  // Use the JSON geometry object form — the simple "x,y" comma form is rejected by
-  // some hosted feature services with "Invalid or missing input parameters".
+// Build the parcels query URL for a point (optionally buffered by `distance` m).
+// Uses the JSON geometry object form — the simple "x,y" comma form is rejected by
+// some hosted feature services with "Invalid or missing input parameters".
+function parcelQueryUrl(base, lon, lat, distance) {
   const q = new URLSearchParams({
     where: "1=1",
     geometry: JSON.stringify({ x: lon, y: lat, spatialReference: { wkid: 4326 } }),
@@ -61,7 +60,13 @@ async function queryParcel(base, lon, lat, distance) {
     f: "json",
   });
   if (distance) { q.set("distance", String(distance)); q.set("units", "esriSRUnit_Meter"); }
-  const r = await fetch(`${base}/0/query?${q.toString()}`);
+  return `${base}/0/query?${q.toString()}`;
+}
+
+// Query NJ parcels layer 0 at a point (optionally within `distance` metres).
+// Surfaces ArcGIS error objects (returned with HTTP 200) instead of masking them.
+async function queryParcel(base, lon, lat, distance) {
+  const r = await fetch(parcelQueryUrl(base, lon, lat, distance));
   if (!r.ok) throw new Error(`NJ parcels query failed (${r.status})`);
   const j = await r.json();
   if (j.error) throw new Error(`NJ parcels query error: ${j.error.message || JSON.stringify(j.error)}`);
@@ -83,11 +88,27 @@ export default async function handler(req, res) {
   const address = (req.query?.address || "").toString().trim();
   if (!address) { res.status(400).json({ error: "Pass ?address=" }); return; }
 
+  // ?debug=1 dumps every internal step (geocode result, resolved service URL, the
+  // exact query URL, and the raw ArcGIS response) so a failing lookup can be traced
+  // by opening the URL in a browser. Read-only, public data — safe to expose.
+  const debug = req.query?.debug != null;
+
   try {
     const geo = await geocode(address);
     if (!geo) { res.status(200).json({ found: false, reason: "Address couldn't be geocoded. Check the street/city/zip." }); return; }
 
     const base = await njServiceUrl();
+
+    if (debug) {
+      const exactUrl = parcelQueryUrl(base, geo.lon, geo.lat, 0);
+      const bufferUrl = parcelQueryUrl(base, geo.lon, geo.lat, 60);
+      let exactRaw = null, bufferRaw = null;
+      try { exactRaw = await (await fetch(exactUrl)).json(); } catch (e) { exactRaw = { fetchError: e.message }; }
+      try { bufferRaw = await (await fetch(bufferUrl)).json(); } catch (e) { bufferRaw = { fetchError: e.message }; }
+      res.status(200).json({ debug: true, address, geo, base, exactUrl, bufferUrl, exactRaw, bufferRaw });
+      return;
+    }
+
     // The Census geocoder interpolates a point along the STREET centerline, which
     // often lands just outside the parcel polygon (parcels don't include the road).
     // So: try an exact point-in-parcel hit first, then fall back to a buffered

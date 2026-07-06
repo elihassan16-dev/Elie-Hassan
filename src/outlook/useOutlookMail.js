@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { msalInstance, ensureMsalReady, MAIL_SCOPES } from "../onedrive/msal";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -183,18 +183,21 @@ export function useOutlookMail() {
     } catch { return 0; }
   }, [graph]);
 
-  // Suggest recipients from the user's Outlook people (frequent contacts +
-  // saved contacts), ranked by relevance. Returns [{name, email}].
+  // Suggest recipients from the user's Outlook people (frequent + saved contacts).
+  // Requires the People.Read permission, which may not be granted (admin approval)
+  // — if so, we quietly disable it after the first denial and the UI just uses the
+  // app's own contacts. Returns [{name, email}].
+  const peopleOff = useRef(false);
   const searchPeople = useCallback(async (query) => {
     const q = String(query || "").trim();
-    if (!q) return [];
+    if (!q || peopleOff.current) return [];
     try {
       const d = await graph(`/me/people?$search=${encodeURIComponent('"' + q.replace(/"/g, " ") + '"')}&$top=8&$select=displayName,scoredEmailAddresses,emailAddresses`);
       return (d.value || []).map((p) => {
         const email = (p.scoredEmailAddresses && p.scoredEmailAddresses[0] && p.scoredEmailAddresses[0].address) || (p.emailAddresses && p.emailAddresses[0] && p.emailAddresses[0].address) || "";
         return { name: p.displayName || email, email };
       }).filter((p) => p.email);
-    } catch { return []; }
+    } catch (e) { if (e && (e.status === 403 || e.status === 401)) peopleOff.current = true; return []; }
   }, [graph]);
 
   // Mark a message read.

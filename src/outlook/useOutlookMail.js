@@ -140,8 +140,14 @@ export function useOutlookMail() {
   // files like construction plans, so we fetch the bytes on demand instead. Skips
   // inline images (email-body pictures), keeps real files + cloud/linked files.
   const getAttachments = useCallback(async (id) => {
-    const d = await graph(`/me/messages/${id}/attachments?$select=id,name,contentType,size,isInline`);
-    return (d.value || []).filter((a) => !a.isInline);
+    let path = `/me/messages/${id}/attachments?$select=id,name,contentType,size,isInline&$top=100`;
+    const out = [];
+    while (path) {
+      const d = await graph(path);
+      (d.value || []).forEach((a) => out.push(a));
+      path = d["@odata.nextLink"] || null; // page through if there are many
+    }
+    return out.filter((a) => !a.isInline);
   }, [graph]);
 
   // Download one attachment's raw bytes as a Blob (works for large files). Use for

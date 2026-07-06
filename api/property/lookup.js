@@ -47,11 +47,14 @@ const num = (v) => { if (v == null) return null; const x = parseFloat(String(v).
 // Query NJ parcels layer 0 at a point (optionally within `distance` metres).
 // Surfaces ArcGIS error objects (returned with HTTP 200) instead of masking them.
 async function queryParcel(base, lon, lat, distance) {
+  // Use the JSON geometry object form — the simple "x,y" comma form is rejected by
+  // some hosted feature services with "Invalid or missing input parameters".
   const q = new URLSearchParams({
     where: "1=1",
-    geometry: `${lon},${lat}`,
+    geometry: JSON.stringify({ x: lon, y: lat, spatialReference: { wkid: 4326 } }),
     geometryType: "esriGeometryPoint",
     inSR: "4326",
+    outSR: "4326",
     spatialRel: "esriSpatialRelIntersects",
     outFields: "*",
     returnGeometry: "false",

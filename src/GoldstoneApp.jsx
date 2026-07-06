@@ -5511,6 +5511,9 @@ const buildMessageThreads=(messages)=>{
   return arr;
 };
 function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelete,onBack,isMobile}){
+  const scrollRef=useRef(null);
+  // Jump to the newest message when a chat opens or a message arrives.
+  useEffect(()=>{const el=scrollRef.current;if(!el)return;requestAnimationFrame(()=>{el.scrollTop=el.scrollHeight;});},[property.id,messages.length]);
   const[reply,setReply]=useState(null); // message being replied to
   const[selMode,setSelMode]=useState(false); // select-to-delete mode
   const[selIds,setSelIds]=useState(new Set());
@@ -5543,7 +5546,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           <button onClick={exitSelect} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 12px"}}>Cancel</button>
         </div>
       )}
-      <div style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
+      <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
         {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"30px 0"}}>No messages yet for this property. Start the conversation below.</div>}
         {threads.map(th=>{
           const{root,replies}=th;

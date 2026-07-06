@@ -3912,7 +3912,7 @@ function TaskStatusPicker({value,onChange,onDelete}){
 }
 
 // ─── Task Row (module level to avoid React #31) ───────────────────────────────
-function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onPushToBottom,currentUser,selectMode,selected,onToggleSelect}){
+function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,currentUser,selectMode,selected,onToggleSelect}){
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
@@ -3958,7 +3958,6 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       </button>
       {contactBtnEl}
       {msgBtnEl}
-      {onPushToBottom&&!selectMode&&<div role="button" onClick={()=>onPushToBottom(t.propId,t.id)} title="Send to bottom — move this task to the end of the list" style={circleBtn(false)}>⤓</div>}
       <TaskStatusPicker value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
     </div>
   );
@@ -4456,17 +4455,13 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
 // both places behave exactly the same. Writes go through setSharedProps like the Tasks tab.
 function PropertyTaskList({property}){
   const { sharedProps, setSharedProps, contacts:CONTACTS, setContacts, flushContacts, teamMembers:TEAM_MEMBERS, currentUser:CURRENT_USER } = useData();
-  const { prefs, savePrefs } = useAuth();
-  const pushOrder=prefs.taskPushOrder||{};
   const dir=CONTACTS.map(normContact);
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
   const propId=property.id;
   const live=sharedProps.find(p=>p.id===propId)||property;
   const propAddr=(live.address||"")+(live.city?`, ${live.city}`:"");
   const tasks=(live.tasks||[]).filter(t=>!t.deleted);
-  // Apply my personal "sent to bottom" order (pushed tasks sink, latest at the end).
-  const rows=tasks.map((t,i)=>({propId,propAddr,propStatus:live.status,...t,_i:i}))
-    .sort((a,b)=>{const pa=pushOrder[String(a.id)]||0,pb=pushOrder[String(b.id)]||0;if(pa&&pb)return pa-pb;if(pa)return 1;if(pb)return -1;return a._i-b._i;});
+  const rows=tasks.map(t=>({propId,propAddr,propStatus:live.status,...t}));
   const[contactTarget,setContactTarget]=useState(null);
   const[msgTarget,setMsgTarget]=useState(null);
   const[assignTarget,setAssignTarget]=useState(null);
@@ -4485,7 +4480,6 @@ function PropertyTaskList({property}){
     })}));
     if(member&&member!==CURRENT_USER){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(t=>t.id===tid); notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}`,tag:`task-${tid}`}); }
   };
-  const pushToBottom=(pid,tid)=>savePrefs({taskPushOrder:{...(prefs.taskPushOrder||{}),[String(tid)]:Date.now()}});
   const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}; if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`task-${tid}`}); } };
   const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
   useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -4546,7 +4540,7 @@ function PropertyTaskList({property}){
       {/* Rows — same TaskRow as the Tasks tab */}
       <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
         {rows.length===0&&<div style={{padding:"22px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No tasks yet. Add one below, or set up a rule in <strong>Settings → Automations</strong> to create tasks automatically.</div>}
-        {rows.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setContactTarget} onMessage={setMsgTarget} onAssign={setAssignTarget} onPushToBottom={pushToBottom} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
+        {rows.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setContactTarget} onMessage={setMsgTarget} onAssign={setAssignTarget} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
         <AddTaskInline onAdd={addTask}/>
       </div>
     </>
@@ -4570,16 +4564,10 @@ function TasksPage({onNavigate}){
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
   const { isAdmin, prefs, savePrefs } = useAuth();
   const isMobile=useIsMobile();
-  // Per-user "sent to bottom" order (synced in prefs, personal — doesn't reorder
-  // the shared list for teammates). Map of taskId -> when it was pushed down.
-  const pushOrder=prefs.taskPushOrder||{};
-  const pushWeight=(t)=>pushOrder[String(t.id)]||0;
-  const sortByPush=(arr)=>[...arr].map((t,i)=>({t,i})).sort((a,b)=>{
-    const pa=pushWeight(a.t),pb=pushWeight(b.t);
-    if(pa&&pb)return pa-pb;   // both pushed: earliest-pushed first, latest at very bottom
-    if(pa)return 1; if(pb)return -1; // pushed tasks sink below un-pushed ones
-    return a.i-b.i;           // otherwise keep the natural order
-  }).map(x=>x.t);
+  // Per-user "send this property to the bottom" order (synced in prefs, personal —
+  // doesn't reorder the list for teammates). Map of propId -> when it was pushed.
+  const propPushOrder=prefs.propPushOrder||{};
+  const pushPropToBottom=(pid)=>savePrefs({propPushOrder:{...(prefs.propPushOrder||{}),[String(pid)]:Date.now()}});
   // Which task groups are checked. Defaults to "My Tasks" + "Delegated by Me",
   // and remembers whatever the user last left checked (per device) so it doesn't
   // reset on the next login. Automations is a separate toggle, kept out of the pref.
@@ -4698,12 +4686,6 @@ function TasksPage({onNavigate}){
   function deleteTask(propId,taskId){
     if(isOffice(propId)){setOfficeTasks(prev=>(prev||[]).filter(t=>t.id!==taskId));saveOffice();return;}
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).filter(t=>t.id!==taskId)}));
-  }
-  // Move a task to the bottom of MY list — the "flip through my tasks" triage: once
-  // you've dealt with the top one, send it down and the next comes up. Personal to
-  // me (stored in prefs), so it doesn't reorder the shared list for teammates.
-  function pushToBottom(propId,taskId){
-    savePrefs({taskPushOrder:{...(prefs.taskPushOrder||{}),[String(taskId)]:Date.now()}});
   }
   function updateTaskText(propId,taskId,text){
     const v=(text||"").trim();if(!v)return;
@@ -4884,7 +4866,7 @@ function TasksPage({onNavigate}){
         {showRecent&&<RecentAssignedModal tasks={recentAssigned} currentUser={CURRENT_USER} onClose={()=>setShowRecent(false)} onOpenTask={(t)=>{setShowRecent(false);if(t.propId!==OFFICE_TASK_PID&&onNavigate)onNavigate(t.propId);}}/>}
 
         {!showAutomations&&(()=>{
-          const oTasks=sortByPush((officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company Tasks",propStatus:""})));
+          const oTasks=(officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company Tasks",propStatus:""}));
           const doneCount=oTasks.filter(t=>t.status==="Completed").length;
           return(
             <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14}}>
@@ -4904,7 +4886,7 @@ function TasksPage({onNavigate}){
                   <span style={{fontSize:11,color:T.textSub}}>{doneCount}/{oTasks.length} done</span>
                 </div>
               </div>
-              {oTasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} onPushToBottom={pushToBottom} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+              {oTasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
               <AddTaskInline onAdd={addOfficeTask} placeholder="Add a company task…"/>
             </div>
           );
@@ -5058,25 +5040,35 @@ function TasksPage({onNavigate}){
               </div>
             )}
 
-            {/* Group by property */}
-            {Object.entries(filteredDisplay.reduce((acc,t)=>{(acc[t.propAddr]=acc[t.propAddr]||[]).push(t);return acc;},{})).map(([addr,ptasksRaw])=>{const ptasks=sortByPush(ptasksRaw);return(
+            {/* Group by property, then apply my personal "sent to bottom" order:
+                pushed properties sink below the rest, most-recently-pushed last. */}
+            {Object.entries(filteredDisplay.reduce((acc,t)=>{(acc[t.propAddr]=acc[t.propAddr]||[]).push(t);return acc;},{}))
+              .map(([addr,ptasks],gi)=>({addr,ptasks,gi,pid:ptasks[0]?.propId}))
+              .sort((a,b)=>{const pa=propPushOrder[String(a.pid)]||0,pb=propPushOrder[String(b.pid)]||0;if(pa&&pb)return pa-pb;if(pa)return 1;if(pb)return -1;return a.gi-b.gi;})
+              .map(({addr,ptasks})=>(
               <div key={addr} style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14}}>
                 <div style={{padding:"10px 14px",background:"#FAFAFA",borderBottom:bdr,display:"flex",flexDirection:"column",gap:7}}>
-                  {/* Row 1: address + delete */}
+                  {/* Row 1: address + send-to-bottom + delete */}
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
                     <span onClick={()=>onNavigate&&ptasks[0]&&onNavigate(ptasks[0].propId)} title="Open this property" style={{fontSize:13,fontWeight:700,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:onNavigate?"pointer":"default"}}>{addr}</span>
-                    {confirmDeleteProp===addr
-                      ?<div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                          <span style={{fontSize:12,color:T.red}}>Delete {ptasks.length}?</span>
-                          <button onClick={()=>{ptasks.forEach(t=>deleteTask(t.propId,t.id));setConfirmDeleteProp(null);}}
-                            style={{padding:"3px 10px",borderRadius:6,background:T.red,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Yes</button>
-                          <button onClick={()=>setConfirmDeleteProp(null)}
-                            style={{padding:"3px 10px",borderRadius:6,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>No</button>
-                        </div>
-                      :<button onClick={()=>setConfirmDeleteProp(addr)} title="Delete all tasks for this property"
-                          style={{flexShrink:0,background:"none",border:`1px solid ${T.border}`,color:T.textTert,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:"3px 9px",borderRadius:6,lineHeight:1}}
-                          onMouseEnter={e=>{e.currentTarget.style.color=T.red;e.currentTarget.style.borderColor=T.red;}}
-                          onMouseLeave={e=>{e.currentTarget.style.color=T.textTert;e.currentTarget.style.borderColor=T.border;}}>🗑</button>}
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                      <button onClick={()=>pushPropToBottom(ptasks[0]?.propId)} title="Send this property to the bottom of my list"
+                        style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:"3px 9px",borderRadius:6,lineHeight:1}}
+                        onMouseEnter={e=>{e.currentTarget.style.color=T.gold;e.currentTarget.style.borderColor=T.gold;}}
+                        onMouseLeave={e=>{e.currentTarget.style.color=T.textTert;e.currentTarget.style.borderColor=T.border;}}>⤓</button>
+                      {confirmDeleteProp===addr
+                        ?<div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontSize:12,color:T.red}}>Delete {ptasks.length}?</span>
+                            <button onClick={()=>{ptasks.forEach(t=>deleteTask(t.propId,t.id));setConfirmDeleteProp(null);}}
+                              style={{padding:"3px 10px",borderRadius:6,background:T.red,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Yes</button>
+                            <button onClick={()=>setConfirmDeleteProp(null)}
+                              style={{padding:"3px 10px",borderRadius:6,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>No</button>
+                          </div>
+                        :<button onClick={()=>setConfirmDeleteProp(addr)} title="Delete all tasks for this property"
+                            style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:"3px 9px",borderRadius:6,lineHeight:1}}
+                            onMouseEnter={e=>{e.currentTarget.style.color=T.red;e.currentTarget.style.borderColor=T.red;}}
+                            onMouseLeave={e=>{e.currentTarget.style.color=T.textTert;e.currentTarget.style.borderColor=T.border;}}>🗑</button>}
+                    </div>
                   </div>
                   {/* Row 2: status chip + done — always the same position, all properties aligned */}
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -5084,10 +5076,10 @@ function TasksPage({onNavigate}){
                     <span style={{fontSize:11,color:T.textSub}}>{ptasks.filter(t=>t.status==="Completed").length}/{ptasks.length} done</span>
                   </div>
                 </div>
-                {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} onPushToBottom={pushToBottom} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+                {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
                 <AddTaskInline onAdd={(text)=>addTaskToProp(ptasks[0].propId,text)}/>
               </div>
-            );})}
+            ))}
           </div>
         )}
       </div>

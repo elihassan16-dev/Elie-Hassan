@@ -976,6 +976,7 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
 
 // ─── Holding Costs Popup ──────────────────────────────────────────────────────
 function HoldingCostsPopup({items, holdPeriod, onChange, onClose}){
+  const isMobile=useIsMobile();
   const months = n(holdPeriod)||1;
   const seed = (items && items.length > 0) ? items : [
     {id:1, title:"Property Taxes",  amount:"", perYear:true,  auto:false},
@@ -1008,46 +1009,59 @@ function HoldingCostsPopup({items, holdPeriod, onChange, onClose}){
           </div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:24,color:T.textTert,cursor:"pointer",lineHeight:1,padding:"0 4px"}}>×</button>
         </div>
-        <div style={{flex:1,overflowY:"auto",padding:"20px 28px"}}>
-          {/* Column headers */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 110px 90px 110px 36px",gap:8,marginBottom:10,padding:"0 4px"}}>
+        <div style={{flex:1,overflowY:"auto",padding:isMobile?"16px 14px":"20px 28px"}}>
+          {/* Column headers (desktop only — phones use a stacked layout) */}
+          {!isMobile&&<div style={{display:"grid",gridTemplateColumns:"1fr 110px 90px 110px 36px",gap:8,marginBottom:10,padding:"0 4px"}}>
             <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em"}}>Description</div>
             <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Annual / Mo</div>
             <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"center"}}>Per</div>
             <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Total ({months}mo)</div>
             <div/>
-          </div>
+          </div>}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {loc.map(item=>(
-              <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr 110px 90px 110px 36px",gap:8,alignItems:"center",padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow}}>
-                {/* Title */}
-                {item.auto
-                  ?<div style={{display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{item.title}</span>
-                      <span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>
+            {loc.map(item=>{
+              const descEl=item.auto
+                ?<div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{item.title}</span>
+                    <span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>
+                  </div>
+                :<input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>;
+              const amountEl=<input value={item.amount} onChange={e=>up(item.id,"amount",e.target.value.replace(/[^\d.]/g,""))} placeholder="0"
+                readOnly={item.auto} style={{...iS,textAlign:"right",background:item.auto?"#F8F1E0":"#fff",color:item.auto?T.gold:T.text}}/>;
+              const perEl=<select value={item.perYear?"year":"month"} onChange={e=>up(item.id,"perYear",e.target.value==="year")}
+                disabled={item.auto}
+                style={{...iS,cursor:item.auto?"default":"pointer",background:item.auto?"#F8F1E0":"#fff",color:item.auto?T.gold:T.text,textAlign:"center",padding:"9px 6px"}}>
+                <option value="year">/ Year</option>
+                <option value="month">/ Month</option>
+              </select>;
+              const totalEl=<span style={{fontSize:15,fontWeight:700,color:T.gold}}>{fmtD(totalForPeriod(item))}</span>;
+              const actionEl=item.auto
+                ?<div style={{textAlign:"center",fontSize:12,color:T.textTert}}>🔒</div>
+                :<button onClick={()=>delItem(item.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:20,lineHeight:1,textAlign:"center"}}>×</button>;
+              // Phones: stack description above an aligned Amount / Per / Total / × row.
+              if(isMobile){
+                return(
+                  <div key={item.id} style={{display:"flex",flexDirection:"column",gap:10,padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow}}>
+                    {descEl}
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 96px auto 22px",gap:8,alignItems:"center"}}>
+                      {amountEl}
+                      {perEl}
+                      <div style={{textAlign:"right"}}>{totalEl}</div>
+                      {actionEl}
                     </div>
-                  :<input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>
-                }
-                {/* Amount input */}
-                <input value={item.amount} onChange={e=>up(item.id,"amount",e.target.value.replace(/[^\d.]/g,""))} placeholder="0"
-                  readOnly={item.auto} style={{...iS,textAlign:"right",background:item.auto?"#F8F1E0":"#fff",color:item.auto?T.gold:T.text}}/>
-                {/* Per toggle */}
-                <select value={item.perYear?"year":"month"} onChange={e=>up(item.id,"perYear",e.target.value==="year")}
-                  disabled={item.auto}
-                  style={{...iS,cursor:item.auto?"default":"pointer",background:item.auto?"#F8F1E0":"#fff",color:item.auto?T.gold:T.text,textAlign:"center",padding:"9px 6px"}}>
-                  <option value="year">/ Year</option>
-                  <option value="month">/ Month</option>
-                </select>
-                {/* Total for period */}
-                <div style={{textAlign:"right"}}>
-                  <span style={{fontSize:15,fontWeight:700,color:T.gold}}>{fmtD(totalForPeriod(item))}</span>
+                  </div>
+                );
+              }
+              return(
+                <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr 110px 90px 110px 36px",gap:8,alignItems:"center",padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow}}>
+                  {descEl}
+                  {amountEl}
+                  {perEl}
+                  <div style={{textAlign:"right"}}>{totalEl}</div>
+                  {actionEl}
                 </div>
-                {item.auto
-                  ?<div style={{textAlign:"center",fontSize:12,color:T.textTert}}>🔒</div>
-                  :<button onClick={()=>delItem(item.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:20,lineHeight:1,textAlign:"center"}}>×</button>
-                }
-              </div>
-            ))}
+              );
+            })}
           </div>
           <button onClick={addItem} style={{marginTop:12,width:"100%",padding:"13px",borderRadius:T.radiusSm,background:"transparent",border:`2px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontSize:14,fontFamily:"inherit",fontWeight:500}}>+ Add Line Item</button>
         </div>

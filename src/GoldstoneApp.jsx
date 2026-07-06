@@ -7306,6 +7306,18 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
     return ()=>{alive=false;};
   },[property.qbProjectId]);
 
+  // Auto debt service: when turned on, keep "Debt service paid" synced to EVERY
+  // interest/loan payment tagged to this property in QuickBooks — including future
+  // ones — so the interest reserve depletes automatically with no manual pinning.
+  useEffect(()=>{
+    if(!property.qbDebtAuto||!Array.isArray(txns))return;
+    const auto=txns.filter(t=>qbBucket(t.account)==="debt").map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
+    const cur=property.qbDebtTxns||[];
+    const ck=new Set(cur.map(txKey)),nk=new Set(auto.map(txKey));
+    const same=ck.size===nk.size&&[...nk].every(k=>ck.has(k));
+    if(!same)onUpdate(property.id,"qbDebtTxns",auto);
+  },[property.qbDebtAuto,txns]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const toggle=(id)=>{const has=pinned.includes(id);onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);};
   const addCustom=(key)=>{const label=draft.label.trim();const amount=num(draft.amount);if(!label&&!amount)return;const arr=property[key]||[];
     onUpdate(property.id,key,editId!=null?arr.map(l=>l.id===editId?{...l,label:label||"Adjustment",amount}:l):[...arr,{id:Date.now(),label:label||"Adjustment",amount}]);
@@ -7379,10 +7391,13 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
     </div>
   );
   // Body of a pin-transactions section (deployed / debt service), shown inside a popup.
-  const txnSectionBody=(arr,field,onPin,customField,sum)=>(<>
-    <div style={{padding:"2px 18px 12px"}}>
+  // opts.top renders above the pin button; opts.auto hides manual pin/unpin (the list
+  // is being kept in sync automatically).
+  const txnSectionBody=(arr,field,onPin,customField,sum,opts={})=>(<>
+    {opts.top}
+    {!opts.auto&&<div style={{padding:"2px 18px 12px"}}>
       {canEdit&&<button onClick={onPin} style={{padding:"8px 14px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🔍 Pin transactions</button>}
-    </div>
+    </div>}
     {arr.length===0&&(property[customField]||[]).length===0&&addFor!==customField&&<div style={{padding:"0 18px 14px",fontSize:13,color:T.textTert}}>Nothing pinned yet.</div>}
     {arr.map(t=>(
       <div key={txKey(t)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 18px",borderTop:`1px solid ${T.border}`}}>
@@ -7391,7 +7406,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
           <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account].filter(Boolean).join(" · ")}</div>
         </div>
         {amt(money(Number(t.amount)||0),{size:13.5,weight:700})}
-        {slot(xBtn(()=>toggleTx(field,arr,t),"Unpin"))}
+        {opts.auto?slot():slot(xBtn(()=>toggleTx(field,arr,t),"Unpin"))}
       </div>
     ))}
     {(property[customField]||[]).map(l=>(
@@ -7522,7 +7537,17 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
         </div>
       </>)}
       {sectionModal==="float"&&modalShell("Deployed — down payment, deposit",txnSectionBody(floatTxns,"qbFloatTxns",()=>setFloatPicker(true),"qbFloatCustom",floatSum))}
-      {sectionModal==="debt"&&modalShell("Debt service paid",txnSectionBody(debtTxns,"qbDebtTxns",()=>setDebtPicker(true),"qbDebtCustom",debtSum))}
+      {sectionModal==="debt"&&modalShell("Debt service paid",txnSectionBody(debtTxns,"qbDebtTxns",()=>setDebtPicker(true),"qbDebtCustom",debtSum,{
+        auto:!!property.qbDebtAuto,
+        top:(
+          <div style={{padding:"6px 18px 12px"}}>
+            <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:canEdit?"pointer":"default",background:property.qbDebtAuto?T.goldLight:T.bg,border:`1px solid ${property.qbDebtAuto?T.gold:T.border}`,borderRadius:T.radiusSm,padding:"11px 12px"}}>
+              <input type="checkbox" checked={!!property.qbDebtAuto} disabled={!canEdit} onChange={e=>onUpdate(property.id,"qbDebtAuto",e.target.checked)} style={{width:18,height:18,marginTop:1,flexShrink:0,accentColor:T.gold,cursor:canEdit?"pointer":"default"}}/>
+              <span style={{fontSize:13,color:T.text,lineHeight:1.5}}><b>Auto-import all lender payments from QuickBooks</b><div style={{fontSize:11.5,color:T.textTert,marginTop:2}}>Every interest / loan payment tagged to this property is counted automatically — including future ones — so the interest reserve keeps updating with no manual pinning.</div></span>
+            </label>
+          </div>
+        )
+      }))}
 
       {pickerOpen&&<QbAccountsPickerModal accounts={accounts} pinnedIds={pinned} address={`${property.address}${property.city?`, ${property.city}`:""}`} onToggle={toggle} onClose={()=>setPickerOpen(false)}/>}
       {floatPicker&&<QbTxnsPickerModal txns={txns} loading={txns===null} pinnedKeys={new Set(floatTxns.map(txKey))} onToggle={t=>toggleTx("qbFloatTxns",floatTxns,t)} onClose={()=>setFloatPicker(false)}/>}

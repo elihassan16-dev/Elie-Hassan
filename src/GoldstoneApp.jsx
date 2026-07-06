@@ -8747,8 +8747,21 @@ function MailBody({message,mail,trimQuote}){
   // Upgrade insecure http image URLs to https so the browser doesn't block them as
   // mixed content on this https page (a common reason signature logos don't show).
   html=html.replace(/(<img\b[^>]*\bsrc\s*=\s*["'])http:\/\//gi,"$1https://");
-  const doc=`<!doctype html><html><head><base target="_blank"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:8px 10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#1C1C1E;word-wrap:break-word;overflow-wrap:anywhere;}img{max-width:100%;height:auto;}table{max-width:100%;}a{color:#007AFF;}</style></head><body>${html}</body></html>`;
-  const onLoad=(e)=>{try{const h=e.target.contentWindow.document.body.scrollHeight;e.target.style.height=Math.min(h+16,1400)+"px";}catch{/* ignore */}};
+  const doc=`<!doctype html><html><head><base target="_blank"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:8px 10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#1C1C1E;word-wrap:break-word;overflow-wrap:anywhere;}img{max-width:100%;height:auto;}a{color:#007AFF;}</style></head><body>${html}</body></html>`;
+  // Fixed-width designed emails (newsletters/notifications) are wider than the pane.
+  // Scale the whole email down to fit the width — exactly what phone mail apps do —
+  // so nothing overflows off the right, then size the iframe to the scaled height.
+  const fit=(f)=>{try{
+    const d=f.contentWindow.document,b=d.body;
+    b.style.transform="";b.style.width="";b.style.transformOrigin="top left";
+    const frameW=f.clientWidth||f.offsetWidth||600;
+    const contentW=Math.max(b.scrollWidth,d.documentElement.scrollWidth,0);
+    let scale=1;
+    if(contentW>frameW+4){scale=frameW/contentW;b.style.width=contentW+"px";b.style.transform=`scale(${scale})`;}
+    f.style.height=Math.min(Math.ceil(b.scrollHeight*scale)+16,3000)+"px";
+  }catch{/* ignore */}};
+  const onLoad=(e)=>fit(e.target);
+  useEffect(()=>{const f=ref.current;if(!f)return;const onResize=()=>fit(f);window.addEventListener("resize",onResize);return ()=>window.removeEventListener("resize",onResize);},[html]); // eslint-disable-line
   return <iframe ref={ref} title="email" onLoad={onLoad} sandbox="allow-same-origin allow-popups" srcDoc={doc} style={{width:"100%",border:"none",height:120,background:"#fff"}}/>;
 }
 // Labels the user can tag an email chain with, so the inbox says at a glance what

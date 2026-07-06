@@ -4458,7 +4458,7 @@ function PropertyTaskList({property}){
   return(
     <>
       {/* Task contact card */}
-      {contactTarget&&(()=>{ const lt=(sharedProps.find(p=>p.id===contactTarget.propId)?.tasks||[]).find(tk=>tk.id===contactTarget.id)||contactTarget; return <TaskContactCard task={lt} contacts={dir} onAssign={(val)=>setTaskContact(contactTarget.propId,lt.id,val)} onCreateContact={addContactToDir} onClose={()=>setContactTarget(null)}/>; })()}
+      {contactTarget&&(()=>{ const lt={...((sharedProps.find(p=>p.id===contactTarget.propId)?.tasks||[]).find(tk=>tk.id===contactTarget.id)||contactTarget),propId:contactTarget.propId,propAddr:contactTarget.propAddr}; return <TaskContactCard task={lt} contacts={dir} onAssign={(val)=>setTaskContact(contactTarget.propId,lt.id,val)} onCreateContact={addContactToDir} onClose={()=>setContactTarget(null)}/>; })()}
       {/* Task messages popup */}
       {msgTarget&&(()=>{ const lt=(sharedProps.find(p=>p.id===msgTarget.propId)?.tasks||[]).find(tk=>tk.id===msgTarget.id); return <TaskMessagesPopup title={msgTarget.text||"Task"} task={lt} contacts={dir} messages={lt?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={(txt,att,mn)=>addTaskMessage(msgTarget.propId,msgTarget.id,txt,att,mn)} onClose={()=>setMsgTarget(null)}/>; })()}
       {/* Assign / delegate popup — owner (original) + optional delegate */}
@@ -4747,7 +4747,7 @@ function TasksPage({onNavigate}){
       })()}
       {/* Task contact popup */}
       {taskContactTarget&&(()=>{
-        const liveTask=findLiveTask(taskContactTarget.propId,taskContactTarget.id)||taskContactTarget;
+        const liveTask={...(findLiveTask(taskContactTarget.propId,taskContactTarget.id)||taskContactTarget),propId:taskContactTarget.propId,propAddr:taskContactTarget.propAddr};
         return <TaskContactCard task={liveTask} contacts={dir} onAssign={(val)=>setTaskContact(taskContactTarget.propId,liveTask.id,val)} onCreateContact={addContactToDir} onClose={()=>setTaskContactTarget(null)}/>;
       })()}
       {/* Header */}

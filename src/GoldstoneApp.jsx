@@ -3001,14 +3001,120 @@ function FilesTab({property,onUpdate}){
     </div>
   );
 }
+// Reusable "Property Details" card: free auto-import from NJ tax records (block &
+// lot, year built, lot size, assessed value, annual tax → Holding Costs), a source
+// link, editable rows, and collapse. Collapsed by default. Auto-imports once per
+// entity on first view. Used for both properties and new leads (where deals are
+// underwritten). `entity` needs id/address/city/state/zip/propertyInfo/financials
+// and `onUpdate(id, key, value)` is the shared updater.
+function NJDetailsCard({entity, onUpdate}){
+  const pi=entity.propertyInfo||{};
+  const[open,setOpen]=useState(false);   // collapsed by default
+  const[njLoad,setNjLoad]=useState(false);
+  const[njMsg,setNjMsg]=useState(null);
+  const upP=(k,v)=>onUpdate(entity.id,"propertyInfo",{...(entity.propertyInfo||{}),[k]:v});
+
+  const njAutofill=async(auto=false)=>{
+    if(njLoad)return;
+    const isNJ=(entity.state||"").toUpperCase()==="NJ"||/\bNJ\b/.test(entity.address||"");
+    if(auto&&(!entity.address||!isNJ))return;
+    setNjLoad(true);if(!auto)setNjMsg(null);
+    const markDone=()=>onUpdate(entity.id,"propertyInfo",{...(entity.propertyInfo||{}),njAutoDone:true});
+    try{
+      const addr=`${entity.address}${entity.city?`, ${entity.city}`:""}${entity.state?`, ${entity.state}`:""}${entity.zip?` ${entity.zip}`:""}`;
+      const r=await fetch(`/api/property/lookup?address=${encodeURIComponent(addr)}`);
+      const d=await r.json();
+      if(!r.ok)throw new Error(d.error||"Lookup failed");
+      if(!d.found){if(!auto)setNjMsg({ok:false,text:d.reason||"No NJ record found for this address."});markDone();return;}
+      const p={...(entity.propertyInfo||{})};
+      // In auto mode keep any value already present; the button (auto=false) overwrites.
+      const put=(k,v)=>{ if(v==null||v==="")return; if(auto&&String(p[k]??"").trim()!=="")return; p[k]=String(v); };
+      put("blockLot",d.blockLot);
+      put("block",d.block);
+      put("lot",d.lot);
+      put("qual",d.qualifier);
+      put("yearBuilt",d.yearBuilt);
+      put("sqft",d.sqft);
+      put("lotAcres",d.lotAcres!=null?parseFloat(Number(d.lotAcres).toFixed(3)):null);
+      put("assessedValue",d.assessedValue);
+      put("propClass",d.propClass);
+      if(d.pamsPin)p.njPin=d.pamsPin;
+      if(d.sourceUrl)p.njSourceUrl=d.sourceUrl;
+      p.njAutoDone=true;
+      onUpdate(entity.id,"propertyInfo",p);
+      let taxNote="";
+      if(d.annualTax!=null){
+        const fin={...(entity.financials||{})};
+        const arr=[...(fin.holdingCostItems||[])];
+        const idx=arr.findIndex(i=>(i.title||"").toLowerCase().includes("tax"));
+        const hasTax=idx>=0&&String(arr[idx].amount||"").trim()!=="";
+        if(!(auto&&hasTax)){
+          const stamp={amount:String(Math.round(d.annualTax)),perYear:true,njTax:Math.round(d.annualTax),njMun:d.municipality||"",njAt:new Date().toISOString().slice(0,10)};
+          if(idx>=0)arr[idx]={...arr[idx],...stamp};
+          else arr.push({id:Date.now(),title:"Property Taxes",auto:false,...stamp});
+          onUpdate(entity.id,"financials",{...fin,holdingCostItems:arr});
+          taxNote=` · taxes ${fmtD(d.annualTax)}/yr`;
+        }
+      }
+      if(!auto){setNjMsg({ok:true,text:`Filled from ${d.municipality||"NJ"} records${d.blockLot?` · ${d.blockLot}`:""}${taxNote}. Beds & baths aren't in NJ records — add them manually.`});setOpen(true);}
+    }catch(e){ if(!auto)setNjMsg({ok:false,text:e.message||"Lookup failed."}); }
+    finally{ setNjLoad(false); }
+  };
+  // Auto-import once per entity on first view (no button press), non-destructive.
+  const njAutoRef=useRef(false);
+  useEffect(()=>{ njAutoRef.current=false; },[entity.id]);
+  useEffect(()=>{
+    if(njAutoRef.current)return;
+    const p=entity.propertyInfo||{};
+    if(p.njAutoDone||p.njPin)return;
+    const isNJ=(entity.state||"").toUpperCase()==="NJ"||/\bNJ\b/.test(entity.address||"");
+    if(!entity.address||!isNJ)return;
+    njAutoRef.current=true;
+    njAutofill(true);
+  },[entity.id,entity.address,entity.state,entity.propertyInfo]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Annual tax display/edit — single source of truth is the Property Taxes holding item.
+  const items=entity.financials?.holdingCostItems||[];
+  const taxItem=items.find(i=>(i.title||"").toLowerCase().includes("tax"));
+  const annual=taxItem?(taxItem.perYear?taxItem.amount:String(Math.round(n(taxItem.amount)*12))):"";
+  const setTax=(v)=>{const fin={...(entity.financials||{})};const arr=[...(fin.holdingCostItems||[])];const idx=arr.findIndex(i=>(i.title||"").toLowerCase().includes("tax"));if(idx>=0)arr[idx]={...arr[idx],amount:v,perYear:true};else arr.push({id:Date.now(),title:"Property Taxes",amount:v,perYear:true,auto:false});onUpdate(entity.id,"financials",{...fin,holdingCostItems:arr});};
+
+  const rowInput={fontSize:14,fontWeight:600,color:T.text,padding:"5px 10px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,outline:"none",textAlign:"right",width:140,maxWidth:"55%"};
+  return(
+    <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
+      <button onClick={()=>setOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:7,padding:"11px 16px",background:T.goldLight,border:"none",borderBottom:open?`1px solid ${T.gold}33`:"none",cursor:"pointer",fontFamily:"inherit"}}>
+        <span style={{fontSize:13}}>📐</span>
+        <span style={{fontSize:11,fontWeight:700,color:T.gold,letterSpacing:"0.06em"}}>PROPERTY DETAILS</span>
+        {!open&&pi.blockLot&&<span style={{fontSize:11,color:T.textSub,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>· {pi.blockLot}</span>}
+        <span style={{marginLeft:"auto",fontSize:11,color:T.gold,fontWeight:700,flexShrink:0}}>{open?"▾ Hide":"▸ Show"}</span>
+      </button>
+      {open&&<>
+        <div style={{padding:"12px 16px 6px"}}>
+          <button onClick={()=>njAutofill(false)} disabled={njLoad} style={{width:"100%",padding:"11px",borderRadius:T.radiusSm,background:njLoad?T.border:T.blue,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:njLoad?"default":"pointer",fontFamily:"inherit"}}>{njLoad?"Looking up NJ records…":"⬇ Refresh from NJ tax records"}</button>
+          {njMsg&&<div style={{marginTop:8,fontSize:12,lineHeight:1.45,color:njMsg.ok?T.green:T.red}}>{njMsg.text}</div>}
+          {pi.njSourceUrl&&<a href={pi.njSourceUrl} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:9,padding:"7px 14px",borderRadius:20,border:`1px solid ${T.blue}`,color:T.blue,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>🔗 View source record (NJParcels.com)</a>}
+          <div style={{fontSize:11,color:T.textTert,marginTop:8}}>Free NJ Office of GIS / MOD-IV data — block &amp; lot, year built, lot size, assessed value and taxes. Beds &amp; baths aren't in state records.</div>
+        </div>
+        {[["Beds","beds","e.g. 3"],["Baths","baths","e.g. 2"],["Sq Ft","sqft","—"],["Year Built","yearBuilt","—"],["Lot Size (acres)","lotAcres","—"],["Block & Lot","blockLot","—"],["Property Class","propClass","—"],["Assessed Value","assessedValue","—"]].map(([label,key,ph])=>(
+          <div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
+            <span style={{fontSize:13,color:T.textSub,flexShrink:0}}>{label}</span>
+            <input value={pi[key]||""} onChange={e=>upP(key,e.target.value)} placeholder={ph} style={rowInput}/>
+          </div>
+        ))}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
+          <span style={{fontSize:13,color:T.textSub,flexShrink:0}}>Annual Taxes <span style={{fontSize:10.5,color:T.textTert}}>· to Holding Costs</span></span>
+          <input value={annual} onChange={e=>setTax(e.target.value.replace(/[^\d.]/g,""))} placeholder="—" style={rowInput}/>
+        </div>
+      </>}
+    </div>
+  );
+}
 function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const { contacts: CONTACTS, teamMembers: TEAM_MEMBERS } = useData();
   const isMobile=useIsMobile();
   const[tab,setTab]=useState("Financial Overview");
   const[taskPopup,setTaskPopup]=useState(null);
   const[showInfo,setShowInfo]=useState(false); // Property Info popup
-  const[njLoad,setNjLoad]=useState(false);      // NJ records autofill in progress
-  const[njMsg,setNjMsg]=useState(null);         // {ok, text} result of the last autofill
   // Showings tab only shows while the property is actively On Market / In Closing.
   const showShowings=property.status==="On Market"||property.status==="In Closing";
   // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.
@@ -3017,70 +3123,6 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   useEffect(()=>{ if(!tabs.includes(tab)) setTab("Financial Overview"); },[tabs,tab]);
   const sc=SC[property.status]||{color:"#64748B",bg:"#F1F5F9"};
   const upP=(k,v)=>onUpdate(property.id,"propertyInfo",{...property.propertyInfo,[k]:v});
-  // Auto-fill property details from NJ's free public tax records (block & lot,
-  // year built, lot size, assessed value, annual tax). Beds/baths aren't in NJ
-  // assessment data, so those are left for manual entry.
-  // auto=true → runs silently in the background on first view and only fills BLANK
-  // fields (never overwrites what you typed). auto=false → the button: force refresh.
-  const njAutofill=async(auto=false)=>{
-    if(njLoad)return;
-    const isNJ=(property.state||"").toUpperCase()==="NJ"||/\bNJ\b/.test(property.address||"");
-    if(auto&&(!property.address||!isNJ))return;
-    setNjLoad(true);if(!auto)setNjMsg(null);
-    const markDone=()=>onUpdate(property.id,"propertyInfo",{...(property.propertyInfo||{}),njAutoDone:true});
-    try{
-      const addr=`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`;
-      const r=await fetch(`/api/property/lookup?address=${encodeURIComponent(addr)}`);
-      const d=await r.json();
-      if(!r.ok)throw new Error(d.error||"Lookup failed");
-      if(!d.found){if(!auto)setNjMsg({ok:false,text:d.reason||"No NJ record found for this address."});markDone();return;}
-      const pi={...(property.propertyInfo||{})};
-      // In auto mode keep any value already present; the manual button overwrites.
-      const put=(k,v)=>{ if(v==null||v==="")return; if(auto&&String(pi[k]??"").trim()!=="")return; pi[k]=String(v); };
-      put("blockLot",d.blockLot);
-      put("block",d.block);
-      put("lot",d.lot);
-      put("qual",d.qualifier);
-      put("yearBuilt",d.yearBuilt);
-      put("sqft",d.sqft);
-      put("lotAcres",d.lotAcres);
-      put("assessedValue",d.assessedValue);
-      put("propClass",d.propClass);
-      if(d.pamsPin)pi.njPin=d.pamsPin;
-      if(d.sourceUrl)pi.njSourceUrl=d.sourceUrl;
-      pi.njAutoDone=true;
-      onUpdate(property.id,"propertyInfo",pi);
-      let taxNote="";
-      if(d.annualTax!=null){
-        const fin={...(property.financials||{})};
-        const items=[...(fin.holdingCostItems||[])];
-        const idx=items.findIndex(i=>(i.title||"").toLowerCase().includes("tax"));
-        const hasTax=idx>=0&&String(items[idx].amount||"").trim()!=="";
-        if(!(auto&&hasTax)){
-          const stamp={amount:String(Math.round(d.annualTax)),perYear:true,njTax:Math.round(d.annualTax),njMun:d.municipality||"",njAt:new Date().toISOString().slice(0,10)};
-          if(idx>=0)items[idx]={...items[idx],...stamp};
-          else items.push({id:Date.now(),title:"Property Taxes",auto:false,...stamp});
-          onUpdate(property.id,"financials",{...fin,holdingCostItems:items});
-          taxNote=` · taxes ${fmtD(d.annualTax)}/yr`;
-        }
-      }
-      if(!auto)setNjMsg({ok:true,text:`Filled from ${d.municipality||"NJ"} records${d.blockLot?` · ${d.blockLot}`:""}${taxNote}. Beds & baths aren't in NJ records — add them manually.`});
-    }catch(e){ if(!auto)setNjMsg({ok:false,text:e.message||"Lookup failed."}); }
-    finally{ setNjLoad(false); }
-  };
-  // Automatically import NJ records the first time a NJ property is viewed — no
-  // button press. Runs once per property (njAutoDone), non-destructive.
-  const njAutoRef=useRef(false);
-  useEffect(()=>{ njAutoRef.current=false; },[property.id]);
-  useEffect(()=>{
-    if(njAutoRef.current)return;
-    const pi=property.propertyInfo||{};
-    if(pi.njAutoDone||pi.njPin)return;              // already imported/attempted
-    const isNJ=(property.state||"").toUpperCase()==="NJ"||/\bNJ\b/.test(property.address||"");
-    if(!property.address||!isNJ)return;
-    njAutoRef.current=true;
-    njAutofill(true);
-  },[property.id,property.address,property.state,property.propertyInfo]); // eslint-disable-line react-hooks/exhaustive-deps
   const addTask=()=>onUpdate(property.id,"tasks",[...(property.tasks||[]),{id:Date.now(),text:"",status:"Not Started",assignee:""}]);
   const upTask=(tid,k,v)=>onUpdate(property.id,"tasks",property.tasks.map(t=>t.id===tid?{...t,[k]:v}:t));
   const delTask=(tid)=>onUpdate(property.id,"tasks",property.tasks.filter(t=>t.id!==tid));
@@ -3186,48 +3228,9 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                 </div>
               </div>
 
-              {/* Property details — beds/baths/sqft + NJ block & lot, auto-fillable
-                  from the state's free public tax records. */}
-              <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
-                <SectionHdr icon="📐" label="PROPERTY DETAILS"/>
-                <div style={{padding:"12px 16px 6px"}}>
-                  <button onClick={()=>njAutofill(false)} disabled={njLoad} style={{width:"100%",padding:"11px",borderRadius:T.radiusSm,background:njLoad?T.border:T.blue,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:njLoad?"default":"pointer",fontFamily:"inherit"}}>{njLoad?"Looking up NJ records…":"⬇ Refresh from NJ tax records"}</button>
-                  {njMsg&&<div style={{marginTop:8,fontSize:12,lineHeight:1.45,color:njMsg.ok?T.green:T.red}}>{njMsg.text}</div>}
-                  {pi.njSourceUrl&&<a href={pi.njSourceUrl} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:9,padding:"7px 14px",borderRadius:20,border:`1px solid ${T.blue}`,color:T.blue,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>🔗 View source record (NJParcels.com)</a>}
-                  <div style={{fontSize:11,color:T.textTert,marginTop:8}}>Free NJ Office of GIS / MOD-IV data — block &amp; lot, year built, lot size, assessed value and taxes. Beds &amp; baths aren't in state records.</div>
-                </div>
-                {[
-                  ["Beds","beds","e.g. 3"],
-                  ["Baths","baths","e.g. 2"],
-                  ["Sq Ft","sqft","—"],
-                  ["Year Built","yearBuilt","—"],
-                  ["Lot Size (acres)","lotAcres","—"],
-                  ["Block & Lot","blockLot","—"],
-                  ["Property Class","propClass","—"],
-                  ["Assessed Value","assessedValue","—"],
-                ].map(([label,key,ph])=>(
-                  <div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
-                    <span style={{fontSize:13,color:T.textSub,flexShrink:0}}>{label}</span>
-                    <input value={pi[key]||""} onChange={e=>upP(key,e.target.value)} placeholder={ph}
-                      style={{fontSize:14,fontWeight:600,color:T.text,padding:"5px 10px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,outline:"none",textAlign:"right",width:140,maxWidth:"55%"}}/>
-                  </div>
-                ))}
-                {/* Annual property taxes — same value that flows into the Property Taxes
-                    line in Holding Costs (one source of truth). Editing here updates it there. */}
-                {(()=>{
-                  const items=property.financials?.holdingCostItems||[];
-                  const taxItem=items.find(i=>(i.title||"").toLowerCase().includes("tax"));
-                  const annual=taxItem?(taxItem.perYear?taxItem.amount:String(Math.round(n(taxItem.amount)*12))):"";
-                  const setTax=(v)=>{const fin={...(property.financials||{})};const arr=[...(fin.holdingCostItems||[])];const idx=arr.findIndex(i=>(i.title||"").toLowerCase().includes("tax"));if(idx>=0)arr[idx]={...arr[idx],amount:v,perYear:true};else arr.push({id:Date.now(),title:"Property Taxes",amount:v,perYear:true,auto:false});onUpdate(property.id,"financials",{...fin,holdingCostItems:arr});};
-                  return(
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
-                      <span style={{fontSize:13,color:T.textSub,flexShrink:0}}>Annual Taxes <span style={{fontSize:10.5,color:T.textTert}}>· to Holding Costs</span></span>
-                      <input value={annual} onChange={e=>setTax(e.target.value.replace(/[^\d.]/g,""))} placeholder="—"
-                        style={{fontSize:14,fontWeight:600,color:T.text,padding:"5px 10px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,outline:"none",textAlign:"right",width:140,maxWidth:"55%"}}/>
-                    </div>
-                  );
-                })()}
-              </div>
+              {/* Property details — beds/baths/sqft + NJ block & lot, auto-imported
+                  from the state's free public tax records (collapsed by default). */}
+              <NJDetailsCard entity={property} onUpdate={onUpdate}/>
 
               {/* Purchase Date — one date: the scheduled close while under contract,
                   updated to the real close date once it happens. */}
@@ -3623,6 +3626,10 @@ function LeadDetail({lead,onUpdate}){
                 <a href={zillowUrl} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:6,padding:"7px 16px",borderRadius:20,border:`1px solid ${T.blue}`,color:T.blue,fontSize:13,fontWeight:600,textDecoration:"none"}}>↗ Zillow</a>
               </div>
             </div>
+
+            {/* Property details — auto-imported from NJ tax records (this is where
+                leads are underwritten, so the pull matters most here). */}
+            <NJDetailsCard entity={lead} onUpdate={onUpdate}/>
 
             {/* Purchase Date — single date (scheduled close, then real close). */}
             <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>

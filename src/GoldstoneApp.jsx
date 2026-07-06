@@ -3781,9 +3781,9 @@ function AddTaskInline({onAdd,placeholder}){
 // sets who's responsible — it does NOT mark the task as "delegated by me".
 function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
   const[propId,setPropId]=useState(initialPropId||(properties[0]?.id||""));
-  const[rows,setRows]=useState([{text:"",assignee:""}]);
-  const setRow=(i,k,v)=>setRows(rs=>rs.map((r,j)=>j===i?{...r,[k]:v}:r));
-  const addRow=()=>setRows(rs=>[...rs,{text:"",assignee:""}]);
+  const[rows,setRows]=useState([{text:"",assignee:"",delegate:""}]);
+  const setRow=(i,k,v)=>setRows(rs=>rs.map((r,j)=>j===i?{...r,[k]:v,...(k==="assignee"&&v===r.delegate?{delegate:""}:{})}:r));
+  const addRow=()=>setRows(rs=>[...rs,{text:"",assignee:"",delegate:""}]);
   const removeRow=(i)=>setRows(rs=>rs.length>1?rs.filter((_,j)=>j!==i):rs);
   const valid=propId&&rows.some(r=>r.text.trim());
   const save=()=>{ if(!valid)return; onAdd(propId,rows); onClose(); };
@@ -3805,16 +3805,29 @@ function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
             </select>
           </div>
           <label style={lbl}>Tasks</label>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
             {rows.map((r,i)=>(
-              <div key={i} style={{display:"flex",gap:8,alignItems:"center"}}>
-                <input autoFocus={i===0} value={r.text} onChange={e=>setRow(i,"text",e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&r.text.trim()&&i===rows.length-1)addRow();}} placeholder={`Task ${i+1}…`}
-                  style={{...inp,flex:1}}/>
-                <select value={r.assignee} onChange={e=>setRow(i,"assignee",e.target.value)} style={{...inp,width:130,flexShrink:0,color:r.assignee?T.text:T.textTert,fontSize:13,padding:"10px 8px"}}>
-                  <option value="">Unassigned</option>
-                  {(teamMembers||[]).map(m=><option key={m} value={m}>{m}</option>)}
-                </select>
-                {rows.length>1&&<button onClick={()=>removeRow(i)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0,padding:"2px 4px"}}>×</button>}
+              <div key={i} style={{display:"flex",flexDirection:"column",gap:8,padding:"10px 12px",background:T.bg,borderRadius:T.radiusSm,border:`1px solid ${T.border}`}}>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <input autoFocus={i===0} value={r.text} onChange={e=>setRow(i,"text",e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&r.text.trim()&&i===rows.length-1)addRow();}} placeholder={`Task ${i+1}…`} style={{...inp,flex:1}}/>
+                  {rows.length>1&&<button onClick={()=>removeRow(i)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0,padding:"2px 4px"}}>×</button>}
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:3}}>Assigned to</div>
+                    <select value={r.assignee} onChange={e=>setRow(i,"assignee",e.target.value)} style={{...inp,background:"#fff",color:r.assignee?T.text:T.textTert,fontSize:13,padding:"9px 8px"}}>
+                      <option value="">Unassigned</option>
+                      {(teamMembers||[]).map(m=><option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:3}}>Delegate to</div>
+                    <select value={r.delegate} disabled={!r.assignee} onChange={e=>setRow(i,"delegate",e.target.value)} style={{...inp,background:r.assignee?"#fff":T.bg,color:r.delegate?T.text:T.textTert,fontSize:13,padding:"9px 8px",opacity:r.assignee?1:0.6}}>
+                      <option value="">{r.assignee?"— none —":"assign first"}</option>
+                      {(teamMembers||[]).filter(m=>m!==r.assignee).map(m=><option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -4305,9 +4318,12 @@ function TasksPage({onNavigate}){
   // Bulk-add tasks to any property. Assigning here just sets who's responsible — it
   // does NOT set assignedBy, so these don't show up as "delegated by me".
   function addTasksBulk(propId,rows){
-    const clean=(rows||[]).map(r=>({text:(r.text||"").trim(),assignee:r.assignee||""})).filter(r=>r.text);
+    const clean=(rows||[]).map(r=>({text:(r.text||"").trim(),assignee:r.assignee||"",delegate:r.delegate||""})).filter(r=>r.text);
     if(!propId||!clean.length)return;
-    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),...clean.map((r,i)=>({id:Date.now()+i,text:r.text,status:"Not Started",assignee:r.assignee,cat:"Custom"}))]}));
+    // NOTE: the <select> hands back a STRING id, property ids are numbers — coerce
+    // both so the task lands on the right property instead of being dropped.
+    setSharedProps(prev=>prev.map(p=>String(p.id)!==String(propId)?p:{...p,tasks:[...(p.tasks||[]),...clean.map((r,i)=>({id:Date.now()+i,text:r.text,status:"Not Started",assignee:r.assignee,delegate:(r.delegate&&r.delegate!==r.assignee)?r.delegate:"",cat:"Custom"}))]}));
+    clean.forEach(r=>{const who=[...new Set([r.assignee,r.delegate].filter(n=>n&&n!==CURRENT_USER))];if(who.length)notify(who,{title:"New task for you",body:`${CURRENT_USER}: ${r.text}`,tag:`newtask-${Date.now()}-${Math.round(Math.random()*1e5)}`});});
   }
 
   // On my plate = I'm the delegate, or I'm the owner and it isn't delegated away.

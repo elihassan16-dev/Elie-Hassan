@@ -8887,7 +8887,7 @@ function EmailPage({isMobile}){
     if(!replyDraft||!msgs?.length)return;const last=msgs[msgs.length-1];
     const body=`<div>${mailEsc(replyDraft.text).replace(/\n/g,"<br>")}</div>`;
     setSending(true);
-    try{await mail.reply(last.id,body,replyDraft.all);setReplyDraft(null);
+    try{await mail.reply(last.id,body,replyDraft.all,replyDraft.cc||"");setReplyDraft(null);
       const m=await mail.getConversation(sel.key);setMsgs(m);setRefreshKey(k=>k+1);
     }catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
     setSending(false);
@@ -9025,9 +9025,10 @@ function EmailPage({isMobile}){
               {/* Reply bar */}
               <div style={{borderTop:`1px solid ${T.border}`,background:T.card,padding:isMobile?"10px 12px":"12px 18px",flexShrink:0}}>
                 {!replyDraft
-                  ? <div style={{display:"flex",gap:8}}>{btn("↩ Reply",true,()=>setReplyDraft({all:false,text:""}),{padding:"9px 16px"})}{btn("↩ Reply all",false,()=>setReplyDraft({all:true,text:""}),{padding:"9px 16px"})}</div>
+                  ? <div style={{display:"flex",gap:8}}>{btn("↩ Reply",true,()=>setReplyDraft({all:false,text:"",cc:""}),{padding:"9px 16px"})}{btn("↩ Reply all",false,()=>setReplyDraft({all:true,text:"",cc:""}),{padding:"9px 16px"})}</div>
                   : <div>
                       <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{replyDraft.all?"Reply all":"Reply"} to {mailAddr(msgs?.[msgs.length-1]?.from)}</div>
+                      <input value={replyDraft.cc} onChange={e=>setReplyDraft(d=>({...d,cc:e.target.value}))} placeholder="Cc (comma-separated) — add people to this reply" style={{...iS,marginBottom:8}}/>
                       <textarea autoFocus value={replyDraft.text} onChange={e=>setReplyDraft(d=>({...d,text:e.target.value}))} placeholder="Write your reply…" style={{...iS,minHeight:90,resize:"vertical",lineHeight:1.5}}/>
                       <div style={{display:"flex",gap:8,marginTop:8,justifyContent:"flex-end"}}>
                         {btn("Cancel",false,()=>setReplyDraft(null))}
@@ -9126,9 +9127,26 @@ function PropertyEmails({property,onUpdate,isMobile}){
   const[viewer,setViewer]=useState(null);      // pinned email being opened
   const[viewMsgs,setViewMsgs]=useState(null);   // resolved thread messages (or [] if not in mailbox)
   const[vExpanded,setVExpanded]=useState({});   // message id -> open (latest opens by default)
-  const[vReply,setVReply]=useState(null);       // {all:boolean, text:string}
+  const[vReply,setVReply]=useState(null);       // {all, text, cc}
   const[vSending,setVSending]=useState(false);
+  const[unreadMap,setUnreadMap]=useState({});   // pin id -> unread message count
   const vScrollRef=useRef(null);
+  const pinKey=pinned.map(p=>p.id).join(",");
+
+  // Show an unread dot on each pinned chain that has unread messages in my mailbox.
+  useEffect(()=>{
+    if(!mail.signedIn||pinned.length===0)return;let alive=true;
+    (async()=>{
+      for(const p of pinned){
+        let convId=p.conversationId;
+        if(p.internetMessageId){try{const hit=await mail.findByInternetId(p.internetMessageId);if(hit)convId=hit.conversationId;}catch{/* keep stored */}}
+        const n=await mail.conversationUnread(convId);
+        if(!alive)return;
+        setUnreadMap(m=>({...m,[p.id]:n}));
+      }
+    })();
+    return ()=>{alive=false;};
+  },[mail.signedIn,pinKey,viewer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const savePinned=(next)=>{onUpdate(property.id,"pinnedEmails",next);};
   const pinChain=(c)=>{const m=c.latest;if(pinned.some(p=>p.internetMessageId&&p.internetMessageId===m.internetMessageId))return;
@@ -9154,7 +9172,11 @@ function PropertyEmails({property,onUpdate,isMobile}){
       const hit=await mail.findByInternetId(viewer.internetMessageId);
       if(hit)convId=hit.conversationId;else if(viewer.conversationId)convId=viewer.conversationId;
       if(!convId){if(alive)setViewMsgs([]);return;}
-      try{const m=await mail.getConversation(convId);if(alive){setViewMsgs(m);setVExpanded(m.length?{[m[m.length-1].id]:true}:{});}}catch{if(alive)setViewMsgs([]);}
+      try{const m=await mail.getConversation(convId);if(alive){setViewMsgs(m);setVExpanded(m.length?{[m[m.length-1].id]:true}:{});}
+        // Opening the chain marks its unread messages read, clearing the dot.
+        const unread=m.filter(x=>x.isRead===false);
+        if(unread.length){for(const u of unread){await mail.markRead(u.id);}if(alive)setUnreadMap(mm=>({...mm,[viewer.id]:0}));}
+      }catch{if(alive)setViewMsgs([]);}
     })();
     return ()=>{alive=false;};
   },[viewer]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -9172,7 +9194,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
     if(!vReply||!viewMsgs?.length)return;const last=viewMsgs[viewMsgs.length-1];
     const body=`<div>${mailEsc(vReply.text).replace(/\n/g,"<br>")}</div>`;
     setVSending(true);
-    try{ await mail.reply(last.id,body,vReply.all); setVReply(null);
+    try{ await mail.reply(last.id,body,vReply.all,vReply.cc||""); setVReply(null);
       const convId=last.conversationId||viewer.conversationId;
       if(convId){const m=await mail.getConversation(convId);setViewMsgs(m);setVExpanded(m.length?{[m[m.length-1].id]:true}:{});}
     }catch(e){ alert("Couldn't send: "+(e.message||"unknown error")); }
@@ -9209,10 +9231,11 @@ function PropertyEmails({property,onUpdate,isMobile}){
       {pinned.length===0
         ? <div style={{padding:"24px 16px",textAlign:"center",color:T.textTert,fontSize:13,background:T.card,borderRadius:T.radius,border:`1px dashed ${T.border}`}}>No emails pinned yet. Pin the chains that relate to this property — attorney, septic, title, inspection — so they live right here.</div>
         : <div style={{background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden"}}>
-            {pinned.map((p,i)=>(
-              <div key={p.id} style={{display:"flex",gap:10,alignItems:"center",padding:"12px 16px",borderTop:i===0?"none":`1px solid ${T.border}`}}>
+            {pinned.map((p,i)=>{const unread=(unreadMap[p.id]||0)>0;return(
+              <div key={p.id} style={{display:"flex",gap:10,alignItems:"center",padding:"12px 16px",borderTop:i===0?"none":`1px solid ${T.border}`,background:unread?"#F5F9FF":"transparent"}}>
+                <div style={{width:8,flexShrink:0,alignSelf:"flex-start",paddingTop:5}}>{unread&&<span title={`${unreadMap[p.id]} unread`} style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
                 <div onClick={()=>setViewer(p)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
-                  <div style={{fontSize:13.5,fontWeight:700,color:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
+                  <div style={{fontSize:13.5,fontWeight:unread?800:700,color:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
                   <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.from} · {mailWhen(p.date)}</div>
                   {(p.label||p.preview)&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,minWidth:0}}>
                     {p.label&&<MailLabelChip lab={p.label} small/>}
@@ -9223,7 +9246,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
                 <button onClick={()=>setLabelPin(p)} title="Label / link this chain" style={{background:p.label?T.goldLight:"none",border:p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:"5px 8px"}}>🏷</button>
                 <button onClick={()=>unpin(p.id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
               </div>
-            ))}
+            );})}
           </div>}
       {labelPin&&<MailLabelPopover current={labelPin.label} tasks={propTasks} centered onClose={()=>setLabelPin(null)} onSet={v=>setPinLabel(labelPin.id,v)}/>}
 
@@ -9298,11 +9321,12 @@ function PropertyEmails({property,onUpdate,isMobile}){
               <div style={{borderTop:`1px solid ${T.border}`,background:T.card,padding:isMobile?"10px 12px max(10px,env(safe-area-inset-bottom))":"12px 18px",flexShrink:0}}>
                 {!vReply
                   ? <div style={{display:"flex",gap:8}}>
-                      <button onClick={()=>setVReply({all:false,text:""})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply</button>
-                      <button onClick={()=>setVReply({all:true,text:""})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply all</button>
+                      <button onClick={()=>setVReply({all:false,text:"",cc:""})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply</button>
+                      <button onClick={()=>setVReply({all:true,text:"",cc:""})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply all</button>
                     </div>
                   : <div>
                       <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{vReply.all?"Reply all":"Reply"} to {mailAddr(viewMsgs[viewMsgs.length-1]?.from)}</div>
+                      <input value={vReply.cc} onChange={e=>setVReply(d=>({...d,cc:e.target.value}))} placeholder="Cc (comma-separated) — add people to this reply" style={{width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>
                       <textarea autoFocus value={vReply.text} onChange={e=>setVReply(d=>({...d,text:e.target.value}))} placeholder="Write your reply…" style={{width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",minHeight:90,resize:"vertical",lineHeight:1.5}}/>
                       <div style={{display:"flex",gap:8,marginTop:8,justifyContent:"flex-end"}}>
                         <button onClick={()=>setVReply(null)} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>

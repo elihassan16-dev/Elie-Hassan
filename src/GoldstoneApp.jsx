@@ -3011,7 +3011,10 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           ))}
         </div>
       </div>
-      <div style={{flex:1,overflowY:"auto"}}>
+      {/* key by property id so switching properties re-mounts the tab content with
+          the new property's data (no stale QuickBooks project, financials, etc.) —
+          the selected tab itself is kept because `tab` lives on PropDetail. */}
+      <div key={property.id} style={{flex:1,overflowY:"auto"}}>
         {tab==="Financial Overview"&&<FinOverview property={property} onUpdate={onUpdate}/>}
         {showInfo&&(()=>{
           const pi=property.propertyInfo;

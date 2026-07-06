@@ -4203,7 +4203,11 @@ function TasksPage({onNavigate}){
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
   const { isAdmin } = useAuth();
   const isMobile=useIsMobile();
-  const[views,setViews]=useState(new Set(["my"]));
+  // Which task groups are checked. Defaults to "My Tasks" + "Delegated by Me",
+  // and remembers whatever the user last left checked (per device) so it doesn't
+  // reset on the next login. Automations is a separate toggle, kept out of the pref.
+  const[views,setViews]=useState(()=>{const saved=loadPref("gs_taskViews",["my","assigned"]);return new Set(Array.isArray(saved)&&saved.length?saved:["my","assigned"]);});
+  useEffect(()=>{savePref("gs_taskViews",[...views].filter(v=>v!=="automations"));},[views]);
   const[filterMember,setFilterMember]=useState("");
   useEffect(()=>{ if(!filterMember && TEAM_MEMBERS.length) setFilterMember(TEAM_MEMBERS[0]); },[TEAM_MEMBERS,filterMember]);
   const[confirmDeleteProp,setConfirmDeleteProp]=useState(null);

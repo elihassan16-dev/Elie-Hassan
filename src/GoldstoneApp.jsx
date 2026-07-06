@@ -3188,6 +3188,21 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                       style={{fontSize:14,fontWeight:600,color:T.text,padding:"5px 10px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,outline:"none",textAlign:"right",width:140,maxWidth:"55%"}}/>
                   </div>
                 ))}
+                {/* Annual property taxes — same value that flows into the Property Taxes
+                    line in Holding Costs (one source of truth). Editing here updates it there. */}
+                {(()=>{
+                  const items=property.financials?.holdingCostItems||[];
+                  const taxItem=items.find(i=>(i.title||"").toLowerCase().includes("tax"));
+                  const annual=taxItem?(taxItem.perYear?taxItem.amount:String(Math.round(n(taxItem.amount)*12))):"";
+                  const setTax=(v)=>{const fin={...(property.financials||{})};const arr=[...(fin.holdingCostItems||[])];const idx=arr.findIndex(i=>(i.title||"").toLowerCase().includes("tax"));if(idx>=0)arr[idx]={...arr[idx],amount:v,perYear:true};else arr.push({id:Date.now(),title:"Property Taxes",amount:v,perYear:true,auto:false});onUpdate(property.id,"financials",{...fin,holdingCostItems:arr});};
+                  return(
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
+                      <span style={{fontSize:13,color:T.textSub,flexShrink:0}}>Annual Taxes <span style={{fontSize:10.5,color:T.textTert}}>· to Holding Costs</span></span>
+                      <input value={annual} onChange={e=>setTax(e.target.value.replace(/[^\d.]/g,""))} placeholder="—"
+                        style={{fontSize:14,fontWeight:600,color:T.text,padding:"5px 10px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,outline:"none",textAlign:"right",width:140,maxWidth:"55%"}}/>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Purchase Date — one date: the scheduled close while under contract,

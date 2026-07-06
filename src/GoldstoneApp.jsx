@@ -60,62 +60,97 @@ const SC={"Under Contract":{color:"#9333EA",bg:"#F3E8FF"},"Purchased":{color:"#2
 const DEFAULT_ORDER=["Under Contract","In Closing","Purchased","Under Construction","On Market","Rental","New Leads","Sold"];
 
 // ── Status-change gate ──────────────────────────────────────────────────────
-// Moving a property FORWARD into one of these statuses requires the checklist to
-// be completed first — the status won't change until every item is checked. This
-// enforces the due-diligence steps for each stage of a flip. Backward moves (e.g.
-// correcting a mis-set status) are not gated.
+// Moving a property FORWARD into a status runs its requirement list first — the
+// status won't change until every requirement is satisfied. A requirement is one
+// of three kinds:
+//   • check   — a box the user must tick (e.g. "P&S agreement signed")
+//   • field   — a real property field that must be filled in; the actual input is
+//               shown in the gate and the value is written straight to the property
+//   • contact — a name (+ optional phone/email) that must be entered
+// The lists are editable by the admin in Settings → Status Requirements and shared
+// live to the whole team. Backward corrections are never gated.
 const STATUS_FLOW=["New Leads","Under Contract","Purchased","Under Construction","On Market","In Closing","Sold"];
-const STATUS_GATES={
+const GATE_STATUSES=["Under Contract","Purchased","Under Construction","On Market","In Closing","Sold","Rental"];
+
+// Property fields a "field" requirement can demand. top/key say where the value
+// lives on the property object so the gate can read the current value and save it.
+const GATE_FIELDS={
+  purchaseDate:{label:"Purchase Date",kind:"date",top:"financials",key:"purchaseDate"},
+  sellingDate:{label:"Selling Date",kind:"date",top:"financials",key:"sellingDate"},
+  lockboxCode:{label:"Lockbox Code",kind:"text",top:"propertyInfo",key:"lockboxCode"},
+  mortgageCommitment:{label:"Mortgage Commitment Date",kind:"date",top:"propertyInfo",key:"mortgageCommitment"},
+  inspectionDue:{label:"Inspection Due Date",kind:"date",top:"propertyInfo",key:"inspectionDue"},
+};
+const GATE_FIELD_KEYS=Object.keys(GATE_FIELDS);
+const gateFieldVal=(p,fk)=>{const s=GATE_FIELDS[fk];return s?String((p?.[s.top]||{})[s.key]||""):"";};
+
+const _ck=(id,label)=>({id,type:"check",label});
+const _fd=(id,field)=>({id,type:"field",field,label:GATE_FIELDS[field]?.label||field});
+const _ct=(id,label)=>({id,type:"contact",label});
+
+// Sensible starting requirements per status (admin can change these in Settings).
+const DEFAULT_GATE_REQS={
   "Under Contract":[
-    "Purchase & Sale agreement signed by all parties",
-    "Earnest money deposit sent",
-    "Purchase price & key terms confirmed",
-    "Target purchase (closing) date entered on the property",
-    "Inspection / due-diligence period noted",
+    _fd("uc_pd","purchaseDate"),
+    _ck("uc_ps","Purchase & Sale agreement signed by all parties"),
+    _ck("uc_em","Earnest money deposit sent"),
+    _ck("uc_pr","Purchase price & key terms confirmed"),
+    _ck("uc_insp","Inspection / due-diligence period noted"),
   ],
   "Purchased":[
-    "Closing completed & deed recorded",
-    "Actual purchase date entered on the property",
-    "Hard money / LOC funding confirmed & received",
-    "Title insurance / owner's policy received",
-    "Utilities & insurance transferred to us",
+    _fd("pu_pd","purchaseDate"),
+    _ck("pu_close","Closing completed & deed recorded"),
+    _ck("pu_fund","Hard money / LOC funding confirmed & received"),
+    _ck("pu_title","Title insurance / owner's policy received"),
+    _ck("pu_util","Utilities & insurance transferred to us"),
   ],
   "Under Construction":[
-    "Scope of work finalized",
-    "Contractor hired & contract signed",
-    "Construction budget confirmed",
-    "Draw schedule set",
-    "Required permits pulled",
+    _ck("cn_scope","Scope of work finalized"),
+    _ct("cn_gc","General contractor"),
+    _ck("cn_budget","Construction budget confirmed"),
+    _ck("cn_draw","Draw schedule set"),
+    _ck("cn_permit","Required permits pulled"),
   ],
   "On Market":[
-    "Renovation complete & final walkthrough done",
-    "Listing agent engaged",
-    "List price set",
-    "Photos taken & listing is live",
+    _ck("om_reno","Renovation complete & final walkthrough done"),
+    _ct("om_agent","Listing agent"),
+    _ck("om_price","List price set"),
+    _ck("om_live","Photos taken & listing is live"),
   ],
   "In Closing":[
-    "Buyer offer accepted & contract signed",
-    "Buyer earnest money received",
-    "Selling price confirmed",
-    "Selling / scheduled closing date entered on the property",
-    "Attorney review complete",
+    _fd("ic_sd","sellingDate"),
+    _ck("ic_offer","Buyer offer accepted & contract signed"),
+    _ct("ic_buyer","Buyer's agent"),
+    _ck("ic_em","Buyer earnest money received"),
+    _ck("ic_atty","Attorney review complete"),
   ],
   "Sold":[
-    "Sale closed & proceeds received",
-    "Final settlement statement (HUD / ALTA) received",
-    "Hard money / LOC paid off",
-    "Actual selling date entered on the property",
+    _fd("so_sd","sellingDate"),
+    _ck("so_close","Sale closed & proceeds received"),
+    _ck("so_hud","Final settlement statement (HUD / ALTA) received"),
+    _ck("so_payoff","Hard money / LOC paid off"),
   ],
   "Rental":[
-    "Lease signed",
-    "Tenant moved in & security deposit received",
-    "Hold / refinance financing in place",
+    _ck("rn_lease","Lease signed"),
+    _ct("rn_tenant","Tenant"),
+    _ck("rn_fin","Hold / refinance financing in place"),
   ],
 };
-// Gate only when advancing (or entering the Rental side-branch), never on a
-// backward correction.
-function statusNeedsGate(from,to){
-  if(!STATUS_GATES[to])return false;
+// The effective requirement config: the admin-saved one, else the defaults.
+function gateConfig(appSettings){
+  const row=(appSettings||[]).find(r=>r&&r.id==="status_gates");
+  const saved=row&&row.gates;
+  return saved&&typeof saved==="object"?saved:DEFAULT_GATE_REQS;
+}
+// Requirements for a specific target status (a status with no key falls back to
+// the default list; an explicit empty list means "no gate").
+function gateReqsFor(appSettings,status){
+  const cfg=gateConfig(appSettings);
+  const r=cfg[status];
+  return Array.isArray(r)?r:(DEFAULT_GATE_REQS[status]||[]);
+}
+// Gate only when advancing (or entering the Rental side-branch), never backward.
+function statusIsForward(from,to){
   if(from===to)return false;
   if(to==="Rental")return true;
   const fi=STATUS_FLOW.indexOf(from),ti=STATUS_FLOW.indexOf(to);
@@ -446,16 +481,18 @@ const ADMIN_ONLY_KEYS=new Set(["financials"]);
 function Card({children,style={}}){return <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",...style}}>{children}</div>;}
 
 // ─── StatusPicker — iOS-style pill that opens a colored dropdown list ────────
-function StatusPicker({value,onChange,size="md",onGateSave}){
+function StatusPicker({value,onChange,size="md",onGateSave,property}){
+  const{appSettings}=useData()||{};
   const[open,setOpen]=useState(false);
-  const[gate,setGate]=useState(null); // {to} — the target status awaiting its checklist
+  const[gate,setGate]=useState(null); // {to,reqs} — target status awaiting its checklist
   const sc=SC[value]||{color:T.gold,bg:T.goldLight};
   const pillFs=size==="sm"?11:13;
   const pillPad=size==="sm"?"3px 10px":"6px 14px";
   const pick=(s)=>{
     setOpen(false);
     if(s===value)return;
-    if(statusNeedsGate(value,s)){ setGate({to:s}); return; }
+    const reqs=statusIsForward(value,s)?gateReqsFor(appSettings,s):[];
+    if(reqs.length){ setGate({to:s,reqs}); return; }
     onChange(s);
   };
   return(
@@ -481,24 +518,49 @@ function StatusPicker({value,onChange,size="md",onGateSave}){
           })}
         </div>
       </>}
-      {gate&&<StatusGateModal from={value} to={gate.to} items={STATUS_GATES[gate.to]||[]}
+      {gate&&<StatusGateModal from={value} to={gate.to} reqs={gate.reqs} property={property}
         onCancel={()=>setGate(null)}
-        onConfirm={(answers,note)=>{ onChange(gate.to); onGateSave&&onGateSave(gate.to,answers,note); setGate(null); }}/>}
+        onConfirm={(answers,note,fieldValues)=>{ onChange(gate.to); onGateSave&&onGateSave(gate.to,answers,note,fieldValues); setGate(null); }}/>}
     </div>
   );
 }
 
-// Checklist a property must pass before it can advance to a new status. Every item
-// must be checked; the status won't change until the user confirms.
-function StatusGateModal({from,to,items,onCancel,onConfirm}){
-  const[checked,setChecked]=useState(()=>items.map(()=>false));
+// Requirements a property must satisfy before it can advance to a new status.
+// Handles three requirement kinds — check / field / contact — and only lets the
+// user confirm once every one is satisfied. Field values are written back to the
+// property via the fieldValues map returned to onConfirm.
+function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
+  const[state,setState]=useState(()=>{
+    const s={};
+    reqs.forEach(r=>{
+      if(r.type==="field")s[r.id]=gateFieldVal(property,r.field);
+      else if(r.type==="contact")s[r.id]={name:"",phone:"",email:""};
+      else s[r.id]=false;
+    });
+    return s;
+  });
   const[note,setNote]=useState("");
-  const allDone=checked.length>0&&checked.every(Boolean);
-  const toggle=(i)=>setChecked(c=>c.map((v,j)=>j===i?!v:v));
+  const setV=(id,v)=>setState(st=>({...st,[id]:v}));
+  const isDone=(r)=>{
+    const v=state[r.id];
+    if(r.type==="field")return String(v||"").trim()!=="";
+    if(r.type==="contact")return !!(v&&String(v.name||"").trim());
+    return !!v;
+  };
+  const doneCount=reqs.filter(isDone).length;
+  const allDone=reqs.length>0&&reqs.every(isDone);
   const sc=SC[to]||{color:T.gold,bg:T.goldLight};
+  const dInp={fontSize:13,fontWeight:600,color:T.text,padding:"7px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:"#fff",outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
+  const confirm=()=>{
+    if(!allDone)return;
+    const fieldValues={};
+    reqs.forEach(r=>{ if(r.type==="field")fieldValues[r.field]=String(state[r.id]||"").trim(); });
+    const answers=reqs.map(r=>({label:r.label,type:r.type,field:r.field||null,value:r.type==="check"?true:state[r.id]}));
+    onConfirm(answers,note.trim(),fieldValues);
+  };
   return(
     <div onClick={onCancel} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:460,maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.28)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:480,maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.28)"}}>
         <div style={{padding:"16px 18px",borderBottom:`1px solid ${T.border}`,background:T.goldLight,borderRadius:"20px 20px 0 0"}}>
           <div style={{fontSize:11,fontWeight:700,color:T.gold,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:4}}>Confirm status change</div>
           <div style={{fontSize:15,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -506,16 +568,48 @@ function StatusGateModal({from,to,items,onCancel,onConfirm}){
             <span style={{color:T.textTert}}>→</span>
             <span style={{background:sc.bg,color:sc.color,padding:"2px 10px",borderRadius:20,fontSize:13}}>{to}</span>
           </div>
-          <div style={{fontSize:12,color:T.textSub,marginTop:6}}>Complete this checklist to move the property to <b>{to}</b>.</div>
+          <div style={{fontSize:12,color:T.textSub,marginTop:6}}>Complete every requirement to move the property to <b>{to}</b>.</div>
         </div>
         <div style={{padding:"12px 16px",overflowY:"auto"}}>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {items.map((it,i)=>(
-              <label key={i} onClick={()=>toggle(i)} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"11px 12px",borderRadius:T.radiusSm,border:`1px solid ${checked[i]?T.gold:T.border}`,background:checked[i]?T.goldLight:T.bg,cursor:"pointer"}}>
-                <span style={{flexShrink:0,width:20,height:20,borderRadius:6,border:`2px solid ${checked[i]?T.gold:T.textTert}`,background:checked[i]?T.gold:"#fff",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,lineHeight:1,marginTop:1}}>{checked[i]?"✓":""}</span>
-                <span style={{fontSize:13.5,color:T.text,lineHeight:1.4}}>{it}</span>
-              </label>
-            ))}
+            {reqs.map(r=>{
+              const done=isDone(r);
+              if(r.type==="check")return(
+                <label key={r.id} onClick={()=>setV(r.id,!state[r.id])} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"11px 12px",borderRadius:T.radiusSm,border:`1px solid ${done?T.gold:T.border}`,background:done?T.goldLight:T.bg,cursor:"pointer"}}>
+                  <span style={{flexShrink:0,width:20,height:20,borderRadius:6,border:`2px solid ${done?T.gold:T.textTert}`,background:done?T.gold:"#fff",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,lineHeight:1,marginTop:1}}>{done?"✓":""}</span>
+                  <span style={{fontSize:13.5,color:T.text,lineHeight:1.4}}>{r.label}</span>
+                </label>
+              );
+              if(r.type==="field"){
+                const fk=GATE_FIELDS[r.field]||{kind:"text"};
+                return(
+                  <div key={r.id} style={{padding:"11px 12px",borderRadius:T.radiusSm,border:`1px solid ${done?T.gold:T.border}`,background:done?T.goldLight:T.bg}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:7}}>
+                      <span style={{fontSize:13.5,fontWeight:600,color:T.text}}>{r.label}<span style={{color:T.red,marginLeft:3}}>*</span></span>
+                      {done&&<span style={{fontSize:11,color:"#1a8f43",fontWeight:700}}>✓ set</span>}
+                    </div>
+                    <input type={fk.kind==="date"?"date":"text"} value={state[r.id]||""} onChange={e=>setV(r.id,e.target.value)} placeholder={fk.kind==="date"?"":`Enter ${r.label.toLowerCase()}…`} style={{...dInp,width:"100%"}}/>
+                  </div>
+                );
+              }
+              // contact
+              const c=state[r.id]||{};
+              return(
+                <div key={r.id} style={{padding:"11px 12px",borderRadius:T.radiusSm,border:`1px solid ${done?T.gold:T.border}`,background:done?T.goldLight:T.bg}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:7}}>
+                    <span style={{fontSize:13.5,fontWeight:600,color:T.text}}>{r.label}<span style={{color:T.red,marginLeft:3}}>*</span></span>
+                    {done&&<span style={{fontSize:11,color:"#1a8f43",fontWeight:700}}>✓</span>}
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    <input value={c.name||""} onChange={e=>setV(r.id,{...c,name:e.target.value})} placeholder="Name *" style={{...dInp,width:"100%"}}/>
+                    <div style={{display:"flex",gap:6}}>
+                      <input value={c.phone||""} onChange={e=>setV(r.id,{...c,phone:e.target.value})} placeholder="Phone" style={{...dInp,flex:1,minWidth:0,fontWeight:400}}/>
+                      <input value={c.email||""} onChange={e=>setV(r.id,{...c,email:e.target.value})} placeholder="Email" style={{...dInp,flex:1,minWidth:0,fontWeight:400}}/>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
           <div style={{marginTop:12}}>
             <div style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:5}}>Notes (optional)</div>
@@ -523,10 +617,10 @@ function StatusGateModal({from,to,items,onCancel,onConfirm}){
           </div>
         </div>
         <div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{fontSize:11.5,color:allDone?"#1a8f43":T.textTert,fontWeight:600}}>{checked.filter(Boolean).length}/{items.length} done</div>
+          <div style={{fontSize:11.5,color:allDone?"#1a8f43":T.textTert,fontWeight:600}}>{doneCount}/{reqs.length} done</div>
           <div style={{display:"flex",gap:10}}>
             <button onClick={onCancel} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
-            <button onClick={()=>allDone&&onConfirm(items.map((it,i)=>({item:it,done:checked[i]})),note.trim())} disabled={!allDone}
+            <button onClick={confirm} disabled={!allDone}
               style={{padding:"10px 20px",borderRadius:T.radiusSm,background:allDone?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,cursor:allDone?"pointer":"default",fontFamily:"inherit",fontSize:14}}>Change to {to}</button>
           </div>
         </div>
@@ -2898,8 +2992,13 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
         </div>
         <div style={{marginBottom:14}}>
-          <StatusPicker value={property.status} onChange={v=>onUpdate(property.id,"status",v)}
-            onGateSave={(to,answers,note)=>onUpdate(property.id,"statusGates",{...(property.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}})}/>
+          <StatusPicker value={property.status} property={property} onChange={v=>onUpdate(property.id,"status",v)}
+            onGateSave={(to,answers,note,fieldValues)=>{
+              const groups={};
+              Object.entries(fieldValues||{}).forEach(([fk,v])=>{const s=GATE_FIELDS[fk];if(!s)return;groups[s.top]=groups[s.top]||{...(property[s.top]||{})};groups[s.top][s.key]=v;});
+              Object.entries(groups).forEach(([top,val])=>onUpdate(property.id,top,val));
+              onUpdate(property.id,"statusGates",{...(property.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}});
+            }}/>
         </div>
         <div style={{display:"flex",background:T.bg,borderRadius:10,padding:3,gap:2,maxWidth:"100%",overflowX:"auto",WebkitOverflowScrolling:"touch",scrollbarWidth:"none"}}>
           {tabs.map(t=>(
@@ -3678,8 +3777,14 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 62px 62px 70px",alignItems:"center",gap:8}}>
                     <div style={{minWidth:0,overflow:"hidden",display:"flex"}}>
-                      <StatusPicker value={p.status} size="sm" onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}
-                        onGateSave={(to,answers,note)=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,statusGates:{...(x.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}}}:x))}/>
+                      <StatusPicker value={p.status} size="sm" property={p} onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}
+                        onGateSave={(to,answers,note,fieldValues)=>setSharedProps(prev=>prev.map(x=>{
+                          if(x.id!==p.id)return x;
+                          const nx={...x};
+                          Object.entries(fieldValues||{}).forEach(([fk,v])=>{const s=GATE_FIELDS[fk];if(!s)return;nx[s.top]={...(nx[s.top]||{}),[s.key]:v};});
+                          nx.statusGates={...(nx.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}};
+                          return nx;
+                        }))}/>
                     </div>
                     <span style={{textAlign:"right",fontSize:13,fontWeight:700,color:equity>0?T.gold:T.textTert,whiteSpace:"nowrap"}}>{equity>0?fmtD(equity):"—"}</span>
                     <span style={{textAlign:"right",fontSize:13,fontWeight:800,color:profit>0?T.green:profit<0?T.red:T.textTert,whiteSpace:"nowrap"}}>{profit!==0?fmtD(profit):"—"}</span>
@@ -3719,8 +3824,14 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                   <tr key={p.id} style={{cursor:"default"}} onMouseEnter={e=>e.currentTarget.style.background="#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                     <td style={{...tdS,fontWeight:500,color:T.blue,cursor:"pointer",textDecoration:"underline"}} onClick={()=>onNavigate&&onNavigate(p.id)}>{addr}</td>
                     <td style={{...tdS,textAlign:"center"}}>
-                      <StatusPicker value={p.status} size="sm" onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}
-                        onGateSave={(to,answers,note)=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,statusGates:{...(x.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}}}:x))}/>
+                      <StatusPicker value={p.status} size="sm" property={p} onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}
+                        onGateSave={(to,answers,note,fieldValues)=>setSharedProps(prev=>prev.map(x=>{
+                          if(x.id!==p.id)return x;
+                          const nx={...x};
+                          Object.entries(fieldValues||{}).forEach(([fk,v])=>{const s=GATE_FIELDS[fk];if(!s)return;nx[s.top]={...(nx[s.top]||{}),[s.key]:v};});
+                          nx.statusGates={...(nx.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}};
+                          return nx;
+                        }))}/>
                     </td>
                     <td style={{...tdS,textAlign:"right",fontWeight:600,color:equity>0?T.gold:T.textTert}}>{equity>0?fmtD(equity):"—"}</td>
                     <td style={{...tdS,textAlign:"center"}}>
@@ -5239,6 +5350,91 @@ async function gatherFolders(od,driveId,itemId,depth,acc){
     }
   }
 }
+// Settings → Status Requirements: the admin edits, per status, the list of things
+// that must be done/filled before a property can move into that status. Saved to
+// the shared app_settings config and enforced by the status-change gate.
+function StatusGatesPanel(){
+  const { appSettings, setAppSettings } = useData();
+  const { isAdmin } = useAuth();
+  const[status,setStatus]=useState(GATE_STATUSES[0]);
+  const[cfg,setCfg]=useState(()=>{
+    const base=gateConfig(appSettings),out={};
+    GATE_STATUSES.forEach(s=>{out[s]=(Array.isArray(base[s])?base[s]:(DEFAULT_GATE_REQS[s]||[])).map(r=>({...r}));});
+    return out;
+  });
+  const[dirty,setDirty]=useState(false);
+  const bdr=`1px solid ${T.border}`;
+  const reqs=cfg[status]||[];
+  const newId=()=>`r_${Date.now().toString(36)}_${Math.round(Math.random()*1e6).toString(36)}`;
+  const setReqs=(fn)=>{setCfg(c=>({...c,[status]:fn(c[status]||[])}));setDirty(true);};
+  const addReq=(type)=>setReqs(rs=>[...rs, type==="field"?{id:newId(),type:"field",field:"purchaseDate",label:GATE_FIELDS.purchaseDate.label}
+    : type==="contact"?{id:newId(),type:"contact",label:""}
+    : {id:newId(),type:"check",label:""}]);
+  const updReq=(id,patch)=>setReqs(rs=>rs.map(r=>r.id===id?{...r,...patch}:r));
+  const delReq=(id)=>setReqs(rs=>rs.filter(r=>r.id!==id));
+  const move=(id,dir)=>setReqs(rs=>{const i=rs.findIndex(r=>r.id===id),j=i+dir;if(i<0||j<0||j>=rs.length)return rs;const n=[...rs];[n[i],n[j]]=[n[j],n[i]];return n;});
+  const resetStatus=()=>{setCfg(c=>({...c,[status]:(DEFAULT_GATE_REQS[status]||[]).map(r=>({...r}))}));setDirty(true);};
+  const save=()=>{
+    const clean={};
+    Object.entries(cfg).forEach(([s,rs])=>{
+      clean[s]=(rs||[]).filter(r=>r.type==="field"?GATE_FIELDS[r.field]:String(r.label||"").trim())
+        .map(r=>r.type==="field"?{id:r.id,type:"field",field:r.field,label:GATE_FIELDS[r.field]?.label||r.field}:{id:r.id,type:r.type,label:String(r.label).trim()});
+    });
+    setAppSettings(prev=>{const others=(prev||[]).filter(x=>x&&x.id!=="status_gates");return [...others,{id:"status_gates",gates:clean}];});
+    setDirty(false);
+  };
+  const typeBadge={check:{t:"Checklist",c:T.blue},field:{t:"Required field",c:T.gold},contact:{t:"Contact",c:T.green}};
+  const sel={padding:"8px 10px",borderRadius:8,border:bdr,background:"#fff",color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"};
+  if(!isAdmin)return <div style={{fontSize:13,color:T.textSub,padding:"12px 0",lineHeight:1.6}}>Only an admin can edit status requirements. These run automatically for the whole team whenever someone moves a property into a new status.</div>;
+  return(
+    <div>
+      <div style={{fontSize:12,color:T.textSub,marginBottom:14,lineHeight:1.6}}>Pick a status, then set what must be completed before a property can move into it. A <b>Checklist</b> item is a box to tick, a <b>Required field</b> forces you to fill in a real property field (like Purchase Date), and a <b>Contact</b> requires a name (+ optional phone/email). Only forward moves are gated.</div>
+      {/* Status selector */}
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16}}>
+        {GATE_STATUSES.map(s=>{const on=s===status;const ssc=SC[s]||{color:T.gold,bg:T.goldLight};const n=(cfg[s]||[]).length;return(
+          <button key={s} onClick={()=>setStatus(s)} style={{padding:"6px 12px",borderRadius:20,border:`1.5px solid ${on?ssc.color:T.border}`,background:on?ssc.bg:"transparent",color:on?ssc.color:T.textSub,fontWeight:on?700:500,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{s}{n?` · ${n}`:""}</button>
+        );})}
+      </div>
+      {/* Requirements for the selected status */}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {reqs.length===0&&<div style={{padding:"18px 0",textAlign:"center",color:T.textTert,fontSize:13}}>No requirements — moving into <b>{status}</b> won't be gated. Add one below.</div>}
+        {reqs.map((r,i)=>{const tb=typeBadge[r.type]||typeBadge.check;return(
+          <div key={r.id} style={{padding:"11px 12px",borderRadius:T.radiusSm,border:bdr,background:T.bg}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <select value={r.type} onChange={e=>{const t=e.target.value;updReq(r.id,t==="field"?{type:"field",field:r.field||"purchaseDate",label:GATE_FIELDS[r.field||"purchaseDate"].label}:{type:t});}} style={{...sel,padding:"5px 8px",fontSize:12,fontWeight:700,color:tb.c,flexShrink:0}}>
+                <option value="check">Checklist</option>
+                <option value="field">Required field</option>
+                <option value="contact">Contact</option>
+              </select>
+              <div style={{flex:1}}/>
+              <button onClick={()=>move(r.id,-1)} disabled={i===0} title="Move up" style={{background:"none",border:"none",cursor:i===0?"default":"pointer",fontSize:15,color:i===0?T.textTert:T.textSub,opacity:i===0?0.4:1,padding:"2px 4px"}}>↑</button>
+              <button onClick={()=>move(r.id,1)} disabled={i===reqs.length-1} title="Move down" style={{background:"none",border:"none",cursor:i===reqs.length-1?"default":"pointer",fontSize:15,color:i===reqs.length-1?T.textTert:T.textSub,opacity:i===reqs.length-1?0.4:1,padding:"2px 4px"}}>↓</button>
+              <button onClick={()=>delReq(r.id)} title="Remove" style={{background:"none",border:"none",cursor:"pointer",fontSize:17,color:T.red,padding:"2px 4px"}}>×</button>
+            </div>
+            {r.type==="field"
+              ?<select value={r.field} onChange={e=>updReq(r.id,{field:e.target.value,label:GATE_FIELDS[e.target.value].label})} style={{...sel,width:"100%"}}>
+                 {GATE_FIELD_KEYS.map(k=><option key={k} value={k}>{GATE_FIELDS[k].label}</option>)}
+               </select>
+              :<input value={r.label} onChange={e=>updReq(r.id,{label:e.target.value})} placeholder={r.type==="contact"?"What contact? e.g. Buyer's agent":"What must be done? e.g. Earnest money sent"} style={{...sel,width:"100%",boxSizing:"border-box"}}/>}
+          </div>
+        );})}
+      </div>
+      {/* Add buttons */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
+        <button onClick={()=>addReq("check")} style={{padding:"8px 12px",borderRadius:8,border:`1.5px dashed ${T.border}`,background:"transparent",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>+ Checklist item</button>
+        <button onClick={()=>addReq("field")} style={{padding:"8px 12px",borderRadius:8,border:`1.5px dashed ${T.border}`,background:"transparent",color:T.gold,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>+ Required field</button>
+        <button onClick={()=>addReq("contact")} style={{padding:"8px 12px",borderRadius:8,border:`1.5px dashed ${T.border}`,background:"transparent",color:"#1a8f43",fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>+ Contact</button>
+      </div>
+      {/* Footer */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginTop:18,paddingTop:14,borderTop:bdr}}>
+        <button onClick={resetStatus} style={{padding:"9px 13px",borderRadius:T.radiusSm,background:"#fff",border:bdr,color:T.textSub,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Reset “{status}” to default</button>
+        <div style={{flex:1}}/>
+        <button onClick={save} disabled={!dirty} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:dirty?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:dirty?"pointer":"default",fontFamily:"inherit"}}>{dirty?"Save changes":"Saved"}</button>
+      </div>
+    </div>
+  );
+}
+
 // Settings → Property Files: set the "Flips" base folder once, auto-match every
 // property to its subfolder by address, and fill in each property's Files tab.
 function PropertyFilesPanel(){
@@ -5343,6 +5539,7 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
         <div style={{padding:"12px 20px 0",display:"flex",gap:8,flexWrap:"wrap"}}>
           {tab("archived","Archived Properties")}
           {tab("automations","Automations")}
+          {tab("gates","Status Requirements")}
           {tab("files","Property Files")}
         </div>
         <div style={{overflowY:"auto",padding:"16px 20px"}}>
@@ -5367,7 +5564,7 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
                     );
                   })}
             </>
-          ):section==="files"?<PropertyFilesPanel/>:<AutomationsPanel/>}
+          ):section==="files"?<PropertyFilesPanel/>:section==="gates"?<StatusGatesPanel/>:<AutomationsPanel/>}
         </div>
       </div>
     </div>

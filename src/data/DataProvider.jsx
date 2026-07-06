@@ -138,6 +138,8 @@ export function DataProvider({ children }) {
   const officeC = useSyncedCollection("office_messages", idToRow, mapData, reportError);
   const officeTasksC = useSyncedCollection("office_tasks", idToRow, mapData, reportError);
   const bankC = useSyncedCollection("bank_accounts", idToRow, mapData, reportError);
+  // Shared, admin-editable app configuration (e.g. status-change checklists).
+  const settingsC = useSyncedCollection("app_settings", idToRow, mapData, reportError);
 
   const loadTeam = useCallback(async () => {
     const { data, error } = await supabase.from("users").select("*").order("name");
@@ -174,7 +176,7 @@ export function DataProvider({ children }) {
     (async () => {
       setLoading(true);
       await seedIfEmpty();
-      await Promise.all([propsC.load(), leadsC.load(), contactsC.load(), autosC.load(), fundersC.load(), drawsC.load(), officeC.load(), officeTasksC.load(), bankC.load(), loadTeam()]);
+      await Promise.all([propsC.load(), leadsC.load(), contactsC.load(), autosC.load(), fundersC.load(), drawsC.load(), officeC.load(), officeTasksC.load(), bankC.load(), settingsC.load(), loadTeam()]);
       if (!cancelled) setLoading(false);
     })();
 
@@ -192,12 +194,13 @@ export function DataProvider({ children }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "office_messages" }, () => debounce("o", officeC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "office_tasks" }, () => debounce("ot", officeTasksC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "bank_accounts" }, () => debounce("b", bankC.load))
+      .on("postgres_changes", { event: "*", schema: "public", table: "app_settings" }, () => debounce("s", settingsC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "users" }, () => debounce("u", loadTeam))
       .subscribe();
 
     // Safety net: flush any pending edits when the tab is hidden or the page is
     // being unloaded/backgrounded (covers a PWA refresh or app switch).
-    const flushAll = () => { propsC.flushNow(); leadsC.flushNow(); autosC.flushNow(); contactsC.flushNow(); fundersC.flushNow(); drawsC.flushNow(); officeC.flushNow(); officeTasksC.flushNow(); bankC.flushNow(); };
+    const flushAll = () => { propsC.flushNow(); leadsC.flushNow(); autosC.flushNow(); contactsC.flushNow(); fundersC.flushNow(); drawsC.flushNow(); officeC.flushNow(); officeTasksC.flushNow(); bankC.flushNow(); settingsC.flushNow(); };
     const onHide = () => { if (document.visibilityState === "hidden") flushAll(); };
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("pagehide", flushAll);
@@ -209,7 +212,7 @@ export function DataProvider({ children }) {
       window.removeEventListener("pagehide", flushAll);
       supabase.removeChannel(channel);
     };
-  }, [userId, seedIfEmpty, propsC.load, leadsC.load, autosC.load, contactsC.load, fundersC.load, drawsC.load, officeC.load, officeTasksC.load, bankC.load, propsC.flushNow, leadsC.flushNow, autosC.flushNow, contactsC.flushNow, fundersC.flushNow, drawsC.flushNow, officeC.flushNow, officeTasksC.flushNow, bankC.flushNow, loadTeam]);
+  }, [userId, seedIfEmpty, propsC.load, leadsC.load, autosC.load, contactsC.load, fundersC.load, drawsC.load, officeC.load, officeTasksC.load, bankC.load, settingsC.load, propsC.flushNow, leadsC.flushNow, autosC.flushNow, contactsC.flushNow, fundersC.flushNow, drawsC.flushNow, officeC.flushNow, officeTasksC.flushNow, bankC.flushNow, settingsC.flushNow, loadTeam]);
 
   const teamMembers = Array.from(new Set([...team.map((u) => u.name || u.email).filter(Boolean), displayName].filter(Boolean)));
 
@@ -240,6 +243,9 @@ export function DataProvider({ children }) {
     bankAccounts: bankC.items,
     setBankAccounts: bankC.set,
     flushBank: bankC.flushNow,
+    appSettings: settingsC.items,
+    setAppSettings: settingsC.set,
+    flushAppSettings: settingsC.flushNow,
     team,
     teamMembers,
     setUserMuted,

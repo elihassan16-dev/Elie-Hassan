@@ -9068,33 +9068,39 @@ function EmailPage({isMobile}){
   );
 }
 
-// File attachments on an email message, each with a one-tap "Save to Files" that
-// uploads it straight into the property's connected OneDrive/SharePoint folder.
+// File attachments on an email message. Lists them without downloading (so big
+// files like plans still show), then fetches the bytes on demand to preview in a
+// new tab or save into the property's OneDrive/SharePoint folder.
 function EmailAttachments({messageId,mail,od,folder}){
   const[atts,setAtts]=useState(null);
-  const[st,setSt]=useState({}); // attachment id -> "saving" | "done" | "error"
+  const[st,setSt]=useState({});  // id -> "saving" | "done" | "error"
+  const[pv,setPv]=useState({});  // id -> "loading"
   useEffect(()=>{let alive=true;mail.getAttachments(messageId).then(a=>{if(alive)setAtts(a);}).catch(()=>{if(alive)setAtts([]);});return()=>{alive=false;};},[messageId]); // eslint-disable-line
+  const isRef=(a)=>a["@odata.type"]==="#microsoft.graph.referenceAttachment";
   const save=async(a)=>{
+    if(isRef(a)){alert("This is a cloud/linked file — open it with Preview to view or download it.");return;}
     if(!folder||!folder.driveId||!folder.id){alert("Connect a Files folder for this property first — open the property's Files tab and pick its folder.");return;}
     setSt(s=>({...s,[a.id]:"saving"}));
-    try{ const file=base64ToFile(a.contentBytes,a.name,a.contentType); await od.uploadFile(folder.driveId,folder.id,file); setSt(s=>({...s,[a.id]:"done"})); }
+    try{ const blob=await mail.getAttachmentBlob(messageId,a.id); const file=new File([blob],a.name||"attachment",{type:a.contentType||blob.type||"application/octet-stream"}); await od.uploadFile(folder.driveId,folder.id,file); setSt(s=>({...s,[a.id]:"done"})); }
     catch(e){ setSt(s=>({...s,[a.id]:"error"})); alert("Couldn't save to Files: "+(e.message||"unknown error")); }
   };
-  // Open the attachment in a new tab straight from its bytes (PDFs & images render).
-  const preview=(a)=>{
-    try{ const file=base64ToFile(a.contentBytes,a.name,a.contentType); const url=URL.createObjectURL(file); window.open(url,"_blank"); setTimeout(()=>URL.revokeObjectURL(url),60000); }
+  const preview=async(a)=>{
+    if(isRef(a)){ if(a.sourceUrl)window.open(a.sourceUrl,"_blank"); else alert("This is a cloud/linked file; open it from the original email."); return; }
+    setPv(p=>({...p,[a.id]:"loading"}));
+    try{ const blob=await mail.getAttachmentBlob(messageId,a.id); const url=URL.createObjectURL(blob); window.open(url,"_blank"); setTimeout(()=>URL.revokeObjectURL(url),120000); }
     catch(e){ alert("Couldn't open: "+(e.message||"unknown error")); }
+    setPv(p=>({...p,[a.id]:null}));
   };
-  if(atts===null)return null;
+  if(atts===null)return <div style={{padding:"8px 14px 12px",borderTop:`1px solid ${T.border}`,fontSize:11.5,color:T.textTert}}>Loading attachments…</div>;
   if(atts.length===0)return null;
   return(
     <div style={{padding:"8px 14px 12px",borderTop:`1px solid ${T.border}`,display:"flex",flexDirection:"column",gap:6}}>
       <div style={{fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>Attachments</div>
-      {atts.map(a=>{const s=st[a.id];const isPdf=/pdf/i.test(a.contentType||"")||/\.pdf$/i.test(a.name||"");return(
+      {atts.map(a=>{const s=st[a.id];const loading=pv[a.id]==="loading";const isPdf=/pdf/i.test(a.contentType||"")||/\.pdf$/i.test(a.name||"");return(
         <div key={a.id} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-          <span style={{fontSize:16,flexShrink:0}}>{isPdf?"📄":"📎"}</span>
-          <div style={{flex:1,minWidth:120}}><div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div><div style={{fontSize:10.5,color:T.textTert}}>{fmtBytes(a.size)}</div></div>
-          <button onClick={()=>preview(a)} title="Open / preview" style={{flexShrink:0,padding:"6px 11px",borderRadius:16,border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>👁 Preview</button>
+          <span style={{fontSize:16,flexShrink:0}}>{isRef(a)?"🔗":isPdf?"📄":"📎"}</span>
+          <div style={{flex:1,minWidth:120}}><div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name||"attachment"}</div><div style={{fontSize:10.5,color:T.textTert}}>{a.size?fmtBytes(a.size):(isRef(a)?"linked file":"")}</div></div>
+          <button onClick={()=>preview(a)} disabled={loading} title="Open / preview" style={{flexShrink:0,padding:"6px 11px",borderRadius:16,border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,fontWeight:700,fontSize:11.5,cursor:loading?"default":"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:loading?0.7:1}}>{loading?"Opening…":"👁 Preview"}</button>
           <button onClick={()=>save(a)} disabled={s==="saving"||s==="done"} style={{flexShrink:0,padding:"6px 11px",borderRadius:16,border:`1px solid ${s==="done"?T.green:T.gold}`,background:s==="done"?"#EDFBF1":T.goldLight,color:s==="done"?"#15803D":T.gold,fontWeight:700,fontSize:11.5,cursor:s==="saving"||s==="done"?"default":"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:s==="saving"?0.7:1}}>{s==="done"?"✓ Saved":s==="saving"?"Saving…":s==="error"?"↻ Retry":"⬇ Save to Files"}</button>
         </div>
       );})}

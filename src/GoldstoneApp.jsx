@@ -409,7 +409,7 @@ function finProfit(f){
   const acNet=acSalePrice>0?acSalePrice-acSelling-(acHmInterest+acGapBalloon)-acCosts:0;
 
   const useActual=!!(f.useActualProfit&&acSalePrice>0);
-  return {netProfit,acNet,effective:useActual?acNet:netProfit,useActual};
+  return {netProfit,acNet,effective:useActual?acNet:netProfit,useActual,equityRequired};
 }
 
 // ─── NJ Realty Transfer Tax ───────────────────────────────────────────────────
@@ -8222,6 +8222,29 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     return {rows,total};
   },[bsProps,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Report 6 — every upcoming closing (buys and sells): the equity you must have
+  // ready to close each one, and the deal's projected profit/loss. A buy needs
+  // cash-to-close (down payment + costs); a sell returns equity, so nothing's
+  // required. Red = deal projected at a loss ("in the negative").
+  const rptClosings=useMemo(()=>{
+    const todayISO=new Date().toISOString().slice(0,10);
+    const rows=[];
+    (sharedProps||[]).filter(p=>!p.archived).forEach(p=>{
+      const f=p.financials||{};
+      const prof=finProfit(f);
+      const buyDate=f.purchaseDate||"";
+      if(buyDate&&buyDate>=todayISO)
+        rows.push({address:p.address,type:"Buy",date:buyDate,equity:prof.equityRequired,pl:prof.effective});
+      const sellDate=cfDate(p);
+      if(sellDate&&sellDate>=todayISO)
+        rows.push({address:p.address,type:"Sell",date:sellDate,equity:null,pl:prof.effective});
+    });
+    rows.sort((a,b)=>(a.date||"").localeCompare(b.date||"")||(a.address||"").localeCompare(b.address||""));
+    const totalEquity=rows.reduce((s,r)=>s+(r.equity||0),0);
+    const losses=rows.filter(r=>r.pl<0).length;
+    return {rows,totalEquity,losses};
+  },[sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const D=(iso)=>iso?finFmtDate(iso):"—";
   const M=(v)=>v==null?"—":fmtD(v);
   const REPORTS={
@@ -8278,6 +8301,23 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
       foot:[[{t:"Portfolio",strong:true},{t:rptDraw.total.anyHold?fmtD(rptDraw.total.hold):"—",align:"right",strong:true},{t:fmtD(rptDraw.total.drawn),align:"right",strong:true},{t:rptDraw.total.anyHold?fmtD(rptDraw.total.hold-rptDraw.total.drawn):"—",align:"right",strong:true,color:(rptDraw.total.hold-rptDraw.total.drawn)<0?T.red:T.green}]],
       empty:"No active properties.",
     },
+    closings:{
+      title:"Upcoming Closings — Equity Required",
+      subtitle:"Every buy and sell closing still ahead, in date order. Equity required is the cash you must have ready to close a purchase (a sale returns equity). Projected P/L in red = deal in the negative.",
+      cols:[{label:"Property"},{label:"Type"},{label:"Closing"},{label:"Equity required",align:"right"},{label:"Projected P/L",align:"right"}],
+      rows:rptClosings.rows.map(r=>[
+        {t:r.pl<0?"⚠ "+r.address:r.address,color:r.pl<0?T.red:undefined,strong:r.pl<0},
+        {t:r.type,color:r.type==="Buy"?T.blue:T.green,strong:true},
+        {t:D(r.date)},
+        {t:r.equity==null?"—":fmtD(r.equity),align:"right",strong:r.equity!=null,color:r.equity==null?T.textTert:undefined},
+        {t:fmtD(r.pl),align:"right",strong:true,color:r.pl<0?T.red:T.green},
+      ]),
+      foot:[
+        [{t:`${rptClosings.rows.length} closing${rptClosings.rows.length!==1?"s":""}`,strong:true},{t:""},{t:""},{t:fmtD(rptClosings.totalEquity),align:"right",strong:true,gold:true},{t:"",align:"right"}],
+        ...(rptClosings.losses>0?[[{t:`${rptClosings.losses} deal${rptClosings.losses!==1?"s":""} projected in the negative`,color:T.red},{t:""},{t:""},{t:""},{t:""}]]:[]),
+      ],
+      empty:"No upcoming closings.",
+    },
   };
 
   // Export → open a print window (the browser's "Save as PDF" / print / share).
@@ -8314,6 +8354,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Loans, all-in cost, reserves and equity — spreadsheet style."},
     {id:"hold",icon:"🏗️",title:"Construction Holdback vs Actuals",desc:"Bank's construction holdback vs your underwriting estimate, per property."},
     {id:"draw",icon:"🏦",title:"Construction Draw Report",desc:"Holdback vs draws pinned from each property's mortgage account, and what's left."},
+    {id:"closings",icon:"📅",title:"Upcoming Closings — Equity Required",desc:"All future buys & sells, cash needed to close each, and deals projected in the negative."},
   ];
   const rep=open?REPORTS[open]:null;
 

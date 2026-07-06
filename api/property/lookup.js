@@ -44,6 +44,27 @@ function pick(attrs, names) {
 }
 const num = (v) => { if (v == null) return null; const x = parseFloat(String(v).replace(/[^\d.-]/g, "")); return isNaN(x) ? null : x; };
 
+// Query NJ parcels layer 0 at a point (optionally within `distance` metres).
+// Surfaces ArcGIS error objects (returned with HTTP 200) instead of masking them.
+async function queryParcel(base, lon, lat, distance) {
+  const q = new URLSearchParams({
+    where: "1=1",
+    geometry: `${lon},${lat}`,
+    geometryType: "esriGeometryPoint",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+    outFields: "*",
+    returnGeometry: "false",
+    f: "json",
+  });
+  if (distance) { q.set("distance", String(distance)); q.set("units", "esriSRUnit_Meter"); }
+  const r = await fetch(`${base}/0/query?${q.toString()}`);
+  if (!r.ok) throw new Error(`NJ parcels query failed (${r.status})`);
+  const j = await r.json();
+  if (j.error) throw new Error(`NJ parcels query error: ${j.error.message || JSON.stringify(j.error)}`);
+  return j.features || [];
+}
+
 async function geocode(address) {
   const url = `https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=${encodeURIComponent(address)}&benchmark=Public_AR_Current&format=json`;
   const r = await fetch(url);
@@ -64,21 +85,23 @@ export default async function handler(req, res) {
     if (!geo) { res.status(200).json({ found: false, reason: "Address couldn't be geocoded. Check the street/city/zip." }); return; }
 
     const base = await njServiceUrl();
-    const q = new URLSearchParams({
-      geometry: `${geo.lon},${geo.lat}`,
-      geometryType: "esriGeometryPoint",
-      inSR: "4326",
-      spatialRel: "esriSpatialRelIntersects",
-      outFields: "*",
-      returnGeometry: "false",
-      f: "json",
-    });
-    // Layer 0 is the parcels+MOD-IV polygon layer.
-    const r = await fetch(`${base}/0/query?${q.toString()}`);
-    if (!r.ok) throw new Error(`NJ parcels query failed (${r.status})`);
-    const j = await r.json();
-    const feat = j?.features?.[0];
-    if (!feat) { res.status(200).json({ found: false, reason: "No NJ parcel found at that location.", matched: geo.matched }); return; }
+    // The Census geocoder interpolates a point along the STREET centerline, which
+    // often lands just outside the parcel polygon (parcels don't include the road).
+    // So: try an exact point-in-parcel hit first, then fall back to a buffered
+    // search and disambiguate by leading street number.
+    let feats = await queryParcel(base, geo.lon, geo.lat, 0);
+    if (!feats.length) feats = await queryParcel(base, geo.lon, geo.lat, 60);
+    if (!feats.length) { res.status(200).json({ found: false, reason: `No NJ parcel found near ${geo.matched || address}.`, matched: geo.matched }); return; }
+
+    const streetNum = (address.match(/\d+/) || [])[0] || "";
+    let feat = feats[0];
+    if (feats.length > 1 && streetNum) {
+      const m = feats.find((f) => {
+        const loc = String(pick(f.attributes, ["PROP_LOC", "PROPLOC", "PROP_ADDR", "ADDRESS"]) || "").trim();
+        return loc.startsWith(streetNum + " ") || loc.startsWith(streetNum + "-");
+      });
+      if (m) feat = m;
+    }
     const a = feat.attributes || {};
 
     const block = pick(a, ["PCLBLOCK", "BLOCK", "MOD4_BLOCK", "BLK"]);

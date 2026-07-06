@@ -2996,6 +2996,8 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const[tab,setTab]=useState("Financial Overview");
   const[taskPopup,setTaskPopup]=useState(null);
   const[showInfo,setShowInfo]=useState(false); // Property Info popup
+  const[njLoad,setNjLoad]=useState(false);      // NJ records autofill in progress
+  const[njMsg,setNjMsg]=useState(null);         // {ok, text} result of the last autofill
   // Showings tab only shows while the property is actively On Market / In Closing.
   const showShowings=property.status==="On Market"||property.status==="In Closing";
   // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.
@@ -3004,6 +3006,44 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   useEffect(()=>{ if(!tabs.includes(tab)) setTab("Financial Overview"); },[tabs,tab]);
   const sc=SC[property.status]||{color:"#64748B",bg:"#F1F5F9"};
   const upP=(k,v)=>onUpdate(property.id,"propertyInfo",{...property.propertyInfo,[k]:v});
+  // Auto-fill property details from NJ's free public tax records (block & lot,
+  // year built, lot size, assessed value, annual tax). Beds/baths aren't in NJ
+  // assessment data, so those are left for manual entry.
+  const njAutofill=async()=>{
+    if(njLoad)return;
+    setNjLoad(true);setNjMsg(null);
+    try{
+      const addr=`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`;
+      const r=await fetch(`/api/property/lookup?address=${encodeURIComponent(addr)}`);
+      const d=await r.json();
+      if(!r.ok)throw new Error(d.error||"Lookup failed");
+      if(!d.found){setNjMsg({ok:false,text:d.reason||"No NJ record found for this address."});return;}
+      const pi={...(property.propertyInfo||{})};
+      if(d.blockLot)pi.blockLot=d.blockLot;
+      if(d.block!=null)pi.block=String(d.block);
+      if(d.lot!=null)pi.lot=String(d.lot);
+      if(d.qualifier!=null)pi.qual=String(d.qualifier);
+      if(d.yearBuilt!=null)pi.yearBuilt=String(d.yearBuilt);
+      if(d.sqft!=null)pi.sqft=String(d.sqft);
+      if(d.lotAcres!=null)pi.lotAcres=String(d.lotAcres);
+      if(d.assessedValue!=null)pi.assessedValue=String(d.assessedValue);
+      if(d.propClass!=null)pi.propClass=String(d.propClass);
+      if(d.pamsPin)pi.njPin=d.pamsPin;
+      onUpdate(property.id,"propertyInfo",pi);
+      let taxNote="";
+      if(d.annualTax!=null){
+        const fin={...(property.financials||{})};
+        const items=[...(fin.holdingCostItems||[])];
+        const idx=items.findIndex(i=>(i.title||"").toLowerCase().includes("tax"));
+        if(idx>=0)items[idx]={...items[idx],amount:String(Math.round(d.annualTax)),perYear:true};
+        else items.push({id:Date.now(),title:"Property Taxes",amount:String(Math.round(d.annualTax)),perYear:true,auto:false});
+        onUpdate(property.id,"financials",{...fin,holdingCostItems:items});
+        taxNote=` · taxes ${fmtD(d.annualTax)}/yr`;
+      }
+      setNjMsg({ok:true,text:`Filled from ${d.municipality||"NJ"} records${d.blockLot?` · ${d.blockLot}`:""}${taxNote}. Beds & baths aren't in NJ records — add them manually.`});
+    }catch(e){ setNjMsg({ok:false,text:e.message||"Lookup failed."}); }
+    finally{ setNjLoad(false); }
+  };
   const addTask=()=>onUpdate(property.id,"tasks",[...(property.tasks||[]),{id:Date.now(),text:"",status:"Not Started",assignee:""}]);
   const upTask=(tid,k,v)=>onUpdate(property.id,"tasks",property.tasks.map(t=>t.id===tid?{...t,[k]:v}:t));
   const delTask=(tid)=>onUpdate(property.id,"tasks",property.tasks.filter(t=>t.id!==tid));
@@ -3107,6 +3147,33 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                   <a href={mapsUrl} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:6,padding:"7px 16px",borderRadius:20,border:`1px solid ${T.blue}`,color:T.blue,fontSize:13,fontWeight:600,textDecoration:"none"}}>📍 Maps</a>
                   <a href={zillowUrl} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:6,padding:"7px 16px",borderRadius:20,border:`1px solid ${T.blue}`,color:T.blue,fontSize:13,fontWeight:600,textDecoration:"none"}}>↗ Zillow</a>
                 </div>
+              </div>
+
+              {/* Property details — beds/baths/sqft + NJ block & lot, auto-fillable
+                  from the state's free public tax records. */}
+              <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
+                <SectionHdr icon="📐" label="PROPERTY DETAILS"/>
+                <div style={{padding:"12px 16px 6px"}}>
+                  <button onClick={njAutofill} disabled={njLoad} style={{width:"100%",padding:"11px",borderRadius:T.radiusSm,background:njLoad?T.border:T.blue,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:njLoad?"default":"pointer",fontFamily:"inherit"}}>{njLoad?"Looking up NJ records…":"⬇ Auto-fill from NJ tax records"}</button>
+                  {njMsg&&<div style={{marginTop:8,fontSize:12,lineHeight:1.45,color:njMsg.ok?T.green:T.red}}>{njMsg.text}</div>}
+                  <div style={{fontSize:11,color:T.textTert,marginTop:6}}>Free NJ Office of GIS / MOD-IV data — block &amp; lot, year built, lot size, assessed value and taxes. Beds &amp; baths aren't in state records.</div>
+                </div>
+                {[
+                  ["Beds","beds","e.g. 3"],
+                  ["Baths","baths","e.g. 2"],
+                  ["Sq Ft","sqft","—"],
+                  ["Year Built","yearBuilt","—"],
+                  ["Lot Size (acres)","lotAcres","—"],
+                  ["Block & Lot","blockLot","—"],
+                  ["Property Class","propClass","—"],
+                  ["Assessed Value","assessedValue","—"],
+                ].map(([label,key,ph])=>(
+                  <div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
+                    <span style={{fontSize:13,color:T.textSub,flexShrink:0}}>{label}</span>
+                    <input value={pi[key]||""} onChange={e=>upP(key,e.target.value)} placeholder={ph}
+                      style={{fontSize:14,fontWeight:600,color:T.text,padding:"5px 10px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,outline:"none",textAlign:"right",width:140,maxWidth:"55%"}}/>
+                  </div>
+                ))}
               </div>
 
               {/* Purchase Date — one date: the scheduled close while under contract,

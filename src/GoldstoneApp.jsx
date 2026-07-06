@@ -7309,14 +7309,22 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
   // Auto debt service: when turned on, keep "Debt service paid" synced to EVERY
   // interest/loan payment tagged to this property in QuickBooks — including future
   // ones — so the interest reserve depletes automatically with no manual pinning.
+  // Transactions the user has excluded from auto debt service (e.g. origination
+  // fees that QuickBooks classifies as debt but aren't ongoing interest).
+  const debtExcluded=property.qbDebtExcluded||[];
+  const debtExcludedSet=new Set(debtExcluded);
+  const excludedDebtTxns=(txns||[]).filter(t=>qbBucket(t.account)==="debt"&&debtExcludedSet.has(txKey(t)));
+  const excludeDebtTx=(t)=>onUpdate(property.id,"qbDebtExcluded",[...debtExcluded,txKey(t)]);
+  const includeDebtTx=(key)=>onUpdate(property.id,"qbDebtExcluded",debtExcluded.filter(k=>k!==key));
   useEffect(()=>{
     if(!property.qbDebtAuto||!Array.isArray(txns))return;
-    const auto=txns.filter(t=>qbBucket(t.account)==="debt").map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
+    const ex=new Set(property.qbDebtExcluded||[]);
+    const auto=txns.filter(t=>qbBucket(t.account)==="debt"&&!ex.has(txKey(t))).map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
     const cur=property.qbDebtTxns||[];
     const ck=new Set(cur.map(txKey)),nk=new Set(auto.map(txKey));
     const same=ck.size===nk.size&&[...nk].every(k=>ck.has(k));
     if(!same)onUpdate(property.id,"qbDebtTxns",auto);
-  },[property.qbDebtAuto,txns]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[property.qbDebtAuto,txns,property.qbDebtExcluded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle=(id)=>{const has=pinned.includes(id);onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);};
   const addCustom=(key)=>{const label=draft.label.trim();const amount=num(draft.amount);if(!label&&!amount)return;const arr=property[key]||[];
@@ -7406,9 +7414,10 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
           <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account].filter(Boolean).join(" · ")}</div>
         </div>
         {amt(money(Number(t.amount)||0),{size:13.5,weight:700})}
-        {opts.auto?slot():slot(xBtn(()=>toggleTx(field,arr,t),"Unpin"))}
+        {opts.auto?(opts.onExclude?slot(<button onClick={()=>opts.onExclude(t)} title="Exclude — don't count this in debt service" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:0}}>🚫</button>):slot()):slot(xBtn(()=>toggleTx(field,arr,t),"Unpin"))}
       </div>
     ))}
+    {opts.extra}
     {(property[customField]||[]).map(l=>(
       <div key={l.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 18px",borderTop:`1px solid ${T.border}`}}>
         <span onClick={()=>editLine(customField,l)} title="Tap to edit" style={{flex:1,minWidth:0,fontSize:13.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{l.label} <span style={{fontSize:10,color:T.textTert}}>· tap to edit</span></span>
@@ -7539,6 +7548,22 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
       {sectionModal==="float"&&modalShell("Deployed — down payment, deposit",txnSectionBody(floatTxns,"qbFloatTxns",()=>setFloatPicker(true),"qbFloatCustom",floatSum))}
       {sectionModal==="debt"&&modalShell("Debt service paid",txnSectionBody(debtTxns,"qbDebtTxns",()=>setDebtPicker(true),"qbDebtCustom",debtSum,{
         auto:!!property.qbDebtAuto,
+        onExclude:canEdit?excludeDebtTx:null,
+        extra:(property.qbDebtAuto&&excludedDebtTxns.length>0)?(
+          <div style={{borderTop:`1px solid ${T.border}`}}>
+            <div style={{padding:"10px 18px 4px",fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>Excluded ({excludedDebtTxns.length}) — not counted</div>
+            {excludedDebtTxns.map(t=>(
+              <div key={txKey(t)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 18px",borderTop:`1px solid ${T.border}`,opacity:0.7}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"line-through"}}>{t.vendor||t.type||"—"}</div>
+                  <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account].filter(Boolean).join(" · ")}</div>
+                </div>
+                <span style={{fontSize:13,fontWeight:700,color:T.textTert,textDecoration:"line-through"}}>{money(Number(t.amount)||0)}</span>
+                {canEdit?slot(<button onClick={()=>includeDebtTx(txKey(t))} title="Include again" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,lineHeight:1,padding:0}}>↩</button>):slot()}
+              </div>
+            ))}
+          </div>
+        ):null,
         top:(
           <div style={{padding:"6px 18px 12px"}}>
             <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:canEdit?"pointer":"default",background:property.qbDebtAuto?T.goldLight:T.bg,border:`1px solid ${property.qbDebtAuto?T.gold:T.border}`,borderRadius:T.radiusSm,padding:"11px 12px"}}>

@@ -3926,9 +3926,13 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
 
         {isMobile ? (
           <div>
-            <div style={{display:"flex",gap:14,padding:"8px 16px 6px",fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>
-              <span style={{color:T.gold}}>● Equity needed</span>
-              <span style={{color:T.green}}>● Est. profit</span>
+            {/* Column headers — same grid template as each row's data line so the
+                Equity / Profit / Funded columns line up vertically down the list. */}
+            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 78px 78px 34px",gap:8,padding:"10px 16px 8px",fontSize:9.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em",borderBottom:`1px solid ${T.border}`}}>
+              <span>Property</span>
+              <span style={{textAlign:"right",color:T.gold}}>Equity</span>
+              <span style={{textAlign:"right",color:T.green}}>Profit</span>
+              <span style={{textAlign:"center"}}>Fund</span>
             </div>
             {sorted.map(p=>{
               const profit=pfCalcProfit(p);
@@ -3943,7 +3947,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                     {emailBadge(p.id)}
                     {p.financials.useActualProfit&&<span style={{fontSize:9,fontWeight:700,background:T.green,color:"#fff",borderRadius:10,padding:"2px 8px",textTransform:"uppercase",flexShrink:0}}>actual</span>}
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 62px 62px 70px",alignItems:"center",gap:8}}>
+                  <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 78px 78px 34px",alignItems:"center",gap:8}}>
                     <div style={{minWidth:0,overflow:"hidden",display:"flex"}}>
                       <StatusPicker value={p.status} size="sm" property={p} onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}
                         onGateSave={(to,answers,note,fieldValues)=>setSharedProps(prev=>prev.map(x=>{
@@ -3954,14 +3958,14 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                           return nx;
                         }))}/>
                     </div>
-                    <span style={{textAlign:"right",fontSize:13,fontWeight:700,color:equity>0?T.gold:T.textTert,whiteSpace:"nowrap"}}>{equity>0?fmtD(equity):"—"}</span>
-                    <span style={{textAlign:"right",fontSize:13,fontWeight:800,color:profit>0?T.green:profit<0?T.red:T.textTert,whiteSpace:"nowrap"}}>{profit!==0?fmtD(profit):"—"}</span>
-                    <label style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:6,fontSize:12,fontWeight:600,color:funded?T.gold:T.textSub,cursor:autoFunded?"default":"pointer"}}>
+                    <span style={{textAlign:"right",fontSize:13,fontWeight:700,color:equity>0?T.gold:T.textTert,whiteSpace:"nowrap"}}>{equity>0?fmtD(Math.round(equity)):"—"}</span>
+                    <span style={{textAlign:"right",fontSize:13,fontWeight:800,color:profit>0?T.green:profit<0?T.red:T.textTert,whiteSpace:"nowrap"}}>{profit!==0?fmtD(Math.round(profit)):"—"}</span>
+                    <div style={{display:"flex",justifyContent:"center"}}>
                       <input type="checkbox" checked={funded} disabled={autoFunded}
                         onChange={e=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,hasFunder:e.target.checked}:x))}
+                        title={funded?"Funded":"Not funded"}
                         style={{width:20,height:20,accentColor:T.gold,cursor:autoFunded?"default":"pointer",opacity:autoFunded?0.6:1,flexShrink:0}}/>
-                      Funded
-                    </label>
+                    </div>
                   </div>
                 </div>
               );

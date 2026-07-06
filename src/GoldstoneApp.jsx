@@ -9217,7 +9217,9 @@ function MentionTextarea({value,onChange,mentions,onMentionsChange,contacts,mail
 }
 function EmailPage({isMobile}){
   const mail=useOutlookMail();
+  const od=useOneDrive();
   const{sharedProps,setSharedProps,contacts}=useData()||{};
+  const savePropList=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived).sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[sharedProps]);
   const appPeople=(contacts||[]).filter(c=>c&&c.email).map(c=>({name:c.name||c.email,email:c.email}));
   const[assignChain,setAssignChain]=useState(null);
   const[items,setItems]=useState(null);     // flat accumulated messages (null = loading)
@@ -9502,7 +9504,7 @@ function EmailPage({isMobile}){
             </div>
             <div style={{flex:1,overflowY:"auto",padding:"6px 4px 12px"}}>
               <MailBody message={readMsg} mail={mail}/>
-              {readMsg.hasAttachments&&<EmailAttachments messageId={readMsg.id} mail={mail} od={null} folder={null}/>}
+              {readMsg.hasAttachments&&<EmailAttachments messageId={readMsg.id} mail={mail} od={od} folder={null} properties={savePropList}/>}
             </div>
             <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8,justifyContent:"flex-end",flexShrink:0}}>
               {btn("Reply",true,()=>{setReadMsg(null);setReplyDraft({all:false,text:"",cc:"",mentions:[]});})}
@@ -9518,17 +9520,26 @@ function EmailPage({isMobile}){
 // File attachments on an email message. Lists them without downloading (so big
 // files like plans still show), then fetches the bytes on demand to preview in a
 // new tab or save into the property's OneDrive/SharePoint folder.
-function EmailAttachments({messageId,mail,od,folder}){
+function EmailAttachments({messageId,mail,od,folder,properties}){
   const[atts,setAtts]=useState(null);
   const[st,setSt]=useState({});  // id -> "saving" | "done" | "error"
   const[pv,setPv]=useState({});  // id -> "loading"
+  const[pickFor,setPickFor]=useState(null); // attachment awaiting a property pick (main inbox)
+  const[pq,setPq]=useState("");             // property-picker search
   useEffect(()=>{let alive=true;mail.getAttachments(messageId).then(a=>{if(alive)setAtts(a);}).catch(()=>{if(alive)setAtts([]);});return()=>{alive=false;};},[messageId]); // eslint-disable-line
   const isRef=(a)=>a["@odata.type"]==="#microsoft.graph.referenceAttachment";
-  const save=async(a)=>{
+  // Save the attachment into a OneDrive folder. `folderOverride` comes from the
+  // property picker when there's no fixed property folder (i.e. the main inbox).
+  const save=async(a,folderOverride)=>{
     if(isRef(a)){alert("This is a cloud/linked file — open it with Preview to view or download it.");return;}
-    if(!folder||!folder.driveId||!folder.id){alert("Connect a Files folder for this property first — open the property's Files tab and pick its folder.");return;}
+    const tgt=folderOverride||folder;
+    if(!tgt||!tgt.driveId||!tgt.id){
+      // No fixed folder → let the user pick which property's Files to save into.
+      if(properties&&properties.length){setPq("");setPickFor(a);return;}
+      alert("Connect a Files folder for this property first — open the property's Files tab and pick its folder.");return;
+    }
     setSt(s=>({...s,[a.id]:"saving"}));
-    try{ const blob=await mail.getAttachmentBlob(messageId,a.id); const file=new File([blob],a.name||"attachment",{type:a.contentType||blob.type||"application/octet-stream"}); await od.uploadFile(folder.driveId,folder.id,file); setSt(s=>({...s,[a.id]:"done"})); }
+    try{ const blob=await mail.getAttachmentBlob(messageId,a.id); const file=new File([blob],a.name||"attachment",{type:a.contentType||blob.type||"application/octet-stream"}); await od.uploadFile(tgt.driveId,tgt.id,file); setSt(s=>({...s,[a.id]:"done"})); }
     catch(e){ setSt(s=>({...s,[a.id]:"error"})); alert("Couldn't save to Files: "+(e.message||"unknown error")); }
   };
   const preview=async(a)=>{
@@ -9538,8 +9549,11 @@ function EmailAttachments({messageId,mail,od,folder}){
     catch(e){ alert("Couldn't open: "+(e.message||"unknown error")); }
     setPv(p=>({...p,[a.id]:null}));
   };
+  const pickMode=!folder&&properties&&properties.length; // main inbox: save-to-a-property
   if(atts===null)return <div style={{padding:"8px 14px 12px",borderTop:`1px solid ${T.border}`,fontSize:11.5,color:T.textTert}}>Loading attachments…</div>;
   if(atts.length===0)return null;
+  const term=pq.trim().toLowerCase();
+  const pickList=(properties||[]).filter(p=>!term||`${p.address} ${p.city||""}`.toLowerCase().includes(term));
   return(
     <div style={{padding:"8px 14px 12px",borderTop:`1px solid ${T.border}`,display:"flex",flexDirection:"column",gap:6}}>
       <div style={{fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>Attachments</div>
@@ -9548,9 +9562,38 @@ function EmailAttachments({messageId,mail,od,folder}){
           <span style={{fontSize:16,flexShrink:0}}>{isRef(a)?"🔗":isPdf?"📄":"📎"}</span>
           <div style={{flex:1,minWidth:120}}><div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name||"attachment"}</div><div style={{fontSize:10.5,color:T.textTert}}>{a.size?fmtBytes(a.size):(isRef(a)?"linked file":"")}</div></div>
           <button onClick={()=>preview(a)} disabled={loading} title="Open / preview" style={{flexShrink:0,padding:"6px 11px",borderRadius:16,border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,fontWeight:700,fontSize:11.5,cursor:loading?"default":"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:loading?0.7:1}}>{loading?"Opening…":"👁 Preview"}</button>
-          <button onClick={()=>save(a)} disabled={s==="saving"||s==="done"} style={{flexShrink:0,padding:"6px 11px",borderRadius:16,border:`1px solid ${s==="done"?T.green:T.gold}`,background:s==="done"?"#EDFBF1":T.goldLight,color:s==="done"?"#15803D":T.gold,fontWeight:700,fontSize:11.5,cursor:s==="saving"||s==="done"?"default":"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:s==="saving"?0.7:1}}>{s==="done"?"✓ Saved":s==="saving"?"Saving…":s==="error"?"↻ Retry":"⬇ Save to Files"}</button>
+          <button onClick={()=>save(a)} disabled={s==="saving"||s==="done"} style={{flexShrink:0,padding:"6px 11px",borderRadius:16,border:`1px solid ${s==="done"?T.green:T.gold}`,background:s==="done"?"#EDFBF1":T.goldLight,color:s==="done"?"#15803D":T.gold,fontWeight:700,fontSize:11.5,cursor:s==="saving"||s==="done"?"default":"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:s==="saving"?0.7:1}}>{s==="done"?"✓ Saved":s==="saving"?"Saving…":s==="error"?"↻ Retry":(pickMode?"⬇ Save to a property":"⬇ Save to Files")}</button>
         </div>
       );})}
+
+      {/* Property picker — choose which property's Files to save this attachment into */}
+      {pickFor&&(
+        <div onClick={()=>setPickFor(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(460px,96vw)",maxHeight:"78vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+            <div style={{padding:"14px 18px 10px",borderBottom:`1px solid ${T.border}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:15,fontWeight:800,color:T.text}}>Save to a property</div>
+                <button onClick={()=>setPickFor(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+              </div>
+              <div style={{fontSize:12,color:T.textSub,margin:"2px 0 10px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📎 {pickFor.name||"attachment"}</div>
+              <input autoFocus value={pq} onChange={e=>setPq(e.target.value)} placeholder="Search properties…" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+            </div>
+            <div style={{overflowY:"auto",flex:1}}>
+              {pickList.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No properties match.</div>}
+              {pickList.map(p=>{const hasFolder=!!(p.filesFolder&&p.filesFolder.driveId);return(
+                <button key={p.id} disabled={!hasFolder} onClick={()=>{const a=pickFor;setPickFor(null);save(a,p.filesFolder);}}
+                  style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"12px 18px",borderTop:`1px solid ${T.border}`,background:"transparent",border:"none",cursor:hasFolder?"pointer":"default",fontFamily:"inherit",opacity:hasFolder?1:0.5}}>
+                  <span style={{minWidth:0}}>
+                    <span style={{display:"block",fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}{p.city?`, ${p.city}`:""}</span>
+                    <span style={{fontSize:11,color:hasFolder?T.textTert:T.red}}>{hasFolder?(p.filesFolder.name||"Files folder connected"):"No Files folder — connect one in the property's Files tab"}</span>
+                  </span>
+                  {hasFolder&&<span style={{fontSize:13,color:T.gold,fontWeight:700,flexShrink:0}}>Save ›</span>}
+                </button>
+              );})}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

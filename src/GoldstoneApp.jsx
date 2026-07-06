@@ -3672,23 +3672,10 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
   // Calculate net profit per property using same formula as FinOverview
   // Uses the shared finProfit() so this ALWAYS matches the property's Financial Overview.
   function pfCalcProfit(p){ return finProfit(p.financials).effective; }
-  function calcEquity(p){
-    const f=p.financials;
-    const nn=v=>parseFloat(String(v||0).replace(/[^\d.-]/g,""))||0;
-    if(nn(f.locLoan)>0)return nn(f.locLoan);
-    // Live calc: gap principal
-    const months=nn(f.holdPeriod)||0;
-    const buying=calcBuyingTotal(f.buyingCostItems||[],f.purchasePrice)||nn(f.buyingCosts);
-    const hmLoan=Math.round(nn(f.purchasePrice)*(nn(f.hmLoanPct||90)/100));
-    const hmMonthly=Math.round(hmLoan*(nn(f.hmRate||9)/100)/12);
-    const hmReserve=Math.round(hmMonthly*months);
-    const downPmt=Math.round(nn(f.purchasePrice)*(1-nn(f.hmLoanPct||90)/100));
-    const rehabGap=Math.round(nn(f.rehabCosts)*(1-nn(f.rehabFinPct||100)/100));
-    const hmRehabLoan=Math.round(nn(f.rehabCosts)*(nn(f.rehabFinPct||100)/100));
-    const hmOrigFee=Math.round((hmLoan+hmRehabLoan)*(nn(f.hmOrigPct||0)/100));
-    const hmDoc=nn(f.hmDocFee||1000);
-    return downPmt+rehabGap+buying+hmReserve+hmOrigFee+hmDoc;
-  }
+  // Use the shared finProfit() so equity here ALWAYS matches the Financial Overview
+  // and the Upcoming Closings report — including the full insurance premium and the
+  // half-year property-tax escrow now folded into equity required.
+  function calcEquity(p){ return finProfit(p.financials).equityRequired; }
 
   const totalYield=props.reduce((s,p)=>s+Math.max(0,pfCalcProfit(p)),0);
 

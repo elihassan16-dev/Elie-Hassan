@@ -4,6 +4,7 @@ import { qbApi, requireAppUser } from "../../lib/quickbooks.js";
 // with their live CurrentBalance, so a property can be linked to the loan accounts
 // financing it and we can total the active debt.
 export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store, max-age=0"); // always return live loan balances
   const user = await requireAppUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   const num = (v) => { const x = parseFloat(String(v ?? "").replace(/,/g, "")); return isNaN(x) ? 0 : x; };

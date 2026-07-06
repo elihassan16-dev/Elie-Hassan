@@ -2,6 +2,7 @@ import { qbApi, requireAppUser } from "../../lib/quickbooks.js";
 
 // Profit & Loss for a single QuickBooks project/customer — flattened to rows.
 export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store, max-age=0"); // always return live numbers
   const user = await requireAppUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   const customerId = req.query.customerId;

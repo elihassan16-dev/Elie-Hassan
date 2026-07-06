@@ -135,13 +135,25 @@ export function useOutlookMail() {
     return items;
   }, [graph]);
 
-  // File attachments on a message (with their base64 bytes), so they can be saved
-  // elsewhere (e.g. a property's Files). Only real file attachments — not inline
-  // images or item attachments.
+  // List a message's attachments (metadata only — NO bytes). Selecting contentBytes
+  // here would try to inline the whole file, which fails/returns nothing for large
+  // files like construction plans, so we fetch the bytes on demand instead. Skips
+  // inline images (email-body pictures), keeps real files + cloud/linked files.
   const getAttachments = useCallback(async (id) => {
-    const d = await graph(`/me/messages/${id}/attachments?$select=id,name,contentType,size,isInline,contentBytes`);
-    return (d.value || []).filter((a) => a["@odata.type"] === "#microsoft.graph.fileAttachment" && !a.isInline && a.contentBytes);
+    const d = await graph(`/me/messages/${id}/attachments?$select=id,name,contentType,size,isInline`);
+    return (d.value || []).filter((a) => !a.isInline);
   }, [graph]);
+
+  // Download one attachment's raw bytes as a Blob (works for large files). Use for
+  // preview / save. Reference (cloud-link) attachments have no $value — caller handles.
+  const getAttachmentBlob = useCallback(async (messageId, attachmentId) => {
+    const token = await getToken();
+    const res = await fetch(`${GRAPH}/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}/$value`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`Couldn't download the attachment (${res.status}).`);
+    return res.blob();
+  }, [getToken]);
 
   // How many messages in a conversation are still unread — so a pinned chain can
   // show an "unread" dot. conversationId + isRead are both filterable (unlike
@@ -190,5 +202,5 @@ export function useOutlookMail() {
     });
   }, [graph]);
 
-  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, conversationUnread, markRead, reply, sendNew };
+  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, getAttachmentBlob, conversationUnread, markRead, reply, sendNew };
 }

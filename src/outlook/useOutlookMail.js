@@ -166,15 +166,18 @@ export function useOutlookMail() {
   // them. Lists metadata first (cheap), then pulls only the inline image bytes.
   const getInlineImages = useCallback(async (id) => {
     try {
-      const list = await graph(`/me/messages/${id}/attachments?$select=id,contentType,contentId,isInline&$top=60`);
-      const inline = (list.value || []).filter((a) => a.isInline && a.contentId && String(a.contentType || "").startsWith("image/"));
+      // Only base attachment props here — selecting the sub-type's contentId in a
+      // list query can make Graph return nothing, so fetch each inline image's full
+      // record (which carries contentId + contentBytes) instead.
+      const list = await graph(`/me/messages/${id}/attachments?$select=id,name,contentType,isInline&$top=60`);
+      const inline = (list.value || []).filter((a) => a.isInline);
       const map = {};
       for (const a of inline) {
         try {
-          const one = await graph(`/me/messages/${id}/attachments/${a.id}?$select=contentBytes,contentType,contentId`);
-          if (one.contentBytes) {
-            const cid = String(a.contentId || "").replace(/[<>]/g, "").trim().toLowerCase();
-            if (cid) map[cid] = `data:${a.contentType || one.contentType || "image/png"};base64,${one.contentBytes}`;
+          const one = await graph(`/me/messages/${id}/attachments/${a.id}`);
+          if (one.contentBytes && one.contentId) {
+            const cid = String(one.contentId).replace(/[<>]/g, "").trim().toLowerCase();
+            if (cid) map[cid] = `data:${one.contentType || a.contentType || "image/png"};base64,${one.contentBytes}`;
           }
         } catch { /* skip this image */ }
       }

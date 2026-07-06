@@ -112,7 +112,10 @@ export default async function handler(req, res) {
       let exactRaw = null, bufferRaw = null;
       try { exactRaw = await (await fetch(exactUrl)).json(); } catch (e) { exactRaw = { fetchError: e.message }; }
       try { bufferRaw = await (await fetch(bufferUrl)).json(); } catch (e) { bufferRaw = { fetchError: e.message }; }
-      res.status(200).json({ debug: true, address, geo, base, exactUrl, bufferUrl, exactRaw, bufferRaw });
+      // Pull the matched feature's attributes to the top so field names + values are
+      // easy to read (this is what we map into the property).
+      const attrs = exactRaw?.features?.[0]?.attributes || bufferRaw?.features?.[0]?.attributes || null;
+      res.status(200).json({ debug: true, address, geo, base, attributes: attrs, fieldNames: attrs ? Object.keys(attrs) : null, exactUrl, bufferUrl, exactRaw, bufferRaw });
       return;
     }
 
@@ -143,17 +146,30 @@ export default async function handler(req, res) {
       : null;
 
     const netVal = num(pick(a, ["NET_VALUE", "NETVALUE", "TOTAL_VALUE", "ASSESSED_VALUE"]));
-    const annualTax = num(pick(a, ["LST_YR_TAX", "LAST_YEAR_TAX", "TAX_AMT", "TAXES", "CALC_TAXES", "LAST_TAX", "TAX_AMOUNT"]));
+    // MOD-IV usually carries the last-billed tax; if not present here we fall back
+    // to assessed value × the municipal general tax rate (per $100) when that field exists.
+    const taxRate = num(pick(a, ["GEN_TAX_RATE", "TAX_RATE", "GENERAL_TAX_RATE", "GTR"]));
+    let annualTax = num(pick(a, ["LST_YR_TAX", "LAST_YEAR_TAX", "TAX_AMT", "TAXES", "CALC_TAXES", "LAST_TAX", "TAX_AMOUNT", "TAX_AMT_1", "TAXES_1", "PRYRTAX", "TAXAMT"]));
+    if (annualTax == null && netVal != null && taxRate != null) annualTax = Math.round(netVal * taxRate / 100);
+
+    const pamsPin = pick(a, ["PAMS_PIN", "PAMSPIN", "GIS_PIN", "PIN", "PIN_NODUP"]) ?? null;
+    // NJParcels.com per-parcel page: /property/{CCMM municipality code}/{block}/{lot}.
+    // The municipality code is the leading 4 digits of the PAMS PIN (CC county + MM muni).
+    const munCode = (String(pamsPin || "").match(/(\d{4})/) || [])[1] || null;
+    const sourceUrl = (munCode && block && lot)
+      ? `https://njparcels.com/property/${munCode}/${encodeURIComponent(String(block).trim())}/${encodeURIComponent(String(lot).trim())}`
+      : `https://njparcels.com/search/?q=${encodeURIComponent(geo.matched || address)}`;
 
     res.status(200).json({
       found: true,
       source: "NJ Parcels + MOD-IV (NJ Office of GIS)",
+      sourceUrl,
       matched: geo.matched,
       block: block ?? null,
       lot: lot ?? null,
       qualifier: qual ?? null,
       blockLot,
-      pamsPin: pick(a, ["PAMS_PIN", "PAMSPIN", "GIS_PIN", "PIN"]) ?? null,
+      pamsPin,
       propClass: pick(a, ["PROP_CLASS", "PROPERTY_CLASS", "PROP_CLS", "CLASS"]) ?? null,
       propAddress: pick(a, ["PROP_LOC", "PROPLOC", "PROP_ADDR", "ADDRESS"]) ?? null,
       municipality: pick(a, ["MUN_NAME", "MUNICIPALITY", "MUN", "PCL_MUN"]) ?? null,

@@ -3040,6 +3040,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
       if(d.assessedValue!=null)pi.assessedValue=String(d.assessedValue);
       if(d.propClass!=null)pi.propClass=String(d.propClass);
       if(d.pamsPin)pi.njPin=d.pamsPin;
+      if(d.sourceUrl)pi.njSourceUrl=d.sourceUrl;
       onUpdate(property.id,"propertyInfo",pi);
       let taxNote="";
       if(d.annualTax!=null){
@@ -3168,7 +3169,8 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                 <div style={{padding:"12px 16px 6px"}}>
                   <button onClick={njAutofill} disabled={njLoad} style={{width:"100%",padding:"11px",borderRadius:T.radiusSm,background:njLoad?T.border:T.blue,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:njLoad?"default":"pointer",fontFamily:"inherit"}}>{njLoad?"Looking up NJ records…":"⬇ Auto-fill from NJ tax records"}</button>
                   {njMsg&&<div style={{marginTop:8,fontSize:12,lineHeight:1.45,color:njMsg.ok?T.green:T.red}}>{njMsg.text}</div>}
-                  <div style={{fontSize:11,color:T.textTert,marginTop:6}}>Free NJ Office of GIS / MOD-IV data — block &amp; lot, year built, lot size, assessed value and taxes. Beds &amp; baths aren't in state records.</div>
+                  {pi.njSourceUrl&&<a href={pi.njSourceUrl} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:9,padding:"7px 14px",borderRadius:20,border:`1px solid ${T.blue}`,color:T.blue,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>🔗 View source record (NJParcels.com)</a>}
+                  <div style={{fontSize:11,color:T.textTert,marginTop:8}}>Free NJ Office of GIS / MOD-IV data — block &amp; lot, year built, lot size, assessed value and taxes. Beds &amp; baths aren't in state records.</div>
                 </div>
                 {[
                   ["Beds","beds","e.g. 3"],

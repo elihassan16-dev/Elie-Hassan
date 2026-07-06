@@ -2437,7 +2437,10 @@ function QbSupport(){
 // A line is included unless the user has explicitly unchecked it, so existing
 // properties (no saved selection) keep the old "import everything" behaviour.
 const QB_IMPORT_KEYS=["income","purchase","buying","rehab","holding","selling"];
-const qbImportSel=(property)=>{const saved=property.qbImportFields||{};return QB_IMPORT_KEYS.reduce((m,k)=>{m[k]=saved[k]!==false;return m;},{});};
+// "debt" (debt service / interest) is opt-in — OFF unless the user checks it — so
+// existing properties keep the app's own debt-service formula until they say so.
+const QB_ALL_IMPORT_KEYS=[...QB_IMPORT_KEYS,"debt"];
+const qbImportSel=(property)=>{const saved=property.qbImportFields||{};const m=QB_IMPORT_KEYS.reduce((acc,k)=>{acc[k]=saved[k]!==false;return acc;},{});m.debt=saved.debt===true;return m;};
 
 function QuickBooksTab({property,onUpdate}){
   const isMobile=useIsMobile();
@@ -2455,7 +2458,7 @@ function QuickBooksTab({property,onUpdate}){
   const autoSync=property.qbAutoSync===true; // default OFF — opt in per property to mirror Actuals to QuickBooks
   const importSel=qbImportSel(property);      // which breakdown lines feed the Actual columns
   const toggleImport=(key)=>onUpdate(property.id,"qbImportFields",{...importSel,[key]:!importSel[key]});
-  const selCount=QB_IMPORT_KEYS.filter(k=>importSel[k]).length;
+  const selCount=QB_ALL_IMPORT_KEYS.filter(k=>importSel[k]).length;
   const autoPicked=useRef(false);             // guard: only auto-select a project once
   const autoImported=useRef(null);            // guard: auto-import once per fresh P&L load
 
@@ -2515,10 +2518,14 @@ function QuickBooksTab({property,onUpdate}){
     if(sel.buying)  put("actualBuyingCosts",b.buying);
     if(sel.holding&&b.holding!==0){ch.actualHoldingCosts=String(Math.round(b.holding));ch.actualHoldingCostItems=[];}
     if(sel.selling) put("actualSellingCosts",b.selling);
-    // Debt service / interest is intentionally NOT imported — the app has its own formula.
+    // Debt service / interest: opt-in. When checked, use the interest actually
+    // booked in QuickBooks as the actual debt service — written into the interest
+    // override the profit/equity calc already reads (all under HM, gap zeroed so
+    // the total isn't double-counted). Applies on every future import while checked.
+    if(sel.debt&&b.debt!==0){ch.acHmInterestOverride=String(Math.round(b.debt));ch.acGapInterestOverride="0";}
     if(Object.keys(ch).length===0){
       if(!auto){
-        const anyChecked=QB_IMPORT_KEYS.some(k=>sel[k]);
+        const anyChecked=QB_ALL_IMPORT_KEYS.some(k=>sel[k]);
         setFlash(!anyChecked
           ?"No lines are checked to import — check the lines you want below, then Import again."
           :"QuickBooks returned $0 for every checked line on this project — nothing to import. Make sure the property is mapped to the right QuickBooks project and that its costs are tagged to that project.");
@@ -2571,7 +2578,7 @@ function QuickBooksTab({property,onUpdate}){
     {key:"buying",label:"Buying Costs",total:bucketTotals.buying},
     {key:"rehab",label:"Rehab Costs",total:bucketTotals.rehab},
     {key:"holding",label:"Holding Costs",total:bucketTotals.holding},
-    {key:"debt",label:"Debt Service / Interest",total:bucketTotals.debt,noImport:true},
+    {key:"debt",label:"Debt Service / Interest",total:bucketTotals.debt},
     {key:"selling",label:"Selling Costs",total:bucketTotals.selling},
   ];
 
@@ -2640,11 +2647,11 @@ function QuickBooksTab({property,onUpdate}){
         <>
           {/* Import button */}
           <button onClick={doImport} disabled={selCount===0} style={{width:"100%",padding:"12px",borderRadius:T.radiusSm,background:selCount===0?T.border:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:15,cursor:selCount===0?"default":"pointer",fontFamily:"inherit",marginBottom:8,boxShadow:selCount===0?"none":`0 2px 10px ${T.gold}55`}}>
-            ↓ Import {selCount===QB_IMPORT_KEYS.length?"all lines":`${selCount} selected line${selCount!==1?"s":""}`} into Actual columns
+            ↓ Import {selCount===QB_ALL_IMPORT_KEYS.length?"all lines":`${selCount} selected line${selCount!==1?"s":""}`} into Actual columns
           </button>
           {/* Diagnostic — what QuickBooks actually returned for this project. */}
           <div style={{fontSize:11,color:T.textTert,textAlign:"center",marginBottom:16}}>
-            Mapped to <b style={{color:T.textSub}}>{property.qbProjectName||"(unnamed project)"}</b> · {(pnl.rows||[]).filter(r=>r.section!=="Income").length} cost line{(pnl.rows||[]).filter(r=>r.section!=="Income").length!==1?"s":""} · {(txns||[]).length} transaction{(txns||[]).length!==1?"s":""} · {selCount} of {QB_IMPORT_KEYS.length} lines checked
+            Mapped to <b style={{color:T.textSub}}>{property.qbProjectName||"(unnamed project)"}</b> · {(pnl.rows||[]).filter(r=>r.section!=="Income").length} cost line{(pnl.rows||[]).filter(r=>r.section!=="Income").length!==1?"s":""} · {(txns||[]).length} transaction{(txns||[]).length!==1?"s":""} · {selCount} of {QB_ALL_IMPORT_KEYS.length} lines checked
             {selCount===0&&<span style={{color:T.red}}> — no lines checked, so Import is off. Check some lines below.</span>}
           </div>
 

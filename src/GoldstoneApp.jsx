@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from "rea
 import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";
 import { useOneDrive } from "./onedrive/useOneDrive";
-import { useOutlookMail } from "./outlook/useOutlookMail";
+import { useOutlookMail, groupChains } from "./outlook/useOutlookMail";
 import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
@@ -8747,7 +8747,12 @@ function EmailPage({isMobile}){
   const mail=useOutlookMail();
   const{sharedProps,setSharedProps}=useData()||{};
   const[assignChain,setAssignChain]=useState(null);
-  const[chains,setChains]=useState(null);   // null = loading
+  const[items,setItems]=useState(null);     // flat accumulated messages (null = loading)
+  const[next,setNext]=useState(null);        // pagination token (@odata.nextLink)
+  const[loadingMore,setLoadingMore]=useState(false);
+  const[query,setQuery]=useState("");        // search box text
+  const[dq,setDq]=useState("");              // debounced query actually searched
+  const chains=useMemo(()=>items?groupChains(items):null,[items]);
   const[error,setError]=useState("");
   const[sel,setSel]=useState(null);          // selected chain
   const[msgs,setMsgs]=useState(null);        // conversation messages
@@ -8774,11 +8779,24 @@ function EmailPage({isMobile}){
     });
   };
 
+  // Debounce the search box so we don't hit Graph on every keystroke.
+  useEffect(()=>{const t=setTimeout(()=>setDq(query.trim()),350);return()=>clearTimeout(t);},[query]);
+
+  // Load the first page — either the inbox (newest first) or a mailbox-wide search.
   useEffect(()=>{
-    if(!mail.signedIn)return;let alive=true;setChains(null);setError("");
-    mail.listChains().then(c=>{if(alive)setChains(c);}).catch(e=>{if(alive){setChains([]);setError(e.message||"Couldn't load your email.");}});
+    if(!mail.signedIn)return;let alive=true;setItems(null);setError("");setNext(null);
+    const run=dq?mail.searchMail({query:dq,top:50}):mail.fetchInbox({top:50});
+    run.then(({items,next})=>{if(alive){setItems(items);setNext(next);}}).catch(e=>{if(alive){setItems([]);setError(e.message||"Couldn't load your email.");}});
     return ()=>{alive=false;};
-  },[mail.signedIn,refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[mail.signedIn,refreshKey,dq]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch the next page (older mail / more search results) and append.
+  const loadMore=async()=>{
+    if(!next||loadingMore)return;setLoadingMore(true);
+    try{const r=dq?await mail.searchMail({nextLink:next}):await mail.fetchInbox({nextLink:next});setItems(prev=>[...(prev||[]),...r.items]);setNext(r.next);}
+    catch(e){/* keep what we have */}
+    setLoadingMore(false);
+  };
 
   useEffect(()=>{
     if(!sel){setMsgs(null);setReplyDraft(null);setThreadErr("");setLabelOpen(false);return;}
@@ -8856,6 +8874,14 @@ function EmailPage({isMobile}){
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
         {/* Chain list */}
         <div style={{width:isMobile?"100%":380,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+          {/* Search */}
+          <div style={{padding:"10px 12px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,background:T.bg,borderRadius:10,padding:"8px 12px",border:`1px solid ${T.border}`}}>
+              <span style={{fontSize:13,color:T.textTert}}>🔍</span>
+              <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search all your email…" style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:13.5,color:T.text,fontFamily:"inherit",minWidth:0}}/>
+              {query&&<button onClick={()=>setQuery("")} style={{background:"none",border:"none",color:T.textTert,fontSize:16,cursor:"pointer",lineHeight:1,padding:0,flexShrink:0}}>×</button>}
+            </div>
+          </div>
           {/* Label filter */}
           {chains&&chains.length>0&&<div style={{display:"flex",gap:6,padding:"9px 12px",borderBottom:`1px solid ${T.border}`,overflowX:"auto",flexShrink:0,scrollbarWidth:"none"}}>
             {[["all","All"],...Object.entries(MAIL_LABELS).map(([k,v])=>[k,`${v.icon} ${v.name}`])].map(([k,l])=>{const on=filterKind===k;return(
@@ -8863,9 +8889,9 @@ function EmailPage({isMobile}){
             );})}
           </div>}
           <div style={{flex:1,overflowY:"auto"}}>
-            {chains===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Loading your inbox…</div>}
+            {chains===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{dq?"Searching…":"Loading your inbox…"}</div>}
             {chains&&error&&<div style={{padding:18,fontSize:12.5,color:"#8a6d1f",lineHeight:1.5}}>{error}<div style={{marginTop:10}}>{btn("Grant email access",true,()=>mail.signIn())}</div></div>}
-            {chains&&!error&&chains.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No email in your inbox.</div>}
+            {chains&&!error&&chains.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{dq?`No emails match “${dq}”.`:"No email in your inbox."}</div>}
             {chains&&(()=>{const shown=chains.filter(c=>filterKind==="all"||(labels[c.key]&&labels[c.key].kind===filterKind));
               if(chains.length>0&&shown.length===0)return <div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No chains labeled “{MAIL_LABELS[filterKind]?.name||filterKind}”.</div>;
               return shown.map(c=>{const m=c.latest;const active=sel&&sel.key===c.key;const lab=labels[c.key];return(
@@ -8885,6 +8911,9 @@ function EmailPage({isMobile}){
                 {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
               </div>
             );});})()}
+            {chains&&chains.length>0&&next&&<div style={{padding:"12px 16px 20px",textAlign:"center"}}>
+              <button onClick={loadMore} disabled={loadingMore} style={{padding:"9px 18px",borderRadius:20,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:13,cursor:loadingMore?"default":"pointer",fontFamily:"inherit",opacity:loadingMore?0.6:1}}>{loadingMore?"Loading…":"Load older email"}</button>
+            </div>}
           </div>
         </div>
 

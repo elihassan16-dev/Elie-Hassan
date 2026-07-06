@@ -4179,7 +4179,7 @@ function PropertyTaskList({property}){
 // TaskRow + task popups as property tasks, backed by the office_tasks store.
 const OFFICE_TASK_PID="__office_task__";
 function TasksPage({onNavigate}){
-  const { sharedProps, setSharedProps, contacts: CONTACTS, setContacts, flushContacts, teamMembers: TEAM_MEMBERS, currentUser: CURRENT_USER, automations, setAutomations, officeTasks, setOfficeTasks, flushOfficeTasks } = useData();
+  const { sharedProps, setSharedProps, contacts: CONTACTS, setContacts, flushContacts, teamMembers: TEAM_MEMBERS, currentUser: CURRENT_USER, automations, setAutomations, officeTasks, setOfficeTasks, flushOfficeTasks, setOfficeMessages, flushOffice } = useData();
   // Company/general tasks reuse the same task machinery via a virtual property id.
   const isOffice=(pid)=>pid===OFFICE_TASK_PID;
   const saveOffice=()=>{if(flushOfficeTasks)setTimeout(flushOfficeTasks,0);};
@@ -4209,8 +4209,19 @@ function TasksPage({onNavigate}){
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
     if(attachment)msg.attachment=attachment;
     if(mentions&&mentions.length)msg.mentions=mentions;
-    if(isOffice(propId))upOfficeTask(taskId,tk=>({...tk,messages:[...(tk.messages||[]),msg]}));
-    else setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
+    if(isOffice(propId)){
+      // Keep the task's own thread AND mirror the message into the shared Office
+      // Chat (with a task reference) so the whole team sees it there too.
+      upOfficeTask(taskId,tk=>({...tk,messages:[...(tk.messages||[]),msg]}));
+      const tsk=findLiveTask(propId,taskId);
+      const officeMsg={id:Date.now()+1,author:CURRENT_USER,text:`📋 ${tsk?.text?`${tsk.text}: `:""}${t}`.trim(),at:new Date().toISOString(),readBy:[CURRENT_USER]};
+      if(attachment)officeMsg.attachment=attachment;
+      setOfficeMessages(prev=>[...(prev||[]),officeMsg]);
+      if(flushOffice)setTimeout(flushOffice,0);
+      notify((TEAM_MEMBERS||[]).filter(n=>n!==CURRENT_USER),{title:"📌 Office Chat",body:`${CURRENT_USER}: ${officeMsg.text}`,tag:"office"});
+      return;
+    }
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
     if(mentions&&mentions.length){ const tsk=findLiveTask(propId,taskId); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`task-${taskId}`}); }
   }
   // A task has an owner (assignee = the original responsible person) and an optional

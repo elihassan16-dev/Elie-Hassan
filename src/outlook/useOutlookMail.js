@@ -143,16 +143,33 @@ export function useOutlookMail() {
     return (d.value || []).filter((a) => a["@odata.type"] === "#microsoft.graph.fileAttachment" && !a.isInline && a.contentBytes);
   }, [graph]);
 
+  // How many messages in a conversation are still unread — so a pinned chain can
+  // show an "unread" dot. conversationId + isRead are both filterable (unlike
+  // conversationId + $orderby), so this is fine.
+  const conversationUnread = useCallback(async (conversationId) => {
+    if (!conversationId) return 0;
+    try {
+      const filter = encodeURIComponent(`conversationId eq '${String(conversationId).replace(/'/g, "''")}' and isRead eq false`);
+      const d = await graph(`/me/messages?$filter=${filter}&$select=id&$top=20`);
+      return (d.value || []).length;
+    } catch { return 0; }
+  }, [graph]);
+
   // Mark a message read.
   const markRead = useCallback(async (id) => {
     try { await graph(`/me/messages/${id}`, { method: "PATCH", body: JSON.stringify({ isRead: true }) }); } catch { /* non-fatal */ }
   }, [graph]);
 
   // Reply / reply-all to a message (sends immediately). `html` is the reply body.
-  const reply = useCallback(async (id, html, all = false) => {
+  // `cc` (comma/;-separated) adds extra people to this reply mid-conversation.
+  const reply = useCallback(async (id, html, all = false, cc = "") => {
+    const addrs = (s) => String(s || "").split(/[,;]/).map((x) => x.trim()).filter(Boolean).map((address) => ({ emailAddress: { address } }));
+    const body = { comment: html };
+    const ccList = addrs(cc);
+    if (ccList.length) body.message = { ccRecipients: ccList }; // added on top of the reply's own recipients
     await graph(`/me/messages/${id}/${all ? "replyAll" : "reply"}`, {
       method: "POST",
-      body: JSON.stringify({ comment: html }),
+      body: JSON.stringify(body),
     });
   }, [graph]);
 
@@ -173,5 +190,5 @@ export function useOutlookMail() {
     });
   }, [graph]);
 
-  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, markRead, reply, sendNew };
+  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, conversationUnread, markRead, reply, sendNew };
 }

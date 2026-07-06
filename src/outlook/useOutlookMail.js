@@ -3,6 +3,16 @@ import { msalInstance, ensureMsalReady, MAIL_SCOPES } from "../onedrive/msal";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
+// Parse a "To"/"Cc" string into Graph recipients. Handles bare emails and the
+// friendly "Display Name <email@x.com>" form the autocomplete inserts.
+export function parseRecipients(s) {
+  return String(s || "").split(/[,;]/).map((x) => x.trim()).filter(Boolean).map((tok) => {
+    const m = tok.match(/^"?([^"<]*)"?\s*<([^>]+)>$/);
+    if (m) return { emailAddress: { name: (m[1].trim() || m[2].trim()), address: m[2].trim() } };
+    return { emailAddress: { address: tok } };
+  });
+}
+
 // Group a flat message list into conversation "chains" (latest message per
 // conversation, newest first), with a count and an any-unread flag.
 export function groupChains(items) {
@@ -173,40 +183,88 @@ export function useOutlookMail() {
     } catch { return 0; }
   }, [graph]);
 
+  // Suggest recipients from the user's Outlook people (frequent contacts +
+  // saved contacts), ranked by relevance. Returns [{name, email}].
+  const searchPeople = useCallback(async (query) => {
+    const q = String(query || "").trim();
+    if (!q) return [];
+    try {
+      const d = await graph(`/me/people?$search=${encodeURIComponent('"' + q.replace(/"/g, " ") + '"')}&$top=8&$select=displayName,scoredEmailAddresses,emailAddresses`);
+      return (d.value || []).map((p) => {
+        const email = (p.scoredEmailAddresses && p.scoredEmailAddresses[0] && p.scoredEmailAddresses[0].address) || (p.emailAddresses && p.emailAddresses[0] && p.emailAddresses[0].address) || "";
+        return { name: p.displayName || email, email };
+      }).filter((p) => p.email);
+    } catch { return []; }
+  }, [graph]);
+
   // Mark a message read.
   const markRead = useCallback(async (id) => {
     try { await graph(`/me/messages/${id}`, { method: "PATCH", body: JSON.stringify({ isRead: true }) }); } catch { /* non-fatal */ }
   }, [graph]);
 
+  // Build Graph mention objects from [{name,address}] so Outlook flags the person
+  // as @-mentioned (they get the "you were mentioned" indicator).
+  const buildMentions = (mentions) => (mentions || []).filter((m) => m && m.address).map((m, i) => ({
+    "@odata.type": "#microsoft.graph.mention",
+    mentioned: { name: m.name || m.address, address: m.address },
+    mentionText: m.name || m.address,
+    clientReference: `gs-${i}-${m.address}`,
+  }));
+
   // Reply / reply-all to a message (sends immediately). `html` is the reply body.
-  // `cc` (comma/;-separated) adds extra people to this reply mid-conversation.
-  const reply = useCallback(async (id, html, all = false, cc = "") => {
-    const addrs = (s) => String(s || "").split(/[,;]/).map((x) => x.trim()).filter(Boolean).map((address) => ({ emailAddress: { address } }));
-    const body = { comment: html };
-    const ccList = addrs(cc);
-    if (ccList.length) body.message = { ccRecipients: ccList }; // added on top of the reply's own recipients
-    await graph(`/me/messages/${id}/${all ? "replyAll" : "reply"}`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+  // `cc` adds extra people; `mentions` [{name,address}] are @-mentioned (added to
+  // the recipients AND flagged as Outlook mentions). With mentions we go through a
+  // draft (createReply → set body/recipients/mentions → send) so the flag sticks;
+  // without, the simple reply action is enough.
+  const reply = useCallback(async (id, html, all = false, cc = "", mentions = []) => {
+    const ccList = parseRecipients(cc);
+    const mentionObjs = buildMentions(mentions);
+    if (mentionObjs.length === 0) {
+      const body = { comment: html };
+      if (ccList.length) body.message = { ccRecipients: ccList };
+      await graph(`/me/messages/${id}/${all ? "replyAll" : "reply"}`, { method: "POST", body: JSON.stringify(body) });
+      return;
+    }
+    // Draft-based path to attach native mentions.
+    const draft = await graph(`/me/messages/${id}/${all ? "createReplyAll" : "createReply"}`, { method: "POST", body: JSON.stringify({}) });
+    const draftId = draft.id;
+    const existing = draft.body && draft.body.content ? draft.body.content : "";
+    const newBody = `<div>${html}</div>${existing}`;
+    const toSet = [...(draft.toRecipients || [])];
+    const have = new Set(toSet.map((r) => (r.emailAddress && r.emailAddress.address || "").toLowerCase()));
+    mentions.forEach((m) => { if (m.address && !have.has(m.address.toLowerCase())) { toSet.push({ emailAddress: { name: m.name || m.address, address: m.address } }); have.add(m.address.toLowerCase()); } });
+    const ccSet = [...(draft.ccRecipients || []), ...ccList];
+    const patch = { body: { contentType: "HTML", content: newBody }, toRecipients: toSet, ccRecipients: ccSet, mentions: mentionObjs };
+    try { await graph(`/me/messages/${draftId}`, { method: "PATCH", body: JSON.stringify(patch) }); }
+    catch { const { mentions: _m, ...rest } = patch; await graph(`/me/messages/${draftId}`, { method: "PATCH", body: JSON.stringify(rest) }); } // fall back without native mentions
+    await graph(`/me/messages/${draftId}/send`, { method: "POST", body: JSON.stringify({}) });
   }, [graph]);
 
-  // Compose & send a brand-new message.
-  const sendNew = useCallback(async ({ to, cc, subject, html }) => {
-    const addrs = (s) => String(s || "").split(/[,;]/).map((x) => x.trim()).filter(Boolean).map((address) => ({ emailAddress: { address } }));
+  // Compose & send a brand-new message. `mentions` [{name,address}] are @-mentioned.
+  const sendNew = useCallback(async ({ to, cc, subject, html, mentions = [] }) => {
+    const mentionObjs = buildMentions(mentions);
+    const toSet = parseRecipients(to);
+    const have = new Set(toSet.map((r) => (r.emailAddress && r.emailAddress.address || "").toLowerCase()));
+    (mentions || []).forEach((m) => { if (m.address && !have.has(m.address.toLowerCase())) { toSet.push({ emailAddress: { name: m.name || m.address, address: m.address } }); have.add(m.address.toLowerCase()); } });
+    if (mentionObjs.length) {
+      // Draft → send so native mentions attach.
+      const draft = await graph(`/me/messages`, { method: "POST", body: JSON.stringify({ subject: subject || "", body: { contentType: "HTML", content: html || "" }, toRecipients: toSet, ccRecipients: parseRecipients(cc), mentions: mentionObjs }) });
+      await graph(`/me/messages/${draft.id}/send`, { method: "POST", body: JSON.stringify({}) });
+      return;
+    }
     await graph(`/me/sendMail`, {
       method: "POST",
       body: JSON.stringify({
         message: {
           subject: subject || "",
           body: { contentType: "HTML", content: html || "" },
-          toRecipients: addrs(to),
-          ccRecipients: addrs(cc),
+          toRecipients: toSet,
+          ccRecipients: parseRecipients(cc),
         },
         saveToSentItems: true,
       }),
     });
   }, [graph]);
 
-  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, getAttachmentBlob, conversationUnread, markRead, reply, sendNew };
+  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, getAttachmentBlob, searchPeople, conversationUnread, markRead, reply, sendNew };
 }

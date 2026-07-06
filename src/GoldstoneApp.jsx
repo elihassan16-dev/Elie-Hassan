@@ -58,6 +58,71 @@ const T={gold:"#B8953F",goldLight:"#F8F1E0",goldMid:"#D4A843",bg:"#F2F2F7",card:
 
 const SC={"Under Contract":{color:"#9333EA",bg:"#F3E8FF"},"Purchased":{color:"#2563EB",bg:"#DBEAFE"},"Under Construction":{color:"#EA580C",bg:"#FFEDD5"},"On Market":{color:"#16A34A",bg:"#DCFCE7"},"In Closing":{color:"#CA8A04",bg:"#FEF9C3"},"Sold":{color:"#65A30D",bg:"#ECFCCB"},"Rental":{color:"#0891B2",bg:"#CFFAFE"},"New Leads":{color:"#DB2777",bg:"#FCE7F3"}};
 const DEFAULT_ORDER=["Under Contract","In Closing","Purchased","Under Construction","On Market","Rental","New Leads","Sold"];
+
+// ── Status-change gate ──────────────────────────────────────────────────────
+// Moving a property FORWARD into one of these statuses requires the checklist to
+// be completed first — the status won't change until every item is checked. This
+// enforces the due-diligence steps for each stage of a flip. Backward moves (e.g.
+// correcting a mis-set status) are not gated.
+const STATUS_FLOW=["New Leads","Under Contract","Purchased","Under Construction","On Market","In Closing","Sold"];
+const STATUS_GATES={
+  "Under Contract":[
+    "Purchase & Sale agreement signed by all parties",
+    "Earnest money deposit sent",
+    "Purchase price & key terms confirmed",
+    "Target purchase (closing) date entered on the property",
+    "Inspection / due-diligence period noted",
+  ],
+  "Purchased":[
+    "Closing completed & deed recorded",
+    "Actual purchase date entered on the property",
+    "Hard money / LOC funding confirmed & received",
+    "Title insurance / owner's policy received",
+    "Utilities & insurance transferred to us",
+  ],
+  "Under Construction":[
+    "Scope of work finalized",
+    "Contractor hired & contract signed",
+    "Construction budget confirmed",
+    "Draw schedule set",
+    "Required permits pulled",
+  ],
+  "On Market":[
+    "Renovation complete & final walkthrough done",
+    "Listing agent engaged",
+    "List price set",
+    "Photos taken & listing is live",
+  ],
+  "In Closing":[
+    "Buyer offer accepted & contract signed",
+    "Buyer earnest money received",
+    "Selling price confirmed",
+    "Selling / scheduled closing date entered on the property",
+    "Attorney review complete",
+  ],
+  "Sold":[
+    "Sale closed & proceeds received",
+    "Final settlement statement (HUD / ALTA) received",
+    "Hard money / LOC paid off",
+    "Actual selling date entered on the property",
+  ],
+  "Rental":[
+    "Lease signed",
+    "Tenant moved in & security deposit received",
+    "Hold / refinance financing in place",
+  ],
+};
+// Gate only when advancing (or entering the Rental side-branch), never on a
+// backward correction.
+function statusNeedsGate(from,to){
+  if(!STATUS_GATES[to])return false;
+  if(from===to)return false;
+  if(to==="Rental")return true;
+  const fi=STATUS_FLOW.indexOf(from),ti=STATUS_FLOW.indexOf(to);
+  if(ti<0)return false;
+  if(fi<0)return true; // coming from an off-flow status (e.g. Rental) → gate
+  return ti>fi;
+}
 // Fixed display order for the Properties page (New Leads lives in the Leads section).
 const PROP_ORDER=["Under Contract","Purchased","Under Construction","On Market","In Closing","Sold","Rental"];
 
@@ -381,11 +446,18 @@ const ADMIN_ONLY_KEYS=new Set(["financials"]);
 function Card({children,style={}}){return <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",...style}}>{children}</div>;}
 
 // ─── StatusPicker — iOS-style pill that opens a colored dropdown list ────────
-function StatusPicker({value,onChange,size="md"}){
+function StatusPicker({value,onChange,size="md",onGateSave}){
   const[open,setOpen]=useState(false);
+  const[gate,setGate]=useState(null); // {to} — the target status awaiting its checklist
   const sc=SC[value]||{color:T.gold,bg:T.goldLight};
   const pillFs=size==="sm"?11:13;
   const pillPad=size==="sm"?"3px 10px":"6px 14px";
+  const pick=(s)=>{
+    setOpen(false);
+    if(s===value)return;
+    if(statusNeedsGate(value,s)){ setGate({to:s}); return; }
+    onChange(s);
+  };
   return(
     <div style={{position:"relative",display:"inline-block"}}>
       <span onClick={()=>setOpen(o=>!o)}
@@ -399,7 +471,7 @@ function StatusPicker({value,onChange,size="md"}){
             const ssc=SC[s];
             const selected=s===value;
             return(
-              <div key={s} onClick={()=>{onChange(s);setOpen(false);}}
+              <div key={s} onClick={()=>pick(s)}
                 style={{background:selected?ssc.bg:"transparent",color:ssc.color,fontSize:13,fontWeight:600,padding:"7px 12px",borderRadius:9,cursor:"pointer",transition:"background 0.1s"}}
                 onMouseEnter={e=>{if(!selected)e.currentTarget.style.background=ssc.bg;}}
                 onMouseLeave={e=>{if(!selected)e.currentTarget.style.background="transparent";}}>
@@ -409,6 +481,56 @@ function StatusPicker({value,onChange,size="md"}){
           })}
         </div>
       </>}
+      {gate&&<StatusGateModal from={value} to={gate.to} items={STATUS_GATES[gate.to]||[]}
+        onCancel={()=>setGate(null)}
+        onConfirm={(answers,note)=>{ onChange(gate.to); onGateSave&&onGateSave(gate.to,answers,note); setGate(null); }}/>}
+    </div>
+  );
+}
+
+// Checklist a property must pass before it can advance to a new status. Every item
+// must be checked; the status won't change until the user confirms.
+function StatusGateModal({from,to,items,onCancel,onConfirm}){
+  const[checked,setChecked]=useState(()=>items.map(()=>false));
+  const[note,setNote]=useState("");
+  const allDone=checked.length>0&&checked.every(Boolean);
+  const toggle=(i)=>setChecked(c=>c.map((v,j)=>j===i?!v:v));
+  const sc=SC[to]||{color:T.gold,bg:T.goldLight};
+  return(
+    <div onClick={onCancel} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:460,maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.28)"}}>
+        <div style={{padding:"16px 18px",borderBottom:`1px solid ${T.border}`,background:T.goldLight,borderRadius:"20px 20px 0 0"}}>
+          <div style={{fontSize:11,fontWeight:700,color:T.gold,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:4}}>Confirm status change</div>
+          <div style={{fontSize:15,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{color:T.textSub}}>{from}</span>
+            <span style={{color:T.textTert}}>→</span>
+            <span style={{background:sc.bg,color:sc.color,padding:"2px 10px",borderRadius:20,fontSize:13}}>{to}</span>
+          </div>
+          <div style={{fontSize:12,color:T.textSub,marginTop:6}}>Complete this checklist to move the property to <b>{to}</b>.</div>
+        </div>
+        <div style={{padding:"12px 16px",overflowY:"auto"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {items.map((it,i)=>(
+              <label key={i} onClick={()=>toggle(i)} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"11px 12px",borderRadius:T.radiusSm,border:`1px solid ${checked[i]?T.gold:T.border}`,background:checked[i]?T.goldLight:T.bg,cursor:"pointer"}}>
+                <span style={{flexShrink:0,width:20,height:20,borderRadius:6,border:`2px solid ${checked[i]?T.gold:T.textTert}`,background:checked[i]?T.gold:"#fff",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,lineHeight:1,marginTop:1}}>{checked[i]?"✓":""}</span>
+                <span style={{fontSize:13.5,color:T.text,lineHeight:1.4}}>{it}</span>
+              </label>
+            ))}
+          </div>
+          <div style={{marginTop:12}}>
+            <div style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:5}}>Notes (optional)</div>
+            <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Anything worth recording about this stage…" style={{width:"100%",minHeight:56,padding:"9px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit",resize:"vertical",boxSizing:"border-box",lineHeight:1.5}}/>
+          </div>
+        </div>
+        <div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:11.5,color:allDone?"#1a8f43":T.textTert,fontWeight:600}}>{checked.filter(Boolean).length}/{items.length} done</div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={onCancel} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
+            <button onClick={()=>allDone&&onConfirm(items.map((it,i)=>({item:it,done:checked[i]})),note.trim())} disabled={!allDone}
+              style={{padding:"10px 20px",borderRadius:T.radiusSm,background:allDone?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,cursor:allDone?"pointer":"default",fontFamily:"inherit",fontSize:14}}>Change to {to}</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1005,11 +1127,13 @@ function PopupRow({label,value,onOpen}){
 }
 
 // ─── Property Info section helpers (shared by PropDetail and LeadDetail) ─────
-function SectionHdr({icon,label,color}){
+// All section headers use the company gold theme (branded), ignoring any legacy
+// per-card color that used to be passed in.
+function SectionHdr({icon,label}){
   return(
-    <div style={{padding:"10px 18px",background:color,display:"flex",alignItems:"center",justifyContent:"center",gap:7,borderRadius:`${T.radius}px ${T.radius}px 0 0`}}>
+    <div style={{padding:"10px 18px",background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",gap:7,borderRadius:`${T.radius}px ${T.radius}px 0 0`,borderBottom:`1px solid ${T.gold}33`}}>
       <span style={{fontSize:13}}>{icon}</span>
-      <span style={{fontSize:11,fontWeight:700,color:T.text,letterSpacing:"0.06em"}}>{label}</span>
+      <span style={{fontSize:11,fontWeight:700,color:T.gold,letterSpacing:"0.06em"}}>{label}</span>
     </div>
   );
 }
@@ -1355,7 +1479,7 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
             <div style={iRow}>
               <div>
                 <div style={iLbl}>Interest paid-to-date + from today</div>
-                <div style={{fontSize:11,color:T.textTert,marginTop:1}}>{closingDate?`Paid so far (QuickBooks) + ${daysLeft} days left @ ${n(hmRate)}%/yr`:"Set a Scheduled Closing Date to use this"}</div>
+                <div style={{fontSize:11,color:T.textTert,marginTop:1}}>{closingDate?`Paid so far (QuickBooks) + ${daysLeft} days left @ ${n(hmRate)}%/yr`:"Set a Selling Date to use this"}</div>
               </div>
               <button onClick={()=>closingDate&&setHmFromToday(v=>!v)} disabled={!closingDate} style={{padding:"5px 14px",borderRadius:20,border:"none",cursor:closingDate?"pointer":"default",fontFamily:"inherit",fontSize:12,fontWeight:700,background:useFwd?T.green+"22":T.bg,color:useFwd?"#1a8f43":T.textTert,opacity:closingDate?1:0.6}}>{useFwd?"On":"Off"}</button>
             </div>
@@ -2774,7 +2898,8 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
         </div>
         <div style={{marginBottom:14}}>
-          <StatusPicker value={property.status} onChange={v=>onUpdate(property.id,"status",v)}/>
+          <StatusPicker value={property.status} onChange={v=>onUpdate(property.id,"status",v)}
+            onGateSave={(to,answers,note)=>onUpdate(property.id,"statusGates",{...(property.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}})}/>
         </div>
         <div style={{display:"flex",background:T.bg,borderRadius:10,padding:3,gap:2,maxWidth:"100%",overflowX:"auto",WebkitOverflowScrolling:"touch",scrollbarWidth:"none"}}>
           {tabs.map(t=>(
@@ -2848,16 +2973,11 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                 </div>
               </div>
 
-              {/* Purchase Date Actual */}
+              {/* Purchase Date — one date: the scheduled close while under contract,
+                  updated to the real close date once it happens. */}
               <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
-                <SectionHdr icon="📅" label="PURCHASE DATE (ACTUAL)" color="#EAF1FF"/>
+                <SectionHdr icon="📅" label="PURCHASE DATE"/>
                 <DateRow label="Date" value={property.financials.purchaseDate} onChange={v=>onUpdate(property.id,"financials",{...property.financials,purchaseDate:v})}/>
-              </div>
-
-              {/* Closing Date Scheduled */}
-              <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
-                <SectionHdr icon="📅" label="CLOSING DATE (SCHEDULED)" color="#E9F9EE"/>
-                <DateRow label="Date" value={pi.closingDateScheduled} onChange={v=>upP("closingDateScheduled",v)}/>
               </div>
 
               {/* Link to photos */}
@@ -3248,16 +3368,10 @@ function LeadDetail({lead,onUpdate}){
               </div>
             </div>
 
-            {/* Purchase Date Actual */}
+            {/* Purchase Date — single date (scheduled close, then real close). */}
             <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
-              <SectionHdr icon="📅" label="PURCHASE DATE (ACTUAL)" color="#EAF1FF"/>
+              <SectionHdr icon="📅" label="PURCHASE DATE"/>
               <DateRow label="Date" value={f.purchaseDate} onChange={v=>up("purchaseDate",v)}/>
-            </div>
-
-            {/* Closing Date Scheduled */}
-            <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
-              <SectionHdr icon="📅" label="CLOSING DATE (SCHEDULED)" color="#E9F9EE"/>
-              <DateRow label="Date" value={pi.closingDateScheduled} onChange={v=>upPI("closingDateScheduled",v)}/>
             </div>
 
             {/* Link to photos */}
@@ -3564,7 +3678,8 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 62px 62px 70px",alignItems:"center",gap:8}}>
                     <div style={{minWidth:0,overflow:"hidden",display:"flex"}}>
-                      <StatusPicker value={p.status} size="sm" onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}/>
+                      <StatusPicker value={p.status} size="sm" onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}
+                        onGateSave={(to,answers,note)=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,statusGates:{...(x.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}}}:x))}/>
                     </div>
                     <span style={{textAlign:"right",fontSize:13,fontWeight:700,color:equity>0?T.gold:T.textTert,whiteSpace:"nowrap"}}>{equity>0?fmtD(equity):"—"}</span>
                     <span style={{textAlign:"right",fontSize:13,fontWeight:800,color:profit>0?T.green:profit<0?T.red:T.textTert,whiteSpace:"nowrap"}}>{profit!==0?fmtD(profit):"—"}</span>
@@ -3604,7 +3719,8 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                   <tr key={p.id} style={{cursor:"default"}} onMouseEnter={e=>e.currentTarget.style.background="#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                     <td style={{...tdS,fontWeight:500,color:T.blue,cursor:"pointer",textDecoration:"underline"}} onClick={()=>onNavigate&&onNavigate(p.id)}>{addr}</td>
                     <td style={{...tdS,textAlign:"center"}}>
-                      <StatusPicker value={p.status} size="sm" onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}/>
+                      <StatusPicker value={p.status} size="sm" onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}
+                        onGateSave={(to,answers,note)=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,statusGates:{...(x.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}}}:x))}/>
                     </td>
                     <td style={{...tdS,textAlign:"right",fontWeight:600,color:equity>0?T.gold:T.textTert}}>{equity>0?fmtD(equity):"—"}</td>
                     <td style={{...tdS,textAlign:"center"}}>

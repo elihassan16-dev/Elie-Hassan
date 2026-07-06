@@ -8707,11 +8707,24 @@ function buildEmailPin(chain){const m=(chain&&chain.latest)||{};return {id:Date.
 // Turn a base64 attachment (from Graph) into a File for uploading to OneDrive.
 function base64ToFile(b64,name,type){const bin=atob(b64||"");const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new File([bytes],name||"attachment",{type:type||"application/octet-stream"});}
 // Render an email body safely: sandboxed iframe (no scripts run), auto-height.
-function MailBody({message}){
+function MailBody({message,mail}){
   const ref=useRef(null);
-  const html=message?.body?.contentType==="text"
+  const raw=message?.body?.contentType==="text"
     ? `<pre style="white-space:pre-wrap;font-family:inherit;margin:0">${mailEsc(message.body.content)}</pre>`
     : (message?.body?.content||"");
+  // Fetch the email's embedded (cid:) images and swap them into the body so logos,
+  // signature pictures and pasted screenshots actually render instead of showing
+  // as broken boxes.
+  const[cidMap,setCidMap]=useState(null);
+  const needsCid=/src\s*=\s*["']cid:/i.test(raw);
+  useEffect(()=>{
+    if(!mail||!message?.id||!needsCid){setCidMap({});return;}
+    let alive=true;mail.getInlineImages(message.id).then(m=>{if(alive)setCidMap(m||{});}).catch(()=>{if(alive)setCidMap({});});
+    return ()=>{alive=false;};
+  },[message?.id,needsCid]); // eslint-disable-line
+  const html=(needsCid&&cidMap&&Object.keys(cidMap).length)
+    ? raw.replace(/src\s*=\s*("|')cid:([^"']+)\1/gi,(mm,q,cid)=>{const uri=cidMap[String(cid).replace(/[<>]/g,"").trim().toLowerCase()];return uri?`src=${q}${uri}${q}`:mm;})
+    : raw;
   const doc=`<!doctype html><html><head><base target="_blank"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:8px 10px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#1C1C1E;word-wrap:break-word;overflow-wrap:anywhere;}img{max-width:100%;height:auto;}table{max-width:100%;}a{color:#007AFF;}</style></head><body>${html}</body></html>`;
   const onLoad=(e)=>{try{const h=e.target.contentWindow.document.body.scrollHeight;e.target.style.height=Math.min(h+16,1400)+"px";}catch{/* ignore */}};
   return <iframe ref={ref} title="email" onLoad={onLoad} sandbox="allow-same-origin allow-popups" srcDoc={doc} style={{width:"100%",border:"none",height:120,background:"#fff"}}/>;
@@ -9138,7 +9151,7 @@ function EmailPage({isMobile}){
                       <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</span>
                     </div>
                     {open
-                      ? <div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m}/></div>
+                      ? <div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail}/></div>
                       : <div onClick={()=>setReadMsg(m)} style={{padding:"0 14px 11px",fontSize:12.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{m.bodyPreview||""}</div>}
                   </div>
                 );})}
@@ -9200,7 +9213,7 @@ function EmailPage({isMobile}){
               <button onClick={()=>setReadMsg(null)} style={{flexShrink:0,background:"none",border:"none",fontSize:24,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
             </div>
             <div style={{flex:1,overflowY:"auto",padding:"6px 4px 12px"}}>
-              <MailBody message={readMsg}/>
+              <MailBody message={readMsg} mail={mail}/>
               {readMsg.hasAttachments&&<EmailAttachments messageId={readMsg.id} mail={mail} od={null} folder={null}/>}
             </div>
             <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8,justifyContent:"flex-end",flexShrink:0}}>
@@ -9470,7 +9483,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
                     <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{open?"▾":"▸"}</span>
                   </div>
                   {open
-                    ? <><div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m}/></div>
+                    ? <><div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail}/></div>
                        {m.hasAttachments&&<EmailAttachments messageId={m.id} mail={mail} od={od} folder={filesFolder}/>}</>
                     : <div style={{padding:"0 14px 10px",fontSize:12.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</div>}
                 </div>

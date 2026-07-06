@@ -160,6 +160,28 @@ export function useOutlookMail() {
     return out.filter((a) => !a.isInline);
   }, [graph]);
 
+  // Inline images embedded in an email body (logos, signature pics, pasted
+  // screenshots). They're referenced in the HTML as src="cid:<contentId>"; this
+  // returns a { contentId(lowercased) -> data:URI } map so the body can render
+  // them. Lists metadata first (cheap), then pulls only the inline image bytes.
+  const getInlineImages = useCallback(async (id) => {
+    try {
+      const list = await graph(`/me/messages/${id}/attachments?$select=id,contentType,contentId,isInline&$top=60`);
+      const inline = (list.value || []).filter((a) => a.isInline && a.contentId && String(a.contentType || "").startsWith("image/"));
+      const map = {};
+      for (const a of inline) {
+        try {
+          const one = await graph(`/me/messages/${id}/attachments/${a.id}?$select=contentBytes,contentType,contentId`);
+          if (one.contentBytes) {
+            const cid = String(a.contentId || "").replace(/[<>]/g, "").trim().toLowerCase();
+            if (cid) map[cid] = `data:${a.contentType || one.contentType || "image/png"};base64,${one.contentBytes}`;
+          }
+        } catch { /* skip this image */ }
+      }
+      return map;
+    } catch { return {}; }
+  }, [graph]);
+
   // Download one attachment's raw bytes as a Blob (works for large files). Use for
   // preview / save. Reference (cloud-link) attachments have no $value — caller handles.
   const getAttachmentBlob = useCallback(async (messageId, attachmentId) => {
@@ -269,5 +291,5 @@ export function useOutlookMail() {
     });
   }, [graph]);
 
-  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, getAttachmentBlob, searchPeople, conversationUnread, markRead, reply, sendNew };
+  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, getAttachmentBlob, getInlineImages, searchPeople, conversationUnread, markRead, reply, sendNew };
 }

@@ -3764,13 +3764,13 @@ function MultiSelect({placeholder,options,selected,onToggle,style}){
 }
 
 // Inline "add a task" row shown at the bottom of each property group in the Task Center.
-function AddTaskInline({onAdd}){
+function AddTaskInline({onAdd,placeholder}){
   const[text,setText]=useState("");
   const submit=()=>{const t=text.trim();if(!t)return;onAdd(t);setText("");};
   return(
     <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderTop:`1px solid ${T.border}`}}>
       <span style={{color:T.blue,fontSize:17,fontWeight:700,flexShrink:0,lineHeight:1}}>+</span>
-      <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="Add a task for this property…"
+      <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder={placeholder||"Add a task for this property…"}
         style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",fontSize:13,color:T.text,fontFamily:"inherit"}}/>
       {text.trim()&&<button onClick={submit} style={{padding:"5px 14px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Add</button>}
     </div>
@@ -4175,73 +4175,17 @@ function PropertyTaskList({property}){
 // ─── Tasks Page ───────────────────────────────────────────────────────────────
 // TEAM_MEMBERS and CURRENT_USER now come from useData() (real Supabase auth + users table).
 
-// ─── Company / general tasks (not tied to any property) ─────────────────────
-// Stored in the shared office_tasks collection. Messaging about one links to the
-// general Office Chat rather than a per-task thread.
-function OfficeTasksPanel({onOpenOffice,isMobile}){
-  const { officeTasks, setOfficeTasks, flushOfficeTasks, setOfficeMessages, flushOffice, teamMembers:TEAM_MEMBERS, currentUser:CURRENT_USER } = useData();
-  const[open,setOpen]=useState(true);
-  const[draft,setDraft]=useState({text:"",assignee:"",due:""});
-  const save=()=>{if(flushOfficeTasks)setTimeout(flushOfficeTasks,0);};
-  const add=()=>{const t=draft.text.trim();if(!t)return;
-    const task={id:Date.now()+"_"+Math.round(Math.random()*1e6),text:t,status:"Not Started",assignee:draft.assignee||"",due:draft.due||"",createdBy:CURRENT_USER,createdAt:new Date().toISOString()};
-    setOfficeTasks(prev=>[...(prev||[]),task]);save();
-    if(draft.assignee&&draft.assignee!==CURRENT_USER)notify([draft.assignee],{title:"New company task",body:`${CURRENT_USER} assigned you: ${t}`,tag:"office-task-"+task.id});
-    setDraft({text:"",assignee:"",due:""});};
-  const upd=(id,ch)=>{setOfficeTasks(prev=>(prev||[]).map(t=>t.id===id?{...t,...ch}:t));save();};
-  const del=(id)=>{if(!window.confirm("Delete this company task?"))return;setOfficeTasks(prev=>(prev||[]).filter(t=>t.id!==id));save();};
-  const discuss=(task)=>{
-    const msg={id:Date.now(),author:CURRENT_USER,text:`📋 Company task: ${task.text}`,at:new Date().toISOString(),readBy:[CURRENT_USER]};
-    setOfficeMessages(prev=>[...(prev||[]),msg]);if(flushOffice)setTimeout(flushOffice,0);
-    notify((TEAM_MEMBERS||[]).filter(n=>n!==CURRENT_USER),{title:"📌 Office Chat",body:`${CURRENT_USER}: 📋 Company task: ${task.text}`,tag:"office"});
-    onOpenOffice&&onOpenOffice();
-  };
-  const sorted=[...(officeTasks||[])].sort((a,b)=>{const ac=a.status==="Completed"?1:0,bc=b.status==="Completed"?1:0;return ac-bc||String(b.createdAt||"").localeCompare(String(a.createdAt||""));});
-  const openCount=sorted.filter(t=>t.status!=="Completed"&&t.status!=="N/A").length;
-  const inS={padding:"9px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text};
-
-  return(
-    <div style={{maxWidth:820,marginBottom:18,background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden",boxShadow:T.shadow}}>
-      <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",cursor:"pointer",background:T.goldLight}}>
-        <span style={{fontSize:16}}>🏢</span>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:14.5,fontWeight:800,color:T.text}}>Company Tasks</div>
-          <div style={{fontSize:11,color:T.textSub}}>General to-dos, not tied to a property{openCount?` · ${openCount} open`:""}</div>
-        </div>
-        <span style={{color:T.gold,fontSize:14,transform:open?"none":"rotate(-90deg)",transition:"transform 0.15s"}}>▾</span>
-      </div>
-      {open&&<>
-        {/* Add row */}
-        <div style={{display:"flex",gap:8,padding:"12px 16px",borderTop:`1px solid ${T.border}`,flexWrap:"wrap"}}>
-          <input value={draft.text} onChange={e=>setDraft(d=>({...d,text:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Add a company task…" style={{...inS,flex:1,minWidth:180}}/>
-          <select value={draft.assignee} onChange={e=>setDraft(d=>({...d,assignee:e.target.value}))} style={{...inS,cursor:"pointer"}}>
-            <option value="">Unassigned</option>
-            {TEAM_MEMBERS.map(m=><option key={m} value={m}>{m}</option>)}
-          </select>
-          <input type="date" value={draft.due} onChange={e=>setDraft(d=>({...d,due:e.target.value}))} title="Due date" style={{...inS,cursor:"pointer"}}/>
-          <button onClick={add} disabled={!draft.text.trim()} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:draft.text.trim()?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:draft.text.trim()?"pointer":"default",fontFamily:"inherit"}}>+ Add</button>
-        </div>
-        {sorted.length===0&&<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>No company tasks yet.</div>}
-        {sorted.map(t=>{const done=t.status==="Completed"||t.status==="N/A";const overdue=t.due&&!done&&t.due<new Date().toISOString().slice(0,10);return(
-          <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`,opacity:done?0.6:1}}>
-            <input type="checkbox" checked={t.status==="Completed"} onChange={e=>upd(t.id,{status:e.target.checked?"Completed":"Not Started"})} title="Mark complete" style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13.5,fontWeight:500,color:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text}</div>
-              <div style={{fontSize:11,color:overdue?T.red:T.textTert,marginTop:1}}>{t.assignee?`${t.assignee}`:"Unassigned"}{t.due?` · due ${finFmtDate(t.due)}`:""}{overdue?" · overdue":""}</div>
-            </div>
-            <select value={t.status} onChange={e=>upd(t.id,{status:e.target.value})} style={{...inS,padding:"5px 8px",fontSize:12,cursor:"pointer",flexShrink:0}}>
-              {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-            </select>
-            <button onClick={()=>discuss(t)} title="Discuss in office chat" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0,padding:"0 2px"}}>💬</button>
-            <button onClick={()=>del(t.id)} title="Delete" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:17,lineHeight:1,flexShrink:0}}>×</button>
-          </div>
-        );})}
-      </>}
-    </div>
-  );
-}
-function TasksPage({onNavigate,onOpenOffice}){
-  const { sharedProps, setSharedProps, contacts: CONTACTS, setContacts, flushContacts, teamMembers: TEAM_MEMBERS, currentUser: CURRENT_USER, automations, setAutomations } = useData();
+// Virtual property id for company/general tasks so they reuse the exact same
+// TaskRow + task popups as property tasks, backed by the office_tasks store.
+const OFFICE_TASK_PID="__office_task__";
+function TasksPage({onNavigate}){
+  const { sharedProps, setSharedProps, contacts: CONTACTS, setContacts, flushContacts, teamMembers: TEAM_MEMBERS, currentUser: CURRENT_USER, automations, setAutomations, officeTasks, setOfficeTasks, flushOfficeTasks } = useData();
+  // Company/general tasks reuse the same task machinery via a virtual property id.
+  const isOffice=(pid)=>pid===OFFICE_TASK_PID;
+  const saveOffice=()=>{if(flushOfficeTasks)setTimeout(flushOfficeTasks,0);};
+  const upOfficeTask=(taskId,fn)=>{setOfficeTasks(prev=>(prev||[]).map(t=>t.id===taskId?fn(t):t));saveOffice();};
+  const findLiveTask=(pid,tid)=>isOffice(pid)?(officeTasks||[]).find(t=>t.id===tid):(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(tk=>tk.id===tid);
+  const addOfficeTask=(text)=>{const t=(text||"").trim();if(!t)return;setOfficeTasks(prev=>[...(prev||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER}]);saveOffice();};
   const dir=CONTACTS.map(normContact); // normalized contact directory (phones[], company, tags)
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
   const { isAdmin } = useAuth();
@@ -4265,26 +4209,29 @@ function TasksPage({onNavigate,onOpenOffice}){
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
     if(attachment)msg.attachment=attachment;
     if(mentions&&mentions.length)msg.mentions=mentions;
-    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
-    if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===propId)?.tasks||[]).find(x=>x.id===taskId); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`task-${taskId}`}); }
+    if(isOffice(propId))upOfficeTask(taskId,tk=>({...tk,messages:[...(tk.messages||[]),msg]}));
+    else setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
+    if(mentions&&mentions.length){ const tsk=findLiveTask(propId,taskId); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`task-${taskId}`}); }
   }
   // A task has an owner (assignee = the original responsible person) and an optional
   // delegate (someone the owner handed the work to). role is "owner" or "delegate".
   function setTaskRole(propId,taskId,role,member){
-    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>{
-      if(tk.id!==taskId)return tk;
+    const applyRole=(tk)=>{
       if(role==="owner"){
         if(!member)return {...tk,assignee:"",delegate:""}; // clearing owner clears delegate too
         return {...tk,assignee:member,delegate:tk.delegate===member?"":tk.delegate};
       }
-      // delegate
       if(!member)return {...tk,delegate:""};
       return {...tk,delegate:member===tk.assignee?"":member}; // no delegating to the owner
-    })}));
-    if(member&&member!==CURRENT_USER){ const tsk=(sharedProps.find(p=>p.id===propId)?.tasks||[]).find(x=>x.id===taskId); notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}`,tag:`task-${taskId}`}); }
+    };
+    if(isOffice(propId))upOfficeTask(taskId,applyRole);
+    else setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:applyRole(tk))}));
+    if(member&&member!==CURRENT_USER){ const tsk=findLiveTask(propId,taskId); notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}`,tag:`task-${taskId}`}); }
   }
   // Mark a task's messages read by me when I open its 💬 popup.
   function markTaskRead(propId,taskId){
+    const readMsgs=(tk)=>({...tk,messages:(tk.messages||[]).map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}:m)});
+    if(isOffice(propId)){upOfficeTask(taskId,readMsgs);return;}
     setSharedProps(prev=>prev.map(p=>{
       if(p.id!==propId)return p;
       let changed=false;
@@ -4312,6 +4259,7 @@ function TasksPage({onNavigate,onOpenOffice}){
   }
 
   function setTaskContact(propId,taskId,contact){
+    if(isOffice(propId)){upOfficeTask(taskId,tk=>({...tk,taskContact:contact}));return;}
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,taskContact:contact})}));
   }
   const[statusFilter,setStatusFilter]=useState(new Set()); // empty = show all
@@ -4327,14 +4275,17 @@ function TasksPage({onNavigate,onOpenOffice}){
   });
 
   function updateTaskStatus(propId,taskId,status){
+    if(isOffice(propId)){upOfficeTask(taskId,t=>({...t,status}));return;}
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===taskId?{...t,status}:t)}));
   }
 
   function deleteTask(propId,taskId){
+    if(isOffice(propId)){setOfficeTasks(prev=>(prev||[]).filter(t=>t.id!==taskId));saveOffice();return;}
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).filter(t=>t.id!==taskId)}));
   }
   function updateTaskText(propId,taskId,text){
     const v=(text||"").trim();if(!v)return;
+    if(isOffice(propId)){upOfficeTask(taskId,t=>({...t,text:v}));return;}
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===taskId?{...t,text:v}:t)}));
   }
   // Add a task straight from the Task Center — assigned to me so it stays visible.
@@ -4384,7 +4335,7 @@ function TasksPage({onNavigate,onOpenOffice}){
       {showAddTasks&&<AddTasksModal properties={[...sharedProps.filter(p=>!p.archived)].sort((a,b)=>(a.address||"").localeCompare(b.address||""))} teamMembers={TEAM_MEMBERS} onAdd={addTasksBulk} onClose={()=>setShowAddTasks(false)}/>}
       {/* Assign / delegate popup — owner (original) + optional delegate */}
       {taskAssignTarget&&(()=>{
-        const liveTask=(sharedProps.find(p=>p.id===taskAssignTarget.propId)?.tasks||[]).find(tk=>tk.id===taskAssignTarget.id)||taskAssignTarget;
+        const liveTask=findLiveTask(taskAssignTarget.propId,taskAssignTarget.id)||taskAssignTarget;
         const owner=liveTask.assignee||"";
         const delegate=liveTask.delegate||"";
         const memberRow=(m,active,onClick,color)=>(
@@ -4430,13 +4381,13 @@ function TasksPage({onNavigate,onOpenOffice}){
       })()}
       {/* Task messages popup */}
       {taskMsgTarget&&(()=>{
-        const liveTask=(sharedProps.find(p=>p.id===taskMsgTarget.propId)?.tasks||[]).find(tk=>tk.id===taskMsgTarget.id);
+        const liveTask=findLiveTask(taskMsgTarget.propId,taskMsgTarget.id);
         return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} task={liveTask} contacts={dir} messages={liveTask?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
           onSend={(txt,att,mn)=>addTaskMessage(taskMsgTarget.propId,taskMsgTarget.id,txt,att,mn)} onClose={()=>setTaskMsgTarget(null)}/>;
       })()}
       {/* Task contact popup */}
       {taskContactTarget&&(()=>{
-        const liveTask=(sharedProps.find(p=>p.id===taskContactTarget.propId)?.tasks||[]).find(tk=>tk.id===taskContactTarget.id)||taskContactTarget;
+        const liveTask=findLiveTask(taskContactTarget.propId,taskContactTarget.id)||taskContactTarget;
         return <TaskContactCard task={liveTask} contacts={dir} onAssign={(val)=>setTaskContact(taskContactTarget.propId,liveTask.id,val)} onCreateContact={addContactToDir} onClose={()=>setTaskContactTarget(null)}/>;
       })()}
       {/* Header */}
@@ -4496,7 +4447,25 @@ function TasksPage({onNavigate,onOpenOffice}){
 
       <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
 
-        {!showAutomations&&<OfficeTasksPanel onOpenOffice={onOpenOffice} isMobile={isMobile}/>}
+        {!showAutomations&&(()=>{
+          const oTasks=(officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company Tasks",propStatus:""}));
+          const doneCount=oTasks.filter(t=>t.status==="Completed").length;
+          return(
+            <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14}}>
+              <div style={{padding:"10px 14px",background:"#FAFAFA",borderBottom:bdr,display:"flex",flexDirection:"column",gap:7}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+                  <span style={{fontSize:13,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6}}>🏢 Company Tasks</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:10,fontWeight:700,color:T.gold,background:T.goldLight,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}}>General · not a property</span>
+                  <span style={{fontSize:11,color:T.textSub}}>{doneCount}/{oTasks.length} done</span>
+                </div>
+              </div>
+              {oTasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
+              <AddTaskInline onAdd={addOfficeTask} placeholder="Add a company task…"/>
+            </div>
+          );
+        })()}
 
         {showAutomations&&(
           <div style={{maxWidth:720}}>
@@ -8629,7 +8598,7 @@ export function GoldstoneShell(){
     : active==="messages" ? <MessagingCenter sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navChatId} onNavConsumed={()=>setNavChatId(null)}/>
     : active==="showings" ? <ShowingsPage/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
-    : active==="tasks" ? <TasksPage onNavigate={navigateToProperty} onOpenOffice={()=>navigateToChat(OFFICE_ID)}/>
+    : active==="tasks" ? <TasksPage onNavigate={navigateToProperty}/>
     : active==="contacts" ? <ContactsPage/>
     : active==="email" ? <EmailPage isMobile={isMobile}/>
     : active==="financials" ? <FinancialSectionPage onNavigate={navigateToProperty} canEdit={isAdmin}/>

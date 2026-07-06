@@ -4175,7 +4175,72 @@ function PropertyTaskList({property}){
 // ─── Tasks Page ───────────────────────────────────────────────────────────────
 // TEAM_MEMBERS and CURRENT_USER now come from useData() (real Supabase auth + users table).
 
-function TasksPage({onNavigate}){
+// ─── Company / general tasks (not tied to any property) ─────────────────────
+// Stored in the shared office_tasks collection. Messaging about one links to the
+// general Office Chat rather than a per-task thread.
+function OfficeTasksPanel({onOpenOffice,isMobile}){
+  const { officeTasks, setOfficeTasks, flushOfficeTasks, setOfficeMessages, flushOffice, teamMembers:TEAM_MEMBERS, currentUser:CURRENT_USER } = useData();
+  const[open,setOpen]=useState(true);
+  const[draft,setDraft]=useState({text:"",assignee:"",due:""});
+  const save=()=>{if(flushOfficeTasks)setTimeout(flushOfficeTasks,0);};
+  const add=()=>{const t=draft.text.trim();if(!t)return;
+    const task={id:Date.now()+"_"+Math.round(Math.random()*1e6),text:t,status:"Not Started",assignee:draft.assignee||"",due:draft.due||"",createdBy:CURRENT_USER,createdAt:new Date().toISOString()};
+    setOfficeTasks(prev=>[...(prev||[]),task]);save();
+    if(draft.assignee&&draft.assignee!==CURRENT_USER)notify([draft.assignee],{title:"New company task",body:`${CURRENT_USER} assigned you: ${t}`,tag:"office-task-"+task.id});
+    setDraft({text:"",assignee:"",due:""});};
+  const upd=(id,ch)=>{setOfficeTasks(prev=>(prev||[]).map(t=>t.id===id?{...t,...ch}:t));save();};
+  const del=(id)=>{if(!window.confirm("Delete this company task?"))return;setOfficeTasks(prev=>(prev||[]).filter(t=>t.id!==id));save();};
+  const discuss=(task)=>{
+    const msg={id:Date.now(),author:CURRENT_USER,text:`📋 Company task: ${task.text}`,at:new Date().toISOString(),readBy:[CURRENT_USER]};
+    setOfficeMessages(prev=>[...(prev||[]),msg]);if(flushOffice)setTimeout(flushOffice,0);
+    notify((TEAM_MEMBERS||[]).filter(n=>n!==CURRENT_USER),{title:"📌 Office Chat",body:`${CURRENT_USER}: 📋 Company task: ${task.text}`,tag:"office"});
+    onOpenOffice&&onOpenOffice();
+  };
+  const sorted=[...(officeTasks||[])].sort((a,b)=>{const ac=a.status==="Completed"?1:0,bc=b.status==="Completed"?1:0;return ac-bc||String(b.createdAt||"").localeCompare(String(a.createdAt||""));});
+  const openCount=sorted.filter(t=>t.status!=="Completed"&&t.status!=="N/A").length;
+  const inS={padding:"9px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text};
+
+  return(
+    <div style={{maxWidth:820,marginBottom:18,background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden",boxShadow:T.shadow}}>
+      <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",cursor:"pointer",background:T.goldLight}}>
+        <span style={{fontSize:16}}>🏢</span>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:14.5,fontWeight:800,color:T.text}}>Company Tasks</div>
+          <div style={{fontSize:11,color:T.textSub}}>General to-dos, not tied to a property{openCount?` · ${openCount} open`:""}</div>
+        </div>
+        <span style={{color:T.gold,fontSize:14,transform:open?"none":"rotate(-90deg)",transition:"transform 0.15s"}}>▾</span>
+      </div>
+      {open&&<>
+        {/* Add row */}
+        <div style={{display:"flex",gap:8,padding:"12px 16px",borderTop:`1px solid ${T.border}`,flexWrap:"wrap"}}>
+          <input value={draft.text} onChange={e=>setDraft(d=>({...d,text:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Add a company task…" style={{...inS,flex:1,minWidth:180}}/>
+          <select value={draft.assignee} onChange={e=>setDraft(d=>({...d,assignee:e.target.value}))} style={{...inS,cursor:"pointer"}}>
+            <option value="">Unassigned</option>
+            {TEAM_MEMBERS.map(m=><option key={m} value={m}>{m}</option>)}
+          </select>
+          <input type="date" value={draft.due} onChange={e=>setDraft(d=>({...d,due:e.target.value}))} title="Due date" style={{...inS,cursor:"pointer"}}/>
+          <button onClick={add} disabled={!draft.text.trim()} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:draft.text.trim()?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:draft.text.trim()?"pointer":"default",fontFamily:"inherit"}}>+ Add</button>
+        </div>
+        {sorted.length===0&&<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>No company tasks yet.</div>}
+        {sorted.map(t=>{const done=t.status==="Completed"||t.status==="N/A";const overdue=t.due&&!done&&t.due<new Date().toISOString().slice(0,10);return(
+          <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`,opacity:done?0.6:1}}>
+            <input type="checkbox" checked={t.status==="Completed"} onChange={e=>upd(t.id,{status:e.target.checked?"Completed":"Not Started"})} title="Mark complete" style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13.5,fontWeight:500,color:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text}</div>
+              <div style={{fontSize:11,color:overdue?T.red:T.textTert,marginTop:1}}>{t.assignee?`${t.assignee}`:"Unassigned"}{t.due?` · due ${finFmtDate(t.due)}`:""}{overdue?" · overdue":""}</div>
+            </div>
+            <select value={t.status} onChange={e=>upd(t.id,{status:e.target.value})} style={{...inS,padding:"5px 8px",fontSize:12,cursor:"pointer",flexShrink:0}}>
+              {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+            <button onClick={()=>discuss(t)} title="Discuss in office chat" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0,padding:"0 2px"}}>💬</button>
+            <button onClick={()=>del(t.id)} title="Delete" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:17,lineHeight:1,flexShrink:0}}>×</button>
+          </div>
+        );})}
+      </>}
+    </div>
+  );
+}
+function TasksPage({onNavigate,onOpenOffice}){
   const { sharedProps, setSharedProps, contacts: CONTACTS, setContacts, flushContacts, teamMembers: TEAM_MEMBERS, currentUser: CURRENT_USER, automations, setAutomations } = useData();
   const dir=CONTACTS.map(normContact); // normalized contact directory (phones[], company, tags)
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
@@ -4430,6 +4495,8 @@ function TasksPage({onNavigate}){
       </div>
 
       <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
+
+        {!showAutomations&&<OfficeTasksPanel onOpenOffice={onOpenOffice} isMobile={isMobile}/>}
 
         {showAutomations&&(
           <div style={{maxWidth:720}}>
@@ -8445,7 +8512,7 @@ export function GoldstoneShell(){
     : active==="messages" ? <MessagingCenter sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navChatId} onNavConsumed={()=>setNavChatId(null)}/>
     : active==="showings" ? <ShowingsPage/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
-    : active==="tasks" ? <TasksPage onNavigate={navigateToProperty}/>
+    : active==="tasks" ? <TasksPage onNavigate={navigateToProperty} onOpenOffice={()=>navigateToChat(OFFICE_ID)}/>
     : active==="contacts" ? <ContactsPage/>
     : active==="email" ? <EmailPage isMobile={isMobile}/>
     : active==="financials" ? <FinancialSectionPage onNavigate={navigateToProperty} canEdit={isAdmin}/>

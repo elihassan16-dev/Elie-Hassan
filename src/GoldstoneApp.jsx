@@ -4210,15 +4210,11 @@ function TasksPage({onNavigate}){
     if(attachment)msg.attachment=attachment;
     if(mentions&&mentions.length)msg.mentions=mentions;
     if(isOffice(propId)){
-      // Keep the task's own thread AND mirror the message into the shared Office
-      // Chat (with a task reference) so the whole team sees it there too.
+      // Store on the task itself (single source). The Office Chat merges company-
+      // task messages in, so it shows in both places and replies stay in sync.
       upOfficeTask(taskId,tk=>({...tk,messages:[...(tk.messages||[]),msg]}));
       const tsk=findLiveTask(propId,taskId);
-      const officeMsg={id:Date.now()+1,author:CURRENT_USER,text:`📋 ${tsk?.text?`${tsk.text}: `:""}${t}`.trim(),at:new Date().toISOString(),readBy:[CURRENT_USER]};
-      if(attachment)officeMsg.attachment=attachment;
-      setOfficeMessages(prev=>[...(prev||[]),officeMsg]);
-      if(flushOffice)setTimeout(flushOffice,0);
-      notify((TEAM_MEMBERS||[]).filter(n=>n!==CURRENT_USER),{title:"📌 Office Chat",body:`${CURRENT_USER}: ${officeMsg.text}`,tag:"office"});
+      notify((TEAM_MEMBERS||[]).filter(n=>n!==CURRENT_USER),{title:"📌 Office Chat",body:`${CURRENT_USER}: ${tsk?.text?`${tsk.text}: `:""}${t||"(attachment)"}`,tag:"office"});
       return;
     }
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
@@ -5462,6 +5458,11 @@ const mergePropertyMessages=(p)=>{
   return [...gen,...tsk].sort((a,b)=>(new Date(a.at).getTime()||0)-(new Date(b.at).getTime()||0));
 };
 const msgTime=(iso)=>{const t=new Date(iso).getTime();return isNaN(t)?0:t;};
+// The Office Chat is modeled like a property: general office messages merged with
+// company-task messages (tagged by task), so task chatter shows in the chat and
+// replies route back to the task — one source of truth, same as properties.
+const officeMerged=(officeMessages,officeTasks)=>mergePropertyMessages({messages:officeMessages,tasks:officeTasks});
+const officeUnreadCount=(officeMessages,officeTasks,user)=>officeMerged(officeMessages,officeTasks).reduce((n,m)=>n+(isUnreadForUser(m,user)?1:0),0);
 // Read/unread: a message is unread for a user when they didn't write it, aren't yet
 // recorded in readBy, and it's addressed to them — either no one was tagged (goes to
 // everyone) or they were one of the tagged people.
@@ -5639,22 +5640,26 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
 }
 const OFFICE_ID="__office__";
 function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}){
-  const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS, officeMessages, setOfficeMessages } = useData();
-  const officeSorted=[...(officeMessages||[])].sort((a,b)=>msgTime(a.at)-msgTime(b.at));
-  const officeUnread=(officeMessages||[]).reduce((n,m)=>n+(isUnreadForUser(m,CURRENT_USER)?1:0),0);
-  const officeSend=(text,replyTarget,attachment,mentions)=>{
+  const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS, officeMessages, setOfficeMessages, officeTasks, setOfficeTasks, flushOfficeTasks } = useData();
+  const officeSorted=officeMerged(officeMessages,officeTasks);
+  const officeUnread=officeUnreadCount(officeMessages,officeTasks,CURRENT_USER);
+  const saveOfficeTasks=()=>{if(flushOfficeTasks)setTimeout(flushOfficeTasks,0);};
+  const officeSend=(text,replyTarget,attachment,mentions,targetTaskId)=>{
     const t=(text||"").trim();if(!t&&!attachment)return;
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
     if(attachment)msg.attachment=attachment;
     const tagged=new Set(mentions||[]);
     if(replyTarget&&replyTarget.author&&replyTarget.author!==CURRENT_USER)tagged.add(replyTarget.author);
     if(tagged.size)msg.mentions=[...tagged];
-    if(replyTarget){msg.replyToId=replyTarget.id;msg.replyTo={author:replyTarget.author||"",text:(replyTarget.text||"").slice(0,140),taskText:null};}
-    setOfficeMessages(prev=>[...prev,msg]);
+    if(replyTarget){msg.replyToId=replyTarget.id;msg.replyTo={author:replyTarget.author||"",text:(replyTarget.text||"").slice(0,140),taskText:replyTarget.taskText||null};}
+    // Route to a company task when replying to a task message or when aimed at one.
+    const postTaskId=(replyTarget&&replyTarget.taskId)||targetTaskId||null;
+    if(postTaskId){setOfficeTasks(prev=>(prev||[]).map(tk=>tk.id!==postTaskId?tk:{...tk,messages:[...(tk.messages||[]),msg]}));saveOfficeTasks();}
+    else setOfficeMessages(prev=>[...prev,msg]);
     // Office chat is the whole-team channel — notify everyone but the sender.
     notify((TEAM_MEMBERS||[]).filter(n=>n!==CURRENT_USER),{title:"📌 Office Chat",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:"office"});
   };
-  const officeDelete=(ids)=>{const s=new Set(ids);setOfficeMessages(prev=>prev.filter(m=>!s.has(m.id)));};
+  const officeDelete=(ids)=>{const s=new Set(ids);setOfficeMessages(prev=>prev.filter(m=>!s.has(m.id)));setOfficeTasks(prev=>(prev||[]).map(tk=>(tk.messages||[]).some(m=>s.has(m.id))?{...tk,messages:tk.messages.filter(m=>!s.has(m.id))}:tk));saveOfficeTasks();};
   const isMobile=useIsMobile();
   const[selId,setSelId]=useState(initialSelId||null);
   useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);// eslint-disable-line
@@ -5677,7 +5682,11 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const selUnread=sel?propUnreadCount(sel,CURRENT_USER):0;
   useEffect(()=>{if(sel&&selUnread>0)markRead(sel.id);},[selId,selUnread]);// eslint-disable-line
   // Mark office-chat messages read once it's open.
-  useEffect(()=>{if(selId===OFFICE_ID&&officeUnread>0)setOfficeMessages(prev=>prev.map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}:m));},[selId,officeUnread]);// eslint-disable-line
+  useEffect(()=>{if(selId===OFFICE_ID&&officeUnread>0){
+    setOfficeMessages(prev=>prev.map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}:m));
+    setOfficeTasks(prev=>(prev||[]).map(tk=>(tk.messages||[]).some(m=>isUnreadForUser(m,CURRENT_USER))?{...tk,messages:tk.messages.map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}:m)}:tk));
+    saveOfficeTasks();
+  }},[selId,officeUnread]);// eslint-disable-line
   // Delete selected messages (from the general thread and any task threads).
   const deleteMessages=(ids)=>{
     if(!sel||!ids||!ids.length)return;
@@ -5767,7 +5776,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       </div>
       <div style={{flex:1,display:isMobile&&!sel&&selId!==OFFICE_ID?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
         {selId===OFFICE_ID
-          ? <MessageThread property={{id:OFFICE_ID,address:"📌 Office Chat",city:"",status:"",tasks:[]}} messages={officeSorted} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={officeSend} onDelete={officeDelete} onBack={()=>setSelId(null)} isMobile={isMobile}/>
+          ? <MessageThread property={{id:OFFICE_ID,address:"📌 Office Chat",city:"",status:"",tasks:officeTasks||[]}} messages={officeSorted} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={officeSend} onDelete={officeDelete} onBack={()=>setSelId(null)} isMobile={isMobile}/>
           : sel
           ? <MessageThread property={sel} messages={mergePropertyMessages(sel)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onDelete={deleteMessages} onBack={()=>setSelId(null)} isMobile={isMobile}/>
           : <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:12,color:T.textSub}}>
@@ -8492,12 +8501,12 @@ function PropertyEmails({property,onUpdate,isMobile}){
 }
 
 export function GoldstoneShell(){
-  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, officeMessages } = useData();
+  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, officeMessages, officeTasks } = useData();
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
   const isMobile = useIsMobile();
 
   const navItems = isAdmin ? NAV : NAV.filter(n=>MEMBER_KEYS.has(n.key)||VIEW_ONLY_MEMBER_KEYS.has(n.key));
-  const officeUnread = (officeMessages||[]).reduce((n,m)=>n+(isUnreadForUser(m,displayName)?1:0),0);
+  const officeUnread = officeUnreadCount(officeMessages,officeTasks,displayName);
   const unreadTotal = totalUnread(sharedProps, displayName) + officeUnread;
 
   // "New tasks assigned to me" badge on the Tasks tab. We remember (per account,

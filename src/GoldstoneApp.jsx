@@ -1020,12 +1020,23 @@ function HoldingCostsPopup({items, holdPeriod, onChange, onClose}){
           </div>}
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {loc.map(item=>{
-              const descEl=item.auto
+              // Note showing the value pulled from NJ tax records, and a one-tap
+              // "Use" to snap this line back to it if it was edited away.
+              const curAnnual=item.perYear?n(item.amount):n(item.amount)*12;
+              const njNote=item.njTax?(
+                <div style={{fontSize:11,color:T.gold,marginTop:5,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",lineHeight:1.35}}>
+                  <span>📋 NJ records{item.njMun?` (${item.njMun})`:""}: {fmtD(item.njTax)}/yr</span>
+                  {Math.round(curAnnual)!==item.njTax&&<button onClick={()=>{up(item.id,"amount",String(item.njTax));up(item.id,"perYear",true);}}
+                    style={{border:`1px solid ${T.gold}`,background:T.goldLight,color:T.gold,borderRadius:20,padding:"1px 9px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Use</button>}
+                </div>
+              ):null;
+              const titleEl=item.auto
                 ?<div style={{display:"flex",alignItems:"center",gap:8}}>
                     <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{item.title}</span>
                     <span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>
                   </div>
                 :<input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>;
+              const descEl=njNote?<div>{titleEl}{njNote}</div>:titleEl;
               const amountEl=<input value={item.amount} onChange={e=>up(item.id,"amount",e.target.value.replace(/[^\d.]/g,""))} placeholder="0"
                 readOnly={item.auto} style={{...iS,textAlign:"right",background:item.auto?"#F8F1E0":"#fff",color:item.auto?T.gold:T.text}}/>;
               const perEl=<select value={item.perYear?"year":"month"} onChange={e=>up(item.id,"perYear",e.target.value==="year")}
@@ -3034,9 +3045,10 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
       if(d.annualTax!=null){
         const fin={...(property.financials||{})};
         const items=[...(fin.holdingCostItems||[])];
+        const stamp={amount:String(Math.round(d.annualTax)),perYear:true,njTax:Math.round(d.annualTax),njMun:d.municipality||"",njAt:new Date().toISOString().slice(0,10)};
         const idx=items.findIndex(i=>(i.title||"").toLowerCase().includes("tax"));
-        if(idx>=0)items[idx]={...items[idx],amount:String(Math.round(d.annualTax)),perYear:true};
-        else items.push({id:Date.now(),title:"Property Taxes",amount:String(Math.round(d.annualTax)),perYear:true,auto:false});
+        if(idx>=0)items[idx]={...items[idx],...stamp};
+        else items.push({id:Date.now(),title:"Property Taxes",auto:false,...stamp});
         onUpdate(property.id,"financials",{...fin,holdingCostItems:items});
         taxNote=` · taxes ${fmtD(d.annualTax)}/yr`;
       }

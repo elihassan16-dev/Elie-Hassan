@@ -113,6 +113,14 @@ export function useOutlookMail() {
     return items;
   }, [graph]);
 
+  // File attachments on a message (with their base64 bytes), so they can be saved
+  // elsewhere (e.g. a property's Files). Only real file attachments — not inline
+  // images or item attachments.
+  const getAttachments = useCallback(async (id) => {
+    const d = await graph(`/me/messages/${id}/attachments?$select=id,name,contentType,size,isInline,contentBytes`);
+    return (d.value || []).filter((a) => a["@odata.type"] === "#microsoft.graph.fileAttachment" && !a.isInline && a.contentBytes);
+  }, [graph]);
+
   // Mark a message read.
   const markRead = useCallback(async (id) => {
     try { await graph(`/me/messages/${id}`, { method: "PATCH", body: JSON.stringify({ isRead: true }) }); } catch { /* non-fatal */ }
@@ -143,5 +151,5 @@ export function useOutlookMail() {
     });
   }, [graph]);
 
-  return { ready, account, signedIn: !!account, signIn, signOut, listChains, getConversation, findByInternetId, markRead, reply, sendNew };
+  return { ready, account, signedIn: !!account, signIn, signOut, listChains, getConversation, findByInternetId, getAttachments, markRead, reply, sendNew };
 }

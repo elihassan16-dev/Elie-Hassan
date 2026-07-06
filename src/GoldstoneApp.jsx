@@ -8610,6 +8610,10 @@ const VIEW_ONLY_MEMBER_KEYS = new Set(["financials"]);
 const mailEsc=(s)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 const mailAddr=(r)=>r?.emailAddress?.name||r?.emailAddress?.address||"";
 const mailWhen=(iso)=>{if(!iso)return "";try{const d=new Date(iso);const now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:d.getFullYear()===now.getFullYear()?undefined:"numeric"});}catch{return iso;}};
+// Build a property "pinned email" record from an inbox chain.
+function buildEmailPin(chain){const m=(chain&&chain.latest)||{};return {id:Date.now()+"_"+Math.round(Math.random()*1e6),conversationId:chain?.key||"",internetMessageId:m.internetMessageId||"",subject:m.subject||"",from:mailAddr(m.from),fromAddr:m.from?.emailAddress?.address||"",date:m.receivedDateTime||"",preview:m.bodyPreview||""};}
+// Turn a base64 attachment (from Graph) into a File for uploading to OneDrive.
+function base64ToFile(b64,name,type){const bin=atob(b64||"");const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new File([bytes],name||"attachment",{type:type||"application/octet-stream"});}
 // Render an email body safely: sandboxed iframe (no scripts run), auto-height.
 function MailBody({message}){
   const ref=useRef(null);
@@ -8680,8 +8684,69 @@ function MailLabelPopover({current,onSet,onClose,tasks,centered}){
   if(centered)return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:340,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>{inner}</div>;
   return <><div onClick={onClose} style={{position:"fixed",inset:0,zIndex:260}}/>{inner}</>;
 }
+// Pin an inbox chain to a property (and optionally a specific task) from the main
+// Email tab — same pin the property's Emails tab uses, so it shows up there too.
+function AssignEmailModal({chain,properties,onAssign,onClose}){
+  const[propId,setPropId]=useState("");
+  const[taskId,setTaskId]=useState("");
+  const[note,setNote]=useState("");
+  const[q,setQ]=useState("");
+  const[done,setDone]=useState(false);
+  const prop=properties.find(p=>String(p.id)===String(propId));
+  const tasks=(prop?.tasks||[]).filter(t=>!t.deleted).map(t=>({id:t.id,text:t.text}));
+  const term=q.trim().toLowerCase();
+  const list=properties.filter(p=>!term||((p.address||"")+" "+(p.city||"")).toLowerCase().includes(term));
+  const iS={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
+  const confirm=()=>{ if(!propId)return; onAssign(propId,{taskId,note:note.trim()}); setDone(true); setTimeout(onClose,850); };
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:520,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(440px,96vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.28)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,background:T.goldLight,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontSize:15,fontWeight:800,color:T.text}}>Pin email to a property</div><div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:300}}>{chain?.latest?.subject||"(no subject)"}</div></div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{padding:"14px 18px",overflowY:"auto"}}>
+          {done
+            ? <div style={{padding:"18px 0",textAlign:"center",color:"#1a8f43",fontSize:15,fontWeight:700}}>✓ Pinned{prop?` to ${prop.address}`:""}.</div>
+            : !propId
+            ? <>
+                <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search properties…" style={{...iS,marginBottom:10}}/>
+                <div style={{display:"flex",flexDirection:"column",gap:2,maxHeight:340,overflowY:"auto"}}>
+                  {list.length===0&&<div style={{padding:"16px",textAlign:"center",color:T.textTert,fontSize:13}}>No properties match.</div>}
+                  {list.map(p=>(
+                    <button key={p.id} onClick={()=>setPropId(String(p.id))} style={{textAlign:"left",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,cursor:"pointer",fontFamily:"inherit"}}>
+                      <div style={{fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address||"(no address)"}</div>
+                      <div style={{fontSize:11.5,color:T.textSub}}>{[p.city,p.status].filter(Boolean).join(" · ")}</div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            : <>
+                <button onClick={()=>{setPropId("");setTaskId("");}} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",padding:0,marginBottom:10}}>‹ Choose a different property</button>
+                <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:2}}>{prop.address}</div>
+                <div style={{fontSize:12,color:T.textSub,marginBottom:14}}>{[prop.city,prop.status].filter(Boolean).join(" · ")}</div>
+                <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:5}}>Link to a task (optional)</div>
+                <select value={taskId} onChange={e=>setTaskId(e.target.value)} style={{...iS,marginBottom:12,color:taskId?T.text:T.textTert}}>
+                  <option value="">— Not linked to a task —</option>
+                  {tasks.length===0&&<option value="" disabled>No tasks on this property</option>}
+                  {tasks.map(t=><option key={t.id} value={String(t.id)}>{t.text}</option>)}
+                </select>
+                <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:5}}>Note (optional)</div>
+                <input value={note} onChange={e=>setNote(e.target.value)} placeholder="e.g. Septic quote" style={{...iS,marginBottom:4}}/>
+              </>}
+        </div>
+        {!done&&propId&&<div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end"}}>
+          <button onClick={onClose} style={{padding:"10px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+          <button onClick={confirm} style={{padding:"10px 20px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>📌 Pin to property</button>
+        </div>}
+      </div>
+    </div>
+  );
+}
 function EmailPage({isMobile}){
   const mail=useOutlookMail();
+  const{sharedProps,setSharedProps}=useData()||{};
+  const[assignChain,setAssignChain]=useState(null);
   const[chains,setChains]=useState(null);   // null = loading
   const[error,setError]=useState("");
   const[sel,setSel]=useState(null);          // selected chain
@@ -8747,6 +8812,19 @@ function EmailPage({isMobile}){
     try{await mail.sendNew({to:compose.to,cc:compose.cc,subject:compose.subject,html:body});setCompose(null);setRefreshKey(k=>k+1);}
     catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
     setSending(false);
+  };
+  // Pin the open chain to a property (optionally linked to a task) from the inbox.
+  const assignEmail=(propId,extra)=>{
+    if(!assignChain||!setSharedProps)return;
+    setSharedProps(prev=>(prev||[]).map(p=>{
+      if(String(p.id)!==String(propId))return p;
+      const pins=p.pinnedEmails||[];
+      const pin=buildEmailPin(assignChain);
+      if(extra.taskId||extra.note)pin.label={kind:"",note:extra.note||"",taskId:extra.taskId||""};
+      const existing=pins.find(pe=>(pin.internetMessageId&&pe.internetMessageId===pin.internetMessageId)||pe.conversationId===pin.conversationId);
+      const nextPins=existing?pins.map(pe=>pe===existing?{...pe,label:pin.label||pe.label}:pe):[...pins,pin];
+      return {...p,pinnedEmails:nextPins};
+    }));
   };
 
   const btn=(label,primary,onClick,extra={})=><button onClick={onClick} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:primary?"none":`1px solid ${T.border}`,background:primary?T.gold:T.card,color:primary?"#fff":T.textSub,fontWeight:primary?700:600,fontSize:14,cursor:"pointer",fontFamily:"inherit",...extra}}>{label}</button>;
@@ -8824,7 +8902,8 @@ function EmailPage({isMobile}){
                   <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.latest.subject||"(no subject)"}</div>
                   {labels[sel.key]&&<div style={{marginTop:3}}><MailLabelChip lab={labels[sel.key]}/></div>}
                 </div>
-                <button onClick={()=>setLabelOpen(o=>!o)} title="Label this chain" style={{flexShrink:0,padding:"6px 12px",borderRadius:16,border:`1px solid ${labels[sel.key]?T.gold:T.border}`,background:labels[sel.key]?T.goldLight:T.card,color:labels[sel.key]?T.gold:T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🏷 {labels[sel.key]?"Label":"Label"}</button>
+                {setSharedProps&&<button onClick={()=>setAssignChain(sel)} title="Pin this email to a property" style={{flexShrink:0,padding:"6px 12px",borderRadius:16,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>📌 {isMobile?"":"Pin"}</button>}
+                <button onClick={()=>setLabelOpen(o=>!o)} title="Label this chain" style={{flexShrink:0,padding:"6px 12px",borderRadius:16,border:`1px solid ${labels[sel.key]?T.gold:T.border}`,background:labels[sel.key]?T.goldLight:T.card,color:labels[sel.key]?T.gold:T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🏷 {isMobile?"":"Label"}</button>
                 {labelOpen&&<MailLabelPopover current={labels[sel.key]} onClose={()=>setLabelOpen(false)} onSet={v=>{setLabel(sel.key,v);setLabelOpen(false);}}/>}
               </div>
               <div ref={threadRef} style={{flex:1,overflowY:"auto",padding:isMobile?12:18}}>
@@ -8884,10 +8963,40 @@ function EmailPage({isMobile}){
           </div>
         </div>
       )}
+
+      {/* Pin the open chain to a property (optionally a task) */}
+      {assignChain&&<AssignEmailModal chain={assignChain} properties={(sharedProps||[]).filter(p=>!p.archived).sort((a,b)=>(a.address||"").localeCompare(b.address||""))} onAssign={assignEmail} onClose={()=>setAssignChain(null)}/>}
     </div>
   );
 }
 
+// File attachments on an email message, each with a one-tap "Save to Files" that
+// uploads it straight into the property's connected OneDrive/SharePoint folder.
+function EmailAttachments({messageId,mail,od,folder}){
+  const[atts,setAtts]=useState(null);
+  const[st,setSt]=useState({}); // attachment id -> "saving" | "done" | "error"
+  useEffect(()=>{let alive=true;mail.getAttachments(messageId).then(a=>{if(alive)setAtts(a);}).catch(()=>{if(alive)setAtts([]);});return()=>{alive=false;};},[messageId]); // eslint-disable-line
+  const save=async(a)=>{
+    if(!folder||!folder.driveId||!folder.id){alert("Connect a Files folder for this property first — open the property's Files tab and pick its folder.");return;}
+    setSt(s=>({...s,[a.id]:"saving"}));
+    try{ const file=base64ToFile(a.contentBytes,a.name,a.contentType); await od.uploadFile(folder.driveId,folder.id,file); setSt(s=>({...s,[a.id]:"done"})); }
+    catch(e){ setSt(s=>({...s,[a.id]:"error"})); alert("Couldn't save to Files: "+(e.message||"unknown error")); }
+  };
+  if(atts===null)return null;
+  if(atts.length===0)return null;
+  return(
+    <div style={{padding:"8px 14px 12px",borderTop:`1px solid ${T.border}`,display:"flex",flexDirection:"column",gap:6}}>
+      <div style={{fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>Attachments</div>
+      {atts.map(a=>{const s=st[a.id];const isPdf=/pdf/i.test(a.contentType||"")||/\.pdf$/i.test(a.name||"");return(
+        <div key={a.id} style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:16,flexShrink:0}}>{isPdf?"📄":"📎"}</span>
+          <div style={{flex:1,minWidth:0}}><div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div><div style={{fontSize:10.5,color:T.textTert}}>{fmtBytes(a.size)}</div></div>
+          <button onClick={()=>save(a)} disabled={s==="saving"||s==="done"} style={{flexShrink:0,padding:"6px 11px",borderRadius:16,border:`1px solid ${s==="done"?T.green:T.gold}`,background:s==="done"?"#EDFBF1":T.goldLight,color:s==="done"?"#15803D":T.gold,fontWeight:700,fontSize:11.5,cursor:s==="saving"||s==="done"?"default":"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:s==="saving"?0.7:1}}>{s==="done"?"✓ Saved":s==="saving"?"Saving…":s==="error"?"↻ Retry":"⬇ Save to Files"}</button>
+        </div>
+      );})}
+    </div>
+  );
+}
 // ─── Pinned email chains on a property ──────────────────────────────────────
 // Pin relevant email threads (attorney, septic, title…) to a property, and get
 // suggestions for chains whose subject/preview matches the address. Each pin
@@ -8910,6 +9019,8 @@ function chainMatchesProperty(chain,property){
 }
 function PropertyEmails({property,onUpdate,isMobile}){
   const mail=useOutlookMail();
+  const od=useOneDrive();
+  const filesFolder=property.filesFolder||null; // OneDrive/SharePoint folder for this property's Files
   const pinned=property.pinnedEmails||[];
   const[picker,setPicker]=useState(false);
   const[chains,setChains]=useState(null);
@@ -9075,10 +9186,12 @@ function PropertyEmails({property,onUpdate,isMobile}){
                       <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</div>
                       <div style={{fontSize:11,color:T.textTert}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div>
                     </div>
+                    {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
                     <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{open?"▾":"▸"}</span>
                   </div>
                   {open
-                    ? <div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m}/></div>
+                    ? <><div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m}/></div>
+                       {m.hasAttachments&&<EmailAttachments messageId={m.id} mail={mail} od={od} folder={filesFolder}/>}</>
                     : <div style={{padding:"0 14px 10px",fontSize:12.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</div>}
                 </div>
               );})}

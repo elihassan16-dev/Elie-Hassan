@@ -7514,6 +7514,10 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const[holdbackFor,setHoldbackFor]=useState(null); // property id whose holdback editor is open
   const[hbTxns,setHbTxns]=useState(null);           // that property's QuickBooks transactions
   const[hbPicker,setHbPicker]=useState(false);      // the pin-transactions modal
+  const[drawFor,setDrawFor]=useState(null);         // property id whose draw editor is open
+  const[drawAcct,setDrawAcct]=useState("");         // selected mortgage account id
+  const[drawTxns,setDrawTxns]=useState(null);       // that account's transactions
+  const[drawSearch,setDrawSearch]=useState("");
 
   const bsProps=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status)),[sharedProps]);
   // Live QuickBooks account balances + all-in spend for the balance-sheet report.
@@ -7543,6 +7547,21 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     return ()=>{alive=false;};
   },[holdbackFor]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggleHb=(t)=>{if(!hbProp)return;const arr=hbProp.qbHoldbackTxns||[];const k=txKey(t);const has=arr.some(x=>txKey(x)===k);updateProp(hbProp.id,"qbHoldbackTxns",has?arr.filter(x=>txKey(x)!==k):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}]);};
+
+  // Draw editor: pin individual transactions from a property's mortgage/loan account.
+  const drawProp=drawFor!=null?(sharedProps||[]).find(x=>x.id===drawFor):null;
+  const drawAccounts=(drawProp?.qbLoanAccounts||[]).map(id=>({id,name:(accounts||[]).find(a=>a.id===id)?.name||`Account ${id}`}));
+  useEffect(()=>{ // default to the property's first loan account when the editor opens
+    if(drawFor==null){setDrawAcct("");setDrawTxns(null);return;}
+    const first=(drawProp?.qbLoanAccounts||[])[0]||"";setDrawAcct(a=>a||first);
+  },[drawFor]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{
+    if(!drawAcct){setDrawTxns(null);return;}let alive=true;setDrawTxns(null);
+    qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(drawAcct)}`).then(d=>{if(alive)setDrawTxns(d.items||[]);}).catch(()=>{if(alive)setDrawTxns([]);});
+    return ()=>{alive=false;};
+  },[drawAcct]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggleDraw=(t)=>{if(!drawProp)return;const arr=drawProp.qbDrawTxns||[];const k=txKey(t);const has=arr.some(x=>txKey(x)===k);updateProp(drawProp.id,"qbDrawTxns",has?arr.filter(x=>txKey(x)!==k):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account||drawAcct,amount:t.amount}]);};
+  const holdbackOf=(p)=>{const raw=p.constrHoldback;const pins=bsSum(p.qbHoldbackTxns);const hasManual=raw!=null&&raw!=="";const hasPins=(p.qbHoldbackTxns||[]).length>0;return (hasPins||hasManual)?pins+(hasManual?Number(raw):0):null;};
   const toggleFunded=(propId)=>{const p=(sharedProps||[]).find(x=>x.id===propId);updateProp(propId,"holdbackFunded",!(p&&p.holdbackFunded));};
 
   // Report 1 — every outstanding LOC draw: property, funder, amount; oldest purchase first.
@@ -7596,6 +7615,21 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     return {rows,total};
   },[bsProps,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Report 5 — construction draws: holdback vs the draw transactions pinned from
+  // each property's mortgage account, and how much of the holdback is left.
+  const rptDraw=useMemo(()=>{
+    const rows=[...bsProps].sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")).map(p=>{
+      const holdback=holdbackOf(p);
+      const drawn=bsSum(p.qbDrawTxns);
+      const hasDraws=(p.qbDrawTxns||[]).length>0;
+      const remaining=holdback==null?null:holdback-drawn;
+      return {propId:p.id,address:p.address,holdback,drawn:hasDraws?drawn:(holdback==null?null:0),hasDraws,remaining};
+    });
+    const total={hold:0,drawn:0,anyHold:false};
+    rows.forEach(r=>{if(r.holdback!=null){total.hold+=r.holdback;total.anyHold=true;}total.drawn+=(r.drawn||0);});
+    return {rows,total};
+  },[bsProps,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const D=(iso)=>iso?finFmtDate(iso):"—";
   const M=(v)=>v==null?"—":fmtD(v);
   const REPORTS={
@@ -7639,13 +7673,26 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
       foot:[[{t:"Portfolio",strong:true},{t:fmtD(rptHold.total.est),align:"right",strong:true},{t:rptHold.total.anyHold?fmtD(rptHold.total.hold):"—",align:"right",strong:true},{t:rptHold.total.anyHold?fmtD(rptHold.total.hold-rptHold.total.est):"—",align:"right",strong:true,color:(rptHold.total.hold-rptHold.total.est)<0?T.red:T.green}]],
       empty:"No active properties.",
     },
+    draw:{
+      title:"Construction Draw Report",
+      subtitle:"Construction holdback versus the draws taken from each property's mortgage account. Tap the Drawn column to pin the draw transactions. Remaining = holdback − drawn.",
+      cols:[{label:"Property"},{label:"Holdback",align:"right"},{label:"Drawn",align:"right"},{label:"Remaining",align:"right"}],
+      rows:rptDraw.rows.map(r=>[
+        {t:r.address},
+        {t:r.holdback==null?"—":fmtD(r.holdback),align:"right",color:r.holdback==null?T.textTert:undefined},
+        {draw:{propId:r.propId},t:r.drawn==null?"Tap to pin":(r.hasDraws?fmtD(r.drawn)+" 📌":fmtD(r.drawn)),align:"right",color:r.hasDraws?undefined:T.blue},
+        {t:r.remaining==null?"—":fmtD(r.remaining),align:"right",strong:true,color:r.remaining==null?T.textTert:(r.remaining<0?T.red:T.green)},
+      ]),
+      foot:[[{t:"Portfolio",strong:true},{t:rptDraw.total.anyHold?fmtD(rptDraw.total.hold):"—",align:"right",strong:true},{t:fmtD(rptDraw.total.drawn),align:"right",strong:true},{t:rptDraw.total.anyHold?fmtD(rptDraw.total.hold-rptDraw.total.drawn):"—",align:"right",strong:true,color:(rptDraw.total.hold-rptDraw.total.drawn)<0?T.red:T.green}]],
+      empty:"No active properties.",
+    },
   };
 
   // Export → open a print window (the browser's "Save as PDF" / print / share).
   const exportReport=(rep)=>{
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
-    const cellText=(c)=>c.plan?(c.plan==="takeback"?"Take back":"Reinvest"):c.fund?esc(c.fund.checked?c.t+" ✓ funded":c.t):esc(c.edit?(c.t==="Tap to set"?"—":String(c.t).replace(" 📌","")):c.t);
+    const cellText=(c)=>c.plan?(c.plan==="takeback"?"Take back":"Reinvest"):c.fund?esc(c.fund.checked?c.t+" ✓ funded":c.t):esc((c.edit||c.draw)?((c.t==="Tap to set"||c.t==="Tap to pin")?"—":String(c.t).replace(" 📌","")):c.t);
     const th=rep.cols.map(c=>`<th style="text-align:${c.align||"left"}">${esc(c.label)}</th>`).join("");
     const trs=rep.rows.length?rep.rows.map((cells,ri)=>`<tr${ri%2?' style="background:#faf6ea"':''}>${cells.map(c=>`<td style="text-align:${c.align||"left"};${c.strong?"font-weight:700;":""}${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${rep.cols.length}" class="empty">${esc(rep.empty)}</td></tr>`;
     const foot=rep.foot&&rep.rows.length?rep.foot.map((frow,fi)=>`<tr class="${fi===0?"tot":"tot2"}">${frow.map(c=>`<td style="text-align:${c.align||"left"};font-weight:${c.strong?"800":"600"};${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):"";
@@ -7674,6 +7721,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     {id:"future",icon:"📈",title:"Available Future Funds",desc:"LOC capital freeing up from your upcoming closings."},
     {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Loans, all-in cost, reserves and equity — spreadsheet style."},
     {id:"hold",icon:"🏗️",title:"Construction Holdback vs Actuals",desc:"Bank's construction holdback vs your underwriting estimate, per property."},
+    {id:"draw",icon:"🏦",title:"Construction Draw Report",desc:"Holdback vs draws pinned from each property's mortgage account, and what's left."},
   ];
   const rep=open?REPORTS[open]:null;
 
@@ -7712,6 +7760,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                         ?<button onClick={canEdit?(e)=>{e.stopPropagation();setPlan(c.drawId,c.plan==="reinvest"?"takeback":"reinvest");}:undefined} title={canEdit?"Tap to switch":undefined} style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:canEdit?"pointer":"default",fontFamily:"inherit",fontSize:11.5,fontWeight:700,background:c.plan==="reinvest"?T.green+"22":T.red+"22",color:c.plan==="reinvest"?"#1a8f43":T.red}}>{c.plan==="reinvest"?"Reinvest":"Take back"}</button>
                         :c.edit
                         ?(canEdit?<span onClick={(e)=>{e.stopPropagation();setHoldbackFor(c.edit.propId);}} title="Tap to set" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>:<span>{c.t==="Tap to set"?"—":c.t}</span>)
+                        :c.draw
+                        ?(canEdit?<span onClick={(e)=>{e.stopPropagation();setDrawFor(c.draw.propId);}} title="Tap to pin draws" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>:<span>{c.t==="Tap to pin"?"—":c.t}</span>)
                         :c.fund
                         ?<span style={{display:"inline-flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}><span style={{filter:c.fund.show&&c.fund.checked?"blur(1.6px)":"none",opacity:c.fund.show&&c.fund.checked?0.4:1,textDecoration:c.fund.show&&c.fund.checked?"line-through":"none"}}>{c.t}</span>{c.fund.show?<input type="checkbox" checked={c.fund.checked} disabled={!canEdit} onClick={(e)=>e.stopPropagation()} onChange={()=>toggleFunded(c.fund.propId)} title="Secured additional funding — dim the shortfall" style={{width:15,height:15,cursor:canEdit?"pointer":"default",accentColor:T.gold,flexShrink:0}}/>:<span style={{width:15,flexShrink:0,display:"inline-block"}}/>}</span>
                         :c.t}</td>)}</tr>;})}
@@ -7778,6 +7828,73 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
         );
       })()}
       {hbPicker&&hbProp&&<QbTxnsPickerModal txns={hbTxns} loading={hbTxns===null} pinnedKeys={new Set((hbProp.qbHoldbackTxns||[]).map(txKey))} onToggle={toggleHb} onClose={()=>setHbPicker(false)}/>}
+
+      {/* Draw editor — pin transactions from a property's mortgage account */}
+      {drawProp&&(()=>{
+        const pinned=drawProp.qbDrawTxns||[];
+        const pinnedKeys=new Set(pinned.map(txKey));
+        const holdback=holdbackOf(drawProp);
+        const drawn=bsSum(pinned);
+        const remaining=holdback==null?null:holdback-drawn;
+        const term=drawSearch.trim().toLowerCase();
+        const shown=(drawTxns||[]).filter(t=>!term||[t.vendor,t.memo,t.type,t.date,t.num].filter(Boolean).join(" ").toLowerCase().includes(term));
+        const iS2={width:"100%",padding:"9px 12px 9px 32px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+        const money=(v)=>fmtD(Number(v)||0);
+        const totRow=(label,val,color)=>(<div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"3px 0"}}><span style={{fontSize:13,color:T.textSub}}>{label}</span><span style={{fontSize:13.5,fontWeight:700,color:color||T.text}}>{val}</span></div>);
+        return(
+          <div onClick={()=>setDrawFor(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:255,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:600,maxWidth:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+              <div style={{padding:"16px 18px 12px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"flex-start",gap:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:16,fontWeight:800,color:T.text}}>Construction draws</div>
+                  <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{drawProp.address}</div>
+                </div>
+                <button onClick={()=>setDrawFor(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+              </div>
+              {/* Totals */}
+              <div style={{padding:"10px 18px",background:T.gold+"10",borderBottom:`1px solid ${T.border}`}}>
+                {totRow("Construction holdback",holdback==null?"—":money(holdback))}
+                {totRow("Drawn so far",money(drawn),T.text)}
+                {totRow("Remaining",remaining==null?"—":money(remaining),remaining==null?T.textTert:(remaining<0?T.red:T.green))}
+              </div>
+              <div style={{flex:1,overflowY:"auto"}}>
+                {drawAccounts.length===0
+                  ? <div style={{padding:"18px",fontSize:13,color:T.textTert,lineHeight:1.5}}>No mortgage / loan account is pinned to this property on the Property BS Report yet. Pin the loan account there first, then come back to select its draw transactions.</div>
+                  : <>
+                    <div style={{display:"flex",alignItems:"center",gap:8,padding:"12px 18px 8px",flexWrap:"wrap"}}>
+                      <span style={{fontSize:12,fontWeight:700,color:T.textSub}}>Mortgage account</span>
+                      {drawAccounts.length===1
+                        ? <span style={{fontSize:13,fontWeight:600,color:T.text}}>{drawAccounts[0].name}</span>
+                        : <select value={drawAcct} onChange={e=>setDrawAcct(e.target.value)} style={{padding:"7px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:T.bg,color:T.text,cursor:"pointer"}}>
+                            {drawAccounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                          </select>}
+                    </div>
+                    <div style={{padding:"0 18px 10px",position:"relative"}}>
+                      <span style={{position:"absolute",left:28,top:"50%",transform:"translateY(-50%)",fontSize:13,color:T.textTert}}>🔍</span>
+                      <input value={drawSearch} onChange={e=>setDrawSearch(e.target.value)} placeholder="Search draws (payee, memo, date)…" style={iS2}/>
+                    </div>
+                    {drawTxns===null&&<div style={{padding:"18px",textAlign:"center",color:T.textTert,fontSize:13}}>Loading mortgage-account transactions…</div>}
+                    {drawTxns&&shown.length===0&&<div style={{padding:"16px 18px",fontSize:12.5,color:T.textTert}}>{(drawTxns||[]).length===0?"No transactions on this account.":"No matches."}</div>}
+                    {shown.map((t,i)=>{const on=pinnedKeys.has(txKey(t));return(
+                      <label key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 18px",borderTop:`1px solid ${T.border}`,cursor:"pointer",background:on?T.goldLight:"transparent"}}>
+                        <input type="checkbox" checked={on} onChange={()=>toggleDraw(t)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"—"}</div>
+                          <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.type,t.num&&`#${t.num}`].filter(Boolean).join(" · ")}</div>
+                        </div>
+                        <span style={{fontSize:13,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{money(t.amount)}</span>
+                      </label>
+                    );})}
+                  </>}
+              </div>
+              <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                <span style={{fontSize:12,color:T.textTert}}>{pinned.length} draw{pinned.length===1?"":"s"} pinned</span>
+                <button onClick={()=>setDrawFor(null)} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Done</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

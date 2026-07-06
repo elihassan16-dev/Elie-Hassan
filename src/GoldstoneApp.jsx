@@ -8700,6 +8700,24 @@ const VIEW_ONLY_MEMBER_KEYS = new Set(["financials"]);
 // Each teammate's OWN mailbox. Reuses the Files-tab Microsoft sign-in, plus the
 // Mail.Read + Mail.Send scopes. View threaded chains, reply / reply-all, compose.
 const mailEsc=(s)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+// Trim the quoted previous-conversation from a reply's HTML so a stacked thread
+// shows only each message's NEW content (like Gmail/Outlook) instead of repeating
+// the whole chain in every message. Cuts at the earliest known quote boundary; if
+// that would leave nothing, keeps the original.
+function stripQuotedReply(html){
+  if(!html)return html;
+  const markers=[
+    /<div[^>]*id=["']?(?:divRplyFwdMsg|appendonsend|mail-editor-reference-message-container)["']?[^>]*>/i,
+    /<div[^>]*class=["'][^"']*gmail_quote[^"']*["'][^>]*>/i,
+    /<blockquote[^>]*>/i,
+    /<hr[^>]*>\s*(?:<[^>]+>\s*)*(?:<b>\s*)?From:/i,
+    /(?:^|>)\s*On\b[^<]{0,90}\bwrote:\s*(?:<br\s*\/?>|<\/p>|<blockquote|<div)/i,
+  ];
+  let cut=html.length;
+  markers.forEach(re=>{const m=html.match(re);if(m&&m.index<cut)cut=m.index;});
+  const trimmed=html.slice(0,cut).trim();
+  return trimmed.replace(/<[^>]+>/g,"").replace(/&nbsp;/g," ").trim().length>0?trimmed:html;
+}
 const mailAddr=(r)=>r?.emailAddress?.name||r?.emailAddress?.address||"";
 const mailWhen=(iso)=>{if(!iso)return "";try{const d=new Date(iso);const now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:d.getFullYear()===now.getFullYear()?undefined:"numeric"});}catch{return iso;}};
 // Build a property "pinned email" record from an inbox chain.
@@ -8707,11 +8725,12 @@ function buildEmailPin(chain){const m=(chain&&chain.latest)||{};return {id:Date.
 // Turn a base64 attachment (from Graph) into a File for uploading to OneDrive.
 function base64ToFile(b64,name,type){const bin=atob(b64||"");const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new File([bytes],name||"attachment",{type:type||"application/octet-stream"});}
 // Render an email body safely: sandboxed iframe (no scripts run), auto-height.
-function MailBody({message,mail}){
+function MailBody({message,mail,trimQuote}){
   const ref=useRef(null);
-  const raw=message?.body?.contentType==="text"
+  const rawFull=message?.body?.contentType==="text"
     ? `<pre style="white-space:pre-wrap;font-family:inherit;margin:0">${mailEsc(message.body.content)}</pre>`
     : (message?.body?.content||"");
+  const raw=trimQuote?stripQuotedReply(rawFull):rawFull;
   // Fetch the email's embedded (cid:) images and swap them into the body so logos,
   // signature pictures and pasted screenshots actually render instead of showing
   // as broken boxes.
@@ -9001,7 +9020,7 @@ function EmailPage({isMobile}){
   useEffect(()=>{
     if(!sel){setMsgs(null);setReplyDraft(null);setThreadErr("");setLabelOpen(false);return;}
     let alive=true;setMsgs(null);setExpanded({});setThreadErr("");setLabelOpen(false);
-    mail.getConversation(sel.key).then(m=>{if(alive){setMsgs(m);setExpanded(m.length?{[m[m.length-1].id]:true}:{});}}).catch(e=>{if(alive){setMsgs([]);setThreadErr(e.message||"Couldn't load this conversation.");}});
+    mail.getConversation(sel.key).then(m=>{if(alive){setMsgs(m);setExpanded(Object.fromEntries((m||[]).map(x=>[x.id,true])));}}).catch(e=>{if(alive){setMsgs([]);setThreadErr(e.message||"Couldn't load this conversation.");}});
     if(sel.anyUnread&&sel.latest?.id)mail.markRead(sel.latest.id);
     return ()=>{alive=false;};
   },[sel]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -9154,7 +9173,7 @@ function EmailPage({isMobile}){
                       <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</span>
                     </div>
                     {open
-                      ? <div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail}/></div>
+                      ? <div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail} trimQuote/></div>
                       : <div onClick={()=>setReadMsg(m)} style={{padding:"0 14px 11px",fontSize:12.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{m.bodyPreview||""}</div>}
                   </div>
                 );})}
@@ -9348,7 +9367,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
       const hit=await mail.findByInternetId(viewer.internetMessageId);
       if(hit)convId=hit.conversationId;else if(viewer.conversationId)convId=viewer.conversationId;
       if(!convId){if(alive)setViewMsgs([]);return;}
-      try{const m=await mail.getConversation(convId);if(alive){setViewMsgs(m);setVExpanded(m.length?{[m[m.length-1].id]:true}:{});}
+      try{const m=await mail.getConversation(convId);if(alive){setViewMsgs(m);setVExpanded(Object.fromEntries((m||[]).map(x=>[x.id,true])));}
         // Opening the chain marks its unread messages read, clearing the dot.
         const unread=m.filter(x=>x.isRead===false);
         if(unread.length){for(const u of unread){await mail.markRead(u.id);}if(alive)setUnreadMap(mm=>({...mm,[viewer.id]:0}));}
@@ -9372,7 +9391,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
     setVSending(true);
     try{ await mail.reply(last.id,body,vReply.all,vReply.cc||"",vReply.mentions||[]); setVReply(null);
       const convId=last.conversationId||viewer.conversationId;
-      if(convId){const m=await mail.getConversation(convId);setViewMsgs(m);setVExpanded(m.length?{[m[m.length-1].id]:true}:{});}
+      if(convId){const m=await mail.getConversation(convId);setViewMsgs(m);setVExpanded(Object.fromEntries((m||[]).map(x=>[x.id,true])));}
     }catch(e){ alert("Couldn't send: "+(e.message||"unknown error")); }
     setVSending(false);
   };
@@ -9486,7 +9505,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
                     <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{open?"▾":"▸"}</span>
                   </div>
                   {open
-                    ? <><div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail}/></div>
+                    ? <><div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail} trimQuote/></div>
                        {m.hasAttachments&&<EmailAttachments messageId={m.id} mail={mail} od={od} folder={filesFolder}/>}</>
                     : <div style={{padding:"0 14px 10px",fontSize:12.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</div>}
                 </div>

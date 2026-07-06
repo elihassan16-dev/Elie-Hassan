@@ -4456,13 +4456,17 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
 // both places behave exactly the same. Writes go through setSharedProps like the Tasks tab.
 function PropertyTaskList({property}){
   const { sharedProps, setSharedProps, contacts:CONTACTS, setContacts, flushContacts, teamMembers:TEAM_MEMBERS, currentUser:CURRENT_USER } = useData();
+  const { prefs, savePrefs } = useAuth();
+  const pushOrder=prefs.taskPushOrder||{};
   const dir=CONTACTS.map(normContact);
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
   const propId=property.id;
   const live=sharedProps.find(p=>p.id===propId)||property;
   const propAddr=(live.address||"")+(live.city?`, ${live.city}`:"");
   const tasks=(live.tasks||[]).filter(t=>!t.deleted);
-  const rows=tasks.map(t=>({propId,propAddr,propStatus:live.status,...t}));
+  // Apply my personal "sent to bottom" order (pushed tasks sink, latest at the end).
+  const rows=tasks.map((t,i)=>({propId,propAddr,propStatus:live.status,...t,_i:i}))
+    .sort((a,b)=>{const pa=pushOrder[String(a.id)]||0,pb=pushOrder[String(b.id)]||0;if(pa&&pb)return pa-pb;if(pa)return 1;if(pb)return -1;return a._i-b._i;});
   const[contactTarget,setContactTarget]=useState(null);
   const[msgTarget,setMsgTarget]=useState(null);
   const[assignTarget,setAssignTarget]=useState(null);
@@ -4481,7 +4485,7 @@ function PropertyTaskList({property}){
     })}));
     if(member&&member!==CURRENT_USER){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(t=>t.id===tid); notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}`,tag:`task-${tid}`}); }
   };
-  const pushToBottom=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{if(p.id!==pid)return p;const a=[...(p.tasks||[])];const i=a.findIndex(t=>t.id===tid);if(i<0)return p;const[m]=a.splice(i,1);a.push(m);return {...p,tasks:a};}));
+  const pushToBottom=(pid,tid)=>savePrefs({taskPushOrder:{...(prefs.taskPushOrder||{}),[String(tid)]:Date.now()}});
   const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}; if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`task-${tid}`}); } };
   const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
   useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -4564,8 +4568,18 @@ function TasksPage({onNavigate}){
   const addOfficeTask=(text)=>{const t=(text||"").trim();if(!t)return;setOfficeTasks(prev=>[...(prev||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER,assignedAt:Date.now(),assignedBy:CURRENT_USER}]);saveOffice();};
   const dir=CONTACTS.map(normContact); // normalized contact directory (phones[], company, tags)
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
-  const { isAdmin } = useAuth();
+  const { isAdmin, prefs, savePrefs } = useAuth();
   const isMobile=useIsMobile();
+  // Per-user "sent to bottom" order (synced in prefs, personal — doesn't reorder
+  // the shared list for teammates). Map of taskId -> when it was pushed down.
+  const pushOrder=prefs.taskPushOrder||{};
+  const pushWeight=(t)=>pushOrder[String(t.id)]||0;
+  const sortByPush=(arr)=>[...arr].map((t,i)=>({t,i})).sort((a,b)=>{
+    const pa=pushWeight(a.t),pb=pushWeight(b.t);
+    if(pa&&pb)return pa-pb;   // both pushed: earliest-pushed first, latest at very bottom
+    if(pa)return 1; if(pb)return -1; // pushed tasks sink below un-pushed ones
+    return a.i-b.i;           // otherwise keep the natural order
+  }).map(x=>x.t);
   // Which task groups are checked. Defaults to "My Tasks" + "Delegated by Me",
   // and remembers whatever the user last left checked (per device) so it doesn't
   // reset on the next login. Automations is a separate toggle, kept out of the pref.
@@ -4685,12 +4699,11 @@ function TasksPage({onNavigate}){
     if(isOffice(propId)){setOfficeTasks(prev=>(prev||[]).filter(t=>t.id!==taskId));saveOffice();return;}
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).filter(t=>t.id!==taskId)}));
   }
-  // Move a task to the end of its list — the "flip through my tasks" triage: once
-  // you've dealt with the top one, send it to the bottom and the next comes up.
+  // Move a task to the bottom of MY list — the "flip through my tasks" triage: once
+  // you've dealt with the top one, send it down and the next comes up. Personal to
+  // me (stored in prefs), so it doesn't reorder the shared list for teammates.
   function pushToBottom(propId,taskId){
-    const toEnd=(arr)=>{const a=[...(arr||[])];const i=a.findIndex(t=>t.id===taskId);if(i<0)return arr;const[m]=a.splice(i,1);a.push(m);return a;};
-    if(isOffice(propId)){setOfficeTasks(prev=>toEnd(prev));saveOffice();return;}
-    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:toEnd(p.tasks)}));
+    savePrefs({taskPushOrder:{...(prefs.taskPushOrder||{}),[String(taskId)]:Date.now()}});
   }
   function updateTaskText(propId,taskId,text){
     const v=(text||"").trim();if(!v)return;
@@ -4871,7 +4884,7 @@ function TasksPage({onNavigate}){
         {showRecent&&<RecentAssignedModal tasks={recentAssigned} currentUser={CURRENT_USER} onClose={()=>setShowRecent(false)} onOpenTask={(t)=>{setShowRecent(false);if(t.propId!==OFFICE_TASK_PID&&onNavigate)onNavigate(t.propId);}}/>}
 
         {!showAutomations&&(()=>{
-          const oTasks=(officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company Tasks",propStatus:""}));
+          const oTasks=sortByPush((officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company Tasks",propStatus:""})));
           const doneCount=oTasks.filter(t=>t.status==="Completed").length;
           return(
             <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14}}>
@@ -5046,7 +5059,7 @@ function TasksPage({onNavigate}){
             )}
 
             {/* Group by property */}
-            {Object.entries(filteredDisplay.reduce((acc,t)=>{(acc[t.propAddr]=acc[t.propAddr]||[]).push(t);return acc;},{})).map(([addr,ptasks])=>(
+            {Object.entries(filteredDisplay.reduce((acc,t)=>{(acc[t.propAddr]=acc[t.propAddr]||[]).push(t);return acc;},{})).map(([addr,ptasksRaw])=>{const ptasks=sortByPush(ptasksRaw);return(
               <div key={addr} style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14}}>
                 <div style={{padding:"10px 14px",background:"#FAFAFA",borderBottom:bdr,display:"flex",flexDirection:"column",gap:7}}>
                   {/* Row 1: address + delete */}
@@ -5074,7 +5087,7 @@ function TasksPage({onNavigate}){
                 {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} onPushToBottom={pushToBottom} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
                 <AddTaskInline onAdd={(text)=>addTaskToProp(ptasks[0].propId,text)}/>
               </div>
-            ))}
+            );})}
           </div>
         )}
       </div>

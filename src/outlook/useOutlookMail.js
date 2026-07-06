@@ -3,6 +3,19 @@ import { msalInstance, ensureMsalReady, MAIL_SCOPES } from "../onedrive/msal";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
+// Group a flat message list into conversation "chains" (latest message per
+// conversation, newest first), with a count and an any-unread flag.
+export function groupChains(items) {
+  const byConv = new Map();
+  for (const m of items || []) {
+    const key = m.conversationId || m.id;
+    const prev = byConv.get(key);
+    if (!prev) byConv.set(key, { key, latest: m, count: 1, anyUnread: !m.isRead });
+    else { prev.count += 1; prev.anyUnread = prev.anyUnread || !m.isRead; if ((m.receivedDateTime || "") > (prev.latest.receivedDateTime || "")) prev.latest = m; }
+  }
+  return [...byConv.values()].sort((a, b) => String(b.latest.receivedDateTime || "").localeCompare(String(a.latest.receivedDateTime || "")));
+}
+
 // Outlook / Microsoft 365 mail via Microsoft Graph — reuses the same MSAL sign-in
 // as the Files tab, just with Mail.Read + Mail.Send delegated scopes. Everything
 // is the SIGNED-IN user's own mailbox (/me), so each teammate sees their own email.
@@ -50,7 +63,8 @@ export function useOutlookMail() {
 
   const graph = useCallback(async (path, opts = {}) => {
     const token = await getToken();
-    const res = await fetch(GRAPH + path, {
+    // `path` may be a relative Graph path or a full URL (e.g. an @odata.nextLink).
+    const res = await fetch(path.startsWith("http") ? path : GRAPH + path, {
       ...opts,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -86,18 +100,26 @@ export function useOutlookMail() {
   }, [graph]);
 
   // Recent inbox messages, grouped into conversation "chains" (latest message per
-  // conversation, with a count). One page (top N), newest first.
+  // conversation, with a count). One page (top N), newest first. Used by the
+  // property "pin an email" picker.
   const listChains = useCallback(async (folder = "inbox", top = 40) => {
     const d = await graph(`/me/mailFolders/${encodeURIComponent(folder)}/messages?$select=${SELECT}&$top=${top}&$orderby=receivedDateTime desc`);
-    const items = d.value || [];
-    const byConv = new Map();
-    for (const m of items) {
-      const key = m.conversationId || m.id;
-      const prev = byConv.get(key);
-      if (!prev) byConv.set(key, { key, latest: m, count: 1, anyUnread: !m.isRead });
-      else { prev.count += 1; prev.anyUnread = prev.anyUnread || !m.isRead; if ((m.receivedDateTime || "") > (prev.latest.receivedDateTime || "")) prev.latest = m; }
-    }
-    return [...byConv.values()].sort((a, b) => String(b.latest.receivedDateTime || "").localeCompare(String(a.latest.receivedDateTime || "")));
+    return groupChains(d.value || []);
+  }, [graph]);
+
+  // A page of inbox messages, newest first. Pass a prior page's `next` to page
+  // through older mail. Returns { items, next } (next is null when done).
+  const fetchInbox = useCallback(async ({ top = 50, nextLink = null } = {}) => {
+    const d = await graph(nextLink || `/me/mailFolders/inbox/messages?$select=${SELECT}&$top=${top}&$orderby=receivedDateTime desc`);
+    return { items: d.value || [], next: d["@odata.nextLink"] || null };
+  }, [graph]);
+
+  // Search the WHOLE mailbox (subject, body, from, …). $search can't be combined
+  // with $orderby, so results come by relevance and the UI sorts by date.
+  const searchMail = useCallback(async ({ query, top = 50, nextLink = null } = {}) => {
+    const path = nextLink || `/me/messages?$search=${encodeURIComponent(`"${String(query).replace(/"/g, " ")}"`)}&$select=${SELECT}&$top=${top}`;
+    const d = await graph(path);
+    return { items: d.value || [], next: d["@odata.nextLink"] || null };
   }, [graph]);
 
   // All messages in a conversation, oldest first, with full body.
@@ -151,5 +173,5 @@ export function useOutlookMail() {
     });
   }, [graph]);
 
-  return { ready, account, signedIn: !!account, signIn, signOut, listChains, getConversation, findByInternetId, getAttachments, markRead, reply, sendNew };
+  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, markRead, reply, sendNew };
 }

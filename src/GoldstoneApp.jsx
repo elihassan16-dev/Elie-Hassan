@@ -404,6 +404,10 @@ function finProfit(f){
   // down payment — even though profit only carries the prorated hold-period portion
   // (already handled in holdingTotal above). Add the full premium on top of the gap.
   const annualInsurance=(holdingItems||[]).filter(i=>(i.title||"").toLowerCase().includes("insurance")).reduce((s,i)=>s+(i.perYear?n(i.amount):n(i.amount)*12),0);
+  // Property taxes: at closing you escrow/prepay roughly half a year, so count half
+  // the annual tax as cash to close (profit still carries the true prorated portion
+  // via holdingTotal above).
+  const taxEscrow=Math.round((holdingItems||[]).filter(i=>(i.title||"").toLowerCase().includes("tax")).reduce((s,i)=>s+(i.perYear?n(i.amount):n(i.amount)*12),0)*0.5);
   const acGapRate=f.acGapRate!==undefined?n(f.acGapRate):n(f.gapRate||15);
   const acHmMonthlyInt=Math.round(acHmLoanAmt*(acHmRate/100)/12);
   // "From today forward" mode: total HM interest = paid so far (from QuickBooks) +
@@ -414,7 +418,7 @@ function finProfit(f){
   const acNet=acSalePrice>0?acSalePrice-acSelling-(acHmInterest+acGapBalloon)-acCosts:0;
 
   const useActual=!!(f.useActualProfit&&acSalePrice>0);
-  return {netProfit,acNet,effective:useActual?acNet:netProfit,useActual,equityRequired:equityRequired+annualInsurance};
+  return {netProfit,acNet,effective:useActual?acNet:netProfit,useActual,equityRequired:equityRequired+annualInsurance+taxEscrow};
 }
 
 // ─── NJ Realty Transfer Tax ───────────────────────────────────────────────────
@@ -1100,6 +1104,7 @@ function FinancingPopup({fin, onSave, onClose}){
   const pp=n(fin.purchasePrice), rehab=n(fin.rehabCosts), holdMonths=n(fin.holdPeriod)||6;
   const holdItems=fin.holdingCostItems||[];
   const insAmt=n((holdItems.find(i=>i.title==="Insurance")||{}).amount)||0;
+  const taxEscrow=Math.round((n((holdItems.find(i=>(i.title||"").toLowerCase().includes("tax"))||{}).amount)||0)*0.5);
 
   const[hmPct,    setHmPct]    =useState(fin.hmLoanPct||"90");
   const[rehabPct, setRehabPct] =useState(fin.rehabFinPct||"100");
@@ -1185,7 +1190,8 @@ function FinancingPopup({fin, onSave, onClose}){
             {hmOrigFee>0&&<div style={iRow}><span style={iLbl}>HM Origination Fee</span><span style={iVal}>{fmtD(hmOrigFee)}</span></div>}
             <div style={iRow}><span style={iLbl}>HM Doc Fee</span><span style={iVal}>{fmtD(hmDoc)}</span></div>
             {insAmt>0&&<div style={iRow}><span style={iLbl}>Insurance Premium <span style={{fontSize:11,color:T.textTert}}>(full yr, paid at closing)</span></span><span style={iVal}>{fmtD(insAmt)}</span></div>}
-            <div style={{...iRow,background:"#EAF9FD"}}><span style={{fontSize:13,fontWeight:700,color:"#0EA5C5"}}>Total Capital to Raise</span><span style={{fontSize:13,fontWeight:700,color:"#0EA5C5"}}>{fmtD(gapPrincipal+insAmt)}</span></div>
+            {taxEscrow>0&&<div style={iRow}><span style={iLbl}>Property Tax Escrow <span style={{fontSize:11,color:T.textTert}}>(½ yr at closing)</span></span><span style={iVal}>{fmtD(taxEscrow)}</span></div>}
+            <div style={{...iRow,background:"#EAF9FD"}}><span style={{fontSize:13,fontWeight:700,color:"#0EA5C5"}}>Total Capital to Raise</span><span style={{fontSize:13,fontWeight:700,color:"#0EA5C5"}}>{fmtD(gapPrincipal+insAmt+taxEscrow)}</span></div>
             <div style={{...iRow,background:"#FFF8F0"}}><span style={{fontSize:13,color:T.textSub}}>Gap Balloon Interest — at sale</span><span style={{fontSize:13,fontWeight:600,color:T.orange}}>{fmtD(gapBalloon)}</span></div>
           </div>
 

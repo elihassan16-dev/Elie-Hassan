@@ -8222,28 +8222,32 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     return {rows,total};
   },[bsProps,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Report 6 — every upcoming closing (buys and sells): the equity you must have
-  // ready to close each one, and the deal's projected profit/loss. A buy needs
-  // cash-to-close (down payment + costs); a sell returns equity, so nothing's
-  // required. Red = deal projected at a loss ("in the negative").
+  // Report 6 — upcoming-closings capital flow. In-closing sales (under contract
+  // to sell) return line-of-credit capital you can redeploy; under-contract buys
+  // need LOC equity to close. Ordered by closing date, the running balance shows
+  // where you stand — red means the money coming back doesn't yet cover what you
+  // owe on the buys ahead. "Coming back" counts only the reinvestable draws
+  // (anything marked take-back on the Future Funds report goes to the lender).
   const rptClosings=useMemo(()=>{
-    const todayISO=new Date().toISOString().slice(0,10);
     const rows=[];
     (sharedProps||[]).filter(p=>!p.archived).forEach(p=>{
-      const f=p.financials||{};
-      const prof=finProfit(f);
-      const buyDate=f.purchaseDate||"";
-      if(buyDate&&buyDate>=todayISO)
-        rows.push({address:p.address,type:"Buy",date:buyDate,equity:prof.equityRequired,pl:prof.effective});
-      const sellDate=cfDate(p);
-      if(sellDate&&sellDate>=todayISO)
-        rows.push({address:p.address,type:"Sell",date:sellDate,equity:null,pl:prof.effective});
+      if(p.status==="In Closing"){
+        const back=drawsForProperty(p,openDraws)
+          .filter(d=>(d.futureFundsPlan||"reinvest")!=="takeback")
+          .reduce((s,d)=>s+(Number(d.amount)||0),0);
+        rows.push({address:p.address,type:"Sell",date:cfDate(p),back,equity:null});
+      }else if(p.status==="Under Contract"){
+        const prof=finProfit(p.financials||{});
+        rows.push({address:p.address,type:"Buy",date:(p.financials||{}).purchaseDate||"",back:null,equity:prof.equityRequired});
+      }
     });
-    rows.sort((a,b)=>(a.date||"").localeCompare(b.date||"")||(a.address||"").localeCompare(b.address||""));
+    rows.sort((a,b)=>((!a.date&&!b.date)?0:!a.date?1:!b.date?-1:a.date.localeCompare(b.date))||(a.address||"").localeCompare(b.address||""));
+    let bal=0;
+    rows.forEach(r=>{bal+=(r.back||0)-(r.equity||0);r.balance=bal;});
+    const totalBack=rows.reduce((s,r)=>s+(r.back||0),0);
     const totalEquity=rows.reduce((s,r)=>s+(r.equity||0),0);
-    const losses=rows.filter(r=>r.pl<0).length;
-    return {rows,totalEquity,losses};
-  },[sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+    return {rows,totalBack,totalEquity,net:totalBack-totalEquity};
+  },[sharedProps,openDraws]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const D=(iso)=>iso?finFmtDate(iso):"—";
   const M=(v)=>v==null?"—":fmtD(v);
@@ -8302,21 +8306,24 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
       empty:"No active properties.",
     },
     closings:{
-      title:"Upcoming Closings — Equity Required",
-      subtitle:"Every buy and sell closing still ahead, in date order. Equity required is the cash you must have ready to close a purchase (a sale returns equity). Projected P/L in red = deal in the negative.",
-      cols:[{label:"Property"},{label:"Type"},{label:"Closing"},{label:"Equity required",align:"right"},{label:"Projected P/L",align:"right"}],
+      title:"Upcoming Closings — Capital Flow",
+      subtitle:"In-closing sales return line-of-credit capital you can redeploy; under-contract buys need equity to close. In closing-date order, the running balance shows where you stand — red means the money coming back doesn't yet cover the equity owed on the buys ahead. Starts from zero (net of upcoming closings only).",
+      cols:[{label:"Property"},{label:"Type"},{label:"Closing"},{label:"LOC coming back",align:"right"},{label:"Equity required",align:"right"},{label:"Running balance",align:"right"}],
       rows:rptClosings.rows.map(r=>[
-        {t:r.pl<0?"⚠ "+r.address:r.address,color:r.pl<0?T.red:undefined,strong:r.pl<0},
-        {t:r.type,color:r.type==="Buy"?T.blue:T.green,strong:true},
+        {t:r.address},
+        {t:r.type==="Buy"?"Buying":"In Closing",color:r.type==="Buy"?T.blue:T.green,strong:true},
         {t:D(r.date)},
+        {t:r.back==null?"—":fmtD(r.back),align:"right",strong:r.back!=null,color:r.back==null?T.textTert:T.green},
         {t:r.equity==null?"—":fmtD(r.equity),align:"right",strong:r.equity!=null,color:r.equity==null?T.textTert:undefined},
-        {t:fmtD(r.pl),align:"right",strong:true,color:r.pl<0?T.red:T.green},
+        {t:fmtD(r.balance),align:"right",strong:true,color:r.balance<0?T.red:T.green},
       ]),
-      foot:[
-        [{t:`${rptClosings.rows.length} closing${rptClosings.rows.length!==1?"s":""}`,strong:true},{t:""},{t:""},{t:fmtD(rptClosings.totalEquity),align:"right",strong:true,gold:true},{t:"",align:"right"}],
-        ...(rptClosings.losses>0?[[{t:`${rptClosings.losses} deal${rptClosings.losses!==1?"s":""} projected in the negative`,color:T.red},{t:""},{t:""},{t:""},{t:""}]]:[]),
-      ],
-      empty:"No upcoming closings.",
+      foot:[[
+        {t:"Net position",strong:true},{t:""},{t:""},
+        {t:fmtD(rptClosings.totalBack),align:"right",strong:true,color:T.green},
+        {t:fmtD(rptClosings.totalEquity),align:"right",strong:true},
+        {t:fmtD(rptClosings.net),align:"right",strong:true,color:rptClosings.net<0?T.red:T.gold},
+      ]],
+      empty:"No under-contract buys or in-closing sales.",
     },
   };
 
@@ -8354,7 +8361,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Loans, all-in cost, reserves and equity — spreadsheet style."},
     {id:"hold",icon:"🏗️",title:"Construction Holdback vs Actuals",desc:"Bank's construction holdback vs your underwriting estimate, per property."},
     {id:"draw",icon:"🏦",title:"Construction Draw Report",desc:"Holdback vs draws pinned from each property's mortgage account, and what's left."},
-    {id:"closings",icon:"📅",title:"Upcoming Closings — Equity Required",desc:"All future buys & sells, cash needed to close each, and deals projected in the negative."},
+    {id:"closings",icon:"📅",title:"Upcoming Closings — Capital Flow",desc:"In-closing sales returning LOC capital vs under-contract buys needing equity, with a running balance."},
   ];
   const rep=open?REPORTS[open]:null;
 

@@ -8516,6 +8516,48 @@ function MailBody({message}){
   const onLoad=(e)=>{try{const h=e.target.contentWindow.document.body.scrollHeight;e.target.style.height=Math.min(h+16,1400)+"px";}catch{/* ignore */}};
   return <iframe ref={ref} title="email" onLoad={onLoad} sandbox="allow-same-origin allow-popups" srcDoc={doc} style={{width:"100%",border:"none",height:120,background:"#fff"}}/>;
 }
+// Labels the user can tag an email chain with, so the inbox says at a glance what
+// each thread is about. Stored per mailbox on this device (localStorage).
+const MAIL_LABELS={
+  task:{name:"Task",icon:"📋",color:"#9333EA",bg:"#F3E8FF"},
+  person:{name:"Person",icon:"👤",color:"#2563EB",bg:"#DBEAFE"},
+  general:{name:"General",icon:"💬",color:"#0891B2",bg:"#CFFAFE"},
+  important:{name:"Important",icon:"⭐",color:"#CA8A04",bg:"#FEF9C3"},
+};
+function MailLabelChip({lab,small}){
+  const cfg=lab&&MAIL_LABELS[lab.kind];
+  if(!cfg&&!(lab&&lab.note))return null;
+  const color=cfg?cfg.color:T.textSub, bg=cfg?cfg.bg:T.bg;
+  const text=lab.note?lab.note:(cfg?cfg.name:"");
+  return <span style={{display:"inline-flex",alignItems:"center",gap:3,background:bg,color,fontSize:small?10:11,fontWeight:700,padding:small?"1px 7px":"2px 9px",borderRadius:12,maxWidth:small?130:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>{cfg?cfg.icon:"🏷"}{text?` ${text}`:""}</span>;
+}
+// Small popover to tag an email chain: pick a kind (Task / Person / …) and an
+// optional note (e.g. the person's name or the task it's about).
+function MailLabelPopover({current,onSet,onClose}){
+  const[kind,setKind]=useState(current?.kind||"");
+  const[note,setNote]=useState(current?.note||"");
+  return(
+    <>
+      <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:260}}/>
+      <div style={{position:"absolute",top:"calc(100% + 4px)",right:12,width:250,background:"#fff",borderRadius:14,boxShadow:"0 8px 30px rgba(0,0,0,0.2)",zIndex:261,padding:12,border:`1px solid ${T.border}`}}>
+        <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Label this chain</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+          {Object.entries(MAIL_LABELS).map(([k,v])=>{const on=kind===k;return(
+            <button key={k} onClick={()=>setKind(on?"":k)} style={{padding:"5px 10px",borderRadius:14,border:`1px solid ${on?v.color:T.border}`,background:on?v.bg:"transparent",color:on?v.color:T.textSub,fontWeight:on?700:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{v.icon} {v.name}</button>
+          );})}
+        </div>
+        <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (e.g. name / what it's about)" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+        <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"space-between",alignItems:"center"}}>
+          {current?<button onClick={()=>onSet(null)} style={{padding:"7px 10px",borderRadius:8,background:"none",border:"none",color:T.red,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Remove</button>:<span/>}
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={onClose} style={{padding:"7px 12px",borderRadius:8,background:T.bg,border:"none",color:T.textSub,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+            <button onClick={()=>onSet({kind,note})} disabled={!kind&&!note.trim()} style={{padding:"7px 14px",borderRadius:8,background:(kind||note.trim())?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:(kind||note.trim())?"pointer":"default",fontFamily:"inherit"}}>Save</button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
 function EmailPage({isMobile}){
   const mail=useOutlookMail();
   const[chains,setChains]=useState(null);   // null = loading
@@ -8527,6 +8569,22 @@ function EmailPage({isMobile}){
   const[sending,setSending]=useState(false);
   const[compose,setCompose]=useState(null);  // {to,cc,subject,body}
   const[refreshKey,setRefreshKey]=useState(0);
+  const[threadErr,setThreadErr]=useState("");
+  // Per-mailbox chain labels (this device). { [conversationId]: {kind, note} }
+  const[labels,setLabels]=useState({});
+  const[filterKind,setFilterKind]=useState("all");
+  const[labelOpen,setLabelOpen]=useState(false);
+  const acctKey=mail.account?.username||"";
+  useEffect(()=>{ setLabels(acctKey?loadPref("gs_mailLabels_"+acctKey,{}):{}); },[acctKey]);
+  const setLabel=(key,val)=>{
+    setLabels(prev=>{
+      const next={...prev};
+      if(!val||(!val.kind&&!(val.note||"").trim()))delete next[key];
+      else next[key]={kind:val.kind||"",note:(val.note||"").trim()};
+      if(acctKey)savePref("gs_mailLabels_"+acctKey,next);
+      return next;
+    });
+  };
 
   useEffect(()=>{
     if(!mail.signedIn)return;let alive=true;setChains(null);setError("");
@@ -8535,9 +8593,9 @@ function EmailPage({isMobile}){
   },[mail.signedIn,refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(()=>{
-    if(!sel){setMsgs(null);setReplyDraft(null);return;}
-    let alive=true;setMsgs(null);setExpanded({});
-    mail.getConversation(sel.key).then(m=>{if(alive){setMsgs(m);setExpanded(m.length?{[m[m.length-1].id]:true}:{});}}).catch(()=>{if(alive)setMsgs([]);});
+    if(!sel){setMsgs(null);setReplyDraft(null);setThreadErr("");setLabelOpen(false);return;}
+    let alive=true;setMsgs(null);setExpanded({});setThreadErr("");setLabelOpen(false);
+    mail.getConversation(sel.key).then(m=>{if(alive){setMsgs(m);setExpanded(m.length?{[m[m.length-1].id]:true}:{});}}).catch(e=>{if(alive){setMsgs([]);setThreadErr(e.message||"Couldn't load this conversation.");}});
     if(sel.anyUnread&&sel.latest?.id)mail.markRead(sel.latest.id);
     return ()=>{alive=false;};
   },[sel]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -8588,11 +8646,19 @@ function EmailPage({isMobile}){
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
         {/* Chain list */}
         <div style={{width:isMobile?"100%":380,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+          {/* Label filter */}
+          {chains&&chains.length>0&&<div style={{display:"flex",gap:6,padding:"9px 12px",borderBottom:`1px solid ${T.border}`,overflowX:"auto",flexShrink:0,scrollbarWidth:"none"}}>
+            {[["all","All"],...Object.entries(MAIL_LABELS).map(([k,v])=>[k,`${v.icon} ${v.name}`])].map(([k,l])=>{const on=filterKind===k;return(
+              <button key={k} onClick={()=>setFilterKind(k)} style={{flexShrink:0,padding:"4px 11px",borderRadius:16,border:`1px solid ${on?T.gold:T.border}`,background:on?T.goldLight:"transparent",color:on?T.gold:T.textSub,fontWeight:on?700:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
+            );})}
+          </div>}
           <div style={{flex:1,overflowY:"auto"}}>
             {chains===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Loading your inbox…</div>}
             {chains&&error&&<div style={{padding:18,fontSize:12.5,color:"#8a6d1f",lineHeight:1.5}}>{error}<div style={{marginTop:10}}>{btn("Grant email access",true,()=>mail.signIn())}</div></div>}
             {chains&&!error&&chains.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No email in your inbox.</div>}
-            {chains&&chains.map(c=>{const m=c.latest;const active=sel&&sel.key===c.key;return(
+            {chains&&(()=>{const shown=chains.filter(c=>filterKind==="all"||(labels[c.key]&&labels[c.key].kind===filterKind));
+              if(chains.length>0&&shown.length===0)return <div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No chains labeled “{MAIL_LABELS[filterKind]?.name||filterKind}”.</div>;
+              return shown.map(c=>{const m=c.latest;const active=sel&&sel.key===c.key;const lab=labels[c.key];return(
               <div key={c.key} onClick={()=>setSel(c)} style={{display:"flex",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:active?T.goldLight:(c.anyUnread?"#fff":"transparent")}}>
                 <div style={{width:8,flexShrink:0,paddingTop:5}}>{c.anyUnread&&<span style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
                 <div style={{flex:1,minWidth:0}}>
@@ -8601,11 +8667,14 @@ function EmailPage({isMobile}){
                     <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{mailWhen(m.receivedDateTime)}</span>
                   </div>
                   <div style={{fontSize:12.5,fontWeight:c.anyUnread?700:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{m.subject||"(no subject)"}{c.count>1&&<span style={{fontSize:10.5,color:T.textTert,fontWeight:600}}> · {c.count}</span>}</div>
-                  <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{m.bodyPreview||""}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                    {lab&&<MailLabelChip lab={lab} small/>}
+                    <span style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{m.bodyPreview||""}</span>
+                  </div>
                 </div>
                 {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
               </div>
-            );})}
+            );});})()}
           </div>
         </div>
 
@@ -8617,12 +8686,19 @@ function EmailPage({isMobile}){
                 <div style={{fontSize:13,color:T.textTert,maxWidth:320}}>Your email chains show here. Open one to read the whole thread and reply.</div>
               </div>
             : <>
-              <div style={{padding:isMobile?"12px 14px":"14px 20px",borderBottom:`1px solid ${T.border}`,background:T.card,flexShrink:0,display:"flex",alignItems:"center",gap:10}}>
+              <div style={{padding:isMobile?"10px 14px":"12px 20px",borderBottom:`1px solid ${T.border}`,background:T.card,flexShrink:0,display:"flex",alignItems:"center",gap:10,position:"relative"}}>
                 {isMobile&&<button onClick={()=>setSel(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>‹</button>}
-                <div style={{fontSize:15,fontWeight:800,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.latest.subject||"(no subject)"}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.latest.subject||"(no subject)"}</div>
+                  {labels[sel.key]&&<div style={{marginTop:3}}><MailLabelChip lab={labels[sel.key]}/></div>}
+                </div>
+                <button onClick={()=>setLabelOpen(o=>!o)} title="Label this chain" style={{flexShrink:0,padding:"6px 12px",borderRadius:16,border:`1px solid ${labels[sel.key]?T.gold:T.border}`,background:labels[sel.key]?T.goldLight:T.card,color:labels[sel.key]?T.gold:T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🏷 {labels[sel.key]?"Label":"Label"}</button>
+                {labelOpen&&<MailLabelPopover current={labels[sel.key]} onClose={()=>setLabelOpen(false)} onSet={v=>{setLabel(sel.key,v);setLabelOpen(false);}}/>}
               </div>
               <div style={{flex:1,overflowY:"auto",padding:isMobile?12:18}}>
                 {msgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Loading conversation…</div>}
+                {msgs&&msgs.length===0&&threadErr&&<div style={{padding:18,fontSize:12.5,color:"#8a6d1f",lineHeight:1.5,background:"#FFF8E6",border:`1px solid ${T.border}`,borderRadius:T.radius}}>Couldn't load this conversation: {threadErr}<div style={{marginTop:8}}>{btn("Try again",false,()=>{const s=sel;setSel(null);setTimeout(()=>setSel(s),0);})}</div></div>}
+                {msgs&&msgs.length===0&&!threadErr&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No messages in this conversation.</div>}
                 {msgs&&msgs.map(m=>{const open=!!expanded[m.id];return(
                   <div key={m.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,marginBottom:10,overflow:"hidden"}}>
                     <div onClick={()=>setExpanded(e=>({...e,[m.id]:!open}))} style={{display:"flex",gap:10,padding:"11px 14px",cursor:"pointer",alignItems:"center"}}>

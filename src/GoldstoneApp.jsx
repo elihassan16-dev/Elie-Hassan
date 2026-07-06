@@ -4126,8 +4126,107 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
   );
 }
 
+// In-app email from a task's contact. If the task is linked to a pinned chain,
+// first offers "reply to that chain" vs "compose new"; otherwise goes straight to
+// a new email. Sends through the signed-in Outlook mailbox (Graph).
+function TaskEmailModal({to,name,propAddr,linkedPin,mail,onClose}){
+  const[mode,setMode]=useState(linkedPin?"choose":"new");
+  const[to2,setTo2]=useState(to||"");
+  const[subject,setSubject]=useState(propAddr||"");
+  const[body,setBody]=useState("");
+  const[sending,setSending]=useState(false);
+  const[resolving,setResolving]=useState(false);
+  const[err,setErr]=useState("");
+  const[lastId,setLastId]=useState(null);
+  const[done,setDone]=useState("");
+  const first=String(name||"").split(" ")[0]||"contact";
+  const iS={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
+  const goReply=async()=>{
+    setMode("reply");setResolving(true);setErr("");setLastId(null);
+    try{
+      let convId=null;
+      if(linkedPin.internetMessageId){const hit=await mail.findByInternetId(linkedPin.internetMessageId);if(hit)convId=hit.conversationId;}
+      if(!convId&&linkedPin.conversationId)convId=linkedPin.conversationId;
+      if(!convId)throw new Error("This chain isn't in your mailbox.");
+      const msgs=await mail.getConversation(convId);
+      if(!msgs.length)throw new Error("Couldn't open the chain in your mailbox.");
+      setLastId(msgs[msgs.length-1].id);
+    }catch(e){setErr(e.message||"Couldn't open the chain.");}
+    setResolving(false);
+  };
+  const html=()=>`<div>${mailEsc(body).replace(/\n/g,"<br>")}</div>`;
+  const sendNew=async()=>{
+    if(!to2.trim()||sending)return;setSending(true);setErr("");
+    try{ await mail.sendNew({to:to2,subject,html:html()}); setDone("Email sent."); setTimeout(onClose,900); }
+    catch(e){ setErr(e.message||"Couldn't send."); setSending(false); }
+  };
+  const sendReply=async(all)=>{
+    if(!lastId||sending)return;setSending(true);setErr("");
+    try{ await mail.reply(lastId,html(),all); setDone(all?"Reply-all sent.":"Reply sent."); setTimeout(onClose,900); }
+    catch(e){ setErr(e.message||"Couldn't send."); setSending(false); }
+  };
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:560,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(440px,96vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.28)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,background:T.goldLight,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:15,fontWeight:800,color:T.text}}>Email {first}</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{padding:"16px 18px",overflowY:"auto"}}>
+          {done
+            ? <div style={{padding:"18px 0",textAlign:"center",color:"#1a8f43",fontSize:15,fontWeight:700}}>✓ {done}</div>
+            : mode==="choose"
+            ? <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{fontSize:13,color:T.textSub,lineHeight:1.5,marginBottom:2}}>This task is linked to an email chain. What would you like to do?</div>
+                <button onClick={goReply} style={{textAlign:"left",padding:"13px 14px",borderRadius:T.radiusSm,border:`1px solid ${T.gold}`,background:T.goldLight,cursor:"pointer",fontFamily:"inherit"}}>
+                  <div style={{fontSize:14,fontWeight:700,color:T.gold}}>↩ Reply to the linked chain</div>
+                  <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{linkedPin?.subject||"(chain)"}</div>
+                </button>
+                <button onClick={()=>setMode("new")} style={{textAlign:"left",padding:"13px 14px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,cursor:"pointer",fontFamily:"inherit"}}>
+                  <div style={{fontSize:14,fontWeight:700,color:T.text}}>✉️ Send a new email</div>
+                  <div style={{fontSize:12,color:T.textSub,marginTop:2}}>Start a fresh email to {first}</div>
+                </button>
+              </div>
+            : mode==="new"
+            ? <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {linkedPin&&<button onClick={()=>setMode("choose")} style={{alignSelf:"flex-start",background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",padding:0}}>‹ Back</button>}
+                <input value={to2} onChange={e=>setTo2(e.target.value)} placeholder="To" style={iS}/>
+                <input value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Subject" style={iS}/>
+                <textarea autoFocus value={body} onChange={e=>setBody(e.target.value)} placeholder={`Write your email to ${first}…`} style={{...iS,minHeight:120,resize:"vertical",lineHeight:1.5}}/>
+                {err&&<div style={{fontSize:12.5,color:T.red}}>{err}</div>}
+                <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                  <button onClick={onClose} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                  <button onClick={sendNew} disabled={sending||!to2.trim()} style={{padding:"9px 18px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",opacity:(sending||!to2.trim())?0.6:1,pointerEvents:sending?"none":"auto"}}>{sending?"Sending…":"Send"}</button>
+                </div>
+              </div>
+            : /* reply */ <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <button onClick={()=>setMode("choose")} style={{alignSelf:"flex-start",background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",padding:0}}>‹ Back</button>
+                <div style={{fontSize:12,color:T.textSub}}>Replying to: <b style={{color:T.text}}>{linkedPin?.subject||"(chain)"}</b></div>
+                {resolving
+                  ? <div style={{padding:"18px 0",textAlign:"center",color:T.textTert,fontSize:13}}>Opening the chain…</div>
+                  : err
+                  ? <div style={{fontSize:12.5,color:"#8a6d1f",lineHeight:1.5,background:"#FFF8E6",border:`1px solid ${T.border}`,borderRadius:T.radiusSm,padding:12}}>{err}<div style={{marginTop:8}}><button onClick={()=>setMode("new")} style={{padding:"7px 12px",borderRadius:8,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Send a new email instead</button></div></div>
+                  : <>
+                      <textarea autoFocus value={body} onChange={e=>setBody(e.target.value)} placeholder="Write your reply…" style={{...iS,minHeight:120,resize:"vertical",lineHeight:1.5}}/>
+                      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                        <button onClick={()=>sendReply(false)} disabled={sending||!body.trim()} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.text,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit",opacity:(sending||!body.trim())?0.6:1}}>Reply</button>
+                        <button onClick={()=>sendReply(true)} disabled={sending||!body.trim()} style={{padding:"9px 18px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",opacity:(sending||!body.trim())?0.6:1,pointerEvents:sending?"none":"auto"}}>{sending?"Sending…":"Reply all"}</button>
+                      </div>
+                    </>}
+              </div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Task Contact card — assign a person or company, then Call/Text/WhatsApp/Email
 function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
+  const{sharedProps}=useData()||{};
+  const mail=useOutlookMail();
+  const prop=(sharedProps||[]).find(pp=>String(pp.id)===String(task.propId));
+  const linkedPin=(prop?.pinnedEmails||[]).find(pe=>pe.label&&String(pe.label.taskId)===String(task.id))||null;
+  const[emailTo,setEmailTo]=useState(null); // {email,name} → in-app email modal
   const tc=task.taskContact||null;
   const isCompany=!!(tc&&tc.kind==="company");
   const person=(!isCompany&&tc)?(contacts.find(c=>c.id===tc.id)||contacts.find(c=>(c.name||"").toLowerCase()===(tc.name||"").toLowerCase())||normContact(tc)):null;
@@ -4173,7 +4272,10 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
       <button onClick={()=>openCompose("whatsapp",num,name)} style={{...actA,background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B",cursor:"pointer",fontFamily:"inherit"}}>WhatsApp</button>
     </div>
   );
-  const emailBtn=(email,name,extra)=><button onClick={()=>openCompose("email",email,name)} style={{...actA,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",...(extra||{})}}>✉️ Email</button>;
+  // In-app email when the mailbox is connected (offers reply-to-linked-chain);
+  // otherwise fall back to the mailto template chooser.
+  const openEmail=(email,name)=>{ if(mail.signedIn) setEmailTo({email,name}); else openCompose("email",email,name); };
+  const emailBtn=(email,name,extra)=><button onClick={()=>openEmail(email,name)} style={{...actA,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",...(extra||{})}}>✉️ Email</button>;
   const avatar=(name,size=36)=><div style={{width:size,height:size,borderRadius:"50%",background:avatarColor(name),display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:size*0.4,color:"#fff",flexShrink:0}}>{initialsOf(name)||"?"}</div>;
   const footer=(
     <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8}}>
@@ -4312,6 +4414,8 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
           </div>
         );
       })()}
+      {/* In-app email (connected mailbox) — new email or reply to the linked chain */}
+      {emailTo&&<TaskEmailModal to={emailTo.email} name={emailTo.name} propAddr={propAddr} linkedPin={linkedPin} mail={mail} onClose={()=>setEmailTo(null)}/>}
     </div>
   );
 }
@@ -8531,32 +8635,46 @@ function MailLabelChip({lab,small}){
   const text=lab.note?lab.note:(cfg?cfg.name:"");
   return <span style={{display:"inline-flex",alignItems:"center",gap:3,background:bg,color,fontSize:small?10:11,fontWeight:700,padding:small?"1px 7px":"2px 9px",borderRadius:12,maxWidth:small?130:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>{cfg?cfg.icon:"🏷"}{text?` ${text}`:""}</span>;
 }
-// Small popover to tag an email chain: pick a kind (Task / Person / …) and an
-// optional note (e.g. the person's name or the task it's about).
-function MailLabelPopover({current,onSet,onClose}){
+// Popover to tag an email chain: pick a kind (Task / Person / …), an optional
+// note, and — when `tasks` are supplied (property view) — link it to a task so
+// the task's contact can reply straight to this chain. `centered` renders it as
+// a modal (property rows) instead of an anchored popover (inbox header).
+function MailLabelPopover({current,onSet,onClose,tasks,centered}){
   const[kind,setKind]=useState(current?.kind||"");
   const[note,setNote]=useState(current?.note||"");
-  return(
-    <>
-      <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:260}}/>
-      <div style={{position:"absolute",top:"calc(100% + 4px)",right:12,width:250,background:"#fff",borderRadius:14,boxShadow:"0 8px 30px rgba(0,0,0,0.2)",zIndex:261,padding:12,border:`1px solid ${T.border}`}}>
-        <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Label this chain</div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
-          {Object.entries(MAIL_LABELS).map(([k,v])=>{const on=kind===k;return(
-            <button key={k} onClick={()=>setKind(on?"":k)} style={{padding:"5px 10px",borderRadius:14,border:`1px solid ${on?v.color:T.border}`,background:on?v.bg:"transparent",color:on?v.color:T.textSub,fontWeight:on?700:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{v.icon} {v.name}</button>
-          );})}
-        </div>
-        <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (e.g. name / what it's about)" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-        <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"space-between",alignItems:"center"}}>
-          {current?<button onClick={()=>onSet(null)} style={{padding:"7px 10px",borderRadius:8,background:"none",border:"none",color:T.red,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Remove</button>:<span/>}
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={onClose} style={{padding:"7px 12px",borderRadius:8,background:T.bg,border:"none",color:T.textSub,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
-            <button onClick={()=>onSet({kind,note})} disabled={!kind&&!note.trim()} style={{padding:"7px 14px",borderRadius:8,background:(kind||note.trim())?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:(kind||note.trim())?"pointer":"default",fontFamily:"inherit"}}>Save</button>
-          </div>
+  const[taskId,setTaskId]=useState(current?.taskId?String(current.taskId):"");
+  const valid=kind||note.trim()||taskId;
+  const save=()=>{ if(!valid)return; onSet({kind,note:note.trim(),taskId:taskId||""}); };
+  const inner=(
+    <div onClick={e=>e.stopPropagation()} style={centered
+      ?{width:"min(340px,94vw)",background:"#fff",borderRadius:16,boxShadow:"0 12px 40px rgba(0,0,0,0.25)",padding:14,border:`1px solid ${T.border}`}
+      :{position:"absolute",top:"calc(100% + 4px)",right:12,width:260,background:"#fff",borderRadius:14,boxShadow:"0 8px 30px rgba(0,0,0,0.2)",zIndex:261,padding:12,border:`1px solid ${T.border}`}}>
+      <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Label this chain</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+        {Object.entries(MAIL_LABELS).map(([k,v])=>{const on=kind===k;return(
+          <button key={k} onClick={()=>setKind(on?"":k)} style={{padding:"5px 10px",borderRadius:14,border:`1px solid ${on?v.color:T.border}`,background:on?v.bg:"transparent",color:on?v.color:T.textSub,fontWeight:on?700:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{v.icon} {v.name}</button>
+        );})}
+      </div>
+      <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (e.g. name / what it's about)" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+      {tasks&&<div style={{marginTop:10}}>
+        <div style={{fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}}>Link to a task</div>
+        <select value={taskId} onChange={e=>setTaskId(e.target.value)} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:"#fff",color:taskId?T.text:T.textTert,fontSize:13,outline:"none",fontFamily:"inherit"}}>
+          <option value="">— none —</option>
+          {tasks.map(t=><option key={t.id} value={String(t.id)}>{t.text}</option>)}
+        </select>
+        {taskId&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4,lineHeight:1.4}}>Emailing this task's contact will offer to reply here.</div>}
+      </div>}
+      <div style={{display:"flex",gap:8,marginTop:12,justifyContent:"space-between",alignItems:"center"}}>
+        {current?<button onClick={()=>onSet(null)} style={{padding:"7px 10px",borderRadius:8,background:"none",border:"none",color:T.red,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Remove</button>:<span/>}
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={onClose} style={{padding:"7px 12px",borderRadius:8,background:T.bg,border:"none",color:T.textSub,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+          <button onClick={save} disabled={!valid} style={{padding:"7px 14px",borderRadius:8,background:valid?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:valid?"pointer":"default",fontFamily:"inherit"}}>Save</button>
         </div>
       </div>
-    </>
+    </div>
   );
+  if(centered)return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:340,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>{inner}</div>;
+  return <><div onClick={onClose} style={{position:"fixed",inset:0,zIndex:260}}/>{inner}</>;
 }
 function EmailPage({isMobile}){
   const mail=useOutlookMail();
@@ -8580,8 +8698,8 @@ function EmailPage({isMobile}){
   const setLabel=(key,val)=>{
     setLabels(prev=>{
       const next={...prev};
-      if(!val||(!val.kind&&!(val.note||"").trim()))delete next[key];
-      else next[key]={kind:val.kind||"",note:(val.note||"").trim()};
+      if(!val||(!val.kind&&!(val.note||"").trim()&&!val.taskId))delete next[key];
+      else next[key]={kind:val.kind||"",note:(val.note||"").trim(),taskId:val.taskId||""};
       if(acctKey)savePref("gs_mailLabels_"+acctKey,next);
       return next;
     });
@@ -8804,6 +8922,10 @@ function PropertyEmails({property,onUpdate,isMobile}){
   const pinChain=(c)=>{const m=c.latest;if(pinned.some(p=>p.internetMessageId&&p.internetMessageId===m.internetMessageId))return;
     savePinned([...pinned,{id:Date.now()+"_"+Math.round(Math.random()*1e6),conversationId:c.key,internetMessageId:m.internetMessageId||"",subject:m.subject||"",from:mailAddr(m.from),fromAddr:m.from?.emailAddress?.address||"",date:m.receivedDateTime||"",preview:m.bodyPreview||""}]);};
   const unpin=(id)=>savePinned(pinned.filter(p=>p.id!==id));
+  const[labelPin,setLabelPin]=useState(null); // pin whose label editor is open
+  const setPinLabel=(pinId,val)=>{savePinned(pinned.map(p=>p.id!==pinId?p:(val?{...p,label:val}:(()=>{const{label,...rest}=p;return rest;})())));setLabelPin(null);};
+  const propTasks=(property.tasks||[]).map(t=>({id:t.id,text:t.text}));
+  const taskName=(tid)=>{const t=(property.tasks||[]).find(x=>String(x.id)===String(tid));return t?t.text:"";};
 
   useEffect(()=>{
     if(!picker||!mail.signedIn)return;let alive=true;setChains(null);setPickErr("");
@@ -8880,12 +9002,18 @@ function PropertyEmails({property,onUpdate,isMobile}){
                 <div onClick={()=>setViewer(p)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                   <div style={{fontSize:13.5,fontWeight:700,color:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
                   <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.from} · {mailWhen(p.date)}</div>
-                  {p.preview&&<div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{p.preview}</div>}
+                  {(p.label||p.preview)&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,minWidth:0}}>
+                    {p.label&&<MailLabelChip lab={p.label} small/>}
+                    {p.label?.taskId&&taskName(p.label.taskId)&&<span style={{display:"inline-flex",alignItems:"center",gap:2,fontSize:10,fontWeight:700,color:T.gold,background:T.goldLight,borderRadius:12,padding:"1px 7px",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>🔗 {taskName(p.label.taskId)}</span>}
+                    {p.preview&&<span style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{p.preview}</span>}
+                  </div>}
                 </div>
+                <button onClick={()=>setLabelPin(p)} title="Label / link this chain" style={{background:p.label?T.goldLight:"none",border:p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:"5px 8px"}}>🏷</button>
                 <button onClick={()=>unpin(p.id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
               </div>
             ))}
           </div>}
+      {labelPin&&<MailLabelPopover current={labelPin.label} tasks={propTasks} centered onClose={()=>setLabelPin(null)} onSet={v=>setPinLabel(labelPin.id,v)}/>}
 
       {/* Picker */}
       {picker&&(

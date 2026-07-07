@@ -2437,7 +2437,10 @@ const CAL_EVENTS=[
 ];
 function CalendarPage({sharedProps,setSharedProps,onNavigate}){
   const isMobile=useIsMobile();
-  const[view,setView]=useState("today"); // "today" | "dates"
+  const[view,setView]=useState("today"); // "today" | "dates" | "month"
+  const[showPast,setShowPast]=useState(false);
+  const[monthAnchor,setMonthAnchor]=useState(()=>{const d=new Date();return {y:d.getFullYear(),m:d.getMonth()};});
+  const[selDay,setSelDay]=useState(()=>new Date().toISOString().slice(0,10));
   const[showings,setShowings]=useState(null);
   const[shStatus,setShStatus]=useState(null);
   useEffect(()=>{qbAuthFetch("/api/showings/status").then(setShStatus).catch(()=>setShStatus({configured:false}));},[]);
@@ -2473,9 +2476,51 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
   const dismiss=(p,type,date)=>upd(p.id,"calDismissed",{...(p.calDismissed||{}),[`${type}:${date}`]:true});
   const setStatus=(p,st)=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:st}:x));
 
-  const shToday=useMemo(()=>(showings||[]).filter(s=>isToday(s.start))
+  const shForDay=(iso)=>(showings||[]).filter(s=>String(s.start||"").slice(0,10)===iso)
     .map(s=>({s,prop:active.find(p=>showingMatchesProperty(s.location||s.summary||"",p))}))
-    .sort((a,b)=>String(a.s.start||"").localeCompare(String(b.s.start||""))),[showings,active]); // eslint-disable-line
+    .sort((a,b)=>String(a.s.start||"").localeCompare(String(b.s.start||"")));
+  const shToday=useMemo(()=>shForDay(todayISO),[showings,active]); // eslint-disable-line
+
+  // Call / text templates for a showing agent — same set as the Showings section.
+  const actBtn={padding:"6px 10px",borderRadius:16,fontSize:11.5,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap",fontFamily:"inherit"};
+  const showingActions=(s,address)=>{
+    const phones=parseShowingPhones(s.phone);
+    if(!phones.length)return null;
+    const name=s.agent||"";
+    return(
+      <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:7}}>
+        {phones.map((ph,i)=>(
+          <div key={i}>
+            <div style={{fontSize:11.5,color:T.textSub,marginBottom:4}}>{ph}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
+              <a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a>
+              <a href={showingSms(ph,showingMessage("initial",name,address))} style={{...actBtn,background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"}}>Initial</a>
+              <a href={showingSms(ph,showingMessage("followup",name,address))} style={{...actBtn,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue}}>Follow-up</a>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // Month grid + per-day event index (key dates + showings) for the calendar view.
+  const {y,m}=monthAnchor;
+  const monthGrid=useMemo(()=>{
+    const first=new Date(y,m,1), start=new Date(y,m,1-first.getDay());
+    const cells=[];
+    for(let i=0;i<42;i++){const d=new Date(start.getFullYear(),start.getMonth(),start.getDate()+i);
+      cells.push({iso:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`,day:d.getDate(),inMonth:d.getMonth()===m});}
+    return cells;
+  },[y,m]);
+  const dayIndex=useMemo(()=>{
+    const idx={};
+    events.forEach(x=>{(idx[x.date]=idx[x.date]||[]).push({kind:"date",color:x.e.color,icon:x.e.icon,label:x.e.label,p:x.p});});
+    (showings||[]).forEach(s=>{const iso=String(s.start||"").slice(0,10);if(!iso)return;(idx[iso]=idx[iso]||[]).push({kind:"showing",color:T.gold,icon:"👥",label:"Showing",s});});
+    return idx;
+  },[events,showings]);
+  const monthName=new Date(y,m,1).toLocaleDateString(undefined,{month:"long",year:"numeric"});
+  const shiftMonth=(d)=>setMonthAnchor(a=>{const nd=new Date(a.y,a.m+d,1);return {y:nd.getFullYear(),m:nd.getMonth()};});
 
   const wrap={padding:isMobile?"14px 14px 40px":"18px 24px 40px",maxWidth:640,margin:"0 auto",width:"100%",boxSizing:"border-box"};
   const card={background:T.card,borderRadius:T.radius,boxShadow:T.shadow,border:`1px solid ${T.border}`,overflow:"hidden"};
@@ -2525,12 +2570,12 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
       <div style={wrap}>
         {/* Segmented control */}
         <div style={{display:"flex",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:3,gap:3,marginBottom:16}}>
-          {[["today","📋 Today's Showings"],["dates","🗓 Key Dates"]].map(([k,l])=>(
-            <button key={k} onClick={()=>setView(k)} style={{flex:1,padding:"9px 10px",borderRadius:9,border:"none",background:view===k?T.gold:"transparent",color:view===k?"#fff":T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+          {[["today","📋 Showings"],["dates","🗓 Key Dates"],["month","📅 Calendar"]].map(([k,l])=>(
+            <button key={k} onClick={()=>setView(k)} style={{flex:1,padding:"9px 8px",borderRadius:9,border:"none",background:view===k?T.gold:"transparent",color:view===k?"#fff":T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
           ))}
         </div>
 
-        {/* Needs attention — overdue key dates, shown on both views */}
+        {/* Needs attention — overdue key dates, shown on all views */}
         {overdue.length>0&&(
           <div style={{marginBottom:18}}>
             <div style={{fontSize:12,fontWeight:800,color:T.red,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:9}}>⚠ Needs attention · {overdue.length}</div>
@@ -2552,20 +2597,24 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
               ?<div style={{padding:"26px 16px",textAlign:"center",fontSize:13.5,color:T.textTert}}>No showings scheduled today. 🎉</div>
               :shToday.map(({s,prop},i)=>{
                   const t=new Date(s.start);const time=isNaN(t.getTime())?"":t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+                  const address=prop?addr(prop):(s.location||"");
                   return(
-                    <div key={i} onClick={()=>prop&&onNavigate&&onNavigate(prop.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderTop:i?`1px solid ${T.border}`:"none",cursor:prop?"pointer":"default"}}>
-                      <div style={{width:66,flexShrink:0,textAlign:"center"}}>
-                        <div style={{fontSize:14,fontWeight:800,color:T.gold}}>{time}</div>
+                    <div key={i} style={{padding:"12px 16px",borderTop:i?`1px solid ${T.border}`:"none"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:12}}>
+                        <div style={{width:66,flexShrink:0,textAlign:"center"}}>
+                          <div style={{fontSize:14,fontWeight:800,color:T.gold}}>{time}</div>
+                        </div>
+                        <div style={{flex:1,minWidth:0}} onClick={()=>prop&&onNavigate&&onNavigate(prop.id)}>
+                          <div style={{fontSize:14,fontWeight:600,color:prop?T.blue:T.text,cursor:prop?"pointer":"default",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prop?addr(prop):(s.location||"Unmatched property")}</div>
+                          {s.agent&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👤 {s.agent}</div>}
+                        </div>
                       </div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:14,fontWeight:600,color:prop?T.blue:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prop?addr(prop):(s.location||"Unmatched property")}</div>
-                        {s.agent&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👤 {s.agent}</div>}
-                      </div>
+                      {showingActions(s,address)}
                     </div>
                   );
                 })}
           </div>
-        ):(
+        ):view==="dates"?(
           <>
             <div style={card}>
               <div style={{padding:"12px 16px",borderBottom:upcoming.length?`1px solid ${T.border}`:"none",fontSize:15,fontWeight:800,color:T.text}}>Upcoming</div>
@@ -2574,11 +2623,61 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
                 :upcoming.map((x,i)=><DateRowItem key={i} x={x}/>)}
             </div>
             {pastDone.length>0&&(
-              <div style={{...card,marginTop:16,opacity:0.85}}>
-                <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,fontSize:13,fontWeight:700,color:T.textSub}}>Past</div>
-                {pastDone.slice(-40).reverse().map((x,i)=><DateRowItem key={i} x={x}/>)}
+              <div style={{...card,marginTop:16}}>
+                <button onClick={()=>setShowPast(v=>!v)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",background:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit"}}>
+                  <span style={{fontSize:13,fontWeight:700,color:T.textSub}}>Past · {pastDone.length}</span>
+                  <span style={{fontSize:12,color:T.textTert,fontWeight:700}}>{showPast?"▾ Hide":"▸ Show"}</span>
+                </button>
+                {showPast&&<div style={{opacity:0.9}}>{pastDone.slice(-60).reverse().map((x,i)=><DateRowItem key={i} x={x}/>)}</div>}
               </div>
             )}
+          </>
+        ):(
+          <>
+            {/* Month calendar grid */}
+            <div style={card}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 14px",borderBottom:`1px solid ${T.border}`}}>
+                <button onClick={()=>shiftMonth(-1)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,width:30,height:30,cursor:"pointer",color:T.textSub,fontSize:15,fontFamily:"inherit"}}>‹</button>
+                <div style={{fontSize:15,fontWeight:800,color:T.text}}>{monthName}</div>
+                <button onClick={()=>shiftMonth(1)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,width:30,height:30,cursor:"pointer",color:T.textSub,fontSize:15,fontFamily:"inherit"}}>›</button>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",padding:"8px 6px 0"}}>
+                {["S","M","T","W","T","F","S"].map((d,i)=><div key={i} style={{textAlign:"center",fontSize:10,fontWeight:700,color:T.textTert,padding:"2px 0 6px"}}>{d}</div>)}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,padding:"0 6px 8px"}}>
+                {monthGrid.map((c,i)=>{const evs=dayIndex[c.iso]||[];const isSel=c.iso===selDay;const isTod=c.iso===todayISO;const dots=[...new Map(evs.map(e=>[e.color,e])).values()].slice(0,4);return(
+                  <button key={i} onClick={()=>setSelDay(c.iso)} style={{aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",gap:2,padding:"5px 0 3px",borderRadius:9,border:isSel?`1.5px solid ${T.gold}`:"1px solid transparent",background:isSel?T.goldLight:isTod?"#EBF4FF":"transparent",cursor:"pointer",fontFamily:"inherit",opacity:c.inMonth?1:0.32}}>
+                    <span style={{fontSize:12.5,fontWeight:isTod?800:600,color:isTod?T.blue:T.text}}>{c.day}</span>
+                    <span style={{display:"flex",gap:2,minHeight:5}}>{dots.map((e,j)=><span key={j} style={{width:5,height:5,borderRadius:"50%",background:e.color}}/>)}</span>
+                  </button>
+                );})}
+              </div>
+            </div>
+
+            {/* Selected day agenda */}
+            <div style={{...card,marginTop:14}}>
+              <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,fontSize:14,fontWeight:800,color:T.text}}>{fmtDate(selDay)}{selDay===todayISO?" · Today":""}</div>
+              {(()=>{
+                const dayKeyDates=events.filter(x=>x.date===selDay);
+                const dayShow=shForDay(selDay);
+                if(!dayKeyDates.length&&!dayShow.length)return <div style={{padding:"22px 16px",textAlign:"center",fontSize:13,color:T.textTert}}>Nothing scheduled.</div>;
+                return(<>
+                  {dayKeyDates.map((x,i)=><DateRowItem key={"d"+i} x={x}/>)}
+                  {dayShow.map(({s,prop},i)=>{const t=new Date(s.start);const time=isNaN(t.getTime())?"":t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});const address=prop?addr(prop):(s.location||"");return(
+                    <div key={"s"+i} style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <span style={{fontSize:14}}>👥</span>
+                        <div style={{flex:1,minWidth:0}} onClick={()=>prop&&onNavigate&&onNavigate(prop.id)}>
+                          <div style={{fontSize:13.5,fontWeight:600,color:prop?T.blue:T.text,cursor:prop?"pointer":"default",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prop?addr(prop):(s.location||"Showing")}</div>
+                          <div style={{fontSize:11.5,color:T.textSub}}>Showing{time?` · ${time}`:""}{s.agent?` · ${s.agent}`:""}</div>
+                        </div>
+                      </div>
+                      {showingActions(s,address)}
+                    </div>
+                  );})}
+                </>);
+              })()}
+            </div>
           </>
         )}
       </div>

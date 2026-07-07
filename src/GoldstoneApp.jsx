@@ -9285,7 +9285,10 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
 
   // Report 1 — every outstanding LOC draw: property, funder, amount; oldest purchase first.
   const rptLoc=useMemo(()=>{
-    const rows=openDraws.map(d=>{const p=propForDraw(d);return {address:d.propertyLabel||p?.address||"—",funder:d.funderName||"—",amount:Number(d.amount)||0,purchaseDate:(p?.financials?.purchaseDate)||""};});
+    // Date column: the matched property's purchase date; draws that don't match a
+    // property (label typo, or a rental not in the Properties list) fall back to
+    // the draw's own funded date so the row still sorts into the timeline.
+    const rows=openDraws.map(d=>{const p=propForDraw(d);const pd=(p?.financials?.purchaseDate)||"";return {address:d.propertyLabel||p?.address||"—",funder:d.funderName||"—",amount:Number(d.amount)||0,purchaseDate:pd||d.dateFunded||"",fb:!pd&&!!d.dateFunded};});
     rows.sort((a,b)=>(!a.purchaseDate&&!b.purchaseDate)?0:!a.purchaseDate?1:!b.purchaseDate?-1:a.purchaseDate.localeCompare(b.purchaseDate));
     return {rows,total:rows.reduce((s,r)=>s+r.amount,0)};
   },[openDraws,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -9381,9 +9384,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const REPORTS={
     loc:{
       title:"Outstanding Line-of-Credit by Deal",
-      subtitle:"Every open LOC draw — who funded it and how much you owe, oldest purchase date first.",
+      subtitle:"Every open LOC draw — who funded it and how much you owe, oldest purchase date first. Draws not linked to a property show their funded date instead.",
       cols:[{label:"Property"},{label:"Funder"},{label:"Purchase date"},{label:"LOC amount",align:"right"}],
-      rows:rptLoc.rows.map(r=>[{t:r.address},{t:r.funder},{t:D(r.purchaseDate)},{t:fmtD(r.amount),align:"right",strong:true}]),
+      rows:rptLoc.rows.map(r=>[{t:r.address},{t:r.funder},{t:D(r.purchaseDate)+(r.fb?" · funded":"")},{t:fmtD(r.amount),align:"right",strong:true}]),
       foot:[[{t:`${rptLoc.rows.length} deal${rptLoc.rows.length!==1?"s":""}`,strong:true},{t:""},{t:""},{t:fmtD(rptLoc.total),align:"right",strong:true,gold:true}]],
       empty:"No outstanding LOC draws.",
     },

@@ -9677,6 +9677,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   const[registerImport,setRegisterImport]=useState(false);
   const[paybackModal,setPaybackModal]=useState(null);  // draw being paid back
   const[partialModal,setPartialModal]=useState(null);  // draw getting a partial paydown
+  const[rowMenu,setRowMenu]=useState(null);            // {id,x,y} of the open register-row actions menu
   const[drawModal,setDrawModal]=useState(null);        // {} new, or draw obj, or {defaultFunderId}
   const save=()=>{setTimeout(()=>{flushFunders&&flushFunders();flushDraws&&flushDraws();},0);};
 
@@ -9792,6 +9793,20 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
     const t=LEDGER_TYPES.find(x=>x.v===e.kind)||{label:e.kind,color:T.textSub,sign:1};
     return {label:t.label+(e.note?` — ${e.note}`:""),color:t.color,sign:t.sign};
   };
+  // Contextual actions for a register row, shown in its ⋯ dropdown.
+  const rowActions=(e)=>{
+    const acts=[];
+    const isOpenFund=e.kind==="fund"&&e.draw&&!e.draw.paybackDate;
+    if(isOpenFund){
+      acts.push({label:"Record payback",color:T.green,fn:()=>setPaybackModal(e.draw)});
+      acts.push({label:"Partial pay down",color:T.blue,fn:()=>setPartialModal(e.draw)});
+    }
+    if(e.kind==="fund"&&e.draw)acts.push({label:"Edit funding",color:T.textSub,fn:()=>setDrawModal(e.draw)});
+    if(e.kind==="payback"&&e.draw)acts.push({label:"Edit principal / interest",color:T.gold,fn:()=>setPaybackModal(e.draw)});
+    acts.push({label:e.kind==="fund"?"Delete funding":e.kind==="payback"?"Reopen loan":e.kind==="payment"?"Remove paydown":"Remove",color:T.red,fn:()=>delEvent(e)});
+    return acts;
+  };
+  const openRowMenu=(ev,evt)=>{const r=evt.currentTarget.getBoundingClientRect();setRowMenu(rowMenu&&rowMenu.ev.id===ev.id?null:{ev,x:r.right,y:r.bottom});};
   const detail=(f)=>{
     const s=funderStats(f,draws);
     const reg=funderRegister(f,draws);
@@ -9835,29 +9850,19 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
         <div style={{fontSize:11,color:T.textTert,marginBottom:8}}>Chronological — wires in, fundings out, paybacks (with interest). Running balance = his un-deployed cash.</div>
         <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden"}}>
           {reg.length===0&&<div style={{padding:"18px",textAlign:"center",color:T.textTert,fontSize:13}}>Nothing yet. Start with <b>+ Wire / entry</b> for money he sent you, then <b>+ Funding</b> when you deploy it into a deal.</div>}
-          {reg.map(e=>{const m=kindMeta(e);const isOpenFund=e.kind==="fund"&&e.draw&&!e.draw.paybackDate;return(
-            <div key={e.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderTop:`1px solid ${T.border}`}}>
-              <div style={{width:52,fontSize:10.5,color:T.textTert,flexShrink:0,lineHeight:1.25}}>{finFmtDate(e.date)||"—"}</div>
+          {reg.map((e,ri)=>{const m=kindMeta(e);const set=e.kind==="payback"&&e.draw&&(e.draw.principalHandling||e.draw.interestHandling);
+            const rowBg=ri%2?T.gold+"12":T.card;return(
+            <div key={e.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px 6px 12px",background:rowBg,borderTop:ri?`1px solid ${T.border}`:"none"}}>
+              <div style={{width:44,fontSize:9.5,color:T.textTert,flexShrink:0,lineHeight:1.15}}>{finFmtDate(e.date)||"—"}</div>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.label}</div>
-                {m.extra&&<div style={{fontSize:11,color:"#16A34A"}}>{m.extra}</div>}
+                <div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.label}</div>
+                {(m.extra||set)&&<div style={{fontSize:9.5,color:set?T.textTert:"#16A34A",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{set?`${e.draw.principalHandling==="withdraw"?"principal out":"principal kept"} · ${e.draw.interestHandling==="reinvest"?"interest reinvested":e.draw.interestHandling==="distribute"?"interest paid out":"no interest entry"}`:m.extra}</div>}
               </div>
-              {/* actions sit BEFORE the amount so the amount column stays aligned across every row */}
-              <div style={{display:"flex",flexDirection:"column",gap:3,flexShrink:0,alignItems:"flex-end"}}>
-                {isOpenFund&&<button onClick={()=>setPaybackModal(e.draw)} style={{background:"none",border:`1px solid ${T.green}`,borderRadius:7,color:T.green,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:"2px 7px",fontFamily:"inherit"}}>Payback</button>}
-                {isOpenFund&&<button onClick={()=>setPartialModal(e.draw)} title="Record a partial paydown" style={{background:"none",border:`1px solid ${T.blue}`,borderRadius:7,color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:"2px 7px",fontFamily:"inherit"}}>Pay down</button>}
-                {e.kind==="payback"&&e.draw&&(()=>{const p=e.draw.principalHandling,i=e.draw.interestHandling;const set=p||i;
-                  const label=set?`${p==="withdraw"?"P out":"P kept"} · ${i==="reinvest"?"int reinv":i==="distribute"?"int paid":"int —"}`:"set ▾";
-                  const col=set?T.textSub:T.gold;return(
-                  <button onClick={()=>setPaybackModal(e.draw)} title="How were principal & interest handled?" style={{background:set?"none":T.goldLight,border:`1px solid ${set?T.border:T.gold}`,borderRadius:7,color:col,cursor:"pointer",fontSize:10,fontWeight:700,padding:"2px 7px",fontFamily:"inherit",whiteSpace:"nowrap"}}>{label}</button>
-                );})()}
-                {e.kind==="fund"&&e.draw&&<button onClick={()=>setDrawModal(e.draw)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.textSub,cursor:"pointer",fontSize:10.5,padding:"2px 7px",fontFamily:"inherit"}}>Edit</button>}
+              <div style={{flexShrink:0,textAlign:"right",fontVariantNumeric:"tabular-nums",minWidth:isMobile?76:94}}>
+                <div style={{fontSize:12.5,fontWeight:700,color:m.color,whiteSpace:"nowrap"}}>{((m.sign<0)!==(e.amount<0))?"−":"+"}{fmtD(Math.abs(e.amount))}</div>
+                <div style={{fontSize:9,color:T.textTert,whiteSpace:"nowrap"}}>bal {fmtD(e.balance)}</div>
               </div>
-              <div style={{width:isMobile?92:110,flexShrink:0,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>
-                <div style={{fontSize:13,fontWeight:700,color:m.color,whiteSpace:"nowrap"}}>{((m.sign<0)!==(e.amount<0))?"−":"+"}{fmtD(Math.abs(e.amount))}</div>
-                <div style={{fontSize:9.5,color:T.textTert,whiteSpace:"nowrap"}}>bal {fmtD(e.balance)}</div>
-              </div>
-              <button onClick={()=>delEvent(e)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
+              <button onClick={(evt)=>openRowMenu(e,evt)} title="Actions" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:17,lineHeight:1,flexShrink:0,padding:"2px 4px",fontWeight:800}}>⋯</button>
             </div>
           );})}
         </div>
@@ -9872,6 +9877,16 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       {registerImport&&sel&&<FinRegisterImport funder={sel} onImport={(entries)=>addLedgerBulk(sel.id,entries)} onClose={()=>setRegisterImport(false)}/>}
       {paybackModal&&<FinPaybackModal draw={paybackModal} onConfirm={(r)=>recordPayback(paybackModal,r)} onClose={()=>setPaybackModal(null)}/>}
       {partialModal&&<FinPartialPayModal draw={partialModal} onConfirm={(r)=>addPartialPayment(partialModal,r)} onClose={()=>setPartialModal(null)}/>}
+      {rowMenu&&(()=>{const acts=rowActions(rowMenu.ev);const W=200;const vw=typeof window!=="undefined"?window.innerWidth:400;const left=Math.max(8,Math.min(rowMenu.x-W,vw-W-8));return(
+        <>
+          <div onClick={()=>setRowMenu(null)} style={{position:"fixed",inset:0,zIndex:600}}/>
+          <div style={{position:"fixed",left,top:rowMenu.y+4,zIndex:601,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,boxShadow:T.shadowMd||"0 8px 30px rgba(0,0,0,0.18)",overflow:"hidden",width:W}}>
+            {acts.map((a,ai)=>(
+              <button key={ai} onClick={()=>{setRowMenu(null);a.fn();}} style={{display:"block",width:"100%",textAlign:"left",padding:"10px 14px",background:"none",border:"none",borderTop:ai?`1px solid ${T.border}`:"none",color:a.color,fontSize:13.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{a.label}</button>
+            ))}
+          </div>
+        </>
+      );})()}
       {drawModal&&<FinDrawModal draw={drawModal.id?drawModal:null} defaultFunderId={drawModal.defaultFunderId} funders={list} properties={sharedProps} onSave={saveDraw} onClose={()=>setDrawModal(null)}/>}
 
       {/* Header + sub-tabs */}

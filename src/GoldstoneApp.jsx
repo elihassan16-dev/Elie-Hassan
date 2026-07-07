@@ -2087,8 +2087,8 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     const msgs=threadMsgs(key);
     const unread=msgs.some(m=>isUnreadForUser(m,CURRENT_USER));
     return(
-      <button onClick={()=>openThread(key,label,snapData)} title="Message your team about this person" style={{position:"relative",display:"inline-flex",alignItems:"center",gap:5,padding:"5px 11px",borderRadius:20,border:`1px solid ${msgs.length?T.gold:T.border}`,background:msgs.length?T.goldLight:"#fff",color:msgs.length?"#b8912e":T.textSub,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-        💬 {msgs.length||"Message"}
+      <button onClick={()=>openThread(key,label,snapData)} title="Message your team about this person" style={{position:"relative",display:"inline-flex",alignItems:"center",gap:5,padding:"0 11px",height:30,boxSizing:"border-box",lineHeight:1,borderRadius:20,border:`1px solid ${msgs.length?T.gold:T.border}`,background:msgs.length?T.goldLight:"#fff",color:msgs.length?"#b8912e":T.textSub,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+        <span style={{fontSize:12,lineHeight:1}}>💬</span> {msgs.length||"Message"}
         {unread&&<span style={{position:"absolute",top:-3,right:-3,width:9,height:9,borderRadius:5,background:T.red}}/>}
       </button>
     );
@@ -2171,7 +2171,11 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const addLead=()=>{const name=draft.name.trim(),phone=draft.phone.trim();if(!name&&!phone)return;onUpdate(property.id,"customLeads",[...customLeads,{id:Date.now(),name,phone,at:new Date().toISOString(),lead:""}]);setDraft({name:"",phone:""});setShowAdd(false);saveNow();};
   const removeLead=(id)=>{onUpdate(property.id,"customLeads",customLeads.filter(l=>l.id!==id));saveNow();};
   const setCustomStatus=(id,val)=>{onUpdate(property.id,"customLeads",customLeads.map(l=>l.id===id?{...l,lead:val}:l));saveNow();};
-  const actBtn={display:"inline-flex",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:T.radiusSm,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textDecoration:"none",whiteSpace:"nowrap"};
+  // Fixed height + 1.0 line-height so emoji glyphs (which iOS draws taller than
+  // text) can't inflate one pill relative to its neighbors — every action in a row
+  // sits at exactly the same height.
+  const actBtn={display:"inline-flex",alignItems:"center",gap:4,padding:"0 10px",height:30,boxSizing:"border-box",lineHeight:1,borderRadius:T.radiusSm,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textDecoration:"none",whiteSpace:"nowrap"};
+  const emo=(e)=><span style={{fontSize:12,lineHeight:1}}>{e}</span>;
   const leadSelect=(value,onChange,lead)=>(
     <select value={value} onChange={onChange} style={{padding:"5px 9px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",border:`1px solid ${lead?lead.color:T.border}`,background:lead?lead.bg:"#fff",color:lead?lead.color:T.textSub}}>
       <option value="">Set lead status…</option>
@@ -2205,8 +2209,8 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     <div style={{marginTop:8}}>
       <div style={{fontSize:12,color:T.textSub,marginBottom:5}}>{ph}</div>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
-        <a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a>
+        <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>{emo("📞")} Call</a>
+        <a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>{emo("💬")} Text</a>
         {tmplBtn(ph,name,rowKey,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
         {tmplBtn(ph,name,rowKey,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
       </div>
@@ -2630,7 +2634,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
 
   // Call / text templates for a showing agent — same set as the Showings section,
   // including the sent-mark on the two templates (stored on the matched property).
-  const actBtn={padding:"6px 10px",borderRadius:16,fontSize:11.5,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap",fontFamily:"inherit"};
+  const actBtn={display:"inline-flex",alignItems:"center",gap:4,padding:"0 10px",height:28,boxSizing:"border-box",lineHeight:1,borderRadius:16,fontSize:11.5,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap",fontFamily:"inherit"};
   const showingActions=(s,address,prop)=>{
     const phones=parseShowingPhones(s.phone);
     if(!phones.length)return null;
@@ -2649,8 +2653,8 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
           <div key={i}>
             <div style={{fontSize:11.5,color:T.textSub,marginBottom:4}}>{ph}</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
-              <a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a>
+              <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}><span style={{fontSize:11.5,lineHeight:1}}>📞</span> Call</a>
+              <a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><span style={{fontSize:11.5,lineHeight:1}}>💬</span> Text</a>
               {tmpl(ph,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
               {tmpl(ph,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
             </div>

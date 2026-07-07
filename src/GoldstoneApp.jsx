@@ -9285,10 +9285,11 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
 
   // Report 1 — every outstanding LOC draw: property, funder, amount; oldest purchase first.
   const rptLoc=useMemo(()=>{
-    // Date column: the matched property's purchase date; draws that don't match a
-    // property (label typo, or a rental not in the Properties list) fall back to
-    // the draw's own funded date so the row still sorts into the timeline.
-    const rows=openDraws.map(d=>{const p=propForDraw(d);const pd=(p?.financials?.purchaseDate)||"";return {address:d.propertyLabel||p?.address||"—",funder:d.funderName||"—",amount:Number(d.amount)||0,purchaseDate:pd||d.dateFunded||"",fb:!pd&&!!d.dateFunded};});
+    // Date column: each draw's OWN funded date — two lenders can fund the same deal
+    // weeks apart, and the property's purchase date would wrongly stamp both with
+    // the first closing. Property purchase date is only a fallback for old draws
+    // that never recorded a funded date.
+    const rows=openDraws.map(d=>{const p=propForDraw(d);const pd=(p?.financials?.purchaseDate)||"";return {address:d.propertyLabel||p?.address||"—",funder:d.funderName||"—",amount:Number(d.amount)||0,purchaseDate:d.dateFunded||pd||"",fb:!d.dateFunded&&!!pd};});
     rows.sort((a,b)=>(!a.purchaseDate&&!b.purchaseDate)?0:!a.purchaseDate?1:!b.purchaseDate?-1:a.purchaseDate.localeCompare(b.purchaseDate));
     return {rows,total:rows.reduce((s,r)=>s+r.amount,0)};
   },[openDraws,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -9384,9 +9385,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const REPORTS={
     loc:{
       title:"Outstanding Line-of-Credit by Deal",
-      subtitle:"Every open LOC draw — who funded it and how much you owe, oldest purchase date first. Draws not linked to a property show their funded date instead.",
-      cols:[{label:"Property"},{label:"Funder"},{label:"Purchase date"},{label:"LOC amount",align:"right"}],
-      rows:rptLoc.rows.map(r=>[{t:r.address},{t:r.funder},{t:D(r.purchaseDate)+(r.fb?" · funded":"")},{t:fmtD(r.amount),align:"right",strong:true}]),
+      subtitle:"Every open LOC draw — who funded it, when their money went out, and how much you owe. Oldest first.",
+      cols:[{label:"Property"},{label:"Funder"},{label:"Funded"},{label:"LOC amount",align:"right"}],
+      rows:rptLoc.rows.map(r=>[{t:r.address},{t:r.funder},{t:D(r.purchaseDate)+(r.fb?" · purchase":"")},{t:fmtD(r.amount),align:"right",strong:true}]),
       foot:[[{t:`${rptLoc.rows.length} deal${rptLoc.rows.length!==1?"s":""}`,strong:true},{t:""},{t:""},{t:fmtD(rptLoc.total),align:"right",strong:true,gold:true}]],
       empty:"No outstanding LOC draws.",
     },
@@ -9486,7 +9487,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   };
 
   const cards=[
-    {id:"loc",icon:"📄",title:"Outstanding LOC by Deal",desc:"Who you owe line-of-credit to, by property — oldest purchase first."},
+    {id:"loc",icon:"📄",title:"Outstanding LOC by Deal",desc:"Who you owe line-of-credit to, by property — oldest funding first."},
     {id:"future",icon:"📈",title:"Available Future Funds",desc:"LOC capital freeing up from your upcoming closings."},
     {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Loans, all-in cost, reserves and equity — spreadsheet style."},
     {id:"hold",icon:"🏗️",title:"Construction Holdback vs Actuals",desc:"Bank's construction holdback vs your underwriting estimate, per property."},

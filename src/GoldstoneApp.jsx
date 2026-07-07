@@ -2763,6 +2763,13 @@ function RentalPortfolioPage(){
   const[pnlFetch,setPnlFetch]=useState({loading:false,txns:null,rentalId:null}); // lazy txn fetch for the P&L drill-in
   useEffect(()=>{setSyncMsg(null);setPreview(null);setPicker(null);setAcctView(null);setPnlFor(null);setPnlExp({});},[selId]);
   const BUCKET_FIELD={rent:"rentReceived",management:"mgmtPaid",mortgage:"mortgagePaid",service:"serviceCalls"};
+  // A synced month's category amount is the sum of its QuickBooks transactions for
+  // that bucket — the stored field is only a fallback for hand-entered months with
+  // no linked transactions. This keeps every line reconciled to the txns beneath it,
+  // so a stale summary can never disagree with the transaction list (e.g. a rent
+  // field left at 986 after a re-sync bumped the underlying deposit to 2,800).
+  const bAmt=(L,bucket,field)=>{const ls=(L.qbLines||[]).filter(x=>x.bucket===bucket);return ls.length?Math.round(ls.reduce((s,x)=>s+Math.abs(n(x.amount)),0)):n(L[field]);};
+  const ledgerNet=(L)=>bAmt(L,"rent","rentReceived")-bAmt(L,"management","mgmtPaid")-bAmt(L,"mortgage","mortgagePaid")-bAmt(L,"service","serviceCalls");
 
   // Fetch (don't write) all transactions for a rental: linked projects + mortgage accts.
   const fetchTxns=async(r)=>{
@@ -3149,7 +3156,7 @@ function RentalPortfolioPage(){
                     <th style={{textAlign:"right",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"9px 16px",borderBottom:`1px solid ${T.border}`}}>Net</th>
                   </tr></thead>
                   <tbody>
-                    {ledger.map((L,ri)=>{const net=num(L.rentReceived)-num(L.mgmtPaid)-num(L.mortgagePaid)-num(L.serviceCalls);const mlab=new Date(L.month+"-01T00:00:00").toLocaleDateString(undefined,{month:"short",year:"numeric"});const rowBg=ri%2?T.gold+"12":T.card;return(
+                    {ledger.map((L,ri)=>{const net=ledgerNet(L);const mlab=new Date(L.month+"-01T00:00:00").toLocaleDateString(undefined,{month:"short",year:"numeric"});const rowBg=ri%2?T.gold+"12":T.card;return(
                       <tr key={L.id} onClick={()=>{setPnlExp({});setPnlFor(L.id);}} style={{background:rowBg,cursor:"pointer"}}>
                         <td style={{padding:"11px 16px",fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{mlab}</td>
                         <td style={{padding:"11px 16px",textAlign:"right",fontWeight:800,color:net>=0?T.green:T.red,whiteSpace:"nowrap"}}>{net>=0?"+":""}{fmtD(net)} <span style={{color:T.textTert,fontWeight:400}}>›</span></td>
@@ -3163,7 +3170,7 @@ function RentalPortfolioPage(){
           {/* Month P&L breakdown: rent − management − service − mortgage = net */}
           {pnlFor&&(()=>{
             const L=(sel.ledger||[]).find(x=>x.id===pnlFor);if(!L)return null;
-            const net=num(L.rentReceived)-num(L.mgmtPaid)-num(L.mortgagePaid)-num(L.serviceCalls);
+            const net=ledgerNet(L);
             const mlab=new Date(L.month+"-01T00:00:00").toLocaleDateString(undefined,{month:"long",year:"numeric"});
             const lines=[
               {label:"Rental Income",field:"rentReceived",bucket:"rent",neg:false,color:T.green},
@@ -3179,7 +3186,9 @@ function RentalPortfolioPage(){
                     <button onClick={()=>setPnlFor(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
                   </div>
                   <div style={{overflowY:"auto",flex:1}}>
-                    {lines.map((ln,i)=>{const v=num(L[ln.field]);
+                    {lines.map((ln,i)=>{
+                      const hasQb=(L.qbLines||[]).some(x=>x.bucket===ln.bucket);
+                      const v=bAmt(L,ln.bucket,ln.field);
                       const stored=(L.qbLines||[]).filter(x=>x.bucket===ln.bucket);
                       const fetched=(pnlFetch.rentalId===sel.id&&pnlFetch.txns?pnlFetch.txns:[]).filter(t=>String(t.date||"").slice(0,7)===L.month&&t.bucket===ln.bucket);
                       const txs=(stored.length?stored:fetched).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
@@ -3193,7 +3202,9 @@ function RentalPortfolioPage(){
                             {txs.length>0&&<span style={{fontSize:11,color:T.textTert}}>({txs.length})</span>}
                           </button>
                           <span style={{fontSize:12,color:T.textSub}}>{ln.neg?"−":""}$</span>
-                          <input value={L[ln.field]||""} onChange={e=>upLedger(L.id,ln.field,e.target.value.replace(/[^\d.]/g,""))} placeholder="0" style={{...iS,width:110,textAlign:"right",fontWeight:700,color:ln.neg?T.text:(ln.color||T.text)}}/>
+                          {hasQb
+                            ?<span title="From QuickBooks transactions" style={{...iS,width:110,textAlign:"right",fontWeight:700,color:ln.neg?T.text:(ln.color||T.text),background:T.bg,display:"inline-flex",alignItems:"center",justifyContent:"flex-end"}}>{v.toLocaleString()}</span>
+                            :<input value={L[ln.field]||""} onChange={e=>upLedger(L.id,ln.field,e.target.value.replace(/[^\d.]/g,""))} placeholder="0" style={{...iS,width:110,textAlign:"right",fontWeight:700,color:ln.neg?T.text:(ln.color||T.text)}}/>}
                         </div>
                         {open&&<div style={{background:T.bg}}>
                           {loadingTxs
@@ -3238,7 +3249,7 @@ function RentalPortfolioPage(){
   list.forEach(r=>{months.forEach(mo=>{
     expectedRange+=rentExpected(r);
     const L=rentLedgerFor(r,mo);
-    if(L){receivedRange+=n(L.rentReceived);netRange+=n(L.rentReceived)-n(L.mgmtPaid)-n(L.mortgagePaid)-n(L.serviceCalls);}
+    if(L){receivedRange+=bAmt(L,"rent","rentReceived");netRange+=ledgerNet(L);}
   });});
   const collectedPct=expectedRange>0?Math.round(receivedRange/expectedRange*100):0;
   const stat=(label,val,color)=>(
@@ -3282,7 +3293,7 @@ function RentalPortfolioPage(){
           {list.length===0&&<div style={{padding:"26px 16px",textAlign:"center",fontSize:13.5,color:T.textTert}}>No rentals yet. Tap “+ Add rental” to start your portfolio.</div>}
           {list.map((r,i)=>{
             const exp=rentExpected(r);
-            const rec=months.reduce((s,mo)=>{const L=rentLedgerFor(r,mo);return s+(L?n(L.rentReceived):0);},0);
+            const rec=months.reduce((s,mo)=>{const L=rentLedgerFor(r,mo);return s+(L?bAmt(L,"rent","rentReceived"):0);},0);
             return(
               <div key={r.id} onClick={()=>setSelId(r.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderTop:i?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
                 <div style={{flex:1,minWidth:0}}>

@@ -44,10 +44,16 @@ export default async function handler(req, res) {
     // so each transaction ends up tagged with its leaf account.
     const items = [];
     const sectionName = (r, fallback) => (r.Header?.ColData ? (r.Header.ColData[0]?.value || fallback) : fallback);
-    function walk(rows, account) {
+    // Track BOTH the leaf account (deepest group, e.g. "Rental Income") and the
+    // top-level P&L section (e.g. "Income" / "Expenses" / "Cost of Goods Sold"), so
+    // the client can classify by section (income → rent) even when an income account
+    // name doesn't contain an obvious keyword.
+    function walk(rows, account, section) {
       if (!rows) return;
       for (const r of rows) {
         const acct = sectionName(r, account);
+        const header = r.Header?.ColData ? r.Header.ColData[0]?.value || "" : "";
+        const sec = section || header; // first (top-most) header on this branch wins
         if (r.ColData) {
           const g = (i) => (i >= 0 ? r.ColData[i]?.value : "") || "";
           const date = g(iDate), type = g(iType), vendor = g(iName);
@@ -56,13 +62,13 @@ export default async function handler(req, res) {
             // The tx_date cell carries the transaction's Id in detail reports; keep it
             // so the client can fetch the full transaction (all splits) on demand.
             const id = r.ColData[iDate >= 0 ? iDate : 0]?.id || r.ColData.find((c) => c && c.id)?.id || "";
-            items.push({ id, date, type, num: g(iNum), vendor, memo: g(iMemo), account: acct, amount: num(g(iAmt)) });
+            items.push({ id, date, type, num: g(iNum), vendor, memo: g(iMemo), account: acct, section: sec, amount: num(g(iAmt)) });
           }
         }
-        if (r.Rows?.Row) walk(r.Rows.Row, acct);
+        if (r.Rows?.Row) walk(r.Rows.Row, acct, sec);
       }
     }
-    walk(rpt.Rows?.Row, "");
+    walk(rpt.Rows?.Row, "", "");
 
     // Temporary diagnostic: ?debug=1 shows the report shape + per-account counts.
     if (req.query.debug) {

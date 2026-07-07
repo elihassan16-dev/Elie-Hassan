@@ -2718,8 +2718,12 @@ const rentMonthsBetween=(from,to)=>{ // inclusive list of "YYYY-MM"
 };
 const rentExpected=(r)=>(r.units||[]).reduce((s,u)=>s+n(u.rent),0);
 const rentLedgerFor=(r,month)=>(r.ledger||[]).find(x=>x.month===month);
-// Classify a QuickBooks transaction (by account name) into a rental ledger bucket.
-function rentBucket(account){
+// Classify a QuickBooks transaction into a rental ledger bucket. Anything in the
+// Income section counts as rent (regardless of the account's exact name); expenses
+// are sorted by account name keywords.
+function rentBucket(account,section){
+  const sec=(section||"").toLowerCase();
+  if(sec.includes("income")||sec.includes("revenue")||sec.includes("sales")) return "rent";
   const s=(account||"").toLowerCase();
   const has=(...k)=>k.some(x=>s.includes(x));
   if(has("rent","rental income","tenant","lease income")) return "rent";
@@ -2758,7 +2762,7 @@ function RentalPortfolioPage(){
     try{
       const all=[];
       // Projects → rent (income) + management/service/interest (expenses), by account name.
-      for(const id of ids){const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);(d.items||[]).forEach(t=>all.push({...t,bucket:rentBucket(t.account)}));}
+      for(const id of ids){const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);(d.items||[]).forEach(t=>all.push({...t,bucket:rentBucket(t.account,t.section)}));}
       // Mortgage account(s) → the loan payment / principal side, booked outside the project.
       for(const aid of acctIds){const d=await qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(aid)}`);(d.items||[]).forEach(t=>all.push({...t,bucket:"mortgage",_acct:true}));}
       const byMonth={};

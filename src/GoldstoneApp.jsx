@@ -2750,46 +2750,63 @@ function RentalPortfolioPage(){
   useEffect(()=>{if(qbConnected&&!accounts)qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[qbConnected,accounts]);
   const[syncing,setSyncing]=useState(false);
   const[syncMsg,setSyncMsg]=useState(null);
-  const[qbTxns,setQbTxns]=useState(null);   // pulled transactions for the open rental
-  const[showTxns,setShowTxns]=useState(false);
-  useEffect(()=>{setSyncMsg(null);setQbTxns(null);setShowTxns(false);},[selId]);
-  // Pull the linked project(s)' transactions, categorize, and fill the ledger.
-  const syncQB=async(r,silent)=>{
+  const[preview,setPreview]=useState(null); // {rentalId, txns} — fetched, awaiting confirm
+  const[picker,setPicker]=useState(null);   // {kind:"project"|"unit"|"accounts", unitId?}
+  const[pSearch,setPSearch]=useState("");    // searchable picker query
+  const[acctView,setAcctView]=useState(null); // {name, items|null} — a mortgage account's txns
+  useEffect(()=>{setSyncMsg(null);setPreview(null);setPicker(null);setAcctView(null);},[selId]);
+
+  // Fetch (don't write) all transactions for a rental: linked projects + mortgage accts.
+  const fetchTxns=async(r)=>{
     const ids=[...new Set([r.qbProjectId,...(r.units||[]).map(u=>u.qbProjectId)].filter(Boolean))];
     const acctIds=r.qbMortgageAccounts||[];
-    if(!ids.length&&!acctIds.length){if(!silent)setSyncMsg({ok:false,text:"Link a QuickBooks project (and/or a mortgage account) above first."});return;}
-    setSyncing(true);if(!silent)setSyncMsg(null);
-    try{
-      const all=[];
-      // Projects → rent (income) + management/service/interest (expenses), by account name.
-      for(const id of ids){const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);(d.items||[]).forEach(t=>all.push({...t,bucket:rentBucket(t.account,t.section)}));}
-      // Mortgage account(s) → the loan payment / principal side, booked outside the project.
-      for(const aid of acctIds){const d=await qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(aid)}`);(d.items||[]).forEach(t=>all.push({...t,bucket:"mortgage",_acct:true}));}
-      const byMonth={};
-      all.forEach(t=>{const mo=String(t.date||"").slice(0,7);if(!/^\d{4}-\d{2}$/.test(mo))return;const amt=Math.abs(Number(t.amount)||0);(byMonth[mo]=byMonth[mo]||{rent:0,management:0,mortgage:0,service:0,other:0})[t.bucket]+=amt;});
-      const ledger=[...(r.ledger||[])];
-      const idxByMonth=new Map(ledger.map((x,i)=>[x.month,i]));
-      let touched=0;
-      Object.entries(byMonth).forEach(([mo,c])=>{
-        const map={rentReceived:Math.round(c.rent),mgmtPaid:Math.round(c.management),mortgagePaid:Math.round(c.mortgage),serviceCalls:Math.round(c.service)};
-        if(idxByMonth.has(mo)){const row={...ledger[idxByMonth.get(mo)]};let ch=false;Object.entries(map).forEach(([k,v])=>{if(v>0&&(!row[k]||String(row[k])==="")){row[k]=String(v);ch=true;}});if(ch){ledger[idxByMonth.get(mo)]=row;touched++;}}
-        else{ledger.push({id:Date.now()+Math.round(Math.random()*1e6),month:mo,rentReceived:map.rentReceived?String(map.rentReceived):"",mgmtPaid:map.mgmtPaid?String(map.mgmtPaid):"",mortgagePaid:map.mortgagePaid?String(map.mortgagePaid):"",serviceCalls:map.serviceCalls?String(map.serviceCalls):"",note:"From QuickBooks"});touched++;}
-      });
-      upd(r.id,{ledger,qbLastSync:thisMonth});setQbTxns(all);
-      const tot={rent:0,management:0,mortgage:0,service:0,other:0};
-      all.forEach(t=>{tot[t.bucket]=(tot[t.bucket]||0)+Math.abs(Number(t.amount)||0);});
-      const cnt=(b)=>all.filter(t=>t.bucket===b).length;
-      if(!silent)setSyncMsg({ok:true,text:`Pulled ${all.length} transactions from ${ids.length} project${ids.length!==1?"s":""}${acctIds.length?` + ${acctIds.length} mortgage acct${acctIds.length!==1?"s":""}`:""}. Rent ${fmtD(tot.rent)} (${cnt("rent")}) · Mgmt ${fmtD(tot.management)} · Mortgage ${fmtD(tot.mortgage)} · Service ${fmtD(tot.service)}. Filled ${touched} month${touched!==1?"s":""} (blank only).${cnt("rent")===0?" ⚠ No rent found — the income is likely on a project you haven't linked (e.g. each unit's own project). Set each unit's QB project above, or link that project.":""}`});
-    }catch(e){if(!silent)setSyncMsg({ok:false,text:e.message||"Sync failed."});}
+    const all=[];
+    for(const id of ids){const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);(d.items||[]).forEach(t=>all.push({...t,bucket:rentBucket(t.account,t.section)}));}
+    for(const aid of acctIds){const d=await qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(aid)}`);(d.items||[]).forEach(t=>all.push({...t,bucket:"mortgage",_acct:true}));}
+    return {all,ids,acctIds};
+  };
+  // Apply a fetched transaction set into a rental's monthly ledger (blank fields only).
+  const applyTxns=(r,all)=>{
+    const byMonth={};
+    all.forEach(t=>{const mo=String(t.date||"").slice(0,7);if(!/^\d{4}-\d{2}$/.test(mo))return;const amt=Math.abs(Number(t.amount)||0);(byMonth[mo]=byMonth[mo]||{rent:0,management:0,mortgage:0,service:0,other:0})[t.bucket]+=amt;});
+    const ledger=[...(r.ledger||[])];const idxByMonth=new Map(ledger.map((x,i)=>[x.month,i]));let touched=0;
+    Object.entries(byMonth).forEach(([mo,c])=>{
+      const map={rentReceived:Math.round(c.rent),mgmtPaid:Math.round(c.management),mortgagePaid:Math.round(c.mortgage),serviceCalls:Math.round(c.service)};
+      if(idxByMonth.has(mo)){const row={...ledger[idxByMonth.get(mo)]};let ch=false;Object.entries(map).forEach(([k,v])=>{if(v>0&&(!row[k]||String(row[k])==="")){row[k]=String(v);ch=true;}});if(ch){ledger[idxByMonth.get(mo)]=row;touched++;}}
+      else{ledger.push({id:Date.now()+Math.round(Math.random()*1e6),month:mo,rentReceived:map.rentReceived?String(map.rentReceived):"",mgmtPaid:map.mgmtPaid?String(map.mgmtPaid):"",mortgagePaid:map.mortgagePaid?String(map.mortgagePaid):"",serviceCalls:map.serviceCalls?String(map.serviceCalls):"",note:"From QuickBooks"});touched++;}
+    });
+    upd(r.id,{ledger,qbLastSync:thisMonth});
+    return touched;
+  };
+  // Manual: fetch and OPEN the preview (no write until the user confirms).
+  const previewSync=async(r)=>{
+    const hasSrc=r.qbProjectId||(r.units||[]).some(u=>u.qbProjectId)||(r.qbMortgageAccounts||[]).length;
+    if(!hasSrc){setSyncMsg({ok:false,text:"Link a QuickBooks project (and/or mortgage account) first."});return;}
+    setSyncing(true);setSyncMsg(null);
+    try{const {all}=await fetchTxns(r);setPreview({rentalId:r.id,txns:all});}
+    catch(e){setSyncMsg({ok:false,text:e.message||"Fetch failed."});}
     finally{setSyncing(false);}
   };
-  // Auto-sync once a month when a rental (with QB sources + auto-sync on) is opened.
+  const confirmSync=()=>{
+    if(!preview)return;const r=(rentals||[]).find(x=>String(x.id)===String(preview.rentalId));if(!r){setPreview(null);return;}
+    const touched=applyTxns(r,preview.txns);
+    const tot={rent:0,management:0,mortgage:0,service:0,other:0};preview.txns.forEach(t=>{tot[t.bucket]=(tot[t.bucket]||0)+Math.abs(Number(t.amount)||0);});
+    setSyncMsg({ok:true,text:`Filled ${touched} month${touched!==1?"s":""} (blank only). Rent ${fmtD(tot.rent)} · Mgmt ${fmtD(tot.management)} · Mortgage ${fmtD(tot.mortgage)} · Service ${fmtD(tot.service)}.`});
+    setPreview(null);
+  };
+  // View a single mortgage account's transactions (to confirm the right account).
+  const viewAcct=async(a)=>{
+    setAcctView({name:a.name,items:null});
+    try{const d=await qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(a.id)}`);setAcctView({name:a.name,items:d.items||[]});}
+    catch(e){setAcctView({name:a.name,items:[],error:e.message});}
+  };
+  // Auto-sync silently once a month (no preview) when the rental is opened.
   const autoRan=useRef({});
   useEffect(()=>{
     const r=selId!=null?(rentals||[]).find(x=>String(x.id)===String(selId)):null;
     if(!r||autoRan.current[r.id])return;
     const hasSrc=r.qbProjectId||(r.units||[]).some(u=>u.qbProjectId)||(r.qbMortgageAccounts||[]).length;
-    if(r.qbAutoSync&&hasSrc&&r.qbLastSync!==thisMonth){autoRan.current[r.id]=true;syncQB(r,true);}
+    if(r.qbAutoSync&&hasSrc&&r.qbLastSync!==thisMonth){autoRan.current[r.id]=true;fetchTxns(r).then(({all})=>applyTxns(r,all)).catch(()=>{});}
   },[selId,rentals,thisMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const list=useMemo(()=>[...(rentals||[])].sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[rentals]);
@@ -2897,13 +2914,13 @@ function RentalPortfolioPage(){
                   <div><label style={rowLbl}>Phone</label><input value={u.tenant?.phone||""} onChange={e=>upUnit(u.id,"tenant",{...(u.tenant||{}),phone:e.target.value})} placeholder="Phone" style={iS}/></div>
                   <div><label style={rowLbl}>Email</label><input value={u.tenant?.email||""} onChange={e=>upUnit(u.id,"tenant",{...(u.tenant||{}),email:e.target.value})} placeholder="Email" style={iS}/></div>
                 </div>
-                {sel.type==="multi"&&qbConnected&&<div style={{marginTop:10}}>
+                {sel.type==="multi"&&qbConnected&&(()=>{const up=(projects||[]).find(x=>x.id===u.qbProjectId);return<div style={{marginTop:10}}>
                   <label style={rowLbl}>QuickBooks project (for this unit)</label>
-                  <select value={u.qbProjectId||""} onChange={e=>upUnit(u.id,"qbProjectId",e.target.value)} style={{...iS,cursor:"pointer",appearance:"auto"}}>
-                    <option value="">↳ Same as property{sel.qbProjectName?` (${sel.qbProjectName})`:""}</option>
-                    {(projects||[]).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>}
+                  <button onClick={()=>{setPSearch("");setPicker({kind:"unit",unitId:u.id});}} style={{...iS,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                    <span style={{color:u.qbProjectId?T.text:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.qbProjectId?(up?up.name:"Linked project"):`↳ Same as property${sel.qbProjectName?` (${sel.qbProjectName})`:""}`}</span>
+                    <span style={{color:T.blue,fontSize:12,fontWeight:700,flexShrink:0}}>🔍 Search</span>
+                  </button>
+                </div>;})()}
                 {(u.tenant?.phone||u.tenant?.email||u.leaseLink)&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:9}}>
                   {u.tenant?.phone&&<a href={`tel:${tel}`} style={{fontSize:12,fontWeight:600,color:T.textSub,textDecoration:"none",border:`1px solid ${T.border}`,borderRadius:16,padding:"5px 11px"}}>📞 Call</a>}
                   {u.tenant?.phone&&<a href={`sms:${tel}`} style={{fontSize:12,fontWeight:600,color:"#15803D",textDecoration:"none",border:`1px solid ${T.green}`,background:"#EDFBF1",borderRadius:16,padding:"5px 11px"}}>💬 Text</a>}
@@ -2937,25 +2954,20 @@ function RentalPortfolioPage(){
               {qbConnected===false&&<div style={{fontSize:12.5,color:T.textSub}}>QuickBooks isn't connected. Connect it from a property's QuickBooks tab, then link this rental here.</div>}
               {qbConnected&&<>
                 <label style={rowLbl}>Project for this property</label>
-                <select value={sel.qbProjectId||""} onChange={e=>{const id=e.target.value;const p=(projects||[]).find(x=>x.id===id);upd(sel.id,{qbProjectId:id,qbProjectName:p?.name||""});}} style={{...iS,cursor:"pointer",appearance:"auto"}}>
-                  <option value="">— Not linked —</option>
-                  {(projects||[]).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <button onClick={()=>{setPSearch("");setPicker({kind:"project"});}} style={{...iS,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                  <span style={{color:sel.qbProjectName?T.text:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.qbProjectName||"— Not linked —"}</span>
+                  <span style={{color:T.blue,fontSize:12,fontWeight:700,flexShrink:0}}>🔍 Search</span>
+                </button>
                 {!projects&&<div style={{fontSize:11,color:T.textTert,marginTop:6}}>Loading projects…</div>}
                 {sel.type==="multi"&&<div style={{fontSize:11,color:T.textTert,marginTop:8,lineHeight:1.4}}>Multi-unit: each unit can use this same project or its own — set it on each unit above.</div>}
 
                 {/* Mortgage account(s) — the loan is paid outside the project */}
-                {accounts&&accounts.length>0&&<div style={{marginTop:14}}>
-                  <label style={rowLbl}>Mortgage / loan account(s) — the payment & principal side</label>
-                  <div style={{display:"flex",flexDirection:"column",gap:2,border:`1px solid ${T.border}`,borderRadius:10,overflow:"hidden"}}>
-                    {accounts.map((a,i)=>{const on=(sel.qbMortgageAccounts||[]).includes(a.id);return(
-                      <label key={a.id} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 12px",fontSize:13,color:T.text,cursor:"pointer",background:on?T.goldLight:"transparent",borderTop:i?`1px solid ${T.border}`:"none"}}>
-                        <input type="checkbox" checked={on} onChange={()=>{const cur=sel.qbMortgageAccounts||[];upd(sel.id,{qbMortgageAccounts:on?cur.filter(x=>x!==a.id):[...cur,a.id]});}} style={{width:16,height:16,accentColor:T.gold,flexShrink:0}}/>
-                        <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</span>
-                        <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{fmtD(a.balance)}</span>
-                      </label>
-                    );})}
-                  </div>
+                {accounts&&<div style={{marginTop:14}}>
+                  <label style={rowLbl}>Mortgage / loan account(s) — the payment &amp; principal side</label>
+                  <button onClick={()=>{setPSearch("");setPicker({kind:"accounts"});}} style={{...iS,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                    <span style={{color:(sel.qbMortgageAccounts||[]).length?T.text:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(sel.qbMortgageAccounts||[]).length?`${(sel.qbMortgageAccounts||[]).length} account${(sel.qbMortgageAccounts||[]).length!==1?"s":""} selected`:"— None —"}</span>
+                    <span style={{color:T.blue,fontSize:12,fontWeight:700,flexShrink:0}}>🔍 Search &amp; pick</span>
+                  </button>
                 </div>}
 
                 {/* Auto-sync monthly */}
@@ -2965,25 +2977,99 @@ function RentalPortfolioPage(){
                 </label>
 
                 <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
-                  <button onClick={()=>syncQB(sel)} disabled={syncing} style={{padding:"9px 14px",borderRadius:T.radiusSm,background:syncing?T.border:T.blue,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:syncing?"default":"pointer",fontFamily:"inherit"}}>{syncing?"Syncing…":"⟳ Sync transactions from QuickBooks"}</button>
-                  {qbTxns&&qbTxns.length>0&&<button onClick={()=>setShowTxns(true)} style={{padding:"9px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>View {qbTxns.length} transactions</button>}
+                  <button onClick={()=>previewSync(sel)} disabled={syncing} style={{padding:"9px 14px",borderRadius:T.radiusSm,background:syncing?T.border:T.blue,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:syncing?"default":"pointer",fontFamily:"inherit"}}>{syncing?"Loading…":"⟳ Preview transactions & sync"}</button>
                 </div>
                 {syncMsg&&<div style={{marginTop:9,fontSize:12,lineHeight:1.45,color:syncMsg.ok?T.green:T.red}}>{syncMsg.text}</div>}
-                <div style={{fontSize:11,color:T.textTert,marginTop:8,lineHeight:1.4}}>Pulls rent (income) and expenses from the linked project(s) — auto-sorted into rent / management / service by account name — plus the loan payment from any mortgage account(s) you check above. Fills blank ledger months only (never overwrites your entries). Use “View transactions” to check how each line was categorized.</div>
+                <div style={{fontSize:11,color:T.textTert,marginTop:8,lineHeight:1.4}}>Shows every transaction from your linked project(s) and mortgage account(s), sorted into rent / management / mortgage / service, before it fills the ledger — you review, then confirm. Fills blank months only.</div>
               </>}
             </div>
           </div>
 
-          {/* Pulled transactions review */}
-          {showTxns&&qbTxns&&(
-            <div onClick={()=>setShowTxns(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
-              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(680px,96vw)",maxHeight:"82vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+          {/* Searchable project / account picker */}
+          {picker&&qbConnected&&(()=>{
+            const isAcct=picker.kind==="accounts";
+            const src=isAcct?(accounts||[]):(projects||[]);
+            const term=pSearch.trim().toLowerCase();
+            const items=src.filter(x=>!term||(x.name||"").toLowerCase().includes(term));
+            const selAcct=sel.qbMortgageAccounts||[];
+            const setProj=(id,name)=>{ if(picker.kind==="unit")upUnit(picker.unitId,"qbProjectId",id); else upd(sel.id,{qbProjectId:id,qbProjectName:name}); setPicker(null); };
+            return(
+              <div onClick={()=>setPicker(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:420,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+                <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(520px,96vw)",maxHeight:"82vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+                  <div style={{padding:"14px 18px 10px",borderBottom:`1px solid ${T.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                      <div style={{fontSize:15,fontWeight:800,color:T.text}}>{isAcct?"Mortgage / loan accounts":"QuickBooks project"}</div>
+                      <button onClick={()=>setPicker(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+                    </div>
+                    <input autoFocus value={pSearch} onChange={e=>setPSearch(e.target.value)} placeholder={`Search ${isAcct?"accounts":"projects"}…`} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+                  </div>
+                  <div style={{overflowY:"auto",flex:1}}>
+                    {!isAcct&&<button onClick={()=>{picker.kind==="unit"?upUnit(picker.unitId,"qbProjectId",""):upd(sel.id,{qbProjectId:"",qbProjectName:""});setPicker(null);}} style={{width:"100%",textAlign:"left",padding:"12px 18px",borderBottom:`1px solid ${T.border}`,background:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13.5,color:T.textSub}}>{picker.kind==="unit"?"↳ Same as property":"— Not linked —"}</button>}
+                    {items.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No matches.</div>}
+                    {items.map((x,i)=>{const on=isAcct&&selAcct.includes(x.id);const picked=!isAcct&&((picker.kind==="unit"?(sel.units.find(u=>u.id===picker.unitId)||{}).qbProjectId:sel.qbProjectId)===x.id);return(
+                      <div key={x.id} style={{display:"flex",alignItems:"center",gap:8,padding:"11px 18px",borderTop:i?`1px solid ${T.border}`:"none",background:on||picked?T.goldLight:"transparent"}}>
+                        <button onClick={()=>{ if(isAcct){const cur=sel.qbMortgageAccounts||[];upd(sel.id,{qbMortgageAccounts:on?cur.filter(y=>y!==x.id):[...cur,x.id]});} else setProj(x.id,x.name); }}
+                          style={{flex:1,minWidth:0,textAlign:"left",background:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:9}}>
+                          {isAcct&&<span style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${on?T.gold:T.border}`,background:on?T.gold:"transparent",color:"#fff",fontSize:12,lineHeight:"14px",textAlign:"center",flexShrink:0}}>{on?"✓":""}</span>}
+                          <span style={{minWidth:0}}>
+                            <span style={{display:"block",fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.name}</span>
+                            {isAcct&&<span style={{fontSize:11,color:T.textTert}}>Balance {fmtD(x.balance)}</span>}
+                          </span>
+                          {picked&&<span style={{marginLeft:"auto",color:T.gold,fontWeight:700,fontSize:12,flexShrink:0}}>✓ Linked</span>}
+                        </button>
+                        {isAcct&&<button onClick={()=>viewAcct(x)} style={{flexShrink:0,padding:"5px 10px",borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",color:T.blue,fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>👁 Transactions</button>}
+                      </div>
+                    );})}
+                  </div>
+                  {isAcct&&<div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end"}}><button onClick={()=>setPicker(null)} style={{padding:"9px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Done</button></div>}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Viewing a single mortgage account's transactions */}
+          {acctView&&(
+            <div onClick={()=>setAcctView(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:440,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(620px,96vw)",maxHeight:"82vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
                 <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div style={{fontSize:15,fontWeight:800,color:T.text}}>QuickBooks transactions · {qbTxns.length}</div>
-                  <button onClick={()=>setShowTxns(false)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+                  <div style={{fontSize:15,fontWeight:800,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{acctView.name}</div>
+                  <button onClick={()=>setAcctView(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
                 </div>
                 <div style={{overflowY:"auto",flex:1}}>
-                  {[...qbTxns].sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))).map((t,i)=>{const bc={rent:T.green,mortgage:"#8B5CF6",management:T.gold,service:T.orange,other:T.textTert}[t.bucket]||T.textTert;return(
+                  {acctView.items===null?<div style={{padding:22,textAlign:"center",color:T.textTert,fontSize:13}}>Loading…</div>
+                    :acctView.items.length===0?<div style={{padding:22,textAlign:"center",color:T.textTert,fontSize:13}}>No transactions in this account.</div>
+                    :[...acctView.items].sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))).map((t,i)=>(
+                      <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderTop:i?`1px solid ${T.border}`:"none"}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.memo||t.type||"—"}</div>
+                          <div style={{fontSize:11,color:T.textTert}}>{t.date||""}{t.num?` · #${t.num}`:""}{t.type?` · ${t.type}`:""}</div>
+                        </div>
+                        <span style={{fontSize:13,fontWeight:700,color:T.text,width:90,textAlign:"right",flexShrink:0}}>{fmtD(Math.abs(Number(t.amount)||0))}</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Preview all transactions before writing to the ledger */}
+          {preview&&(()=>{
+            const txns=preview.txns;const tot={rent:0,management:0,mortgage:0,service:0,other:0};txns.forEach(t=>{tot[t.bucket]=(tot[t.bucket]||0)+Math.abs(Number(t.amount)||0);});
+            return(
+            <div onClick={()=>setPreview(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:440,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(700px,96vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+                <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <div style={{fontSize:15,fontWeight:800,color:T.text}}>Preview · {txns.length} transactions</div>
+                    <button onClick={()=>setPreview(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {[["rent",T.green],["management",T.gold],["mortgage","#8B5CF6"],["service",T.orange]].map(([k,c])=><span key={k} style={{fontSize:11,fontWeight:700,color:c,background:c+"1a",borderRadius:12,padding:"3px 9px"}}>{k}: {fmtD(tot[k])}</span>)}
+                    {tot.rent===0&&<span style={{fontSize:11,fontWeight:700,color:T.red}}>⚠ No rent — check the linked project(s)</span>}
+                  </div>
+                </div>
+                <div style={{overflowY:"auto",flex:1}}>
+                  {[...txns].sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))).map((t,i)=>{const bc={rent:T.green,mortgage:"#8B5CF6",management:T.gold,service:T.orange,other:T.textTert}[t.bucket]||T.textTert;return(
                     <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderTop:i?`1px solid ${T.border}`:"none"}}>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.memo||t.account||"—"}</div>
@@ -2994,9 +3080,14 @@ function RentalPortfolioPage(){
                     </div>
                   );})}
                 </div>
+                <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:10}}>
+                  <button onClick={()=>setPreview(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                  <button onClick={confirmSync} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Fill ledger →</button>
+                </div>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* Monthly ledger */}
           <div style={card}>

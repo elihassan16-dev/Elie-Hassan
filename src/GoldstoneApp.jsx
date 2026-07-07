@@ -2758,8 +2758,9 @@ function RentalPortfolioPage(){
   const[picker,setPicker]=useState(null);   // {kind:"project"|"unit"|"accounts", unitId?}
   const[pSearch,setPSearch]=useState("");    // searchable picker query
   const[acctView,setAcctView]=useState(null); // {name, items|null} — a mortgage account's txns
-  const[catPopup,setCatPopup]=useState(null); // {ledgerId, bucket} — a month/category drill-in
-  useEffect(()=>{setSyncMsg(null);setPreview(null);setPicker(null);setAcctView(null);setCatPopup(null);},[selId]);
+  const[pnlFor,setPnlFor]=useState(null);   // ledgerId whose P&L breakdown is open
+  const[pnlExp,setPnlExp]=useState({});      // which P&L line's transactions are expanded
+  useEffect(()=>{setSyncMsg(null);setPreview(null);setPicker(null);setAcctView(null);setPnlFor(null);setPnlExp({});},[selId]);
   const BUCKET_FIELD={rent:"rentReceived",management:"mgmtPaid",mortgage:"mortgagePaid",service:"serviceCalls"};
 
   // Fetch (don't write) all transactions for a rental: linked projects + mortgage accts.
@@ -3140,51 +3141,77 @@ function RentalPortfolioPage(){
               <span style={{fontSize:13,fontWeight:800,color:T.text,textTransform:"uppercase",letterSpacing:"0.04em"}}>Monthly ledger</span>
               <button onClick={addMonth} style={{padding:"6px 12px",borderRadius:16,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add month</button>
             </div>
-            {ledger.length===0&&<div style={{padding:"22px 16px",textAlign:"center",fontSize:13,color:T.textTert}}>No months logged yet. Add one — it pre-fills expected rent, mortgage & management.</div>}
-            {ledger.map((L)=>{const net=num(L.rentReceived)-num(L.mgmtPaid)-num(L.mortgagePaid)-num(L.serviceCalls);const mlab=new Date(L.month+"-01T00:00:00").toLocaleDateString(undefined,{month:"short",year:"2-digit"});
-              const catDefs=[["Rent","rentReceived","rent",T.green],["Mgmt","mgmtPaid","management",T.gold],["Mtg","mortgagePaid","mortgage","#8B5CF6"],["Svc","serviceCalls","service",T.orange]];
-              return(
-              <div key={L.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",borderTop:`1px solid ${T.border}`}}>
-                <span style={{fontSize:13,fontWeight:800,color:T.text,width:52,flexShrink:0}}>{mlab}</span>
-                <div style={{flex:1,minWidth:0,display:"flex",gap:5,flexWrap:"wrap"}}>
-                  {catDefs.map(([lbl,k,bucket,c])=>{const v=num(L[k]);return(
-                    <button key={k} onClick={()=>setCatPopup({ledgerId:L.id,field:k,bucket,label:lbl})} style={{fontSize:11,fontWeight:700,color:v?c:T.textTert,background:v?c+"14":"transparent",border:`1px solid ${v?c+"55":T.border}`,borderRadius:11,padding:"3px 8px",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{lbl} {fmtD(v)}</button>
-                  );})}
-                </div>
-                <span style={{fontSize:13,fontWeight:800,color:net>=0?T.green:T.red,flexShrink:0,width:70,textAlign:"right"}}>{net>=0?"+":""}{fmtD(net)}</span>
-                <button onClick={()=>delLedger(L.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:15,lineHeight:1,flexShrink:0}}>×</button>
-              </div>
-            );})}
+            {ledger.length===0
+              ?<div style={{padding:"22px 16px",textAlign:"center",fontSize:13,color:T.textTert}}>No months logged yet. Add one — it pre-fills expected rent, mortgage & management.</div>
+              :<div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                  <thead><tr>
+                    <th style={{textAlign:"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"9px 16px",borderBottom:`1px solid ${T.border}`}}>Month</th>
+                    <th style={{textAlign:"right",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"9px 16px",borderBottom:`1px solid ${T.border}`}}>Net</th>
+                  </tr></thead>
+                  <tbody>
+                    {ledger.map((L,ri)=>{const net=num(L.rentReceived)-num(L.mgmtPaid)-num(L.mortgagePaid)-num(L.serviceCalls);const mlab=new Date(L.month+"-01T00:00:00").toLocaleDateString(undefined,{month:"short",year:"numeric"});const rowBg=ri%2?T.gold+"12":T.card;return(
+                      <tr key={L.id} onClick={()=>{setPnlExp({});setPnlFor(L.id);}} style={{background:rowBg,cursor:"pointer"}}>
+                        <td style={{padding:"11px 16px",fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{mlab}</td>
+                        <td style={{padding:"11px 16px",textAlign:"right",fontWeight:800,color:net>=0?T.green:T.red,whiteSpace:"nowrap"}}>{net>=0?"+":""}{fmtD(net)} <span style={{color:T.textTert,fontWeight:400}}>›</span></td>
+                      </tr>
+                    );})}
+                  </tbody>
+                </table>
+              </div>}
           </div>
 
-          {/* Month / category drill-in: edit the total + see the transactions behind it */}
-          {catPopup&&(()=>{
-            const L=(sel.ledger||[]).find(x=>x.id===catPopup.ledgerId);if(!L)return null;
-            const lines=(L.qbLines||[]).filter(x=>x.bucket===catPopup.bucket).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+          {/* Month P&L breakdown: rent − management − service − mortgage = net */}
+          {pnlFor&&(()=>{
+            const L=(sel.ledger||[]).find(x=>x.id===pnlFor);if(!L)return null;
+            const net=num(L.rentReceived)-num(L.mgmtPaid)-num(L.mortgagePaid)-num(L.serviceCalls);
             const mlab=new Date(L.month+"-01T00:00:00").toLocaleDateString(undefined,{month:"long",year:"numeric"});
+            const lines=[
+              {label:"Rental Income",field:"rentReceived",bucket:"rent",neg:false,color:T.green},
+              {label:"Management",field:"mgmtPaid",bucket:"management",neg:true},
+              {label:"Repairs / Service",field:"serviceCalls",bucket:"service",neg:true},
+              {label:"Mortgage",field:"mortgagePaid",bucket:"mortgage",neg:true},
+            ];
             return(
-              <div onClick={()=>setCatPopup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:440,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
-                <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(560px,96vw)",maxHeight:"82vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
-                  <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div style={{fontSize:15,fontWeight:800,color:T.text}}>{catPopup.label} · {mlab}</div>
-                    <button onClick={()=>setCatPopup(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
-                  </div>
-                  <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
-                    <span style={{fontSize:13,color:T.textSub,fontWeight:600}}>Amount for this month</span>
-                    <input value={L[catPopup.field]||""} onChange={e=>upLedger(L.id,catPopup.field,e.target.value.replace(/[^\d.]/g,""))} placeholder="$0" style={{...iS,marginLeft:"auto",width:130,textAlign:"right"}}/>
+              <div onClick={()=>setPnlFor(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:440,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+                <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(560px,96vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+                  <div style={{padding:"14px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div><div style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:T.gold}}>{sel.address}</div><div style={{fontSize:16,fontWeight:800,color:T.text}}>{mlab} · Profit &amp; Loss</div></div>
+                    <button onClick={()=>setPnlFor(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
                   </div>
                   <div style={{overflowY:"auto",flex:1}}>
-                    {lines.length===0
-                      ?<div style={{padding:"20px 16px",textAlign:"center",fontSize:12.5,color:T.textTert}}>No QuickBooks transactions behind this — it's a manual amount. Sync to attach transactions.</div>
-                      :lines.map((t,i)=>(
-                        <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderTop:i?`1px solid ${T.border}`:"none"}}>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.account||"—"}</div>
-                            <div style={{fontSize:11,color:T.textTert}}>{t.date||""} · {t.account||""}</div>
-                          </div>
-                          <span style={{fontSize:13,fontWeight:700,color:T.text,flexShrink:0}}>{fmtD(Math.abs(Number(t.amount)||0))}</span>
+                    {lines.map((ln,i)=>{const v=num(L[ln.field]);const txs=(L.qbLines||[]).filter(x=>x.bucket===ln.bucket).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));const open=!!pnlExp[ln.bucket];return(
+                      <div key={ln.field} style={{borderTop:i?`1px solid ${T.border}`:"none"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 18px"}}>
+                          <button onClick={()=>setPnlExp(s=>({...s,[ln.bucket]:!s[ln.bucket]}))} style={{background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",flex:1,minWidth:0,textAlign:"left",display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontSize:11,color:T.textTert,width:12}}>{txs.length?(open?"▾":"▸"):""}</span>
+                            <span style={{fontSize:14,color:ln.neg?T.textSub:T.text,fontWeight:600}}>{ln.neg?"Less: ":""}{ln.label}</span>
+                            {txs.length>0&&<span style={{fontSize:11,color:T.textTert}}>({txs.length})</span>}
+                          </button>
+                          <span style={{fontSize:12,color:T.textSub}}>{ln.neg?"−":""}$</span>
+                          <input value={L[ln.field]||""} onChange={e=>upLedger(L.id,ln.field,e.target.value.replace(/[^\d.]/g,""))} placeholder="0" style={{...iS,width:110,textAlign:"right",fontWeight:700,color:ln.neg?T.text:(ln.color||T.text)}}/>
                         </div>
-                      ))}
+                        {open&&txs.length>0&&<div style={{background:T.bg}}>
+                          {txs.map((t,j)=>(
+                            <div key={j} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 18px 8px 36px",borderTop:`1px solid ${T.border}`}}>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.account||"—"}</div>
+                                <div style={{fontSize:10.5,color:T.textTert}}>{t.date||""} · {t.account||""}</div>
+                              </div>
+                              <span style={{fontSize:12.5,fontWeight:700,color:T.text,flexShrink:0}}>{fmtD(Math.abs(Number(t.amount)||0))}</span>
+                            </div>
+                          ))}
+                        </div>}
+                      </div>
+                    );})}
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",borderTop:`2px solid ${T.gold}`,background:T.goldLight}}>
+                      <span style={{fontSize:16,fontWeight:800,color:T.text}}>Net</span>
+                      <span style={{fontSize:20,fontWeight:800,color:net>=0?T.green:T.red}}>{net>=0?"+":""}{fmtD(net)}</span>
+                    </div>
+                  </div>
+                  <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <button onClick={()=>{if(window.confirm("Delete this month?")){delLedger(L.id);setPnlFor(null);}}} style={{background:"none",border:"none",color:T.red,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Delete month</button>
+                    <button onClick={()=>setPnlFor(null)} style={{padding:"9px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Done</button>
                   </div>
                 </div>
               </div>

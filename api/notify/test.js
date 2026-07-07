@@ -60,7 +60,8 @@ export default async function handler(req, res) {
         const r = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ from: FROM, to: cell, subject: "Goldstone", text: "Test: Goldstone text notifications are working.\nhttps://gpflips.com" }),
+          // Link-free on purpose — URLs are the top reason gateways spam-drop these.
+          body: JSON.stringify({ from: FROM, to: cell, subject: "Goldstone", text: "Test: Goldstone text notifications are working - open gpflips.com" }),
         });
         if (r.ok) { out.texted = 1; out.sms = "sent"; }
         else { const j = await r.json().catch(() => null); out.sms = `resend ${r.status}: ${(j && (j.message || j.error || j.name)) || ""}`.trim(); }

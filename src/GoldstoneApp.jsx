@@ -2718,18 +2718,19 @@ const rentMonthsBetween=(from,to)=>{ // inclusive list of "YYYY-MM"
 };
 const rentExpected=(r)=>(r.units||[]).reduce((s,u)=>s+n(u.rent),0);
 const rentLedgerFor=(r,month)=>(r.ledger||[]).find(x=>x.month===month);
-// Classify a QuickBooks transaction into a rental ledger bucket. Anything in the
-// Income section counts as rent (regardless of the account's exact name); expenses
-// are sorted by account name keywords.
+// Classify a QuickBooks transaction into a rental ledger bucket by ACCOUNT NAME
+// (unambiguous), checking expense accounts first so income doesn't over-catch. The
+// P&L "section" is only a last-resort tiebreaker and must match "Income" exactly —
+// a broad match wrongly grabbed the "Ordinary Income/Expense" wrapper.
 function rentBucket(account,section){
-  const sec=(section||"").toLowerCase();
-  if(sec.includes("income")||sec.includes("revenue")||sec.includes("sales")) return "rent";
   const s=(account||"").toLowerCase();
   const has=(...k)=>k.some(x=>s.includes(x));
-  if(has("rent","rental income","tenant","lease income")) return "rent";
-  if(has("mortgage","loan","interest","principal","note pay","p&i","escrow")) return "mortgage";
-  if(has("management","property mgmt","mgmt fee","platinum")) return "management";
-  if(has("repair","maintenance","service","plumb","hvac","electric","turnover","cleaning","landscap","snow","pest","appliance","handyman")) return "service";
+  if(has("mortgage","note pay","principal","loan","interest","escrow")) return "mortgage";
+  if(has("management","mgmt")) return "management";
+  if(has("repair","maintenance","turnover","plumb","hvac","heating","cooling","electric","cleaning","janitor","landscap","snow","pest","appliance","handyman","lawn","supplies","utilit","service call")) return "service";
+  if(has("rent","tenant","lease income")) return "rent";
+  const sec=(section||"").toLowerCase().trim();
+  if(sec==="income"||sec==="total income") return "rent";
   return "other";
 }
 function RentalPortfolioPage(){
@@ -2751,10 +2752,15 @@ function RentalPortfolioPage(){
   const[syncing,setSyncing]=useState(false);
   const[syncMsg,setSyncMsg]=useState(null);
   const[preview,setPreview]=useState(null); // {rentalId, txns} — fetched, awaiting confirm
+  const[previewExcl,setPreviewExcl]=useState(()=>new Set()); // preview indices to EXCLUDE
+  const[splits,setSplits]=useState({});     // preview index -> [{amount, month}]
+  const[splitFor,setSplitFor]=useState(null); // preview index whose split editor is open
   const[picker,setPicker]=useState(null);   // {kind:"project"|"unit"|"accounts", unitId?}
   const[pSearch,setPSearch]=useState("");    // searchable picker query
   const[acctView,setAcctView]=useState(null); // {name, items|null} — a mortgage account's txns
-  useEffect(()=>{setSyncMsg(null);setPreview(null);setPicker(null);setAcctView(null);},[selId]);
+  const[catPopup,setCatPopup]=useState(null); // {ledgerId, bucket} — a month/category drill-in
+  useEffect(()=>{setSyncMsg(null);setPreview(null);setPicker(null);setAcctView(null);setCatPopup(null);},[selId]);
+  const BUCKET_FIELD={rent:"rentReceived",management:"mgmtPaid",mortgage:"mortgagePaid",service:"serviceCalls"};
 
   // Fetch (don't write) all transactions for a rental: linked projects + mortgage accts.
   const fetchTxns=async(r)=>{
@@ -2765,15 +2771,27 @@ function RentalPortfolioPage(){
     for(const aid of acctIds){const d=await qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(aid)}`);(d.items||[]).forEach(t=>all.push({...t,bucket:"mortgage",_acct:true}));}
     return {all,ids,acctIds};
   };
-  // Apply a fetched transaction set into a rental's monthly ledger (blank fields only).
-  const applyTxns=(r,all)=>{
+  // Turn transactions (minus excluded, honoring splits) into {month,bucket,amount,line} rows.
+  const buildAssigns=(txns,excl,sp)=>{
+    const out=[];
+    txns.forEach((t,idx)=>{
+      if(excl&&excl.has(idx))return;
+      const base={date:t.date||"",account:t.account||"",vendor:t.vendor||t.memo||"",bucket:t.bucket};
+      const parts=sp&&sp[idx]&&sp[idx].length>1?sp[idx]:null;
+      if(parts){parts.forEach(p=>{const mo=p.month;const amt=Math.abs(n(p.amount));if(/^\d{4}-\d{2}$/.test(mo||"")&&amt>0)out.push({month:mo,bucket:t.bucket,amount:amt,line:{...base,amount:amt}});});}
+      else{const mo=String(t.date||"").slice(0,7);const amt=Math.abs(n(t.amount));if(/^\d{4}-\d{2}$/.test(mo)&&amt>0)out.push({month:mo,bucket:t.bucket,amount:amt,line:{...base,amount:amt}});}
+    });
+    return out;
+  };
+  // Write assignments into the ledger: fill blank category fields + attach per-month lines.
+  const applyAssigns=(r,assigns)=>{
     const byMonth={};
-    all.forEach(t=>{const mo=String(t.date||"").slice(0,7);if(!/^\d{4}-\d{2}$/.test(mo))return;const amt=Math.abs(Number(t.amount)||0);(byMonth[mo]=byMonth[mo]||{rent:0,management:0,mortgage:0,service:0,other:0})[t.bucket]+=amt;});
+    assigns.forEach(a=>{const m=(byMonth[a.month]=byMonth[a.month]||{rent:0,management:0,mortgage:0,service:0,other:0,lines:[]});m[a.bucket]=(m[a.bucket]||0)+a.amount;m.lines.push(a.line);});
     const ledger=[...(r.ledger||[])];const idxByMonth=new Map(ledger.map((x,i)=>[x.month,i]));let touched=0;
     Object.entries(byMonth).forEach(([mo,c])=>{
       const map={rentReceived:Math.round(c.rent),mgmtPaid:Math.round(c.management),mortgagePaid:Math.round(c.mortgage),serviceCalls:Math.round(c.service)};
-      if(idxByMonth.has(mo)){const row={...ledger[idxByMonth.get(mo)]};let ch=false;Object.entries(map).forEach(([k,v])=>{if(v>0&&(!row[k]||String(row[k])==="")){row[k]=String(v);ch=true;}});if(ch){ledger[idxByMonth.get(mo)]=row;touched++;}}
-      else{ledger.push({id:Date.now()+Math.round(Math.random()*1e6),month:mo,rentReceived:map.rentReceived?String(map.rentReceived):"",mgmtPaid:map.mgmtPaid?String(map.mgmtPaid):"",mortgagePaid:map.mortgagePaid?String(map.mortgagePaid):"",serviceCalls:map.serviceCalls?String(map.serviceCalls):"",note:"From QuickBooks"});touched++;}
+      if(idxByMonth.has(mo)){const row={...ledger[idxByMonth.get(mo)]};Object.entries(map).forEach(([k,v])=>{if(v>0&&(!row[k]||String(row[k])===""))row[k]=String(v);});row.qbLines=c.lines;ledger[idxByMonth.get(mo)]=row;touched++;}
+      else{ledger.push({id:Date.now()+Math.round(Math.random()*1e6),month:mo,rentReceived:map.rentReceived?String(map.rentReceived):"",mgmtPaid:map.mgmtPaid?String(map.mgmtPaid):"",mortgagePaid:map.mortgagePaid?String(map.mortgagePaid):"",serviceCalls:map.serviceCalls?String(map.serviceCalls):"",note:"From QuickBooks",qbLines:c.lines});touched++;}
     });
     upd(r.id,{ledger,qbLastSync:thisMonth});
     return touched;
@@ -2783,14 +2801,15 @@ function RentalPortfolioPage(){
     const hasSrc=r.qbProjectId||(r.units||[]).some(u=>u.qbProjectId)||(r.qbMortgageAccounts||[]).length;
     if(!hasSrc){setSyncMsg({ok:false,text:"Link a QuickBooks project (and/or mortgage account) first."});return;}
     setSyncing(true);setSyncMsg(null);
-    try{const {all}=await fetchTxns(r);setPreview({rentalId:r.id,txns:all});}
+    try{const {all}=await fetchTxns(r);setPreviewExcl(new Set());setSplits({});setSplitFor(null);setPreview({rentalId:r.id,txns:all});}
     catch(e){setSyncMsg({ok:false,text:e.message||"Fetch failed."});}
     finally{setSyncing(false);}
   };
   const confirmSync=()=>{
     if(!preview)return;const r=(rentals||[]).find(x=>String(x.id)===String(preview.rentalId));if(!r){setPreview(null);return;}
-    const touched=applyTxns(r,preview.txns);
-    const tot={rent:0,management:0,mortgage:0,service:0,other:0};preview.txns.forEach(t=>{tot[t.bucket]=(tot[t.bucket]||0)+Math.abs(Number(t.amount)||0);});
+    const assigns=buildAssigns(preview.txns,previewExcl,splits);
+    const touched=applyAssigns(r,assigns);
+    const tot={rent:0,management:0,mortgage:0,service:0,other:0};assigns.forEach(a=>{tot[a.bucket]=(tot[a.bucket]||0)+a.amount;});
     setSyncMsg({ok:true,text:`Filled ${touched} month${touched!==1?"s":""} (blank only). Rent ${fmtD(tot.rent)} · Mgmt ${fmtD(tot.management)} · Mortgage ${fmtD(tot.mortgage)} · Service ${fmtD(tot.service)}.`});
     setPreview(null);
   };
@@ -2806,7 +2825,7 @@ function RentalPortfolioPage(){
     const r=selId!=null?(rentals||[]).find(x=>String(x.id)===String(selId)):null;
     if(!r||autoRan.current[r.id])return;
     const hasSrc=r.qbProjectId||(r.units||[]).some(u=>u.qbProjectId)||(r.qbMortgageAccounts||[]).length;
-    if(r.qbAutoSync&&hasSrc&&r.qbLastSync!==thisMonth){autoRan.current[r.id]=true;fetchTxns(r).then(({all})=>applyTxns(r,all)).catch(()=>{});}
+    if(r.qbAutoSync&&hasSrc&&r.qbLastSync!==thisMonth){autoRan.current[r.id]=true;fetchTxns(r).then(({all})=>applyAssigns(r,buildAssigns(all,null,null))).catch(()=>{});}
   },[selId,rentals,thisMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const list=useMemo(()=>[...(rentals||[])].sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[rentals]);
@@ -3054,29 +3073,55 @@ function RentalPortfolioPage(){
 
           {/* Preview all transactions before writing to the ledger */}
           {preview&&(()=>{
-            const txns=preview.txns;const tot={rent:0,management:0,mortgage:0,service:0,other:0};txns.forEach(t=>{tot[t.bucket]=(tot[t.bucket]||0)+Math.abs(Number(t.amount)||0);});
+            const txns=preview.txns;
+            const assigns=buildAssigns(txns,previewExcl,splits);
+            const tot={rent:0,management:0,mortgage:0,service:0,other:0};assigns.forEach(a=>{tot[a.bucket]=(tot[a.bucket]||0)+a.amount;});
+            const rows=txns.map((t,idx)=>({t,idx})).sort((a,b)=>String(b.t.date||"").localeCompare(String(a.t.date||"")));
+            const nSel=txns.length-previewExcl.size;
+            const toggleExcl=(idx)=>setPreviewExcl(s=>{const n2=new Set(s);n2.has(idx)?n2.delete(idx):n2.add(idx);return n2;});
+            const openSplit=(idx,t)=>{setSplits(s=>{if(s[idx])return s;const amt=Math.abs(n(t.amount));const mo=String(t.date||"").slice(0,7);const half=Math.round(amt/2);return {...s,[idx]:[{amount:String(half),month:mo},{amount:String(amt-half),month:mo}]};});setSplitFor(v=>v===idx?null:idx);};
+            const setPortion=(idx,pi,k,v)=>setSplits(s=>({...s,[idx]:s[idx].map((p,j)=>j===pi?{...p,[k]:v}:p)}));
+            const addPortion=(idx)=>setSplits(s=>({...s,[idx]:[...(s[idx]||[]),{amount:"",month:""}]}));
+            const delPortion=(idx,pi)=>setSplits(s=>{const arr=(s[idx]||[]).filter((_,j)=>j!==pi);const n2={...s};if(arr.length<=1){delete n2[idx];}else n2[idx]=arr;return n2;});
             return(
             <div onClick={()=>setPreview(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:440,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
-              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(700px,96vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(720px,96vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
                 <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                    <div style={{fontSize:15,fontWeight:800,color:T.text}}>Preview · {txns.length} transactions</div>
+                    <div style={{fontSize:15,fontWeight:800,color:T.text}}>Preview · {nSel} of {txns.length} selected</div>
                     <button onClick={()=>setPreview(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
                   </div>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                     {[["rent",T.green],["management",T.gold],["mortgage","#8B5CF6"],["service",T.orange]].map(([k,c])=><span key={k} style={{fontSize:11,fontWeight:700,color:c,background:c+"1a",borderRadius:12,padding:"3px 9px"}}>{k}: {fmtD(tot[k])}</span>)}
                     {tot.rent===0&&<span style={{fontSize:11,fontWeight:700,color:T.red}}>⚠ No rent — check the linked project(s)</span>}
                   </div>
+                  <div style={{fontSize:11,color:T.textTert,marginTop:6}}>Uncheck to skip a transaction · ✂ Split to spread one across months.</div>
                 </div>
                 <div style={{overflowY:"auto",flex:1}}>
-                  {[...txns].sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))).map((t,i)=>{const bc={rent:T.green,mortgage:"#8B5CF6",management:T.gold,service:T.orange,other:T.textTert}[t.bucket]||T.textTert;return(
-                    <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderTop:i?`1px solid ${T.border}`:"none"}}>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.memo||t.account||"—"}</div>
-                        <div style={{fontSize:11,color:T.textTert}}>{t.date||""} · {t.account||""}</div>
+                  {rows.map(({t,idx})=>{const bc={rent:T.green,mortgage:"#8B5CF6",management:T.gold,service:T.orange,other:T.textTert}[t.bucket]||T.textTert;const off=previewExcl.has(idx);const isSplit=splits[idx]&&splits[idx].length>1;return(
+                    <div key={idx} style={{borderTop:`1px solid ${T.border}`,opacity:off?0.45:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:9,padding:"10px 16px"}}>
+                        <input type="checkbox" checked={!off} onChange={()=>toggleExcl(idx)} style={{width:16,height:16,accentColor:T.gold,flexShrink:0}}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.memo||t.account||"—"}</div>
+                          <div style={{fontSize:11,color:T.textTert}}>{t.date||""} · {t.account||""}{isSplit?" · split":""}</div>
+                        </div>
+                        <span style={{fontSize:10.5,fontWeight:700,color:bc,background:bc+"1a",borderRadius:12,padding:"2px 8px",textTransform:"uppercase",flexShrink:0}}>{t.bucket}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:T.text,width:74,textAlign:"right",flexShrink:0}}>{fmtD(Math.abs(Number(t.amount)||0))}</span>
+                        <button onClick={()=>openSplit(idx,t)} title="Split across months" style={{flexShrink:0,background:splitFor===idx?T.goldLight:"transparent",border:`1px solid ${T.border}`,borderRadius:12,padding:"3px 8px",fontSize:12,cursor:"pointer",fontFamily:"inherit",color:T.textSub}}>✂</button>
                       </div>
-                      <span style={{fontSize:10.5,fontWeight:700,color:bc,background:bc+"1a",borderRadius:12,padding:"2px 8px",textTransform:"uppercase",flexShrink:0}}>{t.bucket}</span>
-                      <span style={{fontSize:13,fontWeight:700,color:T.text,width:80,textAlign:"right",flexShrink:0}}>{fmtD(Math.abs(Number(t.amount)||0))}</span>
+                      {splitFor===idx&&(splits[idx]||[]).length>0&&<div style={{padding:"4px 16px 12px 41px",display:"flex",flexDirection:"column",gap:6}}>
+                        {(splits[idx]||[]).map((p,pi)=>(
+                          <div key={pi} style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontSize:12,color:T.textSub}}>$</span>
+                            <input value={p.amount} onChange={e=>setPortion(idx,pi,"amount",e.target.value.replace(/[^\d.]/g,""))} placeholder="amt" style={{...iS,padding:"6px 8px",fontSize:12.5,width:90,textAlign:"right"}}/>
+                            <span style={{fontSize:12,color:T.textSub}}>in</span>
+                            <input type="month" value={p.month} onChange={e=>setPortion(idx,pi,"month",e.target.value)} style={{...iS,padding:"6px 8px",fontSize:12.5,width:150}}/>
+                            <button onClick={()=>delPortion(idx,pi)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>
+                          </div>
+                        ))}
+                        <button onClick={()=>addPortion(idx)} style={{alignSelf:"flex-start",background:"transparent",border:`1px dashed ${T.border}`,borderRadius:14,padding:"4px 10px",fontSize:12,fontWeight:600,color:T.blue,cursor:"pointer",fontFamily:"inherit"}}>+ Add portion</button>
+                      </div>}
                     </div>
                   );})}
                 </div>
@@ -3096,26 +3141,55 @@ function RentalPortfolioPage(){
               <button onClick={addMonth} style={{padding:"6px 12px",borderRadius:16,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add month</button>
             </div>
             {ledger.length===0&&<div style={{padding:"22px 16px",textAlign:"center",fontSize:13,color:T.textTert}}>No months logged yet. Add one — it pre-fills expected rent, mortgage & management.</div>}
-            {ledger.map((L)=>{const net=num(L.rentReceived)-num(L.mgmtPaid)-num(L.mortgagePaid)-num(L.serviceCalls);const mlab=new Date(L.month+"-01T00:00:00").toLocaleDateString(undefined,{month:"short",year:"numeric"});return(
-              <div key={L.id} style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:9}}>
-                  <span style={{fontSize:14,fontWeight:800,color:T.text}}>{mlab}</span>
-                  <span style={{display:"flex",alignItems:"center",gap:10}}>
-                    <span style={{fontSize:14,fontWeight:800,color:net>=0?T.green:T.red}}>{net>=0?"+":""}{fmtD(net)}</span>
-                    <button onClick={()=>delLedger(L.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>
-                  </span>
+            {ledger.map((L)=>{const net=num(L.rentReceived)-num(L.mgmtPaid)-num(L.mortgagePaid)-num(L.serviceCalls);const mlab=new Date(L.month+"-01T00:00:00").toLocaleDateString(undefined,{month:"short",year:"2-digit"});
+              const catDefs=[["Rent","rentReceived","rent",T.green],["Mgmt","mgmtPaid","management",T.gold],["Mtg","mortgagePaid","mortgage","#8B5CF6"],["Svc","serviceCalls","service",T.orange]];
+              return(
+              <div key={L.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",borderTop:`1px solid ${T.border}`}}>
+                <span style={{fontSize:13,fontWeight:800,color:T.text,width:52,flexShrink:0}}>{mlab}</span>
+                <div style={{flex:1,minWidth:0,display:"flex",gap:5,flexWrap:"wrap"}}>
+                  {catDefs.map(([lbl,k,bucket,c])=>{const v=num(L[k]);return(
+                    <button key={k} onClick={()=>setCatPopup({ledgerId:L.id,field:k,bucket,label:lbl})} style={{fontSize:11,fontWeight:700,color:v?c:T.textTert,background:v?c+"14":"transparent",border:`1px solid ${v?c+"55":T.border}`,borderRadius:11,padding:"3px 8px",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{lbl} {fmtD(v)}</button>
+                  );})}
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr",gap:8}}>
-                  {[["Rent received","rentReceived",T.green],["Management","mgmtPaid",T.textSub],["Mortgage","mortgagePaid",T.textSub],["Service calls","serviceCalls",T.orange]].map(([lbl,k,c])=>(
-                    <div key={k}>
-                      <label style={{fontSize:10.5,color:c,fontWeight:700,display:"block",marginBottom:3}}>{lbl}</label>
-                      <input value={L[k]||""} onChange={e=>upLedger(L.id,k,e.target.value.replace(/[^\d.]/g,""))} placeholder="$0" style={{...iS,padding:"7px 9px",fontSize:13,textAlign:"right"}}/>
-                    </div>
-                  ))}
-                </div>
+                <span style={{fontSize:13,fontWeight:800,color:net>=0?T.green:T.red,flexShrink:0,width:70,textAlign:"right"}}>{net>=0?"+":""}{fmtD(net)}</span>
+                <button onClick={()=>delLedger(L.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:15,lineHeight:1,flexShrink:0}}>×</button>
               </div>
             );})}
           </div>
+
+          {/* Month / category drill-in: edit the total + see the transactions behind it */}
+          {catPopup&&(()=>{
+            const L=(sel.ledger||[]).find(x=>x.id===catPopup.ledgerId);if(!L)return null;
+            const lines=(L.qbLines||[]).filter(x=>x.bucket===catPopup.bucket).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+            const mlab=new Date(L.month+"-01T00:00:00").toLocaleDateString(undefined,{month:"long",year:"numeric"});
+            return(
+              <div onClick={()=>setCatPopup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:440,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+                <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(560px,96vw)",maxHeight:"82vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+                  <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{fontSize:15,fontWeight:800,color:T.text}}>{catPopup.label} · {mlab}</div>
+                    <button onClick={()=>setCatPopup(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+                  </div>
+                  <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:13,color:T.textSub,fontWeight:600}}>Amount for this month</span>
+                    <input value={L[catPopup.field]||""} onChange={e=>upLedger(L.id,catPopup.field,e.target.value.replace(/[^\d.]/g,""))} placeholder="$0" style={{...iS,marginLeft:"auto",width:130,textAlign:"right"}}/>
+                  </div>
+                  <div style={{overflowY:"auto",flex:1}}>
+                    {lines.length===0
+                      ?<div style={{padding:"20px 16px",textAlign:"center",fontSize:12.5,color:T.textTert}}>No QuickBooks transactions behind this — it's a manual amount. Sync to attach transactions.</div>
+                      :lines.map((t,i)=>(
+                        <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderTop:i?`1px solid ${T.border}`:"none"}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.account||"—"}</div>
+                            <div style={{fontSize:11,color:T.textTert}}>{t.date||""} · {t.account||""}</div>
+                          </div>
+                          <span style={{fontSize:13,fontWeight:700,color:T.text,flexShrink:0}}>{fmtD(Math.abs(Number(t.amount)||0))}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     );

@@ -2777,13 +2777,16 @@ function RentalPortfolioPage(){
     const addUnit=()=>upd(sel.id,{units:[...units,{id:Date.now(),label:`Unit ${units.length+1}`,rent:"",leaseStart:"",leaseEnd:"",leaseLink:"",tenant:{name:"",phone:"",email:""}}]});
     const delUnit=(uid)=>upd(sel.id,{units:units.filter(u=>u.id!==uid)});
     const upMg=(k,v)=>upd(sel.id,{mortgage:{...mg,[k]:v}});
+    // Management is charged per door (per unit) whether occupied or vacant.
+    const perDoor=sel.mgmtPerDoor!==undefined?sel.mgmtPerDoor:"150";
+    const mgmtMonthly=Math.round(n(perDoor)*units.length);
     const ledger=[...(sel.ledger||[])].sort((a,b)=>b.month.localeCompare(a.month));
     const addMonth=()=>{
       const existing=new Set((sel.ledger||[]).map(x=>x.month));
       let mo=thisMonth;const[yy,mm]=thisMonth.split("-").map(Number);let y=yy,m=mm;
       while(existing.has(`${y}-${String(m).padStart(2,"0")}`)){m--;if(m<1){m=12;y--;}}
       mo=`${y}-${String(m).padStart(2,"0")}`;
-      upd(sel.id,{ledger:[...(sel.ledger||[]),{id:Date.now(),month:mo,rentReceived:String(rentExpected(sel)||""),mgmtPaid:sel.mgmtFee||"",mortgagePaid:mg.payment||"",serviceCalls:"",note:""}]});
+      upd(sel.id,{ledger:[...(sel.ledger||[]),{id:Date.now(),month:mo,rentReceived:String(rentExpected(sel)||""),mgmtPaid:String(mgmtMonthly||""),mortgagePaid:mg.payment||"",serviceCalls:"",note:""}]});
     };
     const upLedger=(lid,k,v)=>upd(sel.id,{ledger:(sel.ledger||[]).map(x=>x.id===lid?{...x,[k]:v}:x)});
     const delLedger=(lid)=>upd(sel.id,{ledger:(sel.ledger||[]).filter(x=>x.id!==lid)});
@@ -2861,9 +2864,9 @@ function RentalPortfolioPage(){
               <div><label style={rowLbl}>Loan amount</label><input value={mg.amount||""} onChange={e=>upMg("amount",e.target.value.replace(/[^\d.]/g,""))} placeholder="$" style={iS}/></div>
               <div><label style={rowLbl}>Interest rate</label><input value={mg.rate||""} onChange={e=>upMg("rate",e.target.value.replace(/[^\d.]/g,""))} placeholder="%/yr" style={iS}/></div>
               <div><label style={rowLbl}>Mortgage / mo</label><input value={mg.payment||""} onChange={e=>upMg("payment",e.target.value.replace(/[^\d.]/g,""))} placeholder="$/mo" style={iS}/></div>
-              <div><label style={rowLbl}>Management / mo</label><input value={sel.mgmtFee||""} onChange={e=>upd(sel.id,{mgmtFee:e.target.value.replace(/[^\d.]/g,"")})} placeholder="$/mo" style={iS}/></div>
+              <div><label style={rowLbl}>Management $/door</label><input value={perDoor} onChange={e=>upd(sel.id,{mgmtPerDoor:e.target.value.replace(/[^\d.]/g,"")})} placeholder="$/door" style={iS}/></div>
             </div>
-            <div style={{padding:"0 16px 14px",fontSize:11,color:T.textTert}}>Interest vs principal split is coming as its own report.</div>
+            <div style={{padding:"0 16px 14px",fontSize:12,color:T.textSub}}>Management: <b style={{color:T.text}}>{fmtD(n(perDoor))}/door × {units.length} door{units.length!==1?"s":""} = {fmtD(mgmtMonthly)}/mo</b> <span style={{color:T.textTert}}>· charged on every unit, vacant or not.</span></div>
           </div>
 
           {/* QuickBooks link */}

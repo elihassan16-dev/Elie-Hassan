@@ -439,6 +439,10 @@ function calcNJRTF(price){
 }
 
 // ─── NJ Title Insurance Formula (NJDBI regulated rates) ──────────────────────
+// Standard NJ purchase closing charges beyond the regulated title-insurance
+// premium. These are flat (they barely move with price), so they're summed on top
+// of the premium to give a realistic all-in title + settlement estimate. Tune here.
+const NJ_TITLE_FLAT={ searchExam:325, settlement:600, municipal:250, recording:250, misc:150 };
 function calcNJTitle(price){
   const p=price||0;
   let premium=0;
@@ -447,8 +451,10 @@ function calcNJTitle(price){
   else if(p<=2000000) premium=2225+((p-500000)/1000)*2.75;
   else premium=6350+((p-2000000)/1000)*2.00;
   premium=Math.max(200,Math.round(premium));
-  const searchAndExam=100;
-  return{premium,searchAndExam,total:premium+searchAndExam};
+  const f=NJ_TITLE_FLAT;
+  const flats=f.searchExam+f.settlement+f.municipal+f.recording+f.misc;
+  // searchAndExam kept for backwards-compat with any older reads.
+  return{premium,searchAndExam:f.searchExam,settlement:f.settlement,municipal:f.municipal,recording:f.recording,misc:f.misc,flats,total:premium+flats};
 }
 
 const Ico=({p,p2,c,r,lines=[]})=>(
@@ -778,6 +784,7 @@ function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}
                 ? <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                     <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{item.title}</span>
                     <span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>
+                    {item.autoType==="title"&&<div style={{flexBasis:"100%",fontSize:10.5,color:T.textTert,lineHeight:1.4,marginTop:1}}>Premium {fmtD(titleCalc.premium)} + settlement {fmtD(titleCalc.settlement)}, searches {fmtD(titleCalc.searchExam+titleCalc.municipal)}, recording {fmtD(titleCalc.recording)}, CPL/misc {fmtD(titleCalc.misc)}</div>}
                   </div>
                 : <input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>;
               const amountEl=(item.auto || isNA)

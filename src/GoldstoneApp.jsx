@@ -2429,7 +2429,9 @@ const CAL_EVENTS=[
    get:(p)=>(p.financials||{}).purchaseDate, overdue:(p)=>["New Leads","Under Contract"].includes(p.status),
    ask:(p)=>`Did you close on this purchase? If it moved, push the date.`, done:{label:"✓ Purchased",status:"Purchased"}},
   {type:"sale",label:"Sale Close",icon:"💰",color:T.green,top:"propertyInfo",key:"closingDateScheduled",
-   get:(p)=>((p.propertyInfo||{}).closingDateScheduled||(p.financials||{}).sellingDate||""), overdue:(p)=>p.status!=="Sold",
+   // Only a real pending closing counts — skip the projected sale dates on deals
+   // that aren't actually under contract to sell (status "In Closing").
+   get:(p)=>p.status==="In Closing"?((p.propertyInfo||{}).closingDateScheduled||(p.financials||{}).sellingDate||""):"", overdue:(p)=>p.status!=="Sold",
    ask:(p)=>`Did this sale close? If it moved, push the date.`, done:{label:"✓ Sold",status:"Sold"}},
   {type:"inspectionDue",label:"Inspection Due",icon:"🔎",color:T.orange,top:"propertyInfo",key:"inspectionDue",
    get:(p)=>(p.propertyInfo||{}).inspectionDue, overdue:()=>true,

@@ -2719,7 +2719,7 @@ const rentMonthsBetween=(from,to)=>{ // inclusive list of "YYYY-MM"
 const rentExpected=(r)=>(r.units||[]).reduce((s,u)=>s+n(u.rent),0);
 const rentLedgerFor=(r,month)=>(r.ledger||[]).find(x=>x.month===month);
 function RentalPortfolioPage(){
-  const { rentals, setRentals, flushRentals }=useData();
+  const { rentals, setRentals, flushRentals, sharedProps }=useData();
   const isMobile=useIsMobile();
   const[selId,setSelId]=useState(null);
   const[showAdd,setShowAdd]=useState(false);
@@ -2741,6 +2741,24 @@ function RentalPortfolioPage(){
     setShowAdd(false);setForm({address:"",city:"",state:"NJ",zip:"",type:"single"});setSelId(id);saveNow();
   };
   const delRental=(id)=>{if(!window.confirm("Delete this rental? This can't be undone."))return;setRentals(prev=>prev.filter(r=>String(r.id)!==String(id)));setSelId(null);saveNow();};
+
+  // One-tap import of properties marked status "Rental" that aren't here yet.
+  const importable=useMemo(()=>{
+    const done=new Set((rentals||[]).map(r=>String(r.fromPropertyId)).filter(x=>x&&x!=="undefined"));
+    return (sharedProps||[]).filter(p=>!p.archived&&p.status==="Rental"&&!done.has(String(p.id)));
+  },[sharedProps,rentals]);
+  const importFromProps=()=>{
+    if(!importable.length)return;
+    const base=Date.now();
+    const newOnes=importable.map((p,i)=>({
+      id:base+i, fromPropertyId:p.id,
+      address:p.address||"", city:p.city||"", state:p.state||"", zip:p.zip||"", type:"single",
+      units:[{id:base+100000+i,label:"Unit",rent:"",leaseStart:"",leaseEnd:"",leaseLink:"",tenant:{name:"",phone:"",email:""}}],
+      mortgage:{lender:"",amount:"",rate:"",payment:""}, mgmtFee:"", ledger:[],
+      qbProjectId:p.qbProjectId||"",
+    }));
+    setRentals(prev=>[...prev,...newOnes]);saveNow();
+  };
 
   const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   const card={background:T.card,borderRadius:T.radius,boxShadow:T.shadow,border:`1px solid ${T.border}`,overflow:"hidden"};
@@ -2888,9 +2906,12 @@ function RentalPortfolioPage(){
   return(
     <div style={{flex:1,overflowY:"auto",background:T.bg}}>
       <div style={wrap}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:14,flexWrap:"wrap"}}>
           <div style={{fontSize:20,fontWeight:800,color:T.text}}>Rental Portfolio</div>
-          <button onClick={()=>setShowAdd(true)} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:"pointer",fontFamily:"inherit"}}>+ Add rental</button>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {importable.length>0&&<button onClick={importFromProps} style={{padding:"9px 14px",borderRadius:T.radiusSm,background:T.goldLight,border:`1px solid ${T.gold}`,color:T.gold,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>⬇ Import {importable.length} from Properties</button>}
+            <button onClick={()=>setShowAdd(true)} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:"pointer",fontFamily:"inherit"}}>+ Add rental</button>
+          </div>
         </div>
 
         {/* Date range */}

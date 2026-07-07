@@ -485,6 +485,7 @@ const ICONS={
   sort:<Ico lines={[[3,6,21,6],[3,12,15,12],[3,18,9,18]]}/>,
   financials:<Ico p="M12 1v22" p2="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>,
   email:<Ico r={[2,4,20,16,2]} p2="M22 6l-10 7L2 6"/>,
+  rentals:<Ico p="M3 21h18" p2="M5 21V7l7-4 7 4v14" lines={[[10,21,10,14],[14,21,14,14],[10,14,14,14]]}/>,
 };
 const NAV=[
   {key:"tasks",label:"Tasks",short:"Tasks",icon:ICONS.tasks},
@@ -492,6 +493,7 @@ const NAV=[
   {key:"portfolio",label:"Portfolio Overview",short:"Portfolio",icon:ICONS.portfolio},
   {key:"leads",label:"New Leads",short:"Leads",icon:ICONS.leads},
   {key:"properties",label:"Properties",short:"Properties",icon:ICONS.properties},
+  {key:"rentals",label:"Rental Portfolio",short:"Rentals",icon:ICONS.rentals},
   {key:"calendar",label:"Calendar",short:"Calendar",icon:ICONS.calendar},
   {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
   {key:"contacts",label:"Contacts",short:"Contacts",icon:ICONS.contacts},
@@ -2700,6 +2702,262 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Rental Portfolio ─────────────────────────────────────────────────────────
+// Buy-and-hold properties: units, leases, tenants, mortgage, management fee, and a
+// per-month rent/expense ledger with net +/-. Stored in the `rentals` collection.
+const rentMonthsBetween=(from,to)=>{ // inclusive list of "YYYY-MM"
+  if(!from||!to||from>to)return [];
+  const out=[];let[y,m]=from.split("-").map(Number);const[ty,tm]=to.split("-").map(Number);
+  let guard=0;
+  while((y<ty||(y===ty&&m<=tm))&&guard++<600){out.push(`${y}-${String(m).padStart(2,"0")}`);m++;if(m>12){m=1;y++;}}
+  return out;
+};
+const rentExpected=(r)=>(r.units||[]).reduce((s,u)=>s+n(u.rent),0);
+const rentLedgerFor=(r,month)=>(r.ledger||[]).find(x=>x.month===month);
+function RentalPortfolioPage(){
+  const { rentals, setRentals, flushRentals }=useData();
+  const isMobile=useIsMobile();
+  const[selId,setSelId]=useState(null);
+  const[showAdd,setShowAdd]=useState(false);
+  const[form,setForm]=useState({address:"",city:"",state:"NJ",zip:"",type:"single"});
+  const thisMonth=localISO().slice(0,7);
+  const[from,setFrom]=useState(thisMonth);
+  const[to,setTo]=useState(thisMonth);
+
+  const list=useMemo(()=>[...(rentals||[])].sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[rentals]);
+  const sel=selId!=null?list.find(r=>String(r.id)===String(selId)):null;
+  const saveNow=()=>{if(flushRentals)setTimeout(flushRentals,0);};
+  const upd=(id,patch)=>{setRentals(prev=>prev.map(r=>String(r.id)===String(id)?{...r,...patch}:r));saveNow();};
+  const addRental=()=>{
+    if(!form.address.trim())return;
+    const id=Date.now();
+    setRentals(prev=>[...prev,{id,address:form.address.trim(),city:form.city.trim(),state:form.state.trim(),zip:form.zip.trim(),type:form.type,
+      units:[{id:id+1,label:form.type==="single"?"Unit":"Unit 1",rent:"",leaseStart:"",leaseEnd:"",leaseLink:"",tenant:{name:"",phone:"",email:""}}],
+      mortgage:{lender:"",amount:"",rate:"",payment:""},mgmtFee:"",ledger:[]}]);
+    setShowAdd(false);setForm({address:"",city:"",state:"NJ",zip:"",type:"single"});setSelId(id);saveNow();
+  };
+  const delRental=(id)=>{if(!window.confirm("Delete this rental? This can't be undone."))return;setRentals(prev=>prev.filter(r=>String(r.id)!==String(id)));setSelId(null);saveNow();};
+
+  const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  const card={background:T.card,borderRadius:T.radius,boxShadow:T.shadow,border:`1px solid ${T.border}`,overflow:"hidden"};
+  const wrap={padding:isMobile?"14px 14px 44px":"18px 24px 44px",maxWidth:sel?720:820,margin:"0 auto",width:"100%",boxSizing:"border-box"};
+
+  // ── Detail view ──
+  if(sel){
+    const units=sel.units||[];
+    const mg=sel.mortgage||{};
+    const upUnit=(uid,k,v)=>upd(sel.id,{units:units.map(u=>u.id===uid?(k==="tenant"?{...u,tenant:v}:{...u,[k]:v}):u)});
+    const addUnit=()=>upd(sel.id,{units:[...units,{id:Date.now(),label:`Unit ${units.length+1}`,rent:"",leaseStart:"",leaseEnd:"",leaseLink:"",tenant:{name:"",phone:"",email:""}}]});
+    const delUnit=(uid)=>upd(sel.id,{units:units.filter(u=>u.id!==uid)});
+    const upMg=(k,v)=>upd(sel.id,{mortgage:{...mg,[k]:v}});
+    const ledger=[...(sel.ledger||[])].sort((a,b)=>b.month.localeCompare(a.month));
+    const addMonth=()=>{
+      const existing=new Set((sel.ledger||[]).map(x=>x.month));
+      let mo=thisMonth;const[yy,mm]=thisMonth.split("-").map(Number);let y=yy,m=mm;
+      while(existing.has(`${y}-${String(m).padStart(2,"0")}`)){m--;if(m<1){m=12;y--;}}
+      mo=`${y}-${String(m).padStart(2,"0")}`;
+      upd(sel.id,{ledger:[...(sel.ledger||[]),{id:Date.now(),month:mo,rentReceived:String(rentExpected(sel)||""),mgmtPaid:sel.mgmtFee||"",mortgagePaid:mg.payment||"",serviceCalls:"",note:""}]});
+    };
+    const upLedger=(lid,k,v)=>upd(sel.id,{ledger:(sel.ledger||[]).map(x=>x.id===lid?{...x,[k]:v}:x)});
+    const delLedger=(lid)=>upd(sel.id,{ledger:(sel.ledger||[]).filter(x=>x.id!==lid)});
+    const rowLbl={fontSize:12,color:T.textSub,fontWeight:600,marginBottom:4,display:"block"};
+    const num=(v)=>n(v);
+    return(
+      <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+        <div style={wrap}>
+          <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"inherit",padding:0,marginBottom:12}}>‹ All rentals</button>
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:14}}>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:20,fontWeight:800,color:T.text}}>{sel.address}</div>
+              <div style={{fontSize:13,color:T.textSub}}>{[sel.city,sel.state,sel.zip].filter(Boolean).join(", ")}</div>
+            </div>
+            <button onClick={()=>delRental(sel.id)} style={{flexShrink:0,padding:"7px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.red,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
+          </div>
+
+          {/* Type toggle */}
+          <div style={{...card,marginBottom:16,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:13,color:T.textSub,fontWeight:600}}>Type</span>
+            <div style={{display:"flex",gap:4,background:T.bg,borderRadius:9,padding:3}}>
+              {[["single","Single Family"],["multi","Multi-Unit"]].map(([k,l])=>(
+                <button key={k} onClick={()=>upd(sel.id,{type:k})} style={{padding:"6px 12px",borderRadius:7,border:"none",background:sel.type===k?T.gold:"transparent",color:sel.type===k?"#fff":T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+              ))}
+            </div>
+            <span style={{marginLeft:"auto",fontSize:12.5,color:T.textSub}}>{units.length} unit{units.length!==1?"s":""} · {fmtD(rentExpected(sel))}/mo expected</span>
+          </div>
+
+          {/* Units + leases + tenants */}
+          <div style={{...card,marginBottom:16}}>
+            <SectionHdr icon="🏠" label="UNITS & LEASES"/>
+            {units.map((u,i)=>{const tel=(u.tenant?.phone||"").replace(/[^\d+]/g,"");return(
+              <div key={u.id} style={{padding:"14px 16px",borderTop:i?`1px solid ${T.border}`:"none"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                  <input value={u.label||""} onChange={e=>upUnit(u.id,"label",e.target.value)} placeholder="Unit name" style={{...iS,fontWeight:700,maxWidth:160}}/>
+                  <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:12,color:T.textSub}}>$</span>
+                    <input value={u.rent||""} onChange={e=>upUnit(u.id,"rent",e.target.value.replace(/[^\d.]/g,""))} placeholder="Rent/mo" style={{...iS,textAlign:"right",width:110}}/>
+                  </div>
+                  {units.length>1&&<button onClick={()=>delUnit(u.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr",gap:10,marginBottom:10}}>
+                  <div><label style={rowLbl}>Lease start</label><input type="date" value={u.leaseStart||""} onChange={e=>upUnit(u.id,"leaseStart",e.target.value)} style={iS}/></div>
+                  <div><label style={rowLbl}>Lease end</label><input type="date" value={u.leaseEnd||""} onChange={e=>upUnit(u.id,"leaseEnd",e.target.value)} style={iS}/></div>
+                  <div style={{gridColumn:isMobile?"1 / -1":"auto"}}><label style={rowLbl}>Lease (link)</label><input value={u.leaseLink||""} onChange={e=>upUnit(u.id,"leaseLink",e.target.value)} placeholder="Dropbox / Drive link" style={iS}/></div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:10}}>
+                  <div><label style={rowLbl}>Tenant</label><input value={u.tenant?.name||""} onChange={e=>upUnit(u.id,"tenant",{...(u.tenant||{}),name:e.target.value})} placeholder="Name" style={iS}/></div>
+                  <div><label style={rowLbl}>Phone</label><input value={u.tenant?.phone||""} onChange={e=>upUnit(u.id,"tenant",{...(u.tenant||{}),phone:e.target.value})} placeholder="Phone" style={iS}/></div>
+                  <div><label style={rowLbl}>Email</label><input value={u.tenant?.email||""} onChange={e=>upUnit(u.id,"tenant",{...(u.tenant||{}),email:e.target.value})} placeholder="Email" style={iS}/></div>
+                </div>
+                {(u.tenant?.phone||u.tenant?.email||u.leaseLink)&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:9}}>
+                  {u.tenant?.phone&&<a href={`tel:${tel}`} style={{fontSize:12,fontWeight:600,color:T.textSub,textDecoration:"none",border:`1px solid ${T.border}`,borderRadius:16,padding:"5px 11px"}}>📞 Call</a>}
+                  {u.tenant?.phone&&<a href={`sms:${tel}`} style={{fontSize:12,fontWeight:600,color:"#15803D",textDecoration:"none",border:`1px solid ${T.green}`,background:"#EDFBF1",borderRadius:16,padding:"5px 11px"}}>💬 Text</a>}
+                  {u.tenant?.email&&<a href={`mailto:${u.tenant.email}`} style={{fontSize:12,fontWeight:600,color:T.blue,textDecoration:"none",border:`1px solid ${T.blue}`,background:"#EBF4FF",borderRadius:16,padding:"5px 11px"}}>✉️ Email</a>}
+                  {u.leaseLink&&<a href={u.leaseLink} target="_blank" rel="noreferrer" style={{fontSize:12,fontWeight:600,color:T.gold,textDecoration:"none",border:`1px solid ${T.gold}`,background:T.goldLight,borderRadius:16,padding:"5px 11px"}}>📄 Lease</a>}
+                </div>}
+              </div>
+            );})}
+            <button onClick={addUnit} style={{margin:"6px 16px 14px",padding:"9px 14px",borderRadius:20,background:"transparent",border:`1.5px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600}}>+ Add unit</button>
+          </div>
+
+          {/* Mortgage + management */}
+          <div style={{...card,marginBottom:16}}>
+            <SectionHdr icon="🏦" label="MORTGAGE & MANAGEMENT"/>
+            <div style={{padding:"14px 16px",display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr",gap:10}}>
+              <div style={{gridColumn:isMobile?"1 / -1":"auto"}}><label style={rowLbl}>Lender</label><input value={mg.lender||""} onChange={e=>upMg("lender",e.target.value)} placeholder="Lender" style={iS}/></div>
+              <div><label style={rowLbl}>Loan amount</label><input value={mg.amount||""} onChange={e=>upMg("amount",e.target.value.replace(/[^\d.]/g,""))} placeholder="$" style={iS}/></div>
+              <div><label style={rowLbl}>Interest rate</label><input value={mg.rate||""} onChange={e=>upMg("rate",e.target.value.replace(/[^\d.]/g,""))} placeholder="%/yr" style={iS}/></div>
+              <div><label style={rowLbl}>Mortgage / mo</label><input value={mg.payment||""} onChange={e=>upMg("payment",e.target.value.replace(/[^\d.]/g,""))} placeholder="$/mo" style={iS}/></div>
+              <div><label style={rowLbl}>Management / mo</label><input value={sel.mgmtFee||""} onChange={e=>upd(sel.id,{mgmtFee:e.target.value.replace(/[^\d.]/g,"")})} placeholder="$/mo" style={iS}/></div>
+            </div>
+            <div style={{padding:"0 16px 14px",fontSize:11,color:T.textTert}}>Interest vs principal split is coming as its own report. QuickBooks project link (auto rent import) is next — for now log rent received below.</div>
+          </div>
+
+          {/* Monthly ledger */}
+          <div style={card}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
+              <span style={{fontSize:13,fontWeight:800,color:T.text,textTransform:"uppercase",letterSpacing:"0.04em"}}>Monthly ledger</span>
+              <button onClick={addMonth} style={{padding:"6px 12px",borderRadius:16,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add month</button>
+            </div>
+            {ledger.length===0&&<div style={{padding:"22px 16px",textAlign:"center",fontSize:13,color:T.textTert}}>No months logged yet. Add one — it pre-fills expected rent, mortgage & management.</div>}
+            {ledger.map((L)=>{const net=num(L.rentReceived)-num(L.mgmtPaid)-num(L.mortgagePaid)-num(L.serviceCalls);const mlab=new Date(L.month+"-01T00:00:00").toLocaleDateString(undefined,{month:"short",year:"numeric"});return(
+              <div key={L.id} style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:9}}>
+                  <span style={{fontSize:14,fontWeight:800,color:T.text}}>{mlab}</span>
+                  <span style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:14,fontWeight:800,color:net>=0?T.green:T.red}}>{net>=0?"+":""}{fmtD(net)}</span>
+                    <button onClick={()=>delLedger(L.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>
+                  </span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr",gap:8}}>
+                  {[["Rent received","rentReceived",T.green],["Management","mgmtPaid",T.textSub],["Mortgage","mortgagePaid",T.textSub],["Service calls","serviceCalls",T.orange]].map(([lbl,k,c])=>(
+                    <div key={k}>
+                      <label style={{fontSize:10.5,color:c,fontWeight:700,display:"block",marginBottom:3}}>{lbl}</label>
+                      <input value={L[k]||""} onChange={e=>upLedger(L.id,k,e.target.value.replace(/[^\d.]/g,""))} placeholder="$0" style={{...iS,padding:"7px 9px",fontSize:13,textAlign:"right"}}/>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );})}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Overview + list ──
+  const months=rentMonthsBetween(from,to);
+  const totalUnits=list.reduce((s,r)=>s+(r.units||[]).length,0);
+  const expectedMo=list.reduce((s,r)=>s+rentExpected(r),0);
+  let expectedRange=0,receivedRange=0,netRange=0;
+  list.forEach(r=>{months.forEach(mo=>{
+    expectedRange+=rentExpected(r);
+    const L=rentLedgerFor(r,mo);
+    if(L){receivedRange+=n(L.rentReceived);netRange+=n(L.rentReceived)-n(L.mgmtPaid)-n(L.mortgagePaid)-n(L.serviceCalls);}
+  });});
+  const collectedPct=expectedRange>0?Math.round(receivedRange/expectedRange*100):0;
+  const stat=(label,val,color)=>(
+    <div style={{...card,padding:"14px 16px",flex:"1 1 140px",minWidth:0}}>
+      <div style={{fontSize:20,fontWeight:800,color:color||T.text}}>{val}</div>
+      <div style={{fontSize:11,color:T.textSub,fontWeight:600,marginTop:2}}>{label}</div>
+    </div>
+  );
+  return(
+    <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+      <div style={wrap}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:14}}>
+          <div style={{fontSize:20,fontWeight:800,color:T.text}}>Rental Portfolio</div>
+          <button onClick={()=>setShowAdd(true)} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:"pointer",fontFamily:"inherit"}}>+ Add rental</button>
+        </div>
+
+        {/* Date range */}
+        <div style={{...card,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span style={{fontSize:12.5,color:T.textSub,fontWeight:600}}>Range</span>
+          <input type="month" value={from} onChange={e=>setFrom(e.target.value)} style={{...iS,width:"auto"}}/>
+          <span style={{color:T.textTert}}>→</span>
+          <input type="month" value={to} onChange={e=>setTo(e.target.value)} style={{...iS,width:"auto"}}/>
+          <span style={{marginLeft:"auto",fontSize:12,color:T.textTert}}>{months.length} month{months.length!==1?"s":""}</span>
+        </div>
+
+        {/* Metrics */}
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+          {stat("Properties",list.length)}
+          {stat("Units",totalUnits)}
+          {stat("Expected / mo",fmtD(expectedMo),T.gold)}
+          {stat(`Collected (${collectedPct}%)`,fmtD(receivedRange),T.green)}
+          {stat("Net (range)",(netRange>=0?"+":"")+fmtD(netRange),netRange>=0?T.green:T.red)}
+        </div>
+
+        {/* Property list */}
+        <div style={card}>
+          <div style={{padding:"11px 16px",borderBottom:list.length?`1px solid ${T.border}`:"none",fontSize:13,fontWeight:800,color:T.text,textTransform:"uppercase",letterSpacing:"0.04em"}}>Properties</div>
+          {list.length===0&&<div style={{padding:"26px 16px",textAlign:"center",fontSize:13.5,color:T.textTert}}>No rentals yet. Tap “+ Add rental” to start your portfolio.</div>}
+          {list.map((r,i)=>{
+            const exp=rentExpected(r);
+            const rec=months.reduce((s,mo)=>{const L=rentLedgerFor(r,mo);return s+(L?n(L.rentReceived):0);},0);
+            return(
+              <div key={r.id} onClick={()=>setSelId(r.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderTop:i?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14.5,fontWeight:600,color:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}{r.city?`, ${r.city}`:""}</div>
+                  <div style={{fontSize:12,color:T.textSub}}>{r.type==="multi"?`${(r.units||[]).length} units`:"Single family"} · {fmtD(exp)}/mo</div>
+                </div>
+                <div style={{textAlign:"right",flexShrink:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:T.green}}>{fmtD(rec)}</div>
+                  <div style={{fontSize:10.5,color:T.textTert}}>collected · range</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {showAdd&&(
+        <div onClick={()=>setShowAdd(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)",padding:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:20,padding:24,width:440,maxWidth:"100%",boxShadow:T.shadowMd}}>
+            <div style={{fontWeight:800,fontSize:18,marginBottom:14,color:T.text}}>Add Rental Property</div>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <input style={iS} value={form.address} onChange={e=>setForm(f=>({...f,address:e.target.value}))} placeholder="Street address" autoFocus/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 70px 90px",gap:10}}>
+                <input style={iS} value={form.city} onChange={e=>setForm(f=>({...f,city:e.target.value}))} placeholder="City"/>
+                <input style={iS} value={form.state} onChange={e=>setForm(f=>({...f,state:e.target.value}))} placeholder="State"/>
+                <input style={iS} value={form.zip} onChange={e=>setForm(f=>({...f,zip:e.target.value}))} placeholder="Zip"/>
+              </div>
+              <div style={{display:"flex",gap:4,background:T.bg,borderRadius:9,padding:3,width:"fit-content"}}>
+                {[["single","Single Family"],["multi","Multi-Unit"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>setForm(f=>({...f,type:k}))} style={{padding:"7px 13px",borderRadius:7,border:"none",background:form.type===k?T.gold:"transparent",color:form.type===k?"#fff":T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:22,justifyContent:"flex-end"}}>
+              <button onClick={()=>setShowAdd(false)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
+              <button onClick={addRental} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Add</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -10252,6 +10510,7 @@ export function GoldstoneShell(){
     : active==="leads" ? <NewLeadsPage/>
     : active==="messages" ? <MessagingCenter sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navChatId} onNavConsumed={()=>setNavChatId(null)}/>
     : active==="showings" ? <ShowingsPage/>
+    : active==="rentals" ? <RentalPortfolioPage/>
     : active==="calendar" ? <CalendarPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage onNavigate={navigateToProperty}/>

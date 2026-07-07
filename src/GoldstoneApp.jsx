@@ -1994,6 +1994,13 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const customLeads=property.customLeads||[];
   const showingPhones=property.showingPhones||{}; // manually-added numbers, keyed by showingKey
   const showingSnapshots=property.showingSnapshots||{}; // captured showing details, keyed by showingKey, so a lead survives the showing aging out of the feed
+  // Which template texts were sent, keyed by showingKey (or "lead-<id>"): {initial:iso, followup:iso}.
+  // Stamped when the sms: link is tapped — the OS gives no "actually sent" signal, so
+  // the tap is the best available proxy, and the mark can be cleared if mis-tapped.
+  const showingTexts=property.showingTexts||{};
+  const markText=(key,kind)=>{onUpdate(property.id,"showingTexts",{...showingTexts,[key]:{...(showingTexts[key]||{}),[kind]:new Date().toISOString()}});saveNow();};
+  const clearText=(key,kind)=>{const cur={...(showingTexts[key]||{})};delete cur[kind];onUpdate(property.id,"showingTexts",{...showingTexts,[key]:cur});saveNow();};
+  const fmtSent=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   const[agentSearch,setAgentSearch]=useState("");
   const[addNumFor,setAddNumFor]=useState(null); // which row's "add number" input is open
   const[numDraft,setNumDraft]=useState("");
@@ -2089,15 +2096,27 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         </div>
       : <button onClick={()=>{setAddNumFor(key);setNumDraft("");}} style={{marginTop:8,padding:"5px 11px",borderRadius:20,background:"transparent",border:`1px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600}}>+ Add number</button>
   );
+  // A template button that remembers being tapped: unsent shows its normal colors;
+  // once tapped it turns green with a ✓ + date (tap again to resend/re-stamp), and a
+  // small × lets you clear a mistaken mark.
+  const tmplBtn=(ph,name,rowKey,kind,label,idle)=>{
+    const sent=(showingTexts[rowKey]||{})[kind];
+    return(
+      <span style={{display:"inline-flex",alignItems:"center",gap:2}}>
+        <a href={showingSms(ph,showingMessage(kind,name,address))} onClick={()=>markText(rowKey,kind)} title={sent?`${label} text sent ${fmtSent(sent)} — tap to send again`:`Send the ${label.toLowerCase()} text`} style={{...actBtn,...(sent?{background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}:idle)}}>{sent?`✓ ${label} · ${fmtSent(sent)}`:label}</a>
+        {sent&&<button onClick={()=>{if(window.confirm(`Clear the "${label} sent" mark?`))clearText(rowKey,kind);}} title="Clear the sent mark" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:"0 2px"}}>×</button>}
+      </span>
+    );
+  };
   // Actions for one phone number — plain Text (no template) + the two templates.
-  const phoneActions=(ph,name)=>(
+  const phoneActions=(ph,name,rowKey)=>(
     <div style={{marginTop:8}}>
       <div style={{fontSize:12,color:T.textSub,marginBottom:5}}>{ph}</div>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
         <a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a>
-        <a href={showingSms(ph,showingMessage("initial",name,address))} style={{...actBtn,background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"}}>Initial</a>
-        <a href={showingSms(ph,showingMessage("followup",name,address))} style={{...actBtn,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue}}>Follow-up</a>
+        {tmplBtn(ph,name,rowKey,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
+        {tmplBtn(ph,name,rowKey,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
       </div>
     </div>
   );
@@ -2118,7 +2137,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         )}
         {s.email&&<div><a href={`mailto:${s.email}`} style={{fontSize:12,color:T.textSub,textDecoration:"none"}}>{s.email}</a></div>}
         <div style={{marginTop:8}}>{leadSelect(leadKey,e=>setLead(s,e.target.value),lead)}</div>
-        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,s.agent)}</div>)}
+        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,s.agent,showingKey(s))}</div>)}
         {!s.agent&&phones.length===0&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>}
         {addNumberUI(showingKey(s),()=>addShowingPhone(s))}
       </div>
@@ -2135,7 +2154,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:14,fontWeight:600,color:T.text}}>{l.name||"(no name)"}</div>
         <div style={{marginTop:8}}>{leadSelect(l.lead||"",e=>setCustomStatus(l.id,e.target.value),lead)}</div>
-        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,l.name)}</div>)}
+        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,l.name,"lead-"+l.id)}</div>)}
         {phones.length===0&&<div style={{fontSize:12,color:T.textTert,marginTop:6}}>No phone number.</div>}
         {addNumberUI("lead-"+l.id,()=>addLeadPhone(l))}
       </div>
@@ -2502,12 +2521,21 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
     .sort((a,b)=>String(a.s.start||"").localeCompare(String(b.s.start||"")));
   const shToday=useMemo(()=>shForDay(todayISO),[showings,active]); // eslint-disable-line
 
-  // Call / text templates for a showing agent — same set as the Showings section.
+  // Call / text templates for a showing agent — same set as the Showings section,
+  // including the sent-mark on the two templates (stored on the matched property).
   const actBtn={padding:"6px 10px",borderRadius:16,fontSize:11.5,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap",fontFamily:"inherit"};
-  const showingActions=(s,address)=>{
+  const showingActions=(s,address,prop)=>{
     const phones=parseShowingPhones(s.phone);
     if(!phones.length)return null;
     const name=s.agent||"";
+    const k=showingKey(s);
+    const texts=(prop&&prop.showingTexts)||{};
+    const mark=(kind)=>{if(!prop)return;upd(prop.id,"showingTexts",{...texts,[k]:{...(texts[k]||{}),[kind]:new Date().toISOString()}});};
+    const fmtSent=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
+    const tmpl=(ph,kind,label,idle)=>{
+      const sent=(texts[k]||{})[kind];
+      return <a href={showingSms(ph,showingMessage(kind,name,address))} onClick={()=>mark(kind)} style={{...actBtn,...(sent?{background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}:idle)}}>{sent?`✓ ${label} · ${fmtSent(sent)}`:label}</a>;
+    };
     return(
       <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:7}}>
         {phones.map((ph,i)=>(
@@ -2516,8 +2544,8 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
               <a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a>
-              <a href={showingSms(ph,showingMessage("initial",name,address))} style={{...actBtn,background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"}}>Initial</a>
-              <a href={showingSms(ph,showingMessage("followup",name,address))} style={{...actBtn,background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue}}>Follow-up</a>
+              {tmpl(ph,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
+              {tmpl(ph,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
             </div>
           </div>
         ))}
@@ -2630,7 +2658,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
                           {s.agent&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👤 {s.agent}</div>}
                         </div>
                       </div>
-                      {showingActions(s,address)}
+                      {showingActions(s,address,prop)}
                     </div>
                   );
                 })}
@@ -2693,7 +2721,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
                           <div style={{fontSize:11.5,color:T.textSub}}>Showing{time?` · ${time}`:""}{s.agent?` · ${s.agent}`:""}</div>
                         </div>
                       </div>
-                      {showingActions(s,address)}
+                      {showingActions(s,address,prop)}
                     </div>
                   );})}
                 </>);

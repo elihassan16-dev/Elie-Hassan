@@ -2760,6 +2760,7 @@ function RentalPortfolioPage(){
   const[acctView,setAcctView]=useState(null); // {name, items|null} — a mortgage account's txns
   const[pnlFor,setPnlFor]=useState(null);   // ledgerId whose P&L breakdown is open
   const[pnlExp,setPnlExp]=useState({});      // which P&L line's transactions are expanded
+  const[pnlFetch,setPnlFetch]=useState({loading:false,txns:null,rentalId:null}); // lazy txn fetch for the P&L drill-in
   useEffect(()=>{setSyncMsg(null);setPreview(null);setPicker(null);setAcctView(null);setPnlFor(null);setPnlExp({});},[selId]);
   const BUCKET_FIELD={rent:"rentReceived",management:"mgmtPaid",mortgage:"mortgagePaid",service:"serviceCalls"};
 
@@ -2828,6 +2829,19 @@ function RentalPortfolioPage(){
     const hasSrc=r.qbProjectId||(r.units||[]).some(u=>u.qbProjectId)||(r.qbMortgageAccounts||[]).length;
     if(r.qbAutoSync&&hasSrc&&r.qbLastSync!==thisMonth){autoRan.current[r.id]=true;fetchTxns(r).then(({all})=>applyAssigns(r,buildAssigns(all,null,null))).catch(()=>{});}
   },[selId,rentals,thisMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+  // When a P&L drill-in opens on a month with no stored transactions, lazily fetch
+  // the rental's QuickBooks transactions so the line items can still be broken down.
+  useEffect(()=>{
+    if(pnlFor==null)return;
+    const r=selId!=null?(rentals||[]).find(x=>String(x.id)===String(selId)):null;if(!r)return;
+    const L=(r.ledger||[]).find(x=>String(x.id)===String(pnlFor));
+    if(L&&(L.qbLines||[]).length)return;                 // already has stored lines
+    const hasSrc=r.qbProjectId||(r.units||[]).some(u=>u.qbProjectId)||(r.qbMortgageAccounts||[]).length;
+    if(!hasSrc)return;
+    if(pnlFetch.rentalId===r.id&&(pnlFetch.txns||pnlFetch.loading))return; // fetched/loading already
+    setPnlFetch({loading:true,txns:null,rentalId:r.id});
+    fetchTxns(r).then(({all})=>setPnlFetch({loading:false,txns:all,rentalId:r.id})).catch(()=>setPnlFetch({loading:false,txns:[],rentalId:r.id}));
+  },[pnlFor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const list=useMemo(()=>[...(rentals||[])].sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[rentals]);
   const sel=selId!=null?list.find(r=>String(r.id)===String(selId)):null;
@@ -3180,27 +3194,36 @@ function RentalPortfolioPage(){
                     <button onClick={()=>setPnlFor(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
                   </div>
                   <div style={{overflowY:"auto",flex:1}}>
-                    {lines.map((ln,i)=>{const v=num(L[ln.field]);const txs=(L.qbLines||[]).filter(x=>x.bucket===ln.bucket).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));const open=!!pnlExp[ln.bucket];return(
+                    {lines.map((ln,i)=>{const v=num(L[ln.field]);
+                      const stored=(L.qbLines||[]).filter(x=>x.bucket===ln.bucket);
+                      const fetched=(pnlFetch.rentalId===sel.id&&pnlFetch.txns?pnlFetch.txns:[]).filter(t=>String(t.date||"").slice(0,7)===L.month&&t.bucket===ln.bucket);
+                      const txs=(stored.length?stored:fetched).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+                      const loadingTxs=!stored.length&&pnlFetch.loading;
+                      const open=!!pnlExp[ln.bucket];return(
                       <div key={ln.field} style={{borderTop:i?`1px solid ${T.border}`:"none"}}>
                         <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 18px"}}>
                           <button onClick={()=>setPnlExp(s=>({...s,[ln.bucket]:!s[ln.bucket]}))} style={{background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",flex:1,minWidth:0,textAlign:"left",display:"flex",alignItems:"center",gap:6}}>
-                            <span style={{fontSize:11,color:T.textTert,width:12}}>{txs.length?(open?"▾":"▸"):""}</span>
+                            <span style={{fontSize:11,color:T.textTert,width:12}}>{open?"▾":"▸"}</span>
                             <span style={{fontSize:14,color:ln.neg?T.textSub:T.text,fontWeight:600}}>{ln.neg?"Less: ":""}{ln.label}</span>
                             {txs.length>0&&<span style={{fontSize:11,color:T.textTert}}>({txs.length})</span>}
                           </button>
                           <span style={{fontSize:12,color:T.textSub}}>{ln.neg?"−":""}$</span>
                           <input value={L[ln.field]||""} onChange={e=>upLedger(L.id,ln.field,e.target.value.replace(/[^\d.]/g,""))} placeholder="0" style={{...iS,width:110,textAlign:"right",fontWeight:700,color:ln.neg?T.text:(ln.color||T.text)}}/>
                         </div>
-                        {open&&txs.length>0&&<div style={{background:T.bg}}>
-                          {txs.map((t,j)=>(
-                            <div key={j} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 18px 8px 36px",borderTop:`1px solid ${T.border}`}}>
-                              <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.account||"—"}</div>
-                                <div style={{fontSize:10.5,color:T.textTert}}>{t.date||""} · {t.account||""}</div>
+                        {open&&<div style={{background:T.bg}}>
+                          {loadingTxs
+                            ?<div style={{padding:"10px 18px 10px 36px",fontSize:12,color:T.textTert}}>Loading transactions…</div>
+                            :txs.length===0
+                            ?<div style={{padding:"10px 18px 10px 36px",fontSize:12,color:T.textTert}}>No QuickBooks transactions for this line{v>0?" (manual amount)":""}.</div>
+                            :txs.map((t,j)=>(
+                              <div key={j} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 18px 8px 36px",borderTop:`1px solid ${T.border}`}}>
+                                <div style={{flex:1,minWidth:0}}>
+                                  <div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.memo||t.account||"—"}</div>
+                                  <div style={{fontSize:10.5,color:T.textTert}}>{t.date||""} · {t.account||""}</div>
+                                </div>
+                                <span style={{fontSize:12.5,fontWeight:700,color:T.text,flexShrink:0}}>{fmtD(Math.abs(Number(t.amount)||0))}</span>
                               </div>
-                              <span style={{fontSize:12.5,fontWeight:700,color:T.text,flexShrink:0}}>{fmtD(Math.abs(Number(t.amount)||0))}</span>
-                            </div>
-                          ))}
+                            ))}
                         </div>}
                       </div>
                     );})}

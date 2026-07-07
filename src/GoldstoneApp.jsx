@@ -2419,6 +2419,9 @@ function ShowingsPage(){
 }
 
 // ─── Calendar — today's showings, key deal dates, and overdue nudges ───────────
+// Local calendar day as YYYY-MM-DD. Uses local date parts (NOT toISOString, which
+// is UTC and would roll the day forward on evenings in US time zones).
+function localISO(d=new Date()){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 // Key date types tracked per property. `get` reads the date; `overdue` decides if a
 // passed date still needs attention (e.g. purchase date gone but status unchanged).
 const CAL_EVENTS=[
@@ -2440,7 +2443,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
   const[view,setView]=useState("today"); // "today" | "dates" | "month"
   const[showPast,setShowPast]=useState(false);
   const[monthAnchor,setMonthAnchor]=useState(()=>{const d=new Date();return {y:d.getFullYear(),m:d.getMonth()};});
-  const[selDay,setSelDay]=useState(()=>new Date().toISOString().slice(0,10));
+  const[selDay,setSelDay]=useState(()=>localISO());
   const[showings,setShowings]=useState(null);
   const[shStatus,setShStatus]=useState(null);
   useEffect(()=>{qbAuthFetch("/api/showings/status").then(setShStatus).catch(()=>setShStatus({configured:false}));},[]);
@@ -2448,7 +2451,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
 
   const upd=(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));
   const active=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived),[sharedProps]);
-  const todayISO=new Date().toISOString().slice(0,10);
+  const todayISO=localISO(); // LOCAL calendar day (not UTC — avoids rolling over at night)
   const isToday=(iso)=>String(iso||"").slice(0,10)===todayISO;
   const fmtDate=(iso)=>{const d=new Date(iso+"T00:00:00");return isNaN(d.getTime())?iso:d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});};
   const relDays=(iso)=>{const d=Math.round((new Date(iso+"T00:00:00")-new Date(todayISO+"T00:00:00"))/86400000);return d===0?"today":d===1?"tomorrow":d===-1?"yesterday":d<0?`${-d} days ago`:`in ${d} days`;};

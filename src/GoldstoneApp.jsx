@@ -7797,7 +7797,7 @@ function NotificationToggle({displayName,isAdmin}){
     setBusy(true);setErr("");setTestMsg("Sending…");
     try{
       const r=await qbAuthFetch("/api/notify/test",{method:"POST"});
-      const smsLabel=(s)=>({sent:"text sent ✓ (can take a minute)","no-sms-email":"text: no number saved — add yours via 📱 SMS in the Team list","not-configured":"text: Resend not set up"}[s]||`text: ${s}`);
+      const smsLabel=(s)=>({sent:"text sent ✓ (can take a minute)","sent-nextiva":"text sent via your Nextiva number ✓","no-sms-email":"text: no number saved — add yours via 📱 SMS in the Team list","not-configured":"text: not set up","bad-number":"text: saved number isn't 10 digits — re-save it via 📱 SMS"}[s]||`text: ${s}`);
       if(r.push==="sent") setTestMsg(`Push sent ✓ — watch for the banner. ${emailLabel(r.email)} · ${smsLabel(r.sms)}`);
       else if(r.push==="no-subscriptions") setTestMsg(`This device isn't registered for push — tap “Turn on notifications” above. Meanwhile: ${emailLabel(r.email)} · ${smsLabel(r.sms)}`);
       else if(r.push==="no-vapid-keys") setTestMsg("Server missing VAPID keys — add them in Vercel and redeploy.");

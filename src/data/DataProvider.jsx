@@ -156,6 +156,15 @@ export function DataProvider({ children }) {
     return null;
   }, [loadTeam]);
 
+  // Admin-only: set (or clear) a teammate's email→SMS gateway address, e.g.
+  // "6095551234@vtext.com" — /api/notify/send uses it to text them for free.
+  const setUserSms = useCallback(async (userId, smsEmail) => {
+    const { error } = await supabase.from("users").update({ sms_email: smsEmail || null }).eq("id", userId);
+    if (error) return error;
+    await loadTeam();
+    return null;
+  }, [loadTeam]);
+
   const seedIfEmpty = useCallback(async () => {
     if (!isAdmin || seededRef.current) return;
     seededRef.current = true;
@@ -255,6 +264,7 @@ export function DataProvider({ children }) {
     team,
     teamMembers,
     setUserMuted,
+    setUserSms,
     currentUser: displayName,
     saveError,
     clearSaveError: () => setSaveError(null),

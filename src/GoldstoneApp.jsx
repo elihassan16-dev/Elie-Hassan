@@ -7656,10 +7656,34 @@ function EmailChangeModal({current,onClose}){
 }
 
 // ─── Profile / team menu — opens from the EH avatar ───────────────────────────
-function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,onEditName,onEditEmail,onAddTeammate,onSignOut,onClose}){
+// US carriers' email→SMS gateway domains (free texting via Resend). MVNOs use
+// their host network's gateway (Visible→Verizon, Mint→T-Mobile, Cricket→AT&T).
+const SMS_GATEWAYS=[
+  ["vtext.com","Verizon"],
+  ["tmomail.net","T-Mobile"],
+  ["txt.att.net","AT&T"],
+  ["msg.fi.google.com","Google Fi"],
+];
+function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,setUserSms,onEditName,onEditEmail,onAddTeammate,onSignOut,onClose}){
   const initials=initialsOf(displayName)||"?";
   const others=(teamMembers||[]).filter(Boolean);
   const rows=(team&&team.length)?team:null; // full user rows (for the admin mute switch)
+  // Inline editor for a teammate's text-message number (email→SMS gateway).
+  const[smsFor,setSmsFor]=useState(null);
+  const[smsPhone,setSmsPhone]=useState("");
+  const[smsCarrier,setSmsCarrier]=useState(SMS_GATEWAYS[0][0]);
+  const openSms=(u)=>{
+    const[num,dom]=String(u.sms_email||"").split("@");
+    setSmsPhone(num||"");
+    setSmsCarrier(dom&&SMS_GATEWAYS.some(([d])=>d===dom)?dom:SMS_GATEWAYS[0][0]);
+    setSmsFor(smsFor===u.id?null:u.id);
+  };
+  const saveSms=async(u)=>{
+    const digits=smsPhone.replace(/\D/g,"").replace(/^1(?=\d{10}$)/,"");
+    if(digits.length!==10){alert("Enter a 10-digit US cell number.");return;}
+    await setUserSms(u.id,`${digits}@${smsCarrier}`);
+    setSmsFor(null);
+  };
   const rowBtn={display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 20px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:14,color:T.text,textAlign:"left"};
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:410,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(4px)"}}>
@@ -7679,14 +7703,36 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,onE
         <div style={{padding:"12px 20px 6px",fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",borderTop:`1px solid ${T.border}`}}>Team ({others.length}){isAdmin&&rows&&<span style={{textTransform:"none",fontWeight:400,letterSpacing:0}}> · tap 🔔 to mute someone</span>}</div>
         <div style={{padding:"0 20px 8px",display:"flex",flexDirection:"column",gap:2}}>
           {isAdmin&&rows
-            ? rows.map(u=>{const nm=u.name||u.email;const muted=!!u.notify_muted;const isSelf=nm===displayName;return(
-                <div key={u.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0"}}>
-                  <AssigneeAvatar name={nm} size={28}/>
-                  <div style={{flex:1,minWidth:0,fontSize:13.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nm}{isSelf?" (you)":""}</div>
-                  <button onClick={()=>setUserMuted&&setUserMuted(u.id,!muted)} title={muted?"Notifications muted — tap to allow":"Notifications on — tap to mute"}
-                    style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:16,border:`1px solid ${muted?T.border:T.green}`,background:muted?T.bg:"#EDFBF1",color:muted?T.textTert:"#15803D",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
-                    {muted?"🔕 Muted":"🔔 On"}
-                  </button>
+            ? rows.map(u=>{const nm=u.name||u.email;const muted=!!u.notify_muted;const isSelf=nm===displayName;const hasSms=!!(u.sms_email||"").includes("@");return(
+                <div key={u.id}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0"}}>
+                    <AssigneeAvatar name={nm} size={28}/>
+                    <div style={{flex:1,minWidth:0,fontSize:13.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nm}{isSelf?" (you)":""}</div>
+                    <button onClick={()=>openSms(u)} title={hasSms?`Texts go to ${u.sms_email} — tap to change`:"Add their cell so notifications also arrive as a text"}
+                      style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:16,border:`1px solid ${hasSms?T.blue:T.border}`,background:hasSms?"#EBF4FF":T.bg,color:hasSms?T.blue:T.textTert,fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
+                      📱 {hasSms?"SMS ✓":"SMS"}
+                    </button>
+                    <button onClick={()=>setUserMuted&&setUserMuted(u.id,!muted)} title={muted?"Notifications muted — tap to allow":"Notifications on — tap to mute"}
+                      style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:16,border:`1px solid ${muted?T.border:T.green}`,background:muted?T.bg:"#EDFBF1",color:muted?T.textTert:"#15803D",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
+                      {muted?"🔕 Muted":"🔔 On"}
+                    </button>
+                  </div>
+                  {smsFor===u.id&&(
+                    <div style={{margin:"2px 0 8px 38px",padding:"10px 12px",background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,display:"flex",flexDirection:"column",gap:8}}>
+                      <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.45}}>Notifications also go to their phone as a free text (via the carrier's email gateway). Pick their carrier — prepaid brands use their host network (Visible→Verizon, Mint→T-Mobile, Cricket→AT&T).</div>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                        <input value={smsPhone} onChange={e=>setSmsPhone(e.target.value)} inputMode="tel" placeholder="(609) 555-0124" style={{flex:"1 1 140px",minWidth:0,padding:"8px 10px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:13.5,outline:"none",fontFamily:"inherit",background:"#fff"}}/>
+                        <select value={smsCarrier} onChange={e=>setSmsCarrier(e.target.value)} style={{padding:"8px 10px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:"#fff",color:T.text,outline:"none"}}>
+                          {SMS_GATEWAYS.map(([d,label])=><option key={d} value={d}>{label}</option>)}
+                        </select>
+                      </div>
+                      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                        {hasSms&&<button onClick={async()=>{await setUserSms(u.id,null);setSmsFor(null);}} style={{padding:"7px 12px",borderRadius:8,background:"none",border:`1px solid ${T.border}`,color:T.red,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Remove</button>}
+                        <button onClick={()=>setSmsFor(null)} style={{padding:"7px 12px",borderRadius:8,background:"none",border:`1px solid ${T.border}`,color:T.textSub,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                        <button onClick={()=>saveSms(u)} style={{padding:"7px 16px",borderRadius:8,background:T.gold,border:"none",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );})
             : others.map(m=>(
@@ -11002,7 +11048,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
 }
 
 export function GoldstoneShell(){
-  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, officeMessages, officeTasks } = useData();
+  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, officeMessages, officeTasks } = useData();
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
   const isMobile = useIsMobile();
 
@@ -11187,7 +11233,7 @@ export function GoldstoneShell(){
       )}
       {showNavMenu&&<NavMenu items={navItems} active={active} isPinned={isPinned} onNavigate={(k)=>{setActive(k);setShowNavMenu(false);}} onTogglePin={togglePin} onClose={()=>setShowNavMenu(false)}/>}
       {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}/>}
-      {showProfileMenu&&<ProfileMenu displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted}
+      {showProfileMenu&&<ProfileMenu displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted} setUserSms={setUserSms}
         onEditName={()=>{setShowProfileMenu(false);setShowProfile(true);}}
         onEditEmail={()=>{setShowProfileMenu(false);setShowEmail(true);}}
         onAddTeammate={()=>{setShowProfileMenu(false);setShowAddTeammate(true);}}

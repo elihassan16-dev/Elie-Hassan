@@ -78,10 +78,13 @@ export default async function handler(req, res) {
 
   // ── Text message (carrier email→SMS gateways, via the same Resend key) ──────
   // Free but best-effort: carriers throttle these and some (AT&T) have retired
-  // their gateway. Keep it short — gateways hard-truncate around 160 chars.
+  // their gateway. Keep it short — gateways hard-truncate around 160 chars — and
+  // link-free: URLs (especially https://) are the top reason gateways silently
+  // spam-drop these, so mention the bare domain in words instead.
   if (RESEND && FROM) {
     const cells = [...new Set(targets.map((u) => (u.sms_email || "").trim()).filter((x) => x.includes("@")))];
-    const sms = `${title || "Goldstone"}: ${body || ""}`.slice(0, 120) + `\n${link}`;
+    const domain = base.replace(/^https?:\/\//i, "");
+    const sms = `${title || "Goldstone"}: ${body || ""}`.slice(0, 110) + ` - open ${domain}`;
     for (const to of cells) {
       try {
         const r = await fetch("https://api.resend.com/emails", {

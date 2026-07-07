@@ -2742,19 +2742,25 @@ function RentalPortfolioPage(){
   const[projects,setProjects]=useState(null);
   useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setQbConnected(!!s.connected)).catch(()=>setQbConnected(false));},[]);
   useEffect(()=>{if(qbConnected&&!projects)qbAuthFetch("/api/quickbooks/projects").then(d=>setProjects(d.items||[])).catch(()=>setProjects([]));},[qbConnected,projects]);
+  const[accounts,setAccounts]=useState(null); // QB liability accounts (mortgage/loan)
+  useEffect(()=>{if(qbConnected&&!accounts)qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[qbConnected,accounts]);
   const[syncing,setSyncing]=useState(false);
   const[syncMsg,setSyncMsg]=useState(null);
   const[qbTxns,setQbTxns]=useState(null);   // pulled transactions for the open rental
   const[showTxns,setShowTxns]=useState(false);
   useEffect(()=>{setSyncMsg(null);setQbTxns(null);setShowTxns(false);},[selId]);
   // Pull the linked project(s)' transactions, categorize, and fill the ledger.
-  const syncQB=async(r)=>{
+  const syncQB=async(r,silent)=>{
     const ids=[...new Set([r.qbProjectId,...(r.units||[]).map(u=>u.qbProjectId)].filter(Boolean))];
-    if(!ids.length){setSyncMsg({ok:false,text:"Link a QuickBooks project above first."});return;}
-    setSyncing(true);setSyncMsg(null);
+    const acctIds=r.qbMortgageAccounts||[];
+    if(!ids.length&&!acctIds.length){if(!silent)setSyncMsg({ok:false,text:"Link a QuickBooks project (and/or a mortgage account) above first."});return;}
+    setSyncing(true);if(!silent)setSyncMsg(null);
     try{
       const all=[];
+      // Projects → rent (income) + management/service/interest (expenses), by account name.
       for(const id of ids){const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);(d.items||[]).forEach(t=>all.push({...t,bucket:rentBucket(t.account)}));}
+      // Mortgage account(s) → the loan payment / principal side, booked outside the project.
+      for(const aid of acctIds){const d=await qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(aid)}`);(d.items||[]).forEach(t=>all.push({...t,bucket:"mortgage",_acct:true}));}
       const byMonth={};
       all.forEach(t=>{const mo=String(t.date||"").slice(0,7);if(!/^\d{4}-\d{2}$/.test(mo))return;const amt=Math.abs(Number(t.amount)||0);(byMonth[mo]=byMonth[mo]||{rent:0,management:0,mortgage:0,service:0,other:0})[t.bucket]+=amt;});
       const ledger=[...(r.ledger||[])];
@@ -2765,11 +2771,19 @@ function RentalPortfolioPage(){
         if(idxByMonth.has(mo)){const row={...ledger[idxByMonth.get(mo)]};let ch=false;Object.entries(map).forEach(([k,v])=>{if(v>0&&(!row[k]||String(row[k])==="")){row[k]=String(v);ch=true;}});if(ch){ledger[idxByMonth.get(mo)]=row;touched++;}}
         else{ledger.push({id:Date.now()+Math.round(Math.random()*1e6),month:mo,rentReceived:map.rentReceived?String(map.rentReceived):"",mgmtPaid:map.mgmtPaid?String(map.mgmtPaid):"",mortgagePaid:map.mortgagePaid?String(map.mortgagePaid):"",serviceCalls:map.serviceCalls?String(map.serviceCalls):"",note:"From QuickBooks"});touched++;}
       });
-      upd(r.id,{ledger});setQbTxns(all);
-      setSyncMsg({ok:true,text:`Pulled ${all.length} transactions from ${ids.length} project${ids.length!==1?"s":""}; filled ${touched} month${touched!==1?"s":""} (blank fields only). Review the ledger and “View transactions” to check the mapping.`});
-    }catch(e){setSyncMsg({ok:false,text:e.message||"Sync failed."});}
+      upd(r.id,{ledger,qbLastSync:thisMonth});setQbTxns(all);
+      if(!silent)setSyncMsg({ok:true,text:`Pulled ${all.length} transactions from ${ids.length} project${ids.length!==1?"s":""}${acctIds.length?` + ${acctIds.length} mortgage account${acctIds.length!==1?"s":""}`:""}; filled ${touched} month${touched!==1?"s":""} (blank fields only). Review the ledger and “View transactions” to check the mapping.`});
+    }catch(e){if(!silent)setSyncMsg({ok:false,text:e.message||"Sync failed."});}
     finally{setSyncing(false);}
   };
+  // Auto-sync once a month when a rental (with QB sources + auto-sync on) is opened.
+  const autoRan=useRef({});
+  useEffect(()=>{
+    const r=selId!=null?(rentals||[]).find(x=>String(x.id)===String(selId)):null;
+    if(!r||autoRan.current[r.id])return;
+    const hasSrc=r.qbProjectId||(r.units||[]).some(u=>u.qbProjectId)||(r.qbMortgageAccounts||[]).length;
+    if(r.qbAutoSync&&hasSrc&&r.qbLastSync!==thisMonth){autoRan.current[r.id]=true;syncQB(r,true);}
+  },[selId,rentals,thisMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const list=useMemo(()=>[...(rentals||[])].sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[rentals]);
   const sel=selId!=null?list.find(r=>String(r.id)===String(selId)):null;
@@ -2922,12 +2936,33 @@ function RentalPortfolioPage(){
                 </select>
                 {!projects&&<div style={{fontSize:11,color:T.textTert,marginTop:6}}>Loading projects…</div>}
                 {sel.type==="multi"&&<div style={{fontSize:11,color:T.textTert,marginTop:8,lineHeight:1.4}}>Multi-unit: each unit can use this same project or its own — set it on each unit above.</div>}
+
+                {/* Mortgage account(s) — the loan is paid outside the project */}
+                {accounts&&accounts.length>0&&<div style={{marginTop:14}}>
+                  <label style={rowLbl}>Mortgage / loan account(s) — the payment & principal side</label>
+                  <div style={{display:"flex",flexDirection:"column",gap:2,border:`1px solid ${T.border}`,borderRadius:10,overflow:"hidden"}}>
+                    {accounts.map((a,i)=>{const on=(sel.qbMortgageAccounts||[]).includes(a.id);return(
+                      <label key={a.id} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 12px",fontSize:13,color:T.text,cursor:"pointer",background:on?T.goldLight:"transparent",borderTop:i?`1px solid ${T.border}`:"none"}}>
+                        <input type="checkbox" checked={on} onChange={()=>{const cur=sel.qbMortgageAccounts||[];upd(sel.id,{qbMortgageAccounts:on?cur.filter(x=>x!==a.id):[...cur,a.id]});}} style={{width:16,height:16,accentColor:T.gold,flexShrink:0}}/>
+                        <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</span>
+                        <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{fmtD(a.balance)}</span>
+                      </label>
+                    );})}
+                  </div>
+                </div>}
+
+                {/* Auto-sync monthly */}
+                <label style={{display:"flex",alignItems:"center",gap:9,marginTop:14,fontSize:13,fontWeight:600,color:T.text,cursor:"pointer"}}>
+                  <input type="checkbox" checked={!!sel.qbAutoSync} onChange={e=>upd(sel.id,{qbAutoSync:e.target.checked})} style={{width:16,height:16,accentColor:T.gold}}/>
+                  Auto-sync each month{sel.qbLastSync?` · last synced ${sel.qbLastSync}`:""}
+                </label>
+
                 <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
                   <button onClick={()=>syncQB(sel)} disabled={syncing} style={{padding:"9px 14px",borderRadius:T.radiusSm,background:syncing?T.border:T.blue,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:syncing?"default":"pointer",fontFamily:"inherit"}}>{syncing?"Syncing…":"⟳ Sync transactions from QuickBooks"}</button>
                   {qbTxns&&qbTxns.length>0&&<button onClick={()=>setShowTxns(true)} style={{padding:"9px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>View {qbTxns.length} transactions</button>}
                 </div>
                 {syncMsg&&<div style={{marginTop:9,fontSize:12,lineHeight:1.45,color:syncMsg.ok?T.green:T.red}}>{syncMsg.text}</div>}
-                <div style={{fontSize:11,color:T.textTert,marginTop:8,lineHeight:1.4}}>Pulls each linked project's transactions, auto-sorts them into rent / mortgage / management / service by account name, and fills blank ledger months (never overwrites your entries). Mortgage from QuickBooks P&amp;L is interest-side — enter the full payment on the mortgage above if you want P&amp;I.</div>
+                <div style={{fontSize:11,color:T.textTert,marginTop:8,lineHeight:1.4}}>Pulls rent (income) and expenses from the linked project(s) — auto-sorted into rent / management / service by account name — plus the loan payment from any mortgage account(s) you check above. Fills blank ledger months only (never overwrites your entries). Use “View transactions” to check how each line was categorized.</div>
               </>}
             </div>
           </div>

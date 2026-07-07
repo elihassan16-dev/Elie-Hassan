@@ -2776,7 +2776,10 @@ function RentalPortfolioPage(){
         else{ledger.push({id:Date.now()+Math.round(Math.random()*1e6),month:mo,rentReceived:map.rentReceived?String(map.rentReceived):"",mgmtPaid:map.mgmtPaid?String(map.mgmtPaid):"",mortgagePaid:map.mortgagePaid?String(map.mortgagePaid):"",serviceCalls:map.serviceCalls?String(map.serviceCalls):"",note:"From QuickBooks"});touched++;}
       });
       upd(r.id,{ledger,qbLastSync:thisMonth});setQbTxns(all);
-      if(!silent)setSyncMsg({ok:true,text:`Pulled ${all.length} transactions from ${ids.length} project${ids.length!==1?"s":""}${acctIds.length?` + ${acctIds.length} mortgage account${acctIds.length!==1?"s":""}`:""}; filled ${touched} month${touched!==1?"s":""} (blank fields only). Review the ledger and “View transactions” to check the mapping.`});
+      const tot={rent:0,management:0,mortgage:0,service:0,other:0};
+      all.forEach(t=>{tot[t.bucket]=(tot[t.bucket]||0)+Math.abs(Number(t.amount)||0);});
+      const cnt=(b)=>all.filter(t=>t.bucket===b).length;
+      if(!silent)setSyncMsg({ok:true,text:`Pulled ${all.length} transactions from ${ids.length} project${ids.length!==1?"s":""}${acctIds.length?` + ${acctIds.length} mortgage acct${acctIds.length!==1?"s":""}`:""}. Rent ${fmtD(tot.rent)} (${cnt("rent")}) · Mgmt ${fmtD(tot.management)} · Mortgage ${fmtD(tot.mortgage)} · Service ${fmtD(tot.service)}. Filled ${touched} month${touched!==1?"s":""} (blank only).${cnt("rent")===0?" ⚠ No rent found — the income is likely on a project you haven't linked (e.g. each unit's own project). Set each unit's QB project above, or link that project.":""}`});
     }catch(e){if(!silent)setSyncMsg({ok:false,text:e.message||"Sync failed."});}
     finally{setSyncing(false);}
   };

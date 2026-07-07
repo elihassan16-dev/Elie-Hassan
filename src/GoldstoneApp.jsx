@@ -2966,21 +2966,6 @@ function RentalPortfolioPage(){
             <button onClick={addUnit} style={{margin:"8px 16px 14px",width:"calc(100% - 32px)",padding:"12px",borderRadius:T.radiusSm,background:T.goldLight,border:`1.5px dashed ${T.gold}`,color:T.gold,cursor:"pointer",fontFamily:"inherit",fontSize:14,fontWeight:700}}>+ Add another unit</button>
           </div>
 
-          {/* Mortgage + management */}
-          <div style={{...card,marginBottom:16}}>
-            <SectionHdr icon="🏦" label="MORTGAGE & MANAGEMENT"/>
-            <div style={{padding:"14px 16px",display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr",gap:10}}>
-              <div style={{gridColumn:isMobile?"1 / -1":"auto"}}><label style={rowLbl}>Lender</label><input value={mg.lender||""} onChange={e=>upMg("lender",e.target.value)} placeholder="Lender" style={iS}/></div>
-              <div><label style={rowLbl}>Loan amount</label><input value={mg.amount||""} onChange={e=>upMg("amount",e.target.value.replace(/[^\d.]/g,""))} placeholder="$" style={iS}/></div>
-              <div><label style={rowLbl}>Interest rate</label><input value={mg.rate||""} onChange={e=>upMg("rate",e.target.value.replace(/[^\d.]/g,""))} placeholder="%/yr" style={iS}/></div>
-              <div><label style={rowLbl}>Mortgage / mo</label><input value={mg.payment||""} onChange={e=>upMg("payment",e.target.value.replace(/[^\d.]/g,""))} placeholder="$/mo" style={iS}/></div>
-              <div><label style={rowLbl}>Management $/door</label><input value={perDoor} onChange={e=>upd(sel.id,{mgmtPerDoor:e.target.value.replace(/[^\d.]/g,"")})} placeholder="$/door" style={iS}/></div>
-              <div style={{gridColumn:isMobile?"1 / -1":"span 2"}}><label style={rowLbl}>Management company</label><input value={sel.mgmtCompany||""} onChange={e=>upd(sel.id,{mgmtCompany:e.target.value})} placeholder="e.g. Platinum Management LLC" style={iS}/></div>
-              <div><label style={rowLbl}>Property reserve</label><input value={sel.reserve||""} onChange={e=>upd(sel.id,{reserve:e.target.value.replace(/[^\d.]/g,"")})} placeholder="$ held" style={iS}/></div>
-            </div>
-            <div style={{padding:"0 16px 14px",fontSize:12,color:T.textSub}}>Management: <b style={{color:T.text}}>{fmtD(n(perDoor))}/door × {units.length} door{units.length!==1?"s":""} = {fmtD(mgmtMonthly)}/mo</b> <span style={{color:T.textTert}}>· charged on every unit, vacant or not.</span>{sel.reserve&&<span style={{color:T.textTert}}> · {fmtD(n(sel.reserve))} reserve held</span>}</div>
-          </div>
-
           {/* QuickBooks link */}
           <div style={{...card,marginBottom:16}}>
             <SectionHdr icon="📗" label="QUICKBOOKS"/>

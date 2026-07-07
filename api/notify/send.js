@@ -27,14 +27,18 @@ export default async function handler(req, res) {
   const db = admin();
   // Resolve recipient display names -> user rows (id + email). Never notify the
   // sender, and skip anyone an admin has muted.
-  const { data: users } = await db.from("users").select("id,email,name,notify_muted");
+  const { data: users } = await db.from("users").select("id,email,name,notify_muted,sms_email");
   const wanted = new Set(recipients.map((n) => String(n).trim().toLowerCase()).filter(Boolean));
   const targets = (users || []).filter((u) => u.name && wanted.has(u.name.toLowerCase()) && u.id !== user.id && !u.notify_muted);
   if (targets.length === 0) { res.status(200).json({ pushed: 0, mailed: 0 }); return; }
   const ids = targets.map((u) => u.id);
 
   const payload = JSON.stringify({ title: title || "Goldstone Properties", body: body || "", url: url || "/", tag: tag || undefined });
-  let pushed = 0, mailed = 0;
+  // Relative URLs ("/") are useless outside the app — build an absolute link for
+  // the email and SMS channels.
+  const base = process.env.APP_URL || "https://gpflips.com";
+  const link = url && /^https?:/i.test(url) ? url : `${base}${url && String(url).startsWith("/") ? url : "/"}`;
+  let pushed = 0, mailed = 0, texted = 0;
 
   // ── Web Push ──────────────────────────────────────────────────────────────
   const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY, VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
@@ -65,12 +69,31 @@ export default async function handler(req, res) {
         const r = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ from: FROM, to, subject: title || "Goldstone Properties", text: (body || "") + (url ? `\n\nOpen the app: ${url}` : "") }),
+          body: JSON.stringify({ from: FROM, to, subject: title || "Goldstone Properties", text: (body || "") + `\n\nOpen the app: ${link}` }),
         });
         if (r.ok) mailed++;
       } catch (e) { console.error("[notify] email failed:", e.message); }
     }
   }
 
-  res.status(200).json({ pushed, mailed });
+  // ── Text message (carrier email→SMS gateways, via the same Resend key) ──────
+  // Free but best-effort: carriers throttle these and some (AT&T) have retired
+  // their gateway. Keep it short — gateways hard-truncate around 160 chars.
+  if (RESEND && FROM) {
+    const cells = [...new Set(targets.map((u) => (u.sms_email || "").trim()).filter((x) => x.includes("@")))];
+    const sms = `${title || "Goldstone"}: ${body || ""}`.slice(0, 120) + `\n${link}`;
+    for (const to of cells) {
+      try {
+        const r = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
+          // Gateways render the subject in parens before the body; keep it tiny.
+          body: JSON.stringify({ from: FROM, to, subject: "Goldstone", text: sms }),
+        });
+        if (r.ok) texted++;
+      } catch (e) { console.error("[notify] sms failed:", e.message); }
+    }
+  }
+
+  res.status(200).json({ pushed, mailed, texted });
 }

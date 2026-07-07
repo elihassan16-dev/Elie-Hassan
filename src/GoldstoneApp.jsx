@@ -1533,8 +1533,8 @@ function AddFromDirectory({avail,onAdd}){
 function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, locDraws=[], sellingDate, closingDate, bsHm, bsLoc, bsAvailable, hmPaidSoFar, onSave, onClose}){
   // Auto-matched line of credit for this property → projected interest to a sell date.
   const[assumedSell,setAssumedSell]=useState(sellingDate||new Date().toISOString().slice(0,10));
-  const locRows=(locDraws||[]).map(d=>{const end=d.paybackDate||assumedSell;const days=daysBetween(d.dateFunded,end);return {...d,end,days,interest:(Number(d.amount)||0)*(LOC_RATE/365)*days};}).sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
-  const locFunded=locRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const locRows=(locDraws||[]).map(d=>{const end=d.paybackDate||assumedSell;const days=daysBetween(d.dateFunded,end);return {...d,end,days,balance:drawBalance(d),interest:drawInterest({...d,paybackDate:end})};}).sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
+  const locFunded=locRows.reduce((s,r)=>s+drawBalance(r),0);
   const locInterest=locRows.reduce((s,r)=>s+r.interest,0);
   const[hmLoanAmt, setHmLoanAmt] = useState(f.acHmLoanAmt||String(liveHmTotal));
   const[hmRate,    setHmRate]    = useState(f.acHmRate!==undefined?f.acHmRate:String(f.hmRate||9));
@@ -1660,9 +1660,9 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
                 <div key={i} style={{display:"grid",gridTemplateColumns:gcol,gap:10,padding:"7px 14px",borderTop:`1px solid ${T.border}`,alignItems:"center"}}>
                   <div style={{minWidth:0}}>
                     <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.funderName||"—"}</div>
-                    <div style={{fontSize:10.5,color:T.textTert}}>{finFmtDate(r.dateFunded)}{r.paybackDate?` → paid`:` · ${r.days}d`}</div>
+                    <div style={{fontSize:10.5,color:T.textTert}}>{finFmtDate(r.dateFunded)}{r.paybackDate?` → paid`:` · ${r.days}d`}{drawPaid(r)>0?` · paid down from ${fmtD(r.amount)}`:""}</div>
                   </div>
-                  <div style={{fontSize:13,fontWeight:600,color:T.text,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(r.amount)}</div>
+                  <div style={{fontSize:13,fontWeight:600,color:T.text,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(r.balance)}</div>
                   <div style={{fontSize:13,fontWeight:700,color:T.gold,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(r.interest)}</div>
                 </div>
               ))}
@@ -7723,7 +7723,28 @@ function NavMenu({items,active,isPinned,onNavigate,onTogglePin,onClose}){
 const LOC_RATE=0.15;
 const daysBetween=(a,b)=>{const s=new Date(a),e=new Date(b);if(isNaN(s)||isNaN(e))return 0;return Math.max(0,Math.round((e-s)/86400000));};
 const drawDays=(d)=>daysBetween(d.dateFunded,d.paybackDate||new Date());
-const drawInterest=(d)=>(Number(d.amount)||0)*(LOC_RATE/365)*drawDays(d);
+// Partial paydowns: money the lender got back before the loan was fully paid off.
+const drawPaid=(d)=>((d.payments||[]).reduce((s,p)=>s+(Number(p.amount)||0),0));
+// Principal still outstanding = original amount minus every partial paydown (never < 0).
+const drawBalance=(d)=>Math.max(0,(Number(d.amount)||0)-drawPaid(d));
+// Interest is day-counted at 15%/yr on the OUTSTANDING balance in each period. A
+// partial paydown lowers the balance from its date forward, so the larger loan only
+// accrues up to the paydown, then the smaller balance accrues after it — exactly the
+// tiered calc a real line of credit uses.
+const drawInterest=(d)=>{
+  if(!d||!d.dateFunded)return 0;
+  const end=d.paybackDate||new Date().toISOString().slice(0,10);
+  const pays=[...(d.payments||[])].filter(p=>p.date&&(Number(p.amount)||0)>0).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  let bal=Number(d.amount)||0, cursor=d.dateFunded, int=0;
+  for(const p of pays){
+    if(String(p.date)>String(end))break;                 // paid after payoff — ignore
+    int+=bal*(LOC_RATE/365)*daysBetween(cursor,p.date);
+    bal=Math.max(0,bal-(Number(p.amount)||0));
+    cursor=p.date;
+  }
+  int+=bal*(LOC_RATE/365)*daysBetween(cursor,end);
+  return int;
+};
 const sameName=(a,b)=>!!a&&!!b&&String(a).trim().toLowerCase()===String(b).trim().toLowerCase();
 // Which private-lender draws belong to a property: explicit link, else a strong
 // address match on the draw's label (reuses the QuickBooks address matcher).
@@ -7747,12 +7768,12 @@ const funderStats=(f,draws)=>{
   const paid=mine.filter(d=>d.paybackDate);
   const paidReinvest=paid.filter(d=>d.interestHandling==="reinvest").reduce((s,d)=>s+drawInterest(d),0);
   const paidDistrib=paid.filter(d=>d.interestHandling==="distribute").reduce((s,d)=>s+drawInterest(d),0);
-  const paidWithdrawnPrincipal=paid.filter(d=>d.principalHandling==="withdraw").reduce((s,d)=>s+(Number(d.amount)||0),0);
+  const paidWithdrawnPrincipal=paid.filter(d=>d.principalHandling==="withdraw").reduce((s,d)=>s+drawBalance(d),0);
   const reinvest=ledgerSum(f,"reinvest")+paidReinvest;             // manual reinvest entries + reinvested payback interest
   const distribution=ledgerSum(f,"distribution")+paidDistrib;      // manual + interest paid out at payback
   const withdrawal=ledgerSum(f,"withdrawal")+paidWithdrawnPrincipal; // manual + principal he took back at payback
   const capital=principal+reinvest-withdrawal+adjustment;
-  const deployed=open.reduce((s,d)=>s+(Number(d.amount)||0),0);
+  const deployed=open.reduce((s,d)=>s+drawBalance(d),0);   // only the still-outstanding balance is deployed
   const interest=open.reduce((s,d)=>s+drawInterest(d),0);           // accruing on open loans
   const interestRealized=paid.reduce((s,d)=>s+drawInterest(d),0);   // earned on closed loans
   const interestEarned=interest+interestRealized;                   // total interest accrued
@@ -7777,16 +7798,19 @@ const SIGNED_LEDGER=new Set(["adjustment","interest_adjust"]);
 // available balance (what's un-deployed). Same-date order: fund → wires/ledger →
 // payback (+principal) → its derived lines (principal-out / interest), so the balance
 // rises on the payback first, then the red lines pull it back — never dips negative.
-const regRank=(e)=>e.kind==="fund"?0:e.kind==="payback"?2:e.derived?3:1;
+const regRank=(e)=>e.kind==="fund"?0:(e.kind==="payment"||e.kind==="payback")?2:e.derived?3:1;
 const funderRegister=(f,draws)=>{
   const ev=[];
   (f.ledger||[]).forEach(e=>ev.push({id:"L"+e.id,kind:e.type,date:e.date||"",amount:Number(e.amount)||0,note:e.note||"",ledgerId:e.id}));
   funderDraws(f,draws).forEach(d=>{
     ev.push({id:"F"+d.id,kind:"fund",date:d.dateFunded||"",amount:Number(d.amount)||0,note:d.propertyLabel||"",draw:d});
+    // Each partial paydown returns principal to his available cash before payoff.
+    (d.payments||[]).forEach(p=>ev.push({id:"PP"+d.id+"_"+p.id,kind:"payment",date:p.date||"",amount:Number(p.amount)||0,note:`Partial paydown — ${d.propertyLabel||""}`.trim(),draw:d,payment:p}));
     if(d.paybackDate){
       const int=drawInterest(d);
-      ev.push({id:"P"+d.id,kind:"payback",date:d.paybackDate,amount:Number(d.amount)||0,interest:int,note:d.propertyLabel||"",draw:d});
-      if(d.principalHandling==="withdraw")ev.push({id:"W"+d.id,kind:"withdrawal",date:d.paybackDate,amount:Number(d.amount)||0,note:`Principal paid back to him — ${d.propertyLabel||""}`.trim(),draw:d,derived:true,field:"principal"});
+      const rem=drawBalance(d);   // only what's left after partial paydowns settles at payoff
+      ev.push({id:"P"+d.id,kind:"payback",date:d.paybackDate,amount:rem,interest:int,note:d.propertyLabel||"",draw:d});
+      if(d.principalHandling==="withdraw")ev.push({id:"W"+d.id,kind:"withdrawal",date:d.paybackDate,amount:rem,note:`Principal paid back to him — ${d.propertyLabel||""}`.trim(),draw:d,derived:true,field:"principal"});
       if(d.interestHandling==="reinvest")ev.push({id:"R"+d.id,kind:"reinvest",date:d.paybackDate,amount:int,note:`Interest reinvested — ${d.propertyLabel||""}`.trim(),draw:d,derived:true,field:"interest"});
       else if(d.interestHandling==="distribute")ev.push({id:"D"+d.id,kind:"distribution",date:d.paybackDate,amount:int,note:`Interest paid out — ${d.propertyLabel||""}`.trim(),draw:d,derived:true,field:"interest"});
     }
@@ -7794,7 +7818,7 @@ const funderRegister=(f,draws)=>{
   ev.sort((a,b)=>String(a.date).localeCompare(String(b.date))||(regRank(a)-regRank(b)));
   let bal=0;
   ev.forEach(e=>{
-    if(e.kind==="principal"||e.kind==="reinvest"||e.kind==="payback")bal+=e.amount;
+    if(e.kind==="principal"||e.kind==="reinvest"||e.kind==="payback"||e.kind==="payment")bal+=e.amount;
     else if(e.kind==="adjustment")bal+=e.amount;                 // signed capital correction
     else if(e.kind==="withdrawal"||e.kind==="fund")bal-=e.amount;
     e.balance=bal; // "distribution" / "interest_adjust" don't move available capital
@@ -7882,6 +7906,7 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
     const f=funders.find(x=>String(x.id)===String(funderId));
     const match=(properties||[]).find(p=>`${p.address}${p.city?`, ${p.city}`:""}`===prop.trim()||p.address===prop.trim());
     onSave({
+      ...(draw||{}),   // keep partial-payment history + payback handling on edit
       id:draw?.id||Date.now(),
       propertyId:match?match.id:(draw?.propertyId||null),
       propertyLabel:prop.trim(),
@@ -8057,6 +8082,41 @@ function FinPaybackModal({draw,onConfirm,onClose}){
       <div><div style={finLabel}>The interest ({fmtD(int)})…</div>
         {radio(interest,setInterest,[["reinvest","Reinvested — added to his balance"],["distribute","Paid out to him (his profit)"],["leave","No interest entry"]],"pi")}
       </div>
+    </FinModal>
+  );
+}
+
+// Record a partial paydown on an open draw: principal comes back early, and interest
+// re-tiers automatically (the bigger balance accrues only up to this date, the smaller
+// balance from here forward). The loan stays open on whatever's left.
+function FinPartialPayModal({draw,onConfirm,onClose}){
+  const[date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const[amount,setAmount]=useState("");
+  const bal=drawBalance(draw);
+  const a=Number(numIn(amount));
+  const bad=!!date&&new Date(date)<new Date(draw.dateFunded||date);
+  const over=a>bal+0.5;
+  const intToDate=drawInterest({...draw,paybackDate:date});   // interest earned up to this paydown
+  const newBal=Math.max(0,bal-a);
+  const valid=a>0&&!!date&&!bad&&!over;
+  return(
+    <FinModal title={`Partial paydown — ${draw.propertyLabel||"draw"}`} onClose={onClose}
+      footer={<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button disabled={!valid} onClick={()=>{onConfirm({date,amount:a});onClose();}} style={{...finBtn(true),opacity:valid?1:0.5}}>Record paydown</button></>}>
+      <div style={{background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:10,padding:"10px 12px",fontSize:13,color:"#8a6d1f"}}>
+        Outstanding balance <b>{fmtD(bal)}</b> · funded {finFmtDate(draw.dateFunded)}
+      </div>
+      <div style={{display:"flex",gap:10}}>
+        <div style={{flex:1}}><div style={finLabel}>Paydown date</div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={finInput}/></div>
+        <div style={{flex:1}}><div style={finLabel}>Amount paid down</div><input value={amount} onChange={e=>setAmount(numIn(e.target.value))} inputMode="decimal" placeholder="0" style={finInput}/></div>
+      </div>
+      {a>0&&!bad&&!over&&(
+        <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px",fontSize:12.5,color:T.textSub,lineHeight:1.7}}>
+          <div>Interest to this date on the <b>{fmtD(bal)}</b> balance: <b style={{color:T.gold}}>{fmtD(intToDate)}</b></div>
+          <div>New balance going forward: <b style={{color:T.text}}>{fmtD(newBal)}</b> <span style={{color:T.textTert}}>· accrues at 15%/yr from {finFmtDate(date)}</span></div>
+        </div>
+      )}
+      {bad&&<div style={{fontSize:11.5,color:T.red,fontWeight:600}}>Paydown date is before the funded date — check the year.</div>}
+      {over&&<div style={{fontSize:11.5,color:T.red,fontWeight:600}}>That's more than the {fmtD(bal)} outstanding. Use <b>Payback</b> to close the loan in full instead.</div>}
     </FinModal>
   );
 }
@@ -9616,6 +9676,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   const[ledgerModal,setLedgerModal]=useState(false);
   const[registerImport,setRegisterImport]=useState(false);
   const[paybackModal,setPaybackModal]=useState(null);  // draw being paid back
+  const[partialModal,setPartialModal]=useState(null);  // draw getting a partial paydown
   const[drawModal,setDrawModal]=useState(null);        // {} new, or draw obj, or {defaultFunderId}
   const save=()=>{setTimeout(()=>{flushFunders&&flushFunders();flushDraws&&flushDraws();},0);};
 
@@ -9637,8 +9698,11 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   // Store the payback date + interest decision on the draw itself, so it can be
   // set or changed anytime (including on already-paid draws).
   const recordPayback=(draw,{paybackDate,principalHandling,interestHandling})=>{saveDraw({...draw,paybackDate,principalHandling,interestHandling});};
+  // Add a partial paydown; the loan stays open on the reduced balance.
+  const addPartialPayment=(draw,{date,amount})=>{saveDraw({...draw,payments:[...(draw.payments||[]),{id:Date.now(),date,amount:Number(amount)||0}]});};
   const delEvent=(e)=>{
     if(e.derived&&e.draw){saveDraw({...e.draw,...(e.field==="principal"?{principalHandling:"keep"}:{interestHandling:"leave"})});return;}
+    if(e.kind==="payment"&&e.draw&&e.payment){if(window.confirm("Remove this partial paydown?"))saveDraw({...e.draw,payments:(e.draw.payments||[]).filter(p=>p.id!==e.payment.id)});return;}
     if(e.ledgerId!=null&&sel)delLedger(sel.id,e.ledgerId);
     else if(e.kind==="fund"&&e.draw){if(window.confirm("Delete this funding (draw)?"))delDraw(e.draw.id);}
     else if(e.kind==="payback"&&e.draw){if(window.confirm("Reopen this loan (remove the payback)?"))saveDraw({...e.draw,paybackDate:null,principalHandling:null,interestHandling:null});}
@@ -9659,12 +9723,12 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
     const open=[...mine.filter(d=>!d.paybackDate)].sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
     const paid=[...mine.filter(d=>d.paybackDate)].sort((a,b)=>String(a.paybackDate||"").localeCompare(String(b.paybackDate||"")));
     const sum=(arr,fn)=>arr.reduce((x,d)=>x+fn(d),0);
-    const openAmt=sum(open,d=>Number(d.amount)||0), openInt=sum(open,drawInterest);
+    const openAmt=sum(open,drawBalance), openInt=sum(open,drawInterest);
     const paidAmt=sum(paid,d=>Number(d.amount)||0), paidInt=sum(paid,drawInterest);
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
     const stat=(l,v,c)=>`<div class="stat"><div class="sl">${l}</div><div class="sv" style="color:${c||"#1C1C1E"}">${fmtD(v)}</div></div>`;
-    const rowOpen=(d)=>`<tr><td>${esc(d.propertyLabel||"—")}</td><td>${esc(finFmtDate(d.dateFunded))}</td><td>${drawDays(d)}d</td><td class="r">${fmtD(d.amount)}</td><td class="r gold">${fmtD(drawInterest(d))}</td></tr>`;
+    const rowOpen=(d)=>`<tr><td>${esc(d.propertyLabel||"—")}${drawPaid(d)>0?` <span style="color:#8A8A8E">(paid down from ${fmtD(d.amount)})</span>`:""}</td><td>${esc(finFmtDate(d.dateFunded))}</td><td>${drawDays(d)}d</td><td class="r">${fmtD(drawBalance(d))}</td><td class="r gold">${fmtD(drawInterest(d))}</td></tr>`;
     const rowPaid=(d)=>`<tr><td>${esc(d.propertyLabel||"—")}</td><td>${esc(finFmtDate(d.dateFunded))}</td><td>${esc(finFmtDate(d.paybackDate))}</td><td class="r">${fmtD(d.amount)}</td><td class="r gold">${fmtD(drawInterest(d))}</td></tr>`;
     const openRows=open.length?open.map(rowOpen).join(""):`<tr><td colspan="5" class="empty">None outstanding.</td></tr>`;
     const paidRows=paid.length?paid.map(rowPaid).join(""):`<tr><td colspan="5" class="empty">None yet.</td></tr>`;
@@ -9722,7 +9786,8 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   };
 
   const kindMeta=(e)=>{
-    if(e.kind==="fund")return {label:`Funded — ${e.note||"deal"}`,color:T.orange,sign:-1};
+    if(e.kind==="fund")return {label:`Funded — ${e.note||"deal"}`,color:T.orange,sign:-1,extra:(e.draw&&drawPaid(e.draw)>0&&!e.draw.paybackDate)?`${fmtD(drawBalance(e.draw))} outstanding after paydowns`:""};
+    if(e.kind==="payment")return {label:`Partial paydown — ${e.draw?.propertyLabel||e.note||"deal"}`,color:T.blue,sign:1,extra:e.draw?`balance now ${fmtD(drawBalance(e.draw))}`:""};
     if(e.kind==="payback")return {label:`Payback — ${e.note||"deal"}`,color:"#16A34A",sign:1,extra:e.interest?`+ ${fmtD(e.interest)} interest earned`:""};
     const t=LEDGER_TYPES.find(x=>x.v===e.kind)||{label:e.kind,color:T.textSub,sign:1};
     return {label:t.label+(e.note?` — ${e.note}`:""),color:t.color,sign:t.sign};
@@ -9780,6 +9845,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
               {/* actions sit BEFORE the amount so the amount column stays aligned across every row */}
               <div style={{display:"flex",flexDirection:"column",gap:3,flexShrink:0,alignItems:"flex-end"}}>
                 {isOpenFund&&<button onClick={()=>setPaybackModal(e.draw)} style={{background:"none",border:`1px solid ${T.green}`,borderRadius:7,color:T.green,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:"2px 7px",fontFamily:"inherit"}}>Payback</button>}
+                {isOpenFund&&<button onClick={()=>setPartialModal(e.draw)} title="Record a partial paydown" style={{background:"none",border:`1px solid ${T.blue}`,borderRadius:7,color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:"2px 7px",fontFamily:"inherit"}}>Pay down</button>}
                 {e.kind==="payback"&&e.draw&&(()=>{const p=e.draw.principalHandling,i=e.draw.interestHandling;const set=p||i;
                   const label=set?`${p==="withdraw"?"P out":"P kept"} · ${i==="reinvest"?"int reinv":i==="distribute"?"int paid":"int —"}`:"set ▾";
                   const col=set?T.textSub:T.gold;return(
@@ -9805,6 +9871,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       {ledgerModal&&sel&&<FinLedgerModal funderName={sel.name} onSave={(e)=>addLedger(sel.id,e)} onClose={()=>setLedgerModal(false)}/>}
       {registerImport&&sel&&<FinRegisterImport funder={sel} onImport={(entries)=>addLedgerBulk(sel.id,entries)} onClose={()=>setRegisterImport(false)}/>}
       {paybackModal&&<FinPaybackModal draw={paybackModal} onConfirm={(r)=>recordPayback(paybackModal,r)} onClose={()=>setPaybackModal(null)}/>}
+      {partialModal&&<FinPartialPayModal draw={partialModal} onConfirm={(r)=>addPartialPayment(partialModal,r)} onClose={()=>setPartialModal(null)}/>}
       {drawModal&&<FinDrawModal draw={drawModal.id?drawModal:null} defaultFunderId={drawModal.defaultFunderId} funders={list} properties={sharedProps} onSave={saveDraw} onClose={()=>setDrawModal(null)}/>}
 
       {/* Header + sub-tabs */}

@@ -7893,6 +7893,7 @@ function FinLedgerModal({funderName,onSave,onClose}){
 }
 
 function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
+  const isMobile=useIsMobile();
   const editing=!!draw;
   const[prop,setProp]=useState(draw?.propertyLabel||"");
   const[funderId,setFunderId]=useState(draw?.funderId||defaultFunderId||(funders[0]?.id||""));
@@ -7929,9 +7930,9 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
         </select>
       </div>
       <div><div style={finLabel}>Amount</div><input value={amount} onChange={e=>setAmount(numIn(e.target.value))} inputMode="decimal" placeholder="0" style={finInput}/></div>
-      <div style={{display:"flex",gap:10}}>
-        <div style={{flex:1}}><div style={finLabel}>Date funded</div><input type="date" value={dateFunded} onChange={e=>setDateFunded(e.target.value)} style={finInput}/></div>
-        <div style={{flex:1}}><div style={finLabel}>Payback date</div><input type="date" value={paybackDate} onChange={e=>setPaybackDate(e.target.value)} style={finInput}/></div>
+      <div style={{display:"flex",gap:10,flexDirection:isMobile?"column":"row"}}>
+        <div style={{flex:1,minWidth:0}}><div style={finLabel}>Date funded</div><input type="date" value={dateFunded} onChange={e=>setDateFunded(e.target.value)} style={{...finInput,minHeight:44,WebkitAppearance:"none",appearance:"none"}}/></div>
+        <div style={{flex:1,minWidth:0}}><div style={finLabel}>Payback date</div><input type="date" value={paybackDate} onChange={e=>setPaybackDate(e.target.value)} style={{...finInput,minHeight:44,WebkitAppearance:"none",appearance:"none"}}/></div>
       </div>
       <div style={{fontSize:11,color:T.textTert,marginTop:-4}}>Leave payback empty while the loan is open — interest accrues to today.</div>
       {(()=>{
@@ -8090,6 +8091,7 @@ function FinPaybackModal({draw,onConfirm,onClose}){
 // re-tiers automatically (the bigger balance accrues only up to this date, the smaller
 // balance from here forward). The loan stays open on whatever's left.
 function FinPartialPayModal({draw,onConfirm,onClose}){
+  const isMobile=useIsMobile();
   const[date,setDate]=useState(new Date().toISOString().slice(0,10));
   const[amount,setAmount]=useState("");
   const bal=drawBalance(draw);
@@ -8105,9 +8107,11 @@ function FinPartialPayModal({draw,onConfirm,onClose}){
       <div style={{background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:10,padding:"10px 12px",fontSize:13,color:"#8a6d1f"}}>
         Outstanding balance <b>{fmtD(bal)}</b> · funded {finFmtDate(draw.dateFunded)}
       </div>
-      <div style={{display:"flex",gap:10}}>
-        <div style={{flex:1}}><div style={finLabel}>Paydown date</div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={finInput}/></div>
-        <div style={{flex:1}}><div style={finLabel}>Amount paid down</div><input value={amount} onChange={e=>setAmount(numIn(e.target.value))} inputMode="decimal" placeholder="0" style={finInput}/></div>
+      {/* iOS renders <input type=date> with an intrinsic width that overflows a 50% flex
+          column, so the two fields collide on phones — stack them there instead. */}
+      <div style={{display:"flex",gap:10,flexDirection:isMobile?"column":"row"}}>
+        <div style={{flex:1,minWidth:0}}><div style={finLabel}>Paydown date</div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{...finInput,minHeight:44,WebkitAppearance:"none",appearance:"none"}}/></div>
+        <div style={{flex:1,minWidth:0}}><div style={finLabel}>Amount paid down</div><input value={amount} onChange={e=>setAmount(numIn(e.target.value))} inputMode="decimal" placeholder="0" style={{...finInput,minHeight:44}}/></div>
       </div>
       {a>0&&!bad&&!over&&(
         <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px",fontSize:12.5,color:T.textSub,lineHeight:1.7}}>

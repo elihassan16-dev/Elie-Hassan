@@ -2865,8 +2865,10 @@ function RentalPortfolioPage(){
               <div><label style={rowLbl}>Interest rate</label><input value={mg.rate||""} onChange={e=>upMg("rate",e.target.value.replace(/[^\d.]/g,""))} placeholder="%/yr" style={iS}/></div>
               <div><label style={rowLbl}>Mortgage / mo</label><input value={mg.payment||""} onChange={e=>upMg("payment",e.target.value.replace(/[^\d.]/g,""))} placeholder="$/mo" style={iS}/></div>
               <div><label style={rowLbl}>Management $/door</label><input value={perDoor} onChange={e=>upd(sel.id,{mgmtPerDoor:e.target.value.replace(/[^\d.]/g,"")})} placeholder="$/door" style={iS}/></div>
+              <div style={{gridColumn:isMobile?"1 / -1":"span 2"}}><label style={rowLbl}>Management company</label><input value={sel.mgmtCompany||""} onChange={e=>upd(sel.id,{mgmtCompany:e.target.value})} placeholder="e.g. Platinum Management LLC" style={iS}/></div>
+              <div><label style={rowLbl}>Property reserve</label><input value={sel.reserve||""} onChange={e=>upd(sel.id,{reserve:e.target.value.replace(/[^\d.]/g,"")})} placeholder="$ held" style={iS}/></div>
             </div>
-            <div style={{padding:"0 16px 14px",fontSize:12,color:T.textSub}}>Management: <b style={{color:T.text}}>{fmtD(n(perDoor))}/door × {units.length} door{units.length!==1?"s":""} = {fmtD(mgmtMonthly)}/mo</b> <span style={{color:T.textTert}}>· charged on every unit, vacant or not.</span></div>
+            <div style={{padding:"0 16px 14px",fontSize:12,color:T.textSub}}>Management: <b style={{color:T.text}}>{fmtD(n(perDoor))}/door × {units.length} door{units.length!==1?"s":""} = {fmtD(mgmtMonthly)}/mo</b> <span style={{color:T.textTert}}>· charged on every unit, vacant or not.</span>{sel.reserve&&<span style={{color:T.textTert}}> · {fmtD(n(sel.reserve))} reserve held</span>}</div>
           </div>
 
           {/* QuickBooks link */}

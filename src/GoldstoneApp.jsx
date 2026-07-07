@@ -7766,10 +7766,11 @@ function NotificationToggle({displayName,isAdmin}){
     setBusy(true);setErr("");setTestMsg("Sending…");
     try{
       const r=await qbAuthFetch("/api/notify/test",{method:"POST"});
-      if(r.push==="sent") setTestMsg(`Push sent ✓ — watch for the banner. And ${emailLabel(r.email)}`);
-      else if(r.push==="no-subscriptions") setTestMsg("This device isn't registered yet — tap “Turn on notifications” above first.");
+      const smsLabel=(s)=>({sent:"text sent ✓ (can take a minute)","no-sms-email":"text: no number saved — add yours via 📱 SMS in the Team list","not-configured":"text: Resend not set up"}[s]||`text: ${s}`);
+      if(r.push==="sent") setTestMsg(`Push sent ✓ — watch for the banner. ${emailLabel(r.email)} · ${smsLabel(r.sms)}`);
+      else if(r.push==="no-subscriptions") setTestMsg(`This device isn't registered for push — tap “Turn on notifications” above. Meanwhile: ${emailLabel(r.email)} · ${smsLabel(r.sms)}`);
       else if(r.push==="no-vapid-keys") setTestMsg("Server missing VAPID keys — add them in Vercel and redeploy.");
-      else setTestMsg(`Push: ${r.push}${r.subscriptions?` (${r.subscriptions} device${r.subscriptions>1?"s":""})`:""} · ${emailLabel(r.email)}`);
+      else setTestMsg(`Push: ${r.push}${r.subscriptions?` (${r.subscriptions} device${r.subscriptions>1?"s":""})`:""} · ${emailLabel(r.email)} · ${smsLabel(r.sms)}`);
     }catch(e){ setErr(e.message||"Test failed."); setTestMsg(""); }
     setBusy(false);
   };

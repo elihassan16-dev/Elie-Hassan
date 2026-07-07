@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
 
   const db = admin();
-  const out = { pushed: 0, mailed: 0, subscriptions: 0, push: "skipped", email: "skipped" };
+  const out = { pushed: 0, mailed: 0, texted: 0, subscriptions: 0, push: "skipped", email: "skipped", sms: "skipped" };
   const payload = JSON.stringify({
     title: "🔔 Goldstone test",
     body: "Notifications are working. You'll get these when the app is closed.",
@@ -47,6 +47,25 @@ export default async function handler(req, res) {
       if (r.ok) { out.mailed = 1; out.email = "sent"; }
       else { const j = await r.json().catch(() => null); out.email = `resend ${r.status}: ${(j && (j.message || j.error || j.name)) || ""}`.trim(); }
     } catch (e) { out.email = "error"; }
+  }
+
+  // ── Text message to this user (their carrier's email→SMS gateway) ───────────
+  if (!RESEND || !FROM) { out.sms = "not-configured"; }
+  else {
+    const { data: me } = await db.from("users").select("sms_email").eq("id", user.id).maybeSingle();
+    const cell = (me && me.sms_email || "").trim();
+    if (!cell.includes("@")) { out.sms = "no-sms-email"; } // no number saved for this user
+    else {
+      try {
+        const r = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ from: FROM, to: cell, subject: "Goldstone", text: "Test: Goldstone text notifications are working.\nhttps://gpflips.com" }),
+        });
+        if (r.ok) { out.texted = 1; out.sms = "sent"; }
+        else { const j = await r.json().catch(() => null); out.sms = `resend ${r.status}: ${(j && (j.message || j.error || j.name)) || ""}`.trim(); }
+      } catch (e) { out.sms = "error"; }
+    }
   }
 
   res.status(200).json(out);

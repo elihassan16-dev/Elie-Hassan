@@ -2718,6 +2718,16 @@ const rentMonthsBetween=(from,to)=>{ // inclusive list of "YYYY-MM"
 };
 const rentExpected=(r)=>(r.units||[]).reduce((s,u)=>s+n(u.rent),0);
 const rentLedgerFor=(r,month)=>(r.ledger||[]).find(x=>x.month===month);
+// Classify a QuickBooks transaction (by account name) into a rental ledger bucket.
+function rentBucket(account){
+  const s=(account||"").toLowerCase();
+  const has=(...k)=>k.some(x=>s.includes(x));
+  if(has("rent","rental income","tenant","lease income")) return "rent";
+  if(has("mortgage","loan","interest","principal","note pay","p&i","escrow")) return "mortgage";
+  if(has("management","property mgmt","mgmt fee","platinum")) return "management";
+  if(has("repair","maintenance","service","plumb","hvac","electric","turnover","cleaning","landscap","snow","pest","appliance","handyman")) return "service";
+  return "other";
+}
 function RentalPortfolioPage(){
   const { rentals, setRentals, flushRentals, sharedProps }=useData();
   const isMobile=useIsMobile();
@@ -2732,6 +2742,34 @@ function RentalPortfolioPage(){
   const[projects,setProjects]=useState(null);
   useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setQbConnected(!!s.connected)).catch(()=>setQbConnected(false));},[]);
   useEffect(()=>{if(qbConnected&&!projects)qbAuthFetch("/api/quickbooks/projects").then(d=>setProjects(d.items||[])).catch(()=>setProjects([]));},[qbConnected,projects]);
+  const[syncing,setSyncing]=useState(false);
+  const[syncMsg,setSyncMsg]=useState(null);
+  const[qbTxns,setQbTxns]=useState(null);   // pulled transactions for the open rental
+  const[showTxns,setShowTxns]=useState(false);
+  useEffect(()=>{setSyncMsg(null);setQbTxns(null);setShowTxns(false);},[selId]);
+  // Pull the linked project(s)' transactions, categorize, and fill the ledger.
+  const syncQB=async(r)=>{
+    const ids=[...new Set([r.qbProjectId,...(r.units||[]).map(u=>u.qbProjectId)].filter(Boolean))];
+    if(!ids.length){setSyncMsg({ok:false,text:"Link a QuickBooks project above first."});return;}
+    setSyncing(true);setSyncMsg(null);
+    try{
+      const all=[];
+      for(const id of ids){const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);(d.items||[]).forEach(t=>all.push({...t,bucket:rentBucket(t.account)}));}
+      const byMonth={};
+      all.forEach(t=>{const mo=String(t.date||"").slice(0,7);if(!/^\d{4}-\d{2}$/.test(mo))return;const amt=Math.abs(Number(t.amount)||0);(byMonth[mo]=byMonth[mo]||{rent:0,management:0,mortgage:0,service:0,other:0})[t.bucket]+=amt;});
+      const ledger=[...(r.ledger||[])];
+      const idxByMonth=new Map(ledger.map((x,i)=>[x.month,i]));
+      let touched=0;
+      Object.entries(byMonth).forEach(([mo,c])=>{
+        const map={rentReceived:Math.round(c.rent),mgmtPaid:Math.round(c.management),mortgagePaid:Math.round(c.mortgage),serviceCalls:Math.round(c.service)};
+        if(idxByMonth.has(mo)){const row={...ledger[idxByMonth.get(mo)]};let ch=false;Object.entries(map).forEach(([k,v])=>{if(v>0&&(!row[k]||String(row[k])==="")){row[k]=String(v);ch=true;}});if(ch){ledger[idxByMonth.get(mo)]=row;touched++;}}
+        else{ledger.push({id:Date.now()+Math.round(Math.random()*1e6),month:mo,rentReceived:map.rentReceived?String(map.rentReceived):"",mgmtPaid:map.mgmtPaid?String(map.mgmtPaid):"",mortgagePaid:map.mortgagePaid?String(map.mortgagePaid):"",serviceCalls:map.serviceCalls?String(map.serviceCalls):"",note:"From QuickBooks"});touched++;}
+      });
+      upd(r.id,{ledger});setQbTxns(all);
+      setSyncMsg({ok:true,text:`Pulled ${all.length} transactions from ${ids.length} project${ids.length!==1?"s":""}; filled ${touched} month${touched!==1?"s":""} (blank fields only). Review the ledger and “View transactions” to check the mapping.`});
+    }catch(e){setSyncMsg({ok:false,text:e.message||"Sync failed."});}
+    finally{setSyncing(false);}
+  };
 
   const list=useMemo(()=>[...(rentals||[])].sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[rentals]);
   const sel=selId!=null?list.find(r=>String(r.id)===String(selId)):null;
@@ -2883,11 +2921,40 @@ function RentalPortfolioPage(){
                   {(projects||[]).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
                 {!projects&&<div style={{fontSize:11,color:T.textTert,marginTop:6}}>Loading projects…</div>}
-                {sel.type==="multi"&&<div style={{fontSize:11,color:T.textTert,marginTop:8,lineHeight:1.4}}>Multi-unit: each unit can use this same project or its own — set it on each unit above. Auto rent-import per month is coming next.</div>}
-                {sel.type==="single"&&<div style={{fontSize:11,color:T.textTert,marginTop:8}}>Auto rent-import per month is coming next.</div>}
+                {sel.type==="multi"&&<div style={{fontSize:11,color:T.textTert,marginTop:8,lineHeight:1.4}}>Multi-unit: each unit can use this same project or its own — set it on each unit above.</div>}
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
+                  <button onClick={()=>syncQB(sel)} disabled={syncing} style={{padding:"9px 14px",borderRadius:T.radiusSm,background:syncing?T.border:T.blue,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:syncing?"default":"pointer",fontFamily:"inherit"}}>{syncing?"Syncing…":"⟳ Sync transactions from QuickBooks"}</button>
+                  {qbTxns&&qbTxns.length>0&&<button onClick={()=>setShowTxns(true)} style={{padding:"9px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>View {qbTxns.length} transactions</button>}
+                </div>
+                {syncMsg&&<div style={{marginTop:9,fontSize:12,lineHeight:1.45,color:syncMsg.ok?T.green:T.red}}>{syncMsg.text}</div>}
+                <div style={{fontSize:11,color:T.textTert,marginTop:8,lineHeight:1.4}}>Pulls each linked project's transactions, auto-sorts them into rent / mortgage / management / service by account name, and fills blank ledger months (never overwrites your entries). Mortgage from QuickBooks P&amp;L is interest-side — enter the full payment on the mortgage above if you want P&amp;I.</div>
               </>}
             </div>
           </div>
+
+          {/* Pulled transactions review */}
+          {showTxns&&qbTxns&&(
+            <div onClick={()=>setShowTxns(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(680px,96vw)",maxHeight:"82vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+                <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:15,fontWeight:800,color:T.text}}>QuickBooks transactions · {qbTxns.length}</div>
+                  <button onClick={()=>setShowTxns(false)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+                </div>
+                <div style={{overflowY:"auto",flex:1}}>
+                  {[...qbTxns].sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))).map((t,i)=>{const bc={rent:T.green,mortgage:"#8B5CF6",management:T.gold,service:T.orange,other:T.textTert}[t.bucket]||T.textTert;return(
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderTop:i?`1px solid ${T.border}`:"none"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.memo||t.account||"—"}</div>
+                        <div style={{fontSize:11,color:T.textTert}}>{t.date||""} · {t.account||""}</div>
+                      </div>
+                      <span style={{fontSize:10.5,fontWeight:700,color:bc,background:bc+"1a",borderRadius:12,padding:"2px 8px",textTransform:"uppercase",flexShrink:0}}>{t.bucket}</span>
+                      <span style={{fontSize:13,fontWeight:700,color:T.text,width:80,textAlign:"right",flexShrink:0}}>{fmtD(Math.abs(Number(t.amount)||0))}</span>
+                    </div>
+                  );})}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Monthly ledger */}
           <div style={card}>

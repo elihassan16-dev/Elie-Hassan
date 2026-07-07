@@ -2727,6 +2727,11 @@ function RentalPortfolioPage(){
   const thisMonth=localISO().slice(0,7);
   const[from,setFrom]=useState(thisMonth);
   const[to,setTo]=useState(thisMonth);
+  // QuickBooks projects for linking rentals (and individual units) to QB.
+  const[qbConnected,setQbConnected]=useState(null);
+  const[projects,setProjects]=useState(null);
+  useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setQbConnected(!!s.connected)).catch(()=>setQbConnected(false));},[]);
+  useEffect(()=>{if(qbConnected&&!projects)qbAuthFetch("/api/quickbooks/projects").then(d=>setProjects(d.items||[])).catch(()=>setProjects([]));},[qbConnected,projects]);
 
   const list=useMemo(()=>[...(rentals||[])].sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[rentals]);
   const sel=selId!=null?list.find(r=>String(r.id)===String(selId)):null;
@@ -2830,6 +2835,13 @@ function RentalPortfolioPage(){
                   <div><label style={rowLbl}>Phone</label><input value={u.tenant?.phone||""} onChange={e=>upUnit(u.id,"tenant",{...(u.tenant||{}),phone:e.target.value})} placeholder="Phone" style={iS}/></div>
                   <div><label style={rowLbl}>Email</label><input value={u.tenant?.email||""} onChange={e=>upUnit(u.id,"tenant",{...(u.tenant||{}),email:e.target.value})} placeholder="Email" style={iS}/></div>
                 </div>
+                {sel.type==="multi"&&qbConnected&&<div style={{marginTop:10}}>
+                  <label style={rowLbl}>QuickBooks project (for this unit)</label>
+                  <select value={u.qbProjectId||""} onChange={e=>upUnit(u.id,"qbProjectId",e.target.value)} style={{...iS,cursor:"pointer",appearance:"auto"}}>
+                    <option value="">↳ Same as property{sel.qbProjectName?` (${sel.qbProjectName})`:""}</option>
+                    {(projects||[]).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>}
                 {(u.tenant?.phone||u.tenant?.email||u.leaseLink)&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:9}}>
                   {u.tenant?.phone&&<a href={`tel:${tel}`} style={{fontSize:12,fontWeight:600,color:T.textSub,textDecoration:"none",border:`1px solid ${T.border}`,borderRadius:16,padding:"5px 11px"}}>📞 Call</a>}
                   {u.tenant?.phone&&<a href={`sms:${tel}`} style={{fontSize:12,fontWeight:600,color:"#15803D",textDecoration:"none",border:`1px solid ${T.green}`,background:"#EDFBF1",borderRadius:16,padding:"5px 11px"}}>💬 Text</a>}
@@ -2838,7 +2850,7 @@ function RentalPortfolioPage(){
                 </div>}
               </div>
             );})}
-            <button onClick={addUnit} style={{margin:"6px 16px 14px",padding:"9px 14px",borderRadius:20,background:"transparent",border:`1.5px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600}}>+ Add unit</button>
+            <button onClick={addUnit} style={{margin:"8px 16px 14px",width:"calc(100% - 32px)",padding:"12px",borderRadius:T.radiusSm,background:T.goldLight,border:`1.5px dashed ${T.gold}`,color:T.gold,cursor:"pointer",fontFamily:"inherit",fontSize:14,fontWeight:700}}>+ Add another unit</button>
           </div>
 
           {/* Mortgage + management */}
@@ -2851,7 +2863,25 @@ function RentalPortfolioPage(){
               <div><label style={rowLbl}>Mortgage / mo</label><input value={mg.payment||""} onChange={e=>upMg("payment",e.target.value.replace(/[^\d.]/g,""))} placeholder="$/mo" style={iS}/></div>
               <div><label style={rowLbl}>Management / mo</label><input value={sel.mgmtFee||""} onChange={e=>upd(sel.id,{mgmtFee:e.target.value.replace(/[^\d.]/g,"")})} placeholder="$/mo" style={iS}/></div>
             </div>
-            <div style={{padding:"0 16px 14px",fontSize:11,color:T.textTert}}>Interest vs principal split is coming as its own report. QuickBooks project link (auto rent import) is next — for now log rent received below.</div>
+            <div style={{padding:"0 16px 14px",fontSize:11,color:T.textTert}}>Interest vs principal split is coming as its own report.</div>
+          </div>
+
+          {/* QuickBooks link */}
+          <div style={{...card,marginBottom:16}}>
+            <SectionHdr icon="📗" label="QUICKBOOKS"/>
+            <div style={{padding:"14px 16px"}}>
+              {qbConnected===false&&<div style={{fontSize:12.5,color:T.textSub}}>QuickBooks isn't connected. Connect it from a property's QuickBooks tab, then link this rental here.</div>}
+              {qbConnected&&<>
+                <label style={rowLbl}>Project for this property</label>
+                <select value={sel.qbProjectId||""} onChange={e=>{const id=e.target.value;const p=(projects||[]).find(x=>x.id===id);upd(sel.id,{qbProjectId:id,qbProjectName:p?.name||""});}} style={{...iS,cursor:"pointer",appearance:"auto"}}>
+                  <option value="">— Not linked —</option>
+                  {(projects||[]).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                {!projects&&<div style={{fontSize:11,color:T.textTert,marginTop:6}}>Loading projects…</div>}
+                {sel.type==="multi"&&<div style={{fontSize:11,color:T.textTert,marginTop:8,lineHeight:1.4}}>Multi-unit: each unit can use this same project or its own — set it on each unit above. Auto rent-import per month is coming next.</div>}
+                {sel.type==="single"&&<div style={{fontSize:11,color:T.textTert,marginTop:8}}>Auto rent-import per month is coming next.</div>}
+              </>}
+            </div>
           </div>
 
           {/* Monthly ledger */}

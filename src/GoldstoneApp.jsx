@@ -5160,11 +5160,17 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   // forces its own sizing onto <button> elements, squashing them into ovals even
   // with appearance:none. A div sidesteps that entirely.
   const D=24; // circular icon size — same as AssigneeAvatar size below
+  // Tap the title → popup with the FULL text (long tasks get cut off in the row),
+  // with an Edit mode inside the popup (multiline) instead of the old one-line
+  // inline edit that made long tasks unreadable while typing too.
+  const[viewer,setViewer]=useState(false);
   const[editing,setEditing]=useState(false);
   const[draft,setDraft]=useState(t.text||"");
   const editRef=useRef(null);
   useEffect(()=>{if(editing){setDraft(t.text||"");setTimeout(()=>{const el=editRef.current;if(el){el.focus();el.select();}},0);}},[editing]);
   const saveEdit=()=>{const v=draft.trim();if(v&&v!==(t.text||"")&&onRename)onRename(t.propId,t.id,v);setEditing(false);};
+  const closeViewer=()=>{setViewer(false);setEditing(false);};
+  const pBtn=(primary)=>({padding:"9px 18px",borderRadius:T.radiusSm,border:primary?"none":`1px solid ${T.border}`,background:primary?T.gold:"#fff",color:primary?"#fff":T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"});
   const circleBtn=(active)=>({boxSizing:"border-box",lineHeight:1,background:active?"#EBF4FF":"#fff",border:`1px solid ${active?T.blue:T.border}`,borderRadius:"50%",width:D,height:D,minWidth:D,maxWidth:D,flex:`0 0 ${D}px`,alignSelf:"center",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,color:active?T.blue:T.textTert});
   const contactBtnEl=(
     <div role="button" onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name||""}`:"Link a contact"}
@@ -5180,11 +5186,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   return(
     <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,padding:isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:"#fff"}}>
       {selBox}
-      {editing
-        ? <input ref={editRef} value={draft} onChange={e=>setDraft(e.target.value)} onBlur={saveEdit}
-            onKeyDown={e=>{if(e.key==="Enter")saveEdit();else if(e.key==="Escape")setEditing(false);}}
-            style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,color:T.text,fontFamily:"inherit",border:`1px solid ${T.blue}`,borderRadius:6,padding:"5px 8px",outline:"none",WebkitAppearance:"none",appearance:"none"}}/>
-        : <span onClick={()=>onRename&&setEditing(true)} title={onRename?"Tap to edit":undefined} style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:onRename?"text":"default"}}>{t.text||"(untitled task)"}{t.autoId&&<span style={{marginLeft:5,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}</span>}
+      <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{t.text||"(untitled task)"}{t.autoId&&<span style={{marginLeft:5,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}</span>
       {t.delegate&&t.delegate===currentUser&&t.assignee
         ? <span title={`You're doing this for ${t.assignee}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>for {t.assignee.split(" ")[0]}</span>
         : (t.delegate&&t.assignee===currentUser)
@@ -5197,6 +5199,35 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       {contactBtnEl}
       {msgBtnEl}
       <TaskStatusPicker value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
+      {viewer&&(
+        <div onClick={closeViewer} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:430,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(480px,94vw)",maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+            <div style={{padding:"13px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:14,fontWeight:800,color:T.text}}>Task</div>
+                {(t.propAddr||t.assignee)&&<div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{[t.propAddr,t.assignee?`Owner: ${t.assignee}`:null,t.delegate?`→ ${t.delegate}`:null].filter(Boolean).join(" · ")}</div>}
+              </div>
+              <span style={{flexShrink:0,fontSize:10.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"3px 10px",borderRadius:20,whiteSpace:"nowrap"}}>{t.status||"Not Started"}</span>
+              <button onClick={closeViewer} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+            <div style={{padding:"16px 18px",overflowY:"auto",flex:1}}>
+              {editing
+                ? <textarea ref={editRef} value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Escape")setEditing(false);}} rows={Math.min(10,Math.max(4,Math.ceil((draft.length||1)/40)))}
+                    style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.blue}`,fontSize:14.5,lineHeight:1.55,fontFamily:"inherit",color:T.text,outline:"none",resize:"vertical"}}/>
+                : <div style={{fontSize:14.5,lineHeight:1.6,color:T.text,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{t.text||"(untitled task)"}</div>}
+            </div>
+            <div style={{padding:"12px 18px max(12px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              {editing?(<>
+                <button onClick={()=>setEditing(false)} style={pBtn(false)}>Cancel</button>
+                <button onClick={saveEdit} style={pBtn(true)}>Save</button>
+              </>):(<>
+                {onRename&&<button onClick={()=>setEditing(true)} style={pBtn(false)}>✎ Edit</button>}
+                <button onClick={closeViewer} style={pBtn(true)}>Done</button>
+              </>)}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

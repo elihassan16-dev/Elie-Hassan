@@ -86,12 +86,33 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── Text message (carrier email→SMS gateways, via the same Resend key) ──────
+  // ── Text message ─────────────────────────────────────────────────────────────
+  // Preferred transport: a Zapier Catch-Hook that feeds Nextiva's "Send an SMS"
+  // action — real SMS from the office number (already 10DLC-registered), immune to
+  // the carrier filtering that eats email-gateway texts. Set ZAPIER_SMS_HOOK_URL
+  // in Vercel to turn it on. The 10-digit number is parsed off users.sms_email
+  // (the part before the @), so the in-app 📱 editor keeps working unchanged.
+  const ZAP = process.env.ZAPIER_SMS_HOOK_URL;
+  if (ZAP) {
+    const nums = [...new Set(targets.map((u) => String(u.sms_email || "").split("@")[0].replace(/\D/g, "")).filter((d) => d.length === 10))];
+    const sms = `${title || "Goldstone"}: ${body || ""}`.slice(0, 130) + `\n${link}`;
+    for (const num of nums) {
+      try {
+        const r = await fetch(ZAP, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone: `+1${num}`, message: sms }),
+        });
+        if (r.ok) texted++;
+      } catch (e) { console.error("[notify] zapier sms failed:", e.message); }
+    }
+  }
+  // Fallback transport: carrier email→SMS gateways via the same Resend key.
   // Free but best-effort: carriers throttle these and some (AT&T) have retired
   // their gateway. Keep it short — gateways hard-truncate around 160 chars — and
   // link-free: URLs (especially https://) are the top reason gateways silently
   // spam-drop these, so mention the bare domain in words instead.
-  if (RESEND && FROM) {
+  else if (RESEND && FROM) {
     const cells = [...new Set(targets.map((u) => (u.sms_email || "").trim()).filter((x) => x.includes("@")))];
     const domain = base.replace(/^https?:\/\//i, "");
     const sms = `${title || "Goldstone"}: ${body || ""}`.slice(0, 110) + ` - open ${domain}`;

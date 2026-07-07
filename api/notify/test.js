@@ -49,12 +49,30 @@ export default async function handler(req, res) {
     } catch (e) { out.email = "error"; }
   }
 
-  // ── Text message to this user (their carrier's email→SMS gateway) ───────────
-  if (!RESEND || !FROM) { out.sms = "not-configured"; }
+  // ── Text message to this user ────────────────────────────────────────────────
+  // Preferred: Zapier→Nextiva hook (real SMS from the office number). Fallback:
+  // the carrier's email→SMS gateway via Resend.
+  const ZAP = process.env.ZAPIER_SMS_HOOK_URL;
+  if (!ZAP && (!RESEND || !FROM)) { out.sms = "not-configured"; }
   else {
     const { data: me } = await db.from("users").select("sms_email").eq("id", user.id).maybeSingle();
     const cell = (me && me.sms_email || "").trim();
     if (!cell.includes("@")) { out.sms = "no-sms-email"; } // no number saved for this user
+    else if (ZAP) {
+      const num = cell.split("@")[0].replace(/\D/g, "");
+      if (num.length !== 10) { out.sms = "bad-number"; }
+      else {
+        try {
+          const r = await fetch(ZAP, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phone: `+1${num}`, message: "Test: Goldstone text notifications are working.\nhttps://gpflips.com" }),
+          });
+          if (r.ok) { out.texted = 1; out.sms = "sent-nextiva"; }
+          else { out.sms = `zapier ${r.status}`; }
+        } catch (e) { out.sms = "error"; }
+      }
+    }
     else {
       try {
         const r = await fetch("https://api.resend.com/emails", {

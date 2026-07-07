@@ -66,10 +66,20 @@ export default async function handler(req, res) {
     const emails = [...new Set(targets.map((u) => u.email).filter(Boolean))];
     for (const to of emails) {
       try {
+        // Every notification email shares one subject and a stable References
+        // anchor (per recipient), so mail clients — Gmail especially — thread
+        // them into a single "Goldstone Updates" conversation instead of
+        // scattering one email per ping. The real notification moves to the body.
+        const anchor = `<goldstone-notify-${String(to).toLowerCase().replace(/[^a-z0-9@.\-_+]/g, "")}@gpflips.com>`;
         const r = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: { Authorization: `Bearer ${RESEND}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ from: FROM, to, subject: title || "Goldstone Properties", text: (body || "") + `\n\nOpen the app: ${link}` }),
+          body: JSON.stringify({
+            from: FROM, to,
+            subject: "Goldstone Updates",
+            text: `${title || "Goldstone Properties"}\n${body || ""}\n\nOpen the app: ${link}`,
+            headers: { "In-Reply-To": anchor, "References": anchor },
+          }),
         });
         if (r.ok) mailed++;
       } catch (e) { console.error("[notify] email failed:", e.message); }

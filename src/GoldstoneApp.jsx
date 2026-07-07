@@ -1984,10 +1984,67 @@ const showingKey=(s)=>{
   const who=String(s.agent||s.summary||s.location||"").trim().toLowerCase().replace(/\s+/g," ");
   return (when||who)?`${when}|${who}`:String(s.uid||"");
 };
+// Everything we know about one showing agent / lead, opened from a showing-thread
+// tag in the property chat (or anywhere a showing key is at hand): contact info with
+// call/text actions, when they showed, which template texts went out, and the lead
+// status — editable right here so a message like "he's expecting an offer" can be
+// acted on without leaving the thread.
+function ShowingInfoPopup({property,skey,onUpdate,onClose}){
+  const isLead=String(skey).startsWith("lead-");
+  const customLeads=property.customLeads||[];
+  const cl=isLead?customLeads.find(l=>"lead-"+l.id===skey):null;
+  const snap=(property.showingSnapshots||{})[skey]||{};
+  const agent=(isLead?cl?.name:snap.agent)||snap.summary||"—";
+  const phones=[...parseShowingPhones(isLead?cl?.phone:snap.phone),...(((property.showingPhones||{})[skey])||[])];
+  const leadKey=isLead?(cl?.lead||""):((property.showingLeads||{})[skey]||"");
+  const lead=SHOWING_LEADS.find(l=>l.key===leadKey);
+  const texts=(property.showingTexts||{})[skey]||{};
+  const fmtSent=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
+  const setLeadStatus=(val)=>{
+    if(isLead){if(cl)onUpdate(property.id,"customLeads",customLeads.map(l=>l.id===cl.id?{...l,lead:val}:l));}
+    else{const next={...(property.showingLeads||{})};if(val)next[skey]=val;else delete next[skey];onUpdate(property.id,"showingLeads",next);}
+  };
+  const row=(label,val)=>val?<div style={{display:"flex",gap:10,fontSize:13,padding:"7px 0",borderTop:`1px solid ${T.border}`}}><span style={{width:86,flexShrink:0,color:T.textTert,fontWeight:600,fontSize:11.5,textTransform:"uppercase",letterSpacing:"0.03em",paddingTop:1}}>{label}</span><span style={{color:T.text,minWidth:0,wordBreak:"break-word"}}>{val}</span></div>:null;
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:450,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(440px,94vw)",maxHeight:"84vh",overflowY:"auto",boxShadow:"0 8px 40px rgba(0,0,0,0.2)"}}>
+        <div style={{padding:"14px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:16,fontWeight:800,color:T.text}}>👥 {agent}</div>
+            <div style={{fontSize:12,color:T.textSub,marginTop:2}}>{isLead?"Added lead":"Showing"} · {property.address}{property.city?`, ${property.city}`:""}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{padding:"10px 18px 16px"}}>
+          <div style={{margin:"8px 0 10px"}}>
+            <div style={{fontSize:11.5,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.03em",marginBottom:5}}>Lead status</div>
+            <select value={leadKey} onChange={e=>setLeadStatus(e.target.value)} style={{padding:"7px 11px",borderRadius:20,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",border:`1px solid ${lead?lead.color:T.border}`,background:lead?lead.bg:"#fff",color:lead?lead.color:T.textSub,maxWidth:"100%"}}>
+              <option value="">Set lead status…</option>
+              {SHOWING_LEADS.map(l=><option key={l.key} value={l.key}>{l.label}</option>)}
+            </select>
+          </div>
+          {row("Showed",snap.start?fmtShowingTime(snap.start):"")}
+          {row("Broker",snap.broker)}
+          {row("Email",snap.email?<a href={`mailto:${snap.email}`} style={{color:T.blue,textDecoration:"none"}}>{snap.email}</a>:"")}
+          {row("Texted",(texts.initial||texts.followup)?[texts.initial?`Initial ✓ ${fmtSent(texts.initial)}`:null,texts.followup?`Follow-up ✓ ${fmtSent(texts.followup)}`:null].filter(Boolean).join(" · "):"")}
+          {phones.map((ph,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderTop:`1px solid ${T.border}`}}>
+              <span style={{flex:1,fontSize:13.5,fontWeight:600,color:T.text}}>{ph}</span>
+              <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:700,textDecoration:"none",background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
+              <a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:700,textDecoration:"none",background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a>
+            </div>
+          ))}
+          {phones.length===0&&<div style={{fontSize:12.5,color:T.textTert,padding:"8px 0",borderTop:`1px solid ${T.border}`}}>No phone number on file.</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
 // Renders one property's showings from an already-loaded feed: upcoming + past
 // (past ranked by lead disposition), each row with call/text templates. Shared by
 // the per-property Showings tab and the top-level Showings page.
 function PropertyShowings({property,showings,onUpdate,flush}){
+  const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS }=useData();
   const all=showings||[];
   const address=`${property.address}${property.city?`, ${property.city}`:""}`;
   const leadMap=property.showingLeads||{};
@@ -2001,6 +2058,41 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const markText=(key,kind)=>{onUpdate(property.id,"showingTexts",{...showingTexts,[key]:{...(showingTexts[key]||{}),[kind]:new Date().toISOString()}});saveNow();};
   const clearText=(key,kind)=>{const cur={...(showingTexts[key]||{})};delete cur[kind];onUpdate(property.id,"showingTexts",{...showingTexts,[key]:cur});saveNow();};
   const fmtSent=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
+  // Team thread about one showing agent: messages live in the property's normal
+  // chat (p.messages) tagged with showingKey/showingLabel, so they show in the
+  // Messages tab (with unread badges) grouped into their own "Showing — Tom" box.
+  const[msgFor,setMsgFor]=useState(null); // {key,label}
+  const threadMsgs=(key)=>(property.messages||[]).filter(m=>m.showingKey===key);
+  const openThread=(key,label,snapData)=>{
+    // Snapshot the person so the thread's info popup works even after the showing
+    // ages out of the feed (same mechanism leads use).
+    if(snapData)onUpdate(property.id,"showingSnapshots",{...showingSnapshots,[key]:snapData});
+    // Opening the thread reads it.
+    const msgs=property.messages||[];
+    if(msgs.some(m=>m.showingKey===key&&isUnreadForUser(m,CURRENT_USER)))
+      onUpdate(property.id,"messages",msgs.map(m=>m.showingKey===key&&isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}:m));
+    setMsgFor({key,label});
+  };
+  const sendShowingMsg=(txt,att,mn)=>{
+    const t=(txt||"").trim();if((!t&&!att)||!msgFor)return;
+    const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER],showingKey:msgFor.key,showingLabel:msgFor.label};
+    if(att)msg.attachment=att;
+    if(mn&&mn.length)msg.mentions=[...mn];
+    onUpdate(property.id,"messages",[...(property.messages||[]),msg]);saveNow();
+    const who=(msg.mentions&&msg.mentions.length?msg.mentions:(TEAM_MEMBERS||[])).filter(n=>n!==CURRENT_USER);
+    if(who.length)notify(who,{title:`👥 ${msgFor.label} · ${address}`,body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`showing-${property.id}`});
+  };
+  // The 💬 pill on a row: shows the thread size, red-dots when there's something unread.
+  const msgBtn=(key,label,snapData)=>{
+    const msgs=threadMsgs(key);
+    const unread=msgs.some(m=>isUnreadForUser(m,CURRENT_USER));
+    return(
+      <button onClick={()=>openThread(key,label,snapData)} title="Message your team about this person" style={{position:"relative",display:"inline-flex",alignItems:"center",gap:5,padding:"5px 11px",borderRadius:20,border:`1px solid ${msgs.length?T.gold:T.border}`,background:msgs.length?T.goldLight:"#fff",color:msgs.length?"#b8912e":T.textSub,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+        💬 {msgs.length||"Message"}
+        {unread&&<span style={{position:"absolute",top:-3,right:-3,width:9,height:9,borderRadius:5,background:T.red}}/>}
+      </button>
+    );
+  };
   const[agentSearch,setAgentSearch]=useState("");
   const[addNumFor,setAddNumFor]=useState(null); // which row's "add number" input is open
   const[numDraft,setNumDraft]=useState("");
@@ -2136,7 +2228,10 @@ function PropertyShowings({property,showings,onUpdate,flush}){
           </div>
         )}
         {s.email&&<div><a href={`mailto:${s.email}`} style={{fontSize:12,color:T.textSub,textDecoration:"none"}}>{s.email}</a></div>}
-        <div style={{marginTop:8}}>{leadSelect(leadKey,e=>setLead(s,e.target.value),lead)}</div>
+        <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          {leadSelect(leadKey,e=>setLead(s,e.target.value),lead)}
+          {msgBtn(showingKey(s),`Showing — ${s.agent||"agent"}`,{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""})}
+        </div>
         {phones.map((ph,i)=><div key={i}>{phoneActions(ph,s.agent,showingKey(s))}</div>)}
         {!s.agent&&phones.length===0&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>}
         {addNumberUI(showingKey(s),()=>addShowingPhone(s))}
@@ -2153,7 +2248,10 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       <div style={{width:7,height:7,borderRadius:4,background:T.gold,flexShrink:0,marginTop:5}}/>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:14,fontWeight:600,color:T.text}}>{l.name||"(no name)"}</div>
-        <div style={{marginTop:8}}>{leadSelect(l.lead||"",e=>setCustomStatus(l.id,e.target.value),lead)}</div>
+        <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          {leadSelect(l.lead||"",e=>setCustomStatus(l.id,e.target.value),lead)}
+          {msgBtn("lead-"+l.id,`Lead — ${l.name||"lead"}`,{agent:l.name||"",phone:l.phone||"",start:l.at||""})}
+        </div>
         {phones.map((ph,i)=><div key={i}>{phoneActions(ph,l.name,"lead-"+l.id)}</div>)}
         {phones.length===0&&<div style={{fontSize:12,color:T.textTert,marginTop:6}}>No phone number.</div>}
         {addNumberUI("lead-"+l.id,()=>addLeadPhone(l))}
@@ -2229,6 +2327,15 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         return combined.map(x=>x.t==="s"?Row(x.item):LeadRow(x.item));
       })()}
     </Card>
+    {msgFor&&(()=>{
+      const first=(msgFor.label.split("—")[1]||"").trim().split(/\s+/)[0]||"them";
+      return <TaskMessagesPopup title={`${msgFor.label} · ${address}`} task={null} messages={threadMsgs(msgFor.key)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
+        templates={[
+          {label:"Remember to follow up",text:`Please remember to follow up with ${first} about ${address}.`},
+          {label:"Spoke to them",text:`I spoke to ${first} about ${address} — `},
+        ]}
+        onSend={sendShowingMsg} onClose={()=>setMsgFor(null)}/>;
+    })()}
   </>);
 }
 // Count showings from the feed that match a property (used for headers/sorting).
@@ -5226,7 +5333,7 @@ function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
 }
 
 // In-app messages/notes on a single task.
-function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMembers,onSend,onClose}){
+function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMembers,onSend,onClose,templates:templatesProp}){
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   // Templates address + notify a chosen teammate. When a task is delegated, the
   // owner (assignee) and the person doing the work (delegate) differ — let the
@@ -5239,7 +5346,7 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
   // Name the actual task in the message instead of saying "this task".
   const taskName=(task?.text||"").trim();
   const onWhat=taskName?`“${taskName}”`:"this task";
-  const templates=[
+  const templates=templatesProp||[
     {label:"Ask for update",text:`Hi ${who}, can you give me an update on ${onWhat}?`},
     {label:"Follow up",text:`Hi ${who}, following up on ${onWhat} — where are we holding?`},
   ];
@@ -7139,7 +7246,7 @@ function UnreadBadge({count,style={}}){
 const buildMessageThreads=(messages)=>{
   const byId=new Map(messages.map(m=>[m.id,m]));
   const rootIdOf=(m)=>{let cur=m,g=0;while(cur.replyToId&&byId.has(cur.replyToId)&&g<200){cur=byId.get(cur.replyToId);g++;}return cur.id;};
-  const keyOf=(m)=>m.taskId?`task:${m.taskId}`:`root:${rootIdOf(m)}`;
+  const keyOf=(m)=>m.showingKey?`showing:${m.showingKey}`:m.taskId?`task:${m.taskId}`:`root:${rootIdOf(m)}`;
   const threads=new Map();
   messages.forEach(m=>{const k=keyOf(m);if(!threads.has(k))threads.set(k,{key:k,items:[]});threads.get(k).items.push(m);});
   const arr=[...threads.values()];
@@ -7152,8 +7259,9 @@ const buildMessageThreads=(messages)=>{
   arr.sort((a,b)=>a.lastAt-b.lastAt||msgTime(a.root.at)-msgTime(b.root.at));
   return arr;
 };
-function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelete,onBack,isMobile}){
+function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelete,onBack,isMobile,onUpdateProp}){
   const scrollRef=useRef(null);
+  const[showInfo,setShowInfo]=useState(null); // showingKey whose agent-info popup is open
   // Jump to the newest message when a chat opens or a message arrives.
   useEffect(()=>{const el=scrollRef.current;if(!el)return;requestAnimationFrame(()=>{el.scrollTop=el.scrollHeight;});},[property.id,messages.length]);
   const[reply,setReply]=useState(null); // message being replied to
@@ -7194,6 +7302,8 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           const{root,replies}=th;
           const rootMine=root.author===currentUser;
           const taskTag=(txt)=><span title="This message is on a task" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {txt}</span>;
+          // Showing-thread tag — tap for the agent's info + lead status popup.
+          const showTag=()=><button onClick={()=>onUpdateProp&&setShowInfo(root.showingKey)} title="This thread is about a showing — tap for the agent's info & lead status" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block",cursor:onUpdateProp?"pointer":"default",fontFamily:"inherit"}}>👥 {root.showingLabel} ›</button>;
           const bubble=(m,{small,onCard}={})=>{
             const mine=m.author===currentUser;
             const theirBg=onCard?T.bg:T.card;
@@ -7219,7 +7329,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           if(replies.length===0){
             return(
               <div key={root.id} style={{display:"flex",flexDirection:"column",alignItems:rootMine?"flex-end":"flex-start"}}>
-                {root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
+                {root.showingLabel?<div style={{marginBottom:3}}>{showTag()}</div>:root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
                 {bubble(root)}
               </div>
             );
@@ -7228,7 +7338,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           return(
             <div key={root.id} style={{alignSelf:"stretch",border:`1px solid ${T.border}`,borderRadius:16,background:T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                {root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
+                {root.showingLabel?showTag():root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
                 <span style={{fontSize:10,color:T.textTert}}>{replies.length+1} messages</span>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -7274,8 +7384,9 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
         </div>
       )}
       {!selMode&&<div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:target&&!reply?`2px solid ${T.gold}`:`1px solid ${T.border}`,background:T.card,flexShrink:0}}>
-        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.taskText?"Reply — posts on that task too…":"Reply…"):(target?`Message on “${target.text}”…`:"Message your team…")}/>
+        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply…"):(target?`Message on “${target.text}”…`:"Message your team…")}/>
       </div>}
+      {showInfo&&onUpdateProp&&<ShowingInfoPopup property={property} skey={showInfo} onUpdate={onUpdateProp} onClose={()=>setShowInfo(null)}/>}
     </div>
   );
 }
@@ -7349,6 +7460,8 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     if(replyTarget&&replyTarget.author&&replyTarget.author!==CURRENT_USER)tagged.add(replyTarget.author);
     if(tagged.size)msg.mentions=[...tagged];
     if(replyTarget){msg.replyToId=replyTarget.id;msg.replyTo={author:replyTarget.author||"",text:(replyTarget.text||"").slice(0,140),taskText:replyTarget.taskText||null};}
+    // Replying inside a showing thread keeps the reply in that thread.
+    if(replyTarget&&replyTarget.showingKey){msg.showingKey=replyTarget.showingKey;msg.showingLabel=replyTarget.showingLabel||null;}
     // Route to a task thread when replying to a task message, or when the composer
     // was aimed at a specific task; otherwise post to the property's general thread.
     const postTaskId=(replyTarget&&replyTarget.taskId)||targetTaskId||null;
@@ -7419,7 +7532,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
         {selId===OFFICE_ID
           ? <MessageThread property={{id:OFFICE_ID,address:"📌 Office Chat",city:"",status:"",tasks:officeTasks||[]}} messages={officeSorted} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={officeSend} onDelete={officeDelete} onBack={()=>setSelId(null)} isMobile={isMobile}/>
           : sel
-          ? <MessageThread property={sel} messages={mergePropertyMessages(sel)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onDelete={deleteMessages} onBack={()=>setSelId(null)} isMobile={isMobile}/>
+          ? <MessageThread property={sel} messages={mergePropertyMessages(sel)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onDelete={deleteMessages} onBack={()=>setSelId(null)} isMobile={isMobile} onUpdateProp={(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p))}/>
           : <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:12,color:T.textSub}}>
               <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>💬</div>
               <div style={{fontSize:16,fontWeight:600}}>Select a property</div>

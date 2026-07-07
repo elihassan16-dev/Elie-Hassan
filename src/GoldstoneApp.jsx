@@ -357,8 +357,8 @@ function calcA(f){
 // Used by BOTH the Financial Overview banner and the Portfolio Overview so the
 // two can never disagree. Mirrors the Financial Overview formulas exactly.
 // If you change a profit rule, change it HERE only.
-function finProfit(f){
-  if(!f) return {netProfit:0,acNet:0,effective:0,useActual:false};
+function finProfit(f,status){
+  if(!f) return {netProfit:0,acNet:0,effective:0,useActual:false,equityRequired:0};
   const buyingItems=f.buyingCostItems||[];
   const buyingTotal=buyingItems.length>0?calcBuyingTotal(buyingItems,f.purchasePrice):n(f.buyingCosts)||0;
   const sellingItems=f.sellingCostItems||[];
@@ -418,7 +418,14 @@ function finProfit(f){
   const acNet=acSalePrice>0?acSalePrice-acSelling-(acHmInterest+acGapBalloon)-acCosts:0;
 
   const useActual=!!(f.useActualProfit&&acSalePrice>0);
-  return {netProfit,acNet,effective:useActual?acNet:netProfit,useActual,equityRequired:equityRequired+annualInsurance+taxEscrow};
+  // Equity required: the estimate (gap + full insurance + half-year tax escrow),
+  // UNLESS the deal is past Under Contract and an actual LOC / gap amount has been
+  // entered (Actual Financing popup, reconciled to the balance sheet) — then that
+  // real number overrides the estimate.
+  const estEquity=equityRequired+annualInsurance+taxEscrow;
+  const actualEquity=n(f.acGapLoanAmt);
+  const useActualEquity=!!(status&&status!=="Under Contract"&&status!=="New Leads"&&actualEquity>0);
+  return {netProfit,acNet,effective:useActual?acNet:netProfit,useActual,equityRequired:useActualEquity?actualEquity:estEquity,equityIsActual:useActualEquity};
 }
 
 // ─── NJ Realty Transfer Tax ───────────────────────────────────────────────────
@@ -4081,7 +4088,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
   // Use the shared finProfit() so equity here ALWAYS matches the Financial Overview
   // and the Upcoming Closings report — including the full insurance premium and the
   // half-year property-tax escrow now folded into equity required.
-  function calcEquity(p){ return finProfit(p.financials).equityRequired; }
+  function calcEquity(p){ return finProfit(p.financials,p.status).equityRequired; }
 
   const totalYield=props.reduce((s,p)=>s+Math.max(0,pfCalcProfit(p)),0);
 
@@ -8659,7 +8666,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
           .reduce((s,d)=>s+(Number(d.amount)||0),0);
         rows.push({address:p.address,type:"Sell",date:cfDate(p),back,equity:null});
       }else if(p.status==="Under Contract"){
-        const prof=finProfit(p.financials||{});
+        const prof=finProfit(p.financials||{},p.status);
         rows.push({address:p.address,type:"Buy",date:(p.financials||{}).purchaseDate||"",back:null,equity:prof.equityRequired});
       }
     });

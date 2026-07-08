@@ -425,7 +425,11 @@ function finProfit(f,status){
   const estEquity=equityRequired+annualInsurance+taxEscrow;
   const actualEquity=n(f.acGapLoanAmt);
   const useActualEquity=!!(status&&status!=="Under Contract"&&status!=="New Leads"&&actualEquity>0);
-  return {netProfit,acNet,effective:useActual?acNet:netProfit,useActual,equityRequired:useActualEquity?actualEquity:estEquity,equityIsActual:useActualEquity};
+  return {netProfit,acNet,effective:useActual?acNet:netProfit,useActual,equityRequired:useActualEquity?actualEquity:estEquity,equityIsActual:useActualEquity,
+    // Breakdown pieces (projected) — exposed for the Investor Packet so it prints
+    // the exact same numbers as the Financial Overview, never a re-derivation.
+    buyingTotal,sellingTotal,holdingTotal:Math.round(holdingTotal),debtService,hmLoanTotal:liveHmTotal,
+    hmInterest:n(f.hmInterest)||liveHmReserve,gapInterest:n(f.locInterest)||liveGapBalloon};
 }
 
 // ─── NJ Realty Transfer Tax ───────────────────────────────────────────────────
@@ -1710,6 +1714,149 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
   );
 }
 
+// ─── Investor Packet — branded, printable deal packet for raising LOC capital ──
+// Pick the ask/rate/term, add a personal note, and generate a Goldstone-branded
+// PDF (via the browser's print dialog) with the property's specs (NJ records),
+// the deal economics (same finProfit math as the Financial Overview), the
+// financing structure, the ask, and the company's track record.
+function InvestorPacketModal({property,onClose}){
+  const {sharedProps}=useData();
+  const {displayName,user}=useAuth();
+  const f=property.financials||{};
+  const prof=finProfit(f,property.status);
+  const[ask,setAsk]=useState(String(Math.round(prof.equityRequired||0)));
+  const[rate,setRate]=useState(String(f.gapRate||15));
+  const[term,setTerm]=useState(String(f.holdPeriod||6));
+  const[toName,setToName]=useState("");
+  const[note,setNote]=useState("");
+  const generate=()=>{
+    const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const pi=property.propertyInfo||{};
+    const addr=`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:" , NJ".replace(" ,",",")}${property.zip?` ${property.zip}`:""}`;
+    const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
+    const purchase=n(f.purchasePrice),rehab=n(f.rehabCosts),arv=n(f.salePrice);
+    const allCosts=purchase+prof.buyingTotal+rehab+prof.holdingTotal+prof.debtService+prof.sellingTotal;
+    const pctArv=(v)=>arv>0?`${Math.round(v/arv*1000)/10}%`:"—";
+    // Track record from the portfolio: completed (Sold) + currently active projects.
+    const sold=(sharedProps||[]).filter(x=>x.status==="Sold");
+    const soldVol=sold.reduce((s,x)=>{const xf=x.financials||{};return s+(n(xf.actualSalePrice)||n(xf.salePrice));},0);
+    const active=(sharedProps||[]).filter(x=>!x.archived&&["Under Contract","Purchased","Under Construction","On Market","In Closing"].includes(x.status)).length;
+    const specRows=[["Property type",pi.type],["Beds / Baths",(pi.beds||pi.baths)?`${pi.beds||"—"} / ${pi.baths||"—"}`:""],["Square footage",pi.sqft?`${pi.sqft} sf`:""],["Year built",pi.yearBuilt],["Lot size",pi.lotAcres?`${pi.lotAcres} acres`:""],["Block & lot",pi.blockLot],["Assessed value",pi.assessedValue?fmtD(n(pi.assessedValue)):""]]
+      .filter(([,v])=>v).map(([k,v])=>`<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
+    const row=(k,v,cls)=>`<tr class="${cls||""}"><td>${esc(k)}</td><td class="r">${v}</td></tr>`;
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(property.address)} — Investment Opportunity</title><style>
+      *{box-sizing:border-box;}body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1C1C1E;margin:0;padding:36px;font-size:13px;}
+      .brand{font-family:Georgia,serif;font-size:24px;font-weight:700;color:#B8953F;}
+      .hdr{border-bottom:3px solid #B8953F;padding-bottom:14px;margin-bottom:22px;display:flex;justify-content:space-between;align-items:flex-end;gap:16px;}
+      .title{font-size:21px;font-weight:800;margin-top:4px;}
+      .sub{font-size:13px;color:#555;margin-top:2px;}.date{font-size:11px;color:#8A8A8E;text-align:right;}
+      .photo{width:100%;max-height:330px;object-fit:cover;border-radius:12px;margin-bottom:22px;}
+      h2{font-family:Georgia,serif;font-size:14px;margin:24px 0 8px;color:#8a6d1f;letter-spacing:.03em;text-transform:uppercase;}
+      table{width:100%;border-collapse:collapse;font-size:12.5px;}
+      td{padding:7px 10px;border-bottom:1px solid #f0f0f0;}
+      td.k{width:170px;color:#8A8A8E;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;}
+      td.r{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;}
+      tr.total td{font-weight:800;border-top:2px solid #B8953F;border-bottom:none;}
+      tr.profit td{font-weight:800;color:#15803D;background:#EDFBF1;}
+      .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:8px 0 4px;}
+      .stat{border:1px solid #ececec;border-radius:10px;padding:10px 12px;}
+      .sl{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#8A8A8E;font-weight:700;}
+      .sv{font-size:17px;font-weight:800;margin-top:3px;font-variant-numeric:tabular-nums;}
+      .ask{background:#F8F1E0;border:2px solid #B8953F;border-radius:14px;padding:16px 18px;margin-top:10px;}
+      .ask .amt{font-family:Georgia,serif;font-size:26px;font-weight:700;color:#B8953F;}
+      .cols{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+      .note{font-size:13px;line-height:1.6;white-space:pre-wrap;background:#fafafa;border-left:3px solid #B8953F;padding:10px 14px;border-radius:0 8px 8px 0;}
+      .foot{margin-top:30px;font-size:10px;color:#aaa;border-top:1px solid #eee;padding-top:10px;line-height:1.5;}
+      @media print{body{padding:0;}.photo{max-height:300px;}}
+    </style></head><body>
+      <div class="hdr">
+        <div><div class="brand">Goldstone Properties</div>
+          <div class="title">Investment Opportunity — ${esc(property.address)}</div>
+          <div class="sub">${esc(addr)}</div></div>
+        <div class="date">${esc(today)}<br>Prepared by ${esc(displayName||"Goldstone Properties")}${user&&user.email?`<br>${esc(user.email)}`:""}${toName.trim()?`<br><b>Prepared for ${esc(toName.trim())}</b>`:""}</div>
+      </div>
+      <div><img class="photo" src="${window.location.origin}/api/property/photo?address=${encodeURIComponent(addr)}" onerror="this.style.display='none'"></div>
+      ${note.trim()?`<div class="note">${esc(note.trim())}</div>`:""}
+      <div class="stats">
+        <div class="stat"><div class="sl">Purchase price</div><div class="sv">${fmtD(purchase)}</div></div>
+        <div class="stat"><div class="sl">Renovation budget</div><div class="sv">${fmtD(rehab)}</div></div>
+        <div class="stat"><div class="sl">After-repair value</div><div class="sv">${fmtD(arv)}</div></div>
+        <div class="stat"><div class="sl">Purchase % of ARV</div><div class="sv">${pctArv(purchase)}</div></div>
+      </div>
+      ${specRows?`<h2>Property</h2><table>${specRows}</table>`:""}
+      <h2>Project economics</h2>
+      <table>
+        ${row("Purchase price",fmtD(purchase))}
+        ${row("Buying / closing costs",fmtD(prof.buyingTotal))}
+        ${row("Renovation budget",fmtD(rehab))}
+        ${row(`Holding costs (${n(f.holdPeriod)||0} months)`,fmtD(prof.holdingTotal))}
+        ${row("Financing costs",fmtD(prof.debtService))}
+        ${row("Selling costs",fmtD(prof.sellingTotal))}
+        ${row("All-in project cost",fmtD(allCosts),"total")}
+        ${row("Projected sale (ARV)",fmtD(arv))}
+        ${row("Projected profit",`${fmtD(prof.netProfit)} · ${pctArv(prof.netProfit)} of ARV`,"profit")}
+      </table>
+      <div class="cols">
+        <div>
+          <h2>Financing structure</h2>
+          <table>
+            ${row("Senior (hard-money) loan",fmtD(prof.hmLoanTotal))}
+            ${row("Investor capital",fmtD(n(ask)))}
+            ${row("Project margin (profit cushion)",fmtD(prof.netProfit))}
+          </table>
+        </div>
+        <div>
+          <h2>Track record</h2>
+          <table>
+            ${row("Projects completed",String(sold.length))}
+            ${soldVol>0?row("Completed sales volume",fmtD(soldVol)):""}
+            ${row("Projects currently active",String(active))}
+          </table>
+        </div>
+      </div>
+      <h2>The opportunity</h2>
+      <div class="ask">
+        <div class="sl">Capital investment</div>
+        <div class="amt">${fmtD(n(ask))}</div>
+        <table style="margin-top:8px">
+          ${row("Annual rate",`${esc(rate)}% simple interest, day-counted`)}
+          ${row("Expected term",`${esc(term)} months (paid at property sale)`)}
+          ${row("Use of funds","Acquisition & renovation of the property above")}
+        </table>
+      </div>
+      <h2>About Goldstone Properties</h2>
+      <div style="font-size:13px;line-height:1.65;color:#333">Goldstone Properties is a New Jersey real-estate investment company specializing in the acquisition, renovation and resale of single-family homes across the state. Every project is tracked in real time — acquisition, budget, timeline and sale — and investor capital is deployed deal-by-deal with full transparency.</div>
+      <div class="foot">Private &amp; confidential — prepared for the named recipient only. Figures marked "projected" are estimates based on current budgets and market conditions, not guarantees of performance. This document is informational and is not an offer of securities.</div>
+    </body></html>`;
+    const w=window.open("","_blank");
+    if(!w){alert("Please allow pop-ups for this site to generate the packet.");return;}
+    w.document.write(html);w.document.close();w.focus();
+    setTimeout(()=>{try{w.print();}catch(e){/* user can print manually */}},600);
+  };
+  const inp={width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:14,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none",boxSizing:"border-box"};
+  const lbl={fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:420,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(460px,96vw)",maxHeight:"88vh",overflowY:"auto",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+        <div style={{padding:"15px 20px",borderBottom:`2px solid ${T.gold}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:T.gold}}>Goldstone Properties</div><div style={{fontSize:16,fontWeight:800,color:T.text}}>Investor Packet</div></div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{fontSize:12.5,color:T.textSub,lineHeight:1.5}}>Branded PDF for <b>{property.address}</b> — property specs, deal economics, the ask, and your track record. Opens the print dialog; choose "Save as PDF".</div>
+          <div style={{display:"flex",gap:10}}>
+            <div style={{flex:1}}><div style={lbl}>Capital ask</div><input value={ask} onChange={e=>setAsk(e.target.value.replace(/[^\d.]/g,""))} inputMode="decimal" style={inp}/></div>
+            <div style={{width:90}}><div style={lbl}>Rate %/yr</div><input value={rate} onChange={e=>setRate(e.target.value.replace(/[^\d.]/g,""))} inputMode="decimal" style={inp}/></div>
+            <div style={{width:90}}><div style={lbl}>Term (mo)</div><input value={term} onChange={e=>setTerm(e.target.value.replace(/[^\d.]/g,""))} inputMode="decimal" style={inp}/></div>
+          </div>
+          <div><div style={lbl}>Prepared for (optional)</div><input value={toName} onChange={e=>setToName(e.target.value)} placeholder="Investor's name" style={inp}/></div>
+          <div><div style={lbl}>Personal note (optional)</div><textarea value={note} onChange={e=>setNote(e.target.value)} rows={3} placeholder="e.g. Hi Jack — here's the Toms River deal we spoke about…" style={{...inp,resize:"vertical",lineHeight:1.5}}/></div>
+          <button onClick={generate} style={{padding:"12px",borderRadius:12,background:T.gold,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>📄 Generate packet</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 function FinOverview({property,onUpdate}){
   const isMobile=useIsMobile();
   const { draws } = useData();
@@ -1724,6 +1871,7 @@ function FinOverview({property,onUpdate}){
   const[showHolding,setShowHolding]=useState(false);
   const[showActualSelling,setShowActualSelling]=useState(false);
   const[showActualFinancing,setShowActualFinancing]=useState(false);
+  const[showPacket,setShowPacket]=useState(false);   // investor-packet generator
   const[showFinancingP,setShowFinancingP]=useState(false);
   const[showActual,setShowActual]=useState(!!f.useActualProfit);
 
@@ -1848,6 +1996,7 @@ function FinOverview({property,onUpdate}){
       {showHolding&&<HoldingCostsPopup items={holdingItems} holdPeriod={f.holdPeriod} onChange={(items,total)=>upMany({holdingCostItems:items,annualHoldingCosts:String(total)})} onClose={()=>setShowHolding(false)}/>}
       {showActualSelling&&<SellingCostsPopup items={acSellingItems} salePrice={f.actualSalePrice||f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({actualSellingCostItems:items,actualSellingCosts:String(total)})} onClose={()=>setShowActualSelling(false)}/>}
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
+      {showPacket&&<InvestorPacketModal property={property} onClose={()=>setShowPacket(false)}/>}
       {showActualFinancing&&<ActualFinancingPopup f={f} liveHmTotal={liveHmTotal} liveGapPrinc={equityRequired} actualHoldMonths={actualHoldMonths} locDraws={locDraws} sellingDate={f.sellingDate} closingDate={(property.propertyInfo||{}).closingDateScheduled||f.sellingDate}
         bsHm={bsHm} bsLoc={bsLoc} bsAvailable={bsAvailable} hmPaidSoFar={qbPaidInt?qbPaidInt.paid:null} hmPaidThrough={qbPaidInt?qbPaidInt.paidThrough:null}
         onSave={(vals)=>upMany(vals)} onClose={()=>setShowActualFinancing(false)}/>}
@@ -1863,6 +2012,7 @@ function FinOverview({property,onUpdate}){
             {showActual?"Showing Actual Column":"Show Actual Column"}
           </span>
         </div>
+        <button onClick={()=>setShowPacket(true)} title="Generate a branded PDF packet for raising investor capital on this deal" style={{display:"inline-flex",alignItems:"center",gap:7,background:T.goldLight,border:`1.5px solid ${T.gold}`,borderRadius:20,padding:"7px 16px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600,color:"#8a6d1f"}}>📄 Investor Packet</button>
         {showActual&&<div onClick={()=>up("useActualProfit",!f.useActualProfit)}
           style={{display:"inline-flex",alignItems:"center",gap:10,background:f.useActualProfit?T.gold+"22":T.bg,border:`1.5px solid ${f.useActualProfit?T.gold:T.border}`,borderRadius:20,padding:"7px 18px",cursor:"pointer"}}>
           <div style={{width:18,height:18,borderRadius:9,background:f.useActualProfit?T.gold:"#ccc",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>

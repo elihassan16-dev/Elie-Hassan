@@ -1750,7 +1750,9 @@ function InvestorPacketModal({property,onClose}){
       .hdr{border-bottom:3px solid #B8953F;padding-bottom:14px;margin-bottom:22px;display:flex;justify-content:space-between;align-items:flex-end;gap:16px;}
       .title{font-size:21px;font-weight:800;margin-top:4px;}
       .sub{font-size:13px;color:#555;margin-top:2px;}.date{font-size:11px;color:#8A8A8E;text-align:right;}
-      .photo{width:100%;max-height:330px;object-fit:cover;border-radius:12px;margin-bottom:22px;}
+      .hero{display:grid;grid-template-columns:1fr 1.15fr;gap:16px;align-items:stretch;margin-bottom:18px;}
+      .hero .stats{display:grid;grid-template-columns:1fr;gap:10px;margin:0;}
+      .photo{width:100%;height:100%;min-height:230px;max-height:270px;object-fit:cover;border-radius:12px;}
       h2{font-family:Georgia,serif;font-size:14px;margin:24px 0 8px;color:#8a6d1f;letter-spacing:.03em;text-transform:uppercase;}
       table{width:100%;border-collapse:collapse;font-size:12.5px;}
       td{padding:7px 10px;border-bottom:1px solid #f0f0f0;}
@@ -1775,13 +1777,15 @@ function InvestorPacketModal({property,onClose}){
           <div class="sub">${esc(addr)}</div></div>
         <div class="date">${esc(today)}<br>Prepared by ${esc(displayName||"Goldstone Properties")}${user&&user.email?`<br>${esc(user.email)}`:""}${toName.trim()?`<br><b>Prepared for ${esc(toName.trim())}</b>`:""}</div>
       </div>
-      <div><img class="photo" src="${window.location.origin}/api/property/photo?address=${encodeURIComponent(addr)}" onerror="this.style.display='none'"></div>
-      ${note.trim()?`<div class="note">${esc(note.trim())}</div>`:""}
-      <div class="stats">
-        <div class="stat"><div class="sl">Purchase price</div><div class="sv">${fmtD(purchase)}</div></div>
-        <div class="stat"><div class="sl">Renovation budget</div><div class="sv">${fmtD(rehab)}</div></div>
-        <div class="stat"><div class="sl">After-repair value</div><div class="sv">${fmtD(arv)}</div></div>
-        <div class="stat"><div class="sl">Purchase % of ARV</div><div class="sv">${pctArv(purchase)}</div></div>
+      ${note.trim()?`<div class="note" style="margin-bottom:14px">${esc(note.trim())}</div>`:""}
+      <div class="hero">
+        <div class="stats">
+          <div class="stat"><div class="sl">Purchase price</div><div class="sv">${fmtD(purchase)}</div></div>
+          <div class="stat"><div class="sl">Renovation budget</div><div class="sv">${fmtD(rehab)}</div></div>
+          <div class="stat"><div class="sl">After-repair value</div><div class="sv">${fmtD(arv)}</div></div>
+          <div class="stat"><div class="sl">Purchase % of ARV</div><div class="sv">${pctArv(purchase)}</div></div>
+        </div>
+        <div><img class="photo" src="${window.location.origin}/api/property/photo?address=${encodeURIComponent(addr)}" onerror="this.closest('.hero').style.gridTemplateColumns='1fr';this.parentNode.style.display='none'"></div>
       </div>
       ${specRows?`<h2>Property</h2><table>${specRows}</table>`:""}
       <h2>Project economics</h2>

@@ -12,8 +12,8 @@ export default async function handler(req, res) {
     // Check imagery exists first (metadata calls are free) so we can 404 cleanly.
     const meta = await fetch(`https://maps.googleapis.com/maps/api/streetview/metadata?size=640x400&location=${encodeURIComponent(address)}&key=${key}`).then((r) => r.json());
     if (!meta || meta.status !== "OK") { res.status(404).json({ error: "No street imagery for this address." }); return; }
-    // fov=110 = wide angle, so the whole house (not a wall of siding) fits the frame.
-    const img = await fetch(`https://maps.googleapis.com/maps/api/streetview?size=640x420&location=${encodeURIComponent(address)}&fov=110&key=${key}`);
+    // fov=120 is Street View's widest angle — the most zoomed-out shot available.
+    const img = await fetch(`https://maps.googleapis.com/maps/api/streetview?size=640x480&location=${encodeURIComponent(address)}&fov=120&key=${key}`);
     if (!img.ok) { res.status(404).json({ error: "Street View fetch failed." }); return; }
     const buf = Buffer.from(await img.arrayBuffer());
     res.setHeader("Content-Type", img.headers.get("content-type") || "image/jpeg");

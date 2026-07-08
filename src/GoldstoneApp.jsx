@@ -1745,9 +1745,6 @@ function InvestorPacketModal({property,onUpdate,onClose}){
     const allCosts=purchase+prof.buyingTotal+rehab+prof.holdingTotal+prof.debtService+prof.sellingTotal;
     const pctArv=(v)=>arv>0?`${Math.round(v/arv*1000)/10}%`:"—";
     // Track record from the portfolio: completed (Sold) + currently active projects.
-    const sold=(sharedProps||[]).filter(x=>x.status==="Sold");
-    const soldVol=sold.reduce((s,x)=>{const xf=x.financials||{};return s+(n(xf.actualSalePrice)||n(xf.salePrice));},0);
-    const active=(sharedProps||[]).filter(x=>!x.archived&&["Under Contract","Purchased","Under Construction","On Market","In Closing"].includes(x.status)).length;
     const specRows=[["Property type",pi.type],["Beds / Baths",(pi.beds||pi.baths)?`${pi.beds||"—"} / ${pi.baths||"—"}`:""],["Square footage",pi.sqft?`${pi.sqft} sf`:""],["Year built",pi.yearBuilt],["Lot size",pi.lotAcres?`${parseFloat(Number(pi.lotAcres).toFixed(2))} acres`:""],["Block & lot",pi.blockLot],["Assessed value",pi.assessedValue?fmtD(n(pi.assessedValue)):""]]
       .filter(([,v])=>v).map(([k,v])=>`<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
     // Comparable sales — each with its own street photo, plus an average line that
@@ -1834,24 +1831,12 @@ function InvestorPacketModal({property,onUpdate,onClose}){
         ${row("Projected profit",`${fmtD(prof.netProfit)} · ${pctArv(prof.netProfit)} of ARV`,"profit")}
       </table>
       ${compsHtml}
-      <div class="cols">
-        <div>
-          <h2>Financing structure</h2>
-          <table>
-            ${row("Senior (hard-money) loan",fmtD(prof.hmLoanTotal))}
-            ${row("Investor capital",fmtD(n(ask)))}
-            ${row("Project margin (profit cushion)",fmtD(prof.netProfit))}
-          </table>
-        </div>
-        <div>
-          <h2>Track record</h2>
-          <table>
-            ${row("Projects completed",String(sold.length))}
-            ${soldVol>0?row("Completed sales volume",fmtD(soldVol)):""}
-            ${row("Projects currently active",String(active))}
-          </table>
-        </div>
-      </div>
+      <h2>Financing structure</h2>
+      <table>
+        ${row("Senior (hard-money) loan",fmtD(prof.hmLoanTotal))}
+        ${row("Investor capital",fmtD(n(ask)))}
+        ${row("Project margin (profit cushion)",fmtD(prof.netProfit))}
+      </table>
       <h2>The opportunity</h2>
       <div class="ask">
         <div class="sl">Capital investment</div>
@@ -1881,7 +1866,7 @@ function InvestorPacketModal({property,onUpdate,onClose}){
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
         <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:14}}>
-          <div style={{fontSize:12.5,color:T.textSub,lineHeight:1.5}}>Branded PDF for <b>{property.address}</b> — property specs, deal economics, the ask, and your track record. Opens the print dialog; choose "Save as PDF".</div>
+          <div style={{fontSize:12.5,color:T.textSub,lineHeight:1.5}}>Branded PDF for <b>{property.address}</b> — property specs, deal economics, comps, and the ask. Opens the print dialog; choose "Save as PDF".</div>
           <div style={{display:"flex",gap:10}}>
             <div style={{flex:1}}><div style={lbl}>Capital ask</div><input value={ask} onChange={e=>setAsk(e.target.value.replace(/[^\d.]/g,""))} inputMode="decimal" style={inp}/></div>
             <div style={{width:90}}><div style={lbl}>Rate %/yr</div><input value={rate} onChange={e=>setRate(e.target.value.replace(/[^\d.]/g,""))} inputMode="decimal" style={inp}/></div>

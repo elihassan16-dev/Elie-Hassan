@@ -34,13 +34,22 @@ export async function refreshSubscription(userName) {
 
 // Full opt-in flow: prompt for permission, subscribe, persist. Throws a friendly
 // message on any blocker so the UI can show it.
+// Once a user taps "Don't Allow", iOS never re-shows the prompt — recovery is
+// only via Settings or reinstalling the Home-Screen app, so say exactly that.
+const BLOCKED_MSG = "Your phone is blocking notifications for this app. iPhone: Settings → Notifications → find this app in the list → Allow Notifications. If it isn't listed: delete the Home-Screen icon, re-add it from Safari (Share → Add to Home Screen), open it from the new icon, and tap Enable again — then choose Allow.";
 export async function enablePush(userName) {
   if (!notificationsSupported())
-    throw new Error("This device or browser doesn't support notifications. On iPhone, add the app to your Home Screen first.");
+    throw new Error("This device or browser doesn't support notifications. On iPhone, add the app to your Home Screen (Share → Add to Home Screen) and open it from that icon first.");
   const perm = await Notification.requestPermission();
-  if (perm !== "granted")
-    throw new Error("Notifications are turned off. Allow them for this app in your browser/phone settings, then try again.");
-  const ok = await subscribeAndSave(userName);
+  if (perm !== "granted") throw new Error(BLOCKED_MSG);
+  let ok;
+  try { ok = await subscribeAndSave(userName); }
+  catch (e) {
+    // iOS throws NotAllowedError ("User denied push permission") when notifications
+    // were disabled in Settings even though the in-app permission says granted.
+    if (e && (e.name === "NotAllowedError" || /denied|permission/i.test(e.message || ""))) throw new Error(BLOCKED_MSG);
+    throw new Error("Couldn't subscribe this device: " + (e.message || "unknown error"));
+  }
   if (!ok) throw new Error("Notifications aren't configured on the server yet. (Missing VAPID key.)");
   return true;
 }

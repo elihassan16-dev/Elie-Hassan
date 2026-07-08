@@ -1719,17 +1719,24 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
 // PDF (via the browser's print dialog) with the property's specs (NJ records),
 // the deal economics (same finProfit math as the Financial Overview), the
 // financing structure, the ask, and the company's track record.
-function InvestorPacketModal({property,onClose}){
+function InvestorPacketModal({property,onUpdate,onClose}){
   const {sharedProps}=useData();
   const {displayName,user}=useAuth();
   const f=property.financials||{};
   const prof=finProfit(f,property.status);
-  const[ask,setAsk]=useState(String(Math.round(prof.equityRequired||0)));
+  // Ask defaults to cash-to-close rounded UP to the next $1,000 — $61,350 → $62,000.
+  const[ask,setAsk]=useState(String(Math.ceil((prof.equityRequired||0)/1000)*1000));
   const[rate,setRate]=useState(String(f.gapRate||15));
   const[term,setTerm]=useState(String(f.holdPeriod||6));
   const[toName,setToName]=useState("");
   const[note,setNote]=useState("");
+  // Comparable sales — persisted on the property so they survive regenerations.
+  const[comps,setComps]=useState(()=>property.investorComps||[]);
+  const upComp=(id,k,v)=>setComps(prev=>prev.map(c=>c.id===id?{...c,[k]:v}:c));
+  const addComp=()=>setComps(prev=>[...prev,{id:Date.now(),address:"",price:"",date:"",sqft:""}]);
+  const delComp=(id)=>setComps(prev=>prev.filter(c=>c.id!==id));
   const generate=()=>{
+    if(onUpdate)onUpdate(property.id,"investorComps",comps.filter(c=>(c.address||"").trim()));
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const pi=property.propertyInfo||{};
     const addr=`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:" , NJ".replace(" ,",",")}${property.zip?` ${property.zip}`:""}`;
@@ -1743,6 +1750,28 @@ function InvestorPacketModal({property,onClose}){
     const active=(sharedProps||[]).filter(x=>!x.archived&&["Under Contract","Purchased","Under Construction","On Market","In Closing"].includes(x.status)).length;
     const specRows=[["Property type",pi.type],["Beds / Baths",(pi.beds||pi.baths)?`${pi.beds||"—"} / ${pi.baths||"—"}`:""],["Square footage",pi.sqft?`${pi.sqft} sf`:""],["Year built",pi.yearBuilt],["Lot size",pi.lotAcres?`${parseFloat(Number(pi.lotAcres).toFixed(2))} acres`:""],["Block & lot",pi.blockLot],["Assessed value",pi.assessedValue?fmtD(n(pi.assessedValue)):""]]
       .filter(([,v])=>v).map(([k,v])=>`<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
+    // Comparable sales — each with its own street photo, plus an average line that
+    // shows the subject ARV sits inside what the neighborhood actually sold for.
+    const goodComps=comps.filter(c=>(c.address||"").trim());
+    const priced=goodComps.filter(c=>n(c.price)>0);
+    const avgPrice=priced.length?Math.round(priced.reduce((s,c)=>s+n(c.price),0)/priced.length):0;
+    const psfComps=priced.filter(c=>n(c.sqft)>0);
+    const avgPsf=psfComps.length?Math.round(psfComps.reduce((s,c)=>s+n(c.price)/n(c.sqft),0)/psfComps.length):0;
+    const subjPsf=n(pi.sqft)>0&&arv>0?Math.round(arv/n(pi.sqft)):0;
+    const compsHtml=goodComps.length?`
+      <h2>Comparable sales</h2>
+      ${avgPrice?`<div style="font-size:12.5px;color:#555;margin:-2px 0 10px">Average of ${priced.length} sale${priced.length!==1?"s":""}: <b>${fmtD(avgPrice)}</b>${avgPsf?` · <b>$${avgPsf}/sf</b>`:""}${arv?` &nbsp;—&nbsp; subject ARV <b>${fmtD(arv)}</b>${subjPsf?` · $${subjPsf}/sf`:""}`:""}</div>`:""}
+      <div class="comps" style="grid-template-columns:repeat(${goodComps.length>=3?3:goodComps.length},1fr)">
+        ${goodComps.map(c=>`
+          <div class="comp">
+            <img src="${window.location.origin}/api/property/photo?address=${encodeURIComponent(c.address)}" onerror="this.style.display='none'">
+            <div class="cb">
+              <div style="font-size:11.5px;font-weight:600;line-height:1.35">${esc(c.address)}</div>
+              ${n(c.price)>0?`<div style="font-size:15px;font-weight:800;margin-top:3px">${fmtD(n(c.price))}</div>`:""}
+              <div style="font-size:10.5px;color:#8A8A8E;margin-top:2px">${[c.date?`Sold ${esc(c.date)}`:"",n(c.sqft)>0?`${esc(c.sqft)} sf`:"",n(c.price)>0&&n(c.sqft)>0?`$${Math.round(n(c.price)/n(c.sqft))}/sf`:""].filter(Boolean).join(" · ")}</div>
+            </div>
+          </div>`).join("")}
+      </div>`:"";
     const row=(k,v,cls)=>`<tr class="${cls||""}"><td>${esc(k)}</td><td class="r">${v}</td></tr>`;
     const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(property.address)} — Investment Opportunity</title><style>
       *{box-sizing:border-box;}body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1C1C1E;margin:0;padding:36px;font-size:13px;}
@@ -1753,6 +1782,10 @@ function InvestorPacketModal({property,onClose}){
       .hero{display:grid;grid-template-columns:1fr 1.15fr;gap:16px;align-items:stretch;margin-bottom:18px;}
       .hero .stats{display:grid;grid-template-columns:1fr;gap:10px;margin:0;}
       .photo{width:100%;height:100%;min-height:230px;max-height:270px;object-fit:cover;border-radius:12px;}
+      .comps{display:grid;gap:12px;}
+      .comp{border:1px solid #ececec;border-radius:12px;overflow:hidden;break-inside:avoid;}
+      .comp img{width:100%;height:125px;object-fit:cover;display:block;}
+      .comp .cb{padding:8px 11px 10px;}
       h2{font-family:Georgia,serif;font-size:14px;margin:24px 0 8px;color:#8a6d1f;letter-spacing:.03em;text-transform:uppercase;}
       table{width:100%;border-collapse:collapse;font-size:12.5px;}
       td{padding:7px 10px;border-bottom:1px solid #f0f0f0;}
@@ -1800,6 +1833,7 @@ function InvestorPacketModal({property,onClose}){
         ${row("Projected sale (ARV)",fmtD(arv))}
         ${row("Projected profit",`${fmtD(prof.netProfit)} · ${pctArv(prof.netProfit)} of ARV`,"profit")}
       </table>
+      ${compsHtml}
       <div class="cols">
         <div>
           <h2>Financing structure</h2>
@@ -1852,6 +1886,26 @@ function InvestorPacketModal({property,onClose}){
             <div style={{flex:1}}><div style={lbl}>Capital ask</div><input value={ask} onChange={e=>setAsk(e.target.value.replace(/[^\d.]/g,""))} inputMode="decimal" style={inp}/></div>
             <div style={{width:90}}><div style={lbl}>Rate %/yr</div><input value={rate} onChange={e=>setRate(e.target.value.replace(/[^\d.]/g,""))} inputMode="decimal" style={inp}/></div>
             <div style={{width:90}}><div style={lbl}>Term (mo)</div><input value={term} onChange={e=>setTerm(e.target.value.replace(/[^\d.]/g,""))} inputMode="decimal" style={inp}/></div>
+          </div>
+          <div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:5}}>
+              <div style={{...lbl,marginBottom:0}}>Comparable sales (prove the ARV)</div>
+              <button onClick={addComp} style={{padding:"4px 11px",borderRadius:14,background:T.goldLight,border:`1px solid ${T.gold}`,color:"#8a6d1f",fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>+ Add comp</button>
+            </div>
+            {comps.length===0&&<div style={{fontSize:12,color:T.textTert}}>Paste sold comps — each prints as a card with its own street photo, plus an average vs your ARV.</div>}
+            {comps.map(c=>(
+              <div key={c.id} style={{border:`1px solid ${T.border}`,borderRadius:10,padding:"8px 10px",marginBottom:8,display:"flex",flexDirection:"column",gap:6}}>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <input value={c.address} onChange={e=>upComp(c.id,"address",e.target.value)} placeholder="Address (e.g. 31 Messenger St, Toms River, NJ)" style={{...inp,padding:"8px 10px",fontSize:13}}/>
+                  <button onClick={()=>delComp(c.id)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:17,lineHeight:1,flexShrink:0}}>×</button>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <input value={c.price} onChange={e=>upComp(c.id,"price",e.target.value.replace(/[^\d.]/g,""))} inputMode="decimal" placeholder="Sold $" style={{...inp,padding:"8px 10px",fontSize:13,flex:1,minWidth:0}}/>
+                  <input value={c.date} onChange={e=>upComp(c.id,"date",e.target.value)} placeholder="Sold date" style={{...inp,padding:"8px 10px",fontSize:13,flex:1,minWidth:0}}/>
+                  <input value={c.sqft} onChange={e=>upComp(c.id,"sqft",e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" placeholder="SqFt" style={{...inp,padding:"8px 10px",fontSize:13,width:76,flexShrink:0}}/>
+                </div>
+              </div>
+            ))}
           </div>
           <div><div style={lbl}>Prepared for (optional)</div><input value={toName} onChange={e=>setToName(e.target.value)} placeholder="Investor's name" style={inp}/></div>
           <div><div style={lbl}>Personal note (optional)</div><textarea value={note} onChange={e=>setNote(e.target.value)} rows={3} placeholder="e.g. Hi Jack — here's the Toms River deal we spoke about…" style={{...inp,resize:"vertical",lineHeight:1.5}}/></div>
@@ -2000,7 +2054,7 @@ function FinOverview({property,onUpdate}){
       {showHolding&&<HoldingCostsPopup items={holdingItems} holdPeriod={f.holdPeriod} onChange={(items,total)=>upMany({holdingCostItems:items,annualHoldingCosts:String(total)})} onClose={()=>setShowHolding(false)}/>}
       {showActualSelling&&<SellingCostsPopup items={acSellingItems} salePrice={f.actualSalePrice||f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({actualSellingCostItems:items,actualSellingCosts:String(total)})} onClose={()=>setShowActualSelling(false)}/>}
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
-      {showPacket&&<InvestorPacketModal property={property} onClose={()=>setShowPacket(false)}/>}
+      {showPacket&&<InvestorPacketModal property={property} onUpdate={onUpdate} onClose={()=>setShowPacket(false)}/>}
       {showActualFinancing&&<ActualFinancingPopup f={f} liveHmTotal={liveHmTotal} liveGapPrinc={equityRequired} actualHoldMonths={actualHoldMonths} locDraws={locDraws} sellingDate={f.sellingDate} closingDate={(property.propertyInfo||{}).closingDateScheduled||f.sellingDate}
         bsHm={bsHm} bsLoc={bsLoc} bsAvailable={bsAvailable} hmPaidSoFar={qbPaidInt?qbPaidInt.paid:null} hmPaidThrough={qbPaidInt?qbPaidInt.paidThrough:null}
         onSave={(vals)=>upMany(vals)} onClose={()=>setShowActualFinancing(false)}/>}

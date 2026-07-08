@@ -1559,10 +1559,15 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
   const fwdStart = (hmPaidThrough&&hmPaidThrough>today)?hmPaidThrough:today;
   const daysLeft = closingDate?daysBetween(fwdStart,closingDate):0;
   const forwardHmInterest = Math.round(n(hmLoanAmt)*(n(hmRate)/100)/365*daysLeft);
+  // Closing mid-month after the month was already paid (paid Aug 1, close Aug 15):
+  // the unused prepaid days come back on the payoff statement — credit them.
+  const creditDays = (closingDate&&hmPaidThrough&&hmPaidThrough>closingDate)?daysBetween(closingDate,hmPaidThrough):0;
+  const hmPrepaidCredit = Math.round(n(hmLoanAmt)*(n(hmRate)/100)/365*creditDays);
   const paidSoFar = Math.max(0,n(hmPaidSoFar)||0);
   const useFwd = hmFromToday&&!!closingDate;
-  // Total HM interest in from-today mode = what's been paid (from QuickBooks) + what's still to accrue.
-  const baseHmInterest = useFwd?(paidSoFar+forwardHmInterest):calcHmInterest;
+  // Total HM interest in paid+remaining mode = what's been paid (from QuickBooks)
+  // + what's still to accrue − any prepaid days credited back at close.
+  const baseHmInterest = useFwd?Math.max(0,paidSoFar+forwardHmInterest-hmPrepaidCredit):calcHmInterest;
   const calcGapBalloon = Math.round(n(gapLoanAmt)*(n(gapRate)/100)/12*months);
   const finalHmInt = hmIntOverride!==""?n(hmIntOverride):baseHmInterest;
   const finalGapInt = gapIntOverride!==""?n(gapIntOverride):calcGapBalloon;
@@ -1638,6 +1643,7 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
             {useFwd?(<>
               <div style={iRow}><span style={iLbl}>Paid so far <span style={{fontSize:10.5,color:T.textTert}}>(QuickBooks{hmPaidThrough?` · covers through ${finFmtDate(new Date(new Date(hmPaidThrough+"T00:00:00")-86400000).toISOString().slice(0,10))}`:""})</span></span><span style={iVal}>{hmPaidSoFar==null?"…":fmtD(paidSoFar)}</span></div>
               <div style={iRow}><span style={iLbl}>Remaining <span style={{fontSize:10.5,color:T.textTert}}>· {daysLeft}d from {finFmtDate(fwdStart)} @ {n(hmRate)}%</span></span><span style={iVal}>{fmtD(forwardHmInterest)}</span></div>
+              {creditDays>0&&<div style={iRow}><span style={iLbl}>Prepaid credit at close <span style={{fontSize:10.5,color:T.textTert}}>· {creditDays}d unused ({finFmtDate(closingDate)} → month end)</span></span><span style={{...iVal,color:T.blue}}>−{fmtD(hmPrepaidCredit)}</span></div>}
               <div style={iRow}><span style={{...iLbl,fontWeight:700}}>Total HM Interest</span><span style={{...iVal,fontWeight:800}}>{fmtD(baseHmInterest)}</span></div>
             </>):(
               <div style={iRow}><span style={iLbl}>Calculated Interest + Fees</span><span style={iVal}>{fmtD(calcHmInterest)}</span></div>

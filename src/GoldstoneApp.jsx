@@ -1741,7 +1741,7 @@ function InvestorPacketModal({property,onClose}){
     const sold=(sharedProps||[]).filter(x=>x.status==="Sold");
     const soldVol=sold.reduce((s,x)=>{const xf=x.financials||{};return s+(n(xf.actualSalePrice)||n(xf.salePrice));},0);
     const active=(sharedProps||[]).filter(x=>!x.archived&&["Under Contract","Purchased","Under Construction","On Market","In Closing"].includes(x.status)).length;
-    const specRows=[["Property type",pi.type],["Beds / Baths",(pi.beds||pi.baths)?`${pi.beds||"—"} / ${pi.baths||"—"}`:""],["Square footage",pi.sqft?`${pi.sqft} sf`:""],["Year built",pi.yearBuilt],["Lot size",pi.lotAcres?`${pi.lotAcres} acres`:""],["Block & lot",pi.blockLot],["Assessed value",pi.assessedValue?fmtD(n(pi.assessedValue)):""]]
+    const specRows=[["Property type",pi.type],["Beds / Baths",(pi.beds||pi.baths)?`${pi.beds||"—"} / ${pi.baths||"—"}`:""],["Square footage",pi.sqft?`${pi.sqft} sf`:""],["Year built",pi.yearBuilt],["Lot size",pi.lotAcres?`${parseFloat(Number(pi.lotAcres).toFixed(2))} acres`:""],["Block & lot",pi.blockLot],["Assessed value",pi.assessedValue?fmtD(n(pi.assessedValue)):""]]
       .filter(([,v])=>v).map(([k,v])=>`<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
     const row=(k,v,cls)=>`<tr class="${cls||""}"><td>${esc(k)}</td><td class="r">${v}</td></tr>`;
     const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(property.address)} — Investment Opportunity</title><style>

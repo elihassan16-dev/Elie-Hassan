@@ -1530,7 +1530,7 @@ function AddFromDirectory({avail,onAdd}){
 }
 
 // ─── Actual Financing Popup — simple, user enters real loan amounts/rates ─────
-function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, locDraws=[], sellingDate, closingDate, bsHm, bsLoc, bsAvailable, hmPaidSoFar, onSave, onClose}){
+function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, locDraws=[], sellingDate, closingDate, bsHm, bsLoc, bsAvailable, hmPaidSoFar, hmPaidThrough, onSave, onClose}){
   // Auto-matched line of credit for this property → projected interest to a sell date.
   const[assumedSell,setAssumedSell]=useState(sellingDate||new Date().toISOString().slice(0,10));
   const locRows=(locDraws||[]).map(d=>{const end=d.paybackDate||assumedSell;const days=daysBetween(d.dateFunded,end);return {...d,end,days,balance:drawBalance(d),interest:drawInterest({...d,paybackDate:end})};}).sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
@@ -1550,10 +1550,14 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
   const hmMonthlyInt = Math.round(n(hmLoanAmt)*(n(hmRate)/100)/12);
   const hmOrigFee = Math.round(n(hmLoanAmt)*(n(hmOrigPct)/100));
   const calcHmInterest = Math.round(hmMonthlyInt*months)+hmOrigFee+n(hmDocFee);
-  // Interest still to accrue from today → the scheduled closing date. Anything
-  // paid before today is treated as already settled, so only this comes off at close.
+  // Interest still to accrue → the scheduled closing date. A mortgage payment made
+  // on the 1st covers THAT month, so the forward clock starts at the LATER of today
+  // and the 1st of the month after the last QuickBooks payment (hmPaidThrough) —
+  // otherwise the rest of the already-paid month would be double-counted: once in
+  // "paid so far" and again in the projection.
   const today = new Date().toISOString().slice(0,10);
-  const daysLeft = closingDate?daysBetween(today,closingDate):0;
+  const fwdStart = (hmPaidThrough&&hmPaidThrough>today)?hmPaidThrough:today;
+  const daysLeft = closingDate?daysBetween(fwdStart,closingDate):0;
   const forwardHmInterest = Math.round(n(hmLoanAmt)*(n(hmRate)/100)/365*daysLeft);
   const paidSoFar = Math.max(0,n(hmPaidSoFar)||0);
   const useFwd = hmFromToday&&!!closingDate;
@@ -1626,14 +1630,14 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
             {iField("Doc Fee",hmDocFee,setHmDocFee,"$")}
             <div style={iRow}>
               <div>
-                <div style={iLbl}>Interest paid-to-date + from today</div>
-                <div style={{fontSize:11,color:T.textTert,marginTop:1}}>{closingDate?`Paid so far (QuickBooks) + ${daysLeft} days left @ ${n(hmRate)}%/yr`:"Set a Selling Date to use this"}</div>
+                <div style={iLbl}>Interest paid-to-date + remaining</div>
+                <div style={{fontSize:11,color:T.textTert,marginTop:1}}>{closingDate?`Paid so far (QuickBooks) + ${daysLeft} days from ${finFmtDate(fwdStart)} @ ${n(hmRate)}%/yr`:"Set a Selling Date to use this"}</div>
               </div>
               <button onClick={()=>closingDate&&setHmFromToday(v=>!v)} disabled={!closingDate} style={{padding:"5px 14px",borderRadius:20,border:"none",cursor:closingDate?"pointer":"default",fontFamily:"inherit",fontSize:12,fontWeight:700,background:useFwd?T.green+"22":T.bg,color:useFwd?"#1a8f43":T.textTert,opacity:closingDate?1:0.6}}>{useFwd?"On":"Off"}</button>
             </div>
             {useFwd?(<>
-              <div style={iRow}><span style={iLbl}>Paid so far <span style={{fontSize:10.5,color:T.textTert}}>(QuickBooks)</span></span><span style={iVal}>{hmPaidSoFar==null?"…":fmtD(paidSoFar)}</span></div>
-              <div style={iRow}><span style={iLbl}>Remaining <span style={{fontSize:10.5,color:T.textTert}}>· {daysLeft}d @ {n(hmRate)}%</span></span><span style={iVal}>{fmtD(forwardHmInterest)}</span></div>
+              <div style={iRow}><span style={iLbl}>Paid so far <span style={{fontSize:10.5,color:T.textTert}}>(QuickBooks{hmPaidThrough?` · covers through ${finFmtDate(new Date(new Date(hmPaidThrough+"T00:00:00")-86400000).toISOString().slice(0,10))}`:""})</span></span><span style={iVal}>{hmPaidSoFar==null?"…":fmtD(paidSoFar)}</span></div>
+              <div style={iRow}><span style={iLbl}>Remaining <span style={{fontSize:10.5,color:T.textTert}}>· {daysLeft}d from {finFmtDate(fwdStart)} @ {n(hmRate)}%</span></span><span style={iVal}>{fmtD(forwardHmInterest)}</span></div>
               <div style={iRow}><span style={{...iLbl,fontWeight:700}}>Total HM Interest</span><span style={{...iVal,fontWeight:800}}>{fmtD(baseHmInterest)}</span></div>
             </>):(
               <div style={iRow}><span style={iLbl}>Calculated Interest + Fees</span><span style={iVal}>{fmtD(calcHmInterest)}</span></div>
@@ -1723,10 +1727,20 @@ function FinOverview({property,onUpdate}){
   // Account balances come from the shared QuickBooks layer — the exact numbers the
   // BS report shows. Only the property-specific interest-paid scan is fetched here.
   const {connected:qbConnected2,accounts:qbAccounts}=useQB();
-  const[qbPaidInt,setQbPaidInt]=useState(null);  // interest/debt-service paid to date on this property
+  const[qbPaidInt,setQbPaidInt]=useState(null);  // {paid, paidThrough} — interest paid to date + how far it covers
   useEffect(()=>{
     if(!showActualFinancing||!qbConnected2||qbPaidInt!=null||!property.qbProjectId)return;let alive=true;
-    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(property.qbProjectId)}`).then(d=>{const paid=(d.items||[]).filter(x=>/interest|debt/i.test(x.account||"")).reduce((sum,x)=>sum+(Number(x.amount)||0),0);if(alive)setQbPaidInt(paid);}).catch(()=>{if(alive)setQbPaidInt(0);});
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(property.qbProjectId)}`).then(d=>{
+      const items=(d.items||[]).filter(x=>/interest|debt/i.test(x.account||""));
+      const paid=items.reduce((sum,x)=>sum+(Number(x.amount)||0),0);
+      // A mortgage payment made on the 1st covers THAT month — so the interest is
+      // settled through the END of the month of the latest payment, and forward
+      // accrual should only restart on the 1st of the following month.
+      const last=items.reduce((mx,x)=>String(x.date||"").slice(0,10)>mx?String(x.date).slice(0,10):mx,"");
+      let paidThrough=null;
+      if(last){const dt=new Date(last+"T00:00:00");if(!isNaN(dt)){const nd=new Date(dt.getFullYear(),dt.getMonth()+1,1);paidThrough=`${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,"0")}-01`;}}
+      if(alive)setQbPaidInt({paid,paidThrough});
+    }).catch(()=>{if(alive)setQbPaidInt({paid:0,paidThrough:null});});
     return ()=>{alive=false;};
   },[showActualFinancing,qbConnected2]); // eslint-disable-line react-hooks/exhaustive-deps
   const bsHasLoans=((property.qbLoanAccounts||[]).length||(property.qbLoanCustom||[]).length);
@@ -1829,7 +1843,7 @@ function FinOverview({property,onUpdate}){
       {showActualSelling&&<SellingCostsPopup items={acSellingItems} salePrice={f.actualSalePrice||f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({actualSellingCostItems:items,actualSellingCosts:String(total)})} onClose={()=>setShowActualSelling(false)}/>}
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
       {showActualFinancing&&<ActualFinancingPopup f={f} liveHmTotal={liveHmTotal} liveGapPrinc={equityRequired} actualHoldMonths={actualHoldMonths} locDraws={locDraws} sellingDate={f.sellingDate} closingDate={(property.propertyInfo||{}).closingDateScheduled||f.sellingDate}
-        bsHm={bsHm} bsLoc={bsLoc} bsAvailable={bsAvailable} hmPaidSoFar={qbPaidInt}
+        bsHm={bsHm} bsLoc={bsLoc} bsAvailable={bsAvailable} hmPaidSoFar={qbPaidInt?qbPaidInt.paid:null} hmPaidThrough={qbPaidInt?qbPaidInt.paidThrough:null}
         onSave={(vals)=>upMany(vals)} onClose={()=>setShowActualFinancing(false)}/>}
 
       {/* Toggle bar */}

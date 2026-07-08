@@ -1720,16 +1720,15 @@ function FinOverview({property,onUpdate}){
   // Balance Sheet loan totals for this property, so the Actual Financing popup can
   // cross-check the hard-money / LOC amounts against what's pinned on the BS report.
   // Fetched lazily the first time the Actuals popup is opened (needs QuickBooks).
-  const[qbAccounts,setQbAccounts]=useState(null);
+  // Account balances come from the shared QuickBooks layer — the exact numbers the
+  // BS report shows. Only the property-specific interest-paid scan is fetched here.
+  const {connected:qbConnected2,accounts:qbAccounts}=useQB();
   const[qbPaidInt,setQbPaidInt]=useState(null);  // interest/debt-service paid to date on this property
   useEffect(()=>{
-    if(!showActualFinancing||qbAccounts)return;let alive=true;
-    fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>{if(!s.connected)return;
-      qbAuthFetch("/api/quickbooks/accounts").then(d=>{if(alive)setQbAccounts(d.items||[]);}).catch(()=>{if(alive)setQbAccounts([]);});
-      if(property.qbProjectId)qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(property.qbProjectId)}`).then(d=>{const paid=(d.items||[]).filter(x=>/interest|debt/i.test(x.account||"")).reduce((sum,x)=>sum+(Number(x.amount)||0),0);if(alive)setQbPaidInt(paid);}).catch(()=>{if(alive)setQbPaidInt(0);});
-    }).catch(()=>{});
+    if(!showActualFinancing||!qbConnected2||qbPaidInt!=null||!property.qbProjectId)return;let alive=true;
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(property.qbProjectId)}`).then(d=>{const paid=(d.items||[]).filter(x=>/interest|debt/i.test(x.account||"")).reduce((sum,x)=>sum+(Number(x.amount)||0),0);if(alive)setQbPaidInt(paid);}).catch(()=>{if(alive)setQbPaidInt(0);});
     return ()=>{alive=false;};
-  },[showActualFinancing]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[showActualFinancing,qbConnected2]); // eslint-disable-line react-hooks/exhaustive-deps
   const bsHasLoans=((property.qbLoanAccounts||[]).length||(property.qbLoanCustom||[]).length);
   const bsM=qbAccounts?bsMetrics(property,qbAccounts,{}):null;   // pot = LOC pinned as the pot; rest = hard money
   const bsHm=bsM?bsM.totalLoans-bsM.pot:null;
@@ -4931,7 +4930,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
         const list=isStatus
           ? props.filter(p=>p.status===listPopup.status)
           : props.filter(p=>!isFunded(p)&&calcEquity(p)>0);
-        const title=isStatus?listPopup.status:"Equity Needed";
+        const title=isStatus?listPopup.status:"Cash to Close Needed";
         const sc=isStatus?(STATUS_COLORS[listPopup.status]||{badge:T.gold}):{badge:T.gold};
         return(
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}} onClick={()=>setListPopup(null)}>
@@ -4979,18 +4978,18 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
             style={{fontSize:12,padding:"5px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:T.bg,color:T.text,outline:"none",fontFamily:"inherit",cursor:"pointer"}}>
             <option value="status">Sort by Status</option>
             <option value="profit">Sort by Profit</option>
-            <option value="equity">Sort by Equity Needed</option>
+            <option value="equity">Sort by Cash to Close</option>
           </select>
         </div>
 
-        {/* Total Equity Needed summary — only properties still needing funding */}
+        {/* Total Cash-to-Close summary — only properties still needing funding */}
         {(()=>{
           const needFunding=props.filter(p=>!isFunded(p)&&calcEquity(p)>0);
           const totalNeeded=needFunding.reduce((s,p)=>s+calcEquity(p),0);
           return needFunding.length>0&&(
             <div onClick={()=>setListPopup({type:"equity"})} style={{margin:"14px 24px",background:T.goldLight,border:`1.5px solid ${T.gold}`,borderRadius:12,padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
               <div>
-                <div style={{fontSize:11,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:"0.06em"}}>Total Equity Needed</div>
+                <div style={{fontSize:11,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:"0.06em"}}>Total Cash to Close Needed</div>
                 <div style={{fontSize:12,color:T.textSub,marginTop:2}}>across {needFunding.length} {needFunding.length===1?"property":"properties"}</div>
               </div>
               <div style={{fontSize:24,fontWeight:800,color:T.gold}}>{fmtD(totalNeeded)}</div>
@@ -5004,7 +5003,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                 Equity / Profit / Funded columns line up vertically down the list. */}
             <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 78px 78px 34px",gap:8,padding:"10px 16px 8px",fontSize:9.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em",borderBottom:`1px solid ${T.border}`}}>
               <span>Property</span>
-              <span style={{textAlign:"right",color:T.gold}}>Equity</span>
+              <span style={{textAlign:"right",color:T.gold}}>Cash to Close</span>
               <span style={{textAlign:"right",color:T.green}}>Profit</span>
               <span style={{textAlign:"center"}}>Fund</span>
             </div>
@@ -5052,7 +5051,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
               <tr>
                 <th style={{...thS}} onClick={()=>setSortKey("status")}>Address</th>
                 <th style={{...thS,textAlign:"center"}}>Status</th>
-                <th style={{...thS,textAlign:"right"}} onClick={()=>setSortKey("equity")}>Equity Required {sortKey==="equity"?"↓":""}</th>
+                <th style={{...thS,textAlign:"right"}} onClick={()=>setSortKey("equity")}>Cash to Close {sortKey==="equity"?"↓":""}</th>
                 <th style={{...thS,textAlign:"center",width:70}}>Actual?</th>
                 <th style={{...thS,textAlign:"right"}} onClick={()=>setSortKey("profit")}>Est. Profit {sortKey==="profit"?"↓":""}</th>
                 <th style={{...thS,textAlign:"center",width:90}}>Has Funder</th>
@@ -8970,65 +8969,102 @@ const qbCache={
 // Slim the spend map to just {allIn} per project before caching (drop bulky pnl/loading).
 const slimSpend=(spend)=>Object.fromEntries(Object.entries(spend||{}).map(([k,v])=>[k,{allIn:v&&v.allIn!=null?v.allIn:null}]));
 
+// ── Shared QuickBooks data layer ─────────────────────────────────────────────
+// ONE connected-status check, ONE accounts cache (localStorage warm start + a
+// single 60s / refocus refresh loop), and ONE per-project all-in-spend scanner —
+// shared by every financial section (BS report, Bank Recon, Cash Flow, Report
+// Center, the property financing popup). Previously each page fetched its own
+// copy, so tabs could briefly show different balances for the same account and
+// the same ~20 project P&L scans re-ran on every tab open.
+const qbStore={
+  connected:null, accounts:qbCache.get("accounts",null), spend:qbCache.get("spend",{}),
+  refreshing:false, subs:new Set(), statusStarted:false, loopStarted:false,
+  spendQueue:[], spendActive:0, spendAt:{},   // projectId -> ts of last completed scan
+};
+const qbNotify=()=>{qbStore.subs.forEach(fn=>{try{fn();}catch{/* ignore */}});};
+async function qbRefreshAccounts(){
+  if(!qbStore.connected||qbStore.refreshing)return;
+  qbStore.refreshing=true;qbNotify();
+  try{const d=await qbAuthFetch("/api/quickbooks/accounts");qbStore.accounts=d.items||[];qbCache.set("accounts",qbStore.accounts);}
+  catch{/* keep the last-known balances */}
+  qbStore.refreshing=false;qbNotify();
+}
+function qbEnsureStatus(){
+  if(qbStore.statusStarted)return;qbStore.statusStarted=true;
+  fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>{qbStore.connected=!!s.connected;qbNotify();if(qbStore.connected)qbStartLoop();})
+    .catch(()=>{qbStore.connected=false;qbNotify();});
+}
+function qbStartLoop(){
+  if(qbStore.loopStarted)return;qbStore.loopStarted=true;
+  qbRefreshAccounts();
+  setInterval(()=>{if(document.visibilityState==="visible")qbRefreshAccounts();},60000);
+  const onShow=()=>{if(document.visibilityState==="visible")qbRefreshAccounts();};
+  window.addEventListener("focus",onShow);
+  document.addEventListener("visibilitychange",onShow);
+}
+// Ask for these projects' all-in spend. Fresh results (<2 min) are skipped unless
+// forced; the rest run through one global 4-worker queue.
+function qbRequestSpend(ids,force){
+  if(!qbStore.connected)return;
+  const now=Date.now();
+  [...new Set((ids||[]).filter(Boolean))].forEach(id=>{
+    if(!force&&qbStore.spendAt[id]&&now-qbStore.spendAt[id]<120000)return;
+    if(!qbStore.spendQueue.includes(id))qbStore.spendQueue.push(id);
+  });
+  while(qbStore.spendActive<4&&qbStore.spendQueue.length)qbSpendWorker();
+}
+async function qbSpendWorker(){
+  qbStore.spendActive++;
+  while(qbStore.spendQueue.length){
+    const id=qbStore.spendQueue.shift();
+    qbStore.spend={...qbStore.spend,[id]:{...(qbStore.spend[id]||{}),loading:true}};qbNotify();
+    try{
+      const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);
+      qbStore.spend={...qbStore.spend,[id]:{loading:false,allIn:(d?.expenses||0)+(d?.cogs||0),pnl:d}};
+      qbStore.spendAt[id]=Date.now();
+      qbCache.set("spend",slimSpend(qbStore.spend));
+    }catch{qbStore.spend={...qbStore.spend,[id]:{...(qbStore.spend[id]||{}),loading:false}};}
+    qbNotify();
+  }
+  qbStore.spendActive--;
+}
+// The hook every financial section uses. Subscribes to the store, kicks the
+// status check on first mount, and re-renders on every store update.
+function useQB(){
+  const[,force]=useState(0);
+  useEffect(()=>{const fn=()=>force(x=>x+1);qbStore.subs.add(fn);qbEnsureStatus();return()=>{qbStore.subs.delete(fn);};},[]);
+  return {
+    connected:qbStore.connected,
+    accounts:qbStore.accounts,
+    spend:qbStore.spend,
+    refreshing:qbStore.refreshing,
+    requestSpend:qbRequestSpend,
+    refresh:(ids)=>{qbRefreshAccounts();qbRequestSpend(ids,true);},
+  };
+}
+
 function FinPropertyBS({sharedProps,onNavigate,initialSelId,isMobile,canEdit=true}){
   const { setSharedProps, flushProps, bankAccounts }=useData();
   const onUpdate=(id,key,val)=>{if(!canEdit)return;setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
   const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status))
     .sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")),[sharedProps]);
-  const[connected,setConnected]=useState(null);
-  const[accounts,setAccounts]=useState(()=>qbCache.get("accounts",null));
-  const[spend,setSpend]=useState(()=>qbCache.get("spend",{}));
-  useEffect(()=>{if(accounts)qbCache.set("accounts",accounts);},[accounts]);
-  useEffect(()=>{qbCache.set("spend",slimSpend(spend));},[spend]);
+  const {connected,accounts,spend,refreshing,requestSpend,refresh}=useQB();
   const[selId,setSelId]=useState(initialSelId||null);
   const[search,setSearch]=useState("");
-  const[acctKey,setAcctKey]=useState(0);   // bump to refetch QuickBooks account balances
-  const[spendKey,setSpendKey]=useState(0);  // bump to refetch project all-in spend
-  const[refreshing,setRefreshing]=useState(false);
-  const refreshAll=useCallback(()=>{setRefreshing(true);setAcctKey(k=>k+1);setSpendKey(k=>k+1);},[]);
-  useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
-  // Live account balances — refetch on load, on refresh, and update in place (no flash).
-  useEffect(()=>{
-    if(!connected)return;let alive=true;
-    qbAuthFetch("/api/quickbooks/accounts").then(d=>{if(alive){setAccounts(d.items||[]);setRefreshing(false);}}).catch(()=>{if(alive){setAccounts(a=>a||[]);setRefreshing(false);}});
-    return ()=>{alive=false;};
-  },[connected,acctKey]);
-  // Keep balances fresh: pull accounts every 60s and whenever the tab is refocused.
-  useEffect(()=>{
-    if(!connected)return;
-    const onShow=()=>{if(document.visibilityState==="visible"){setAcctKey(k=>k+1);setSpendKey(k=>k+1);}};
-    const iv=setInterval(()=>setAcctKey(k=>k+1),60000);
-    window.addEventListener("focus",onShow);
-    document.addEventListener("visibilitychange",onShow);
-    return ()=>{clearInterval(iv);window.removeEventListener("focus",onShow);document.removeEventListener("visibilitychange",onShow);};
-  },[connected]);
   const projKey=props.map(p=>p.qbProjectId).filter(Boolean).join(",");
-  useEffect(()=>{
-    if(!connected)return;
-    const ids=[...new Set(props.map(p=>p.qbProjectId).filter(Boolean))];
-    let cancelled=false;
-    const queue=[...ids];
-    const run=async()=>{
-      while(queue.length&&!cancelled){
-        const id=queue.shift();
-        setSpend(s=>({...s,[id]:{loading:true,allIn:s[id]?.allIn,pnl:s[id]?.pnl}}));
-        try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);
-          if(!cancelled)setSpend(s=>({...s,[id]:{loading:false,allIn:(d?.expenses||0)+(d?.cogs||0),pnl:d}}));
-        }catch{if(!cancelled)setSpend(s=>({...s,[id]:{loading:false,allIn:null}}));}
-      }
-    };
-    Promise.all([run(),run(),run(),run()]);
-    return ()=>{cancelled=true;};
-  },[connected,projKey,spendKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(connected)requestSpend(props.map(p=>p.qbProjectId));},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const refreshAll=useCallback(()=>refresh(props.map(p=>p.qbProjectId)),[refresh,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cover columns: Construction Float (= personal equity − interest reserve) and the Interest Reserve.
-  const acctBal=(id)=>{const a=(accounts||[]).find(x=>x.id===id);return a?-(a.balance||0):0;}; // flip QB liability sign
-  const sumAmt=(arr)=>(arr||[]).reduce((s,l)=>s+(Number(l.amount)||0),0);
-  const potOf=(p)=>{const ids=p.qbLocPotIds||[];return (p.qbLoanAccounts||[]).filter(id=>ids.includes(id)).reduce((s,id)=>s+acctBal(id),0)+(p.qbLoanCustom||[]).filter(l=>ids.includes("c"+l.id)).reduce((s,l)=>s+(Number(l.amount)||0),0);};
-  const floatOf=(p)=>sumAmt(p.qbFloatTxns)+sumAmt(p.qbFloatCustom);
-  const debtOf=(p)=>sumAmt(p.qbDebtTxns)+sumAmt(p.qbDebtCustom);
-  const totalLoansOf=(p)=>(p.qbLoanAccounts||[]).reduce((s,id)=>s+acctBal(id),0)+sumAmt(p.qbLoanCustom);
-  const allInOf=(p)=>{const m=p.qbAllInCost;if(m!==undefined&&m!==null&&m!=="")return Number(m);const d=p.qbProjectId?spend[p.qbProjectId]:null;return d&&d.allIn!=null?d.allIn:null;};
+  // Cover columns: Construction Float (= personal equity − interest reserve) and the
+  // Interest Reserve. All figures come from the SHARED bsMetrics — no local math, so
+  // this page can never disagree with Bank Recon / the Report Center.
+  const acctBal=(id)=>bsAcctBal(accounts,id);
+  const sumAmt=bsSum;
+  const potOf=(p)=>bsMetrics(p,accounts,spend).pot;
+  const floatOf=(p)=>bsMetrics(p,accounts,spend).deployed;
+  const debtOf=(p)=>bsMetrics(p,accounts,spend).debt;
+  const totalLoansOf=(p)=>bsMetrics(p,accounts,spend).totalLoans;
+  const allInOf=(p)=>bsMetrics(p,accounts,spend).allIn;
   const equityOf=(p)=>{const a=allInOf(p);return a==null?null:a-totalLoansOf(p)+sumAmt(p.qbBsCustom);};
   const rows=props.map(p=>{
     const setUp=(p.qbLoanAccounts||[]).length||(p.qbLoanCustom||[]).length||(p.qbLocPotIds||[]).length||(p.qbFloatTxns||[]).length||(p.qbFloatCustom||[]).length||(p.qbDebtTxns||[]).length||(p.qbDebtCustom||[]).length;
@@ -9128,11 +9164,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   const { bankAccounts, setBankAccounts:rawSetBankAccounts, flushBank }=useData();
   const setBankAccounts = canEdit ? rawSetBankAccounts : ()=>{};   // view-only: block writes
   const save=()=>{if(flushBank)setTimeout(flushBank,0);};
-  const[connected,setConnected]=useState(null);
-  const[accounts,setAccounts]=useState(()=>qbCache.get("accounts",null));
-  const[spend,setSpend]=useState(()=>qbCache.get("spend",{}));
-  useEffect(()=>{if(accounts)qbCache.set("accounts",accounts);},[accounts]);
-  useEffect(()=>{qbCache.set("spend",slimSpend(spend));},[spend]);
+  const {connected,accounts,spend,requestSpend}=useQB();
   const[addName,setAddName]=useState("");
   const[balModal,setBalModal]=useState("");   // bank id whose reconcile popup is open
   const[addAdjFor,setAddAdjFor]=useState("");  // bank id whose adjustment form is open
@@ -9141,15 +9173,8 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   const[collapsed,setCollapsed]=useState({});   // bank id → line items hidden
   const toggleCollapse=(id)=>setCollapsed(c=>({...c,[id]:!c[id]}));
   const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status)),[sharedProps]);
-  useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
-  useEffect(()=>{if(!connected)return;qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[connected]);
   const projKey=props.map(p=>p.qbProjectId).filter(Boolean).join(",");
-  useEffect(()=>{
-    if(!connected)return;const ids=[...new Set(props.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
-    const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
-      try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);if(!cancelled)setSpend(s=>({...s,[id]:{allIn:(d?.expenses||0)+(d?.cogs||0)}}));}catch{/* ignore */}}};
-    Promise.all([run(),run(),run(),run()]);return ()=>{cancelled=true;};
-  },[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(connected)requestSpend(props.map(p=>p.qbProjectId));},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const bank=[...(bankAccounts||[])].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   const addBank=()=>{const n=addName.trim();if(!n)return;setBankAccounts(prev=>[...prev,{id:Date.now(),name:n}]);setAddName("");save();};
@@ -9328,37 +9353,31 @@ function cashFlowNet(p,accounts,spend,intPaid){
 // "Unscheduled" bucket surfaced first so they're never silently dropped.
 function CashFlowProjection({sharedProps,onNavigate,isMobile}){
   const[openId,setOpenId]=useState(null);
-  const[connected,setConnected]=useState(null);
-  const[accounts,setAccounts]=useState(()=>qbCache.get("accounts",null));
-  const[spend,setSpend]=useState(()=>qbCache.get("spend",{}));
+  // Loan balances + all-in spend come from the SHARED QuickBooks layer, so
+  // "Total loans" here always matches the BS report / bank reconciliation.
+  const {connected,accounts,spend,requestSpend}=useQB();
   const[intPaid,setIntPaid]=useState(()=>qbCache.get("intPaid",{})); // projectId → hard-money interest paid to date (from QB)
-  useEffect(()=>{if(accounts)qbCache.set("accounts",accounts);},[accounts]);
-  useEffect(()=>{qbCache.set("spend",slimSpend(spend));},[spend]);
   useEffect(()=>{qbCache.set("intPaid",intPaid);},[intPaid]);
   const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const inClosing=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&p.status==="In Closing"),[sharedProps]);
   // The month a property closes: its scheduled closing date, else the selling
   // date on the Sale Timeline (either one is where you put the sale date).
   const cfDate=(p)=>((p.propertyInfo||{}).closingDateScheduled||(p.financials||{}).sellingDate||"");
-
-  // Pull the live QuickBooks loan balances + all-in spend, exactly like the BS
-  // report / bank reconciliation, so "Total loans" here matches those pages.
-  useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
-  useEffect(()=>{if(!connected)return;qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[connected]);
   const projKey=inClosing.map(p=>p.qbProjectId).filter(Boolean).join(",");
+  useEffect(()=>{if(connected)requestSpend(inClosing.map(p=>p.qbProjectId));},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Sum the interest actually PAID on each property so far — any expense whose
+  // account name mentions "interest". Since LOC is a balloon (unpaid until
+  // closing), what's been paid is the monthly hard-money interest, which we
+  // credit back against the projected hard-money interest. (Cash-flow-specific,
+  // so it stays here rather than in the shared layer.)
   useEffect(()=>{
     if(!connected)return;const ids=[...new Set(inClosing.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
     const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
-      try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);if(!cancelled)setSpend(s=>({...s,[id]:{allIn:(d?.expenses||0)+(d?.cogs||0)}}));}catch{/* ignore */}
-      // Sum the interest actually PAID on this property so far — any expense whose
-      // account name mentions "interest". Since LOC is a balloon (unpaid until
-      // closing), what's been paid is the monthly hard-money interest, which we
-      // credit back against the projected hard-money interest.
       try{const t=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);
         const paid=(t.items||[]).filter(x=>/interest|debt/i.test(x.account||"")).reduce((s,x)=>s+(Number(x.amount)||0),0);
         if(!cancelled)setIntPaid(m=>({...m,[id]:paid}));
       }catch{/* ignore */}}};
-    Promise.all([run(),run(),run(),run()]);return ()=>{cancelled=true;};
+    Promise.all([run(),run()]);return ()=>{cancelled=true;};
   },[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Bucket by YYYY-MM (or "unscheduled") → chronological list of month groups.
@@ -9455,11 +9474,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const { draws, setDraws, flushDraws, setSharedProps, flushProps }=useData();
   const setPlan=(drawId,plan)=>{if(!canEdit)return;setDraws(prev=>prev.map(d=>d.id===drawId?{...d,futureFundsPlan:plan}:d));if(flushDraws)setTimeout(flushDraws,0);};
   const updateProp=(id,key,val)=>{if(!canEdit)return;setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
-  const[connected,setConnected]=useState(null);
-  const[accounts,setAccounts]=useState(()=>qbCache.get("accounts",null));
-  const[spend,setSpend]=useState(()=>qbCache.get("spend",{}));
-  useEffect(()=>{if(accounts)qbCache.set("accounts",accounts);},[accounts]);
-  useEffect(()=>{qbCache.set("spend",slimSpend(spend));},[spend]);
+  const {connected,accounts,spend,requestSpend}=useQB();
   const[open,setOpen]=useState(null); // report id being previewed
   const[holdbackFor,setHoldbackFor]=useState(null); // property id whose holdback editor is open
   const[hbTxns,setHbTxns]=useState(null);           // that property's QuickBooks transactions
@@ -9470,16 +9485,10 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const[drawSearch,setDrawSearch]=useState("");
 
   const bsProps=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status)),[sharedProps]);
-  // Live QuickBooks account balances + all-in spend for the balance-sheet report.
-  useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(s=>setConnected(!!s.connected)).catch(()=>setConnected(false));},[]);
-  useEffect(()=>{if(!connected)return;qbAuthFetch("/api/quickbooks/accounts").then(d=>setAccounts(d.items||[])).catch(()=>setAccounts([]));},[connected]);
+  // Live QuickBooks balances + all-in spend from the shared layer (same data the
+  // BS report / Bank Recon / Cash Flow read).
   const projKey=bsProps.map(p=>p.qbProjectId).filter(Boolean).join(",");
-  useEffect(()=>{
-    if(!connected)return;const ids=[...new Set(bsProps.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
-    const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
-      try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);if(!cancelled)setSpend(s=>({...s,[id]:{allIn:(d?.expenses||0)+(d?.cogs||0)}}));}catch{/* ignore */}}};
-    Promise.all([run(),run(),run(),run()]);return ()=>{cancelled=true;};
-  },[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(connected)requestSpend(bsProps.map(p=>p.qbProjectId));},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openDraws=useMemo(()=>(draws||[]).filter(d=>!d.paybackDate),[draws]);
   const propForDraw=(d)=>{if(d.propertyId!=null){const p=(sharedProps||[]).find(x=>String(x.id)===String(d.propertyId));if(p)return p;}return (sharedProps||[]).find(p=>drawsForProperty(p,[d]).length>0)||null;};
@@ -9635,8 +9644,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     },
     bs:{
       title:"Property Balance Sheet",
-      subtitle:"Loans, all-in cost, reserves and equity across every active property. Equity ± is all-in cost minus total loans.",
-      cols:[{label:"Property"},{label:"Total loans",align:"right"},{label:"All-in cost",align:"right"},{label:"Constr. reserve",align:"right"},{label:"Interest reserve",align:"right"},{label:"Equity ±",align:"right"}],
+      subtitle:"Loans, all-in cost, reserves and capital across every active property. Capital in deal ± is all-in cost minus total loans (your money sunk in the deal).",
+      cols:[{label:"Property"},{label:"Total loans",align:"right"},{label:"All-in cost",align:"right"},{label:"Constr. reserve",align:"right"},{label:"Interest reserve",align:"right"},{label:"Capital in deal ±",align:"right"}],
       rows:rptBS.rows.map(r=>[{t:r.address},{t:M(r.totalLoans),align:"right"},{t:M(r.allIn),align:"right"},{t:r.cf==null?"—":fmtD(r.cf),align:"right"},{t:fmtD(r.ir),align:"right"},{t:r.equity==null?"—":fmtD(r.equity),align:"right",strong:true,color:r.equity<0?T.red:T.green}]),
       foot:[[{t:"Portfolio",strong:true},{t:fmtD(rptBS.total.totalLoans),align:"right",strong:true},{t:rptBS.total.anyAllIn?fmtD(rptBS.total.allIn):"—",align:"right",strong:true},{t:fmtD(rptBS.total.cf),align:"right",strong:true},{t:fmtD(rptBS.total.ir),align:"right",strong:true},{t:fmtD(rptBS.total.equity),align:"right",strong:true,color:rptBS.total.equity<0?T.red:T.green}]],
       empty:"No active properties.",
@@ -9670,7 +9679,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     closings:{
       title:"Upcoming Closings — Capital Flow",
       subtitle:"In-closing sales return line-of-credit capital you can redeploy; under-contract buys need equity to close. In closing-date order, the running balance shows where you stand — red means the money coming back doesn't yet cover the equity owed on the buys ahead. Starts from zero (net of upcoming closings only).",
-      cols:[{label:"Property"},{label:"Type"},{label:"Closing"},{label:"LOC coming back",align:"right"},{label:"Equity required",align:"right"},{label:"Running balance",align:"right"}],
+      cols:[{label:"Property"},{label:"Type"},{label:"Closing"},{label:"LOC coming back",align:"right"},{label:"Cash to close",align:"right"},{label:"Running balance",align:"right"}],
       rows:rptClosings.rows.map(r=>[
         {t:r.address},
         {t:r.type==="Buy"?"Buying":"In Closing",color:r.type==="Buy"?T.blue:T.green,strong:true},

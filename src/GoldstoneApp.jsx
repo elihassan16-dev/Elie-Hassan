@@ -4839,17 +4839,25 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
   const pinSig=useMemo(()=>props.filter(p=>(p.pinnedEmails||[]).length).map(p=>`${p.id}:${(p.pinnedEmails||[]).map(pe=>pe.id).join("|")}`).join(","),[props]);
   useEffect(()=>{
     if(!mail.signedIn){setUnreadByProp({});return;}let alive=true;
+    // Check pins with a small worker pool (4 in flight) instead of one-at-a-time —
+    // sequentially this was 2 Graph round-trips per pin and took ~30s+ across the
+    // portfolio. Kept under Graph's per-mailbox throttling ceiling.
     (async()=>{
-      for(const p of props.filter(x=>(x.pinnedEmails||[]).length)){
-        let total=0;
-        for(const pe of (p.pinnedEmails||[])){
+      const queue=[];
+      props.filter(x=>(x.pinnedEmails||[]).length).forEach(p=>(p.pinnedEmails||[]).forEach(pe=>queue.push({p,pe})));
+      const totals={};
+      const work=async()=>{
+        while(alive&&queue.length){
+          const {p,pe}=queue.shift();
           let convId=pe.conversationId;
           if(pe.internetMessageId){try{const hit=await mail.findByInternetId(pe.internetMessageId);if(hit)convId=hit.conversationId;}catch{/* keep stored */}}
-          total+=await mail.conversationUnread(convId);
+          const n=await mail.conversationUnread(convId);
+          if(!alive)return;
+          totals[p.id]=(totals[p.id]||0)+n;
+          setUnreadByProp(m=>({...m,[p.id]:totals[p.id]}));
         }
-        if(!alive)return;
-        setUnreadByProp(m=>({...m,[p.id]:total}));
-      }
+      };
+      await Promise.all([work(),work(),work(),work()]);
     })();
     return ()=>{alive=false;};
   },[mail.signedIn,pinSig]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -10521,7 +10529,10 @@ function EmailPage({isMobile}){
   useEffect(()=>{
     if(!sel){setMsgs(null);setReplyDraft(null);setThreadErr("");setLabelOpen(false);return;}
     let alive=true;setMsgs(null);setExpanded({});setThreadErr("");setLabelOpen(false);
-    mail.getConversation(sel.key).then(m=>{if(alive){setMsgs(m);setExpanded(Object.fromEntries((m||[]).map(x=>[x.id,true])));}}).catch(e=>{if(alive){setMsgs([]);setThreadErr(e.message||"Couldn't load this conversation.");}});
+    // Expand only the NEWEST message. Expanding every message rendered an iframe
+    // (plus attachment / inline-image fetches) per message, which made long chains
+    // take ages to open — older messages now expand on tap.
+    mail.getConversation(sel.key).then(m=>{if(alive){setMsgs(m);setExpanded(m&&m.length?{[m[m.length-1].id]:true}:{});}}).catch(e=>{if(alive){setMsgs([]);setThreadErr(e.message||"Couldn't load this conversation.");}});
     if(sel.anyUnread&&sel.latest?.id)mail.markRead(sel.latest.id);
     return ()=>{alive=false;};
   },[sel]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -10674,7 +10685,7 @@ function EmailPage({isMobile}){
                       <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</span>
                     </div>
                     {open
-                      ? <div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail} trimQuote/></div>
+                      ? <div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail} trimQuote/>{m.hasAttachments&&<EmailAttachments messageId={m.id} mail={mail} od={od} folder={null} properties={savePropList}/>}</div>
                       : <div onClick={()=>setReadMsg(m)} style={{padding:"0 14px 11px",fontSize:12.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{m.bodyPreview||""}</div>}
                   </div>
                 );})}
@@ -10777,9 +10788,18 @@ function EmailAttachments({messageId,mail,od,folder,properties}){
   };
   const preview=async(a)=>{
     if(isRef(a)){ if(a.sourceUrl)window.open(a.sourceUrl,"_blank"); else alert("This is a cloud/linked file; open it from the original email."); return; }
+    // Open the tab SYNCHRONOUSLY (inside the tap) and navigate it once the bytes
+    // arrive — iOS Safari blocks window.open after an await, which made Preview
+    // look like it did nothing on phones.
+    const w=window.open("","_blank");
+    if(w){try{w.document.write('<body style="font-family:-apple-system,sans-serif;color:#888;padding:40px;text-align:center">Loading attachment…</body>');}catch{/* ignore */}}
     setPv(p=>({...p,[a.id]:"loading"}));
-    try{ const blob=await mail.getAttachmentBlob(messageId,a.id); const url=URL.createObjectURL(blob); window.open(url,"_blank"); setTimeout(()=>URL.revokeObjectURL(url),120000); }
-    catch(e){ alert("Couldn't open: "+(e.message||"unknown error")); }
+    try{
+      const blob=await mail.getAttachmentBlob(messageId,a.id); const url=URL.createObjectURL(blob);
+      if(w)w.location=url; else window.open(url,"_blank");
+      setTimeout(()=>URL.revokeObjectURL(url),120000);
+    }
+    catch(e){ if(w)try{w.close();}catch{/* ignore */} alert("Couldn't open: "+(e.message||"unknown error")); }
     setPv(p=>({...p,[a.id]:null}));
   };
   const pickMode=!folder&&properties&&properties.length; // main inbox: save-to-a-property
@@ -10873,14 +10893,15 @@ function PropertyEmails({property,onUpdate,isMobile}){
   // Show an unread dot on each pinned chain that has unread messages in my mailbox.
   useEffect(()=>{
     if(!mail.signedIn||pinned.length===0)return;let alive=true;
+    // All pins checked in parallel (was one-at-a-time — slow with several pins).
     (async()=>{
-      for(const p of pinned){
+      await Promise.all(pinned.map(async(p)=>{
         let convId=p.conversationId;
         if(p.internetMessageId){try{const hit=await mail.findByInternetId(p.internetMessageId);if(hit)convId=hit.conversationId;}catch{/* keep stored */}}
         const n=await mail.conversationUnread(convId);
         if(!alive)return;
         setUnreadMap(m=>({...m,[p.id]:n}));
-      }
+      }));
     })();
     return ()=>{alive=false;};
   },[mail.signedIn,pinKey,viewer]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -10909,10 +10930,10 @@ function PropertyEmails({property,onUpdate,isMobile}){
       const hit=await mail.findByInternetId(viewer.internetMessageId);
       if(hit)convId=hit.conversationId;else if(viewer.conversationId)convId=viewer.conversationId;
       if(!convId){if(alive)setViewMsgs([]);return;}
-      try{const m=await mail.getConversation(convId);if(alive){setViewMsgs(m);setVExpanded(Object.fromEntries((m||[]).map(x=>[x.id,true])));}
+      try{const m=await mail.getConversation(convId);if(alive){setViewMsgs(m);setVExpanded(m&&m.length?{[m[m.length-1].id]:true}:{});}
         // Opening the chain marks its unread messages read, clearing the dot.
         const unread=m.filter(x=>x.isRead===false);
-        if(unread.length){for(const u of unread){await mail.markRead(u.id);}if(alive)setUnreadMap(mm=>({...mm,[viewer.id]:0}));}
+        if(unread.length){await Promise.all(unread.map(u=>mail.markRead(u.id)));if(alive)setUnreadMap(mm=>({...mm,[viewer.id]:0}));}
       }catch{if(alive)setViewMsgs([]);}
     })();
     return ()=>{alive=false;};
@@ -10933,7 +10954,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
     setVSending(true);
     try{ await mail.reply(last.id,body,vReply.all,vReply.cc||"",vReply.mentions||[]); setVReply(null);
       const convId=last.conversationId||viewer.conversationId;
-      if(convId){const m=await mail.getConversation(convId);setViewMsgs(m);setVExpanded(Object.fromEntries((m||[]).map(x=>[x.id,true])));}
+      if(convId){const m=await mail.getConversation(convId);setViewMsgs(m);setVExpanded(m&&m.length?{[m[m.length-1].id]:true}:{});}
     }catch(e){ alert("Couldn't send: "+(e.message||"unknown error")); }
     setVSending(false);
   };

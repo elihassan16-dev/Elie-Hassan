@@ -172,7 +172,9 @@ export function useOutlookMail() {
       const list = await graph(`/me/messages/${id}/attachments?$select=id,name,contentType,isInline&$top=60`);
       const inline = (list.value || []).filter((a) => a.isInline);
       const map = {};
-      for (const a of inline) {
+      // Fetch all the images in parallel — a signature can carry several, and
+      // pulling them one-by-one made every email open noticeably slower.
+      await Promise.all(inline.map(async (a) => {
         try {
           const one = await graph(`/me/messages/${id}/attachments/${a.id}`);
           if (one.contentBytes && one.contentId) {
@@ -180,7 +182,7 @@ export function useOutlookMail() {
             if (cid) map[cid] = `data:${one.contentType || a.contentType || "image/png"};base64,${one.contentBytes}`;
           }
         } catch { /* skip this image */ }
-      }
+      }));
       return map;
     } catch { return {}; }
   }, [graph]);

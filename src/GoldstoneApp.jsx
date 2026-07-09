@@ -4423,12 +4423,90 @@ function NJDetailsCard({entity, onUpdate}){
     </div>
   );
 }
+// ✨ Property assistant — ask anything about THIS property ("what's the lockbox
+// code?", "how much was the rehab?"). Each question ships with a slim JSON snapshot
+// of the property so the AI answers from real data; chat history lasts while open.
+function PropertyAiChat({property,onClose}){
+  const[msgs,setMsgs]=useState([]);
+  const[input,setInput]=useState("");
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
+  const scrollRef=useRef(null);
+  useEffect(()=>{const el=scrollRef.current;if(el)el.scrollTop=el.scrollHeight;},[msgs,busy]);
+  const full=`${property.address}${property.city?`, ${property.city}`:""}`;
+  const context=useMemo(()=>{
+    const p=property;
+    let computed=null;
+    try{
+      const pr=finProfit(p.financials||{},p.status);
+      computed={netProfit:pr.netProfit,effectiveProfit:pr.effective,equityRequired:pr.equityRequired,buyingCosts:pr.buyingTotal,sellingCosts:pr.sellingTotal,holdingCosts:pr.holdingTotal,hardMoneyLoan:pr.hmLoanTotal,hardMoneyInterest:pr.hmInterest,lineOfCreditInterest:pr.gapInterest};
+    }catch{/* answer from raw fields only */}
+    return JSON.stringify({
+      address:p.address,city:p.city,state:p.state,zip:p.zip,status:p.status,
+      propertyInfo:p.propertyInfo||{},
+      financials:p.financials||{},
+      computedProfit:computed||undefined,
+      selectedBuyer:p.selectedBuyer||undefined,
+      investorComps:p.investorComps||undefined,
+      tasks:(p.tasks||[]).filter(t=>!t.deleted).map(t=>({text:t.text,status:t.status,owner:t.assignee||"",delegate:t.delegate||""})),
+      recentTeamMessages:(p.messages||[]).slice(-15).map(m=>({from:m.author,at:m.at,text:m.text})),
+    });
+  },[property]);
+  const sendQ=async(qText)=>{
+    const q=(qText!==undefined?qText:input).trim();
+    if(!q||busy)return;
+    const hist=msgs.map(m=>({role:m.role,content:m.content}));
+    setMsgs(ms=>[...ms,{role:"user",content:q}]);setInput("");setBusy(true);setErr("");
+    try{
+      const d=await qbAuthFetch("/api/ai/ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question:q,history:hist,context})});
+      setMsgs(ms=>[...ms,{role:"assistant",content:d.answer||"(no answer)"}]);
+    }catch(e){setErr(e.message||"Couldn't get an answer — try again.");}
+    setBusy(false);
+  };
+  const chips=["What's the lockbox code?","How much was the rehab?","What's the projected profit?","Which tasks are still open?"];
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(520px,94vw)",height:"min(640px,86vh)",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight,flexShrink:0}}>
+          <div style={{minWidth:0}}><div style={{fontSize:14,fontWeight:700,color:T.gold}}>✨ Ask about this property</div><div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{full}</div></div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+          {msgs.length===0&&(
+            <div style={{textAlign:"center",padding:"18px 8px"}}>
+              <div style={{fontSize:13,color:T.textSub,marginBottom:12,lineHeight:1.5}}>Ask me anything about {property.address} — codes, numbers, tasks, people. Tap your keyboard 🎤 to dictate.</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center"}}>
+                {chips.map(c=><button key={c} onClick={()=>sendQ(c)} style={{padding:"7px 13px",borderRadius:18,border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{c}</button>)}
+              </div>
+            </div>
+          )}
+          {msgs.map((m,i)=>(
+            <div key={i} style={{alignSelf:m.role==="user"?"flex-end":"flex-start",maxWidth:"88%"}}>
+              <div style={{background:m.role==="user"?T.gold:T.bg,color:m.role==="user"?"#fff":T.text,borderRadius:14,padding:"9px 13px",fontSize:14,lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{m.content}</div>
+            </div>
+          ))}
+          {busy&&<div style={{alignSelf:"flex-start",background:T.bg,borderRadius:14,padding:"9px 13px",fontSize:13,color:T.textSub}}>Thinking…</div>}
+          {err&&<div style={{alignSelf:"stretch",fontSize:12.5,color:T.red,textAlign:"center"}}>{err}</div>}
+        </div>
+        <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"flex-end",flexShrink:0}}>
+          <textarea rows={1} value={input} onChange={e=>setInput(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendQ();}}}
+            placeholder="Ask about this property…" disabled={busy}
+            style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:120,overflowY:"auto",boxSizing:"border-box"}}/>
+          <button onClick={()=>sendQ()} disabled={!input.trim()||busy} style={{padding:"10px 18px",borderRadius:22,background:input.trim()&&!busy?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:input.trim()&&!busy?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Ask</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const { contacts: CONTACTS, teamMembers: TEAM_MEMBERS } = useData();
   const isMobile=useIsMobile();
   const[tab,setTab]=useState("Financial Overview");
   const[taskPopup,setTaskPopup]=useState(null);
   const[showInfo,setShowInfo]=useState(false); // Property Info popup
+  const[aiChat,setAiChat]=useState(false); // ✨ ask-AI-about-this-property popup
   // Showings tab only shows while the property is actively On Market / In Closing.
   const showShowings=property.status==="On Market"||property.status==="In Closing";
   // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.
@@ -4467,6 +4545,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
             <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis"}}>{full}</div>
             <button onClick={()=>setShowInfo(true)} title="Property info" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,cursor:"pointer",fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>i</button>
             {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>💬</button>}
+            <button onClick={()=>setAiChat(true)} title="Ask AI about this property" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✨</button>
           </div>
           {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
@@ -4493,6 +4572,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           the new property's data (no stale QuickBooks project, financials, etc.) —
           the selected tab itself is kept because `tab` lives on PropDetail. */}
       <div key={property.id} style={{flex:1,overflowY:"auto"}}>
+        {aiChat&&<PropertyAiChat property={property} onClose={()=>setAiChat(false)}/>}
         {tab==="Financial Overview"&&<FinOverview property={property} onUpdate={onUpdate}/>}
         {showInfo&&(()=>{
           const pi=property.propertyInfo;
@@ -5710,6 +5790,44 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
   );
 }
 
+// Small inline "✨ AI draft" row for any text/email box: type (or dictate with the
+// keyboard mic) what you want, Claude writes it into the target field via onDraft —
+// always for review, never auto-sent. If the field already has text, it rewrites it.
+function AiDraftBox({context="",current="",onDraft,sender="",placeholder="Tell AI what to write…"}){
+  const{displayName}=useAuth()||{};
+  const from=sender||displayName||"";
+  const[open,setOpen]=useState(false);
+  const[ask,setAsk]=useState("");
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
+  const go=async()=>{
+    const q=ask.trim();if(!q||busy)return;
+    setBusy(true);setErr("");
+    try{
+      const d=await qbAuthFetch("/api/ai/draft",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({instruction:q,context,current:(current||"").trim(),sender:from})});
+      if(d.draft){onDraft(d.draft);setOpen(false);setAsk("");}
+    }catch(e){setErr(e.message||"AI draft failed. Try again.");}
+    setBusy(false);
+  };
+  if(!open)return <button onClick={()=>setOpen(true)} style={{alignSelf:"flex-start",display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:16,border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✨ AI draft</button>;
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:6,padding:"8px 10px",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:12}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <span style={{fontSize:11.5,fontWeight:800,color:"#b8912e",flexShrink:0}}>✨ AI draft</span>
+        <span style={{fontSize:10,color:T.textSub,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Tip: tap your keyboard 🎤 to dictate</span>
+        <button onClick={()=>setOpen(false)} style={{background:"none",border:"none",color:T.textTert,fontSize:16,cursor:"pointer",lineHeight:1,flexShrink:0,padding:"0 2px"}}>×</button>
+      </div>
+      <textarea autoFocus rows={2} value={ask} onChange={e=>setAsk(e.target.value)}
+        onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();go();}}}
+        placeholder={(current||"").trim()?"How should AI rewrite what you wrote?":placeholder} disabled={busy}
+        style={{width:"100%",boxSizing:"border-box",padding:"8px 10px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",fontSize:13,fontFamily:"inherit",resize:"none",outline:"none",lineHeight:1.4}}/>
+      {err&&<div style={{fontSize:11.5,color:T.red}}>{err}</div>}
+      <button onClick={go} disabled={!ask.trim()||busy} style={{alignSelf:"flex-end",padding:"6px 14px",borderRadius:16,border:"none",background:ask.trim()&&!busy?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:12,cursor:ask.trim()&&!busy?"pointer":"default",fontFamily:"inherit"}}>{busy?"Writing…":(current||"").trim()?"✨ Rewrite":"✨ Draft it"}</button>
+    </div>
+  );
+}
+
 // In-app email from a task's contact. If the task is linked to a pinned chain,
 // first offers "reply to that chain" vs "compose new"; otherwise goes straight to
 // a new email. Sends through the signed-in Outlook mailbox (Graph).
@@ -5777,6 +5895,8 @@ function TaskEmailModal({to,name,propAddr,linkedPin,mail,onClose}){
                 <input value={to2} onChange={e=>setTo2(e.target.value)} placeholder="To" style={iS}/>
                 <input value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Subject" style={iS}/>
                 <textarea autoFocus value={body} onChange={e=>setBody(e.target.value)} placeholder={`Write your email to ${first}…`} style={{...iS,minHeight:120,resize:"vertical",lineHeight:1.5}}/>
+                <AiDraftBox current={body} onDraft={setBody} placeholder={`Tell AI what to email ${first}…`}
+                  context={[`Email to: ${name||to2||"a contact"}`,subject?`Subject: ${subject}`:"",propAddr?`Property: ${propAddr}`:""].filter(Boolean).join("\n")}/>
                 {err&&<div style={{fontSize:12.5,color:T.red}}>{err}</div>}
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                   <button onClick={onClose} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
@@ -5792,6 +5912,8 @@ function TaskEmailModal({to,name,propAddr,linkedPin,mail,onClose}){
                   ? <div style={{fontSize:12.5,color:"#8a6d1f",lineHeight:1.5,background:"#FFF8E6",border:`1px solid ${T.border}`,borderRadius:T.radiusSm,padding:12}}>{err}<div style={{marginTop:8}}><button onClick={()=>setMode("new")} style={{padding:"7px 12px",borderRadius:8,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Send a new email instead</button></div></div>
                   : <>
                       <textarea autoFocus value={body} onChange={e=>setBody(e.target.value)} placeholder="Write your reply…" style={{...iS,minHeight:120,resize:"vertical",lineHeight:1.5}}/>
+                      <AiDraftBox current={body} onDraft={setBody} placeholder={`Tell AI what to reply to ${first}…`}
+                        context={[`Replying to: ${name||to||"a contact"}`,linkedPin?.subject?`Email chain subject: ${linkedPin.subject}`:"",propAddr?`Property: ${propAddr}`:""].filter(Boolean).join("\n")}/>
                       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                         <button onClick={()=>sendReply(false)} disabled={sending||!body.trim()} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.text,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit",opacity:(sending||!body.trim())?0.6:1}}>Reply</button>
                         <button onClick={()=>sendReply(true)} disabled={sending||!body.trim()} style={{padding:"9px 18px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",opacity:(sending||!body.trim())?0.6:1,pointerEvents:sending?"none":"auto"}}>{sending?"Sending…":"Reply all"}</button>
@@ -5992,6 +6114,8 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
                 <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",marginTop:4}}>Custom message</div>
                 <textarea value={custom} onChange={e=>setCustom(e.target.value)} placeholder={`Write your own message to ${first}…`} rows={3}
                   style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:12,border:`1px solid ${T.border}`,fontSize:14,fontFamily:"inherit",resize:"vertical",outline:"none",lineHeight:1.4}}/>
+                <AiDraftBox current={custom} onDraft={setCustom} placeholder={`Tell AI what to ${compose.channel==="email"?"email":"text"} ${first}…`}
+                  context={[`Channel: ${chLabel}`,`To: ${compose.name||"an outside contact"}`,(task?.text||"").trim()?`Task: “${(task.text||"").trim()}”`:"",propAddr?`Property: ${propAddr}`:""].filter(Boolean).join("\n")}/>
                 <a href={customBody?linkFor(compose.channel,compose.target,customBody):undefined}
                   target={compose.channel==="whatsapp"?"_blank":undefined} rel="noreferrer"
                   onClick={(e)=>{if(!customBody){e.preventDefault();return;}setCompose(null);}}
@@ -6003,6 +6127,89 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
       })()}
       {/* In-app email (connected mailbox) — new email or reply to the linked chain */}
       {emailTo&&<TaskEmailModal to={emailTo.email} name={emailTo.name} propAddr={propAddr} linkedPin={linkedPin} mail={mail} onClose={()=>setEmailTo(null)}/>}
+    </div>
+  );
+}
+
+// ✨ AI task creator: describe what needs to happen ("get it ready to list — Esther
+// owns utilities, delegate the lockbox install to Moshe"), review and edit the
+// generated list (text, owner, delegate per row), then add them all at once.
+function AiTasksModal({propAddr,teamMembers=[],existingTasks=[],onCreate,onClose}){
+  const[ask,setAsk]=useState("");
+  const[rows,setRows]=useState(null); // null until the first generation
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
+  const generate=async()=>{
+    const q=ask.trim();if(!q||busy)return;
+    setBusy(true);setErr("");
+    try{
+      const d=await qbAuthFetch("/api/ai/tasks",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({instruction:q,team:teamMembers,
+          context:[propAddr?`Property: ${propAddr}`:"",existingTasks.length?`Existing tasks on this property (don't duplicate them):\n${existingTasks.slice(0,25).map(t=>`- ${t}`).join("\n")}`:""].filter(Boolean).join("\n")})});
+      setRows((d.tasks||[]).map(t=>({text:t.text||"",assignee:t.assignee||"",delegate:t.delegate||""})));
+    }catch(e){setErr(e.message||"AI task generation failed. Try again.");}
+    setBusy(false);
+  };
+  const setRow=(i,k,v)=>setRows(rs=>rs.map((r,j)=>j!==i?r:{...r,[k]:v,...(k==="assignee"&&r.delegate===v?{delegate:""}:{})}));
+  const removeRow=(i)=>setRows(rs=>rs.filter((_,j)=>j!==i));
+  const good=(rows||[]).filter(r=>(r.text||"").trim());
+  const inp={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
+  const roleLbl={fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:3};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(540px,94vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight,flexShrink:0}}>
+          <div style={{minWidth:0}}><div style={{fontSize:14,fontWeight:700,color:T.gold}}>✨ AI task list</div>{propAddr&&<div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{propAddr}</div>}</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div style={{padding:"14px 16px",overflowY:"auto"}}>
+          <textarea autoFocus rows={3} value={ask} onChange={e=>setAsk(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();generate();}}}
+            placeholder={"Describe the tasks you need — e.g. “get this ready to list: Esther handles utilities and staging, delegate the lockbox install to Moshe, I'll order photos”"}
+            disabled={busy}
+            style={{...inp,resize:"none",lineHeight:1.45}}/>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8}}>
+            <span style={{fontSize:10.5,color:T.textSub,flex:1,minWidth:0}}>Tip: tap your keyboard 🎤 to dictate</span>
+            <button onClick={generate} disabled={!ask.trim()||busy} style={{padding:"8px 18px",borderRadius:18,border:"none",background:ask.trim()&&!busy?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:13,cursor:ask.trim()&&!busy?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{busy?"Thinking…":rows?"↻ Regenerate":"✨ Generate tasks"}</button>
+          </div>
+          {err&&<div style={{fontSize:12.5,color:T.red,marginTop:8}}>{err}</div>}
+          {rows&&rows.length>0&&(
+            <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Review before adding — edit anything</div>
+              {rows.map((r,i)=>(
+                <div key={i} style={{display:"flex",flexDirection:"column",gap:8,padding:"10px 12px",background:T.bg,borderRadius:T.radiusSm,border:`1px solid ${T.border}`}}>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <input value={r.text} onChange={e=>setRow(i,"text",e.target.value)} style={{...inp,flex:1,background:"#fff"}}/>
+                    <button onClick={()=>removeRow(i)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0,padding:"2px 4px"}}>×</button>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={roleLbl}>Assigned to</div>
+                      <select value={r.assignee} onChange={e=>setRow(i,"assignee",e.target.value)} style={{...inp,background:"#fff",color:r.assignee?T.text:T.textTert,fontSize:13,padding:"9px 8px"}}>
+                        <option value="">Unassigned</option>
+                        {teamMembers.map(m=><option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={roleLbl}>Delegate to</div>
+                      <select value={r.delegate} disabled={!r.assignee} onChange={e=>setRow(i,"delegate",e.target.value)} style={{...inp,background:r.assignee?"#fff":T.bg,color:r.delegate?T.text:T.textTert,fontSize:13,padding:"9px 8px",opacity:r.assignee?1:0.6}}>
+                        <option value="">{r.assignee?"— none —":"assign first"}</option>
+                        {teamMembers.filter(m=>m!==r.assignee).map(m=><option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {rows&&rows.length===0&&<div style={{marginTop:14,fontSize:13,color:T.textTert,textAlign:"center"}}>Nothing generated — try describing the work differently.</div>}
+        </div>
+        <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0}}>
+          <button onClick={onClose} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
+          <button onClick={()=>good.length&&onCreate(good.map(r=>({text:r.text.trim(),assignee:r.assignee,delegate:r.delegate})))} disabled={!good.length}
+            style={{padding:"10px 22px",borderRadius:T.radiusSm,background:good.length?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,cursor:good.length?"pointer":"default",fontFamily:"inherit",fontSize:14}}>Add {good.length||""} task{good.length===1?"":"s"}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -6042,6 +6249,14 @@ function PropertyTaskList({property}){
   const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
   useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
   const addTask=(text)=>{const t=(text||"").trim();if(!t)return;setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER,assignedAt:Date.now(),assignedBy:CURRENT_USER}]}));};
+  const[aiTasksOpen,setAiTasksOpen]=useState(false);
+  // Create the whole AI-generated list at once and notify everyone who got work.
+  const addAiTasks=(list)=>{
+    const base=Date.now();
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),...list.map((r,i)=>({id:base+i,text:r.text,status:"Not Started",assignee:r.assignee||CURRENT_USER,delegate:r.delegate||"",assignedAt:Date.now(),assignedBy:CURRENT_USER}))]}));
+    list.forEach((r,i)=>{const to=[...new Set([r.assignee,r.delegate].filter(m=>m&&m!==CURRENT_USER))];if(to.length)notify(to,{title:"New task for you",body:`${CURRENT_USER} assigned you: ${r.text}`,tag:`task-${base+i}`});});
+    setAiTasksOpen(false);
+  };
 
   return(
     <>
@@ -6100,7 +6315,11 @@ function PropertyTaskList({property}){
         {rows.length===0&&<div style={{padding:"22px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No tasks yet. Add one below, or set up a rule in <strong>Settings → Automations</strong> to create tasks automatically.</div>}
         {rows.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setContactTarget} onMessage={setMsgTarget} onAssign={setAssignTarget} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
         <AddTaskInline onAdd={addTask}/>
+        <div style={{padding:"0 12px 12px"}}>
+          <button onClick={()=>setAiTasksOpen(true)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"9px",borderRadius:T.radiusSm,border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#b8912e",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>✨ Let AI draft a task list</button>
+        </div>
       </div>
+      {aiTasksOpen&&<AiTasksModal propAddr={propAddr} teamMembers={TEAM_MEMBERS} existingTasks={tasks.map(t=>t.text).filter(Boolean)} onCreate={addAiTasks} onClose={()=>setAiTasksOpen(false)}/>}
     </>
   );
 }

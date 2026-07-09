@@ -6696,8 +6696,7 @@ function ExternalRequestsPopup({requests,onSetStatus,onChat,onClose}){
         <div style={{flex:1,overflowY:"auto"}}>
           {requests.length===0&&<div style={{padding:"30px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No requests from contractors yet.</div>}
           {requests.map(({t,job,orgName,addr})=>(
-            <div key={t.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"12px 16px",borderBottom:`1px solid ${T.border}`,opacity:ctrClosed(t.status)?0.55:1}}>
-              <CtrStatusPill t={t} onSet={onSetStatus}/>
+            <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",padding:"12px 16px",borderBottom:`1px solid ${T.border}`,opacity:ctrClosed(t.status)?0.55:1}}>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:13.5,color:T.text,lineHeight:1.45,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text}</div>
                 <div style={{fontSize:11,color:T.textSub,marginTop:3,display:"flex",flexWrap:"wrap",gap:"2px 10px"}}>
@@ -6709,6 +6708,7 @@ function ExternalRequestsPopup({requests,onSetStatus,onChat,onClose}){
                 </div>
               </div>
               <button onClick={()=>onChat({task:t,job})} title="Message about this — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
+              <CtrStatusPill t={t} onSet={onSetStatus}/>
             </div>
           ))}
         </div>
@@ -6853,13 +6853,13 @@ function PropertyTaskList({property}){
               <span style={{fontSize:10.5,color:"#B45309",fontWeight:600}}>tasks here go to their portal</span>
             </div>
             {jt.map(t=>(
-              <div key={t.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"9px 14px",borderTop:"1px solid rgba(184,149,63,0.25)"}}>
-                <CtrStatusPill t={t} onSet={setCtrTaskStatus}/>
+              <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",padding:"9px 14px",borderTop:"1px solid rgba(184,149,63,0.25)"}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
                   <div style={{fontSize:10.5,color:"#8a6d1f"}}>{(t.statusBy||t.doneBy)?`${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>
                 </div>
                 <button onClick={()=>setExtChat({task:t,job:j})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
+                <CtrStatusPill t={t} onSet={setCtrTaskStatus}/>
               </div>
             ))}
             <div style={{display:"flex",gap:8,padding:"9px 14px 12px",borderTop:jt.length?"1px solid rgba(184,149,63,0.25)":"none"}}>
@@ -7413,17 +7413,27 @@ function TasksPage({onNavigate}){
             {extReqOpen&&<ExternalRequestsPopup requests={extRequests} onSetStatus={setExtTaskStatus} onChat={(x)=>setExtChat(x)} onClose={()=>setExtReqOpen(false)}/>}
             {/* Group by property, then apply my personal "sent to bottom" order:
                 pushed properties sink below the rest, most-recently-pushed last. */}
-            {Object.entries(filteredDisplay.reduce((acc,t)=>{(acc[t.propAddr]=acc[t.propAddr]||[]).push(t);return acc;},{}))
-              .map(([addr,ptasks],gi)=>({addr,ptasks,gi,pid:ptasks[0]?.propId}))
+            {(()=>{
+              const groups=Object.entries(filteredDisplay.reduce((acc,t)=>{(acc[t.propAddr]=acc[t.propAddr]||[]).push(t);return acc;},{}))
+                .map(([addr,ptasks],gi)=>({addr,ptasks,gi,pid:ptasks[0]?.propId,propStatus:ptasks[0]?.propStatus}));
+              // A property whose only tasks are external still gets its ONE card here —
+              // internal and external always share the same property group.
+              const have=new Set(groups.map(g=>String(g.pid)));
+              Object.keys(extByPid).forEach(pid=>{
+                if(have.has(String(pid)))return;
+                const prop=sharedProps.find(p=>String(p.id)===String(pid));
+                groups.push({addr:prop?`${prop.address}${prop.city?`, ${prop.city}`:""}`:(extByPid[pid][0]?.job?.propertyAddress||"Property"),ptasks:[],gi:groups.length,pid,propStatus:prop?.status});
+              });
+              return groups
               .sort((a,b)=>{const pa=propPushOrder[String(a.pid)]||0,pb=propPushOrder[String(b.pid)]||0;if(pa&&pb)return pa-pb;if(pa)return 1;if(pb)return -1;return a.gi-b.gi;})
-              .map(({addr,ptasks})=>(
+              .map(({addr,ptasks,pid,propStatus})=>(
               <div key={addr} style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14}}>
                 <div style={{padding:"10px 14px",background:"#FAFAFA",borderBottom:bdr,display:"flex",flexDirection:"column",gap:7}}>
                   {/* Row 1: address + send-to-bottom + delete */}
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-                    <span onClick={()=>onNavigate&&ptasks[0]&&onNavigate(ptasks[0].propId)} title="Open this property" style={{fontSize:13,fontWeight:700,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:onNavigate?"pointer":"default"}}>{addr}</span>
+                    <span onClick={()=>onNavigate&&pid&&onNavigate(pid)} title="Open this property" style={{fontSize:13,fontWeight:700,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:onNavigate?"pointer":"default"}}>{addr}</span>
                     <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                      <button onClick={()=>pushPropToBottom(ptasks[0]?.propId)} title="Send this property to the bottom of my list"
+                      <button onClick={()=>pushPropToBottom(pid)} title="Send this property to the bottom of my list"
                         style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:"3px 9px",borderRadius:6,lineHeight:1}}
                         onMouseEnter={e=>{e.currentTarget.style.color=T.gold;e.currentTarget.style.borderColor=T.gold;}}
                         onMouseLeave={e=>{e.currentTarget.style.color=T.textTert;e.currentTarget.style.borderColor=T.border;}}>⤓</button>
@@ -7435,7 +7445,7 @@ function TasksPage({onNavigate}){
                             <button onClick={()=>setConfirmDeleteProp(null)}
                               style={{padding:"3px 10px",borderRadius:6,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>No</button>
                           </div>
-                        :<button onClick={()=>setConfirmDeleteProp(addr)} title="Delete all tasks for this property"
+                        :ptasks.length>0&&<button onClick={()=>setConfirmDeleteProp(addr)} title="Delete all tasks for this property"
                             style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:"3px 9px",borderRadius:6,lineHeight:1}}
                             onMouseEnter={e=>{e.currentTarget.style.color=T.red;e.currentTarget.style.borderColor=T.red;}}
                             onMouseLeave={e=>{e.currentTarget.style.color=T.textTert;e.currentTarget.style.borderColor=T.border;}}>🗑</button>}
@@ -7443,33 +7453,33 @@ function TasksPage({onNavigate}){
                   </div>
                   {/* Row 2: status chip + done — always the same position, all properties aligned */}
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    {(()=>{const sc=SC[ptasks[0]?.propStatus]||{};return <span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}}>{ptasks[0]?.propStatus}</span>;})()}
-                    <span style={{fontSize:11,color:T.textSub}}>{ptasks.filter(t=>t.status==="Completed").length}/{ptasks.length} done</span>
+                    {(()=>{const ps=ptasks[0]?.propStatus||propStatus;const sc=SC[ps]||{};return ps?<span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}}>{ps}</span>:null;})()}
+                    <span style={{fontSize:11,color:T.textSub}}>{ptasks.length?`${ptasks.filter(t=>t.status==="Completed").length}/${ptasks.length} done`:"external tasks only"}</span>
                   </div>
                 </div>
                 {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
                 {/* External (contractor) tasks on this property — amber, clearly marked */}
-                {(extByPid[String(ptasks[0]?.propId)]||[]).map(({job,rows})=>(
+                {(extByPid[String(pid)]||[]).map(({job,rows})=>(
                   <div key={"ext-"+job.id} style={{background:"#FFF9EC",borderTop:`1.5px solid ${T.gold}`}}>
                     <div style={{padding:"8px 14px 5px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                       <span style={{fontSize:11.5,fontWeight:800,color:"#8a6d1f"}}>👷 {ctrOrgName(job.orgId)}{job.title?` — ${job.title}`:""}</span>
                       <span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
                     </div>
                     {rows.map(t=>(
-                      <div key={t.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)"}}>
-                        <CtrStatusPill t={t} onSet={setExtTaskStatus}/>
+                      <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)"}}>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
                           <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}${t.askedOf&&t.askedOf.length?` → ${t.askedOf.map(n=>n.split(" ")[0]).join(", ")}`:" → everyone"}`:""}{(t.statusBy||t.doneBy)?` · ${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>
                         </div>
                         <button onClick={()=>setExtChat({task:t,job})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
+                        <CtrStatusPill t={t} onSet={setExtTaskStatus}/>
                       </div>
                     ))}
                   </div>
                 ))}
-                <AddTaskInline onAdd={(text)=>addTaskToProp(ptasks[0].propId,text)}/>
+                <AddTaskInline onAdd={(text)=>addTaskToProp(pid,text)}/>
               </div>
-            ))}
+            ));})()}
             {extChat&&(()=>{
               const prop=sharedProps.find(p=>String(p.id)===String(extChat.job.propertyId));
               return <ExternalTaskChat task={extChat.task} job={extChat.job} orgName={ctrOrgName(extChat.job.orgId)} property={prop} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} ctrMessages={ctrMessages} ctrSave={ctrSave} setSharedProps={setSharedProps} onClose={()=>setExtChat(null)}/>;
@@ -8569,6 +8579,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                 <div style={{display:"flex",alignItems:"center",gap:8,flexDirection:mine?"row-reverse":"row"}}>
                   {selMode&&<span style={{width:20,height:20,flexShrink:0,borderRadius:"50%",border:`2px solid ${picked?T.gold:T.border}`,background:picked?T.gold:"transparent",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800}}>{picked?"✓":""}</span>}
                   <div style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`,opacity:selMode&&!picked?0.55:1}}>
+                    {m.replyTo&&<div style={{fontSize:11,marginBottom:4,padding:"4px 8px",borderLeft:`3px solid ${mine?"rgba(255,255,255,0.6)":T.gold}`,borderRadius:5,background:mine?"rgba(255,255,255,0.15)":T.bg,color:mine?"rgba(255,255,255,0.92)":T.textSub,overflow:"hidden"}}><b>{(m.replyTo.author||"").split(" ")[0]}</b>: {m.replyTo.text}</div>}
                     {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                     {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
                     {m.text}
@@ -8680,7 +8691,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     const pj=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id));
     return pj.flatMap(j=>(ctrMessages||[]).filter(m=>String(m.jobId)===String(j.id)).map(m=>({
       id:"ctr-"+m.id,author:m.author,text:m.text,at:m.at,attachment:m.attachment||null,readBy:m.readBy||[],
-      taskRefText:m.taskRefText||null,
+      taskRefText:m.taskRefText||null,replyTo:m.replyTo||null,mentions:m.mentions||null,
       ctrJobId:j.id,ctrOrgId:String(j.orgId),ctrLabel:`${ctrOrgName(j.orgId)}${j.title?` — ${j.title}`:""}`,
     })));
   };
@@ -8757,6 +8768,10 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     if(replyTarget&&replyTarget.ctrJobId){
       const cm={id:Date.now(),jobId:replyTarget.ctrJobId,orgId:replyTarget.ctrOrgId,author:CURRENT_USER,side:"team",text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
       if(attachment)cm.attachment=attachment;
+      // Quote the specific message being answered (and keep its task tag) so the
+      // contractor sees the reply in context in their portal.
+      cm.replyTo={id:String(replyTarget.id||"").replace(/^ctr-/,""),author:replyTarget.author||"",text:(replyTarget.text||(replyTarget.attachment?"📎 attachment":"")).slice(0,140)};
+      if(replyTarget.taskRefText)cm.taskRefText=replyTarget.taskRefText;
       ctrSave("contractor_messages",cm).catch(()=>{});
       notify(null,{toOrg:replyTarget.ctrOrgId,title:`Goldstone — ${sel.address}`,body:t||"(attachment)"});
       return;

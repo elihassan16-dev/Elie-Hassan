@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import { AuthProvider } from "./auth/AuthProvider";
 import Root from "./App.jsx";
-import { ensureMsalReady, msalInstance } from "./onedrive/msal";
+import { ensureMsalReady, msalInstance, startMsalKeepAlive } from "./onedrive/msal";
 
 // Catches render/runtime errors so a crash shows a readable message + Reload
 // instead of a blank white screen.
@@ -48,6 +48,9 @@ async function boot() {
   } catch (e) {
     console.error("[msal] redirect handling failed:", e?.message || e);
   }
+  // Rotate the Microsoft refresh token on every app open/resume so the Email and
+  // Files sign-in stays alive (see keepMsalFresh in onedrive/msal.js).
+  startMsalKeepAlive();
   createRoot(document.getElementById("root")).render(
     <React.StrictMode>
       <ErrorBoundary>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { msalInstance, ensureMsalReady, MAIL_SCOPES } from "../onedrive/msal";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -65,9 +66,12 @@ export function useOutlookMail() {
       const r = await msalInstance.acquireTokenSilent({ scopes: MAIL_SCOPES, account: acc });
       return r.accessToken;
     } catch (e) {
-      // Mail scopes may not be consented yet → interactive consent.
-      await msalInstance.acquireTokenRedirect({ scopes: MAIL_SCOPES, account: acc });
-      throw e; // navigates away; nothing after this runs
+      // Only bounce to Microsoft when it genuinely needs the user (expired session,
+      // consent for the mail scopes). Transient/network failures no longer redirect.
+      if (e instanceof InteractionRequiredAuthError) {
+        await msalInstance.acquireTokenRedirect({ scopes: MAIL_SCOPES, account: acc, redirectStartPage: window.location.href });
+      }
+      throw e;
     }
   }, []);
 

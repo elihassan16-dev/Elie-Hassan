@@ -41,3 +41,33 @@ export function ensureMsalReady() {
   if (!initPromise) initPromise = msalInstance.initialize();
   return initPromise;
 }
+
+// ── Session keep-alive ────────────────────────────────────────────────────────
+// Microsoft caps browser-app refresh tokens at 24 hours — but every silent
+// renewal ROTATES the token with a fresh 24-hour clock. Tokens used to renew
+// only when the Email/Files tabs actually called Graph, so a day of using the
+// app without touching those tabs ended in "please sign in again". Renewing in
+// the background on every app open/resume keeps one sign-in alive indefinitely
+// for anyone who opens the app most days.
+let lastKeepAlive = 0;
+export async function keepMsalFresh() {
+  const now = Date.now();
+  if (now - lastKeepAlive < 30 * 60 * 1000) return; // throttle: at most every 30 min
+  lastKeepAlive = now;
+  try {
+    await ensureMsalReady();
+    const acc = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+    if (!acc) return;
+    // forceRefresh hits the token endpoint (rotating the refresh token) instead of
+    // serving a still-valid access token from cache. Failures are fine here — the
+    // on-demand path still recovers interactively when the user next needs Graph.
+    await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: acc, forceRefresh: true }).catch(() => null);
+    await msalInstance.acquireTokenSilent({ scopes: MAIL_SCOPES, account: acc, forceRefresh: true }).catch(() => null);
+  } catch { /* best-effort */ }
+}
+export function startMsalKeepAlive() {
+  keepMsalFresh();
+  const onShow = () => { if (typeof document === "undefined" || document.visibilityState === "visible") keepMsalFresh(); };
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", onShow);
+  if (typeof window !== "undefined") window.addEventListener("focus", onShow);
+}

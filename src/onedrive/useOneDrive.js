@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { msalInstance, ensureMsalReady, GRAPH_SCOPES, SITE_SCOPES } from "./msal";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -51,8 +52,13 @@ export function useOneDrive() {
       const r = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: acc });
       return r.accessToken;
     } catch (e) {
-      await msalInstance.acquireTokenRedirect({ scopes: GRAPH_SCOPES, account: acc });
-      throw e; // navigates away; nothing after this runs
+      // Only bounce to Microsoft when it genuinely needs the user (expired session,
+      // new consent). A transient/network failure used to redirect too — mid-task,
+      // for nothing — which read as "I keep getting logged out".
+      if (e instanceof InteractionRequiredAuthError) {
+        await msalInstance.acquireTokenRedirect({ scopes: GRAPH_SCOPES, account: acc, redirectStartPage: window.location.href });
+      }
+      throw e;
     }
   }, []);
 

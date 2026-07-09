@@ -9743,6 +9743,70 @@ function CashFlowProjection({sharedProps,onNavigate,isMobile}){
 // A set of one-tap reports that open in a preview popup and can be exported /
 // saved as a PDF (via the browser's print dialog). Reports run off the same data
 // as the rest of the Financial Section so the numbers always agree.
+// ─── Document Creator — branded documents generated from live deal data ───────
+// One home for every printable template. For now: the Investor Packet (pick an
+// Under Contract deal → same generator as the property page). Future templates
+// (term sheets, lender one-pagers, payoff letters…) slot in as new cards.
+function FinDocCreator({sharedProps,isMobile}){
+  const { setSharedProps, flushProps }=useData();
+  const onUpdate=(id,key,val)=>{setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
+  const[picking,setPicking]=useState(false);
+  const[q,setQ]=useState("");
+  const[showAll,setShowAll]=useState(false);
+  const[packetFor,setPacketFor]=useState(null);
+  const active=(sharedProps||[]).filter(p=>!p.archived);
+  // Raising capital happens BEFORE you own the deal — default to Under Contract.
+  const pool=showAll?active.filter(p=>p.status!=="Sold"):active.filter(p=>p.status==="Under Contract");
+  const term=q.trim().toLowerCase();
+  const list=pool.filter(p=>!term||`${p.address} ${p.city||""}`.toLowerCase().includes(term)).sort((a,b)=>(a.address||"").localeCompare(b.address||""));
+  const card={background:T.card,borderRadius:T.radius,boxShadow:T.shadow,border:`1px solid ${T.border}`};
+  return(
+    <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?14:"20px 24px"}}>
+      <div style={{maxWidth:680,margin:"0 auto"}}>
+        <div style={{fontSize:12.5,color:T.textSub,marginBottom:14,lineHeight:1.5}}>Branded documents generated straight from your live deal data — pick a template, pick a deal, save as PDF.</div>
+        <div onClick={()=>{setQ("");setShowAll(false);setPicking(true);}} style={{...card,padding:"16px 18px",display:"flex",alignItems:"center",gap:14,cursor:"pointer",marginBottom:12}}>
+          <div style={{width:46,height:46,borderRadius:12,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>📄</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:800,color:T.text}}>Investor Packet</div>
+            <div style={{fontSize:12.5,color:T.textSub,marginTop:2}}>Branded deal packet for raising LOC capital — photo, specs, economics, comps, the ask.</div>
+          </div>
+          <span style={{fontSize:15,color:T.gold,fontWeight:700,flexShrink:0}}>Create ›</span>
+        </div>
+        <div style={{...card,padding:"14px 18px",opacity:0.65}}>
+          <div style={{fontSize:13.5,fontWeight:700,color:T.textSub}}>➕ More templates</div>
+          <div style={{fontSize:12,color:T.textTert,marginTop:2}}>Term sheets, lender one-pagers, payoff letters… they'll be added here as you need them.</div>
+        </div>
+      </div>
+      {picking&&(
+        <div onClick={()=>setPicking(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:410,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(460px,96vw)",maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+            <div style={{padding:"14px 18px 10px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontSize:15,fontWeight:800,color:T.text}}>Pick the deal</div>
+                <button onClick={()=>setPicking(false)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+              </div>
+              <input autoFocus={!isMobile} value={q} onChange={e=>setQ(e.target.value)} placeholder="Search addresses…" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.bg,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+              <label style={{display:"flex",alignItems:"center",gap:8,marginTop:9,fontSize:12.5,color:T.textSub,cursor:"pointer"}}>
+                <input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)} style={{width:15,height:15,accentColor:T.gold,cursor:"pointer"}}/>
+                Show all active properties (not just Under Contract)
+              </label>
+            </div>
+            <div style={{overflowY:"auto",flex:1}}>
+              {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{showAll?"No matching properties.":"No Under Contract properties right now — tick “Show all” above."}</div>}
+              {list.map(p=>{const sc=SC[p.status]||{};return(
+                <button key={p.id} onClick={()=>{setPicking(false);setPacketFor(p);}} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:10,padding:"12px 18px",background:"transparent",border:"none",borderTop:`1px solid ${T.border}`,cursor:"pointer",fontFamily:"inherit"}}>
+                  <span style={{flex:1,minWidth:0,fontSize:14,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}{p.city?`, ${p.city}`:""}</span>
+                  <span style={{flexShrink:0,fontSize:10.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}}>{p.status}</span>
+                </button>
+              );})}
+            </div>
+          </div>
+        </div>
+      )}
+      {packetFor&&<InvestorPacketModal property={packetFor} onUpdate={onUpdate} onClose={()=>setPacketFor(null)}/>}
+    </div>
+  );
+}
 function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const { draws, setDraws, flushDraws, setSharedProps, flushProps }=useData();
   const setPlan=(drawId,plan)=>{if(!canEdit)return;setDraws(prev=>prev.map(d=>d.id===drawId?{...d,futureFundsPlan:plan}:d));if(flushDraws)setTimeout(flushDraws,0);};
@@ -10423,7 +10487,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           </div>}
         </div>
         <div style={{display:"flex",gap:4,marginTop:12,overflowX:"auto"}}>
-          {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["flow","Cash Flow Projection"],["reports","Report Center"]].map(([k,l])=>(
+          {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["flow","Cash Flow Projection"],["reports","Report Center"],["docs","Document Creator"]].map(([k,l])=>(
             <button key={k} onClick={()=>{setSubTab(k);setBsSel(null);}} style={{padding:"9px 14px",border:"none",borderBottom:subTab===k?`2.5px solid ${T.gold}`:"2.5px solid transparent",background:"none",color:subTab===k?T.gold:T.textSub,fontWeight:subTab===k?800:600,fontSize:isMobile?12.5:13.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
           ))}
         </div>
@@ -10460,6 +10524,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       {subTab==="bank"&&<FinBankRecon sharedProps={sharedProps} onOpenProperty={goToBS} isMobile={isMobile} canEdit={canEdit}/>}
       {subTab==="flow"&&<CashFlowProjection sharedProps={sharedProps} onNavigate={onNavigate} isMobile={isMobile}/>}
       {subTab==="reports"&&<FinReportCenter sharedProps={sharedProps} isMobile={isMobile} canEdit={canEdit}/>}
+      {subTab==="docs"&&<FinDocCreator sharedProps={sharedProps} isMobile={isMobile}/>}
     </div>
   );
 }

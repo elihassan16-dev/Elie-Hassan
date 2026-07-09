@@ -11,6 +11,7 @@ import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, uploadStreamVideo, STREAM_VIDEO_CAP } from "./net";
 import { ContractorsAdminPage } from "./contractors/ContractorsAdminPage";
 import { useContractorData } from "./contractors/data";
+import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon } from "./contractors/ContractorPortal";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -2748,6 +2749,7 @@ function ShowingsPage(){
 // Local calendar day as YYYY-MM-DD. Uses local date parts (NOT toISOString, which
 // is UTC and would roll the day forward on evenings in US time zones).
 function localISO(d=new Date()){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
+const clock12=(t)=>{if(!t)return"";const[h,m]=String(t).split(":");const d=new Date();d.setHours(+h,+m||0);return d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});};
 // Key date types tracked per property. `get` reads the date; `overdue` decides if a
 // passed date still needs attention (e.g. purchase date gone but status unchanged).
 const CAL_EVENTS=[
@@ -2779,6 +2781,9 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
 
   const upd=(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));
   const active=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived),[sharedProps]);
+  // Contractor-scheduled events (inspections, walkthroughs…) from the shared
+  // site-status board — they show on this calendar alongside key dates.
+  const{siteStatus:ctrSiteStatus}=useContractorData();
   const todayISO=localISO(); // LOCAL calendar day (not UTC — avoids rolling over at night)
   const isToday=(iso)=>String(iso||"").slice(0,10)===todayISO;
   const fmtDate=(iso)=>{const d=new Date(iso+"T00:00:00");return isNaN(d.getTime())?iso:d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});};
@@ -2795,9 +2800,19 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
       const dismissed=!!(p.calDismissed||{})[`${e.type}:${date}`];
       out.push({p,e,date,past,isToday:date===todayISO,overdue:past&&e.overdue(p)&&!dismissed});
     }));
+    (ctrSiteStatus||[]).forEach(row=>{
+      const p=active.find(x=>String(x.id)===String(row.id));
+      if(!p)return;
+      (row.events||[]).forEach(ev=>{
+        const date=String(ev.date||"").slice(0,10);
+        if(!date)return;
+        const bits=[ev.time?clock12(ev.time):"",ev.orgName||ev.by||"",ev.note||""].filter(Boolean).join(" · ");
+        out.push({p,e:{type:"ctrEvent",label:`${ctrEventLabel(ev)}${bits?` · ${bits}`:""}`,icon:ctrEventIcon(ev),color:"#B45309"},date,past:date<todayISO,isToday:date===todayISO,overdue:false});
+      });
+    });
     out.sort((a,b)=>a.date.localeCompare(b.date));
     return out;
-  },[active,todayISO]);
+  },[active,todayISO,ctrSiteStatus]);
   const overdue=events.filter(x=>x.overdue);
   const upcoming=events.filter(x=>!x.past);
   const pastDone=events.filter(x=>x.past&&!x.overdue);
@@ -4857,6 +4872,25 @@ function PropertyStatusBoard({property,onClose}){
               );
             })}
           </div>
+          {(()=>{
+            const evs=(st.events||[]).filter(ev=>String(ev.date||"")>=localISO()).sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.time||"").localeCompare(String(b.time||"")));
+            if(!evs.length)return null;
+            return(<>
+              <div style={{fontSize:11,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",margin:"18px 0 8px"}}>Scheduled events</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {evs.map(ev=>(
+                  <div key={ev.id} style={{display:"flex",alignItems:"center",gap:9,background:T.bg,borderRadius:10,padding:"8px 11px"}}>
+                    <span style={{fontSize:15,flexShrink:0}}>{ctrEventIcon(ev)}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12.5,fontWeight:700,color:T.text}}>{ctrEventLabel(ev)}{ev.note?<span style={{fontWeight:400,color:T.textSub}}> — {ev.note}</span>:null}</div>
+                      <div style={{fontSize:10.5,color:T.textTert}}>{new Date(ev.date+"T00:00:00").toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"})}{ev.time?` · ${clock12(ev.time)}`:""} · {ev.by||ev.orgName}</div>
+                    </div>
+                    <button onClick={()=>{write({events:(st.events||[]).filter(x=>x.id!==ev.id)});notifyOrgs(`📅 Cancelled: ${ctrEventLabel(ev)} ${ev.date} — ${currentUser}`);}} title="Cancel this event" style={{background:"none",border:"none",color:T.textTert,fontSize:15,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+                  </div>
+                ))}
+              </div>
+            </>);
+          })()}
           {row&&row.updatedAt&&<div style={{fontSize:10.5,color:T.textTert,marginTop:14,textAlign:"right"}}>Updated {new Date(row.updatedAt).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}{row.updatedBy?` by ${row.updatedBy}`:""}</div>}
         </div>
       </div>

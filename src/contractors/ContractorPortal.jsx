@@ -50,6 +50,17 @@ const PERMIT_COLS = [
 ];
 const PERMIT_VAL_COLOR = { yes: ["#15803D", "#EDFBF1"], na: ["#6b6b70", "#E9E9EE"], approved: ["#15803D", "#EDFBF1"], not_approved: ["#B42318", "#FFF0EF"], rough: ["#B45309", "#FFF7E8"], final: ["#15803D", "#EDFBF1"], none: ["#B42318", "#FFF0EF"] };
 
+// Events a contractor can put on the shared schedule (they land on Goldstone's
+// calendar too). Inspections carry which trade it's for.
+const EVENT_TYPES = [["rough", "🔎", "Rough inspection"], ["final", "✅", "Final inspection"], ["walk", "🚶", "Site walkthrough"], ["delivery", "🚚", "Delivery"], ["other", "📌", "Other"]];
+const EVENT_TRADES = ["Building", "Plumbing", "Mechanical", "Electrical"];
+export const eventLabel = (ev) => {
+  const t = EVENT_TYPES.find((x) => x[0] === ev.type) || EVENT_TYPES[4];
+  return `${t[2]}${ev.trade ? ` — ${ev.trade}` : ""}`;
+};
+export const eventIcon = (ev) => (EVENT_TYPES.find((x) => x[0] === ev.type) || EVENT_TYPES[4])[1];
+const fmtClock = (t) => { if (!t) return ""; const [h, m] = String(t).split(":"); const d = new Date(); d.setHours(+h, +m || 0); return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); };
+
 export function ContractorPortal() {
   const { displayName, contractorOrgId, signOut } = useAuth();
   const { orgs, jobs, tasks, messages, docs, siteStatus, save, error } = useContractorData();
@@ -59,6 +70,8 @@ export function ContractorPortal() {
   const [selJobId, setSelJobId] = useState(null);
   const [tab, setTab] = useState("overview");
   const [statusOpen, setStatusOpen] = useState(false); // 🏗 site-status popup
+  const [evOpen, setEvOpen] = useState(false); // 📅 schedule-an-event form
+  const [evDraft, setEvDraft] = useState({ type: "rough", trade: "", date: "", time: "", note: "" });
   const [err, setErr] = useState("");
   const selJob = myJobs.find((j) => String(j.id) === String(selJobId)) || null;
   // Desktop opens straight into the first job, like the main app's lists.
@@ -215,6 +228,65 @@ export function ContractorPortal() {
             </div>
           </div>
         )}
+        {/* 📅 Schedule — inspections & walkthroughs land on Goldstone's calendar too. */}
+        {(() => {
+          const evs = (st.events || []).slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || String(a.time || "").localeCompare(String(b.time || "")));
+          const today = new Date(); const todayISO = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+          const upcoming = evs.filter((e) => String(e.date || "") >= todayISO);
+          const saveEv = () => {
+            if (!evDraft.date) { setErr("Pick a date for the event."); return; }
+            const ev = { id: Date.now(), type: evDraft.type, trade: evDraft.type === "rough" || evDraft.type === "final" ? evDraft.trade : "", date: evDraft.date, time: evDraft.time, note: evDraft.note.trim(), by: displayName, orgName: org?.name || "", at: new Date().toISOString() };
+            writeStatus({ events: [...(st.events || []), ev] }, `📅 ${eventLabel(ev)} scheduled ${fmtDate(ev.date)}${ev.time ? ` · ${fmtClock(ev.time)}` : ""}${ev.note ? ` — ${ev.note}` : ""}`);
+            setEvOpen(false); setEvDraft({ type: "rough", trade: "", date: "", time: "", note: "" });
+          };
+          const removeEv = (ev) => writeStatus({ events: (st.events || []).filter((x) => x.id !== ev.id) }, `📅 Cancelled: ${eventLabel(ev)} ${fmtDate(ev.date)}`);
+          const selS = { padding: "8px 10px", borderRadius: 10, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
+          return (
+            <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "12px 16px", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 18 }}>📅</span>
+                <span style={{ flex: 1, fontSize: 13.5, fontWeight: 800, color: T.text }}>Schedule</span>
+                <button onClick={() => setEvOpen((v) => !v)} style={{ padding: "6px 13px", borderRadius: 16, border: `1px solid ${T.gold}`, background: evOpen ? "#fff" : T.goldLight, color: "#8a6d1f", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{evOpen ? "Cancel" : "+ Add event"}</button>
+              </div>
+              <div style={{ fontSize: 11, color: T.textSub, marginTop: 2 }}>Inspections, walkthroughs, deliveries — Goldstone sees these on their calendar.</div>
+              {evOpen && (
+                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8, background: T.bg, borderRadius: 12, padding: "10px 12px" }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <select value={evDraft.type} onChange={(e) => setEvDraft((d) => ({ ...d, type: e.target.value }))} style={{ ...selS, flex: 1, minWidth: 150 }}>
+                      {EVENT_TYPES.map(([v, ic, l]) => <option key={v} value={v}>{ic} {l}</option>)}
+                    </select>
+                    {(evDraft.type === "rough" || evDraft.type === "final") && (
+                      <select value={evDraft.trade} onChange={(e) => setEvDraft((d) => ({ ...d, trade: e.target.value }))} style={{ ...selS, flex: 1, minWidth: 120 }}>
+                        <option value="">Which trade?</option>
+                        {EVENT_TRADES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <input type="date" value={evDraft.date} onChange={(e) => setEvDraft((d) => ({ ...d, date: e.target.value }))} style={{ ...selS, flex: 1, minWidth: 130 }} />
+                    <input type="time" value={evDraft.time} onChange={(e) => setEvDraft((d) => ({ ...d, time: e.target.value }))} style={{ ...selS, flex: 1, minWidth: 100 }} />
+                  </div>
+                  <input value={evDraft.note} onChange={(e) => setEvDraft((d) => ({ ...d, note: e.target.value }))} placeholder="Note (optional) — e.g. inspector arriving between 9–11" style={selS} />
+                  <button onClick={saveEv} disabled={!evDraft.date} style={{ padding: "9px", borderRadius: 10, border: "none", background: evDraft.date ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 13, cursor: evDraft.date ? "pointer" : "default", fontFamily: "inherit" }}>Add to schedule</button>
+                </div>
+              )}
+              {upcoming.length > 0 && (
+                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {upcoming.map((ev) => (
+                    <div key={ev.id} style={{ display: "flex", alignItems: "center", gap: 9, background: T.bg, borderRadius: 10, padding: "8px 11px" }}>
+                      <span style={{ fontSize: 15, flexShrink: 0 }}>{eventIcon(ev)}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text }}>{eventLabel(ev)}{ev.note ? <span style={{ fontWeight: 400, color: T.textSub }}> — {ev.note}</span> : null}</div>
+                        <div style={{ fontSize: 10.5, color: T.textTert }}>{fmtDate(ev.date)}{ev.time ? ` · ${fmtClock(ev.time)}` : ""} · {ev.by ? ev.by.split(" ")[0] : ev.orgName}</div>
+                      </div>
+                      {ev.orgName === (org?.name || "") && <button onClick={() => removeEv(ev)} title="Cancel this event" style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "14px 16px" }}>
           <div style={{ display: "flex", gap: 8 }}>
             {[["Contract", money(total)], ["Paid", money(paid)], ["Remaining", money(left)], ["Days", j.status === "complete" ? "Done" : (days == null ? "—" : days)]].map(([l, v], i) => (
@@ -435,7 +507,7 @@ export function ContractorPortal() {
                 const un = unreadFor(j.id);
                 const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.direction !== "to_team" && !taskClosed(t.status)).length;
                 return (
-                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
+                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress || j.title || "Job"}</div>

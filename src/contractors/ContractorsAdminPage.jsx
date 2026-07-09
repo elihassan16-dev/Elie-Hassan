@@ -91,10 +91,27 @@ function OrgModal({ orgModal, contacts = [], save, onSaved, onClose }) {
 }
 
 // ── Create a portal login at a company ────────────────────────────────────────
-function LoginModal({ org, onClose }) {
-  const [f, setF] = useState({ name: "", email: "", password: "" });
+// Suggests the company's main contact for the first login, and pulls additional
+// people from the Contacts directory (anyone with an email) for secondary logins.
+const genPassword = () => {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let p = "";
+  for (let i = 0; i < 10; i++) p += chars[Math.floor(Math.random() * chars.length)];
+  return p;
+};
+function LoginModal({ org, contacts = [], existingEmails = [], onClose }) {
+  const [f, setF] = useState({ name: "", email: "", password: genPassword() });
   const [busy, setBusy] = useState(false);
   const [e2, setE2] = useState("");
+  const [pick, setPick] = useState(false);
+  const [q, setQ] = useState("");
+  const have = new Set((existingEmails || []).map((e) => String(e).toLowerCase()));
+  // The company's main contact — the obvious first login.
+  const mainSuggestion = org?.contactName && org?.email && !have.has(String(org.email).toLowerCase()) ? { name: org.contactName, email: org.email } : null;
+  const ql = q.trim().toLowerCase();
+  const withEmail = (contacts || []).filter((c) => c && c.name && c.email && !have.has(String(c.email).toLowerCase()));
+  const matches = withEmail.filter((c) => !ql || [c.name, c.company, c.role, c.email].filter(Boolean).join(" ").toLowerCase().includes(ql)).sort((a, b) => (a.name || "").localeCompare(b.name || "")).slice(0, 30);
+  const useSuggestion = (s) => { setF((prev) => ({ ...prev, name: s.name, email: s.email })); setPick(false); setQ(""); };
   const create = async () => {
     setBusy(true); setE2("");
     try {
@@ -108,9 +125,38 @@ function LoginModal({ org, onClose }) {
     <Modal title={`New login — ${org?.name}`} onClose={onClose}
       footer={<><button onClick={onClose} style={ghostBtn}>Cancel</button><button onClick={create} disabled={!ok || busy} style={goldBtn(ok && !busy)}>{busy ? "Creating…" : "Create login"}</button></>}>
       <div style={{ fontSize: 12.5, color: T.textSub, lineHeight: 1.5 }}>They sign in at <b>gpflips.com</b> with this email + password and see ONLY their company's portal — jobs, tasks, and messages. Share the password with them directly.</div>
-      <div><label style={lbl}>Name</label><input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Tom Rivera" style={inp} /></div>
+      {mainSuggestion && (
+        <button onClick={() => useSuggestion(mainSuggestion)} style={{ textAlign: "left", padding: "10px 13px", borderRadius: T.radiusSm, border: `1px solid ${T.gold}`, background: T.goldLight, cursor: "pointer", fontFamily: "inherit" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#8a6d1f" }}>⭐ Use their main contact</div>
+          <div style={{ fontSize: 12, color: T.textSub, marginTop: 1 }}>{mainSuggestion.name} · {mainSuggestion.email}</div>
+        </button>
+      )}
+      <div>
+        <button onClick={() => setPick(v => !v)} style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusSm, border: `1.5px dashed ${T.gold}`, background: pick ? T.goldLight : "transparent", color: "#8a6d1f", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>👤 Pick from your contacts{pick ? " ▴" : " ▾"}</button>
+        {pick && (
+          <div style={{ marginTop: 8, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, overflow: "hidden" }}>
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search contacts with an email…" style={{ ...inp, border: "none", borderBottom: `1px solid ${T.border}`, borderRadius: 0 }} />
+            <div style={{ maxHeight: 180, overflowY: "auto" }}>
+              {matches.length === 0 && <div style={{ padding: "14px 12px", fontSize: 12.5, color: T.textTert, textAlign: "center" }}>No contacts with an email match.</div>}
+              {matches.map((c) => (
+                <div key={c.id} onClick={() => useSuggestion({ name: c.name, email: c.email })} style={{ padding: "9px 12px", borderTop: `1px solid ${T.border}`, cursor: "pointer" }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{c.name}</div>
+                  <div style={{ fontSize: 11.5, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[c.email, c.company || c.role].filter(Boolean).join(" · ")}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      <div><label style={lbl}>Name</label><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Tom Rivera" style={inp} /></div>
       <div><label style={lbl}>Email (their login)</label><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} type="email" style={inp} /></div>
-      <div><label style={lbl}>Password (min 8 characters)</label><input value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} style={inp} /></div>
+      <div><label style={lbl}>Password (min 8 characters)</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} style={{ ...inp, flex: 1 }} />
+          <button onClick={() => setF({ ...f, password: genPassword() })} title="Generate a fresh password" style={{ ...ghostBtn, padding: "10px 13px", flexShrink: 0 }}>🎲 New</button>
+        </div>
+        <div style={{ fontSize: 11, color: T.textTert, marginTop: 4 }}>Copy it before saving — text it to them so they can sign in.</div>
+      </div>
       {e2 && <div style={{ fontSize: 12.5, color: T.red }}>{e2}</div>}
     </Modal>
   );
@@ -430,7 +476,7 @@ export function ContractorsAdminPage() {
 
       {error && <div style={{ position: "fixed", bottom: 14, left: "50%", transform: "translateX(-50%)", background: "#FFF0EF", border: `1.5px solid ${T.red}`, color: T.red, borderRadius: 12, padding: "10px 16px", fontSize: 12.5, fontWeight: 600, zIndex: 500 }}>{error}</div>}
       {orgModal && <OrgModal orgModal={orgModal.id ? orgModal : null} contacts={contacts} save={save} onSaved={setSelOrgId} onClose={() => setOrgModal(null)} />}
-      {loginModal && org && <LoginModal org={org} onClose={() => setLoginModal(false)} />}
+      {loginModal && org && <LoginModal org={org} contacts={contacts} existingEmails={logins.map((u) => u.email)} onClose={() => setLoginModal(false)} />}
       {jobModal && org && <JobModal org={org} jobModal={jobModal.id ? jobModal : null} properties={properties} save={save} onSaved={setOpenJobId} onClose={() => setJobModal(null)} />}
       {openJob && <JobDetail j={openJob} org={org} tasks={tasks} messages={messages} docs={docs} save={save} remove={remove} displayName={displayName} onEditBasics={() => setJobModal(openJob)} onClose={() => setOpenJobId(null)} />}
     </div>

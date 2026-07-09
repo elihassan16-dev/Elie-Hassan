@@ -8947,14 +8947,19 @@ function FinFunderModal({funder,onSave,onClose}){
   const editing=!!funder;
   const[name,setName]=useState(funder?.name||"");
   const[notes,setNotes]=useState(funder?.notes||"");
+  // Legal/contact details for partnership documents (address is the key one).
+  const[address,setAddress]=useState(funder?.address||"");
+  const[phone,setPhone]=useState(funder?.phone||"");
+  const[email,setEmail]=useState(funder?.email||"");
   const[principal,setPrincipal]=useState("");
   const save=()=>{
     const nm=name.trim();if(!nm)return;
-    if(editing){onSave({...funder,name:nm,notes:notes.trim()});}
+    const extra={address:address.trim(),phone:phone.trim(),email:email.trim()};
+    if(editing){onSave({...funder,name:nm,notes:notes.trim(),...extra});}
     else{
       const ledger=[];const p=Number(numIn(principal));
       if(p)ledger.push({id:Date.now(),type:"principal",amount:p,date:new Date().toISOString().slice(0,10),note:"Initial principal"});
-      onSave({id:Date.now(),name:nm,notes:notes.trim(),ledger});
+      onSave({id:Date.now(),name:nm,notes:notes.trim(),...extra,ledger});
     }
     onClose();
   };
@@ -8962,8 +8967,13 @@ function FinFunderModal({funder,onSave,onClose}){
     <FinModal title={editing?"Edit lender":"New lender"} onClose={onClose}
       footer={<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button onClick={save} disabled={!name.trim()} style={{...finBtn(true),opacity:name.trim()?1:0.5}}>Save</button></>}>
       <div><div style={finLabel}>Name</div><input autoFocus value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Cohen" style={finInput}/></div>
+      <div><div style={finLabel}>Mailing address</div><input value={address} onChange={e=>setAddress(e.target.value)} placeholder="Street, City, State ZIP" style={finInput}/><div style={{fontSize:11,color:T.textTert,marginTop:4}}>Used on partnership documents.</div></div>
+      <div style={{display:"flex",gap:10}}>
+        <div style={{flex:1,minWidth:0}}><div style={finLabel}>Phone</div><input value={phone} onChange={e=>setPhone(e.target.value)} type="tel" placeholder="Optional" style={finInput}/></div>
+        <div style={{flex:1,minWidth:0}}><div style={finLabel}>Email</div><input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="Optional" style={finInput}/></div>
+      </div>
       {!editing&&<div><div style={finLabel}>Initial principal (optional)</div><input value={principal} onChange={e=>setPrincipal(numIn(e.target.value))} inputMode="decimal" placeholder="e.g. 740000" style={finInput}/><div style={{fontSize:11,color:T.textTert,marginTop:4}}>Adds a first "Principal in" ledger entry. You can add more later.</div></div>}
-      <div><div style={finLabel}>Notes</div><textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Terms, contact info, anything…" style={{...finInput,minHeight:60,resize:"vertical"}}/></div>
+      <div><div style={finLabel}>Notes</div><textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Terms, anything…" style={{...finInput,minHeight:60,resize:"vertical"}}/></div>
     </FinModal>
   );
 }
@@ -10419,21 +10429,29 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     const rows=[];
     (sharedProps||[]).filter(p=>!p.archived).forEach(p=>{
       if(p.status==="In Closing"){
-        const back=drawsForProperty(p,openDraws)
-          .filter(d=>(d.futureFundsPlan||"reinvest")!=="takeback")
-          .reduce((s,d)=>s+(Number(d.amount)||0),0);
-        rows.push({address:p.address,type:"Sell",date:cfDate(p),back,equity:null});
+        // One row per draw so each lender's plan is visible/tappable right here:
+        // Reinvests principal → counts toward the running balance; takes it back →
+        // shown struck-through and excluded. Same futureFundsPlan the Available
+        // Future Funds report uses, so the two always agree.
+        const ds=drawsForProperty(p,openDraws);
+        if(ds.length===0)rows.push({address:p.address,funder:"",type:"Sell",date:cfDate(p),back:0,gross:null,plan:null,drawId:null,equity:null});
+        else ds.forEach(d=>{
+          const plan=d.futureFundsPlan||"reinvest";
+          const amt=Number(d.amount)||0;
+          rows.push({address:p.address,funder:d.funderName||"—",type:"Sell",date:cfDate(p),back:plan==="takeback"?0:amt,gross:amt,plan,drawId:d.id,equity:null});
+        });
       }else if(p.status==="Under Contract"){
         const prof=finProfit(p.financials||{},p.status);
-        rows.push({address:p.address,type:"Buy",date:(p.financials||{}).purchaseDate||"",back:null,equity:prof.equityRequired});
+        rows.push({address:p.address,funder:"",type:"Buy",date:(p.financials||{}).purchaseDate||"",back:null,gross:null,plan:null,drawId:null,equity:prof.equityRequired});
       }
     });
     rows.sort((a,b)=>((!a.date&&!b.date)?0:!a.date?1:!b.date?-1:a.date.localeCompare(b.date))||(a.address||"").localeCompare(b.address||""));
     let bal=0;
     rows.forEach(r=>{bal+=(r.back||0)-(r.equity||0);r.balance=bal;});
     const totalBack=rows.reduce((s,r)=>s+(r.back||0),0);
+    const takeback=rows.reduce((s,r)=>s+(r.plan==="takeback"?(r.gross||0):0),0);
     const totalEquity=rows.reduce((s,r)=>s+(r.equity||0),0);
-    return {rows,totalBack,totalEquity,net:totalBack-totalEquity};
+    return {rows,totalBack,takeback,totalEquity,net:totalBack-totalEquity};
   },[sharedProps,openDraws]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Report 7 — monthly cash flow from closings (the old Cash Flow Projection tab,
@@ -10531,13 +10549,15 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     },
     closings:{
       title:"Upcoming Closings — Capital Flow",
-      subtitle:"In-closing sales return line-of-credit capital you can redeploy; under-contract buys need equity to close. In closing-date order, the running balance shows where you stand — red means the money coming back doesn't yet cover the equity owed on the buys ahead. Starts from zero (net of upcoming closings only).",
+      subtitle:"In-closing sales return line-of-credit capital you can redeploy; under-contract buys need equity to close. Tap a lender's pill to mark whether they reinvest their principal (counts toward the balance) or take it back (struck out, excluded). In closing-date order — red running balance means the money coming back doesn't yet cover the equity owed on the buys ahead.",
       cols:[{label:"Property"},{label:"Type"},{label:"Closing"},{label:"LOC coming back",align:"right"},{label:"Cash to close",align:"right"},{label:"Running balance",align:"right"}],
       rows:rptClosings.rows.map(r=>[
-        {t:r.address},
+        {t:r.address+(r.funder?` · ${r.funder}`:"")},
         {t:r.type==="Buy"?"Buying":"In Closing",color:r.type==="Buy"?T.blue:T.green,strong:true},
         {t:D(r.date)},
-        {t:r.back==null?"—":fmtD(r.back),align:"right",strong:r.back!=null,color:r.back==null?T.textTert:T.green},
+        r.drawId
+          ?{planAmt:{drawId:r.drawId,plan:r.plan,amount:r.gross},align:"right"}
+          :{t:r.back==null?"—":fmtD(r.back),align:"right",strong:r.back!=null,color:r.back==null?T.textTert:T.green},
         {t:r.equity==null?"—":fmtD(r.equity),align:"right",strong:r.equity!=null,color:r.equity==null?T.textTert:undefined},
         {t:fmtD(r.balance),align:"right",strong:true,color:r.balance<0?T.red:T.green},
       ]),
@@ -10546,7 +10566,10 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
         {t:fmtD(rptClosings.totalBack),align:"right",strong:true,color:T.green},
         {t:fmtD(rptClosings.totalEquity),align:"right",strong:true},
         {t:fmtD(rptClosings.net),align:"right",strong:true,color:rptClosings.net<0?T.red:T.gold},
-      ]],
+      ],...(rptClosings.takeback>0?[[
+        {t:"Principal being taken back (excluded)",color:T.textSub},{t:""},{t:""},
+        {t:fmtD(rptClosings.takeback),align:"right",color:T.textSub},{t:""},{t:""},
+      ]]:[])],
       empty:"No under-contract buys or in-closing sales.",
     },
     cashflow:{
@@ -10576,7 +10599,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const exportReport=(rep)=>{
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
-    const cellText=(c)=>c.plan?(c.plan==="takeback"?"Take back":"Reinvest"):c.fund?esc(c.fund.checked?c.t+" ✓ funded":c.t):esc((c.edit||c.draw)?((c.t==="Tap to set"||c.t==="Tap to pin")?"—":String(c.t).replace(" 📌","")):c.t);
+    const cellText=(c)=>c.planAmt?esc(`${fmtD(c.planAmt.amount)} — ${c.planAmt.plan==="takeback"?"taken back":"reinvests"}`):c.plan?(c.plan==="takeback"?"Take back":"Reinvest"):c.fund?esc(c.fund.checked?c.t+" ✓ funded":c.t):esc((c.edit||c.draw)?((c.t==="Tap to set"||c.t==="Tap to pin")?"—":String(c.t).replace(" 📌","")):c.t);
     const th=rep.cols.map(c=>`<th style="text-align:${c.align||"left"}">${esc(c.label)}</th>`).join("");
     const trs=rep.rows.length?rep.rows.map((cells,ri)=>`<tr${ri%2?' style="background:#faf6ea"':''}>${cells.map(c=>`<td style="text-align:${c.align||"left"};${c.strong?"font-weight:700;":""}${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${rep.cols.length}" class="empty">${esc(rep.empty)}</td></tr>`;
     const foot=rep.foot&&rep.rows.length?rep.foot.map((frow,fi)=>`<tr class="${fi===0?"tot":"tot2"}">${frow.map(c=>`<td style="text-align:${c.align||"left"};font-weight:${c.strong?"800":"600"};${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):"";
@@ -10642,7 +10665,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                 <tbody>
                   {rep.rows.length===0
                     ?<tr><td colSpan={rep.cols.length} style={{textAlign:"center",color:T.textTert,padding:"28px 10px",fontSize:13}}>{rep.empty}</td></tr>
-                    :rep.rows.map((cells,ri)=>{const rowBg=ri%2?T.gold+"12":T.card;return <tr key={ri} style={{background:rowBg}}>{cells.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"8px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:c.strong?700:400,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:rowBg,borderRight:`1px solid ${T.border}`}:{})}}>{c.plan
+                    :rep.rows.map((cells,ri)=>{const rowBg=ri%2?T.gold+"12":T.card;return <tr key={ri} style={{background:rowBg}}>{cells.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"8px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:c.strong?700:400,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:rowBg,borderRight:`1px solid ${T.border}`}:{})}}>{c.planAmt
+                        ?<span style={{display:"inline-flex",alignItems:"center",gap:7,justifyContent:"flex-end"}}>
+                            <span style={{fontWeight:700,color:c.planAmt.plan==="takeback"?T.textTert:T.green,textDecoration:c.planAmt.plan==="takeback"?"line-through":"none"}}>{fmtD(c.planAmt.amount)}</span>
+                            <button onClick={canEdit?(e)=>{e.stopPropagation();setPlan(c.planAmt.drawId,c.planAmt.plan==="reinvest"?"takeback":"reinvest");}:undefined} title={canEdit?"Does this lender reinvest their principal after closing? Tap to switch":undefined} style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:canEdit?"pointer":"default",fontFamily:"inherit",fontSize:11,fontWeight:700,background:c.planAmt.plan==="reinvest"?T.green+"22":T.red+"22",color:c.planAmt.plan==="reinvest"?"#1a8f43":T.red,whiteSpace:"nowrap"}}>{c.planAmt.plan==="reinvest"?"↻ Reinvests":"Takes back"}</button>
+                          </span>
+                        :c.plan
                         ?<button onClick={canEdit?(e)=>{e.stopPropagation();setPlan(c.drawId,c.plan==="reinvest"?"takeback":"reinvest");}:undefined} title={canEdit?"Tap to switch":undefined} style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:canEdit?"pointer":"default",fontFamily:"inherit",fontSize:11.5,fontWeight:700,background:c.plan==="reinvest"?T.green+"22":T.red+"22",color:c.plan==="reinvest"?"#1a8f43":T.red}}>{c.plan==="reinvest"?"Reinvest":"Take back"}</button>
                         :c.edit
                         ?(canEdit?<span onClick={(e)=>{e.stopPropagation();setHoldbackFor(c.edit.propId);}} title="Tap to set" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>:<span>{c.t==="Tap to set"?"—":c.t}</span>)
@@ -10942,6 +10970,11 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           <button onClick={()=>setFunderModal(f)} style={{...finBtn(false),padding:"6px 12px"}}>Edit</button>
           <button onClick={()=>deleteFunder(f.id)} title="Delete lender" style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>🗑</button>
         </div>
+        {(f.address||f.phone||f.email)&&<div style={{fontSize:12.5,color:T.textSub,marginBottom:f.notes?6:14,display:"flex",flexWrap:"wrap",gap:"3px 14px"}}>
+          {f.address&&<span>🏠 {f.address}</span>}
+          {f.phone&&<a href={`tel:${String(f.phone).replace(/[^\d+]/g,"")}`} style={{color:T.blue,textDecoration:"none"}}>📞 {f.phone}</a>}
+          {f.email&&<a href={`mailto:${f.email}`} style={{color:T.blue,textDecoration:"none"}}>✉️ {f.email}</a>}
+        </div>}
         {f.notes&&<div style={{fontSize:13,color:T.textSub,marginBottom:14,whiteSpace:"pre-wrap"}}>{f.notes}</div>}
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:8,marginBottom:16}}>
           {stat("Available balance",s.available,s.available<0?T.red:T.green)}

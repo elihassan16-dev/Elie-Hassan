@@ -554,7 +554,7 @@ export function ContractorPortal() {
       <input ref={sowRef} type="file" accept="application/pdf,image/*" onChange={uploadDoc} style={{ display: "none" }} />
       {/* Header */}
       <div style={{ background: T.card, borderBottom: `1px solid ${T.border}`, padding: "max(10px,env(safe-area-inset-top)) 16px 10px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-        <div style={{ width: 34, height: 34, borderRadius: 10, background: `linear-gradient(135deg,${T.gold},${T.goldMid})`, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "Georgia,serif", fontWeight: 700, fontSize: 18, flexShrink: 0 }}>G</div>
+        <img src="/logo.png" alt="Goldstone Properties" style={{ height: 42, width: "auto", display: "block", filter: "contrast(1.15) saturate(1.1)", flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14.5, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{org?.name || "Contractor Portal"}</div>
           <div style={{ fontSize: 11, color: T.textSub }}>Goldstone Properties · {displayName}</div>

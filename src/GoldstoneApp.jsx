@@ -11233,6 +11233,23 @@ function EmailPage({isMobile}){
   // Per-mailbox chain labels (this device). { [conversationId]: {kind, note} }
   const[labels,setLabels]=useState({});
   const[filterKind,setFilterKind]=useState("all");
+  // Outlook-style multi-select in the inbox list (bulk mark read / unread).
+  const[mailSelMode,setMailSelMode]=useState(false);
+  const[mailSelKeys,setMailSelKeys]=useState(new Set());
+  const toggleMailSel=(key)=>setMailSelKeys(prev=>{const n=new Set(prev);n.has(key)?n.delete(key):n.add(key);return n;});
+  const bulkMark=(read)=>{
+    if(!mailSelKeys.size)return;
+    if(read){
+      mailSelKeys.forEach(k=>mail.markConversationRead(k));
+      setItems(prev=>(prev||[]).map(it=>mailSelKeys.has(it.conversationId)?{...it,isRead:true}:it));
+    }else{
+      // Outlook marks a conversation unread by flipping its latest message.
+      const latestIds=new Set((chains||[]).filter(c=>mailSelKeys.has(c.key)).map(c=>c.latest.id));
+      latestIds.forEach(id=>mail.markUnread(id));
+      setItems(prev=>(prev||[]).map(it=>latestIds.has(it.id)?{...it,isRead:false}:it));
+    }
+    setMailSelMode(false);setMailSelKeys(new Set());
+  };
   const[labelOpen,setLabelOpen]=useState(false);
   const acctKey=mail.account?.username||"";
   useEffect(()=>{ setLabels(acctKey?loadPref("gs_mailLabels_"+acctKey,{}):{}); },[acctKey]);
@@ -11271,8 +11288,18 @@ function EmailPage({isMobile}){
     // Expand only the NEWEST message. Expanding every message rendered an iframe
     // (plus attachment / inline-image fetches) per message, which made long chains
     // take ages to open — older messages now expand on tap.
-    mail.getConversation(sel.key).then(m=>{if(alive){setMsgs(m);setExpanded(m&&m.length?{[m[m.length-1].id]:true}:{});}}).catch(e=>{if(alive){setMsgs([]);setThreadErr(e.message||"Couldn't load this conversation.");}});
-    if(sel.anyUnread&&sel.latest?.id)mail.markRead(sel.latest.id);
+    mail.getConversation(sel.key).then(m=>{
+      if(!alive)return;
+      setMsgs(m);setExpanded(m&&m.length?{[m[m.length-1].id]:true}:{});
+      // Opening a chain marks EVERY unread message in it read (not just the newest)
+      // and clears the blue dot in the list immediately — the old behavior marked
+      // one message and left the row looking unread until the next full refresh.
+      const unread=(m||[]).filter(x=>x.isRead===false);
+      if(unread.length||sel.anyUnread){
+        unread.forEach(u=>mail.markRead(u.id));
+        setItems(prev=>(prev||[]).map(it=>it.conversationId===sel.key?{...it,isRead:true}:it));
+      }
+    }).catch(e=>{if(alive){setMsgs([]);setThreadErr(e.message||"Couldn't load this conversation.");}});
     return ()=>{alive=false;};
   },[sel]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -11349,13 +11376,25 @@ function EmailPage({isMobile}){
         {/* Chain list */}
         <div style={{width:isMobile?"100%":380,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
           {/* Search */}
-          <div style={{padding:"10px 12px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,background:T.bg,borderRadius:10,padding:"8px 12px",border:`1px solid ${T.border}`}}>
+          <div style={{padding:"10px 12px",borderBottom:`1px solid ${T.border}`,flexShrink:0,display:"flex",gap:8,alignItems:"center"}}>
+            <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,background:T.bg,borderRadius:10,padding:"8px 12px",border:`1px solid ${T.border}`}}>
               <span style={{fontSize:13,color:T.textTert}}>🔍</span>
               <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search all your email…" style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:13.5,color:T.text,fontFamily:"inherit",minWidth:0}}/>
               {query&&<button onClick={()=>setQuery("")} style={{background:"none",border:"none",color:T.textTert,fontSize:16,cursor:"pointer",lineHeight:1,padding:0,flexShrink:0}}>×</button>}
             </div>
+            {chains&&chains.length>0&&!mailSelMode&&<button onClick={()=>{setMailSelMode(true);setMailSelKeys(new Set());}} style={{flexShrink:0,padding:"7px 12px",borderRadius:16,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Select</button>}
           </div>
+          {/* Bulk-select action bar */}
+          {mailSelMode&&(
+            <div style={{padding:"8px 12px",background:T.goldLight,borderBottom:`1px solid ${T.gold}`,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",flexShrink:0}}>
+              <span style={{fontSize:12.5,fontWeight:700,color:T.text}}>{mailSelKeys.size} selected</span>
+              <button onClick={()=>{const all=(chains||[]).map(c=>c.key);setMailSelKeys(prev=>prev.size===all.length?new Set():new Set(all));}} style={{background:"none",border:"none",color:T.gold,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,padding:"2px 4px"}}>{mailSelKeys.size===(chains||[]).length?"Clear all":"Select all"}</button>
+              <div style={{flex:1}}/>
+              <button onClick={()=>bulkMark(true)} disabled={!mailSelKeys.size} style={{padding:"6px 12px",borderRadius:16,border:"none",background:mailSelKeys.size?T.gold:T.border,color:"#fff",fontSize:12,fontWeight:700,cursor:mailSelKeys.size?"pointer":"default",fontFamily:"inherit"}}>✓ Mark read</button>
+              <button onClick={()=>bulkMark(false)} disabled={!mailSelKeys.size} style={{padding:"6px 12px",borderRadius:16,border:`1px solid ${mailSelKeys.size?T.blue:T.border}`,background:"#fff",color:mailSelKeys.size?T.blue:T.textTert,fontSize:12,fontWeight:700,cursor:mailSelKeys.size?"pointer":"default",fontFamily:"inherit"}}>Mark unread</button>
+              <button onClick={()=>{setMailSelMode(false);setMailSelKeys(new Set());}} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:16,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"6px 12px"}}>Cancel</button>
+            </div>
+          )}
           {/* Label filter */}
           {chains&&chains.length>0&&<div style={{display:"flex",gap:6,padding:"9px 12px",borderBottom:`1px solid ${T.border}`,overflowX:"auto",flexShrink:0,scrollbarWidth:"none"}}>
             {[["all","All"],...Object.entries(MAIL_LABELS).map(([k,v])=>[k,`${v.icon} ${v.name}`])].map(([k,l])=>{const on=filterKind===k;return(
@@ -11368,9 +11407,11 @@ function EmailPage({isMobile}){
             {chains&&!error&&chains.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{dq?`No emails match “${dq}”.`:"No email in your inbox."}</div>}
             {chains&&(()=>{const shown=chains.filter(c=>filterKind==="all"||(labels[c.key]&&labels[c.key].kind===filterKind));
               if(chains.length>0&&shown.length===0)return <div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No chains labeled “{MAIL_LABELS[filterKind]?.name||filterKind}”.</div>;
-              return shown.map(c=>{const m=c.latest;const active=sel&&sel.key===c.key;const lab=labels[c.key];const pin=pinnedIndex[c.key];return(
-              <div key={c.key} onClick={()=>setSel(c)} style={{display:"flex",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:active?T.goldLight:(c.anyUnread?"#fff":"transparent")}}>
-                <div style={{width:8,flexShrink:0,paddingTop:5}}>{c.anyUnread&&<span style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
+              return shown.map(c=>{const m=c.latest;const active=sel&&sel.key===c.key;const lab=labels[c.key];const pin=pinnedIndex[c.key];const picked=mailSelKeys.has(c.key);return(
+              <div key={c.key} onClick={()=>mailSelMode?toggleMailSel(c.key):setSel(c)} style={{display:"flex",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:mailSelMode&&picked?T.goldLight:active?T.goldLight:(c.anyUnread?"#fff":"transparent"),opacity:mailSelMode&&!picked?0.7:1}}>
+                {mailSelMode
+                  ? <span style={{width:20,height:20,flexShrink:0,alignSelf:"center",borderRadius:"50%",border:`2px solid ${picked?T.gold:T.border}`,background:picked?T.gold:"transparent",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800}}>{picked?"✓":""}</span>
+                  : <div style={{width:8,flexShrink:0,paddingTop:5}}>{c.anyUnread&&<span style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>}
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
                     <span style={{fontSize:13.5,fontWeight:c.anyUnread?800:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</span>

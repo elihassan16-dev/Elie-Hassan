@@ -4474,13 +4474,6 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
         </div>
-        {ownedInfo&&(
-          <div style={{marginBottom:8}}>
-            <span title={ownedInfo.sold?"From purchase to sale":"Since the purchase date"} style={{display:"inline-flex",alignItems:"center",gap:6,background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"4px 12px",fontSize:12.5,fontWeight:700,color:"#8a6d1f"}}>
-              🔑 Owned {ownedInfo.label}{ownedInfo.sold?" · sold":""}
-            </span>
-          </div>
-        )}
         <div style={{marginBottom:14}}>
           <StatusPicker value={property.status} property={property} onChange={v=>onUpdate(property.id,"status",v)}
             onGateSave={(to,answers,note,fieldValues)=>{
@@ -4513,9 +4506,10 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           return(
             <div onClick={()=>setShowInfo(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
             <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:20,width:"min(620px,96vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
-              <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-                <div><div style={{fontSize:16,fontWeight:700,color:T.text}}>Property Info</div><div style={{fontSize:12,color:T.blue}}>Location and key details</div></div>
-                <button onClick={()=>setShowInfo(false)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+              <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexShrink:0}}>
+                <div style={{flexShrink:0}}><div style={{fontSize:16,fontWeight:700,color:T.text}}>Property Info</div><div style={{fontSize:12,color:T.blue}}>Location and key details</div></div>
+                {ownedInfo&&<span title={ownedInfo.sold?"From purchase to sale":"Since the purchase date"} style={{display:"inline-flex",alignItems:"center",gap:6,background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700,color:"#8a6d1f",whiteSpace:"nowrap",minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>🔑 Owned {ownedInfo.label}{ownedInfo.sold?" · sold":""}</span>}
+                <button onClick={()=>setShowInfo(false)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
               </div>
               <div style={{padding:"20px 20px 8px",overflowY:"auto"}}>
 

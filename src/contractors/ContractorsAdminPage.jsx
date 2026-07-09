@@ -443,6 +443,7 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
             <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "86%" }}>
               <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2, textAlign: mine ? "right" : "left" }}>{m.author} · {fmtWhen(m.at)}</div>
               <div style={{ background: mine ? T.gold : T.bg, color: mine ? "#fff" : T.text, borderRadius: 13, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                {m.taskRefText && <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 3, color: mine ? "rgba(255,255,255,0.9)" : "#8a6d1f" }}>↳ Task: {m.taskRefText}</div>}
                 {m.text}
                 {m.attachment && (m.attachment.kind === "image"
                   ? <a href={m.attachment.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={m.attachment.url} alt="" style={{ maxWidth: 200, maxHeight: 220, borderRadius: 9, display: "block", objectFit: "cover" }} /></a>

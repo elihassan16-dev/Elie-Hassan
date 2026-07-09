@@ -236,6 +236,22 @@ export function useOutlookMail() {
     try { await graph(`/me/messages/${id}`, { method: "PATCH", body: JSON.stringify({ isRead: true }) }); } catch { /* non-fatal */ }
   }, [graph]);
 
+  // Mark a message unread (Outlook-style "mark conversation unread" = its latest message).
+  const markUnread = useCallback(async (id) => {
+    try { await graph(`/me/messages/${id}`, { method: "PATCH", body: JSON.stringify({ isRead: false }) }); } catch { /* non-fatal */ }
+  }, [graph]);
+
+  // Mark EVERY unread message in a conversation read — opening a chain or a bulk
+  // "mark read" should clear the whole thing, not just the newest message.
+  const markConversationRead = useCallback(async (conversationId) => {
+    if (!conversationId) return;
+    try {
+      const filter = encodeURIComponent(`conversationId eq '${String(conversationId).replace(/'/g, "''")}' and isRead eq false`);
+      const d = await graph(`/me/messages?$filter=${filter}&$select=id&$top=50`);
+      await Promise.all((d.value || []).map((m) => graph(`/me/messages/${m.id}`, { method: "PATCH", body: JSON.stringify({ isRead: true }) }).catch(() => null)));
+    } catch { /* non-fatal */ }
+  }, [graph]);
+
   // Read a picked File into base64 (Graph wants raw base64, no data: prefix).
   const fileB64 = (file) => new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -356,5 +372,5 @@ export function useOutlookMail() {
     });
   }, [graph, addAttachments]);
 
-  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, getAttachmentBlob, getInlineImages, searchPeople, conversationUnread, markRead, reply, forward, sendNew };
+  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, getAttachmentBlob, getInlineImages, searchPeople, conversationUnread, markRead, markUnread, markConversationRead, reply, forward, sendNew };
 }

@@ -72,6 +72,9 @@ export function ContractorPortal() {
   const [statusOpen, setStatusOpen] = useState(false); // 🏗 site-status popup
   const [evOpen, setEvOpen] = useState(false); // 📅 schedule-an-event form
   const [evDraft, setEvDraft] = useState({ type: "rough", trade: "", date: "", time: "", note: "" });
+  const [coReqOpen, setCoReqOpen] = useState(false); // change-order request form
+  const [coReq, setCoReq] = useState({ label: "", amount: "" });
+  const [pricePop, setPricePop] = useState(false); // contract-price breakdown popup
   const [err, setErr] = useState("");
   const selJob = myJobs.find((j) => String(j.id) === String(selJobId)) || null;
   // Desktop opens straight into the first job, like the main app's lists.
@@ -289,15 +292,81 @@ export function ContractorPortal() {
         })()}
         <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "14px 16px" }}>
           <div style={{ display: "flex", gap: 8 }}>
-            {[["Contract", money(total)], ["Paid", money(paid)], ["Remaining", money(left)], ["Days", j.status === "complete" ? "Done" : (days == null ? "—" : days)]].map(([l, v], i) => (
-              <div key={l} style={{ flex: 1, background: T.bg, borderRadius: 10, padding: "9px 6px", textAlign: "center" }}>
-                <div style={{ fontSize: 9.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase" }}>{l}</div>
-                <div style={{ fontSize: 14.5, fontWeight: 800, color: i === 2 ? (left > 0 ? T.gold : T.green) : T.text }}>{v}</div>
-              </div>
-            ))}
+            {[["Contract", money(total)], ["Paid", money(paid)], ["Remaining", money(left)], ["Days", j.status === "complete" ? "Done" : (days == null ? "—" : days)]].map(([l, v], i) => {
+              const priceClick = l === "Contract" && (j.changeOrders || []).length > 0;
+              return (
+                <div key={l} onClick={priceClick ? () => setPricePop(true) : undefined} title={priceClick ? "See the original price + change orders" : undefined} style={{ flex: 1, background: T.bg, borderRadius: 10, padding: "9px 6px", textAlign: "center", cursor: priceClick ? "pointer" : "default" }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase" }}>{l}</div>
+                  <div style={{ fontSize: 14.5, fontWeight: 800, color: i === 2 ? (left > 0 ? T.gold : T.green) : T.text, textDecoration: priceClick ? "underline dotted" : "none", textUnderlineOffset: 3 }}>{v}</div>
+                </div>
+              );
+            })}
           </div>
           <div style={{ height: 6, background: T.bg, borderRadius: 4, marginTop: 10, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: T.green, borderRadius: 4 }} /></div>
           <div style={{ fontSize: 11, color: T.textTert, marginTop: 4 }}>{pct}% paid{j.startDate ? ` · started ${fmtDate(j.startDate)}` : ""}</div>
+          {pricePop && (
+            <div onClick={() => setPricePop(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 430, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
+              <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: "min(400px,94vw)", boxShadow: "0 8px 40px rgba(0,0,0,0.2)", overflow: "hidden" }}>
+                <div style={{ padding: "13px 17px", borderBottom: `1px solid ${T.border}`, background: T.goldLight, display: "flex", alignItems: "center" }}>
+                  <div style={{ flex: 1, fontSize: 14, fontWeight: 800, color: T.text }}>Contract price breakdown</div>
+                  <button onClick={() => setPricePop(false)} style={{ background: "none", border: "none", fontSize: 20, color: T.textTert, cursor: "pointer", lineHeight: 1 }}>×</button>
+                </div>
+                <div style={{ padding: "14px 17px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}><span style={{ color: T.textSub }}>Original contract</span><b>{money(j.price)}</b></div>
+                  {(j.changeOrders || []).map((c) => (
+                    <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
+                      <span style={{ color: T.textSub, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>+ {c.label || "Change order"}{c.date ? ` · ${fmtDate(c.date)}` : ""}</span><b style={{ flexShrink: 0 }}>{money(c.amount)}</b>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14.5, padding: "9px 0 2px" }}><b>Total</b><b style={{ color: T.gold }}>{money(total)}</b></div>
+                </div>
+              </div>
+            </div>
+          )}
+          {(() => {
+            const reqs = (j.coRequests || []).filter((r) => r.status !== "approved").slice().sort((a, b) => b.id - a.id);
+            const amt = Number(String(coReq.amount).replace(/[^0-9.]/g, ""));
+            const sendReq = async () => {
+              if (!coReq.label.trim() || !amt) return;
+              try {
+                await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, label: coReq.label.trim(), amount: amt }) });
+                notify(null, { toAdmins: true, title: `Change order request — ${org?.name || displayName}`, body: `${coReq.label.trim()} — ${money(amt)} · ${j.propertyAddress || ""}` });
+                setCoReqOpen(false); setCoReq({ label: "", amount: "" });
+              } catch (ex) { setErr(ex.message || "Couldn't send the request."); }
+            };
+            return (<>
+              {sec("Change orders")}
+              {(j.changeOrders || []).map((c) => (
+                <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, padding: "5px 0", borderBottom: `1px solid ${T.border}` }}>
+                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.textSub }}>{c.label || "Change order"}</span>
+                  <span style={{ color: T.textTert, fontSize: 11 }}>{c.date ? fmtDate(c.date) : ""}</span><b>{money(c.amount)}</b>
+                </div>
+              ))}
+              {reqs.map((r) => {
+                const [txt, fg, bg] = r.status === "pending" ? ["Pending approval", "#B45309", "#FDE9C8"] : ["Denied", "#B42318", "#FFE1DE"];
+                return (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, padding: "5px 0", borderBottom: `1px solid ${T.border}`, opacity: r.status === "denied" ? 0.65 : 1 }}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.textSub }}>{r.label}</span>
+                    <b>{money(r.amount)}</b>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: fg, background: bg, borderRadius: 12, padding: "2px 8px", flexShrink: 0 }}>{txt}</span>
+                  </div>
+                );
+              })}
+              {coReqOpen ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 8, background: T.bg, borderRadius: 10, padding: "9px 11px" }}>
+                  <input value={coReq.label} onChange={(e) => setCoReq((d) => ({ ...d, label: e.target.value }))} placeholder="What's the extra work? e.g. Replace rotted subfloor" style={{ padding: "8px 10px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+                  <div style={{ display: "flex", gap: 7 }}>
+                    <input value={coReq.amount} onChange={(e) => setCoReq((d) => ({ ...d, amount: e.target.value }))} inputMode="decimal" placeholder="$ amount" style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+                    <button onClick={sendReq} disabled={!coReq.label.trim() || !amt} style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: coReq.label.trim() && amt ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Send request</button>
+                    <button onClick={() => setCoReqOpen(false)} style={{ padding: "8px 12px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", color: T.textSub, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Cancel</button>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: T.textTert }}>Goldstone approves or denies it — approval updates the contract price automatically.</div>
+                </div>
+              ) : (
+                <button onClick={() => setCoReqOpen(true)} style={{ marginTop: 8, padding: "8px 14px", borderRadius: 16, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>＋ Request a change order</button>
+              )}
+            </>);
+          })()}
 
           {(j.payments || []).length > 0 && (<>
             {sec("Payments received")}
@@ -507,7 +576,7 @@ export function ContractorPortal() {
                 const un = unreadFor(j.id);
                 const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.direction !== "to_team" && !taskClosed(t.status)).length;
                 return (
-                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
+                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress || j.title || "Job"}</div>

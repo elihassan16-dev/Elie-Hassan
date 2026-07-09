@@ -296,6 +296,7 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
   const thread = (messages || []).filter((m) => String(m.jobId) === String(j.id)).sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
   const [tab2, setTab2] = useState("overview");
   const [coDraft, setCoDraft] = useState(null);
+  const [pricePop, setPricePop] = useState(false); // original price + change orders
   const [payDraft, setPayDraft] = useState(null);
   const [qbPick, setQbPick] = useState(false);
   // Apply picked QuickBooks transactions as payments (deduped by qbId).
@@ -317,6 +318,21 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length, tab2]);
 
   const addCO = async () => { const a = Number(numIn(coDraft.amount)); if (!a) return; await save("contractor_jobs", { ...j, changeOrders: [...(j.changeOrders || []), { id: Date.now(), label: coDraft.label.trim() || "Change order", amount: a, date: coDraft.date }] }); setCoDraft(null); notify(null, { toOrg: j.orgId, title: "Change order added", body: `${coDraft.label.trim() || "Change order"} — ${money(a)} · ${j.propertyAddress}` }); };
+  // Contractor-submitted change-order requests: approving one is what actually
+  // moves the contract price (it becomes a real change order).
+  const decideCoReq = async (r, approve) => {
+    const upd = {
+      ...j,
+      coRequests: (j.coRequests || []).map((x) => x.id === r.id ? { ...x, status: approve ? "approved" : "denied", decidedBy: displayName, decidedAt: new Date().toISOString() } : x),
+      ...(approve ? { changeOrders: [...(j.changeOrders || []), { id: Date.now(), label: r.label, amount: Number(r.amount) || 0, date: today(), by: r.by, fromRequest: r.id }] } : {}),
+    };
+    await save("contractor_jobs", upd);
+    notify(null, {
+      toOrg: j.orgId,
+      title: approve ? "Change order approved ✓" : "Change order denied",
+      body: `${r.label} — ${money(r.amount)}${approve ? ` · new contract total ${money(jobTotal(upd))}` : ""} · ${j.propertyAddress}`,
+    });
+  };
   const addPay = async () => { const a = Number(numIn(payDraft.amount)); if (!a) return; await save("contractor_jobs", { ...j, payments: [...(j.payments || []), { id: Date.now(), amount: a, date: payDraft.date, note: payDraft.note.trim() }] }); setPayDraft(null); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(a)} — ${j.propertyAddress}` }); };
   const addTask = async () => { const txt = taskDraft.trim(); if (!txt) return; await save("contractor_tasks", { id: Date.now(), jobId: j.id, orgId: j.orgId, text: txt, status: "Not Started", direction: "to_contractor", createdBy: displayName, createdAt: new Date().toISOString() }); setTaskDraft(""); notify(null, { toOrg: j.orgId, title: "New task from Goldstone", body: `${txt} — ${j.propertyAddress}` }); };
   const setTaskStatus = async (t, s) => {
@@ -376,13 +392,50 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
 
       {tab2 === "overview" && (<>
         <div style={{ display: "flex", gap: 8 }}>
-          {[["Contract", money(total)], ["Paid", money(paid)], ["Remaining", money(left)], ["Days", days == null ? "—" : days]].map(([l, v]) => (
-            <div key={l} style={{ flex: 1, background: T.bg, borderRadius: 10, padding: "9px 8px", textAlign: "center" }}>
-              <div style={{ fontSize: 9.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase" }}>{l}</div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{v}</div>
-            </div>
-          ))}
+          {[["Contract", money(total)], ["Paid", money(paid)], ["Remaining", money(left)], ["Days", days == null ? "—" : days]].map(([l, v]) => {
+            const priceClick = l === "Contract" && (j.changeOrders || []).length > 0;
+            return (
+              <div key={l} onClick={priceClick ? () => setPricePop(true) : undefined} title={priceClick ? "See the original price + change orders" : undefined} style={{ flex: 1, background: T.bg, borderRadius: 10, padding: "9px 8px", textAlign: "center", cursor: priceClick ? "pointer" : "default" }}>
+                <div style={{ fontSize: 9.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase" }}>{l}</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: T.text, textDecoration: priceClick ? "underline dotted" : "none", textUnderlineOffset: 3 }}>{v}</div>
+              </div>
+            );
+          })}
         </div>
+        {pricePop && (
+          <div onClick={() => setPricePop(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 460, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: "min(400px,94vw)", boxShadow: "0 8px 40px rgba(0,0,0,0.2)", overflow: "hidden" }}>
+              <div style={{ padding: "13px 17px", borderBottom: `1px solid ${T.border}`, background: T.goldLight, display: "flex", alignItems: "center" }}>
+                <div style={{ flex: 1, fontSize: 14, fontWeight: 800, color: T.text }}>Contract price breakdown</div>
+                <button onClick={() => setPricePop(false)} style={{ background: "none", border: "none", fontSize: 20, color: T.textTert, cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+              <div style={{ padding: "14px 17px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}><span style={{ color: T.textSub }}>Original contract</span><b>{money(j.price)}</b></div>
+                {(j.changeOrders || []).map((c) => (
+                  <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
+                    <span style={{ color: T.textSub, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>+ {c.label || "Change order"}{c.date ? ` · ${fmtDate(c.date)}` : ""}{c.by ? ` · ${c.by.split(" ")[0]}` : ""}</span><b style={{ flexShrink: 0 }}>{money(c.amount)}</b>
+                  </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14.5, padding: "9px 0 2px" }}><b>Total</b><b style={{ color: T.gold }}>{money(total)}</b></div>
+              </div>
+            </div>
+          </div>
+        )}
+        {(j.coRequests || []).filter((r) => r.status === "pending").map((r) => (
+          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#FFF9EC", border: `1.5px solid ${T.gold}`, borderRadius: 12, padding: "10px 13px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>🧾</span>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{r.label} — {money(r.amount)}</div>
+              <div style={{ fontSize: 10.5, color: "#8a6d1f" }}>Change order request · {r.by}{r.at ? ` · ${fmtDate(r.at)}` : ""}{r.note ? ` · ${r.note}` : ""}</div>
+            </div>
+            {isAdmin ? (
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button onClick={() => decideCoReq(r, true)} style={{ padding: "7px 14px", borderRadius: 16, border: "none", background: T.green, color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>✓ Approve</button>
+                <button onClick={() => decideCoReq(r, false)} style={{ padding: "7px 14px", borderRadius: 16, border: `1px solid ${T.red}`, background: "#fff", color: T.red, fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Deny</button>
+              </div>
+            ) : <span style={{ fontSize: 10.5, fontWeight: 800, color: "#B45309", background: "#FDE9C8", borderRadius: 12, padding: "3px 9px", flexShrink: 0 }}>PENDING — admin decides</span>}
+          </div>
+        ))}
         <div>
           {secHdr("Scope of work", isAdmin ? miniBtn("✎ Edit basics", onEditBasics) : null)}
           <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No scope written — edit the job or let the contractor upload their SOW PDF."}</div>

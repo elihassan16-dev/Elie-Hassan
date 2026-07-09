@@ -7,41 +7,10 @@ import { useOutlookMail, groupChains } from "./outlook/useOutlookMail";
 import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
-
-// Authenticated fetch to our serverless API (sends the Supabase JWT). If the token
-// has gone stale (server replies 401 "Not signed in"), refresh the session once and
-// retry — otherwise an idle PWA can fail even though the user is still logged in.
-async function qbAuthFetch(path, opts = {}) {
-  const call = async () => {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    // no-store so a refresh always pulls live QuickBooks numbers (e.g. loan
-    // balances after a mortgage payment) instead of a stale browser-cached copy.
-    return fetch(path, { cache: "no-store", ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
-  };
-  let res = await call();
-  if (res.status === 401) {
-    try { await supabase.auth.refreshSession(); } catch { /* fall through */ }
-    res = await call();
-  }
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || `Request failed (${res.status}).`);
-  return json;
-}
-
-// Fire a push + email notification to teammates (by display name). Best-effort:
-// never blocks or throws into the UI. The sender is dropped server-side.
-async function notify(recipients, { title, body, tag, url } = {}) {
-  const list = [...new Set((recipients || []).filter(Boolean))];
-  if (!list.length) return;
-  try {
-    await qbAuthFetch("/api/notify/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recipients: list, title, body, url: url || "/", tag }),
-    });
-  } catch { /* notifications are best-effort */ }
-}
+import { T } from "./theme";
+import { qbAuthFetch, notify, uploadAttachment, attachmentKind } from "./net";
+import { ContractorsAdminPage } from "./contractors/ContractorsAdminPage";
+import { useContractorData } from "./contractors/data";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -56,7 +25,8 @@ function useIsMobile(breakpoint = 768) {
   return isMobile;
 }
 
-const T={gold:"#B8953F",goldLight:"#F8F1E0",goldMid:"#D4A843",bg:"#F2F2F7",card:"#FFFFFF",cardAlt:"#F9F9FB",border:"rgba(0,0,0,0.08)",text:"#1C1C1E",textSub:"#8A8A8E",textTert:"#AEAEB2",blue:"#007AFF",green:"#34C759",red:"#FF3B30",orange:"#FF9500",purple:"#AF52DE",teal:"#5AC8FA",shadow:"0 1px 3px rgba(0,0,0,0.07),0 4px 16px rgba(0,0,0,0.04)",shadowMd:"0 2px 8px rgba(0,0,0,0.10),0 8px 32px rgba(0,0,0,0.06)",radius:14,radiusSm:10};
+// T (theme tokens) now lives in src/theme.js — imported above, shared with the
+// contractor portal so both faces of the app look identical.
 
 const SC={"Under Contract":{color:"#9333EA",bg:"#F3E8FF"},"Purchased":{color:"#2563EB",bg:"#DBEAFE"},"Under Construction":{color:"#EA580C",bg:"#FFEDD5"},"On Market":{color:"#16A34A",bg:"#DCFCE7"},"In Closing":{color:"#CA8A04",bg:"#FEF9C3"},"Sold":{color:"#65A30D",bg:"#ECFCCB"},"Rental":{color:"#0891B2",bg:"#CFFAFE"},"New Leads":{color:"#DB2777",bg:"#FCE7F3"}};
 const DEFAULT_ORDER=["Under Contract","In Closing","Purchased","Under Construction","On Market","Rental","New Leads","Sold"];
@@ -503,9 +473,10 @@ const NAV=[
   {key:"contacts",label:"Contacts",short:"Contacts",icon:ICONS.contacts},
   {key:"email",label:"Email",short:"Email",icon:ICONS.email},
   {key:"financials",label:"Financial Section",short:"Financials",icon:ICONS.financials},
+  {key:"contractors",label:"Contractors",short:"Contractors",icon:ICONS.contacts},
 ];
 // Sections only the admin (Elie) can see. Everyone else never gets these nav items.
-const ADMIN_ONLY_KEYS=new Set(["financials"]);
+const ADMIN_ONLY_KEYS=new Set(["financials","contractors"]);
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
 function Card({children,style={}}){return <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",...style}}>{children}</div>;}
@@ -4771,6 +4742,95 @@ function GlobalAiChat({onClose}){
   );
 }
 
+// 🏗 Property Status board — utilities on/off + permit states, stored in the
+// shared site_status table so every contractor working the property sees the
+// exact same board in their portal (read-only there; team edits here).
+// Utilities auto-flip ON when a completed task (internal or contractor) mentions
+// them — shown with an "auto" chip; a tap overrides either way.
+const UTIL_DEFS=[["electric","⚡","Electric"],["gas","🔥","Gas"],["water","💧","Water"]];
+const PERMIT_DEFS=[["building","🏗","Building"],["plumbing","🚿","Plumbing"],["mechanical","❄️","Mechanical"],["electrical","⚡","Electrical"]];
+const UTIL_RX={electric:/\belectric/i,gas:/\bgas\b/i,water:/\bwater\b/i};
+function PropertyStatusBoard({property,onClose}){
+  const{currentUser}=useData()||{};
+  const{jobs:ctrJobs,tasks:ctrTasks,siteStatus,save:ctrSave}=useContractorData();
+  const row=(siteStatus||[]).find(s=>String(s.id)===String(property.id))||null;
+  const st=row||{id:String(property.id),address:`${property.address}${property.city?`, ${property.city}`:""}`,utilities:{},utilitiesAuto:{},permits:{}};
+  const[err,setErr]=useState("");
+  // Completed task texts — internal tasks + this property's contractor tasks.
+  const doneTexts=useMemo(()=>{
+    const internal=(property.tasks||[]).filter(t=>t.status==="Completed").map(t=>t.text||"");
+    const jobIds=new Set((ctrJobs||[]).filter(j=>String(j.propertyId)===String(property.id)).map(j=>String(j.id)));
+    const ext=(ctrTasks||[]).filter(t=>jobIds.has(String(t.jobId))&&t.status==="Completed").map(t=>t.text||"");
+    return[...internal,...ext];
+  },[property,ctrJobs,ctrTasks]);
+  const inferred=(u)=>doneTexts.some(x=>UTIL_RX[u].test(x))||doneTexts.some(x=>/utilit/i.test(x));
+  const write=async(patch)=>{try{await ctrSave("site_status",{...st,...patch,address:`${property.address}${property.city?`, ${property.city}`:""}`,updatedAt:new Date().toISOString(),updatedBy:currentUser||""});}catch(ex){setErr(ex.message||"Save failed.");}};
+  // Write-behind once per open: any utility a completed task implies (and nobody
+  // set explicitly) is persisted ON so contractor portals show the same thing.
+  useEffect(()=>{
+    if(siteStatus===null)return; // wait for load
+    const ups={},auto={};
+    UTIL_DEFS.forEach(([u])=>{if(!(st.utilities||{})[u]&&inferred(u)){ups[u]="on";auto[u]=true;}});
+    if(Object.keys(ups).length)write({utilities:{...(st.utilities||{}),...ups},utilitiesAuto:{...(st.utilitiesAuto||{}),...auto}});
+  },[siteStatus===null]); // eslint-disable-line react-hooks/exhaustive-deps
+  const effUtil=(u)=>(st.utilities||{})[u]||(inferred(u)?"on":"off");
+  const setUtil=(u,v)=>write({utilities:{...(st.utilities||{}),[u]:v},utilitiesAuto:{...(st.utilitiesAuto||{}),[u]:false}});
+  const setPermit=(k,v)=>write({permits:{...(st.permits||{}),[k]:v}});
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:420,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(500px,94vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,background:T.goldLight,flexShrink:0}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:800,color:T.text}}>🏗 Property Status</div>
+            <div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{property.address}{property.city?`, ${property.city}`:""} · contractors on this property see this board</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div style={{padding:"16px 18px",overflowY:"auto"}}>
+          {err&&<div onClick={()=>setErr("")} style={{fontSize:12.5,color:T.red,marginBottom:10,cursor:"pointer"}}>{err}</div>}
+          <div style={{fontSize:11,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Utilities</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+            {UTIL_DEFS.map(([u,icon,label])=>{
+              const on=effUtil(u)==="on";
+              const auto=!!(st.utilitiesAuto||{})[u]&&on;
+              return(
+                <button key={u} onClick={()=>setUtil(u,on?"off":"on")} style={{padding:"14px 8px 12px",borderRadius:14,border:`1.5px solid ${on?T.green:T.border}`,background:on?"#EDFBF1":T.bg,cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
+                  <span style={{fontSize:24,filter:on?"none":"grayscale(1)",opacity:on?1:0.55}}>{icon}</span>
+                  <span style={{fontSize:12.5,fontWeight:700,color:T.text}}>{label}</span>
+                  <span style={{fontSize:10.5,fontWeight:800,color:on?"#15803D":T.textSub,background:on?"#D3F3DD":"#E9E9EE",borderRadius:12,padding:"2px 10px",letterSpacing:"0.04em"}}>{on?"ON":"OFF"}</span>
+                  {auto&&<span title="Flipped on automatically because a completed task mentioned it" style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,borderRadius:10,padding:"1px 7px"}}>auto ✓ task</span>}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{fontSize:10.5,color:T.textTert,marginTop:6}}>Tap to flip. Utilities turn on automatically when a completed task mentions them.</div>
+          <div style={{fontSize:11,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",margin:"18px 0 8px"}}>Permits</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {PERMIT_DEFS.map(([k,icon,label])=>{
+              const v=(st.permits||{})[k]||"";
+              const seg=(val,txt,onBg,onFg)=>(
+                <button key={val} onClick={()=>setPermit(k,v===val?"":val)} style={{flex:1,padding:"7px 4px",borderRadius:10,border:`1px solid ${v===val?onFg:T.border}`,background:v===val?onBg:"#fff",color:v===val?onFg:T.textSub,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{txt}</button>
+              );
+              return(
+                <div key={k} style={{display:"flex",alignItems:"center",gap:10,background:T.bg,borderRadius:12,padding:"9px 12px"}}>
+                  <span style={{fontSize:17,flexShrink:0}}>{icon}</span>
+                  <span style={{fontSize:13,fontWeight:700,color:T.text,width:86,flexShrink:0}}>{label}</span>
+                  <div style={{flex:1,display:"flex",gap:6}}>
+                    {seg("yes","Filed ✓","#EDFBF1","#15803D")}
+                    {seg("no","Not filed","#FFF0EF",T.red)}
+                    {seg("na","Not needed","#E9E9EE","#6b6b70")}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {row&&row.updatedAt&&<div style={{fontSize:10.5,color:T.textTert,marginTop:14,textAlign:"right"}}>Updated {new Date(row.updatedAt).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}{row.updatedBy?` by ${row.updatedBy}`:""}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const { contacts: CONTACTS, teamMembers: TEAM_MEMBERS } = useData();
   const isMobile=useIsMobile();
@@ -4778,6 +4838,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const[taskPopup,setTaskPopup]=useState(null);
   const[showInfo,setShowInfo]=useState(false); // Property Info popup
   const[aiChat,setAiChat]=useState(false); // ✨ ask-AI-about-this-property popup
+  const[statusBoard,setStatusBoard]=useState(false); // 🏗 utilities + permits board
   // Showings tab only shows while the property is actively On Market / In Closing.
   const showShowings=property.status==="On Market"||property.status==="In Closing";
   // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.
@@ -4817,6 +4878,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
             <button onClick={()=>setShowInfo(true)} title="Property info" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,cursor:"pointer",fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>i</button>
             {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>💬</button>}
             <button onClick={()=>setAiChat(true)} title="Ask AI about this property" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✨</button>
+            <button onClick={()=>setStatusBoard(true)} title="Property status — utilities & permits (contractors see this too)" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>🏗</button>
           </div>
           {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
@@ -4844,6 +4906,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           the selected tab itself is kept because `tab` lives on PropDetail. */}
       <div key={property.id} style={{flex:1,overflowY:"auto"}}>
         {aiChat&&<PropertyAiChat property={property} onClose={()=>setAiChat(false)}/>}
+        {statusBoard&&<PropertyStatusBoard property={property} onClose={()=>setStatusBoard(false)}/>}
         {tab==="Financial Overview"&&<FinOverview property={property} onUpdate={onUpdate}/>}
         {showInfo&&(()=>{
           const pi=property.propertyInfo;
@@ -6501,6 +6564,70 @@ function AiTasksModal({propAddr,teamMembers=[],existingTasks=[],onCreate,onClose
   );
 }
 
+// 💬 on an EXTERNAL (contractor) task: talk about it with the contractor (their
+// job thread — they see it) OR internally (a 🔒 tagged thread in the property chat
+// that contractors can never read). The toggle makes the audience explicit.
+function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctrMessages,ctrSave,setSharedProps,onClose}){
+  const[mode,setMode]=useState("external");
+  const scrollRef=useRef(null);
+  const external=(ctrMessages||[]).filter(m=>String(m.jobId)===String(job.id)).sort((a,b)=>String(a.at||"").localeCompare(String(b.at||"")));
+  const internal=((property?.messages)||[]).filter(m=>String(m.ctrTaskKey||"")===String(task.id)).sort((a,b)=>msgTime(a.at)-msgTime(b.at));
+  const msgs=mode==="external"?external:internal;
+  useEffect(()=>{const el=scrollRef.current;if(el)el.scrollTop=el.scrollHeight;},[msgs.length,mode]);
+  const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
+  const send=async(txt,att,mentions)=>{
+    const t=(txt||"").trim();if(!t&&!att)return;
+    if(mode==="external"){
+      const msg={id:Date.now(),jobId:job.id,orgId:job.orgId,author:currentUser,side:"team",text:t,at:new Date().toISOString(),readBy:[currentUser]};
+      if(att)msg.attachment=att;
+      await ctrSave("contractor_messages",msg);
+      notify(null,{toOrg:job.orgId,title:`Goldstone — ${job.propertyAddress||""}`,body:t||"(attachment)"});
+    }else{
+      const msg={id:Date.now(),author:currentUser,text:t,at:new Date().toISOString(),readBy:[currentUser],ctrTaskKey:task.id,ctrTaskLabel:`${orgName}: ${(task.text||"").slice(0,48)}`};
+      if(att)msg.attachment=att;
+      if(mentions&&mentions.length)msg.mentions=mentions;
+      setSharedProps(prev=>prev.map(p=>p.id!==property.id?p:{...p,messages:[...(p.messages||[]),msg]}));
+      if(mentions&&mentions.length)notify(mentions.filter(n=>n!==currentUser),{title:`👷 ${orgName} task`,body:`${currentUser}: ${t||"(attachment)"}`,tag:`ctrnote-${task.id}`});
+    }
+  };
+  const ext=mode==="external";
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:420,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(540px,94vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"13px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👷 {task.text}</div>
+            <div style={{fontSize:11.5,color:T.textSub}}>{orgName} · {job.propertyAddress||property?.address||""}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        {/* Audience toggle — the whole point: be explicit about who reads this. */}
+        <div style={{display:"flex",gap:6,padding:"10px 14px 0",flexShrink:0}}>
+          <button onClick={()=>setMode("external")} style={{flex:1,padding:"9px 10px",borderRadius:12,border:ext?"1.5px solid #E8A33D":`1px solid ${T.border}`,background:ext?"#FDE9C8":"#fff",color:ext?"#B45309":T.textSub,fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>👷 External — {orgName} sees this</button>
+          <button onClick={()=>setMode("internal")} style={{flex:1,padding:"9px 10px",borderRadius:12,border:!ext?`1.5px solid ${T.blue}`:`1px solid ${T.border}`,background:!ext?"#EBF4FF":"#fff",color:!ext?T.blue:T.textSub,fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🔒 Internal — team only</button>
+        </div>
+        <div style={{padding:"6px 16px 0",fontSize:11,fontWeight:600,color:ext?"#B45309":T.blue,flexShrink:0}}>{ext?`This is the ${orgName} job thread — everything here reaches their whole team.`:"Contractors can NEVER read this — it also shows in the property chat as a 🔒 thread."}</div>
+        <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"10px 16px",display:"flex",flexDirection:"column",gap:10,minHeight:140,background:ext?"#FFF9EC":"#fff"}}>
+          {msgs.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"26px 0"}}>{ext?"No messages with them on this job yet.":"No internal notes on this task yet."}</div>}
+          {msgs.map(m=>{const mine=ext?m.side==="team":m.author===currentUser;return(
+            <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
+              <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
+              <div style={{background:mine?(ext?T.gold:T.blue):"#F2F2F7",color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+                {m.text}
+                {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
+              </div>
+            </div>
+          );})}
+        </div>
+        <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:ext?"2px solid #E8A33D":`2px solid ${T.blue}`,background:ext?"#FFF9EC":"#fff",flexShrink:0}}>
+          <ChatComposer onSend={(txt,att,mn)=>send(txt,att,mn)} people={ext?[]:teamMembers} currentUser={currentUser}
+            placeholder={ext?`Message ${orgName} — their team sees this…`:"Internal note — team only…"}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // The full task list for ONE property — identical rows/graphics/options to the Tasks
 // tab (status picker, owner→delegate avatars, delegate "to/for" tags, contact 👤 and
 // message 💬 buttons, assign & delegate popup). Reused inside the property detail so
@@ -6536,6 +6663,23 @@ function PropertyTaskList({property}){
   const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
   useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
   const addTask=(text)=>{const t=(text||"").trim();if(!t)return;setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER,assignedAt:Date.now(),assignedBy:CURRENT_USER}]}));};
+  // Contractor tasks, auto-scoped: only companies with a job ON THIS PROPERTY show
+  // here — delegate straight to them, no picking through your whole contractor list.
+  const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, save:ctrSave } = useContractorData();
+  const[extChat,setExtChat]=useState(null); // {task,job} → external/internal chat popup
+  const propCtrJobs=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(propId)&&j.status!=="complete");
+  const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
+  const[ctrDraft,setCtrDraft]=useState({}); // jobId -> new task text
+  const addCtrTask=async(j)=>{
+    const txt=(ctrDraft[j.id]||"").trim();if(!txt)return;
+    try{await ctrSave("contractor_tasks",{id:Date.now(),jobId:j.id,orgId:j.orgId,text:txt,status:"Not Started",direction:"to_contractor",createdBy:CURRENT_USER,createdAt:new Date().toISOString()});}catch{return;}
+    setCtrDraft(d=>({...d,[j.id]:""}));
+    notify(null,{toOrg:j.orgId,title:"New task from Goldstone",body:`${txt} — ${j.propertyAddress||propAddr}`});
+  };
+  const toggleCtrTask=async(t)=>{
+    const done=t.status!=="Completed";
+    try{await ctrSave("contractor_tasks",{...t,status:done?"Completed":"Not Started",doneAt:done?new Date().toISOString():null,doneBy:done?CURRENT_USER:null});}catch{/* keep UI */}
+  };
   const[aiTasksOpen,setAiTasksOpen]=useState(false);
   // Create the whole AI-generated list at once and notify everyone who got work.
   const addAiTasks=(list)=>{
@@ -6606,7 +6750,38 @@ function PropertyTaskList({property}){
           <button onClick={()=>setAiTasksOpen(true)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"9px",borderRadius:T.radiusSm,border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#b8912e",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>✨ Let AI draft a task list</button>
         </div>
       </div>
+      {/* Contractor tasks — one amber card per company working THIS property.
+          These go to their portal (external), unlike the internal list above. */}
+      {propCtrJobs.map(j=>{
+        const jt=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id)&&t.direction!=="to_team").sort((a,b)=>(a.status==="Completed")-(b.status==="Completed")||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
+        const name=ctrOrgName(j.orgId);
+        return(
+          <div key={j.id} style={{marginTop:14,background:"#FFF9EC",borderRadius:T.radius,border:`1.5px solid ${T.gold}`,boxShadow:T.shadow,overflow:"hidden"}}>
+            <div style={{padding:"11px 14px 9px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={{fontSize:12.5,fontWeight:800,color:"#8a6d1f"}}>👷 {name}{j.title?` — ${j.title}`:""}</span>
+              <span style={{fontSize:9,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 8px",letterSpacing:"0.05em"}}>EXTERNAL</span>
+              <span style={{fontSize:10.5,color:"#B45309",fontWeight:600}}>tasks here go to their portal</span>
+            </div>
+            {jt.map(t=>(
+              <div key={t.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"9px 14px",borderTop:"1px solid rgba(184,149,63,0.25)"}}>
+                <input type="checkbox" checked={t.status==="Completed"} onChange={()=>toggleCtrTask(t)} style={{width:18,height:18,marginTop:1,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:t.status==="Completed"?0.6:1}}>{t.text}</div>
+                  <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.status}{t.doneBy?` · ${t.doneBy}`:""}</div>
+                </div>
+                <button onClick={()=>setExtChat({task:t,job:j})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:8,padding:"9px 14px 12px",borderTop:jt.length?"1px solid rgba(184,149,63,0.25)":"none"}}>
+              <input value={ctrDraft[j.id]||""} onChange={e=>setCtrDraft(d=>({...d,[j.id]:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addCtrTask(j)} placeholder={`Delegate a task to ${name}…`}
+                style={{flex:1,minWidth:0,padding:"9px 12px",borderRadius:10,border:`1px solid ${T.gold}`,background:"#fff",fontSize:13.5,fontFamily:"inherit",outline:"none"}}/>
+              <button onClick={()=>addCtrTask(j)} disabled={!(ctrDraft[j.id]||"").trim()} style={{padding:"9px 15px",borderRadius:10,border:"none",background:(ctrDraft[j.id]||"").trim()?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:13,cursor:(ctrDraft[j.id]||"").trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
+            </div>
+          </div>
+        );
+      })}
       {aiTasksOpen&&<AiTasksModal propAddr={propAddr} teamMembers={TEAM_MEMBERS} existingTasks={tasks.map(t=>t.text).filter(Boolean)} onCreate={addAiTasks} onClose={()=>setAiTasksOpen(false)}/>}
+      {extChat&&<ExternalTaskChat task={extChat.task} job={extChat.job} orgName={ctrOrgName(extChat.job.orgId)} property={live} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} ctrMessages={ctrMessages} ctrSave={ctrSave} setSharedProps={setSharedProps} onClose={()=>setExtChat(null)}/>}
     </>
   );
 }
@@ -6628,6 +6803,23 @@ function TasksPage({onNavigate}){
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
   const { isAdmin, prefs, savePrefs } = useAuth();
   const isMobile=useIsMobile();
+  // External (contractor) tasks show alongside internal ones, grouped by property.
+  const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, save:ctrSave } = useContractorData();
+  const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
+  const extByPid=useMemo(()=>{
+    const m={};
+    (ctrJobs||[]).forEach(j=>{
+      if(j.status==="complete")return;
+      const rows=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id));
+      if(rows.length)(m[String(j.propertyId)]=m[String(j.propertyId)]||[]).push({job:j,rows:rows.sort((a,b)=>(a.status==="Completed")-(b.status==="Completed")||String(b.createdAt||"").localeCompare(String(a.createdAt||"")))});
+    });
+    return m;
+  },[ctrJobs,ctrTasks]);
+  const[extChat,setExtChat]=useState(null); // {task,job} → external/internal chat popup
+  const toggleExtTask=async(t)=>{
+    const done=t.status!=="Completed";
+    try{await ctrSave("contractor_tasks",{...t,status:done?"Completed":"Not Started",doneAt:done?new Date().toISOString():null,doneBy:done?CURRENT_USER:null});}catch{/* keep UI */}
+  };
   // Per-user "send this property to the bottom" order (synced in prefs, personal —
   // doesn't reorder the list for teammates). Map of propId -> when it was pushed.
   const propPushOrder=prefs.propPushOrder||{};
@@ -7141,9 +7333,32 @@ function TasksPage({onNavigate}){
                   </div>
                 </div>
                 {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+                {/* External (contractor) tasks on this property — amber, clearly marked */}
+                {(extByPid[String(ptasks[0]?.propId)]||[]).map(({job,rows})=>(
+                  <div key={"ext-"+job.id} style={{background:"#FFF9EC",borderTop:`1.5px solid ${T.gold}`}}>
+                    <div style={{padding:"8px 14px 5px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span style={{fontSize:11.5,fontWeight:800,color:"#8a6d1f"}}>👷 {ctrOrgName(job.orgId)}{job.title?` — ${job.title}`:""}</span>
+                      <span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
+                    </div>
+                    {rows.map(t=>(
+                      <div key={t.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)"}}>
+                        <input type="checkbox" checked={t.status==="Completed"} onChange={()=>toggleExtTask(t)} style={{width:17,height:17,marginTop:1,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:t.status==="Completed"?0.6:1}}>{t.text}</div>
+                          <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}`:t.status}{t.doneBy?` · ${t.doneBy}`:""}</div>
+                        </div>
+                        <button onClick={()=>setExtChat({task:t,job})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
                 <AddTaskInline onAdd={(text)=>addTaskToProp(ptasks[0].propId,text)}/>
               </div>
             ))}
+            {extChat&&(()=>{
+              const prop=sharedProps.find(p=>String(p.id)===String(extChat.job.propertyId));
+              return <ExternalTaskChat task={extChat.task} job={extChat.job} orgName={ctrOrgName(extChat.job.orgId)} property={prop} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} ctrMessages={ctrMessages} ctrSave={ctrSave} setSharedProps={setSharedProps} onClose={()=>setExtChat(null)}/>;
+            })()}
           </div>
         )}
       </div>
@@ -7812,17 +8027,8 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
 // public "attachments" bucket + policies. An attachment is stored on the message as
 // { url, name, mime, kind } where kind is 'image' | 'audio' | 'file'.
 const iconBtn={width:40,height:40,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:T.bg,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1};
-const attachmentKind=(mime="")=>mime.startsWith("image/")?"image":mime.startsWith("video/")?"video":mime.startsWith("audio/")?"audio":"file";
-const sanitizeName=(name="file")=>(name.replace(/[^a-zA-Z0-9._-]/g,"_")||"file").slice(-80);
-async function uploadAttachment(file,folder="chat"){
-  const kind=attachmentKind(file.type||"");
-  const base=file.name?sanitizeName(file.name):`${kind}.${kind==="audio"?"webm":kind==="image"?"jpg":"bin"}`;
-  const path=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${base}`;
-  const { error }=await supabase.storage.from("attachments").upload(path,file,{contentType:file.type||undefined,upsert:false});
-  if(error)throw error;
-  const { data }=supabase.storage.from("attachments").getPublicUrl(path);
-  return { url:data.publicUrl, name:file.name||base, mime:file.type||"", kind };
-}
+// uploadAttachment / attachmentKind now live in src/net.js (imported above),
+// shared with the contractor portal.
 // `saveFolder` ({driveId,id,name} — the property's Files folder) adds a one-tap
 // "Save to Files" button under PDFs/photos someone sent in chat: the attachment is
 // pulled from storage and uploaded into the property's OneDrive/SharePoint folder.
@@ -8157,7 +8363,7 @@ function UnreadBadge({count,style={}}){
 const buildMessageThreads=(messages)=>{
   const byId=new Map(messages.map(m=>[m.id,m]));
   const rootIdOf=(m)=>{let cur=m,g=0;while(cur.replyToId&&byId.has(cur.replyToId)&&g<200){cur=byId.get(cur.replyToId);g++;}return cur.id;};
-  const keyOf=(m)=>m.showingKey?`showing:${m.showingKey}`:m.taskId?`task:${m.taskId}`:`root:${rootIdOf(m)}`;
+  const keyOf=(m)=>m.ctrTaskKey?`ctrnote:${m.ctrTaskKey}`:m.ctrJobId?`ctr:${m.ctrJobId}`:m.showingKey?`showing:${m.showingKey}`:m.taskId?`task:${m.taskId}`:`root:${rootIdOf(m)}`;
   const threads=new Map();
   messages.forEach(m=>{const k=keyOf(m);if(!threads.has(k))threads.set(k,{key:k,items:[]});threads.get(k).items.push(m);});
   const arr=[...threads.values()];
@@ -8215,6 +8421,10 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           const taskTag=(txt)=><span title="This message is on a task" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {txt}</span>;
           // Showing-thread tag — tap for the agent's info + lead status popup.
           const showTag=()=><button onClick={()=>onUpdateProp&&setShowInfo(root.showingKey)} title="This thread is about a showing — tap for the agent's info & lead status" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block",cursor:onUpdateProp?"pointer":"default",fontFamily:"inherit"}}>👥 {root.showingLabel} ›</button>;
+          // Contractor-portal thread tag — replies here go to the contractor's portal.
+          const ctrTag=()=><span title="This thread is with a contractor — replies go to their portal" style={{fontSize:9,fontWeight:700,color:"#fff",background:T.gold,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>👷 {root.ctrLabel}</span>;
+          // Internal notes ABOUT a contractor task — team-only, contractors never see these.
+          const ctrNoteTag=()=><span title="Internal notes about a contractor task — the contractor can NOT see this" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:"#fff",border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>🔒 {root.ctrTaskLabel} · internal</span>;
           const bubble=(m,{small,onCard}={})=>{
             const mine=m.author===currentUser;
             const theirBg=onCard?T.bg:T.card;
@@ -8236,34 +8446,50 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
               </div>
             );
           };
-          // Standalone message — same clean look as before.
-          if(replies.length===0){
+          // Standalone message — same clean look as before. Contractor messages
+          // NEVER render standalone: they always get the loud external card below
+          // so nobody mistakes them for internal chat.
+          if(replies.length===0&&!root.ctrLabel){
             return(
               <div key={root.id} style={{display:"flex",flexDirection:"column",alignItems:rootMine?"flex-end":"flex-start"}}>
-                {root.showingLabel?<div style={{marginBottom:3}}>{showTag()}</div>:root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
+                {root.ctrTaskLabel?<div style={{marginBottom:3}}>{ctrNoteTag()}</div>:root.showingLabel?<div style={{marginBottom:3}}>{showTag()}</div>:root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
                 {bubble(root)}
               </div>
             );
           }
           // Thread — root + nested replies grow inside one card (a sub-chat).
+          // Contractor threads get an unmistakably EXTERNAL look: amber card, gold
+          // border, EXTERNAL badge, and a "their team sees this" footer.
+          const isCtr=!!root.ctrLabel;
           return(
-            <div key={root.id} style={{alignSelf:"stretch",border:`1px solid ${T.border}`,borderRadius:16,background:T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
+            <div key={root.id} style={{alignSelf:"stretch",border:isCtr?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,borderRadius:16,background:isCtr?"#FFF9EC":T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                {root.showingLabel?showTag():root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
-                <span style={{fontSize:10,color:T.textTert}}>{replies.length+1} messages</span>
+                {isCtr?ctrTag():root.ctrTaskLabel?ctrNoteTag():root.showingLabel?showTag():root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
+                {isCtr&&<span style={{fontSize:9,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 8px",letterSpacing:"0.05em"}}>EXTERNAL</span>}
+                <span style={{fontSize:10,color:T.textTert}}>{replies.length+1} message{replies.length?"s":""}</span>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {bubble(root,{onCard:true})}
                 {replies.map(r=>bubble(r,{small:true,onCard:true}))}
               </div>
+              {isCtr&&<div style={{fontSize:10,color:"#B45309",fontWeight:600,paddingBottom:3}}>👁 {root.ctrLabel}'s team sees everything in this box. Your internal chat stays hidden from them.</div>}
             </div>
           );
         })}
       </div>
       {!selMode&&reply&&(
-        <div style={{padding:"8px 12px",background:T.goldLight,borderTop:`1px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+        reply.ctrLabel
+        ? <div style={{padding:"9px 12px",background:"#FDE9C8",borderTop:"2px solid #E8A33D",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <span style={{fontSize:18,flexShrink:0}}>👷</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:11.5,fontWeight:800,color:"#B45309",letterSpacing:"0.02em"}}>EXTERNAL — this reply goes to {reply.ctrLabel}</div>
+              <div style={{fontSize:12,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Replying to {reply.author||"—"}: {reply.text}</div>
+            </div>
+            <button onClick={()=>setReply(null)} style={{background:"none",border:"none",color:"#B45309",cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+          </div>
+        : <div style={{padding:"8px 12px",background:T.goldLight,borderTop:`1px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <div style={{flex:1,minWidth:0,borderLeft:`3px solid ${T.gold}`,paddingLeft:8}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#b8912e"}}>Replying to {reply.author||"—"}{reply.taskText?` · ↳ ${reply.taskText}`:""}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#b8912e"}}>Replying to {reply.author||"—"}{reply.taskText?` · ↳ ${reply.taskText}`:""} <span style={{color:T.textTert,fontWeight:600}}>· internal</span></div>
             <div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{reply.text}</div>
           </div>
           <button onClick={()=>setReply(null)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
@@ -8294,8 +8520,8 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           </>)}
         </div>
       )}
-      {!selMode&&<div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:target&&!reply?`2px solid ${T.gold}`:`1px solid ${T.border}`,background:T.card,flexShrink:0}}>
-        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply…"):(target?`Message on “${target.text}”…`:"Message your team…")}
+      {!selMode&&<div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:reply&&reply.ctrLabel?"none":target&&!reply?`2px solid ${T.gold}`:`1px solid ${T.border}`,background:reply&&reply.ctrLabel?"#FFF9EC":T.card,flexShrink:0}}>
+        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.ctrLabel?`Reply to ${reply.ctrLabel} — their team sees this…`:reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply… (internal)"):(target?`Message on “${target.text}”…`:"Message your team… (internal — contractors never see this)")}
           aiContext={[
             `Property: ${addr}`,
             property.status?`Status: ${property.status}`:"",
@@ -8311,6 +8537,18 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
 const OFFICE_ID="__office__";
 function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}){
   const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS, officeMessages, setOfficeMessages, officeTasks, setOfficeTasks, flushOfficeTasks } = useData();
+  // Contractor-portal threads surface INSIDE each property's chat (tagged, like
+  // showing threads) so the whole team sees contractor conversations in context.
+  const { orgs:ctrOrgs, jobs:ctrJobs, messages:ctrMessages, save:ctrSave } = useContractorData();
+  const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
+  const ctrMsgsFor=(p)=>{
+    const pj=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id));
+    return pj.flatMap(j=>(ctrMessages||[]).filter(m=>String(m.jobId)===String(j.id)).map(m=>({
+      id:"ctr-"+m.id,author:m.author,text:m.text,at:m.at,attachment:m.attachment||null,readBy:m.readBy||[],
+      ctrJobId:j.id,ctrOrgId:String(j.orgId),ctrLabel:`${ctrOrgName(j.orgId)}${j.title?` — ${j.title}`:""}`,
+    })));
+  };
+  const mergedFor=(p)=>[...mergePropertyMessages(p),...ctrMsgsFor(p)];
   const officeSorted=officeMerged(officeMessages,officeTasks);
   const officeUnread=officeUnreadCount(officeMessages,officeTasks,CURRENT_USER);
   const saveOfficeTasks=()=>{if(flushOfficeTasks)setTimeout(flushOfficeTasks,0);};
@@ -8335,7 +8573,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);// eslint-disable-line
   const[search,setSearch]=useState("");
   const active=sharedProps.filter(p=>!p.archived);
-  const withMeta=active.map(p=>{const merged=mergePropertyMessages(p);const last=merged[merged.length-1];return {p,last,lastAt:last?new Date(last.at).getTime():0,count:merged.length,unread:merged.reduce((n,m)=>n+(isUnreadForUser(m,CURRENT_USER)?1:0),0)};});
+  const withMeta=active.map(p=>{const merged=mergedFor(p).sort((a,b)=>msgTime(a.at)-msgTime(b.at));const last=merged[merged.length-1];return {p,last,lastAt:last?new Date(last.at).getTime():0,count:merged.length,unread:merged.reduce((n,m)=>n+(isUnreadForUser(m,CURRENT_USER)?1:0),0)};});
   const q=search.toLowerCase();
   const list=withMeta.filter(x=>(x.p.address+" "+(x.p.city||"")).toLowerCase().includes(q))
     .sort((a,b)=>b.lastAt-a.lastAt||a.p.address.localeCompare(b.p.address));
@@ -8349,8 +8587,16 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     const tasks=(p.tasks||[]).map(t=>({...t,messages:mark(t.messages)}));
     return changed?{...p,messages,tasks}:p;
   }));
-  const selUnread=sel?propUnreadCount(sel,CURRENT_USER):0;
-  useEffect(()=>{if(sel&&selUnread>0)markRead(sel.id);},[selId,selUnread]);// eslint-disable-line
+  // Opening a chat also clears unread on its contractor-thread messages (those live
+  // in the portal table, so they're marked read there — team RLS allows the update).
+  const ctrUnreadFor=(p)=>ctrMsgsFor(p).filter(m=>isUnreadForUser(m,CURRENT_USER)).length;
+  const markCtrRead=(p)=>{
+    const pj=new Set((ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id)).map(j=>String(j.id)));
+    (ctrMessages||[]).filter(m=>pj.has(String(m.jobId))&&isUnreadForUser(m,CURRENT_USER))
+      .forEach(m=>{ctrSave("contractor_messages",{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}).catch(()=>{});});
+  };
+  const selUnread=sel?propUnreadCount(sel,CURRENT_USER)+ctrUnreadFor(sel):0;
+  useEffect(()=>{if(sel&&selUnread>0){markRead(sel.id);markCtrRead(sel);}},[selId,selUnread]);// eslint-disable-line
   // Mark office-chat messages read once it's open.
   useEffect(()=>{if(selId===OFFICE_ID&&officeUnread>0){
     setOfficeMessages(prev=>prev.map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}:m));
@@ -8370,6 +8616,15 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   };
   const send=(text,replyTarget,attachment,mentions,targetTaskId)=>{
     const t=(text||"").trim();if((!t&&!attachment)||!sel)return;
+    // Replying inside a contractor thread posts to the portal (and pings their team)
+    // instead of the property's internal messages.
+    if(replyTarget&&replyTarget.ctrJobId){
+      const cm={id:Date.now(),jobId:replyTarget.ctrJobId,orgId:replyTarget.ctrOrgId,author:CURRENT_USER,side:"team",text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
+      if(attachment)cm.attachment=attachment;
+      ctrSave("contractor_messages",cm).catch(()=>{});
+      notify(null,{toOrg:replyTarget.ctrOrgId,title:`Goldstone — ${sel.address}`,body:t||"(attachment)"});
+      return;
+    }
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
     if(attachment)msg.attachment=attachment;
     // Replying to someone auto-notifies just that person (plus anyone you tagged),
@@ -8450,7 +8705,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
         {selId===OFFICE_ID
           ? <MessageThread property={{id:OFFICE_ID,address:"📌 Office Chat",city:"",status:"",tasks:officeTasks||[]}} messages={officeSorted} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={officeSend} onDelete={officeDelete} onBack={()=>setSelId(null)} isMobile={isMobile}/>
           : sel
-          ? <MessageThread property={sel} messages={mergePropertyMessages(sel)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onDelete={deleteMessages} onBack={()=>setSelId(null)} isMobile={isMobile} onUpdateProp={(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p))}/>
+          ? <MessageThread property={sel} messages={mergedFor(sel).sort((a,b)=>msgTime(a.at)-msgTime(b.at))} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onDelete={deleteMessages} onBack={()=>setSelId(null)} isMobile={isMobile} onUpdateProp={(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p))}/>
           : <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:12,color:T.textSub}}>
               <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>💬</div>
               <div style={{fontSize:16,fontWeight:600}}>Select a property</div>
@@ -11127,7 +11382,9 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
 // ADMIN_ONLY_KEYS) are excluded so members never get them.
 const MEMBER_KEYS = new Set(NAV.map(n=>n.key).filter(k=>!ADMIN_ONLY_KEYS.has(k)));
 // Admin-only sections members may still OPEN read-only (view rights, no editing).
-const VIEW_ONLY_MEMBER_KEYS = new Set(["financials"]);
+// Contractors section: members see everything and can message/task, but the
+// money + company management buttons are admin-only inside the page.
+const VIEW_ONLY_MEMBER_KEYS = new Set(["financials","contractors"]);
 
 // ─── Email (Outlook / Microsoft 365 via Graph) ──────────────────────────────
 // Each teammate's OWN mailbox. Reuses the Files-tab Microsoft sign-in, plus the
@@ -12246,6 +12503,7 @@ export function GoldstoneShell(){
     : active==="contacts" ? <ContactsPage/>
     : active==="email" ? <EmailPage isMobile={isMobile}/>
     : active==="financials" ? <FinancialSectionPage onNavigate={navigateToProperty} canEdit={isAdmin}/>
+    : active==="contractors" ? <ContractorsAdminPage/>
     : <ComingSoon label={NAV.find(n=>n.key===active)?.label}/>;
 
   if(loading) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.gold,fontWeight:700,fontSize:16,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif"}}>Loading Goldstone…</div>;

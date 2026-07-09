@@ -145,7 +145,10 @@ export function DataProvider({ children }) {
 
   const loadTeam = useCallback(async () => {
     const { data, error } = await supabase.from("users").select("*").order("name");
-    if (!error && data) setTeam(data);
+    // Contractor-portal logins are NOT teammates: keep them out of the roster so
+    // they never show in assign/delegate/mention pickers or get internal tasks —
+    // contractors get work through their portal jobs instead.
+    if (!error && data) setTeam(data.filter((u) => u.role !== "contractor"));
   }, []);
 
   // Admin-only: mute/unmute a teammate's notifications (RLS lets admins update any user row).

@@ -82,6 +82,8 @@ export function AuthProvider({ children }) {
     profile,
     role: profile?.role || "member",
     isAdmin: profile?.role === "admin",
+    isContractor: profile?.role === "contractor",
+    contractorOrgId: profile?.contractor_org_id || null,
     displayName: profile?.name || session?.user?.email || "",
     prefs: session?.user?.user_metadata || {},
     savePrefs,

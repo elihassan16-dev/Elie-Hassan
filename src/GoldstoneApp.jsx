@@ -6507,6 +6507,22 @@ function PropertyTaskList({property}){
   const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
   useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
   const addTask=(text)=>{const t=(text||"").trim();if(!t)return;setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER,assignedAt:Date.now(),assignedBy:CURRENT_USER}]}));};
+  // Contractor tasks, auto-scoped: only companies with a job ON THIS PROPERTY show
+  // here — delegate straight to them, no picking through your whole contractor list.
+  const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, save:ctrSave } = useContractorData();
+  const propCtrJobs=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(propId)&&j.status!=="complete");
+  const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
+  const[ctrDraft,setCtrDraft]=useState({}); // jobId -> new task text
+  const addCtrTask=async(j)=>{
+    const txt=(ctrDraft[j.id]||"").trim();if(!txt)return;
+    try{await ctrSave("contractor_tasks",{id:Date.now(),jobId:j.id,orgId:j.orgId,text:txt,status:"Not Started",direction:"to_contractor",createdBy:CURRENT_USER,createdAt:new Date().toISOString()});}catch{return;}
+    setCtrDraft(d=>({...d,[j.id]:""}));
+    notify(null,{toOrg:j.orgId,title:"New task from Goldstone",body:`${txt} — ${j.propertyAddress||propAddr}`});
+  };
+  const toggleCtrTask=async(t)=>{
+    const done=t.status!=="Completed";
+    try{await ctrSave("contractor_tasks",{...t,status:done?"Completed":"Not Started",doneAt:done?new Date().toISOString():null,doneBy:done?CURRENT_USER:null});}catch{/* keep UI */}
+  };
   const[aiTasksOpen,setAiTasksOpen]=useState(false);
   // Create the whole AI-generated list at once and notify everyone who got work.
   const addAiTasks=(list)=>{
@@ -6577,6 +6593,35 @@ function PropertyTaskList({property}){
           <button onClick={()=>setAiTasksOpen(true)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"9px",borderRadius:T.radiusSm,border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#b8912e",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>✨ Let AI draft a task list</button>
         </div>
       </div>
+      {/* Contractor tasks — one amber card per company working THIS property.
+          These go to their portal (external), unlike the internal list above. */}
+      {propCtrJobs.map(j=>{
+        const jt=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id)&&t.direction!=="to_team").sort((a,b)=>(a.status==="Completed")-(b.status==="Completed")||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
+        const name=ctrOrgName(j.orgId);
+        return(
+          <div key={j.id} style={{marginTop:14,background:"#FFF9EC",borderRadius:T.radius,border:`1.5px solid ${T.gold}`,boxShadow:T.shadow,overflow:"hidden"}}>
+            <div style={{padding:"11px 14px 9px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={{fontSize:12.5,fontWeight:800,color:"#8a6d1f"}}>👷 {name}{j.title?` — ${j.title}`:""}</span>
+              <span style={{fontSize:9,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 8px",letterSpacing:"0.05em"}}>EXTERNAL</span>
+              <span style={{fontSize:10.5,color:"#B45309",fontWeight:600}}>tasks here go to their portal</span>
+            </div>
+            {jt.map(t=>(
+              <div key={t.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"9px 14px",borderTop:"1px solid rgba(184,149,63,0.25)"}}>
+                <input type="checkbox" checked={t.status==="Completed"} onChange={()=>toggleCtrTask(t)} style={{width:18,height:18,marginTop:1,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:t.status==="Completed"?0.6:1}}>{t.text}</div>
+                  <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.status}{t.doneBy?` · ${t.doneBy}`:""}</div>
+                </div>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:8,padding:"9px 14px 12px",borderTop:jt.length?"1px solid rgba(184,149,63,0.25)":"none"}}>
+              <input value={ctrDraft[j.id]||""} onChange={e=>setCtrDraft(d=>({...d,[j.id]:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addCtrTask(j)} placeholder={`Delegate a task to ${name}…`}
+                style={{flex:1,minWidth:0,padding:"9px 12px",borderRadius:10,border:`1px solid ${T.gold}`,background:"#fff",fontSize:13.5,fontFamily:"inherit",outline:"none"}}/>
+              <button onClick={()=>addCtrTask(j)} disabled={!(ctrDraft[j.id]||"").trim()} style={{padding:"9px 15px",borderRadius:10,border:"none",background:(ctrDraft[j.id]||"").trim()?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:13,cursor:(ctrDraft[j.id]||"").trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
+            </div>
+          </div>
+        );
+      })}
       {aiTasksOpen&&<AiTasksModal propAddr={propAddr} teamMembers={TEAM_MEMBERS} existingTasks={tasks.map(t=>t.text).filter(Boolean)} onCreate={addAiTasks} onClose={()=>setAiTasksOpen(false)}/>}
     </>
   );

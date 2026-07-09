@@ -4504,7 +4504,7 @@ function PropertyAiChat({property,onClose}){
 // + team, answers anything ("what's the lockbox code for 610 Bayview?") and can
 // draft task lists in chat — proposed tasks show as a card you review and Add.
 function GlobalAiChat({onClose}){
-  const{sharedProps,setSharedProps,contacts:CONTACTS,teamMembers:TEAM_MEMBERS,currentUser:CURRENT_USER,officeTasks,setOfficeTasks,flushOfficeTasks}=useData();
+  const{sharedProps,setSharedProps,contacts:CONTACTS,teamMembers:TEAM_MEMBERS,currentUser:CURRENT_USER,officeTasks,setOfficeTasks,flushOfficeTasks,leads,setLeads}=useData();
   const[msgs,setMsgs]=useState([]);
   const[input,setInput]=useState("");
   const[busy,setBusy]=useState(false);
@@ -4527,14 +4527,15 @@ function GlobalAiChat({onClose}){
       properties:active.map(slimProp),
       officeTasks:(officeTasks||[]).filter(t=>!t.deleted).map(t=>({text:t.text,status:t.status,owner:t.assignee||"",delegate:t.delegate||""})),
       contacts:(CONTACTS||[]).map(slimContact),
+      existingLeads:(leads||[]).map(l=>({address:l.address,city:l.city,status:l.leadStatus||"New Leads",seller:l.info?.sellerName||"",askingPrice:l.info?.askingPrice||""})),
     });
-  },[active,officeTasks,CONTACTS]);
+  },[active,officeTasks,CONTACTS,leads]);
   const sendQ=async(qText)=>{
     const q=(qText!==undefined?qText:input).trim();
     if(!q||busy)return;
-    // History is plain text turns; a proposed-task card is summarized into the turn
+    // History is plain text turns; a proposed card is summarized into the turn
     // so follow-ups ("add one more") still make sense to the model.
-    const hist=msgs.map(m=>({role:m.role,content:m.action?`${m.content}\n(Proposed ${m.action.tasks.length} task(s) for ${m.action.propertyAddress}: ${m.action.tasks.map(t=>t.text).join("; ")})`:m.content}));
+    const hist=msgs.map(m=>({role:m.role,content:m.action?`${m.content}\n(${m.action.type==="lead"?`Proposed a lead: ${m.action.lead.address}${m.action.lead.city?`, ${m.action.lead.city}`:""}`:`Proposed ${m.action.tasks.length} task(s) for ${m.action.propertyAddress}: ${m.action.tasks.map(t=>t.text).join("; ")}`})`:m.content}));
     setMsgs(ms=>[...ms,{role:"user",content:q}]);setInput("");setBusy(true);setErr("");
     try{
       const d=await qbAuthFetch("/api/ai/assistant",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -4543,17 +4544,29 @@ function GlobalAiChat({onClose}){
     }catch(e){setErr(e.message||"Couldn't get an answer — try again.");}
     setBusy(false);
   };
-  // Create the proposed tasks (property or office) and mark the card as applied.
+  // Create what a proposal card holds (tasks or a lead) and mark it applied.
   const applyAction=(mi)=>{
     const a=msgs[mi]?.action;if(!a||msgs[mi].applied)return;
-    const base=Date.now();
-    const mk=(r,i)=>({id:base+i,text:r.text,status:"Not Started",assignee:r.assignee||CURRENT_USER,delegate:r.delegate||"",assignedAt:Date.now(),assignedBy:CURRENT_USER});
-    if(a.propertyId==="office"){ setOfficeTasks(prev=>[...(prev||[]),...a.tasks.map(mk)]); if(flushOfficeTasks)setTimeout(flushOfficeTasks,0); }
-    else setSharedProps(prev=>prev.map(p=>String(p.id)!==a.propertyId?p:{...p,tasks:[...(p.tasks||[]),...a.tasks.map(mk)]}));
-    a.tasks.forEach((r,i)=>{const to=[...new Set([r.assignee,r.delegate].filter(m=>m&&m!==CURRENT_USER))];if(to.length)notify(to,{title:"New task for you",body:`${CURRENT_USER} assigned you: ${r.text}`,tag:`task-${base+i}`});});
+    if(a.type==="lead"){
+      const L=a.lead;
+      const nl=mkLead({address:L.address,city:L.city,state:L.state||"NJ",zip:L.zip,notes:L.notes||""});
+      nl.info={...nl.info,sellerName:L.sellerName||"",sellerPhone:L.sellerPhone||"",sellerEmail:L.sellerEmail||"",source:L.source||"",askingPrice:L.askingPrice||"",closingTarget:L.closingTarget||"",type:L.type||"",beds:L.beds||"",baths:L.baths||"",sqft:L.sqft||"",yearBuilt:L.yearBuilt||"",condition:L.condition||""};
+      setLeads(prev=>[...prev,nl]);
+    }else{
+      const base=Date.now();
+      const mk=(r,i)=>({id:base+i,text:r.text,status:"Not Started",assignee:r.assignee||CURRENT_USER,delegate:r.delegate||"",assignedAt:Date.now(),assignedBy:CURRENT_USER});
+      if(a.propertyId==="office"){ setOfficeTasks(prev=>[...(prev||[]),...a.tasks.map(mk)]); if(flushOfficeTasks)setTimeout(flushOfficeTasks,0); }
+      else setSharedProps(prev=>prev.map(p=>String(p.id)!==a.propertyId?p:{...p,tasks:[...(p.tasks||[]),...a.tasks.map(mk)]}));
+      a.tasks.forEach((r,i)=>{const to=[...new Set([r.assignee,r.delegate].filter(m=>m&&m!==CURRENT_USER))];if(to.length)notify(to,{title:"New task for you",body:`${CURRENT_USER} assigned you: ${r.text}`,tag:`task-${base+i}`});});
+    }
     setMsgs(ms=>ms.map((m,j)=>j===mi?{...m,applied:true}:m));
   };
-  const chips=["What's the lockbox code for…","Create tasks for…","What's the projected profit on…","What's the plumber's number?"];
+  const chips=[
+    {label:"What's the lockbox code for…",fill:"What's the lockbox code for "},
+    {label:"Create tasks for…",fill:"Create tasks for "},
+    {label:"Paste a text → make a lead",fill:"Make a lead out of this:\n"},
+    {label:"What's the projected profit on…",fill:"What's the projected profit on "},
+  ];
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:600,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(560px,94vw)",height:"min(680px,88vh)",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
@@ -4564,16 +4577,16 @@ function GlobalAiChat({onClose}){
         <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
           {msgs.length===0&&(
             <div style={{textAlign:"center",padding:"18px 8px"}}>
-              <div style={{fontSize:13,color:T.textSub,marginBottom:12,lineHeight:1.5}}>I can see all {active.length} properties, your contacts, and the team. Ask me anything — or say <b>“create tasks for [address]: …”</b>. Tap your keyboard 🎤 to dictate.</div>
+              <div style={{fontSize:13,color:T.textSub,marginBottom:12,lineHeight:1.5}}>I can see all {active.length} properties, your leads, contacts, and the team. Ask me anything, say <b>“create tasks for [address]: …”</b>, or paste a text about a deal and say <b>“make a lead out of this”</b>. Tap your keyboard 🎤 to dictate.</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center"}}>
-                {chips.map(c=><button key={c} onClick={()=>setInput(c.endsWith("…")?c.replace(/…$/," "):c)} style={{padding:"7px 13px",borderRadius:18,border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{c}</button>)}
+                {chips.map(c=><button key={c.label} onClick={()=>setInput(c.fill)} style={{padding:"7px 13px",borderRadius:18,border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{c.label}</button>)}
               </div>
             </div>
           )}
           {msgs.map((m,i)=>(
             <div key={i} style={{alignSelf:m.role==="user"?"flex-end":"flex-start",maxWidth:"90%",display:"flex",flexDirection:"column",gap:8}}>
               {m.content&&<div style={{background:m.role==="user"?T.gold:T.bg,color:m.role==="user"?"#fff":T.text,borderRadius:14,padding:"9px 13px",fontSize:14,lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{m.content}</div>}
-              {m.action&&(
+              {m.action&&m.action.type==="tasks"&&(
                 <div style={{border:`1.5px solid ${T.gold}`,borderRadius:14,background:T.goldLight,padding:"11px 13px"}}>
                   <div style={{fontSize:12,fontWeight:800,color:"#b8912e",marginBottom:7}}>📋 {m.action.tasks.length} task{m.action.tasks.length===1?"":"s"} → {m.action.propertyAddress}</div>
                   {m.action.tasks.map((t,j)=>(
@@ -4587,6 +4600,22 @@ function GlobalAiChat({onClose}){
                     : <button onClick={()=>applyAction(i)} style={{marginTop:9,width:"100%",padding:"9px",borderRadius:10,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Add {m.action.tasks.length===1?"this task":"these tasks"}</button>}
                 </div>
               )}
+              {m.action&&m.action.type==="lead"&&(()=>{const L=m.action.lead;const rows=[["Address",`${L.address}${L.city?`, ${L.city}`:""}${L.state?`, ${L.state}`:""}${L.zip?` ${L.zip}`:""}`],["Seller",L.sellerName],["Phone",L.sellerPhone],["Email",L.sellerEmail],["Source",L.source],["Asking",L.askingPrice?`$${Number(L.askingPrice).toLocaleString()}`:""],["Closing",L.closingTarget],["Type",L.type],["Beds / Baths",[L.beds,L.baths].filter(Boolean).join(" / ")],["Sqft",L.sqft],["Year built",L.yearBuilt],["Condition",L.condition]].filter(([,v])=>v);return(
+                <div style={{border:`1.5px solid ${T.gold}`,borderRadius:14,background:T.goldLight,padding:"11px 13px"}}>
+                  <div style={{fontSize:12,fontWeight:800,color:"#b8912e",marginBottom:7}}>🏠 New lead</div>
+                  {rows.map(([k,v])=>(
+                    <div key={k} style={{display:"flex",gap:8,fontSize:13,padding:"4px 0",borderTop:rows[0][0]===k?"none":`1px solid rgba(184,149,63,0.25)`}}>
+                      <span style={{color:T.textSub,fontSize:11.5,fontWeight:700,minWidth:82,flexShrink:0,paddingTop:1}}>{k}</span>
+                      <span style={{color:T.text,minWidth:0,wordBreak:"break-word"}}>{v}</span>
+                    </div>
+                  ))}
+                  {L.notes&&<div style={{marginTop:6,padding:"7px 9px",background:"rgba(255,255,255,0.65)",borderRadius:8,fontSize:12,color:T.textSub,whiteSpace:"pre-wrap",lineHeight:1.45}}>{L.notes}</div>}
+                  <div style={{marginTop:7,fontSize:10.5,color:T.textSub}}>Everything not shown stays blank — fill it in later on the lead.</div>
+                  {m.applied
+                    ? <div style={{marginTop:9,fontSize:12.5,fontWeight:700,color:T.green}}>✓ Lead created — it's in your Leads section</div>
+                    : <button onClick={()=>applyAction(i)} style={{marginTop:9,width:"100%",padding:"9px",borderRadius:10,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Create this lead</button>}
+                </div>
+              );})()}
             </div>
           ))}
           {busy&&<div style={{alignSelf:"flex-start",background:T.bg,borderRadius:14,padding:"9px 13px",fontSize:13,color:T.textSub}}>Thinking…</div>}

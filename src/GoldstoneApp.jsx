@@ -7812,7 +7812,7 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
 // public "attachments" bucket + policies. An attachment is stored on the message as
 // { url, name, mime, kind } where kind is 'image' | 'audio' | 'file'.
 const iconBtn={width:40,height:40,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:T.bg,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1};
-const attachmentKind=(mime="")=>mime.startsWith("image/")?"image":mime.startsWith("audio/")?"audio":"file";
+const attachmentKind=(mime="")=>mime.startsWith("image/")?"image":mime.startsWith("video/")?"video":mime.startsWith("audio/")?"audio":"file";
 const sanitizeName=(name="file")=>(name.replace(/[^a-zA-Z0-9._-]/g,"_")||"file").slice(-80);
 async function uploadAttachment(file,folder="chat"){
   const kind=attachmentKind(file.type||"");
@@ -7855,6 +7855,12 @@ function MessageAttachment({att,mine,saveFolder}){
       <a href={att.url} target="_blank" rel="noreferrer" style={{display:"block"}}>
         <img src={att.url} alt={att.name||"photo"} style={{maxWidth:220,maxHeight:260,width:"auto",borderRadius:10,display:"block",objectFit:"cover"}}/>
       </a>
+      {saveBtn}
+    </div>
+  );
+  if(att.kind==="video")return(
+    <div style={{marginTop:6}}>
+      <video src={att.url} controls playsInline preload="metadata" style={{maxWidth:240,maxHeight:300,width:"100%",borderRadius:10,display:"block",background:"#000"}}/>
       {saveBtn}
     </div>
   );
@@ -7915,7 +7921,10 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
   // no filename → give them one so they upload with a real extension.
   const uploadStaged=async(file)=>{
     if(!file)return;
-    if(file.size>25*1024*1024){setErr("File is too large (max 25 MB).");return;}
+    // Videos get the storage ceiling (~50 MB ≈ a 30–60s phone clip); other files 25 MB.
+    const isVideo=(file.type||"").startsWith("video/");
+    const cap=isVideo?50*1024*1024:25*1024*1024;
+    if(file.size>cap){setErr(isVideo?"Video is too large (max 50 MB) — trim it shorter or record at a lower quality and try again.":"File is too large (max 25 MB).");return;}
     setErr("");setBusy(true);
     try{
       let up=file;
@@ -8024,7 +8033,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
             ? <img src={pendingAtt.url} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"cover",flexShrink:0}}/>
             : <span style={{fontSize:24,flexShrink:0}}>{pendingAtt.kind==="audio"?"🎤":"📄"}</span>}
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:12,fontWeight:700,color:T.text}}>{pendingAtt.kind==="audio"?"Voice note ready":pendingAtt.kind==="image"?"Photo ready":"File ready"}</div>
+            <div style={{fontSize:12,fontWeight:700,color:T.text}}>{pendingAtt.kind==="audio"?"Voice note ready":pendingAtt.kind==="image"?"Photo ready":pendingAtt.kind==="video"?"Video ready":"File ready"}</div>
             <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tagOptions.length?"Tag someone below, then Send":(pendingAtt.name||"Ready to send")}</div>
           </div>
           <button onClick={()=>setPendingAtt(null)} title="Remove" style={{background:"none",border:"none",color:T.textTert,fontSize:20,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
@@ -8081,8 +8090,8 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
           </>
         ):(
           <>
-            <input ref={fileRef} type="file" accept="image/*,application/pdf,.xls,.xlsx,.csv,.doc,.docx,.ppt,.pptx,.txt,.numbers,.pages,.key" onChange={onPickFile} style={{display:"none"}}/>
-            <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, PDF, or spreadsheet" style={iconBtn}>📎</button>
+            <input ref={fileRef} type="file" accept="image/*,video/*,application/pdf,.xls,.xlsx,.csv,.doc,.docx,.ppt,.pptx,.txt,.numbers,.pages,.key" onChange={onPickFile} style={{display:"none"}}/>
+            <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, video, PDF, or spreadsheet" style={iconBtn}>📎</button>
             <button onClick={startRec} disabled={busy} title="Record a voice note" style={iconBtn}>🎤</button>
             <button onClick={()=>setAiOpen(v=>!v)} disabled={busy} title="Let AI draft this message" style={{...iconBtn,...(aiOpen?{background:T.goldLight,borderColor:T.gold}:{})}}>✨</button>
             {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...iconBtn,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}

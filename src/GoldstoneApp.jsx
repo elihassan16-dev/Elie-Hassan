@@ -8200,34 +8200,50 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
               </div>
             );
           };
-          // Standalone message — same clean look as before.
-          if(replies.length===0){
+          // Standalone message — same clean look as before. Contractor messages
+          // NEVER render standalone: they always get the loud external card below
+          // so nobody mistakes them for internal chat.
+          if(replies.length===0&&!root.ctrLabel){
             return(
               <div key={root.id} style={{display:"flex",flexDirection:"column",alignItems:rootMine?"flex-end":"flex-start"}}>
-                {root.ctrLabel?<div style={{marginBottom:3}}>{ctrTag()}</div>:root.showingLabel?<div style={{marginBottom:3}}>{showTag()}</div>:root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
+                {root.showingLabel?<div style={{marginBottom:3}}>{showTag()}</div>:root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
                 {bubble(root)}
               </div>
             );
           }
           // Thread — root + nested replies grow inside one card (a sub-chat).
+          // Contractor threads get an unmistakably EXTERNAL look: amber card, gold
+          // border, EXTERNAL badge, and a "their team sees this" footer.
+          const isCtr=!!root.ctrLabel;
           return(
-            <div key={root.id} style={{alignSelf:"stretch",border:`1px solid ${T.border}`,borderRadius:16,background:T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
+            <div key={root.id} style={{alignSelf:"stretch",border:isCtr?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,borderRadius:16,background:isCtr?"#FFF9EC":T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                {root.ctrLabel?ctrTag():root.showingLabel?showTag():root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
-                <span style={{fontSize:10,color:T.textTert}}>{replies.length+1} messages</span>
+                {isCtr?ctrTag():root.showingLabel?showTag():root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
+                {isCtr&&<span style={{fontSize:9,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 8px",letterSpacing:"0.05em"}}>EXTERNAL</span>}
+                <span style={{fontSize:10,color:T.textTert}}>{replies.length+1} message{replies.length?"s":""}</span>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {bubble(root,{onCard:true})}
                 {replies.map(r=>bubble(r,{small:true,onCard:true}))}
               </div>
+              {isCtr&&<div style={{fontSize:10,color:"#B45309",fontWeight:600,paddingBottom:3}}>👁 {root.ctrLabel}'s team sees everything in this box. Your internal chat stays hidden from them.</div>}
             </div>
           );
         })}
       </div>
       {!selMode&&reply&&(
-        <div style={{padding:"8px 12px",background:T.goldLight,borderTop:`1px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+        reply.ctrLabel
+        ? <div style={{padding:"9px 12px",background:"#FDE9C8",borderTop:"2px solid #E8A33D",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <span style={{fontSize:18,flexShrink:0}}>👷</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:11.5,fontWeight:800,color:"#B45309",letterSpacing:"0.02em"}}>EXTERNAL — this reply goes to {reply.ctrLabel}</div>
+              <div style={{fontSize:12,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Replying to {reply.author||"—"}: {reply.text}</div>
+            </div>
+            <button onClick={()=>setReply(null)} style={{background:"none",border:"none",color:"#B45309",cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+          </div>
+        : <div style={{padding:"8px 12px",background:T.goldLight,borderTop:`1px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <div style={{flex:1,minWidth:0,borderLeft:`3px solid ${T.gold}`,paddingLeft:8}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#b8912e"}}>Replying to {reply.author||"—"}{reply.taskText?` · ↳ ${reply.taskText}`:""}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#b8912e"}}>Replying to {reply.author||"—"}{reply.taskText?` · ↳ ${reply.taskText}`:""} <span style={{color:T.textTert,fontWeight:600}}>· internal</span></div>
             <div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{reply.text}</div>
           </div>
           <button onClick={()=>setReply(null)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
@@ -8258,8 +8274,8 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           </>)}
         </div>
       )}
-      {!selMode&&<div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:target&&!reply?`2px solid ${T.gold}`:`1px solid ${T.border}`,background:T.card,flexShrink:0}}>
-        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.ctrLabel?"Reply — goes to the contractor's portal…":reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply…"):(target?`Message on “${target.text}”…`:"Message your team…")}
+      {!selMode&&<div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:reply&&reply.ctrLabel?"none":target&&!reply?`2px solid ${T.gold}`:`1px solid ${T.border}`,background:reply&&reply.ctrLabel?"#FFF9EC":T.card,flexShrink:0}}>
+        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.ctrLabel?`Reply to ${reply.ctrLabel} — their team sees this…`:reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply… (internal)"):(target?`Message on “${target.text}”…`:"Message your team… (internal — contractors never see this)")}
           aiContext={[
             `Property: ${addr}`,
             property.status?`Status: ${property.status}`:"",

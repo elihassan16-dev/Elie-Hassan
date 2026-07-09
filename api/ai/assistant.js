@@ -22,7 +22,9 @@ Answering questions: use ONLY the data provided. Be direct and brief — lead wi
 Creating tasks: when the user asks you to create/add tasks, call the propose_tasks tool. Pick the propertyId from the property list by matching the address the user mentions (use "office" only for company work not tied to a property). Write each task short and actionable. For assignee (owner) and delegate use EXACT names from the team list, only when the user says or clearly implies who; otherwise leave them empty. Never make someone both assignee and delegate of the same task. If you can't tell which property they mean, ask instead of guessing.
 Creating leads: when the user pastes deal info (a text, email, or blast from a wholesaler/agent) and asks to make a lead, call the propose_lead tool. Extract ONLY facts actually present — leave every unknown field as an empty string, never infer or pad. Ignore marketing fluff, greetings, and disclaimers.
 NEVER miss a price. Wholesalers word the asking price many ways — "asking", "price", "take", "all in", "looking for", "need", or just a bare number like "$525k" — whatever they want for the deal goes in askingPrice. Their claimed after-repair value ("ARV", "resale", "worth fixed up", "comps at") goes in arv. Their claimed rehab number goes in rehabEstimate. Write every money/number field as the full plain number ("525000", never "525k", no $ signs or commas).
-Put genuinely useful extras that fit no field (occupancy, access/showing instructions, deadline pressure, their rehab scope claims) into notes as short plain lines. If a lead for that address already exists in the data, say so instead of proposing a duplicate. If there's no address at all, ask for it.`;
+Put genuinely useful extras that fit no field (occupancy, access/showing instructions, deadline pressure, their rehab scope claims) into notes as short plain lines. If a lead for that address already exists in the data, say so instead of proposing a duplicate. If there's no address at all, ask for it.
+Creating contacts: when the user shares someone's details — a photo/screenshot of a business card, sign, or text thread, or typed info — and asks to save them as a contact, call the propose_contact tool. Extract only what's visible/stated; phone as digits with dashes ok; leave unknown fields empty. If a contact with that name or number already exists in the data, say so instead of duplicating.
+Saving files: when the user attaches a file (you may only see its name/type, not contents) and asks to save/file it to a property, call the propose_save_file tool with the propertyId matched from the address they mention. If you can't tell which property, ask.`;
 
 export default async function handler(req, res) {
   if (req.method !== "POST") { res.status(405).json({ error: "POST only" }); return; }
@@ -33,7 +35,7 @@ export default async function handler(req, res) {
   const user = await requireAppUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
 
-  const { question, history, context, team, propIndex } = await readBody(req);
+  const { question, history, context, team, propIndex, media, fileMeta } = await readBody(req);
   const q = String(question || "").trim();
   if (!q) { res.status(400).json({ error: "Ask something first." }); return; }
   const members = (Array.isArray(team) ? team : []).map((m) => String(m)).filter(Boolean);
@@ -101,9 +103,45 @@ export default async function handler(req, res) {
           },
           required: ["address"],
         },
+      }, {
+        name: "propose_contact",
+        description: "Propose a new contact extracted from a shared photo/screenshot or typed details, for the user to review and save. Nothing is created until the user confirms.",
+        input_schema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Full name (required)" },
+            phone: { type: "string" },
+            company: { type: "string" },
+            role: { type: "string", description: "Role / trade, e.g. Plumber, Realtor" },
+            email: { type: "string" },
+            notes: { type: "string", description: "Useful extras, short" },
+          },
+          required: ["name"],
+        },
+      }, {
+        name: "propose_save_file",
+        description: "Propose saving the file the user attached into a property's Files folder. The app performs the upload after the user confirms.",
+        input_schema: {
+          type: "object",
+          properties: {
+            propertyId: { type: "string", description: "The id of the property (from the property list) whose Files folder should receive the attached file" },
+          },
+          required: ["propertyId"],
+        },
       }],
-      // Generous cap — pasted deal blasts (texts/emails) can run long.
-      messages: [...past, { role: "user", content: q.slice(0, 12000) }],
+      // Generous cap — pasted deal blasts (texts/emails) can run long. When the user
+      // attached an image or a small PDF it rides along as a vision/document block.
+      messages: [...past, {
+        role: "user",
+        content: (() => {
+          const text = `${fileMeta && fileMeta.name ? `[Attached file: ${fileMeta.name} (${fileMeta.type || "unknown type"})]\n` : ""}${q.slice(0, 12000)}`;
+          if (media && media.data && media.mediaType) {
+            const src = { type: "base64", media_type: media.mediaType, data: media.data };
+            return [media.kind === "pdf" ? { type: "document", source: src } : { type: "image", source: src }, { type: "text", text }];
+          }
+          return text;
+        })(),
+      }],
     });
 
     const answer = (msg.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
@@ -147,8 +185,23 @@ export default async function handler(req, res) {
       };
       if (lead.address) action = { type: "lead", lead };
     }
+    const cu = (msg.content || []).find((b) => b.type === "tool_use" && b.name === "propose_contact");
+    if (!action && cu) {
+      const s = (v) => String(v ?? "").trim();
+      const contact = { name: s(cu.input?.name), phone: s(cu.input?.phone), company: s(cu.input?.company), role: s(cu.input?.role), email: s(cu.input?.email), notes: s(cu.input?.notes) };
+      if (contact.name) action = { type: "contact", contact };
+    }
+    const su = (msg.content || []).find((b) => b.type === "tool_use" && b.name === "propose_save_file");
+    if (!action && su) {
+      const pid = String(su.input?.propertyId || "");
+      if (index.has(pid)) action = { type: "saveFile", propertyId: pid, propertyAddress: index.get(pid) };
+    }
     if (!answer && !action) { res.status(502).json({ error: "The AI returned an empty answer — try again." }); return; }
-    res.status(200).json({ answer: answer || (action?.type === "lead" ? "Here's the lead I pulled out — review and create:" : "Here's the task list — review and add:"), action });
+    const fallback = action?.type === "lead" ? "Here's the lead I pulled out — review and create:"
+      : action?.type === "contact" ? "Here's the contact I pulled out — review and save:"
+      : action?.type === "saveFile" ? "Ready to save the file — confirm below:"
+      : "Here's the task list — review and add:";
+    res.status(200).json({ answer: answer || fallback, action });
   } catch (e) {
     const status = e?.status === 429 ? 429 : 502;
     res.status(status).json({ error: status === 429 ? "AI is busy right now — try again in a moment." : `AI request failed: ${e.message || "unknown error"}` });

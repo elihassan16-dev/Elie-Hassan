@@ -4504,12 +4504,49 @@ function PropertyAiChat({property,onClose}){
 // + team, answers anything ("what's the lockbox code for 610 Bayview?") and can
 // draft task lists in chat — proposed tasks show as a card you review and Add.
 function GlobalAiChat({onClose}){
-  const{sharedProps,setSharedProps,contacts:CONTACTS,teamMembers:TEAM_MEMBERS,currentUser:CURRENT_USER,officeTasks,setOfficeTasks,flushOfficeTasks,leads,setLeads}=useData();
+  const{sharedProps,setSharedProps,contacts:CONTACTS,setContacts,flushContacts,teamMembers:TEAM_MEMBERS,currentUser:CURRENT_USER,officeTasks,setOfficeTasks,flushOfficeTasks,leads,setLeads}=useData();
+  const od=useOneDrive();
   const[msgs,setMsgs]=useState([]);
   const[input,setInput]=useState("");
   const[busy,setBusy]=useState(false);
   const[err,setErr]=useState("");
+  const[pendingFile,setPendingFile]=useState(null); // File attached to the next question (photo, screenshot, PDF)
+  const fileRef=useRef(null);
+  const camRef=useRef(null);
   const scrollRef=useRef(null);
+  // Prep an attached file for the AI: photos/screenshots are downscaled to a
+  // ≤1600px JPEG (phone photos are 5–10 MB — too big for the request); PDFs up to
+  // 3 MB ride along whole so the AI can read them; bigger files send name-only,
+  // which is still enough for "save this to <address>".
+  const prepMedia=(file)=>new Promise((resolve)=>{
+    if(file.type.startsWith("image/")){
+      const url=URL.createObjectURL(file);
+      const img=new Image();
+      img.onload=()=>{
+        try{
+          const max=1600,sc=Math.min(1,max/Math.max(img.width,img.height));
+          const cv=document.createElement("canvas");cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);
+          cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+          const data=cv.toDataURL("image/jpeg",0.85).split(",")[1]||"";
+          resolve(data?{kind:"image",mediaType:"image/jpeg",data}:null);
+        }catch{resolve(null);}
+        URL.revokeObjectURL(url);
+      };
+      img.onerror=()=>{URL.revokeObjectURL(url);resolve(null);};
+      img.src=url;
+      return;
+    }
+    if(file.type==="application/pdf"&&file.size<=3*1024*1024){
+      const r=new FileReader();
+      r.onload=()=>resolve({kind:"pdf",mediaType:"application/pdf",data:String(r.result).split(",")[1]||""});
+      r.onerror=()=>resolve(null);
+      r.readAsDataURL(file);
+      return;
+    }
+    resolve(null);
+  });
+  const takeFile=(e)=>{const f=(e.target.files||[])[0];if(f)setPendingFile(f);e.target.value="";};
+  const onPaste=(e)=>{const f=[...(e.clipboardData?.files||[])].find(x=>x.type.startsWith("image/")||x.type==="application/pdf");if(f){e.preventDefault();setPendingFile(f);}};
   useEffect(()=>{const el=scrollRef.current;if(el)el.scrollTop=el.scrollHeight;},[msgs,busy]);
   const active=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived),[sharedProps]);
   const propIndex=useMemo(()=>active.map(p=>({id:String(p.id),address:`${p.address||""}${p.city?`, ${p.city}`:""}`})),[active]);
@@ -4530,23 +4567,56 @@ function GlobalAiChat({onClose}){
       existingLeads:(leads||[]).map(l=>({address:l.address,city:l.city,status:l.leadStatus||"New Leads",seller:l.info?.sellerName||"",askingPrice:l.info?.askingPrice||""})),
     });
   },[active,officeTasks,CONTACTS,leads]);
+  const actionSummary=(a)=>a.type==="lead"?`Proposed a lead: ${a.lead.address}${a.lead.city?`, ${a.lead.city}`:""}`
+    :a.type==="contact"?`Proposed a contact: ${a.contact.name}${a.contact.phone?` (${a.contact.phone})`:""}`
+    :a.type==="saveFile"?`Proposed saving the attached file to ${a.propertyAddress}`
+    :`Proposed ${a.tasks.length} task(s) for ${a.propertyAddress}: ${a.tasks.map(t=>t.text).join("; ")}`;
   const sendQ=async(qText)=>{
     const q=(qText!==undefined?qText:input).trim();
     if(!q||busy)return;
     // History is plain text turns; a proposed card is summarized into the turn
     // so follow-ups ("add one more") still make sense to the model.
-    const hist=msgs.map(m=>({role:m.role,content:m.action?`${m.content}\n(${m.action.type==="lead"?`Proposed a lead: ${m.action.lead.address}${m.action.lead.city?`, ${m.action.lead.city}`:""}`:`Proposed ${m.action.tasks.length} task(s) for ${m.action.propertyAddress}: ${m.action.tasks.map(t=>t.text).join("; ")}`})`:m.content}));
-    setMsgs(ms=>[...ms,{role:"user",content:q}]);setInput("");setBusy(true);setErr("");
+    const hist=msgs.map(m=>({role:m.role,content:m.action?`${m.content}\n(${actionSummary(m.action)})`:m.content}));
+    const file=pendingFile;
+    setMsgs(ms=>[...ms,{role:"user",content:q+(file?`\n📎 ${file.name}`:"")}]);setInput("");setPendingFile(null);setBusy(true);setErr("");
     try{
+      const media=file?await prepMedia(file):null;
       const d=await qbAuthFetch("/api/ai/assistant",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({question:q,history:hist,context,team:TEAM_MEMBERS,propIndex})});
-      setMsgs(ms=>[...ms,{role:"assistant",content:d.answer||"",action:d.action||null}]);
+        body:JSON.stringify({question:q,history:hist,context,team:TEAM_MEMBERS,propIndex,
+          ...(media?{media}:{}),...(file?{fileMeta:{name:file.name,type:file.type,size:file.size}}:{})})});
+      // A save-to-Files proposal needs the actual File to upload later — keep it on the card.
+      const action=d.action?(d.action.type==="saveFile"?{...d.action,file,fileName:file?.name||"file"}:d.action):null;
+      setMsgs(ms=>[...ms,{role:"assistant",content:d.answer||"",action}]);
     }catch(e){setErr(e.message||"Couldn't get an answer — try again.");}
     setBusy(false);
   };
-  // Create what a proposal card holds (tasks or a lead) and mark it applied.
-  const applyAction=(mi)=>{
+  // Create what a proposal card holds (tasks, a lead, a contact, or a file save)
+  // and mark it applied.
+  const applyAction=async(mi)=>{
     const a=msgs[mi]?.action;if(!a||msgs[mi].applied)return;
+    if(a.type==="contact"){
+      const c=a.contact;
+      setContacts(prev=>[...prev,{id:Date.now(),name:c.name,company:c.company||"",role:c.role||"",email:c.email||"",notes:c.notes||"",phones:c.phone?[{label:"Mobile",number:c.phone}]:[],tags:[]}]);
+      if(flushContacts)setTimeout(flushContacts,0);
+      setMsgs(ms=>ms.map((m,j)=>j===mi?{...m,applied:true}:m));
+      return;
+    }
+    if(a.type==="saveFile"){
+      const p=(sharedProps||[]).find(x=>String(x.id)===a.propertyId);
+      const folder=p?.filesFolder;
+      if(!folder||!folder.driveId||!a.file){
+        setMsgs(ms=>ms.map((m,j)=>j===mi?{...m,saveErr:!a.file?"The file is no longer attached — re-attach it and ask again.":"No Files folder connected on this property — open its Files tab and pick a folder first."}:m));
+        return;
+      }
+      setMsgs(ms=>ms.map((m,j)=>j===mi?{...m,saving:true,saveErr:""}:m));
+      try{
+        await od.uploadFile(folder.driveId,folder.id,a.file);
+        setMsgs(ms=>ms.map((m,j)=>j===mi?{...m,saving:false,applied:true}:m));
+      }catch(e){
+        setMsgs(ms=>ms.map((m,j)=>j===mi?{...m,saving:false,saveErr:e.message||"Upload failed — try again."}:m));
+      }
+      return;
+    }
     if(a.type==="lead"){
       const L=a.lead;
       const nl=mkLead({address:L.address,city:L.city,state:L.state||"NJ",zip:L.zip,notes:L.notes||""});
@@ -4568,13 +4638,14 @@ function GlobalAiChat({onClose}){
     {label:"What's the lockbox code for…",fill:"What's the lockbox code for "},
     {label:"Create tasks for…",fill:"Create tasks for "},
     {label:"Paste a text → make a lead",fill:"Make a lead out of this:\n"},
-    {label:"What's the projected profit on…",fill:"What's the projected profit on "},
+    {label:"📷 Photo → make a contact",fill:"Make a contact from this photo"},
+    {label:"📄 Attach a PDF → save to a property",fill:"Save this to "},
   ];
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:600,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(560px,94vw)",height:"min(680px,88vh)",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+      <div onClick={e=>e.stopPropagation()} onPaste={onPaste} style={{background:"#fff",borderRadius:20,width:"min(560px,94vw)",height:"min(680px,88vh)",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
         <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight,flexShrink:0}}>
-          <div style={{minWidth:0}}><div style={{fontSize:14,fontWeight:700,color:T.gold}}>✨ Goldstone Assistant</div><div style={{fontSize:11,color:T.textSub}}>Ask about any property, contact, or number — or tell me to create tasks</div></div>
+          <div style={{minWidth:0}}><div style={{fontSize:14,fontWeight:700,color:T.gold}}>✨ Goldstone Assistant</div><div style={{fontSize:11,color:T.textSub}}>Ask anything, create tasks/leads/contacts, or attach a file to save it</div></div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
         </div>
         <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
@@ -4603,6 +4674,30 @@ function GlobalAiChat({onClose}){
                     : <button onClick={()=>applyAction(i)} style={{marginTop:9,width:"100%",padding:"9px",borderRadius:10,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Add {m.action.tasks.length===1?"this task":"these tasks"}</button>}
                 </div>
               )}
+              {m.action&&m.action.type==="contact"&&(()=>{const c=m.action.contact;const rows=[["Name",c.name],["Phone",c.phone],["Company",c.company],["Role",c.role],["Email",c.email],["Notes",c.notes]].filter(([,v])=>v);return(
+                <div style={{border:`1.5px solid ${T.gold}`,borderRadius:14,background:T.goldLight,padding:"11px 13px"}}>
+                  <div style={{fontSize:12,fontWeight:800,color:"#b8912e",marginBottom:7}}>👤 New contact</div>
+                  {rows.map(([k,v])=>(
+                    <div key={k} style={{display:"flex",gap:8,fontSize:13,padding:"4px 0",borderTop:rows[0][0]===k?"none":`1px solid rgba(184,149,63,0.25)`}}>
+                      <span style={{color:T.textSub,fontSize:11.5,fontWeight:700,minWidth:70,flexShrink:0,paddingTop:1}}>{k}</span>
+                      <span style={{color:T.text,minWidth:0,wordBreak:"break-word"}}>{v}</span>
+                    </div>
+                  ))}
+                  {m.applied
+                    ? <div style={{marginTop:9,fontSize:12.5,fontWeight:700,color:T.green}}>✓ Contact saved — it's in your Contacts</div>
+                    : <button onClick={()=>applyAction(i)} style={{marginTop:9,width:"100%",padding:"9px",borderRadius:10,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Save contact</button>}
+                </div>
+              );})()}
+              {m.action&&m.action.type==="saveFile"&&(
+                <div style={{border:`1.5px solid ${T.gold}`,borderRadius:14,background:T.goldLight,padding:"11px 13px"}}>
+                  <div style={{fontSize:12,fontWeight:800,color:"#b8912e",marginBottom:5}}>📄 Save file</div>
+                  <div style={{fontSize:13,color:T.text,wordBreak:"break-word"}}>{m.action.fileName} → <b>{m.action.propertyAddress}</b> Files</div>
+                  {m.saveErr&&<div style={{marginTop:7,fontSize:12,color:T.red,lineHeight:1.4}}>{m.saveErr}</div>}
+                  {m.applied
+                    ? <div style={{marginTop:9,fontSize:12.5,fontWeight:700,color:T.green}}>✓ Saved to the property's Files folder</div>
+                    : <button onClick={()=>applyAction(i)} disabled={m.saving} style={{marginTop:9,width:"100%",padding:"9px",borderRadius:10,border:"none",background:m.saving?T.border:T.gold,color:"#fff",fontWeight:700,fontSize:13,cursor:m.saving?"default":"pointer",fontFamily:"inherit"}}>{m.saving?"Saving…":"Save file"}</button>}
+                </div>
+              )}
               {m.action&&m.action.type==="lead"&&(()=>{const L=m.action.lead;const $=(v)=>v?`$${Number(v).toLocaleString()}`:"";const rows=[["Address",`${L.address}${L.city?`, ${L.city}`:""}${L.state?`, ${L.state}`:""}${L.zip?` ${L.zip}`:""}`],["Seller",L.sellerName],["Phone",L.sellerPhone],["Email",L.sellerEmail],["Source",L.source],["Asking",$(L.askingPrice)],["Their ARV",L.arv?`${$(L.arv)} → fills Sale Price`:""],["Their rehab #",L.rehabEstimate?`${$(L.rehabEstimate)} → fills Rehab Costs`:""],["Closing",L.closingTarget],["Type",L.type],["Beds / Baths",[L.beds,L.baths].filter(Boolean).join(" / ")],["Sqft",L.sqft],["Year built",L.yearBuilt],["Condition",L.condition]].filter(([,v])=>v);return(
                 <div style={{border:`1.5px solid ${T.gold}`,borderRadius:14,background:T.goldLight,padding:"11px 13px"}}>
                   <div style={{fontSize:12,fontWeight:800,color:"#b8912e",marginBottom:7}}>🏠 New lead</div>
@@ -4624,12 +4719,26 @@ function GlobalAiChat({onClose}){
           {busy&&<div style={{alignSelf:"flex-start",background:T.bg,borderRadius:14,padding:"9px 13px",fontSize:13,color:T.textSub}}>Thinking…</div>}
           {err&&<div style={{alignSelf:"stretch",fontSize:12.5,color:T.red,textAlign:"center"}}>{err}</div>}
         </div>
-        <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"flex-end",flexShrink:0}}>
-          <textarea rows={1} value={input} onChange={e=>setInput(e.target.value)}
-            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendQ();}}}
-            placeholder="Ask anything, or “create tasks for…”" disabled={busy}
-            style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:120,overflowY:"auto",boxSizing:"border-box"}}/>
-          <button onClick={()=>sendQ()} disabled={!input.trim()||busy} style={{padding:"10px 18px",borderRadius:22,background:input.trim()&&!busy?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:input.trim()&&!busy?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Ask</button>
+        <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",flexDirection:"column",gap:8,flexShrink:0}}>
+          {pendingFile&&(
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 11px",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:12}}>
+              <span style={{fontSize:14,flexShrink:0}}>{pendingFile.type.startsWith("image/")?"🖼️":"📄"}</span>
+              <span style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pendingFile.name}</span>
+              <span style={{fontSize:11,color:T.textSub,flexShrink:0}}>attached — now tell me what to do with it</span>
+              <button onClick={()=>setPendingFile(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:16,cursor:"pointer",lineHeight:1,flexShrink:0,padding:"0 2px"}}>×</button>
+            </div>
+          )}
+          <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+            <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={takeFile} style={{display:"none"}}/>
+            <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={takeFile} style={{display:"none"}}/>
+            <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, screenshot, or PDF" style={{width:38,height:38,minWidth:38,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontSize:15,fontFamily:"inherit",flexShrink:0}}>📎</button>
+            <button onClick={()=>camRef.current&&camRef.current.click()} disabled={busy} title="Take a photo" style={{width:38,height:38,minWidth:38,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontSize:15,fontFamily:"inherit",flexShrink:0}}>📷</button>
+            <textarea rows={1} value={input} onChange={e=>setInput(e.target.value)}
+              onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendQ();}}}
+              placeholder={pendingFile?"e.g. “save this to 610 Bayview” or “make this a contact”":"Ask anything, or “create tasks for…”"} disabled={busy}
+              style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:120,overflowY:"auto",boxSizing:"border-box"}}/>
+            <button onClick={()=>sendQ()} disabled={!input.trim()||busy} style={{padding:"10px 18px",borderRadius:22,background:input.trim()&&!busy?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:input.trim()&&!busy?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Ask</button>
+          </div>
         </div>
       </div>
     </div>

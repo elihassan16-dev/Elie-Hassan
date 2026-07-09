@@ -4449,6 +4449,19 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const remC=(cid)=>onUpdate(property.id,"contacts",property.contacts.filter(id=>id!==cid));
   const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   const full=`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`;
+  // How long we've owned it — shown for every post-purchase stage, frozen at the
+  // sale date once Sold. Needs the purchase date on the Financial Overview.
+  const ownedInfo=(()=>{
+    if(!["Purchased","Under Construction","On Market","In Closing","Sold","Rental"].includes(property.status))return null;
+    const pd=String((property.financials||{}).purchaseDate||"").slice(0,10);if(!pd)return null;
+    const start=new Date(pd+"T00:00:00");if(isNaN(start))return null;
+    const soldIso=property.status==="Sold"?String((property.financials||{}).sellingDate||"").slice(0,10):"";
+    const end=soldIso?new Date(soldIso+"T00:00:00"):new Date();
+    if(isNaN(end)||end<start)return null;
+    const days=Math.round((end-start)/86400000);
+    const label=days<60?`${days} day${days===1?"":"s"}`:`${(days/30.44).toFixed(1)} months (${days} days)`;
+    return {label,sold:!!soldIso};
+  })();
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
       <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"18px 24px 0",flexShrink:0}}>
@@ -4461,6 +4474,13 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
         </div>
+        {ownedInfo&&(
+          <div style={{marginBottom:8}}>
+            <span title={ownedInfo.sold?"From purchase to sale":"Since the purchase date"} style={{display:"inline-flex",alignItems:"center",gap:6,background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"4px 12px",fontSize:12.5,fontWeight:700,color:"#8a6d1f"}}>
+              🔑 Owned {ownedInfo.label}{ownedInfo.sold?" · sold":""}
+            </span>
+          </div>
+        )}
         <div style={{marginBottom:14}}>
           <StatusPicker value={property.status} property={property} onChange={v=>onUpdate(property.id,"status",v)}
             onGateSave={(to,answers,note,fieldValues)=>{

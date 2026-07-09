@@ -236,6 +236,38 @@ export function useOutlookMail() {
     try { await graph(`/me/messages/${id}`, { method: "PATCH", body: JSON.stringify({ isRead: true }) }); } catch { /* non-fatal */ }
   }, [graph]);
 
+  // Read a picked File into base64 (Graph wants raw base64, no data: prefix).
+  const fileB64 = (file) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1] || "");
+    r.onerror = () => reject(new Error(`Couldn't read ${file.name}.`));
+    r.readAsDataURL(file);
+  });
+
+  // Attach files to a draft message. Small files (≤3 MB) post directly; larger
+  // ones go through a Graph upload session in 4 MB chunks (Graph's requirement —
+  // direct posts above ~3 MB are rejected).
+  const addAttachments = useCallback(async (draftId, files) => {
+    for (const file of files || []) {
+      if (file.size <= 3 * 1024 * 1024) {
+        const contentBytes = await fileB64(file);
+        await graph(`/me/messages/${draftId}/attachments`, { method: "POST", body: JSON.stringify({ "@odata.type": "#microsoft.graph.fileAttachment", name: file.name, contentType: file.type || "application/octet-stream", contentBytes }) });
+      } else {
+        const sess = await graph(`/me/messages/${draftId}/attachments/createUploadSession`, { method: "POST", body: JSON.stringify({ AttachmentItem: { attachmentType: "file", name: file.name, size: file.size } }) });
+        if (!sess || !sess.uploadUrl) throw new Error(`Couldn't start uploading ${file.name}.`);
+        const CHUNK = 4 * 1024 * 1024;
+        let start = 0;
+        while (start < file.size) {
+          const end = Math.min(start + CHUNK, file.size);
+          // The uploadUrl is pre-authenticated — no Authorization header.
+          const r = await fetch(sess.uploadUrl, { method: "PUT", headers: { "Content-Range": `bytes ${start}-${end - 1}/${file.size}` }, body: file.slice(start, end) });
+          if (!r.ok && r.status !== 200 && r.status !== 201 && r.status !== 202) throw new Error(`Uploading ${file.name} failed (${r.status}).`);
+          start = end;
+        }
+      }
+    }
+  }, [graph]);
+
   // Build Graph mention objects from [{name,address}] so Outlook flags the person
   // as @-mentioned (they get the "you were mentioned" indicator).
   const buildMentions = (mentions) => (mentions || []).filter((m) => m && m.address).map((m, i) => ({
@@ -250,16 +282,16 @@ export function useOutlookMail() {
   // the recipients AND flagged as Outlook mentions). With mentions we go through a
   // draft (createReply → set body/recipients/mentions → send) so the flag sticks;
   // without, the simple reply action is enough.
-  const reply = useCallback(async (id, html, all = false, cc = "", mentions = []) => {
+  const reply = useCallback(async (id, html, all = false, cc = "", mentions = [], files = []) => {
     const ccList = parseRecipients(cc);
     const mentionObjs = buildMentions(mentions);
-    if (mentionObjs.length === 0) {
+    if (mentionObjs.length === 0 && !(files && files.length)) {
       const body = { comment: html };
       if (ccList.length) body.message = { ccRecipients: ccList };
       await graph(`/me/messages/${id}/${all ? "replyAll" : "reply"}`, { method: "POST", body: JSON.stringify(body) });
       return;
     }
-    // Draft-based path to attach native mentions.
+    // Draft-based path to attach native mentions and/or files.
     const draft = await graph(`/me/messages/${id}/${all ? "createReplyAll" : "createReply"}`, { method: "POST", body: JSON.stringify({}) });
     const draftId = draft.id;
     const existing = draft.body && draft.body.content ? draft.body.content : "";
@@ -271,18 +303,41 @@ export function useOutlookMail() {
     const patch = { body: { contentType: "HTML", content: newBody }, toRecipients: toSet, ccRecipients: ccSet, mentions: mentionObjs };
     try { await graph(`/me/messages/${draftId}`, { method: "PATCH", body: JSON.stringify(patch) }); }
     catch { const { mentions: _m, ...rest } = patch; await graph(`/me/messages/${draftId}`, { method: "PATCH", body: JSON.stringify(rest) }); } // fall back without native mentions
+    if (files && files.length) await addAttachments(draftId, files);
     await graph(`/me/messages/${draftId}/send`, { method: "POST", body: JSON.stringify({}) });
-  }, [graph]);
+  }, [graph, addAttachments]);
 
-  // Compose & send a brand-new message. `mentions` [{name,address}] are @-mentioned.
-  const sendNew = useCallback(async ({ to, cc, subject, html, mentions = [] }) => {
+  // Forward a message. Plain forwards use the one-shot Graph action; a Cc or new
+  // attachments need the draft path (createForward → patch → attach → send), which
+  // also carries the original message's own attachments along automatically.
+  const forward = useCallback(async (id, { to, cc = "", html = "", files = [] } = {}) => {
+    const toList = parseRecipients(to);
+    if (!toList.length) throw new Error("Add at least one recipient to forward to.");
+    const ccList = parseRecipients(cc);
+    if (!ccList.length && !(files && files.length)) {
+      await graph(`/me/messages/${id}/forward`, { method: "POST", body: JSON.stringify({ comment: html || "", toRecipients: toList }) });
+      return;
+    }
+    const draft = await graph(`/me/messages/${id}/createForward`, { method: "POST", body: JSON.stringify({}) });
+    const existing = draft.body && draft.body.content ? draft.body.content : "";
+    await graph(`/me/messages/${draft.id}`, { method: "PATCH", body: JSON.stringify({ body: { contentType: "HTML", content: `<div>${html || ""}</div>${existing}` }, toRecipients: toList, ccRecipients: ccList }) });
+    if (files && files.length) await addAttachments(draft.id, files);
+    await graph(`/me/messages/${draft.id}/send`, { method: "POST", body: JSON.stringify({}) });
+  }, [graph, addAttachments]);
+
+  // Compose & send a brand-new message. `mentions` [{name,address}] are @-mentioned;
+  // `bcc` and `files` (File objects to attach) are optional.
+  const sendNew = useCallback(async ({ to, cc, bcc, subject, html, mentions = [], files = [] }) => {
     const mentionObjs = buildMentions(mentions);
     const toSet = parseRecipients(to);
     const have = new Set(toSet.map((r) => (r.emailAddress && r.emailAddress.address || "").toLowerCase()));
     (mentions || []).forEach((m) => { if (m.address && !have.has(m.address.toLowerCase())) { toSet.push({ emailAddress: { name: m.name || m.address, address: m.address } }); have.add(m.address.toLowerCase()); } });
-    if (mentionObjs.length) {
-      // Draft → send so native mentions attach.
-      const draft = await graph(`/me/messages`, { method: "POST", body: JSON.stringify({ subject: subject || "", body: { contentType: "HTML", content: html || "" }, toRecipients: toSet, ccRecipients: parseRecipients(cc), mentions: mentionObjs }) });
+    if (mentionObjs.length || (files && files.length)) {
+      // Draft → attach → send so native mentions and/or file attachments stick.
+      const payload = { subject: subject || "", body: { contentType: "HTML", content: html || "" }, toRecipients: toSet, ccRecipients: parseRecipients(cc), bccRecipients: parseRecipients(bcc) };
+      if (mentionObjs.length) payload.mentions = mentionObjs;
+      const draft = await graph(`/me/messages`, { method: "POST", body: JSON.stringify(payload) });
+      if (files && files.length) await addAttachments(draft.id, files);
       await graph(`/me/messages/${draft.id}/send`, { method: "POST", body: JSON.stringify({}) });
       return;
     }
@@ -294,11 +349,12 @@ export function useOutlookMail() {
           body: { contentType: "HTML", content: html || "" },
           toRecipients: toSet,
           ccRecipients: parseRecipients(cc),
+          bccRecipients: parseRecipients(bcc),
         },
         saveToSentItems: true,
       }),
     });
-  }, [graph]);
+  }, [graph, addAttachments]);
 
-  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, getAttachmentBlob, getInlineImages, searchPeople, conversationUnread, markRead, reply, sendNew };
+  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, getAttachmentBlob, getInlineImages, searchPeople, conversationUnread, markRead, reply, forward, sendNew };
 }

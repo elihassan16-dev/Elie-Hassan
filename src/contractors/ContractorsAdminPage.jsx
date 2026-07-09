@@ -35,10 +35,20 @@ function Modal({ title, onClose, children, footer, width = 520 }) {
 }
 
 // ── Company create/edit ────────────────────────────────────────────────────────
-function OrgModal({ orgModal, save, onSaved, onClose }) {
+function OrgModal({ orgModal, contacts = [], save, onSaved, onClose }) {
   const editing = !!orgModal?.id;
   const [f, setF] = useState({ name: orgModal?.name || "", contactName: orgModal?.contactName || "", phone: orgModal?.phone || "", email: orgModal?.email || "", address: orgModal?.address || "", notes: orgModal?.notes || "" });
   const [e2, setE2] = useState("");
+  const [pick, setPick] = useState(false);
+  const [q, setQ] = useState("");
+  // Prefill from an existing contact (contacts store phone either flat or as phones[]).
+  const cPhone = (c) => c.phone || (c.phones && c.phones[0] && c.phones[0].number) || "";
+  const useContact = (c) => {
+    setF({ ...f, name: c.company || c.name || "", contactName: c.name || "", phone: cPhone(c), email: c.email || "", notes: [f.notes, c.role ? `Trade: ${c.role}` : ""].filter(Boolean).join("\n") });
+    setPick(false); setQ("");
+  };
+  const ql = q.trim().toLowerCase();
+  const matches = (contacts || []).filter((c) => c && (c.name || c.company)).filter((c) => !ql || [c.name, c.company, c.role, cPhone(c), c.email].filter(Boolean).join(" ").toLowerCase().includes(ql)).sort((a, b) => (a.name || "").localeCompare(b.name || "")).slice(0, 30);
   const saveOrg = async () => {
     if (!f.name.trim()) return;
     const obj = { ...(editing ? orgModal : { id: "org_" + Date.now(), createdAt: new Date().toISOString() }), ...f, name: f.name.trim() };
@@ -48,7 +58,26 @@ function OrgModal({ orgModal, save, onSaved, onClose }) {
   return (
     <Modal title={editing ? "Edit company" : "New contractor company"} onClose={onClose}
       footer={<><button onClick={onClose} style={ghostBtn}>Cancel</button><button onClick={saveOrg} style={goldBtn(!!f.name.trim())}>Save</button></>}>
-      <div><label style={lbl}>Company / contractor name</label><input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Tom's Plumbing LLC" style={inp} /></div>
+      {!editing && (
+        <div>
+          <button onClick={() => setPick(v => !v)} style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusSm, border: `1.5px dashed ${T.gold}`, background: pick ? T.goldLight : "transparent", color: "#8a6d1f", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>👤 Start from a contact{pick ? " ▴" : " ▾"}</button>
+          {pick && (
+            <div style={{ marginTop: 8, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, overflow: "hidden" }}>
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your contacts…" style={{ ...inp, border: "none", borderBottom: `1px solid ${T.border}`, borderRadius: 0 }} />
+              <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                {matches.length === 0 && <div style={{ padding: "14px 12px", fontSize: 12.5, color: T.textTert, textAlign: "center" }}>No contacts match.</div>}
+                {matches.map((c) => (
+                  <div key={c.id} onClick={() => useContact(c)} style={{ padding: "9px 12px", borderTop: `1px solid ${T.border}`, cursor: "pointer" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{c.name}</div>
+                    <div style={{ fontSize: 11.5, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[c.company, c.role, cPhone(c)].filter(Boolean).join(" · ") || c.email || ""}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      <div><label style={lbl}>Company / contractor name</label><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Tom's Plumbing LLC" style={inp} /></div>
       <div style={{ display: "flex", gap: 10 }}>
         <div style={{ flex: 1 }}><label style={lbl}>Main contact</label><input value={f.contactName} onChange={(e) => setF({ ...f, contactName: e.target.value })} placeholder="Tom" style={inp} /></div>
         <div style={{ flex: 1 }}><label style={lbl}>Phone</label><input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} type="tel" style={inp} /></div>
@@ -299,7 +328,7 @@ function JobDetail({ j, org, tasks, messages, docs, save, remove, displayName, o
 
 export function ContractorsAdminPage() {
   const { displayName } = useAuth();
-  const { sharedProps } = useData();
+  const { sharedProps, contacts } = useData();
   const { orgs, jobs, tasks, messages, docs, save, remove, error } = useContractorData();
   const [selOrgId, setSelOrgId] = useState(null);
   const [orgModal, setOrgModal] = useState(null);     // {} new or org obj
@@ -400,7 +429,7 @@ export function ContractorsAdminPage() {
       </div>
 
       {error && <div style={{ position: "fixed", bottom: 14, left: "50%", transform: "translateX(-50%)", background: "#FFF0EF", border: `1.5px solid ${T.red}`, color: T.red, borderRadius: 12, padding: "10px 16px", fontSize: 12.5, fontWeight: 600, zIndex: 500 }}>{error}</div>}
-      {orgModal && <OrgModal orgModal={orgModal.id ? orgModal : null} save={save} onSaved={setSelOrgId} onClose={() => setOrgModal(null)} />}
+      {orgModal && <OrgModal orgModal={orgModal.id ? orgModal : null} contacts={contacts} save={save} onSaved={setSelOrgId} onClose={() => setOrgModal(null)} />}
       {loginModal && org && <LoginModal org={org} onClose={() => setLoginModal(false)} />}
       {jobModal && org && <JobModal org={org} jobModal={jobModal.id ? jobModal : null} properties={properties} save={save} onSaved={setOpenJobId} onClose={() => setJobModal(null)} />}
       {openJob && <JobDetail j={openJob} org={org} tasks={tasks} messages={messages} docs={docs} save={save} remove={remove} displayName={displayName} onEditBasics={() => setJobModal(openJob)} onClose={() => setOpenJobId(null)} />}

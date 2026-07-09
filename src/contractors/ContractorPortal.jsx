@@ -264,11 +264,21 @@ export function ContractorPortal() {
   };
 
   // ── Messages tab (scoped to the open job) ───────────────────────────────────
+  // Same toolkit the Goldstone team has: general thread or a specific task,
+  // photos/videos (camera or library), files, and 🎤 voice notes.
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [msgTarget, setMsgTarget] = useState(null); // {id,text} → tag the message to that task
+  const [recOn, setRecOn] = useState(false);
+  const [recSecs, setRecSecs] = useState(0);
+  const mrRef = useRef(null);
+  const chunksRef = useRef([]);
+  const cancelRef = useRef(false);
+  const timerRef = useRef(null);
   const attRef = useRef(null);
   const scrollRef = useRef(null);
+  useEffect(() => () => clearInterval(timerRef.current), []);
   const thread = selJob ? (messages || []).filter((m) => m.orgId === contractorOrgId && String(m.jobId) === String(selJob.id)).sort((a, b) => String(a.at || "").localeCompare(String(b.at || ""))) : [];
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length, tab, selJobId]);
   const pickAtt = async (e) => {
@@ -278,14 +288,45 @@ export function ContractorPortal() {
     try { const up = await stage(file); if (up) setPending(up); } catch (ex) { setErr(ex.message || "Upload failed."); }
     setBusy(false);
   };
+  // Voice notes — MediaRecorder, uploaded like any attachment.
+  const startRec = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = ["audio/mp4", "audio/webm"].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+      const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      chunksRef.current = []; cancelRef.current = false;
+      mr.ondataavailable = (e) => { if (e.data && e.data.size) chunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((tr) => tr.stop());
+        clearInterval(timerRef.current);
+        setRecOn(false); setRecSecs(0);
+        if (cancelRef.current) return;
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
+        if (!blob.size) return;
+        setBusy(true);
+        try {
+          const ext = /mp4|aac|m4a/.test(mr.mimeType || "") ? "m4a" : "webm";
+          setPending(await uploadAttachment(new File([blob], `voice-note-${Date.now()}.${ext}`, { type: blob.type || "audio/webm" }), "portal"));
+        } catch { setErr("Couldn't save the voice note."); }
+        setBusy(false);
+      };
+      mrRef.current = mr; mr.start();
+      setRecOn(true); setRecSecs(0);
+      timerRef.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
+    } catch { setErr("Microphone access was blocked — allow it in your browser settings."); }
+  };
+  const stopRec = () => { cancelRef.current = false; if (mrRef.current && mrRef.current.state !== "inactive") mrRef.current.stop(); };
+  const cancelRec = () => { cancelRef.current = true; if (mrRef.current && mrRef.current.state !== "inactive") mrRef.current.stop(); };
+  const fmtSecs = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   const sendMsg = async () => {
     const txt = draft.trim();
     if ((!txt && !pending) || !selJob || busy) return;
     const msg = { id: Date.now(), jobId: selJob.id, orgId: contractorOrgId, author: displayName, side: "contractor", text: txt, at: new Date().toISOString(), readBy: [displayName] };
     if (pending) msg.attachment = pending;
+    if (msgTarget) { msg.taskRefId = msgTarget.id; msg.taskRefText = msgTarget.text; }
     setDraft(""); setPending(null);
     await save("contractor_messages", msg);
-    notify(null, { toAdmins: true, title: `${org?.name || displayName} — ${selJob.propertyAddress}`, body: txt || "(attachment)" });
+    notify(null, { toAdmins: true, title: `${org?.name || displayName} — ${msgTarget ? msgTarget.text : selJob.propertyAddress}`, body: txt || "(attachment)" });
   };
 
   // ── Layout ──────────────────────────────────────────────────────────────────
@@ -318,7 +359,7 @@ export function ContractorPortal() {
                 const un = unreadFor(j.id);
                 const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.direction !== "to_team" && t.status !== "Completed").length;
                 return (
-                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
+                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress || j.title || "Job"}</div>
@@ -381,24 +422,47 @@ export function ContractorPortal() {
                     </div>
                   )}
                 </div>
-                {tab === "messages" && (
+                {tab === "messages" && (() => {
+                  const openTasks = (tasks || []).filter((t) => String(t.jobId) === String(selJob.id) && t.status !== "Completed");
+                  return (
                   <div style={{ background: T.card, borderTop: `1px solid ${T.border}`, padding: "10px 12px max(10px,env(safe-area-inset-bottom))", flexShrink: 0 }}>
+                    {openTasks.length > 0 && (
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", overflowX: "auto", marginBottom: 8, paddingBottom: 2 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: T.textTert, flexShrink: 0 }}>Posting to:</span>
+                        <button onClick={() => setMsgTarget(null)} style={{ flexShrink: 0, padding: "4px 11px", borderRadius: 14, border: `1px solid ${!msgTarget ? T.gold : T.border}`, background: !msgTarget ? T.goldLight : T.bg, color: !msgTarget ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>💬 General</button>
+                        {openTasks.map((t) => { const on = msgTarget && String(msgTarget.id) === String(t.id); return (
+                          <button key={t.id} onClick={() => setMsgTarget(on ? null : { id: t.id, text: t.text })} title={t.text} style={{ flexShrink: 0, padding: "4px 11px", borderRadius: 14, border: `1px solid ${on ? T.gold : T.border}`, background: on ? T.goldLight : T.bg, color: on ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis" }}>↳ {t.text}</button>
+                        ); })}
+                      </div>
+                    )}
                     {pending && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}`, borderRadius: 10, marginBottom: 8 }}>
-                        <span style={{ fontSize: 13 }}>{pending.kind === "image" ? "🖼️" : pending.kind === "video" ? "🎬" : "📄"}</span>
+                        <span style={{ fontSize: 13 }}>{pending.kind === "image" ? "🖼️" : pending.kind === "video" ? "🎬" : pending.kind === "audio" ? "🎤" : "📄"}</span>
                         <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pending.name}</span>
                         <button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
                       </div>
                     )}
+                    {recOn ? (
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        <span style={{ width: 10, height: 10, borderRadius: "50%", background: T.red, flexShrink: 0, animation: "gsPulse 1s infinite" }} />
+                        <style>{`@keyframes gsPulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+                        <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: T.text }}>Recording… {fmtSecs(recSecs)}</span>
+                        <button onClick={cancelRec} style={{ padding: "9px 14px", borderRadius: 20, border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+                        <button onClick={stopRec} style={{ padding: "9px 16px", borderRadius: 20, border: "none", background: T.red, color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>■ Stop</button>
+                      </div>
+                    ) : (
                     <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                       <input ref={attRef} type="file" accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
                       <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} title="Attach a photo, video, or PDF" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>📎</button>
-                      <textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} placeholder={busy ? "Uploading…" : "Message Goldstone…"} disabled={busy}
-                        style={{ flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 18, border: `1px solid ${T.border}`, background: T.bg, fontSize: 15, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 120, overflowY: "auto", boxSizing: "border-box" }} />
+                      <button onClick={startRec} disabled={busy} title="Record a voice note" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>🎤</button>
+                      <textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} placeholder={busy ? "Uploading…" : msgTarget ? "Reply about this task…" : "Message Goldstone…"} disabled={busy}
+                        style={{ flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 18, border: `1px solid ${msgTarget ? T.gold : T.border}`, background: T.bg, fontSize: 15, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 120, overflowY: "auto", boxSizing: "border-box" }} />
                       <button onClick={sendMsg} disabled={(!draft.trim() && !pending) || busy} style={{ padding: "10px 18px", borderRadius: 22, background: (draft.trim() || pending) && !busy ? T.gold : T.border, border: "none", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Send</button>
                     </div>
+                    )}
                   </div>
-                )}
+                  );
+                })()}
               </>}
           </div>
         )}

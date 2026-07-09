@@ -2542,7 +2542,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     </Card>
     {msgFor&&(()=>{
       const first=(msgFor.label.split("—")[1]||"").trim().split(/\s+/)[0]||"them";
-      return <TaskMessagesPopup title={`${msgFor.label} · ${address}`} task={null} messages={threadMsgs(msgFor.key)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
+      return <TaskMessagesPopup title={`${msgFor.label} · ${address}`} task={null} saveFolder={property.filesFolder||null} messages={threadMsgs(msgFor.key)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
         templates={[
           {label:"Remember to follow up",text:`Please remember to follow up with ${first} about ${address}.`},
           {label:"Spoke to them",text:`I spoke to ${first} about ${address} — `},
@@ -4547,6 +4547,31 @@ function GlobalAiChat({onClose}){
   });
   const takeFile=(e)=>{const f=(e.target.files||[])[0];if(f)setPendingFile(f);e.target.value="";};
   const onPaste=(e)=>{const f=[...(e.clipboardData?.files||[])].find(x=>x.type.startsWith("image/")||x.type==="application/pdf");if(f){e.preventDefault();setPendingFile(f);}};
+  // 🎙 Record-to-text via the phone's built-in speech recognition (no server, no
+  // audio upload). Where the OS blocks it (some iOS PWA versions), we say so and
+  // point at the keyboard mic, which always works.
+  const SR=typeof window!=="undefined"?(window.SpeechRecognition||window.webkitSpeechRecognition):null;
+  const[recOn,setRecOn]=useState(false);
+  const recRef=useRef(null);
+  const recBase=useRef("");
+  const toggleRec=()=>{
+    if(recOn){try{recRef.current&&recRef.current.stop();}catch{/* already stopped */}setRecOn(false);return;}
+    if(!SR){setErr("Voice capture isn't available in this view — tap the 🎤 on your keyboard instead (it types as you talk).");return;}
+    try{
+      const r=new SR();
+      r.lang="en-US";r.interimResults=true;r.continuous=true;
+      recBase.current=input.trim();
+      r.onresult=(ev)=>{
+        let text="";
+        for(let i=0;i<ev.results.length;i++)text+=ev.results[i][0].transcript;
+        setInput((recBase.current?recBase.current+" ":"")+text.trim());
+      };
+      r.onerror=(ev)=>{setRecOn(false);if(ev.error==="not-allowed"||ev.error==="service-not-allowed")setErr("Voice capture is blocked here — tap the 🎤 on your keyboard instead (it types as you talk).");};
+      r.onend=()=>setRecOn(false);
+      r.start();recRef.current=r;setRecOn(true);setErr("");
+    }catch{setErr("Couldn't start voice capture — tap the 🎤 on your keyboard instead.");}
+  };
+  useEffect(()=>()=>{try{recRef.current&&recRef.current.stop();}catch{/* unmount */}},[]);
   useEffect(()=>{const el=scrollRef.current;if(el)el.scrollTop=el.scrollHeight;},[msgs,busy]);
   const active=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived),[sharedProps]);
   const propIndex=useMemo(()=>active.map(p=>({id:String(p.id),address:`${p.address||""}${p.city?`, ${p.city}`:""}`})),[active]);
@@ -4733,6 +4758,7 @@ function GlobalAiChat({onClose}){
             <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={takeFile} style={{display:"none"}}/>
             <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, screenshot, or PDF" style={{width:38,height:38,minWidth:38,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontSize:15,fontFamily:"inherit",flexShrink:0}}>📎</button>
             <button onClick={()=>camRef.current&&camRef.current.click()} disabled={busy} title="Take a photo" style={{width:38,height:38,minWidth:38,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontSize:15,fontFamily:"inherit",flexShrink:0}}>📷</button>
+            <button onClick={toggleRec} disabled={busy} title={recOn?"Stop recording":"Record — speaks straight into the box"} style={{width:38,height:38,minWidth:38,borderRadius:"50%",border:`1px solid ${recOn?"#FF3B30":T.border}`,background:recOn?"#FFF0EF":"#fff",color:recOn?"#FF3B30":T.textSub,cursor:"pointer",fontSize:15,fontFamily:"inherit",flexShrink:0,animation:recOn?"gsPulse 1.2s ease-in-out infinite":"none"}}>{recOn?"⏹":"🎙"}</button>
             <textarea rows={1} value={input} onChange={e=>setInput(e.target.value)}
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendQ();}}}
               placeholder={pendingFile?"e.g. “save this to 610 Bayview” or “make this a contact”":"Ask anything, or “create tasks for…”"} disabled={busy}
@@ -5970,7 +5996,7 @@ function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
 }
 
 // In-app messages/notes on a single task.
-function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMembers,onSend,onClose,templates:templatesProp}){
+function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMembers,onSend,onClose,templates:templatesProp,saveFolder=null}){
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   // Templates address + notify a chosen teammate. When a task is delegated, the
   // owner (assignee) and the person doing the work (delegate) differ — let the
@@ -6013,7 +6039,7 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
                 {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.55)":T.gold}`,paddingLeft:8,marginBottom:5,opacity:0.9,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}><b>{m.replyTo.author?m.replyTo.author.split(" ")[0]:"—"}:</b> {m.replyTo.text}</div>}
                 {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                 {m.text}
-                {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
+                {m.attachment&&<MessageAttachment att={m.attachment} mine={mine} saveFolder={saveFolder}/>}
               </div>
               {mine&&<div style={{textAlign:"right"}}><ReadReceipt readBy={m.readBy} author={m.author}/></div>}
             </div>
@@ -6524,7 +6550,7 @@ function PropertyTaskList({property}){
       {/* Task contact card */}
       {contactTarget&&(()=>{ const lt={...((sharedProps.find(p=>p.id===contactTarget.propId)?.tasks||[]).find(tk=>tk.id===contactTarget.id)||contactTarget),propId:contactTarget.propId,propAddr:contactTarget.propAddr}; return <TaskContactCard task={lt} contacts={dir} onAssign={(val)=>setTaskContact(contactTarget.propId,lt.id,val)} onCreateContact={addContactToDir} onClose={()=>setContactTarget(null)}/>; })()}
       {/* Task messages popup */}
-      {msgTarget&&(()=>{ const lt=(sharedProps.find(p=>p.id===msgTarget.propId)?.tasks||[]).find(tk=>tk.id===msgTarget.id); return <TaskMessagesPopup title={msgTarget.text||"Task"} task={lt||msgTarget} contacts={dir} messages={(lt||msgTarget)?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={(txt,att,mn)=>addTaskMessage(msgTarget.propId,msgTarget.id,txt,att,mn)} onClose={()=>setMsgTarget(null)}/>; })()}
+      {msgTarget&&(()=>{ const mp=sharedProps.find(p=>p.id===msgTarget.propId); const lt=(mp?.tasks||[]).find(tk=>tk.id===msgTarget.id); return <TaskMessagesPopup title={msgTarget.text||"Task"} task={lt||msgTarget} saveFolder={mp?.filesFolder||null} contacts={dir} messages={(lt||msgTarget)?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={(txt,att,mn)=>addTaskMessage(msgTarget.propId,msgTarget.id,txt,att,mn)} onClose={()=>setMsgTarget(null)}/>; })()}
       {/* Assign / delegate popup — owner (original) + optional delegate */}
       {assignTarget&&(()=>{
         const liveTask=(sharedProps.find(p=>p.id===assignTarget.propId)?.tasks||[]).find(tk=>tk.id===assignTarget.id)||assignTarget;
@@ -6828,7 +6854,7 @@ function TasksPage({onNavigate}){
       {/* Task messages popup */}
       {taskMsgTarget&&(()=>{
         const liveTask=findLiveTask(taskMsgTarget.propId,taskMsgTarget.id);
-        return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} task={liveTask||taskMsgTarget} contacts={dir} messages={(liveTask||taskMsgTarget)?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
+        return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} task={liveTask||taskMsgTarget} saveFolder={(sharedProps.find(p=>p.id===taskMsgTarget.propId)?.filesFolder)||null} contacts={dir} messages={(liveTask||taskMsgTarget)?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
           onSend={(txt,att,mn)=>addTaskMessage(taskMsgTarget.propId,taskMsgTarget.id,txt,att,mn)} onClose={()=>setTaskMsgTarget(null)}/>;
       })()}
       {/* Task contact popup */}
@@ -7797,20 +7823,51 @@ async function uploadAttachment(file,folder="chat"){
   const { data }=supabase.storage.from("attachments").getPublicUrl(path);
   return { url:data.publicUrl, name:file.name||base, mime:file.type||"", kind };
 }
-function MessageAttachment({att,mine}){
+// `saveFolder` ({driveId,id,name} — the property's Files folder) adds a one-tap
+// "Save to Files" button under PDFs/photos someone sent in chat: the attachment is
+// pulled from storage and uploaded into the property's OneDrive/SharePoint folder.
+function MessageAttachment({att,mine,saveFolder}){
+  const od=useOneDrive();
+  const[sv,setSv]=useState(""); // "" | "saving" | "done" | error text
   if(!att||!att.url)return null;
+  const canSave=!!(saveFolder&&saveFolder.driveId&&od.isConnected&&att.kind!=="audio");
+  const doSave=async(e)=>{
+    e.preventDefault();e.stopPropagation();
+    if(sv==="saving"||sv==="done")return;
+    setSv("saving");
+    try{
+      const r=await fetch(att.url);
+      if(!r.ok)throw new Error("Couldn't download the attachment.");
+      const blob=await r.blob();
+      const file=new File([blob],att.name||"attachment",{type:att.mime||blob.type||"application/octet-stream"});
+      await od.uploadFile(saveFolder.driveId,saveFolder.id,file);
+      setSv("done");
+    }catch(err){setSv(err.message||"Save failed");setTimeout(()=>setSv(""),3500);}
+  };
+  const saveBtn=canSave?(
+    <button onClick={doSave} title={`Save into the property's Files folder${saveFolder.name?` (${saveFolder.name})`:""}`}
+      style={{marginTop:4,display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:12,border:`1px solid ${mine?"rgba(255,255,255,0.4)":T.gold}`,background:mine?"rgba(255,255,255,0.15)":T.goldLight,color:mine?"#fff":"#b8912e",fontSize:10.5,fontWeight:700,cursor:sv==="saving"||sv==="done"?"default":"pointer",fontFamily:"inherit"}}>
+      {sv==="done"?"✓ Saved to Files":sv==="saving"?"Saving…":sv?`⚠ ${sv}`:"💾 Save to Files"}
+    </button>
+  ):null;
   if(att.kind==="image")return(
-    <a href={att.url} target="_blank" rel="noreferrer" style={{display:"block",marginTop:6}}>
-      <img src={att.url} alt={att.name||"photo"} style={{maxWidth:220,maxHeight:260,width:"auto",borderRadius:10,display:"block",objectFit:"cover"}}/>
-    </a>
+    <div style={{marginTop:6}}>
+      <a href={att.url} target="_blank" rel="noreferrer" style={{display:"block"}}>
+        <img src={att.url} alt={att.name||"photo"} style={{maxWidth:220,maxHeight:260,width:"auto",borderRadius:10,display:"block",objectFit:"cover"}}/>
+      </a>
+      {saveBtn}
+    </div>
   );
   if(att.kind==="audio")return <audio src={att.url} controls preload="metadata" style={{marginTop:6,maxWidth:240,width:240,height:40}}/>;
   const isPdf=(att.mime||"").includes("pdf")||/\.pdf$/i.test(att.name||"");
   return(
-    <a href={att.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:8,marginTop:6,padding:"8px 10px",borderRadius:10,border:`1px solid ${mine?"rgba(255,255,255,0.35)":T.border}`,background:mine?"rgba(255,255,255,0.15)":T.bg,textDecoration:"none",color:mine?"#fff":T.text,maxWidth:240}}>
-      <span style={{fontSize:18,flexShrink:0}}>{isPdf?"📄":"📎"}</span>
-      <span style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{att.name||"Attachment"}</span>
-    </a>
+    <div style={{marginTop:6}}>
+      <a href={att.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:10,border:`1px solid ${mine?"rgba(255,255,255,0.35)":T.border}`,background:mine?"rgba(255,255,255,0.15)":T.bg,textDecoration:"none",color:mine?"#fff":T.text,maxWidth:240}}>
+        <span style={{fontSize:18,flexShrink:0}}>{isPdf?"📄":"📎"}</span>
+        <span style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{att.name||"Attachment"}</span>
+      </a>
+      {saveBtn}
+    </div>
   );
 }
 // Shared chat input: text + 📎 attach (photo/PDF) + 🎤 voice note (MediaRecorder)
@@ -8161,7 +8218,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                   <div style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`,opacity:selMode&&!picked?0.55:1}}>
                     {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                     {m.text}
-                    {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
+                    {m.attachment&&<MessageAttachment att={m.attachment} mine={mine} saveFolder={property.filesFolder||null}/>}
                   </div>
                 </div>
                 {/* Reply to THIS specific message (notifies its author) */}

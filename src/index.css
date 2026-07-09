@@ -43,3 +43,9 @@ input, select, textarea, button { font-size: 16px; }
   scrollbar-width: none;
 }
 .gs-scroll-x::-webkit-scrollbar { display: none; }
+
+/* Recording-indicator pulse (Goldstone Assistant voice capture) */
+@keyframes gsPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(255, 59, 48, 0); }
+}

@@ -290,8 +290,9 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
   const total = jobTotal(j), paid = jobPaid(j), left = jobLeft(j), days = jobDays(j);
   const jDocs = (docs || []).filter((d) => String(d.jobId) === String(j.id));
   const jTasks = (tasks || []).filter((t) => String(t.jobId) === String(j.id));
-  const toThem = jTasks.filter((t) => t.direction !== "to_team").sort((a, b) => (a.status === "Completed") - (b.status === "Completed"));
-  const fromThem = jTasks.filter((t) => t.direction === "to_team").sort((a, b) => (a.status === "Completed") - (b.status === "Completed"));
+  const closed = (s) => s === "Completed" || s === "N/A";
+  const toThem = jTasks.filter((t) => t.direction !== "to_team").sort((a, b) => closed(a.status) - closed(b.status));
+  const fromThem = jTasks.filter((t) => t.direction === "to_team").sort((a, b) => closed(a.status) - closed(b.status));
   const thread = (messages || []).filter((m) => String(m.jobId) === String(j.id)).sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
   const [tab2, setTab2] = useState("overview");
   const [coDraft, setCoDraft] = useState(null);
@@ -317,7 +318,22 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
   const addCO = async () => { const a = Number(numIn(coDraft.amount)); if (!a) return; await save("contractor_jobs", { ...j, changeOrders: [...(j.changeOrders || []), { id: Date.now(), label: coDraft.label.trim() || "Change order", amount: a, date: coDraft.date }] }); setCoDraft(null); notify(null, { toOrg: j.orgId, title: "Change order added", body: `${coDraft.label.trim() || "Change order"} — ${money(a)} · ${j.propertyAddress}` }); };
   const addPay = async () => { const a = Number(numIn(payDraft.amount)); if (!a) return; await save("contractor_jobs", { ...j, payments: [...(j.payments || []), { id: Date.now(), amount: a, date: payDraft.date, note: payDraft.note.trim() }] }); setPayDraft(null); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(a)} — ${j.propertyAddress}` }); };
   const addTask = async () => { const txt = taskDraft.trim(); if (!txt) return; await save("contractor_tasks", { id: Date.now(), jobId: j.id, orgId: j.orgId, text: txt, status: "Not Started", direction: "to_contractor", createdBy: displayName, createdAt: new Date().toISOString() }); setTaskDraft(""); notify(null, { toOrg: j.orgId, title: "New task from Goldstone", body: `${txt} — ${j.propertyAddress}` }); };
-  const toggleTask = async (t) => { const done = t.status !== "Completed"; await save("contractor_tasks", { ...t, status: done ? "Completed" : "Not Started", doneAt: done ? new Date().toISOString() : null, doneBy: done ? displayName : null }); };
+  const setTaskStatus = async (t, s) => {
+    if (s === (t.status || "Not Started")) return;
+    await save("contractor_tasks", { ...t, status: s, statusBy: displayName, doneAt: s === "Completed" ? new Date().toISOString() : null, doneBy: s === "Completed" ? displayName : null });
+    notify(null, { toOrg: t.orgId, title: "Task updated by Goldstone", body: `${t.text} — ${s}` });
+  };
+  const statusPill = (t) => {
+    const STS = ["Not Started", "In Progress", "Completed", "N/A"];
+    const v = STS.includes(t.status) ? t.status : "Not Started";
+    const c = v === "Completed" ? T.green : v === "In Progress" ? T.blue : v === "N/A" ? "#6b6b70" : T.textSub;
+    return (
+      <select value={v} onChange={(e) => setTaskStatus(t, e.target.value)} title="Change status"
+        style={{ padding: "3px 6px", borderRadius: 20, border: "none", background: c + "22", color: c, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+        {STS.map((s) => <option key={s} value={s}>{s}</option>)}
+      </select>
+    );
+  };
   const pickAtt = async (e) => {
     const file = (e.target.files || [])[0]; e.target.value = "";
     if (!file) return;
@@ -348,7 +364,7 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
   return (
     <Modal title={`${j.propertyAddress}${j.title ? ` — ${j.title}` : ""}`} width={640} onClose={onClose}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {[["overview", "Overview"], ["tasks", `Tasks${jTasks.length ? ` (${jTasks.filter(t => t.status !== "Completed").length})` : ""}`], ["messages", `Messages${thread.length ? ` (${thread.length})` : ""}`]].map(([k, l]) => (
+        {[["overview", "Overview"], ["tasks", `Tasks${jTasks.length ? ` (${jTasks.filter(t => !closed(t.status)).length})` : ""}`], ["messages", `Messages${thread.length ? ` (${thread.length})` : ""}`]].map(([k, l]) => (
           <button key={k} onClick={() => setTab2(k)} style={{ padding: "7px 15px", borderRadius: 18, border: `1px solid ${tab2 === k ? T.gold : T.border}`, background: tab2 === k ? T.goldLight : "#fff", color: tab2 === k ? "#8a6d1f" : T.textSub, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
         ))}
         <div style={{ flex: 1 }} />
@@ -424,10 +440,10 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
           </div>
           {toThem.map((t) => (
             <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
-              <input type="checkbox" checked={t.status === "Completed"} onChange={() => toggleTask(t)} style={{ width: 18, height: 18, marginTop: 1, accentColor: T.gold, cursor: "pointer", flexShrink: 0 }} />
+              {statusPill(t)}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, color: T.text, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: t.status === "Completed" ? 0.6 : 1 }}>{t.text}</div>
-                <div style={{ fontSize: 11, color: T.textTert }}>{t.status}{t.doneBy ? ` · ${t.doneBy}` : ""}</div>
+                <div style={{ fontSize: 13.5, color: T.text, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: closed(t.status) ? 0.6 : 1 }}>{t.text}</div>
+                <div style={{ fontSize: 11, color: T.textTert }}>{(t.statusBy || t.doneBy) ? `${t.status === "Completed" ? "✓ " : ""}${t.statusBy || t.doneBy}` : ""}</div>
               </div>
               {isAdmin && <button onClick={() => remove("contractor_tasks", t.id)} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>}
             </div>
@@ -438,10 +454,10 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
           {secHdr("Requests FROM them")}
           {fromThem.map((t) => (
             <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
-              <input type="checkbox" checked={t.status === "Completed"} onChange={() => toggleTask(t)} style={{ width: 18, height: 18, marginTop: 1, accentColor: T.blue, cursor: "pointer", flexShrink: 0 }} />
+              {statusPill(t)}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, color: T.text, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: t.status === "Completed" ? 0.6 : 1 }}>{t.text}</div>
-                <div style={{ fontSize: 11, color: T.textTert }}>from {t.createdBy || org?.name} · {fmtDate(t.createdAt)}</div>
+                <div style={{ fontSize: 13.5, color: T.text, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: closed(t.status) ? 0.6 : 1 }}>{t.text}</div>
+                <div style={{ fontSize: 11, color: T.textTert }}>from {t.createdBy || org?.name} · {fmtDate(t.createdAt)}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${t.statusBy || t.doneBy}` : ""}</div>
               </div>
             </div>
           ))}

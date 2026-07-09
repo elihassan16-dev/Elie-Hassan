@@ -9,8 +9,20 @@ import { T } from "../theme";
 import { notify, uploadAttachment, qbAuthFetch, uploadStreamVideo, STREAM_VIDEO_CAP } from "../net";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 
-const TASK_STATUSES = ["Not Started", "In Progress", "Completed"];
-const stColor = (s) => s === "Completed" ? T.green : s === "In Progress" ? T.blue : T.textSub;
+const TASK_STATUSES = ["Not Started", "In Progress", "Completed", "N/A"];
+const stColor = (s) => s === "Completed" ? T.green : s === "In Progress" ? T.blue : s === "N/A" ? "#6b6b70" : T.textSub;
+const taskClosed = (s) => s === "Completed" || s === "N/A";
+// Same status pill both sides use — a dropdown styled like the app's status chips.
+function StatusPill({ t, onSet }) {
+  const v = TASK_STATUSES.includes(t.status) ? t.status : "Not Started";
+  const c = stColor(v);
+  return (
+    <select value={v} onChange={(e) => onSet(t, e.target.value)} title="Change status"
+      style={{ padding: "3px 6px", borderRadius: 20, border: "none", background: c + "22", color: c, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+      {TASK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+    </select>
+  );
+}
 
 function useIsMobile(bp = 768) {
   const [m, setM] = useState(typeof window !== "undefined" ? window.innerWidth < bp : false);
@@ -254,10 +266,10 @@ export function ContractorPortal() {
   const [roster, setRoster] = useState([]); // Goldstone team names (via /api/team/roster)
   useEffect(() => { qbAuthFetch("/api/team/roster").then((d) => setRoster(d.names || [])).catch(() => {}); }, []);
   const toggleWho = (n) => setReqWho((p) => p.includes(n) ? p.filter((x) => x !== n) : [...p, n]);
-  const cycleStatus = async (t) => {
-    const next = TASK_STATUSES[(TASK_STATUSES.indexOf(t.status || "Not Started") + 1) % TASK_STATUSES.length];
-    await save("contractor_tasks", { ...t, status: next, doneAt: next === "Completed" ? new Date().toISOString() : null, doneBy: next === "Completed" ? displayName : null });
-    if (next === "Completed") notify(null, { toAdmins: true, title: `${org?.name || displayName} completed a task`, body: `${t.text} — ${selJob?.propertyAddress || ""}` });
+  const setTaskStatus = async (t, next) => {
+    if (next === (t.status || "Not Started")) return;
+    await save("contractor_tasks", { ...t, status: next, statusBy: displayName, doneAt: next === "Completed" ? new Date().toISOString() : null, doneBy: next === "Completed" ? displayName : null });
+    notify(null, { toAdmins: true, title: next === "Completed" ? `${org?.name || displayName} completed a task` : `${org?.name || displayName} updated a task`, body: `${t.text} — ${next} · ${selJob?.propertyAddress || ""}` });
   };
   const sendRequest = async () => {
     const txt = reqText.trim(); if (!txt || !selJob) return;
@@ -272,8 +284,8 @@ export function ContractorPortal() {
   };
   const tasksTab = (j) => {
     const jt = (tasks || []).filter((t) => t.orgId === contractorOrgId && String(t.jobId) === String(j.id));
-    const forUs = jt.filter((t) => t.direction !== "to_team").sort((a, b) => (a.status === "Completed") - (b.status === "Completed") || String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-    const toTeam = jt.filter((t) => t.direction === "to_team").sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    const forUs = jt.filter((t) => t.direction !== "to_team").sort((a, b) => taskClosed(a.status) - taskClosed(b.status) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    const toTeam = jt.filter((t) => t.direction === "to_team").sort((a, b) => taskClosed(a.status) - taskClosed(b.status) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
     return (
       <div style={{ padding: 14 }}>
         <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, overflow: "hidden", marginBottom: 14 }}>
@@ -281,10 +293,10 @@ export function ContractorPortal() {
           {forUs.length === 0 && <div style={{ padding: "6px 14px 16px", fontSize: 13, color: T.textTert }}>Nothing assigned on this job right now.</div>}
           {forUs.map((t) => (
             <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "11px 14px", borderTop: `1px solid ${T.border}` }}>
-              <button onClick={() => cycleStatus(t)} title="Tap to change status" style={{ padding: "3px 10px", borderRadius: 20, border: "none", background: stColor(t.status) + "22", color: stColor(t.status), fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, whiteSpace: "nowrap" }}>{t.status || "Not Started"}</button>
+              <StatusPill t={t} onSet={setTaskStatus} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: t.status === "Completed" ? 0.6 : 1 }}>{t.text}</div>
-                <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdBy ? `from ${t.createdBy.split(" ")[0]} · ` : ""}{t.createdAt ? fmtDate(t.createdAt) : ""}{t.status === "Completed" && t.doneBy ? ` · ✓ ${t.doneBy.split(" ")[0]}` : ""}</div>
+                <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: taskClosed(t.status) ? 0.6 : 1 }}>{t.text}</div>
+                <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdBy ? `from ${t.createdBy.split(" ")[0]} · ` : ""}{t.createdAt ? fmtDate(t.createdAt) : ""}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${(t.statusBy || t.doneBy).split(" ")[0]}` : ""}</div>
               </div>
             </div>
           ))}
@@ -306,9 +318,10 @@ export function ContractorPortal() {
           </div>
           {toTeam.map((t) => (
             <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "11px 14px", borderTop: `1px solid ${T.border}` }}>
+              <StatusPill t={t} onSet={setTaskStatus} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: t.status === "Completed" ? 0.6 : 1 }}>{t.text}</div>
-                <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdAt ? fmtDate(t.createdAt) : ""}{t.status === "Completed" ? " · ✓ done" : ""}</div>
+                <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: taskClosed(t.status) ? 0.6 : 1 }}>{t.text}</div>
+                <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdAt ? fmtDate(t.createdAt) : ""}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${(t.statusBy || t.doneBy).split(" ")[0]}` : ""}</div>
               </div>
             </div>
           ))}
@@ -411,7 +424,7 @@ export function ContractorPortal() {
                 const on = String(selJobId) === String(j.id);
                 const days = jobDays(j);
                 const un = unreadFor(j.id);
-                const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.direction !== "to_team" && t.status !== "Completed").length;
+                const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.direction !== "to_team" && !taskClosed(t.status)).length;
                 return (
                   <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setStatusOpen(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -477,7 +490,7 @@ export function ContractorPortal() {
                   )}
                 </div>
                 {tab === "messages" && (() => {
-                  const openTasks = (tasks || []).filter((t) => String(t.jobId) === String(selJob.id) && t.status !== "Completed");
+                  const openTasks = (tasks || []).filter((t) => String(t.jobId) === String(selJob.id) && !taskClosed(t.status));
                   return (
                   <div style={{ background: T.card, borderTop: `1px solid ${T.border}`, padding: "10px 12px max(10px,env(safe-area-inset-bottom))", flexShrink: 0 }}>
                     {openTasks.length > 0 && (

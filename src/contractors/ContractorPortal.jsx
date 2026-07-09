@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { T } from "../theme";
-import { notify, uploadAttachment } from "../net";
+import { notify, uploadAttachment, qbAuthFetch } from "../net";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 
 const TASK_STATUSES = ["Not Started", "In Progress", "Completed"];
@@ -110,6 +110,12 @@ export function ContractorPortal() {
                 return <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: fg, background: bg, borderRadius: 14, padding: "4px 10px" }}>{icon} {label}: {txt}</span>;
               })}
             </div>
+            {/* Property info Goldstone shares: block/lot, lockbox, and a Maps link */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9, alignItems: "center" }}>
+              {st.info?.parcel && <span style={{ fontSize: 11, fontWeight: 700, color: T.text, background: T.bg, borderRadius: 14, padding: "4px 10px" }}>📐 Block/Lot: {st.info.parcel}</span>}
+              {st.info?.lockbox && <span style={{ fontSize: 11, fontWeight: 700, color: T.text, background: T.bg, borderRadius: 14, padding: "4px 10px" }}>🔒 Lockbox: {st.info.lockbox}</span>}
+              <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(st.address || j.propertyAddress || "")}`} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.blue, borderRadius: 14, padding: "4px 10px", textDecoration: "none" }}>📍 Google Maps</a>
+            </div>
           </div>
         )}
         <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "14px 16px" }}>
@@ -159,6 +165,10 @@ export function ContractorPortal() {
 
   // ── Tasks tab (scoped to the open job) ──────────────────────────────────────
   const [reqText, setReqText] = useState("");
+  const [reqWho, setReqWho] = useState([]); // Goldstone names the request is aimed at ([] = everyone)
+  const [roster, setRoster] = useState([]); // Goldstone team names (via /api/team/roster)
+  useEffect(() => { qbAuthFetch("/api/team/roster").then((d) => setRoster(d.names || [])).catch(() => {}); }, []);
+  const toggleWho = (n) => setReqWho((p) => p.includes(n) ? p.filter((x) => x !== n) : [...p, n]);
   const cycleStatus = async (t) => {
     const next = TASK_STATUSES[(TASK_STATUSES.indexOf(t.status || "Not Started") + 1) % TASK_STATUSES.length];
     await save("contractor_tasks", { ...t, status: next, doneAt: next === "Completed" ? new Date().toISOString() : null, doneBy: next === "Completed" ? displayName : null });
@@ -166,9 +176,14 @@ export function ContractorPortal() {
   };
   const sendRequest = async () => {
     const txt = reqText.trim(); if (!txt || !selJob) return;
-    await save("contractor_tasks", { id: Date.now(), jobId: selJob.id, orgId: contractorOrgId, text: txt, status: "Not Started", direction: "to_team", createdBy: displayName, createdAt: new Date().toISOString() });
-    setReqText("");
-    notify(null, { toAdmins: true, title: `Task request from ${org?.name || displayName}`, body: `${txt} — ${selJob.propertyAddress}` });
+    await save("contractor_tasks", { id: Date.now(), jobId: selJob.id, orgId: contractorOrgId, text: txt, status: "Not Started", direction: "to_team", createdBy: displayName, createdAt: new Date().toISOString(), askedOf: reqWho });
+    setReqText(""); setReqWho([]);
+    // Aimed at specific people → alert just them; otherwise the whole team.
+    const title = `Task request from ${org?.name || displayName}`;
+    const body = `${txt} — ${selJob.propertyAddress}`;
+    if (reqWho.length) notify(reqWho, { title, body });
+    else if (roster.length) notify(roster, { title, body });
+    else notify(null, { toAdmins: true, title, body });
   };
   const tasksTab = (j) => {
     const jt = (tasks || []).filter((t) => t.orgId === contractorOrgId && String(t.jobId) === String(j.id));
@@ -191,6 +206,15 @@ export function ContractorPortal() {
         </div>
         <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, overflow: "hidden" }}>
           <div style={{ padding: "11px 14px", fontSize: 12, fontWeight: 800, color: T.blue, textTransform: "uppercase", letterSpacing: "0.05em" }}>Ask Goldstone for something</div>
+          {roster.length > 0 && (
+            <div style={{ padding: "0 14px 8px", display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: T.textTert, fontWeight: 700 }}>Who are you asking?</span>
+              <button onClick={() => setReqWho([])} style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 11px", borderRadius: 16, border: `1px solid ${reqWho.length === 0 ? T.gold : T.border}`, background: reqWho.length === 0 ? T.goldLight : "#fff", color: reqWho.length === 0 ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit" }}>{reqWho.length === 0 ? "✓ " : ""}Everyone</button>
+              {roster.map((n) => { const on = reqWho.includes(n); return (
+                <button key={n} onClick={() => toggleWho(n)} style={{ fontSize: 11.5, fontWeight: on ? 700 : 600, padding: "4px 11px", borderRadius: 16, border: `1px solid ${on ? T.gold : T.border}`, background: on ? T.goldLight : "#fff", color: on ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit" }}>{on ? "✓ " : ""}{n.split(" ")[0]}</button>
+              ); })}
+            </div>
+          )}
           <div style={{ padding: "0 14px 12px", display: "flex", gap: 8 }}>
             <input value={reqText} onChange={(e) => setReqText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendRequest()} placeholder="Materials, a decision, a payment…" style={{ flex: 1, minWidth: 0, padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, fontSize: 13.5, fontFamily: "inherit", outline: "none" }} />
             <button onClick={sendRequest} disabled={!reqText.trim()} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: reqText.trim() ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 13, cursor: reqText.trim() ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>Send</button>

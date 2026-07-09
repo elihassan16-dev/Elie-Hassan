@@ -20,7 +20,9 @@ async function readBody(req) {
 const SYSTEM = `You are the AI assistant for Goldstone Properties, a New Jersey real-estate flipping company. You can see the whole portfolio: every property (info, financials, computed profit, tasks, buyer) plus the contact directory and the team.
 Answering questions: use ONLY the data provided. Be direct and brief — lead with the answer (a code, a number, a name, a phone number), then at most a sentence of context. Format money as dollars. If the data doesn't contain the answer, say plainly it isn't in the records — never guess or invent figures.
 Creating tasks: when the user asks you to create/add tasks, call the propose_tasks tool. Pick the propertyId from the property list by matching the address the user mentions (use "office" only for company work not tied to a property). Write each task short and actionable. For assignee (owner) and delegate use EXACT names from the team list, only when the user says or clearly implies who; otherwise leave them empty. Never make someone both assignee and delegate of the same task. If you can't tell which property they mean, ask instead of guessing.
-Creating leads: when the user pastes deal info (a text, email, or blast from a wholesaler/agent) and asks to make a lead, call the propose_lead tool. Extract ONLY facts actually present — leave every unknown field as an empty string, never infer or pad. Ignore marketing fluff, greetings, and disclaimers. Number fields (askingPrice, beds, baths, sqft, yearBuilt): digits only, no $ signs or commas. Put genuinely useful extras that don't fit a field (claimed ARV, rehab estimate, occupancy, access/showing instructions, deadline pressure) into notes as short plain lines. If a lead for that address already exists in the data, say so instead of proposing a duplicate. If there's no address at all, ask for it.`;
+Creating leads: when the user pastes deal info (a text, email, or blast from a wholesaler/agent) and asks to make a lead, call the propose_lead tool. Extract ONLY facts actually present — leave every unknown field as an empty string, never infer or pad. Ignore marketing fluff, greetings, and disclaimers.
+NEVER miss a price. Wholesalers word the asking price many ways — "asking", "price", "take", "all in", "looking for", "need", or just a bare number like "$525k" — whatever they want for the deal goes in askingPrice. Their claimed after-repair value ("ARV", "resale", "worth fixed up", "comps at") goes in arv. Their claimed rehab number goes in rehabEstimate. Write every money/number field as the full plain number ("525000", never "525k", no $ signs or commas).
+Put genuinely useful extras that fit no field (occupancy, access/showing instructions, deadline pressure, their rehab scope claims) into notes as short plain lines. If a lead for that address already exists in the data, say so instead of proposing a duplicate. If there's no address at all, ask for it.`;
 
 export default async function handler(req, res) {
   if (req.method !== "POST") { res.status(405).json({ error: "POST only" }); return; }
@@ -85,7 +87,9 @@ export default async function handler(req, res) {
             sellerPhone: { type: "string" },
             sellerEmail: { type: "string" },
             source: { type: "string", description: "Where the lead came from, e.g. wholesaler name/company, 'text blast'" },
-            askingPrice: { type: "string", description: "Digits only" },
+            askingPrice: { type: "string", description: "The price they want for the deal ('asking', 'price', 'take', 'looking for'…). Full plain number, e.g. 525000 — never 525k, no $ or commas" },
+            arv: { type: "string", description: "Their claimed ARV / after-repair / resale value if stated. Full plain number" },
+            rehabEstimate: { type: "string", description: "Their claimed rehab/construction number if stated. Full plain number" },
             closingTarget: { type: "string", description: "Requested/target closing timeframe if stated" },
             type: { type: "string", description: "Property type, e.g. Single Family, Duplex" },
             beds: { type: "string", description: "Digits only" },
@@ -124,10 +128,20 @@ export default async function handler(req, res) {
     if (!action && lu) {
       const s = (v) => String(v ?? "").trim();
       const digits = (v) => s(v).replace(/[^0-9.]/g, "");
+      // Money values may still arrive as "525k" / "$1.2M" / "525,000" — expand the
+      // shorthand instead of stripping it into a wrong number ("525k" ≠ 525).
+      const money = (v) => {
+        const raw = s(v).toLowerCase().replace(/[$,\s]/g, "");
+        const m = raw.match(/^([0-9]*\.?[0-9]+)(k|m|mm)?$/);
+        if (!m) return digits(v);
+        const n = parseFloat(m[1]) * (m[2] === "k" ? 1e3 : m[2] ? 1e6 : 1);
+        return Number.isFinite(n) ? String(Math.round(n)) : "";
+      };
       const lead = {
         address: s(lu.input?.address), city: s(lu.input?.city), state: s(lu.input?.state).toUpperCase().slice(0, 2), zip: s(lu.input?.zip),
         sellerName: s(lu.input?.sellerName), sellerPhone: s(lu.input?.sellerPhone), sellerEmail: s(lu.input?.sellerEmail),
-        source: s(lu.input?.source), askingPrice: digits(lu.input?.askingPrice), closingTarget: s(lu.input?.closingTarget),
+        source: s(lu.input?.source), askingPrice: money(lu.input?.askingPrice), arv: money(lu.input?.arv),
+        rehabEstimate: money(lu.input?.rehabEstimate), closingTarget: s(lu.input?.closingTarget),
         type: s(lu.input?.type), beds: digits(lu.input?.beds), baths: digits(lu.input?.baths), sqft: digits(lu.input?.sqft),
         yearBuilt: digits(lu.input?.yearBuilt), condition: s(lu.input?.condition), notes: s(lu.input?.notes),
       };

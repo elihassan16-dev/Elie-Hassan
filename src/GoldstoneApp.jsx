@@ -4551,6 +4551,9 @@ function GlobalAiChat({onClose}){
       const L=a.lead;
       const nl=mkLead({address:L.address,city:L.city,state:L.state||"NJ",zip:L.zip,notes:L.notes||""});
       nl.info={...nl.info,sellerName:L.sellerName||"",sellerPhone:L.sellerPhone||"",sellerEmail:L.sellerEmail||"",source:L.source||"",askingPrice:L.askingPrice||"",closingTarget:L.closingTarget||"",type:L.type||"",beds:L.beds||"",baths:L.baths||"",sqft:L.sqft||"",yearBuilt:L.yearBuilt||"",condition:L.condition||""};
+      // Their claimed numbers seed the underwriting as a starting point (visible on
+      // the review card): ARV → Sale Price, their rehab # → Rehab Costs.
+      if(L.arv||L.rehabEstimate)nl.financials={...nl.financials,...(L.arv?{salePrice:L.arv}:{}),...(L.rehabEstimate?{rehabCosts:L.rehabEstimate}:{})};
       setLeads(prev=>[...prev,nl]);
     }else{
       const base=Date.now();
@@ -4600,7 +4603,7 @@ function GlobalAiChat({onClose}){
                     : <button onClick={()=>applyAction(i)} style={{marginTop:9,width:"100%",padding:"9px",borderRadius:10,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Add {m.action.tasks.length===1?"this task":"these tasks"}</button>}
                 </div>
               )}
-              {m.action&&m.action.type==="lead"&&(()=>{const L=m.action.lead;const rows=[["Address",`${L.address}${L.city?`, ${L.city}`:""}${L.state?`, ${L.state}`:""}${L.zip?` ${L.zip}`:""}`],["Seller",L.sellerName],["Phone",L.sellerPhone],["Email",L.sellerEmail],["Source",L.source],["Asking",L.askingPrice?`$${Number(L.askingPrice).toLocaleString()}`:""],["Closing",L.closingTarget],["Type",L.type],["Beds / Baths",[L.beds,L.baths].filter(Boolean).join(" / ")],["Sqft",L.sqft],["Year built",L.yearBuilt],["Condition",L.condition]].filter(([,v])=>v);return(
+              {m.action&&m.action.type==="lead"&&(()=>{const L=m.action.lead;const $=(v)=>v?`$${Number(v).toLocaleString()}`:"";const rows=[["Address",`${L.address}${L.city?`, ${L.city}`:""}${L.state?`, ${L.state}`:""}${L.zip?` ${L.zip}`:""}`],["Seller",L.sellerName],["Phone",L.sellerPhone],["Email",L.sellerEmail],["Source",L.source],["Asking",$(L.askingPrice)],["Their ARV",L.arv?`${$(L.arv)} → fills Sale Price`:""],["Their rehab #",L.rehabEstimate?`${$(L.rehabEstimate)} → fills Rehab Costs`:""],["Closing",L.closingTarget],["Type",L.type],["Beds / Baths",[L.beds,L.baths].filter(Boolean).join(" / ")],["Sqft",L.sqft],["Year built",L.yearBuilt],["Condition",L.condition]].filter(([,v])=>v);return(
                 <div style={{border:`1.5px solid ${T.gold}`,borderRadius:14,background:T.goldLight,padding:"11px 13px"}}>
                   <div style={{fontSize:12,fontWeight:800,color:"#b8912e",marginBottom:7}}>🏠 New lead</div>
                   {rows.map(([k,v])=>(

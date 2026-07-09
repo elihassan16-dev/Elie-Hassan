@@ -4764,14 +4764,20 @@ function PropertyStatusBoard({property,onClose}){
     return[...internal,...ext];
   },[property,ctrJobs,ctrTasks]);
   const inferred=(u)=>doneTexts.some(x=>UTIL_RX[u].test(x))||doneTexts.some(x=>/utilit/i.test(x));
-  const write=async(patch)=>{try{await ctrSave("site_status",{...st,...patch,address:`${property.address}${property.city?`, ${property.city}`:""}`,updatedAt:new Date().toISOString(),updatedBy:currentUser||""});}catch(ex){setErr(ex.message||"Save failed.");}};
+  // Info the contractor portal mirrors (they can't read the property itself):
+  // block/lot (parcel) + lockbox code, synced whenever this board opens or writes.
+  const pi=property.propertyInfo||{};
+  const infoNow={parcel:pi.parcel||"",lockbox:pi.lockboxCode||""};
+  const write=async(patch)=>{try{await ctrSave("site_status",{...st,...patch,address:`${property.address}${property.city?`, ${property.city}`:""}`,info:infoNow,updatedAt:new Date().toISOString(),updatedBy:currentUser||""});}catch(ex){setErr(ex.message||"Save failed.");}};
   // Write-behind once per open: any utility a completed task implies (and nobody
-  // set explicitly) is persisted ON so contractor portals show the same thing.
+  // set explicitly) is persisted ON, and the info snapshot is kept fresh — so
+  // contractor portals show the same thing.
   useEffect(()=>{
     if(siteStatus===null)return; // wait for load
     const ups={},auto={};
     UTIL_DEFS.forEach(([u])=>{if(!(st.utilities||{})[u]&&inferred(u)){ups[u]="on";auto[u]=true;}});
-    if(Object.keys(ups).length)write({utilities:{...(st.utilities||{}),...ups},utilitiesAuto:{...(st.utilitiesAuto||{}),...auto}});
+    const infoStale=row&&JSON.stringify(row.info||{})!==JSON.stringify(infoNow);
+    if(Object.keys(ups).length||infoStale)write({utilities:{...(st.utilities||{}),...ups},utilitiesAuto:{...(st.utilitiesAuto||{}),...auto}});
   },[siteStatus===null]); // eslint-disable-line react-hooks/exhaustive-deps
   const effUtil=(u)=>(st.utilities||{})[u]||(inferred(u)?"on":"off");
   const setUtil=(u,v)=>write({utilities:{...(st.utilities||{}),[u]:v},utilitiesAuto:{...(st.utilitiesAuto||{}),[u]:false}});
@@ -6628,6 +6634,45 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
   );
 }
 
+// 👷 All requests FROM contractors in one place (Tasks page banner → this popup):
+// who's asking, which property, who it's aimed at. Checkbox completes; 💬 opens
+// the external/internal task chat.
+function ExternalRequestsPopup({requests,onToggle,onChat,onClose}){
+  const fmtD2=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(560px,94vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,background:"#FFF9EC",flexShrink:0}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:800,color:T.text}}>👷 External requests</div>
+            <div style={{fontSize:11.5,color:"#8a6d1f"}}>Everything your contractors have asked Goldstone for</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div style={{flex:1,overflowY:"auto"}}>
+          {requests.length===0&&<div style={{padding:"30px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No requests from contractors yet.</div>}
+          {requests.map(({t,job,orgName,addr})=>(
+            <div key={t.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"12px 16px",borderBottom:`1px solid ${T.border}`,opacity:t.status==="Completed"?0.55:1}}>
+              <input type="checkbox" checked={t.status==="Completed"} onChange={()=>onToggle(t)} style={{width:18,height:18,marginTop:2,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13.5,color:T.text,lineHeight:1.45,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text}</div>
+                <div style={{fontSize:11,color:T.textSub,marginTop:3,display:"flex",flexWrap:"wrap",gap:"2px 10px"}}>
+                  <span style={{fontWeight:700,color:"#8a6d1f"}}>👷 {orgName}</span>
+                  <span>{addr}</span>
+                  <span>asked by {t.createdBy||orgName}</span>
+                  <span style={{fontWeight:700,color:T.blue}}>→ {t.askedOf&&t.askedOf.length?t.askedOf.map(n=>n.split(" ")[0]).join(", "):"everyone"}</span>
+                  {t.createdAt&&<span>{fmtD2(t.createdAt)}</span>}
+                </div>
+              </div>
+              <button onClick={()=>onChat({task:t,job})} title="Message about this — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // The full task list for ONE property — identical rows/graphics/options to the Tasks
 // tab (status picker, owner→delegate avatars, delegate "to/for" tags, contact 👤 and
 // message 💬 buttons, assign & delegate popup). Reused inside the property detail so
@@ -6820,6 +6865,17 @@ function TasksPage({onNavigate}){
     const done=t.status!=="Completed";
     try{await ctrSave("contractor_tasks",{...t,status:done?"Completed":"Not Started",doneAt:done?new Date().toISOString():null,doneBy:done?CURRENT_USER:null});}catch{/* keep UI */}
   };
+  // Every request FROM contractors, newest first, open before done — the banner
+  // above the task groups opens these in one list regardless of property.
+  const[extReqOpen,setExtReqOpen]=useState(false);
+  const extRequests=useMemo(()=>{
+    const jobById=new Map((ctrJobs||[]).map(j=>[String(j.id),j]));
+    return (ctrTasks||[]).filter(t=>t.direction==="to_team").map(t=>{
+      const job=jobById.get(String(t.jobId));
+      return job?{t,job,orgName:ctrOrgName(job.orgId),addr:job.propertyAddress||""}:null;
+    }).filter(Boolean).sort((a,b)=>(a.t.status==="Completed")-(b.t.status==="Completed")||String(b.t.createdAt||"").localeCompare(String(a.t.createdAt||"")));
+  },[ctrJobs,ctrTasks,ctrOrgs]); // eslint-disable-line react-hooks/exhaustive-deps
+  const openExtCount=extRequests.filter(r=>r.t.status!=="Completed").length;
   // Per-user "send this property to the bottom" order (synced in prefs, personal —
   // doesn't reorder the list for teammates). Map of propId -> when it was pushed.
   const propPushOrder=prefs.propPushOrder||{};
@@ -7296,6 +7352,19 @@ function TasksPage({onNavigate}){
               </div>
             )}
 
+            {/* External requests banner — every ask from every contractor, one tap away */}
+            {extRequests.length>0&&(
+              <button onClick={()=>setExtReqOpen(true)} style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"12px 14px",marginBottom:14,borderRadius:T.radius,border:`1.5px solid ${T.gold}`,background:"#FFF9EC",cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,textAlign:"left"}}>
+                <span style={{fontSize:20,flexShrink:0}}>👷</span>
+                <span style={{flex:1,minWidth:0}}>
+                  <span style={{display:"block",fontSize:13.5,fontWeight:800,color:T.text}}>External requests</span>
+                  <span style={{display:"block",fontSize:11.5,color:"#8a6d1f"}}>{openExtCount?`${openExtCount} open request${openExtCount!==1?"s":""} from your contractors`:"All handled — tap to review"}</span>
+                </span>
+                {openExtCount>0&&<span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:10,background:T.red,color:"#fff",fontSize:11.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{openExtCount}</span>}
+                <span style={{fontSize:15,color:"#8a6d1f",flexShrink:0}}>›</span>
+              </button>
+            )}
+            {extReqOpen&&<ExternalRequestsPopup requests={extRequests} onToggle={toggleExtTask} onChat={(x)=>setExtChat(x)} onClose={()=>setExtReqOpen(false)}/>}
             {/* Group by property, then apply my personal "sent to bottom" order:
                 pushed properties sink below the rest, most-recently-pushed last. */}
             {Object.entries(filteredDisplay.reduce((acc,t)=>{(acc[t.propAddr]=acc[t.propAddr]||[]).push(t);return acc;},{}))
@@ -7345,7 +7414,7 @@ function TasksPage({onNavigate}){
                         <input type="checkbox" checked={t.status==="Completed"} onChange={()=>toggleExtTask(t)} style={{width:17,height:17,marginTop:1,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:t.status==="Completed"?0.6:1}}>{t.text}</div>
-                          <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}`:t.status}{t.doneBy?` · ${t.doneBy}`:""}</div>
+                          <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}${t.askedOf&&t.askedOf.length?` → ${t.askedOf.map(n=>n.split(" ")[0]).join(", ")}`:" → everyone"}`:t.status}{t.doneBy?` · ${t.doneBy}`:""}</div>
                         </div>
                         <button onClick={()=>setExtChat({task:t,job})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
                       </div>

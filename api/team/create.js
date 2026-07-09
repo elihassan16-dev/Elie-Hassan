@@ -3,10 +3,12 @@ import { createTeamMember } from "../../lib/team.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed." }); return; }
-  const user = await requireAppUser(req);
-  if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
-  if (!(await isAdminUser(user.id))) { res.status(403).json({ error: "Only an admin can add teammates." }); return; }
   try {
+    const user = await requireAppUser(req);
+    if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
+    // isAdminUser needs the service-role key — inside the try so a missing env
+    // var (e.g. not enabled for Vercel Preview) returns a readable error, not a 500.
+    if (!(await isAdminUser(user.id))) { res.status(403).json({ error: "Only an admin can add teammates." }); return; }
     const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
     const name = (body.name || "").trim();
     const email = (body.email || "").trim().toLowerCase();

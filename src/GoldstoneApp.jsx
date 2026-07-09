@@ -4742,6 +4742,95 @@ function GlobalAiChat({onClose}){
   );
 }
 
+// 🏗 Property Status board — utilities on/off + permit states, stored in the
+// shared site_status table so every contractor working the property sees the
+// exact same board in their portal (read-only there; team edits here).
+// Utilities auto-flip ON when a completed task (internal or contractor) mentions
+// them — shown with an "auto" chip; a tap overrides either way.
+const UTIL_DEFS=[["electric","⚡","Electric"],["gas","🔥","Gas"],["water","💧","Water"]];
+const PERMIT_DEFS=[["building","🏗","Building"],["plumbing","🚿","Plumbing"],["mechanical","❄️","Mechanical"],["electrical","⚡","Electrical"]];
+const UTIL_RX={electric:/\belectric/i,gas:/\bgas\b/i,water:/\bwater\b/i};
+function PropertyStatusBoard({property,onClose}){
+  const{currentUser}=useData()||{};
+  const{jobs:ctrJobs,tasks:ctrTasks,siteStatus,save:ctrSave}=useContractorData();
+  const row=(siteStatus||[]).find(s=>String(s.id)===String(property.id))||null;
+  const st=row||{id:String(property.id),address:`${property.address}${property.city?`, ${property.city}`:""}`,utilities:{},utilitiesAuto:{},permits:{}};
+  const[err,setErr]=useState("");
+  // Completed task texts — internal tasks + this property's contractor tasks.
+  const doneTexts=useMemo(()=>{
+    const internal=(property.tasks||[]).filter(t=>t.status==="Completed").map(t=>t.text||"");
+    const jobIds=new Set((ctrJobs||[]).filter(j=>String(j.propertyId)===String(property.id)).map(j=>String(j.id)));
+    const ext=(ctrTasks||[]).filter(t=>jobIds.has(String(t.jobId))&&t.status==="Completed").map(t=>t.text||"");
+    return[...internal,...ext];
+  },[property,ctrJobs,ctrTasks]);
+  const inferred=(u)=>doneTexts.some(x=>UTIL_RX[u].test(x))||doneTexts.some(x=>/utilit/i.test(x));
+  const write=async(patch)=>{try{await ctrSave("site_status",{...st,...patch,address:`${property.address}${property.city?`, ${property.city}`:""}`,updatedAt:new Date().toISOString(),updatedBy:currentUser||""});}catch(ex){setErr(ex.message||"Save failed.");}};
+  // Write-behind once per open: any utility a completed task implies (and nobody
+  // set explicitly) is persisted ON so contractor portals show the same thing.
+  useEffect(()=>{
+    if(siteStatus===null)return; // wait for load
+    const ups={},auto={};
+    UTIL_DEFS.forEach(([u])=>{if(!(st.utilities||{})[u]&&inferred(u)){ups[u]="on";auto[u]=true;}});
+    if(Object.keys(ups).length)write({utilities:{...(st.utilities||{}),...ups},utilitiesAuto:{...(st.utilitiesAuto||{}),...auto}});
+  },[siteStatus===null]); // eslint-disable-line react-hooks/exhaustive-deps
+  const effUtil=(u)=>(st.utilities||{})[u]||(inferred(u)?"on":"off");
+  const setUtil=(u,v)=>write({utilities:{...(st.utilities||{}),[u]:v},utilitiesAuto:{...(st.utilitiesAuto||{}),[u]:false}});
+  const setPermit=(k,v)=>write({permits:{...(st.permits||{}),[k]:v}});
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:420,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(500px,94vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,background:T.goldLight,flexShrink:0}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:800,color:T.text}}>🏗 Property Status</div>
+            <div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{property.address}{property.city?`, ${property.city}`:""} · contractors on this property see this board</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div style={{padding:"16px 18px",overflowY:"auto"}}>
+          {err&&<div onClick={()=>setErr("")} style={{fontSize:12.5,color:T.red,marginBottom:10,cursor:"pointer"}}>{err}</div>}
+          <div style={{fontSize:11,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Utilities</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+            {UTIL_DEFS.map(([u,icon,label])=>{
+              const on=effUtil(u)==="on";
+              const auto=!!(st.utilitiesAuto||{})[u]&&on;
+              return(
+                <button key={u} onClick={()=>setUtil(u,on?"off":"on")} style={{padding:"14px 8px 12px",borderRadius:14,border:`1.5px solid ${on?T.green:T.border}`,background:on?"#EDFBF1":T.bg,cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
+                  <span style={{fontSize:24,filter:on?"none":"grayscale(1)",opacity:on?1:0.55}}>{icon}</span>
+                  <span style={{fontSize:12.5,fontWeight:700,color:T.text}}>{label}</span>
+                  <span style={{fontSize:10.5,fontWeight:800,color:on?"#15803D":T.textSub,background:on?"#D3F3DD":"#E9E9EE",borderRadius:12,padding:"2px 10px",letterSpacing:"0.04em"}}>{on?"ON":"OFF"}</span>
+                  {auto&&<span title="Flipped on automatically because a completed task mentioned it" style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,borderRadius:10,padding:"1px 7px"}}>auto ✓ task</span>}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{fontSize:10.5,color:T.textTert,marginTop:6}}>Tap to flip. Utilities turn on automatically when a completed task mentions them.</div>
+          <div style={{fontSize:11,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",margin:"18px 0 8px"}}>Permits</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {PERMIT_DEFS.map(([k,icon,label])=>{
+              const v=(st.permits||{})[k]||"";
+              const seg=(val,txt,onBg,onFg)=>(
+                <button key={val} onClick={()=>setPermit(k,v===val?"":val)} style={{flex:1,padding:"7px 4px",borderRadius:10,border:`1px solid ${v===val?onFg:T.border}`,background:v===val?onBg:"#fff",color:v===val?onFg:T.textSub,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{txt}</button>
+              );
+              return(
+                <div key={k} style={{display:"flex",alignItems:"center",gap:10,background:T.bg,borderRadius:12,padding:"9px 12px"}}>
+                  <span style={{fontSize:17,flexShrink:0}}>{icon}</span>
+                  <span style={{fontSize:13,fontWeight:700,color:T.text,width:86,flexShrink:0}}>{label}</span>
+                  <div style={{flex:1,display:"flex",gap:6}}>
+                    {seg("yes","Filed ✓","#EDFBF1","#15803D")}
+                    {seg("no","Not filed","#FFF0EF",T.red)}
+                    {seg("na","Not needed","#E9E9EE","#6b6b70")}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {row&&row.updatedAt&&<div style={{fontSize:10.5,color:T.textTert,marginTop:14,textAlign:"right"}}>Updated {new Date(row.updatedAt).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}{row.updatedBy?` by ${row.updatedBy}`:""}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const { contacts: CONTACTS, teamMembers: TEAM_MEMBERS } = useData();
   const isMobile=useIsMobile();
@@ -4749,6 +4838,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const[taskPopup,setTaskPopup]=useState(null);
   const[showInfo,setShowInfo]=useState(false); // Property Info popup
   const[aiChat,setAiChat]=useState(false); // ✨ ask-AI-about-this-property popup
+  const[statusBoard,setStatusBoard]=useState(false); // 🏗 utilities + permits board
   // Showings tab only shows while the property is actively On Market / In Closing.
   const showShowings=property.status==="On Market"||property.status==="In Closing";
   // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.
@@ -4788,6 +4878,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
             <button onClick={()=>setShowInfo(true)} title="Property info" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,cursor:"pointer",fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>i</button>
             {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>💬</button>}
             <button onClick={()=>setAiChat(true)} title="Ask AI about this property" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✨</button>
+            <button onClick={()=>setStatusBoard(true)} title="Property status — utilities & permits (contractors see this too)" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>🏗</button>
           </div>
           {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
@@ -4815,6 +4906,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           the selected tab itself is kept because `tab` lives on PropDetail. */}
       <div key={property.id} style={{flex:1,overflowY:"auto"}}>
         {aiChat&&<PropertyAiChat property={property} onClose={()=>setAiChat(false)}/>}
+        {statusBoard&&<PropertyStatusBoard property={property} onClose={()=>setStatusBoard(false)}/>}
         {tab==="Financial Overview"&&<FinOverview property={property} onUpdate={onUpdate}/>}
         {showInfo&&(()=>{
           const pi=property.propertyInfo;

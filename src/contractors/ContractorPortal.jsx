@@ -26,9 +26,13 @@ function Att({ att }) {
   return <a href={att.url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, padding: "8px 10px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, textDecoration: "none", color: T.text, maxWidth: 240 }}><span style={{ fontSize: 18 }}>📄</span><span style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name || "Attachment"}</span></a>;
 }
 
+const UTIL_DEFS = [["electric", "⚡", "Electric"], ["gas", "🔥", "Gas"], ["water", "💧", "Water"]];
+const PERMIT_DEFS = [["building", "🏗", "Building"], ["plumbing", "🚿", "Plumbing"], ["mechanical", "❄️", "Mechanical"], ["electrical", "⚡", "Electrical"]];
+const PERMIT_LABEL = { yes: ["Filed ✓", "#15803D", "#EDFBF1"], no: ["Not filed", "#FF3B30", "#FFF0EF"], na: ["Not needed", "#6b6b70", "#E9E9EE"] };
+
 export function ContractorPortal() {
   const { displayName, contractorOrgId, signOut } = useAuth();
-  const { orgs, jobs, tasks, messages, docs, save, error } = useContractorData();
+  const { orgs, jobs, tasks, messages, docs, siteStatus, save, error } = useContractorData();
   const isMobile = useIsMobile();
   const org = (orgs || []).find((o) => String(o.id) === String(contractorOrgId)) || null;
   const myJobs = useMemo(() => (jobs || []).filter((j) => j.orgId === contractorOrgId).sort((a, b) => (a.status === "complete") - (b.status === "complete") || String(b.createdAt || "").localeCompare(String(a.createdAt || ""))), [jobs, contractorOrgId]);
@@ -79,9 +83,35 @@ export function ContractorPortal() {
     const total = jobTotal(j), paid = jobPaid(j), left = jobLeft(j), days = jobDays(j);
     const jobDocs = (docs || []).filter((d) => String(d.jobId) === String(j.id));
     const pct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
+    const st = (siteStatus || []).find((s) => String(s.id) === String(j.propertyId)) || null;
     const sec = (t) => <div style={{ fontSize: 10.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", margin: "14px 0 6px" }}>{t}</div>;
     return (
       <div style={{ padding: 14 }}>
+        {/* Site status — utilities & permits, maintained by Goldstone */}
+        {st && (
+          <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "12px 16px", marginBottom: 12 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Site status</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {UTIL_DEFS.map(([u, icon, label]) => {
+                const on = (st.utilities || {})[u] === "on";
+                return (
+                  <div key={u} style={{ flex: 1, textAlign: "center", background: on ? "#EDFBF1" : T.bg, border: `1px solid ${on ? T.green : T.border}`, borderRadius: 12, padding: "9px 4px" }}>
+                    <div style={{ fontSize: 19, filter: on ? "none" : "grayscale(1)", opacity: on ? 1 : 0.55 }}>{icon}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{label}</div>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: on ? "#15803D" : T.textSub }}>{on ? "ON" : "OFF"}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
+              {PERMIT_DEFS.map(([k, icon, label]) => {
+                const v = (st.permits || {})[k];
+                const [txt, fg, bg] = PERMIT_LABEL[v] || ["—", T.textTert, T.bg];
+                return <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: fg, background: bg, borderRadius: 14, padding: "4px 10px" }}>{icon} {label}: {txt}</span>;
+              })}
+            </div>
+          </div>
+        )}
         <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "14px 16px" }}>
           <div style={{ display: "flex", gap: 8 }}>
             {[["Contract", money(total)], ["Paid", money(paid)], ["Remaining", money(left)], ["Days", j.status === "complete" ? "Done" : (days == null ? "—" : days)]].map(([l, v], i) => (

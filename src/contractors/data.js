@@ -6,12 +6,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 
-const TABLES = ["contractor_orgs", "contractor_jobs", "contractor_tasks", "contractor_messages", "contractor_docs"];
+const TABLES = ["contractor_orgs", "contractor_jobs", "contractor_tasks", "contractor_messages", "contractor_docs", "site_status"];
 
 export function useContractorData() {
-  const [store, setStore] = useState({ orgs: null, jobs: null, tasks: null, messages: null, docs: null });
+  const [store, setStore] = useState({ orgs: null, jobs: null, tasks: null, messages: null, docs: null, siteStatus: null });
   const [error, setError] = useState("");
-  const keyOf = (table) => ({ contractor_orgs: "orgs", contractor_jobs: "jobs", contractor_tasks: "tasks", contractor_messages: "messages", contractor_docs: "docs" })[table];
+  const keyOf = (table) => ({ contractor_orgs: "orgs", contractor_jobs: "jobs", contractor_tasks: "tasks", contractor_messages: "messages", contractor_docs: "docs", site_status: "siteStatus" })[table];
 
   const loadTable = useCallback(async (table) => {
     // RLS scopes results automatically: team sees everything, a contractor login
@@ -26,7 +26,7 @@ export function useContractorData() {
   const timers = useRef({});
   useEffect(() => {
     loadAll();
-    const chan = supabase.channel("contractor-portal");
+    const chan = supabase.channel("ctr-" + Math.random().toString(36).slice(2, 10));
     TABLES.forEach((table) => {
       chan.on("postgres_changes", { event: "*", schema: "public", table }, () => {
         clearTimeout(timers.current[table]);
@@ -46,7 +46,9 @@ export function useContractorData() {
   // (the row id IS the org) — sending one makes Postgres reject the write.
   const save = useCallback(async (table, obj) => {
     const row = { id: String(obj.id), data: obj, updated_at: new Date().toISOString() };
-    if (table !== "contractor_orgs") row.org_id = obj.orgId != null ? String(obj.orgId) : null;
+    // contractor_orgs and site_status have no org_id column (org rows ARE the org;
+    // site_status is keyed by property and shared across every contractor on it).
+    if (table !== "contractor_orgs" && table !== "site_status") row.org_id = obj.orgId != null ? String(obj.orgId) : null;
     const { error: err } = await supabase.from(table).upsert(row, { onConflict: "id" });
     if (err) throw new Error(err.message || "Save failed.");
     await loadTable(table);

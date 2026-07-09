@@ -5663,6 +5663,15 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
     {label:"Follow up",text:`Hi ${who}, following up on ${onWhat} — where are we holding?`},
   ];
   const dm=recipient&&(teamMembers||[]).includes(recipient)&&recipient!==currentUser?recipient:null;
+  // What the AI drafting button knows about this thread (task, people, recent chatter).
+  const aiCtx=[
+    title&&title!==taskName?`Thread: ${title}`:"",
+    taskName?`Task: “${taskName}”`:"",
+    assignee?`Task owner: ${assignee}`:"",
+    delegate&&delegate!==assignee?`Delegated to (doing the work): ${delegate}`:"",
+    recipient?`The message is addressed to: ${recipient}`:"",
+    messages.length?`Recent messages:\n${messages.slice(-6).map(m=>`${m.author||"—"}: ${m.text}`).join("\n")}`:"",
+  ].filter(Boolean).join("\n");
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(520px,94vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
@@ -5694,7 +5703,7 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
               );})}
             </div>
           )}
-          <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn)} people={teamMembers} currentUser={currentUser} placeholder="Write a message…" templates={templates} defaultMention={dm}/>
+          <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn)} people={teamMembers} currentUser={currentUser} placeholder="Write a message…" templates={templates} defaultMention={dm} aiContext={aiCtx}/>
         </div>
       </div>
     </div>
@@ -5828,9 +5837,12 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
   // Tapping Text / WhatsApp / Email opens a small chooser: pick a ready-made
   // template or type your own, then it launches the app with that draft.
   const propAddr=task?.propAddr||task?.address||"";
-  const outTemplates=(name)=>{const f=String(name||"").split(" ")[0]||"there";const re=propAddr?propAddr:"the property";return[
-    {label:"Following up",text:`Hi ${f}, following up regarding ${re}.`},
-    {label:"Ask for an update",text:`Hi ${f}, can you provide an update on ${re}?`},
+  // Name the actual task in outreach drafts — the address alone was too vague
+  // ("update on 610 Bayview" vs "update on the septic inspection at 610 Bayview").
+  const outAbout=(task?.text||"").trim()?`${(task.text||"").trim()}${propAddr?` at ${propAddr}`:""}`:(propAddr||"the property");
+  const outTemplates=(name)=>{const f=String(name||"").split(" ")[0]||"there";return[
+    {label:"Following up",text:`Hi ${f}, following up regarding ${outAbout}.`},
+    {label:"Ask for an update",text:`Hi ${f}, can you provide an update on ${outAbout}?`},
   ];};
   const linkFor=(channel,target,body)=>{
     const enc=encodeURIComponent(body||"");
@@ -6036,7 +6048,7 @@ function PropertyTaskList({property}){
       {/* Task contact card */}
       {contactTarget&&(()=>{ const lt={...((sharedProps.find(p=>p.id===contactTarget.propId)?.tasks||[]).find(tk=>tk.id===contactTarget.id)||contactTarget),propId:contactTarget.propId,propAddr:contactTarget.propAddr}; return <TaskContactCard task={lt} contacts={dir} onAssign={(val)=>setTaskContact(contactTarget.propId,lt.id,val)} onCreateContact={addContactToDir} onClose={()=>setContactTarget(null)}/>; })()}
       {/* Task messages popup */}
-      {msgTarget&&(()=>{ const lt=(sharedProps.find(p=>p.id===msgTarget.propId)?.tasks||[]).find(tk=>tk.id===msgTarget.id); return <TaskMessagesPopup title={msgTarget.text||"Task"} task={lt} contacts={dir} messages={lt?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={(txt,att,mn)=>addTaskMessage(msgTarget.propId,msgTarget.id,txt,att,mn)} onClose={()=>setMsgTarget(null)}/>; })()}
+      {msgTarget&&(()=>{ const lt=(sharedProps.find(p=>p.id===msgTarget.propId)?.tasks||[]).find(tk=>tk.id===msgTarget.id); return <TaskMessagesPopup title={msgTarget.text||"Task"} task={lt||msgTarget} contacts={dir} messages={(lt||msgTarget)?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={(txt,att,mn)=>addTaskMessage(msgTarget.propId,msgTarget.id,txt,att,mn)} onClose={()=>setMsgTarget(null)}/>; })()}
       {/* Assign / delegate popup — owner (original) + optional delegate */}
       {assignTarget&&(()=>{
         const liveTask=(sharedProps.find(p=>p.id===assignTarget.propId)?.tasks||[]).find(tk=>tk.id===assignTarget.id)||assignTarget;
@@ -6336,7 +6348,7 @@ function TasksPage({onNavigate}){
       {/* Task messages popup */}
       {taskMsgTarget&&(()=>{
         const liveTask=findLiveTask(taskMsgTarget.propId,taskMsgTarget.id);
-        return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} task={liveTask} contacts={dir} messages={liveTask?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
+        return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} task={liveTask||taskMsgTarget} contacts={dir} messages={(liveTask||taskMsgTarget)?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
           onSend={(txt,att,mn)=>addTaskMessage(taskMsgTarget.propId,taskMsgTarget.id,txt,att,mn)} onClose={()=>setTaskMsgTarget(null)}/>;
       })()}
       {/* Task contact popup */}
@@ -7324,9 +7336,12 @@ function MessageAttachment({att,mine}){
 // Shared chat input: text + 📎 attach (photo/PDF) + 🎤 voice note (MediaRecorder)
 // + 👥 tag teammates. onSend(text, attachment|null, mentions[]) — mentions is the list
 // of tagged names (empty = everyone). attachment is an uploaded {url,name,mime,kind}.
-function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,templates=[],defaultMention=null,quickLinks=[]}){
+function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,templates=[],defaultMention=null,quickLinks=[],aiContext=""}){
   const[text,setText]=useState("");
   const[busy,setBusy]=useState(false);
+  const[aiOpen,setAiOpen]=useState(false);
+  const[aiPrompt,setAiPrompt]=useState("");
+  const[aiBusy,setAiBusy]=useState(false);
   const[recording,setRecording]=useState(false);
   const[recSecs,setRecSecs]=useState(0);
   const[err,setErr]=useState("");
@@ -7424,6 +7439,24 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     setRecording(true);setRecSecs(0);
     timerRef.current=setInterval(()=>setRecSecs(s=>s+1),1000);
   };
+  // AI draft: send the instruction (+ chat context and any current text to revise)
+  // to /api/ai/draft, then prefill the box for review — never auto-send.
+  const aiDraft=async()=>{
+    const ask=aiPrompt.trim();
+    if(!ask||aiBusy)return;
+    setAiBusy(true);setErr("");
+    try{
+      const d=await qbAuthFetch("/api/ai/draft",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({instruction:ask,context:aiContext||"",current:text.trim()||"",sender:currentUser||""})});
+      if(d.draft){
+        setText(d.draft);
+        if(defaultMention&&tagOptions.includes(defaultMention)&&mentions.length===0)setMentions([defaultMention]);
+        setAiOpen(false);setAiPrompt("");
+        setTimeout(()=>{const el=taRef.current;if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},0);
+      }
+    }catch(e){ setErr(e.message||"AI draft failed. Try again."); }
+    setAiBusy(false);
+  };
   const stopRec=()=>{cancelRef.current=false;if(mrRef.current&&mrRef.current.state!=="inactive")mrRef.current.stop();};
   const cancelRec=()=>{cancelRef.current=true;if(mrRef.current&&mrRef.current.state!=="inactive")mrRef.current.stop();};
   const fmtSecs=(s)=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
@@ -7480,6 +7513,25 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
           ))}
         </div>
       )}
+      {/* AI drafting panel — describe the message (or dictate with the keyboard mic),
+          Claude writes it into the box for review before Send. */}
+      {!recording&&aiOpen&&(
+        <div style={{display:"flex",flexDirection:"column",gap:7,padding:"9px 10px",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{fontSize:12,fontWeight:800,color:"#b8912e"}}>✨ AI draft</span>
+            <span style={{fontSize:10.5,color:T.textSub,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Tip: tap the 🎤 on your keyboard to dictate</span>
+            <button onClick={()=>setAiOpen(false)} style={{background:"none",border:"none",color:T.textTert,fontSize:17,cursor:"pointer",lineHeight:1,flexShrink:0,padding:"0 2px"}}>×</button>
+          </div>
+          <textarea autoFocus rows={2} value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();aiDraft();}}}
+            placeholder={text.trim()?"How should AI rewrite your draft? e.g. “make it shorter and friendlier”":"Tell AI what to write… e.g. “ask for an update on the plumbing, friendly”"}
+            disabled={aiBusy}
+            style={{width:"100%",padding:"9px 12px",borderRadius:12,border:`1px solid ${T.border}`,background:"#fff",fontSize:14,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,boxSizing:"border-box"}}/>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <button onClick={aiDraft} disabled={!aiPrompt.trim()||aiBusy} style={{padding:"7px 16px",borderRadius:18,border:"none",background:aiPrompt.trim()&&!aiBusy?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:13,cursor:aiPrompt.trim()&&!aiBusy?"pointer":"default",fontFamily:"inherit"}}>{aiBusy?"Writing…":text.trim()?"✨ Rewrite draft":"✨ Draft it"}</button>
+          </div>
+        </div>
+      )}
       <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
         {recording?(
           <>
@@ -7495,6 +7547,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
             <input ref={fileRef} type="file" accept="image/*,application/pdf,.xls,.xlsx,.csv,.doc,.docx,.ppt,.pptx,.txt,.numbers,.pages,.key" onChange={onPickFile} style={{display:"none"}}/>
             <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, PDF, or spreadsheet" style={iconBtn}>📎</button>
             <button onClick={startRec} disabled={busy} title="Record a voice note" style={iconBtn}>🎤</button>
+            <button onClick={()=>setAiOpen(v=>!v)} disabled={busy} title="Let AI draft this message" style={{...iconBtn,...(aiOpen?{background:T.goldLight,borderColor:T.gold}:{})}}>✨</button>
             {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...iconBtn,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
             <textarea ref={taRef} rows={1} value={text} onChange={e=>setText(e.target.value)} onPaste={onPasteFiles}
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(canSend)send();}}}
@@ -7696,7 +7749,14 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
         </div>
       )}
       {!selMode&&<div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:target&&!reply?`2px solid ${T.gold}`:`1px solid ${T.border}`,background:T.card,flexShrink:0}}>
-        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply…"):(target?`Message on “${target.text}”…`:"Message your team…")}/>
+        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply…"):(target?`Message on “${target.text}”…`:"Message your team…")}
+          aiContext={[
+            `Property: ${addr}`,
+            property.status?`Status: ${property.status}`:"",
+            reply?`Replying to ${reply.author||"a teammate"}: “${reply.text}”`:"",
+            !reply&&target?`The message is about the task: “${target.text}”`:"",
+            messages.length?`Recent messages:\n${messages.slice(-6).map(m=>`${m.author||"—"}${m.taskText?` (task: ${m.taskText})`:""}${m.showingLabel?` (${m.showingLabel})`:""}: ${m.text}`).join("\n")}`:"",
+          ].filter(Boolean).join("\n")}/>
       </div>}
       {showInfo&&onUpdateProp&&<ShowingInfoPopup property={property} skey={showInfo} onUpdate={onUpdateProp} onClose={()=>setShowInfo(null)}/>}
     </div>

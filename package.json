@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
     "@azure/msal-browser": "^5.16.0",
     "@supabase/supabase-js": "^2.45.4",
     "pdfkit": "^0.19.1",

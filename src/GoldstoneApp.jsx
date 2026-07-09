@@ -1914,7 +1914,6 @@ function FinOverview({property,onUpdate}){
   const[showHolding,setShowHolding]=useState(false);
   const[showActualSelling,setShowActualSelling]=useState(false);
   const[showActualFinancing,setShowActualFinancing]=useState(false);
-  const[showPacket,setShowPacket]=useState(false);   // investor-packet generator
   const[showFinancingP,setShowFinancingP]=useState(false);
   const[showActual,setShowActual]=useState(!!f.useActualProfit);
 
@@ -2039,7 +2038,6 @@ function FinOverview({property,onUpdate}){
       {showHolding&&<HoldingCostsPopup items={holdingItems} holdPeriod={f.holdPeriod} onChange={(items,total)=>upMany({holdingCostItems:items,annualHoldingCosts:String(total)})} onClose={()=>setShowHolding(false)}/>}
       {showActualSelling&&<SellingCostsPopup items={acSellingItems} salePrice={f.actualSalePrice||f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({actualSellingCostItems:items,actualSellingCosts:String(total)})} onClose={()=>setShowActualSelling(false)}/>}
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
-      {showPacket&&<InvestorPacketModal property={property} onUpdate={onUpdate} onClose={()=>setShowPacket(false)}/>}
       {showActualFinancing&&<ActualFinancingPopup f={f} liveHmTotal={liveHmTotal} liveGapPrinc={equityRequired} actualHoldMonths={actualHoldMonths} locDraws={locDraws} sellingDate={f.sellingDate} closingDate={(property.propertyInfo||{}).closingDateScheduled||f.sellingDate}
         bsHm={bsHm} bsLoc={bsLoc} bsAvailable={bsAvailable} hmPaidSoFar={qbPaidInt?qbPaidInt.paid:null} hmPaidThrough={qbPaidInt?qbPaidInt.paidThrough:null}
         onSave={(vals)=>upMany(vals)} onClose={()=>setShowActualFinancing(false)}/>}
@@ -2055,7 +2053,6 @@ function FinOverview({property,onUpdate}){
             {showActual?"Showing Actual Column":"Show Actual Column"}
           </span>
         </div>
-        <button onClick={()=>setShowPacket(true)} title="Generate a branded PDF packet for raising investor capital on this deal" style={{display:"inline-flex",alignItems:"center",gap:7,background:T.goldLight,border:`1.5px solid ${T.gold}`,borderRadius:20,padding:"7px 16px",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600,color:"#8a6d1f"}}>📄 Investor Packet</button>
         {showActual&&<div onClick={()=>up("useActualProfit",!f.useActualProfit)}
           style={{display:"inline-flex",alignItems:"center",gap:10,background:f.useActualProfit?T.gold+"22":T.bg,border:`1.5px solid ${f.useActualProfit?T.gold:T.border}`,borderRadius:20,padding:"7px 18px",cursor:"pointer"}}>
           <div style={{width:18,height:18,borderRadius:9,background:f.useActualProfit?T.gold:"#ccc",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>

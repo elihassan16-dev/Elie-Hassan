@@ -217,10 +217,27 @@ export function DataProvider({ children }) {
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("pagehide", flushAll);
 
+    // Coming BACK from the background: iOS kills the realtime WebSocket while the
+    // PWA sleeps, so anything sent meanwhile (messages, tasks, edits) was missed
+    // and no event will ever announce it — the app looked frozen until a full
+    // restart. On resume, reconnect the socket (channels re-join automatically)
+    // and refetch every collection in place (no loading flip, dirty rows are
+    // skipped by useSyncedCollection so unsaved local edits are never reverted).
+    const reloadAll = () => { propsC.load(); leadsC.load(); contactsC.load(); autosC.load(); fundersC.load(); drawsC.load(); officeC.load(); officeTasksC.load(); bankC.load(); settingsC.load(); rentalsC.load(); loadTeam(); };
+    const onShow = () => {
+      if (document.visibilityState !== "visible") return;
+      try { if (!supabase.realtime.isConnected()) supabase.realtime.connect(); } catch { /* ignore */ }
+      debounce("resume", reloadAll);
+    };
+    document.addEventListener("visibilitychange", onShow);
+    window.addEventListener("focus", onShow);
+
     return () => {
       cancelled = true;
       Object.values(timers).forEach(clearTimeout);
       document.removeEventListener("visibilitychange", onHide);
+      document.removeEventListener("visibilitychange", onShow);
+      window.removeEventListener("focus", onShow);
       window.removeEventListener("pagehide", flushAll);
       supabase.removeChannel(channel);
     };

@@ -6715,6 +6715,46 @@ function CtrStatusPill({t,onSet}){
   );
 }
 
+// Completed tasks live here instead of cluttering the lists: everything marked
+// Completed disappears from the task views and lands in this popup, with full
+// context (property, who completed it and when, assignment). Restorable.
+function CompletedTasksPopup({items,onRestore,onDelete,onClose}){
+  const fmtD3=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});}catch{return "";}};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(600px,94vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,background:"#EDFBF1",flexShrink:0}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:800,color:T.text}}>✓ Completed tasks</div>
+            <div style={{fontSize:11.5,color:"#15803D"}}>Done and out of the way — restore one if it was marked by mistake</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div style={{flex:1,overflowY:"auto"}}>
+          {items.length===0&&<div style={{padding:"30px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>Nothing completed yet.</div>}
+          {items.map(it=>(
+            <div key={it.key} style={{display:"flex",gap:10,alignItems:"center",padding:"11px 16px",borderBottom:`1px solid ${T.border}`,background:it.external?"#FFF9EC":"#fff"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13.5,color:T.text,lineHeight:1.4}}>{it.text}</div>
+                <div style={{fontSize:11,color:T.textSub,marginTop:2,display:"flex",flexWrap:"wrap",gap:"2px 10px"}}>
+                  {it.external&&<span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"1px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>}
+                  {it.propAddr&&<span style={{fontWeight:700}}>{it.propAddr}</span>}
+                  {it.orgName&&<span style={{fontWeight:700,color:"#8a6d1f"}}>👷 {it.orgName}</span>}
+                  {it.assignee&&<span>for {it.assignee.split(" ")[0]}{it.delegate?` → ${it.delegate.split(" ")[0]}`:""}</span>}
+                  {it.doneBy&&<span style={{color:"#15803D",fontWeight:700}}>✓ {it.doneBy.split(" ")[0]}{it.doneAt?` · ${fmtD3(it.doneAt)}`:""}</span>}
+                  {!it.doneBy&&it.doneAt&&<span style={{color:"#15803D",fontWeight:700}}>✓ {fmtD3(it.doneAt)}</span>}
+                </div>
+              </div>
+              <button onClick={()=>onRestore(it)} title="Put it back on the list as Not Started" style={{padding:"6px 12px",borderRadius:16,border:`1px solid ${T.gold}`,background:T.goldLight,color:"#8a6d1f",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↩ Restore</button>
+              {onDelete&&<button onClick={()=>onDelete(it)} title="Delete forever" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,flexShrink:0}}>🗑</button>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ExternalRequestsPopup({requests,onSetStatus,onChat,onClose}){
   const fmtD2=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   return(
@@ -6768,7 +6808,7 @@ function PropertyTaskList({property}){
   const[msgTarget,setMsgTarget]=useState(null);
   const[assignTarget,setAssignTarget]=useState(null);
 
-  const updateTaskStatus=(pid,tid,status)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===tid?{...t,status}:t)}));
+  const updateTaskStatus=(pid,tid,status)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===tid?(status==="Completed"?{...t,status,completedAt:new Date().toISOString(),completedBy:CURRENT_USER}:{...t,status,completedAt:null,completedBy:null}):t)}));
   const updateTaskText=(pid,tid,text)=>{const v=(text||"").trim();if(!v)return;setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===tid?{...t,text:v}:t)}));};
   const deleteTask=(pid,tid)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).filter(t=>t.id!==tid)}));
   const setTaskContact=(pid,tid,contact)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,taskContact:contact})}));
@@ -6788,8 +6828,9 @@ function PropertyTaskList({property}){
   const addTask=(text)=>{const t=(text||"").trim();if(!t)return;setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER,assignedAt:Date.now(),assignedBy:CURRENT_USER}]}));};
   // Contractor tasks, auto-scoped: only companies with a job ON THIS PROPERTY show
   // here — delegate straight to them, no picking through your whole contractor list.
-  const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, save:ctrSave } = useContractorData();
+  const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, save:ctrSave, remove:ctrRemove } = useContractorData();
   const[extChat,setExtChat]=useState(null); // {task,job} → external/internal chat popup
+  const[completedOpen,setCompletedOpen]=useState(false); // ✓ completed-tasks popup
   const propCtrJobs=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(propId)&&j.status!=="complete");
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
   const[ctrDraft,setCtrDraft]=useState({}); // jobId -> new task text
@@ -6868,16 +6909,35 @@ function PropertyTaskList({property}){
       {/* Rows — same TaskRow as the Tasks tab */}
       <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
         {rows.length===0&&<div style={{padding:"22px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No tasks yet. Add one below, or set up a rule in <strong>Settings → Automations</strong> to create tasks automatically.</div>}
-        {rows.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setContactTarget} onMessage={setMsgTarget} onAssign={setAssignTarget} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
+        {rows.filter(t=>t.status!=="Completed").map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setContactTarget} onMessage={setMsgTarget} onAssign={setAssignTarget} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
         <AddTaskInline onAdd={addTask}/>
-        <div style={{padding:"0 12px 12px"}}>
+        <div style={{padding:"0 12px 12px",display:"flex",flexDirection:"column",gap:8}}>
           <button onClick={()=>setAiTasksOpen(true)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"9px",borderRadius:T.radiusSm,border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#b8912e",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>✨ Let AI draft a task list</button>
+          {(()=>{
+            const doneInt=rows.filter(t=>t.status==="Completed");
+            const jobIds=new Set(propCtrJobs.map(j=>String(j.id)));
+            const doneExt=(ctrTasks||[]).filter(t=>jobIds.has(String(t.jobId))&&t.status==="Completed");
+            const n=doneInt.length+doneExt.length;
+            if(!n)return null;
+            return <button onClick={()=>setCompletedOpen(true)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"8px",borderRadius:T.radiusSm,border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>✓ Completed tasks ({n})</button>;
+          })()}
         </div>
       </div>
+      {completedOpen&&(()=>{
+        const jobIds=new Map(propCtrJobs.map(j=>[String(j.id),j]));
+        const items=[
+          ...rows.filter(t=>t.status==="Completed").map(t=>({key:`int:${t.id}`,kind:"int",taskId:t.id,text:t.text,assignee:t.assignee,delegate:t.delegate,doneBy:t.completedBy,doneAt:t.completedAt})),
+          ...(ctrTasks||[]).filter(t=>jobIds.has(String(t.jobId))&&t.status==="Completed").map(t=>({key:`ext:${t.id}`,kind:"ext",t,external:true,text:t.text,orgName:ctrOrgName(jobIds.get(String(t.jobId)).orgId),doneBy:t.doneBy||t.statusBy,doneAt:t.doneAt})),
+        ].sort((a,b)=>String(b.doneAt||"").localeCompare(String(a.doneAt||"")));
+        return <CompletedTasksPopup items={items}
+          onRestore={(it)=>{if(it.kind==="int")updateTaskStatus(propId,it.taskId,"Not Started");else ctrSave("contractor_tasks",{...it.t,status:"Not Started",statusBy:CURRENT_USER,doneAt:null,doneBy:null}).catch(()=>{});}}
+          onDelete={(it)=>{if(it.kind==="int")deleteTask(propId,it.taskId);else ctrRemove("contractor_tasks",it.t.id).catch(()=>{});}}
+          onClose={()=>setCompletedOpen(false)}/>;
+      })()}
       {/* Contractor tasks — one amber card per company working THIS property.
           These go to their portal (external), unlike the internal list above. */}
       {propCtrJobs.map(j=>{
-        const jt=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id)&&t.direction!=="to_team").sort((a,b)=>ctrClosed(a.status)-ctrClosed(b.status)||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
+        const jt=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id)&&t.direction!=="to_team"&&t.status!=="Completed").sort((a,b)=>ctrClosed(a.status)-ctrClosed(b.status)||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
         const name=ctrOrgName(j.orgId);
         return(
           <div key={j.id} style={{marginTop:14,background:"#FFF9EC",borderRadius:T.radius,border:`1.5px solid ${T.gold}`,boxShadow:T.shadow,overflow:"hidden"}}>
@@ -6928,7 +6988,7 @@ function TasksPage({onNavigate}){
   const { isAdmin, prefs, savePrefs } = useAuth();
   const isMobile=useIsMobile();
   // External (contractor) tasks show alongside internal ones, grouped by property.
-  const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, save:ctrSave } = useContractorData();
+  const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, save:ctrSave, remove:ctrRemove } = useContractorData();
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
   const extByPid=useMemo(()=>{
     const m={};
@@ -6948,6 +7008,20 @@ function TasksPage({onNavigate}){
   // Every request FROM contractors, newest first, open before done — the banner
   // above the task groups opens these in one list regardless of property.
   const[extReqOpen,setExtReqOpen]=useState(false);
+  // Completed tasks are hidden from every list and live in this popup instead.
+  const[completedOpen,setCompletedOpen]=useState(false);
+  const completedItems=useMemo(()=>{
+    const out=[];
+    (sharedProps||[]).forEach(p=>(p.tasks||[]).forEach(t=>{if(t.status==="Completed")out.push({key:`${p.id}:${t.id}`,kind:"int",propId:p.id,taskId:t.id,text:t.text,propAddr:`${p.address||""}${p.city?`, ${p.city}`:""}`,assignee:t.assignee,delegate:t.delegate,doneBy:t.completedBy,doneAt:t.completedAt});}));
+    (officeTasks||[]).forEach(t=>{if(t.status==="Completed")out.push({key:`${OFFICE_TASK_PID}:${t.id}`,kind:"int",propId:OFFICE_TASK_PID,taskId:t.id,text:t.text,propAddr:"Office / General",assignee:t.assignee,delegate:t.delegate,doneBy:t.completedBy,doneAt:t.completedAt});});
+    const jobById=new Map((ctrJobs||[]).map(j=>[String(j.id),j]));
+    (ctrTasks||[]).forEach(t=>{if(t.status!=="Completed")return;const job=jobById.get(String(t.jobId));if(!job)return;out.push({key:`ext:${t.id}`,kind:"ext",t,external:true,text:t.text,propAddr:job.propertyAddress||"",orgName:ctrOrgName(job.orgId),doneBy:t.doneBy||t.statusBy,doneAt:t.doneAt});});
+    out.sort((a,b)=>String(b.doneAt||"").localeCompare(String(a.doneAt||"")));
+    return out;
+  },[sharedProps,officeTasks,ctrTasks,ctrJobs,ctrOrgs]); // eslint-disable-line react-hooks/exhaustive-deps
+  const restoreCompleted=(it)=>{if(it.kind==="int")updateTaskStatus(it.propId,it.taskId,"Not Started");else ctrSave("contractor_tasks",{...it.t,status:"Not Started",statusBy:CURRENT_USER,doneAt:null,doneBy:null}).catch(()=>{});};
+  const deleteCompleted=(it)=>{if(it.kind==="int")deleteTask(it.propId,it.taskId);else ctrRemove("contractor_tasks",it.t.id).catch(()=>{});};
+  const hideDone=(t)=>t.status==="Completed"&&!statusFilter.has("Completed");
   const extRequests=useMemo(()=>{
     const jobById=new Map((ctrJobs||[]).map(j=>[String(j.id),j]));
     return (ctrTasks||[]).filter(t=>t.direction==="to_team").map(t=>{
@@ -7030,16 +7104,23 @@ function TasksPage({onNavigate}){
       return keep.length===(p.tasks||[]).length?p:{...p,tasks:keep};
     }));
     setOfficeTasks(prev=>(prev||[]).filter(t=>!selectedKeys.has(`${OFFICE_TASK_PID}:${t.id}`)));saveOffice();
+    // Selected external tasks are deleted from the contractor tables too.
+    [...selectedKeys].filter(k=>k.startsWith("ext:")).forEach(k=>{ctrRemove("contractor_tasks",k.slice(4)).catch(()=>{});});
     setSelectedKeys(new Set());setSelectMode(false);
   }
   function setSelectedStatus(status){
     if(selectedKeys.size===0)return;
+    const stamp=(tk)=>status==="Completed"?{...tk,status,completedAt:new Date().toISOString(),completedBy:CURRENT_USER}:{...tk,status,completedAt:null,completedBy:null};
     setSharedProps(prev=>prev.map(p=>{
       let changed=false;
-      const tasks=(p.tasks||[]).map(tk=>{if(selectedKeys.has(`${p.id}:${tk.id}`)){changed=true;return {...tk,status};}return tk;});
+      const tasks=(p.tasks||[]).map(tk=>{if(selectedKeys.has(`${p.id}:${tk.id}`)){changed=true;return stamp(tk);}return tk;});
       return changed?{...p,tasks}:p;
     }));
-    setOfficeTasks(prev=>(prev||[]).map(t=>selectedKeys.has(`${OFFICE_TASK_PID}:${t.id}`)?{...t,status}:t));saveOffice();
+    setOfficeTasks(prev=>(prev||[]).map(t=>selectedKeys.has(`${OFFICE_TASK_PID}:${t.id}`)?stamp(t):t));saveOffice();
+    // External (contractor) tasks picked in select mode get the same status.
+    (ctrTasks||[]).filter(t=>selectedKeys.has(`ext:${t.id}`)).forEach(t=>{
+      ctrSave("contractor_tasks",{...t,status,statusBy:CURRENT_USER,doneAt:status==="Completed"?new Date().toISOString():null,doneBy:status==="Completed"?CURRENT_USER:null}).catch(()=>{});
+    });
     setSelectedKeys(new Set());setSelectMode(false);
   }
 
@@ -7070,9 +7151,11 @@ function TasksPage({onNavigate}){
     .filter(t=>(t.assignee===CURRENT_USER||t.delegate===CURRENT_USER)&&(Date.now()-assignTsOf(t))<=RECENT_WINDOW_MS)
     .sort((a,b)=>assignTsOf(b)-assignTsOf(a));
 
+  // Completing a task stamps who/when — the Completed popup shows the full story.
+  const withStamp=(t,status)=>status==="Completed"?{...t,status,completedAt:new Date().toISOString(),completedBy:CURRENT_USER}:{...t,status,completedAt:null,completedBy:null};
   function updateTaskStatus(propId,taskId,status){
-    if(isOffice(propId)){upOfficeTask(taskId,t=>({...t,status}));return;}
-    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===taskId?{...t,status}:t)}));
+    if(isOffice(propId)){upOfficeTask(taskId,t=>withStamp(t,status));return;}
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===taskId?withStamp(t,status):t)}));
   }
 
   function deleteTask(propId,taskId){
@@ -7278,7 +7361,7 @@ function TasksPage({onNavigate}){
                   <span style={{fontSize:11,color:T.textSub}}>{doneCount}/{oTasks.length} done</span>
                 </div>
               </div>
-              {oTasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+              {oTasks.filter(t=>!hideDone(t)).map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
               <AddTaskInline onAdd={addOfficeTask} placeholder="Add a company task…"/>
             </div>
           );
@@ -7432,6 +7515,18 @@ function TasksPage({onNavigate}){
               </div>
             )}
 
+            {/* Completed tasks banner — everything marked done lives in this popup */}
+            {completedItems.length>0&&(
+              <button onClick={()=>setCompletedOpen(true)} style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"12px 14px",marginBottom:14,borderRadius:T.radius,border:`1.5px solid ${T.green}`,background:"#EDFBF1",cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,textAlign:"left"}}>
+                <span style={{fontSize:20,flexShrink:0}}>✓</span>
+                <span style={{flex:1,minWidth:0}}>
+                  <span style={{display:"block",fontSize:13.5,fontWeight:800,color:T.text}}>Completed tasks</span>
+                  <span style={{display:"block",fontSize:11.5,color:"#15803D"}}>{completedItems.length} done — tucked away here, tap to review or restore</span>
+                </span>
+                <span style={{fontSize:15,color:"#15803D",flexShrink:0}}>›</span>
+              </button>
+            )}
+            {completedOpen&&<CompletedTasksPopup items={completedItems} onRestore={restoreCompleted} onDelete={deleteCompleted} onClose={()=>setCompletedOpen(false)}/>}
             {/* External requests banner — every ask from every contractor, one tap away */}
             {extRequests.length>0&&(
               <button onClick={()=>setExtReqOpen(true)} style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"12px 14px",marginBottom:14,borderRadius:T.radius,border:`1.5px solid ${T.gold}`,background:"#FFF9EC",cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,textAlign:"left"}}>
@@ -7491,7 +7586,7 @@ function TasksPage({onNavigate}){
                     <span style={{fontSize:11,color:T.textSub}}>{ptasks.length?`${ptasks.filter(t=>t.status==="Completed").length}/${ptasks.length} done`:"external tasks only"}</span>
                   </div>
                 </div>
-                {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+                {ptasks.filter(t=>!hideDone(t)).map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
                 {/* External (contractor) tasks on this property — amber, clearly marked */}
                 {(extByPid[String(pid)]||[]).map(({job,rows})=>(
                   <div key={"ext-"+job.id} style={{background:"#FFF9EC",borderTop:`1.5px solid ${T.gold}`}}>
@@ -7499,8 +7594,9 @@ function TasksPage({onNavigate}){
                       <span style={{fontSize:11.5,fontWeight:800,color:"#8a6d1f"}}>👷 {ctrOrgName(job.orgId)}{job.title?` — ${job.title}`:""}</span>
                       <span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
                     </div>
-                    {rows.map(t=>(
+                    {rows.filter(t=>t.status!=="Completed").map(t=>(
                       <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)"}}>
+                        {selectMode&&<input type="checkbox" checked={selectedKeys.has(`ext:${t.id}`)} onChange={()=>setSelectedKeys(p=>{const n=new Set(p);const k=`ext:${t.id}`;n.has(k)?n.delete(k):n.add(k);return n;})} style={{width:18,height:18,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>}
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
                           <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}${t.askedOf&&t.askedOf.length?` → ${t.askedOf.map(n=>n.split(" ")[0]).join(", ")}`:" → everyone"}`:""}{(t.statusBy||t.doneBy)?` · ${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>

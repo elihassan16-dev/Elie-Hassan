@@ -292,12 +292,12 @@ export function ContractorPortal() {
           <div style={{ padding: "11px 14px", fontSize: 12, fontWeight: 800, color: T.gold, textTransform: "uppercase", letterSpacing: "0.05em" }}>Your tasks from Goldstone</div>
           {forUs.length === 0 && <div style={{ padding: "6px 14px 16px", fontSize: 13, color: T.textTert }}>Nothing assigned on this job right now.</div>}
           {forUs.map((t) => (
-            <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "11px 14px", borderTop: `1px solid ${T.border}` }}>
-              <StatusPill t={t} onSet={setTaskStatus} />
+            <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "11px 14px", borderTop: `1px solid ${T.border}` }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: taskClosed(t.status) ? 0.6 : 1 }}>{t.text}</div>
                 <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdBy ? `from ${t.createdBy.split(" ")[0]} · ` : ""}{t.createdAt ? fmtDate(t.createdAt) : ""}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${(t.statusBy || t.doneBy).split(" ")[0]}` : ""}</div>
               </div>
+              <StatusPill t={t} onSet={setTaskStatus} />
             </div>
           ))}
         </div>
@@ -317,12 +317,12 @@ export function ContractorPortal() {
             <button onClick={sendRequest} disabled={!reqText.trim()} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: reqText.trim() ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 13, cursor: reqText.trim() ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>Send</button>
           </div>
           {toTeam.map((t) => (
-            <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "11px 14px", borderTop: `1px solid ${T.border}` }}>
-              <StatusPill t={t} onSet={setTaskStatus} />
+            <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "11px 14px", borderTop: `1px solid ${T.border}` }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: taskClosed(t.status) ? 0.6 : 1 }}>{t.text}</div>
                 <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdAt ? fmtDate(t.createdAt) : ""}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${(t.statusBy || t.doneBy).split(" ")[0]}` : ""}</div>
               </div>
+              <StatusPill t={t} onSet={setTaskStatus} />
             </div>
           ))}
         </div>
@@ -337,6 +337,9 @@ export function ContractorPortal() {
   const [pending, setPending] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msgTarget, setMsgTarget] = useState(null); // {id,text} → tag the message to that task
+  const [replyTo, setReplyTo] = useState(null); // {id,author,text} → quote-reply to a message
+  const [msgTags, setMsgTags] = useState([]); // Goldstone names to tag ([] = everyone)
+  const [tagOpen, setTagOpen] = useState(false);
   const [recOn, setRecOn] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
   const mrRef = useRef(null);
@@ -391,9 +394,15 @@ export function ContractorPortal() {
     const msg = { id: Date.now(), jobId: selJob.id, orgId: contractorOrgId, author: displayName, side: "contractor", text: txt, at: new Date().toISOString(), readBy: [displayName] };
     if (pending) msg.attachment = pending;
     if (msgTarget) { msg.taskRefId = msgTarget.id; msg.taskRefText = msgTarget.text; }
-    setDraft(""); setPending(null);
+    if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: (replyTo.text || (replyTo.attachment ? "📎 attachment" : "")).slice(0, 140) };
+    if (msgTags.length) msg.mentions = msgTags;
+    setDraft(""); setPending(null); setReplyTo(null); setMsgTags([]); setTagOpen(false);
     await save("contractor_messages", msg);
-    notify(null, { toAdmins: true, title: `${org?.name || displayName} — ${msgTarget ? msgTarget.text : selJob.propertyAddress}`, body: txt || "(attachment)" });
+    // Tagged specific Goldstone people → alert just them; otherwise the admins.
+    const title = `${org?.name || displayName} — ${msgTarget ? msgTarget.text : selJob.propertyAddress}`;
+    const body = txt || "(attachment)";
+    if (msgTags.length) notify(msgTags, { title, body });
+    else notify(null, { toAdmins: true, title, body });
   };
 
   // ── Layout ──────────────────────────────────────────────────────────────────
@@ -426,7 +435,7 @@ export function ContractorPortal() {
                 const un = unreadFor(j.id);
                 const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.direction !== "to_team" && !taskClosed(t.status)).length;
                 return (
-                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setStatusOpen(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
+                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress || j.title || "Job"}</div>
@@ -454,7 +463,10 @@ export function ContractorPortal() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     {isMobile && <button onClick={() => setSelJobId(null)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 15, cursor: "pointer", fontFamily: "inherit", padding: "2px 4px", flexShrink: 0 }}>‹</button>}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 15.5, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selJob.propertyAddress || selJob.title}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                        <span style={{ fontSize: 15.5, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selJob.propertyAddress || selJob.title}</span>
+                        {selJob.propertyAddress && <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selJob.propertyAddress)}`} target="_blank" rel="noreferrer" title="Open in Google Maps" style={{ fontSize: 13, textDecoration: "none", flexShrink: 0 }}>📍</a>}
+                      </div>
                       {selJob.title && selJob.propertyAddress && <div style={{ fontSize: 11.5, color: T.textSub }}>{selJob.title}</div>}
                     </div>
                     {selJob.status === "complete"
@@ -477,8 +489,12 @@ export function ContractorPortal() {
                       {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 13, padding: "40px 0" }}>No messages yet on this job. Say hello below.</div>}
                       {thread.map((m) => { const mine = m.side === "contractor"; return (
                         <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "86%" }}>
-                          <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2, textAlign: mine ? "right" : "left" }}>{m.author || (mine ? "You" : "Goldstone")} · {fmtWhen(m.at)}</div>
+                          <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2, textAlign: mine ? "right" : "left" }}>
+                            {m.author || (mine ? "You" : "Goldstone")}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)} ·{" "}
+                            <button onClick={() => setReplyTo(m)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 10, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>↩ Reply</button>
+                          </div>
                           <div style={{ background: mine ? T.gold : T.card, color: mine ? "#fff" : T.text, borderRadius: 14, padding: "9px 13px", fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", boxShadow: mine ? "none" : T.shadow }}>
+                            {m.replyTo && <div style={{ fontSize: 11.5, marginBottom: 5, padding: "5px 9px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 6, background: mine ? "rgba(255,255,255,0.15)" : T.bg, color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
                             {m.taskRefText && <div style={{ fontSize: 10.5, fontWeight: 800, marginBottom: 4, color: mine ? "rgba(255,255,255,0.9)" : "#8a6d1f", background: mine ? "rgba(255,255,255,0.18)" : T.goldLight, borderRadius: 10, padding: "2px 8px", display: "inline-block" }}>↳ Task: {m.taskRefText}</div>}
                             {m.taskRefText && <br />}
                             {m.text}
@@ -502,6 +518,21 @@ export function ContractorPortal() {
                         ); })}
                       </div>
                     )}
+                    {replyTo && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderLeft: `3px solid ${T.gold}`, borderRadius: 8, marginBottom: 8 }}>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? "📎 attachment" : "")}</span>
+                        <button onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
+                      </div>
+                    )}
+                    {tagOpen && roster.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: T.textTert }}>Notify:</span>
+                        <button onClick={() => setMsgTags([])} style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 11px", borderRadius: 16, border: `1px solid ${msgTags.length === 0 ? T.gold : T.border}`, background: msgTags.length === 0 ? T.goldLight : "#fff", color: msgTags.length === 0 ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit" }}>{msgTags.length === 0 ? "✓ " : ""}Everyone</button>
+                        {roster.map((n) => { const on = msgTags.includes(n); return (
+                          <button key={n} onClick={() => setMsgTags((p) => on ? p.filter((x) => x !== n) : [...p, n])} style={{ fontSize: 11.5, fontWeight: on ? 700 : 600, padding: "4px 11px", borderRadius: 16, border: `1px solid ${on ? T.gold : T.border}`, background: on ? T.goldLight : "#fff", color: on ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit" }}>{on ? "✓ " : ""}{n.split(" ")[0]}</button>
+                        ); })}
+                      </div>
+                    )}
                     {pending && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}`, borderRadius: 10, marginBottom: 8 }}>
                         <span style={{ fontSize: 13 }}>{pending.kind === "image" ? "🖼️" : pending.kind === "video" ? "🎬" : pending.kind === "audio" ? "🎤" : "📄"}</span>
@@ -522,6 +553,7 @@ export function ContractorPortal() {
                       <input ref={attRef} type="file" accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
                       <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} title="Attach a photo, video, or PDF" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>📎</button>
                       <button onClick={startRec} disabled={busy} title="Record a voice note" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>🎤</button>
+                      {roster.length > 0 && <button onClick={() => setTagOpen((v) => !v)} disabled={busy} title="Tag specific Goldstone people" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${msgTags.length ? T.gold : T.border}`, background: msgTags.length ? T.goldLight : T.bg, fontSize: 17, cursor: "pointer" }}>👥</button>}
                       <textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} placeholder={busy ? (pct ? `Uploading video… ${pct}%` : "Uploading…") : msgTarget ? "Reply about this task…" : "Message Goldstone…"} disabled={busy}
                         style={{ flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 18, border: `1px solid ${msgTarget ? T.gold : T.border}`, background: T.bg, fontSize: 15, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 120, overflowY: "auto", boxSizing: "border-box" }} />
                       <button onClick={sendMsg} disabled={(!draft.trim() && !pending) || busy} style={{ padding: "10px 18px", borderRadius: 22, background: (draft.trim() || pending) && !busy ? T.gold : T.border, border: "none", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Send</button>

@@ -308,6 +308,7 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
   const [taskDraft, setTaskDraft] = useState("");
   const [msgDraft, setMsgDraft] = useState("");
   const [pending, setPending] = useState(null);
+  const [replyTo, setReplyTo] = useState(null); // {id,author,text} → quote-reply
   const [busy, setBusy] = useState(false);
   const [err2, setErr2] = useState("");
   const attRef = useRef(null);
@@ -352,7 +353,8 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
     const txt = msgDraft.trim(); if ((!txt && !pending) || busy) return;
     const msg = { id: Date.now(), jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: txt, at: new Date().toISOString(), readBy: [displayName] };
     if (pending) msg.attachment = pending;
-    setMsgDraft(""); setPending(null);
+    if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: (replyTo.text || (replyTo.attachment ? "📎 attachment" : "")).slice(0, 140) };
+    setMsgDraft(""); setPending(null); setReplyTo(null);
     await save("contractor_messages", msg);
     notify(null, { toOrg: j.orgId, title: `Goldstone — ${j.propertyAddress}`, body: txt || "(attachment)" });
   };
@@ -470,8 +472,12 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
           {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 13, padding: "26px 0" }}>No messages on this job yet.</div>}
           {thread.map((m) => { const mine = m.side === "team"; return (
             <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "86%" }}>
-              <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2, textAlign: mine ? "right" : "left" }}>{m.author} · {fmtWhen(m.at)}</div>
+              <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2, textAlign: mine ? "right" : "left" }}>
+                {m.author}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)} ·{" "}
+                <button onClick={() => setReplyTo(m)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 10, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>↩ Reply</button>
+              </div>
               <div style={{ background: mine ? T.gold : T.bg, color: mine ? "#fff" : T.text, borderRadius: 13, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                {m.replyTo && <div style={{ fontSize: 11, marginBottom: 4, padding: "4px 8px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 5, background: mine ? "rgba(255,255,255,0.15)" : "#fff", color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
                 {m.taskRefText && <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 3, color: mine ? "rgba(255,255,255,0.9)" : "#8a6d1f" }}>↳ Task: {m.taskRefText}</div>}
                 {m.text}
                 {m.attachment && (m.attachment.kind === "image"
@@ -485,6 +491,7 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
             </div>
           ); })}
         </div>
+        {replyTo && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderLeft: `3px solid ${T.gold}`, borderRadius: 8 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? "📎 attachment" : "")}</span><button onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
         {pending && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}`, borderRadius: 10 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📎 {pending.name}</span><button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
         <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
           <input ref={attRef} type="file" accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />

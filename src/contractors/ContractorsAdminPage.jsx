@@ -109,8 +109,9 @@ function LoginModal({ org, contacts = [], existingEmails = [], onClose }) {
   // The company's main contact — the obvious first login.
   const mainSuggestion = org?.contactName && org?.email && !have.has(String(org.email).toLowerCase()) ? { name: org.contactName, email: org.email } : null;
   const ql = q.trim().toLowerCase();
-  const withEmail = (contacts || []).filter((c) => c && c.name && c.email && !have.has(String(c.email).toLowerCase()));
-  const matches = withEmail.filter((c) => !ql || [c.name, c.company, c.role, c.email].filter(Boolean).join(" ").toLowerCase().includes(ql)).sort((a, b) => (a.name || "").localeCompare(b.name || "")).slice(0, 30);
+  // Any contact can be picked — no email on file just means you type it after.
+  const pickable = (contacts || []).filter((c) => c && c.name && !(c.email && have.has(String(c.email).toLowerCase())));
+  const matches = pickable.filter((c) => !ql || [c.name, c.company, c.role, c.email].filter(Boolean).join(" ").toLowerCase().includes(ql)).sort((a, b) => (a.name || "").localeCompare(b.name || "")).slice(0, 30);
   const useSuggestion = (s) => { setF((prev) => ({ ...prev, name: s.name, email: s.email })); setPick(false); setQ(""); };
   const create = async () => {
     setBusy(true); setE2("");
@@ -135,13 +136,13 @@ function LoginModal({ org, contacts = [], existingEmails = [], onClose }) {
         <button onClick={() => setPick(v => !v)} style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusSm, border: `1.5px dashed ${T.gold}`, background: pick ? T.goldLight : "transparent", color: "#8a6d1f", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>👤 Pick from your contacts{pick ? " ▴" : " ▾"}</button>
         {pick && (
           <div style={{ marginTop: 8, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, overflow: "hidden" }}>
-            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search contacts with an email…" style={{ ...inp, border: "none", borderBottom: `1px solid ${T.border}`, borderRadius: 0 }} />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your contacts…" style={{ ...inp, border: "none", borderBottom: `1px solid ${T.border}`, borderRadius: 0 }} />
             <div style={{ maxHeight: 180, overflowY: "auto" }}>
-              {matches.length === 0 && <div style={{ padding: "14px 12px", fontSize: 12.5, color: T.textTert, textAlign: "center" }}>No contacts with an email match.</div>}
+              {matches.length === 0 && <div style={{ padding: "14px 12px", fontSize: 12.5, color: T.textTert, textAlign: "center" }}>No contacts match.</div>}
               {matches.map((c) => (
-                <div key={c.id} onClick={() => useSuggestion({ name: c.name, email: c.email })} style={{ padding: "9px 12px", borderTop: `1px solid ${T.border}`, cursor: "pointer" }}>
+                <div key={c.id} onClick={() => useSuggestion({ name: c.name, email: c.email || "" })} style={{ padding: "9px 12px", borderTop: `1px solid ${T.border}`, cursor: "pointer" }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{c.name}</div>
-                  <div style={{ fontSize: 11.5, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[c.email, c.company || c.role].filter(Boolean).join(" · ")}</div>
+                  <div style={{ fontSize: 11.5, color: c.email ? T.textSub : "#B45309", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.email ? [c.email, c.company || c.role].filter(Boolean).join(" · ") : `no email on file — you'll type one · ${c.company || c.role || ""}`}</div>
                 </div>
               ))}
             </div>
@@ -158,6 +159,39 @@ function LoginModal({ org, contacts = [], existingEmails = [], onClose }) {
         <div style={{ fontSize: 11, color: T.textTert, marginTop: 4 }}>Copy it before saving — text it to them so they can sign in.</div>
       </div>
       {e2 && <div style={{ fontSize: 12.5, color: T.red }}>{e2}</div>}
+    </Modal>
+  );
+}
+
+// ── Manage an existing login: change email, reset password, remove ───────────
+function ManageLoginModal({ login, onDone, onClose }) {
+  const [email, setEmail] = useState(login.email || "");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [e2, setE2] = useState("");
+  const call = async (payload) => {
+    setBusy(true); setE2("");
+    try {
+      await qbAuthFetch("/api/team/update-login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: login.id, ...payload }) });
+      onDone(); onClose();
+    } catch (ex) { setE2(ex.message || "Couldn't update the login."); }
+    setBusy(false);
+  };
+  const changed = email.trim().toLowerCase() !== String(login.email || "").toLowerCase();
+  const ok = (changed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) || password.trim().length >= 8;
+  return (
+    <Modal title={`Login — ${login.name}`} onClose={onClose}
+      footer={<><button onClick={onClose} style={ghostBtn}>Cancel</button><button onClick={() => call({ ...(changed ? { email: email.trim() } : {}), ...(password.trim() ? { password: password.trim() } : {}) })} disabled={!ok || busy} style={goldBtn(ok && !busy)}>{busy ? "Saving…" : "Save changes"}</button></>}>
+      <div><label style={lbl}>Login email</label><input value={email} onChange={(e) => setEmail(e.target.value)} type="email" style={inp} /><div style={{ fontSize: 11, color: T.textTert, marginTop: 4 }}>Changing this changes what they type to SIGN IN — takes effect immediately.</div></div>
+      <div><label style={lbl}>New password (optional)</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Leave blank to keep current" style={{ ...inp, flex: 1 }} />
+          <button onClick={() => setPassword(genPassword())} style={{ ...ghostBtn, padding: "10px 13px", flexShrink: 0 }}>🎲 New</button>
+        </div>
+      </div>
+      {e2 && <div style={{ fontSize: 12.5, color: T.red }}>{e2}</div>}
+      <button onClick={() => { if (window.confirm(`Remove ${login.name}'s login? They won't be able to sign in anymore. Their past messages and tasks stay.`)) call({ remove: true }); }} disabled={busy}
+        style={{ padding: "10px", borderRadius: T.radiusSm, border: `1px solid ${T.red}`, background: "#FFF0EF", color: T.red, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>Remove this login</button>
     </Modal>
   );
 }
@@ -442,6 +476,8 @@ export function ContractorsAdminPage() {
   const [jobModal, setJobModal] = useState(null);     // {} new or job obj (edit basics)
   const [openJobId, setOpenJobId] = useState(null);   // job detail view
   const [loginModal, setLoginModal] = useState(false);
+  const [manageLogin, setManageLogin] = useState(null); // users row being managed
+  const [loginsBump, setLoginsBump] = useState(0);
   const [logins, setLogins] = useState([]);           // users rows for the selected org
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -457,7 +493,7 @@ export function ContractorsAdminPage() {
     let alive = true;
     supabase.from("users").select("id,name,email").eq("contractor_org_id", String(org.id)).then(({ data }) => { if (alive) setLogins(data || []); });
     return () => { alive = false; };
-  }, [org?.id, loginModal]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [org?.id, loginModal, loginsBump]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ flex: 1, display: "flex", overflow: "hidden", background: T.bg }}>
@@ -506,7 +542,7 @@ export function ContractorsAdminPage() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
                   <span style={{ fontSize: 11, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em" }}>Portal logins:</span>
-                  {logins.map((u) => <span key={u.id} title={u.email} style={{ fontSize: 12, fontWeight: 600, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 14, padding: "3px 10px", color: T.text }}>{u.name}</span>)}
+                  {logins.map((u) => <button key={u.id} onClick={isAdmin ? () => setManageLogin(u) : undefined} title={`${u.email}${isAdmin ? " — tap to manage" : ""}`} style={{ fontSize: 12, fontWeight: 600, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 14, padding: "3px 10px", color: T.text, cursor: isAdmin ? "pointer" : "default", fontFamily: "inherit" }}>{u.name}{isAdmin ? " ✎" : ""}</button>)}
                   {logins.length === 0 && <span style={{ fontSize: 12, color: T.textTert }}>none yet</span>}
                   {isAdmin && <button onClick={() => setLoginModal(true)} style={{ padding: "4px 11px", borderRadius: 14, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>＋ Login</button>}
                 </div>
@@ -538,6 +574,7 @@ export function ContractorsAdminPage() {
       {error && <div style={{ position: "fixed", bottom: 14, left: "50%", transform: "translateX(-50%)", background: "#FFF0EF", border: `1.5px solid ${T.red}`, color: T.red, borderRadius: 12, padding: "10px 16px", fontSize: 12.5, fontWeight: 600, zIndex: 500 }}>{error}</div>}
       {orgModal && <OrgModal orgModal={orgModal.id ? orgModal : null} contacts={contacts} save={save} onSaved={setSelOrgId} onClose={() => setOrgModal(null)} />}
       {loginModal && org && <LoginModal org={org} contacts={contacts} existingEmails={logins.map((u) => u.email)} onClose={() => setLoginModal(false)} />}
+      {manageLogin && <ManageLoginModal login={manageLogin} onDone={() => setLoginsBump((x) => x + 1)} onClose={() => setManageLogin(null)} />}
       {jobModal && org && <JobModal org={org} jobModal={jobModal.id ? jobModal : null} properties={properties} save={save} onSaved={setOpenJobId} onClose={() => setJobModal(null)} />}
       {openJob && <JobDetail j={openJob} org={org} isAdmin={isAdmin} qbProjectId={(properties.find((p) => String(p.id) === String(openJob.propertyId)) || {}).qbProjectId || null} tasks={tasks} messages={messages} docs={docs} save={save} remove={remove} displayName={displayName} onEditBasics={() => setJobModal(openJob)} onClose={() => setOpenJobId(null)} />}
     </div>

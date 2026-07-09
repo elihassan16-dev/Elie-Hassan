@@ -24,7 +24,8 @@ begin
   end loop;
 end $$;
 
--- Team: everything. Contractor: read-only, and only for properties they work on.
+-- Shared whiteboard: the team AND contractors working the property can read and
+-- write (every change is attributed by name in the data itself).
 create policy site_status_select on public.site_status for select to authenticated
   using (
     public.is_team()
@@ -35,7 +36,22 @@ create policy site_status_select on public.site_status for select to authenticat
     )
   );
 create policy site_status_write on public.site_status for all to authenticated
-  using (public.is_team()) with check (public.is_team());
+  using (
+    public.is_team()
+    or exists (
+      select 1 from public.contractor_jobs j
+      where j.org_id = public.contractor_org()
+        and (j.data->>'propertyId') = public.site_status.id
+    )
+  )
+  with check (
+    public.is_team()
+    or exists (
+      select 1 from public.contractor_jobs j
+      where j.org_id = public.contractor_org()
+        and (j.data->>'propertyId') = public.site_status.id
+    )
+  );
 
 do $$
 begin

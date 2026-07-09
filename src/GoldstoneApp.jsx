@@ -4782,8 +4782,15 @@ function PropertyStatusBoard({property,onClose}){
     if(!row||Object.keys(ups).length||infoStale)write({utilities:{...(st.utilities||{}),...ups},utilitiesAuto:{...(st.utilitiesAuto||{}),...auto}});
   },[siteStatus===null]); // eslint-disable-line react-hooks/exhaustive-deps
   const effUtil=(u)=>(st.utilities||{})[u]||(inferred(u)?"on":"off");
-  const setUtil=(u,v)=>write({utilities:{...(st.utilities||{}),[u]:v},utilitiesAuto:{...(st.utilitiesAuto||{}),[u]:false}});
-  const setPermit=(k,v)=>write({permits:{...(st.permits||{}),[k]:v}});
+  // Every change is attributed by name; contractors on the property get notified.
+  const stamp={by:currentUser||"",at:new Date().toISOString()};
+  const notifyOrgs=(body)=>{
+    const orgIds=[...new Set((ctrJobs||[]).filter(j=>String(j.propertyId)===String(property.id)&&j.status!=="complete").map(j=>String(j.orgId)))];
+    orgIds.forEach(oid=>notify(null,{toOrg:oid,title:`Site status — ${property.address}`,body}));
+  };
+  const setUtil=(u,v)=>{write({utilities:{...(st.utilities||{}),[u]:v},utilitiesAuto:{...(st.utilitiesAuto||{}),[u]:false},utilitiesBy:{...(st.utilitiesBy||{}),[u]:stamp}});notifyOrgs(`${UTIL_DEFS.find(x=>x[0]===u)?.[2]||u} turned ${v.toUpperCase()} by ${currentUser}`);};
+  const setPermit=(k,v)=>{write({permits:{...(st.permits||{}),[k]:v},permitsBy:{...(st.permitsBy||{}),[k]:stamp}});if(v)notifyOrgs(`${PERMIT_DEFS.find(x=>x[0]===k)?.[2]||k} permit: ${v==="yes"?"Filed ✓":v==="no"?"Not filed":"Not needed"} — ${currentUser}`);};
+  const byCap=(m)=>m&&m.by?`${m.by.split(" ")[0]}${m.at?` · ${new Date(m.at).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`:""}`:null;
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:420,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(500px,94vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
@@ -4807,11 +4814,12 @@ function PropertyStatusBoard({property,onClose}){
                   <span style={{fontSize:12.5,fontWeight:700,color:T.text}}>{label}</span>
                   <span style={{fontSize:10.5,fontWeight:800,color:on?"#15803D":T.textSub,background:on?"#D3F3DD":"#E9E9EE",borderRadius:12,padding:"2px 10px",letterSpacing:"0.04em"}}>{on?"ON":"OFF"}</span>
                   {auto&&<span title="Flipped on automatically because a completed task mentioned it" style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,borderRadius:10,padding:"1px 7px"}}>auto ✓ task</span>}
+                  {!auto&&byCap((st.utilitiesBy||{})[u])&&<span style={{fontSize:8.5,fontWeight:700,color:T.textTert}}>{byCap((st.utilitiesBy||{})[u])}</span>}
                 </button>
               );
             })}
           </div>
-          <div style={{fontSize:10.5,color:T.textTert,marginTop:6}}>Tap to flip. Utilities turn on automatically when a completed task mentions them.</div>
+          <div style={{fontSize:10.5,color:T.textTert,marginTop:6}}>Tap to flip — contractors on this property can update this board too, and every change shows who made it.</div>
           <div style={{fontSize:11,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",margin:"18px 0 8px"}}>Permits</div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {PERMIT_DEFS.map(([k,icon,label])=>{
@@ -4822,7 +4830,10 @@ function PropertyStatusBoard({property,onClose}){
               return(
                 <div key={k} style={{display:"flex",alignItems:"center",gap:10,background:T.bg,borderRadius:12,padding:"9px 12px"}}>
                   <span style={{fontSize:17,flexShrink:0}}>{icon}</span>
-                  <span style={{fontSize:13,fontWeight:700,color:T.text,width:86,flexShrink:0}}>{label}</span>
+                  <span style={{width:86,flexShrink:0}}>
+                    <span style={{display:"block",fontSize:13,fontWeight:700,color:T.text}}>{label}</span>
+                    {byCap((st.permitsBy||{})[k])&&<span style={{display:"block",fontSize:9,fontWeight:700,color:T.textTert}}>{byCap((st.permitsBy||{})[k])}</span>}
+                  </span>
                   <div style={{flex:1,display:"flex",gap:6}}>
                     {seg("yes","Filed ✓","#EDFBF1","#15803D")}
                     {seg("no","Not filed","#FFF0EF",T.red)}

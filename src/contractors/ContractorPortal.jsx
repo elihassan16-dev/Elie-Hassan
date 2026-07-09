@@ -83,47 +83,72 @@ export function ContractorPortal() {
     const total = jobTotal(j), paid = jobPaid(j), left = jobLeft(j), days = jobDays(j);
     const jobDocs = (docs || []).filter((d) => String(d.jobId) === String(j.id));
     const pct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
-    const st = (siteStatus || []).find((s) => String(s.id) === String(j.propertyId)) || null;
+    // Site status is a shared whiteboard: contractors can flip utilities and set
+    // permits too — every change is stamped with the name of who made it and
+    // Goldstone gets notified.
+    const stRow = (siteStatus || []).find((s) => String(s.id) === String(j.propertyId)) || null;
+    const st = stRow || { id: String(j.propertyId), address: j.propertyAddress || "", utilities: {}, permits: {}, utilitiesBy: {}, permitsBy: {} };
+    const stamp = { by: displayName, at: new Date().toISOString() };
+    const writeStatus = async (patch, note) => {
+      try {
+        await save("site_status", { ...st, ...patch, updatedAt: new Date().toISOString(), updatedBy: displayName });
+        if (note) notify(null, { toAdmins: true, title: `Site status — ${j.propertyAddress || ""}`, body: `${note} — ${displayName} (${org?.name || "contractor"})` });
+      } catch (ex) { setErr(ex.message || "Couldn't update the status board."); }
+    };
+    const flipUtil = (u, label) => {
+      const on = (st.utilities || {})[u] === "on";
+      writeStatus({ utilities: { ...(st.utilities || {}), [u]: on ? "off" : "on" }, utilitiesBy: { ...(st.utilitiesBy || {}), [u]: stamp } }, `${label} turned ${on ? "OFF" : "ON"}`);
+    };
+    const setPermitV = (k, label, v) => writeStatus({ permits: { ...(st.permits || {}), [k]: v }, permitsBy: { ...(st.permitsBy || {}), [k]: stamp } }, v ? `${label} permit: ${v === "yes" ? "Filed ✓" : v === "no" ? "Not filed" : "Not needed"}` : null);
+    const byCap = (m) => m && m.by ? `${m.by.split(" ")[0]}${m.at ? ` · ${fmtDate(m.at).replace(/, \d{4}$/, "")}` : ""}` : null;
     const sec = (t) => <div style={{ fontSize: 10.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", margin: "14px 0 6px" }}>{t}</div>;
     return (
       <div style={{ padding: 14 }}>
-        {/* Site status — utilities & permits, maintained by Goldstone */}
-        {st && (
-          <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "12px 16px", marginBottom: 12 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Site status</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              {UTIL_DEFS.map(([u, icon, label]) => {
-                const on = (st.utilities || {})[u] === "on";
-                return (
-                  <div key={u} style={{ flex: 1, textAlign: "center", background: on ? "#EDFBF1" : T.bg, border: `1px solid ${on ? T.green : T.border}`, borderRadius: 12, padding: "9px 4px" }}>
-                    <div style={{ fontSize: 19, filter: on ? "none" : "grayscale(1)", opacity: on ? 1 : 0.55 }}>{icon}</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{label}</div>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: on ? "#15803D" : T.textSub }}>{on ? "ON" : "OFF"}</div>
+        <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "12px 16px", marginBottom: 12 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Site status — tap to update, Goldstone sees it too</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {UTIL_DEFS.map(([u, icon, label]) => {
+              const on = (st.utilities || {})[u] === "on";
+              const cap = byCap((st.utilitiesBy || {})[u]);
+              return (
+                <button key={u} onClick={() => flipUtil(u, label)} style={{ flex: 1, textAlign: "center", background: on ? "#EDFBF1" : T.bg, border: `1.5px solid ${on ? T.green : T.border}`, borderRadius: 12, padding: "9px 4px", cursor: "pointer", fontFamily: "inherit" }}>
+                  <div style={{ fontSize: 19, filter: on ? "none" : "grayscale(1)", opacity: on ? 1 : 0.55 }}>{icon}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{label}</div>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: on ? "#15803D" : T.textSub }}>{on ? "ON" : "OFF"}</div>
+                  {cap && <div style={{ fontSize: 8.5, fontWeight: 700, color: T.textTert }}>{cap}</div>}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 9 }}>
+            {PERMIT_DEFS.map(([k, icon, label]) => {
+              const v = (st.permits || {})[k] || "";
+              const cap = byCap((st.permitsBy || {})[k]);
+              const segB = (val, txt, bg, fg) => (
+                <button key={val} onClick={() => setPermitV(k, label, v === val ? "" : val)} style={{ flex: 1, padding: "6px 3px", borderRadius: 9, border: `1px solid ${v === val ? fg : T.border}`, background: v === val ? bg : "#fff", color: v === val ? fg : T.textSub, fontWeight: 700, fontSize: 10.5, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>{txt}</button>
+              );
+              return (
+                <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, background: T.bg, borderRadius: 10, padding: "7px 10px" }}>
+                  <span style={{ fontSize: 15, flexShrink: 0 }}>{icon}</span>
+                  <span style={{ width: 78, flexShrink: 0 }}>
+                    <span style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: T.text }}>{label}</span>
+                    {cap && <span style={{ display: "block", fontSize: 8.5, fontWeight: 700, color: T.textTert }}>{cap}</span>}
+                  </span>
+                  <div style={{ flex: 1, display: "flex", gap: 5 }}>
+                    {segB("yes", "Filed ✓", "#EDFBF1", "#15803D")}
+                    {segB("no", "Not filed", "#FFF0EF", T.red)}
+                    {segB("na", "Not needed", "#E9E9EE", "#6b6b70")}
                   </div>
-                );
-              })}
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
-              {PERMIT_DEFS.map(([k, icon, label]) => {
-                const v = (st.permits || {})[k];
-                const [txt, fg, bg] = PERMIT_LABEL[v] || ["—", T.textTert, T.bg];
-                return <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: fg, background: bg, borderRadius: 14, padding: "4px 10px" }}>{icon} {label}: {txt}</span>;
-              })}
-            </div>
-            {/* Property info Goldstone shares: block/lot, lockbox, and a Maps link */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9, alignItems: "center" }}>
-              {st.info?.parcel && <span style={{ fontSize: 11, fontWeight: 700, color: T.text, background: T.bg, borderRadius: 14, padding: "4px 10px" }}>📐 Block/Lot: {st.info.parcel}</span>}
-              {st.info?.lockbox && <span style={{ fontSize: 11, fontWeight: 700, color: T.text, background: T.bg, borderRadius: 14, padding: "4px 10px" }}>🔒 Lockbox: {st.info.lockbox}</span>}
-              <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(st.address || j.propertyAddress || "")}`} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.blue, borderRadius: 14, padding: "4px 10px", textDecoration: "none" }}>📍 Google Maps</a>
-            </div>
+                </div>
+              );
+            })}
           </div>
-        )}
-        {!st && (
-          <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "12px 16px", marginBottom: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, color: T.textSub, flex: 1, minWidth: 160 }}>Site status (utilities & permits) hasn't been published for this property yet.</span>
-            <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(j.propertyAddress || "")}`} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.blue, borderRadius: 14, padding: "4px 10px", textDecoration: "none" }}>📍 Google Maps</a>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9, alignItems: "center" }}>
+            {st.info?.parcel && <span style={{ fontSize: 11, fontWeight: 700, color: T.text, background: T.bg, borderRadius: 14, padding: "4px 10px" }}>📐 Block/Lot: {st.info.parcel}</span>}
+            {st.info?.lockbox && <span style={{ fontSize: 11, fontWeight: 700, color: T.text, background: T.bg, borderRadius: 14, padding: "4px 10px" }}>🔒 Lockbox: {st.info.lockbox}</span>}
+            <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(st.address || j.propertyAddress || "")}`} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.blue, borderRadius: 14, padding: "4px 10px", textDecoration: "none" }}>📍 Google Maps</a>
           </div>
-        )}
+        </div>
         <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "14px 16px" }}>
           <div style={{ display: "flex", gap: 8 }}>
             {[["Contract", money(total)], ["Paid", money(paid)], ["Remaining", money(left)], ["Days", j.status === "complete" ? "Done" : (days == null ? "—" : days)]].map(([l, v], i) => (
@@ -205,7 +230,7 @@ export function ContractorPortal() {
               <button onClick={() => cycleStatus(t)} title="Tap to change status" style={{ padding: "3px 10px", borderRadius: 20, border: "none", background: stColor(t.status) + "22", color: stColor(t.status), fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, whiteSpace: "nowrap" }}>{t.status || "Not Started"}</button>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: t.status === "Completed" ? 0.6 : 1 }}>{t.text}</div>
-                <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdAt ? fmtDate(t.createdAt) : ""}</div>
+                <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdBy ? `from ${t.createdBy.split(" ")[0]} · ` : ""}{t.createdAt ? fmtDate(t.createdAt) : ""}{t.status === "Completed" && t.doneBy ? ` · ✓ ${t.doneBy.split(" ")[0]}` : ""}</div>
               </div>
             </div>
           ))}

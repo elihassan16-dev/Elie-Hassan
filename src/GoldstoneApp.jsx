@@ -4123,6 +4123,40 @@ function FilesTab({property,onUpdate}){
     window.addEventListener("paste",onPaste);
     return ()=>window.removeEventListener("paste",onPaste);
   },[connected,cur,uploadToFolder]);
+  // iPhone flow: copy a PDF/photo in Messages or WhatsApp (long-press → Copy), then
+  // tap 📋 Paste here. Desktop paste (Cmd/Ctrl+V) already works via the listener
+  // above; iOS only offers its Paste bubble inside an editable element, so the
+  // button first tries the async clipboard API and falls back to a paste-catcher box.
+  const[pasteZone,setPasteZone]=useState(false);
+  const pasteRef=useRef(null);
+  const EXT={"application/pdf":"pdf","image/png":"png","image/jpeg":"jpg","image/heic":"heic","image/webp":"webp","image/gif":"gif"};
+  const tryClipboardRead=async()=>{
+    try{
+      if(!navigator.clipboard||!navigator.clipboard.read)return false;
+      const items=await navigator.clipboard.read();
+      for(const it of items){
+        const type=(it.types||[]).find(t=>t==="application/pdf"||t.startsWith("image/"));
+        if(!type)continue;
+        const blob=await it.getType(type);
+        await uploadToFolder(new File([blob],`pasted-${Date.now()}.${EXT[type]||type.split("/")[1]||"bin"}`,{type}));
+        return true;
+      }
+      return false;
+    }catch{return false;}
+  };
+  const onPasteTap=async()=>{
+    if(await tryClipboardRead())return;
+    setPasteZone(true);
+    setTimeout(()=>{const el=pasteRef.current;if(el){el.focus();}},60);
+  };
+  const onZonePaste=(e)=>{
+    const items=e.clipboardData?.items||[];let file=null;
+    for(const it of items){if(it.kind==="file"){const f=it.getAsFile();if(f){file=f;break;}}}
+    if(!file&&e.clipboardData?.files?.length)file=e.clipboardData.files[0];
+    e.preventDefault();e.stopPropagation();
+    if(pasteRef.current)pasteRef.current.innerHTML="";
+    if(file){setPasteZone(false);uploadToFolder(file);}
+  };
 
   // ── Picker actions ──
   const openMyOneDrive=async()=>{setPLoading(true);setError("");try{const r=await od.myDriveRoot();setPStack([{driveId:r.driveId,id:r.rootId,name:"My OneDrive"}]);setPItems(r.items);}catch(e){setError(e.message);}setPLoading(false);};
@@ -4237,9 +4271,21 @@ function FilesTab({property,onUpdate}){
           ))}
         </div>
         <button onClick={refresh} style={btn}>↻</button>
+        <button onClick={onPasteTap} title="Paste a copied file (PDF, photo) from Messages, WhatsApp or email" style={btn}>📋 Paste</button>
         <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{...btn,background:T.gold,color:"#fff",border:"none"}}>↑ Upload</button>
         <input ref={fileRef} type="file" onChange={onPick} style={{display:"none"}}/>
       </div>
+
+      {pasteZone&&(
+        <div style={{marginBottom:12,border:`2px dashed ${T.gold}`,borderRadius:12,background:T.goldLight,padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+          <div ref={pasteRef} contentEditable suppressContentEditableWarning onPaste={onZonePaste}
+            onKeyDown={e=>{if(!((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="v"))e.preventDefault();}}
+            style={{flex:1,minHeight:44,outline:"none",fontSize:13.5,color:"#8a6d1f",fontWeight:600,display:"flex",alignItems:"center",WebkitUserSelect:"text",caretColor:"transparent"}}>
+            Long-press here, then tap Paste — the copied file uploads into this folder.
+          </div>
+          <button onClick={()=>setPasteZone(false)} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+      )}
 
       {uploading>0&&<div style={{marginBottom:12,fontSize:13,color:T.gold}}>Uploading… {uploading}%<div style={{height:4,background:T.goldLight,borderRadius:4,marginTop:4,overflow:"hidden"}}><div style={{height:"100%",width:`${uploading}%`,background:T.gold}}/></div></div>}
       {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}

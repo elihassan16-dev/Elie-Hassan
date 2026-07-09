@@ -291,8 +291,11 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
   const jDocs = (docs || []).filter((d) => String(d.jobId) === String(j.id));
   const jTasks = (tasks || []).filter((t) => String(t.jobId) === String(j.id));
   const closed = (s) => s === "Completed" || s === "N/A";
-  const toThem = jTasks.filter((t) => t.direction !== "to_team").sort((a, b) => closed(a.status) - closed(b.status));
-  const fromThem = jTasks.filter((t) => t.direction === "to_team").sort((a, b) => closed(a.status) - closed(b.status));
+  const [showDone, setShowDone] = useState(false); // completed tasks fold away
+  const vis = (t) => t.status !== "Completed" || showDone;
+  const doneCount = jTasks.filter((t) => t.status === "Completed").length;
+  const toThem = jTasks.filter((t) => t.direction !== "to_team" && vis(t)).sort((a, b) => closed(a.status) - closed(b.status));
+  const fromThem = jTasks.filter((t) => t.direction === "to_team" && vis(t)).sort((a, b) => closed(a.status) - closed(b.status));
   const thread = (messages || []).filter((m) => String(m.jobId) === String(j.id)).sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
   const [tab2, setTab2] = useState("overview");
   const [coDraft, setCoDraft] = useState(null);
@@ -518,6 +521,11 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
           ))}
           {fromThem.length === 0 && <div style={{ fontSize: 12.5, color: T.textTert }}>No requests from them on this job.</div>}
         </div>
+        {doneCount > 0 && (
+          <button onClick={() => setShowDone((v) => !v)} style={{ alignSelf: "flex-start", padding: "6px 13px", borderRadius: 16, border: `1px solid ${T.green}`, background: showDone ? "#fff" : "#EDFBF1", color: "#15803D", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            {showDone ? "Hide" : "Show"} completed ({doneCount})
+          </button>
+        )}
       </>)}
 
       {tab2 === "messages" && (<>

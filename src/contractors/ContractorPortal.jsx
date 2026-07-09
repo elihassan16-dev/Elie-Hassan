@@ -75,6 +75,7 @@ export function ContractorPortal() {
   const [coReqOpen, setCoReqOpen] = useState(false); // change-order request form
   const [coReq, setCoReq] = useState({ label: "", amount: "" });
   const [pricePop, setPricePop] = useState(false); // contract-price breakdown popup
+  const [doneOpen, setDoneOpen] = useState(false); // ✓ completed-tasks popup
   const [err, setErr] = useState("");
   const selJob = myJobs.find((j) => String(j.id) === String(selJobId)) || null;
   // Desktop opens straight into the first job, like the main app's lists.
@@ -425,10 +426,51 @@ export function ContractorPortal() {
   };
   const tasksTab = (j) => {
     const jt = (tasks || []).filter((t) => t.orgId === contractorOrgId && String(t.jobId) === String(j.id));
-    const forUs = jt.filter((t) => t.direction !== "to_team").sort((a, b) => taskClosed(a.status) - taskClosed(b.status) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-    const toTeam = jt.filter((t) => t.direction === "to_team").sort((a, b) => taskClosed(a.status) - taskClosed(b.status) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    // Completed tasks are tucked into the ✓ popup instead of cluttering the lists.
+    const done = jt.filter((t) => t.status === "Completed").sort((a, b) => String(b.doneAt || "").localeCompare(String(a.doneAt || "")));
+    const forUs = jt.filter((t) => t.direction !== "to_team" && t.status !== "Completed").sort((a, b) => taskClosed(a.status) - taskClosed(b.status) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    const toTeam = jt.filter((t) => t.direction === "to_team" && t.status !== "Completed").sort((a, b) => taskClosed(a.status) - taskClosed(b.status) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
     return (
       <div style={{ padding: 14 }}>
+        {done.length > 0 && (
+          <button onClick={() => setDoneOpen(true)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "11px 14px", marginBottom: 12, borderRadius: T.radius, border: `1.5px solid ${T.green}`, background: "#EDFBF1", cursor: "pointer", fontFamily: "inherit", boxShadow: T.shadow, textAlign: "left", boxSizing: "border-box" }}>
+            <span style={{ fontSize: 17, flexShrink: 0 }}>✓</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: T.text }}>Completed tasks</span>
+              <span style={{ display: "block", fontSize: 11, color: "#15803D" }}>{done.length} done on this job — tap to review</span>
+            </span>
+            <span style={{ fontSize: 14, color: "#15803D", flexShrink: 0 }}>›</span>
+          </button>
+        )}
+        {doneOpen && (
+          <div onClick={() => setDoneOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 430, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, width: "min(520px,94vw)", maxHeight: "84vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,0.2)", overflow: "hidden" }}>
+              <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, background: "#EDFBF1", flexShrink: 0 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>✓ Completed tasks</div>
+                  <div style={{ fontSize: 11.5, color: "#15803D" }}>{j.propertyAddress || ""}</div>
+                </div>
+                <button onClick={() => setDoneOpen(false)} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto" }}>
+                {done.length === 0 && <div style={{ padding: "26px 16px", textAlign: "center", color: T.textTert, fontSize: 13 }}>Nothing completed yet.</div>}
+                {done.map((t) => (
+                  <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "11px 16px", borderBottom: `1px solid ${T.border}` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.4 }}>{t.text}</div>
+                      <div style={{ fontSize: 11, color: T.textSub, marginTop: 2 }}>
+                        {t.direction === "to_team" ? "Your request to Goldstone" : `From ${t.createdBy ? t.createdBy.split(" ")[0] : "Goldstone"}`}
+                        {t.createdAt ? ` · ${fmtDate(t.createdAt)}` : ""}
+                        {(t.doneBy || t.statusBy) ? ` · ✓ ${(t.doneBy || t.statusBy).split(" ")[0]}${t.doneAt ? ` ${fmtDate(t.doneAt)}` : ""}` : ""}
+                      </div>
+                    </div>
+                    <button onClick={() => setTaskStatus(t, "Not Started")} title="Put it back on the list" style={{ padding: "6px 12px", borderRadius: 16, border: `1px solid ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>↩ Restore</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, overflow: "hidden", marginBottom: 14 }}>
           <div style={{ padding: "11px 14px", fontSize: 12, fontWeight: 800, color: T.gold, textTransform: "uppercase", letterSpacing: "0.05em" }}>Your tasks from Goldstone</div>
           {forUs.length === 0 && <div style={{ padding: "6px 14px 16px", fontSize: 13, color: T.textTert }}>Nothing assigned on this job right now.</div>}
@@ -576,7 +618,7 @@ export function ContractorPortal() {
                 const un = unreadFor(j.id);
                 const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.direction !== "to_team" && !taskClosed(t.status)).length;
                 return (
-                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
+                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); setDoneOpen(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress || j.title || "Job"}</div>

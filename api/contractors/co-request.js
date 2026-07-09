@@ -1,0 +1,38 @@
+// Contractor change-order REQUESTS. Contractors can't write the jobs table
+// directly (price data is team-owned), so the portal submits here and we append
+// a pending request to the job with the service role. Goldstone approves or
+// denies it in the app; approving is what actually changes the price.
+import { createClient } from "@supabase/supabase-js";
+import { requireAppUser } from "../../lib/showings.js";
+
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://wtmsukjnuqsprtvfytin.supabase.co";
+const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  try {
+    if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed." }); return; }
+    const user = await requireAppUser(req);
+    if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
+    if (!SERVICE_ROLE) { res.status(503).json({ error: "Missing SUPABASE_SERVICE_ROLE_KEY env var." }); return; }
+    const { jobId, label, amount, note } = req.body || {};
+    const amt = Number(amount);
+    if (!jobId || !String(label || "").trim() || !amt) { res.status(400).json({ error: "A description and amount are required." }); return; }
+
+    const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+    const { data: u } = await db.from("users").select("name,role,contractor_org_id").eq("id", user.id).maybeSingle();
+    const { data: job } = await db.from("contractor_jobs").select("id,org_id,data").eq("id", jobId).maybeSingle();
+    if (!job) { res.status(404).json({ error: "Job not found." }); return; }
+    const isTeam = u && (u.role === "admin" || u.role === "member");
+    const isOrg = u && u.role === "contractor" && String(u.contractor_org_id) === String(job.org_id);
+    if (!isTeam && !isOrg) { res.status(403).json({ error: "Not your job." }); return; }
+
+    const request = { id: Date.now(), label: String(label).trim().slice(0, 200), amount: amt, note: String(note || "").trim().slice(0, 300), by: u?.name || user.email || "", at: new Date().toISOString(), status: "pending" };
+    const data = { ...(job.data || {}), coRequests: [...((job.data || {}).coRequests || []), request] };
+    const { error } = await db.from("contractor_jobs").update({ data }).eq("id", job.id);
+    if (error) { res.status(500).json({ error: error.message }); return; }
+    res.status(200).json({ ok: true, request });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+}

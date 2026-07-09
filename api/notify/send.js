@@ -21,15 +21,23 @@ export default async function handler(req, res) {
   const user = await requireAppUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
 
-  const { recipients, title, body, url, tag } = await readBody(req);
-  if (!Array.isArray(recipients) || recipients.length === 0) { res.status(200).json({ pushed: 0, mailed: 0 }); return; }
+  const { recipients, title, body, url, tag, toAdmins, toOrg } = await readBody(req);
+  if ((!Array.isArray(recipients) || recipients.length === 0) && !toAdmins && !toOrg) { res.status(200).json({ pushed: 0, mailed: 0 }); return; }
 
   const db = admin();
-  // Resolve recipient display names -> user rows (id + email). Never notify the
-  // sender, and skip anyone an admin has muted.
-  const { data: users } = await db.from("users").select("id,email,name,notify_muted,sms_email");
-  const wanted = new Set(recipients.map((n) => String(n).trim().toLowerCase()).filter(Boolean));
-  const targets = (users || []).filter((u) => u.name && wanted.has(u.name.toLowerCase()) && u.id !== user.id && !u.notify_muted);
+  // Resolve targets: by display name (team messaging), or for the contractor
+  // portal, toAdmins (contractor → every Goldstone admin) / toOrg (team → every
+  // login at that contractor company). Never notify the sender or muted users.
+  const { data: users } = await db.from("users").select("id,email,name,role,contractor_org_id,notify_muted,sms_email");
+  let targets;
+  if (toAdmins) {
+    targets = (users || []).filter((u) => u.role === "admin" && u.id !== user.id && !u.notify_muted);
+  } else if (toOrg) {
+    targets = (users || []).filter((u) => u.contractor_org_id === toOrg && u.id !== user.id && !u.notify_muted);
+  } else {
+    const wanted = new Set(recipients.map((n) => String(n).trim().toLowerCase()).filter(Boolean));
+    targets = (users || []).filter((u) => u.name && wanted.has(u.name.toLowerCase()) && u.id !== user.id && !u.notify_muted);
+  }
   if (targets.length === 0) { res.status(200).json({ pushed: 0, mailed: 0 }); return; }
   const ids = targets.map((u) => u.id);
 

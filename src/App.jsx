@@ -2,6 +2,7 @@ import { useAuth } from "./auth/AuthProvider";
 import Login from "./auth/Login";
 import { DataProvider } from "./data/DataProvider";
 import { GoldstoneShell } from "./GoldstoneApp";
+import { ContractorPortal } from "./contractors/ContractorPortal";
 
 function Splash() {
   return (
@@ -25,9 +26,12 @@ function Splash() {
 }
 
 export default function Root() {
-  const { loading, session } = useAuth();
+  const { loading, session, isContractor } = useAuth();
   if (loading) return <Splash />;
   if (!session) return <Login />;
+  // Contractor logins get the simple portal — NOT the team app (and not the
+  // DataProvider: database rules block them from team tables anyway).
+  if (isContractor) return <ContractorPortal />;
   return (
     <DataProvider>
       <GoldstoneShell />

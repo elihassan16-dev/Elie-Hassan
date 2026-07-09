@@ -7,41 +7,9 @@ import { useOutlookMail, groupChains } from "./outlook/useOutlookMail";
 import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
-
-// Authenticated fetch to our serverless API (sends the Supabase JWT). If the token
-// has gone stale (server replies 401 "Not signed in"), refresh the session once and
-// retry — otherwise an idle PWA can fail even though the user is still logged in.
-async function qbAuthFetch(path, opts = {}) {
-  const call = async () => {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    // no-store so a refresh always pulls live QuickBooks numbers (e.g. loan
-    // balances after a mortgage payment) instead of a stale browser-cached copy.
-    return fetch(path, { cache: "no-store", ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
-  };
-  let res = await call();
-  if (res.status === 401) {
-    try { await supabase.auth.refreshSession(); } catch { /* fall through */ }
-    res = await call();
-  }
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || `Request failed (${res.status}).`);
-  return json;
-}
-
-// Fire a push + email notification to teammates (by display name). Best-effort:
-// never blocks or throws into the UI. The sender is dropped server-side.
-async function notify(recipients, { title, body, tag, url } = {}) {
-  const list = [...new Set((recipients || []).filter(Boolean))];
-  if (!list.length) return;
-  try {
-    await qbAuthFetch("/api/notify/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recipients: list, title, body, url: url || "/", tag }),
-    });
-  } catch { /* notifications are best-effort */ }
-}
+import { T } from "./theme";
+import { qbAuthFetch, notify, uploadAttachment, attachmentKind } from "./net";
+import { ContractorsAdminPage } from "./contractors/ContractorsAdminPage";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -56,7 +24,8 @@ function useIsMobile(breakpoint = 768) {
   return isMobile;
 }
 
-const T={gold:"#B8953F",goldLight:"#F8F1E0",goldMid:"#D4A843",bg:"#F2F2F7",card:"#FFFFFF",cardAlt:"#F9F9FB",border:"rgba(0,0,0,0.08)",text:"#1C1C1E",textSub:"#8A8A8E",textTert:"#AEAEB2",blue:"#007AFF",green:"#34C759",red:"#FF3B30",orange:"#FF9500",purple:"#AF52DE",teal:"#5AC8FA",shadow:"0 1px 3px rgba(0,0,0,0.07),0 4px 16px rgba(0,0,0,0.04)",shadowMd:"0 2px 8px rgba(0,0,0,0.10),0 8px 32px rgba(0,0,0,0.06)",radius:14,radiusSm:10};
+// T (theme tokens) now lives in src/theme.js — imported above, shared with the
+// contractor portal so both faces of the app look identical.
 
 const SC={"Under Contract":{color:"#9333EA",bg:"#F3E8FF"},"Purchased":{color:"#2563EB",bg:"#DBEAFE"},"Under Construction":{color:"#EA580C",bg:"#FFEDD5"},"On Market":{color:"#16A34A",bg:"#DCFCE7"},"In Closing":{color:"#CA8A04",bg:"#FEF9C3"},"Sold":{color:"#65A30D",bg:"#ECFCCB"},"Rental":{color:"#0891B2",bg:"#CFFAFE"},"New Leads":{color:"#DB2777",bg:"#FCE7F3"}};
 const DEFAULT_ORDER=["Under Contract","In Closing","Purchased","Under Construction","On Market","Rental","New Leads","Sold"];
@@ -503,9 +472,10 @@ const NAV=[
   {key:"contacts",label:"Contacts",short:"Contacts",icon:ICONS.contacts},
   {key:"email",label:"Email",short:"Email",icon:ICONS.email},
   {key:"financials",label:"Financial Section",short:"Financials",icon:ICONS.financials},
+  {key:"contractors",label:"Contractors",short:"Contractors",icon:ICONS.contacts},
 ];
 // Sections only the admin (Elie) can see. Everyone else never gets these nav items.
-const ADMIN_ONLY_KEYS=new Set(["financials"]);
+const ADMIN_ONLY_KEYS=new Set(["financials","contractors"]);
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
 function Card({children,style={}}){return <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",...style}}>{children}</div>;}
@@ -7812,17 +7782,8 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
 // public "attachments" bucket + policies. An attachment is stored on the message as
 // { url, name, mime, kind } where kind is 'image' | 'audio' | 'file'.
 const iconBtn={width:40,height:40,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:T.bg,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1};
-const attachmentKind=(mime="")=>mime.startsWith("image/")?"image":mime.startsWith("video/")?"video":mime.startsWith("audio/")?"audio":"file";
-const sanitizeName=(name="file")=>(name.replace(/[^a-zA-Z0-9._-]/g,"_")||"file").slice(-80);
-async function uploadAttachment(file,folder="chat"){
-  const kind=attachmentKind(file.type||"");
-  const base=file.name?sanitizeName(file.name):`${kind}.${kind==="audio"?"webm":kind==="image"?"jpg":"bin"}`;
-  const path=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${base}`;
-  const { error }=await supabase.storage.from("attachments").upload(path,file,{contentType:file.type||undefined,upsert:false});
-  if(error)throw error;
-  const { data }=supabase.storage.from("attachments").getPublicUrl(path);
-  return { url:data.publicUrl, name:file.name||base, mime:file.type||"", kind };
-}
+// uploadAttachment / attachmentKind now live in src/net.js (imported above),
+// shared with the contractor portal.
 // `saveFolder` ({driveId,id,name} — the property's Files folder) adds a one-tap
 // "Save to Files" button under PDFs/photos someone sent in chat: the attachment is
 // pulled from storage and uploaded into the property's OneDrive/SharePoint folder.
@@ -12246,6 +12207,7 @@ export function GoldstoneShell(){
     : active==="contacts" ? <ContactsPage/>
     : active==="email" ? <EmailPage isMobile={isMobile}/>
     : active==="financials" ? <FinancialSectionPage onNavigate={navigateToProperty} canEdit={isAdmin}/>
+    : active==="contractors" ? <ContractorsAdminPage/>
     : <ComingSoon label={NAV.find(n=>n.key===active)?.label}/>;
 
   if(loading) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.gold,fontWeight:700,fontSize:16,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif"}}>Loading Goldstone…</div>;

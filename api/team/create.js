@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     const password = (body.password || "").trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { res.status(400).json({ error: "Enter a valid email address." }); return; }
     if (password.length < 8) { res.status(400).json({ error: "Password must be at least 8 characters." }); return; }
-    const member = await createTeamMember({ name, email, password });
+    const member = await createTeamMember({ name, email, password, role: body.role || "member", contractorOrgId: body.contractorOrgId || null });
     res.status(200).json({ ok: true, member });
   } catch (e) {
     const msg = /already been registered|already exists|duplicate|registered/i.test(e.message || "")

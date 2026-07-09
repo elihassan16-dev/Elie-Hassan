@@ -6666,7 +6666,22 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
 // 👷 All requests FROM contractors in one place (Tasks page banner → this popup):
 // who's asking, which property, who it's aimed at. Checkbox completes; 💬 opens
 // the external/internal task chat.
-function ExternalRequestsPopup({requests,onToggle,onChat,onClose}){
+// Contractor-task statuses — mirrored with the portal (both sides can set them).
+const CTR_STATUSES=["Not Started","In Progress","Completed","N/A"];
+const ctrStColor=(s)=>s==="Completed"?T.green:s==="In Progress"?T.blue:s==="N/A"?"#6b6b70":T.textSub;
+const ctrClosed=(s)=>s==="Completed"||s==="N/A";
+function CtrStatusPill({t,onSet}){
+  const v=CTR_STATUSES.includes(t.status)?t.status:"Not Started";
+  const c=ctrStColor(v);
+  return(
+    <select value={v} onChange={e=>onSet(t,e.target.value)} title="Change status"
+      style={{padding:"3px 6px",borderRadius:20,border:"none",background:c+"22",color:c,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
+      {CTR_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+    </select>
+  );
+}
+
+function ExternalRequestsPopup({requests,onSetStatus,onChat,onClose}){
   const fmtD2=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
@@ -6681,8 +6696,8 @@ function ExternalRequestsPopup({requests,onToggle,onChat,onClose}){
         <div style={{flex:1,overflowY:"auto"}}>
           {requests.length===0&&<div style={{padding:"30px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No requests from contractors yet.</div>}
           {requests.map(({t,job,orgName,addr})=>(
-            <div key={t.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"12px 16px",borderBottom:`1px solid ${T.border}`,opacity:t.status==="Completed"?0.55:1}}>
-              <input type="checkbox" checked={t.status==="Completed"} onChange={()=>onToggle(t)} style={{width:18,height:18,marginTop:2,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>
+            <div key={t.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"12px 16px",borderBottom:`1px solid ${T.border}`,opacity:ctrClosed(t.status)?0.55:1}}>
+              <CtrStatusPill t={t} onSet={onSetStatus}/>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:13.5,color:T.text,lineHeight:1.45,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text}</div>
                 <div style={{fontSize:11,color:T.textSub,marginTop:3,display:"flex",flexWrap:"wrap",gap:"2px 10px"}}>
@@ -6750,9 +6765,10 @@ function PropertyTaskList({property}){
     setCtrDraft(d=>({...d,[j.id]:""}));
     notify(null,{toOrg:j.orgId,title:"New task from Goldstone",body:`${txt} — ${j.propertyAddress||propAddr}`});
   };
-  const toggleCtrTask=async(t)=>{
-    const done=t.status!=="Completed";
-    try{await ctrSave("contractor_tasks",{...t,status:done?"Completed":"Not Started",doneAt:done?new Date().toISOString():null,doneBy:done?CURRENT_USER:null});}catch{/* keep UI */}
+  const setCtrTaskStatus=async(t,s)=>{
+    if(s===(t.status||"Not Started"))return;
+    try{await ctrSave("contractor_tasks",{...t,status:s,statusBy:CURRENT_USER,doneAt:s==="Completed"?new Date().toISOString():null,doneBy:s==="Completed"?CURRENT_USER:null});}catch{return;}
+    notify(null,{toOrg:t.orgId,title:"Task updated by Goldstone",body:`${t.text} — ${s}`});
   };
   const[aiTasksOpen,setAiTasksOpen]=useState(false);
   // Create the whole AI-generated list at once and notify everyone who got work.
@@ -6827,7 +6843,7 @@ function PropertyTaskList({property}){
       {/* Contractor tasks — one amber card per company working THIS property.
           These go to their portal (external), unlike the internal list above. */}
       {propCtrJobs.map(j=>{
-        const jt=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id)&&t.direction!=="to_team").sort((a,b)=>(a.status==="Completed")-(b.status==="Completed")||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
+        const jt=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id)&&t.direction!=="to_team").sort((a,b)=>ctrClosed(a.status)-ctrClosed(b.status)||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
         const name=ctrOrgName(j.orgId);
         return(
           <div key={j.id} style={{marginTop:14,background:"#FFF9EC",borderRadius:T.radius,border:`1.5px solid ${T.gold}`,boxShadow:T.shadow,overflow:"hidden"}}>
@@ -6838,10 +6854,10 @@ function PropertyTaskList({property}){
             </div>
             {jt.map(t=>(
               <div key={t.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"9px 14px",borderTop:"1px solid rgba(184,149,63,0.25)"}}>
-                <input type="checkbox" checked={t.status==="Completed"} onChange={()=>toggleCtrTask(t)} style={{width:18,height:18,marginTop:1,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>
+                <CtrStatusPill t={t} onSet={setCtrTaskStatus}/>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:t.status==="Completed"?0.6:1}}>{t.text}</div>
-                  <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.status}{t.doneBy?` · ${t.doneBy}`:""}</div>
+                  <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
+                  <div style={{fontSize:10.5,color:"#8a6d1f"}}>{(t.statusBy||t.doneBy)?`${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>
                 </div>
                 <button onClick={()=>setExtChat({task:t,job:j})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
               </div>
@@ -6885,14 +6901,15 @@ function TasksPage({onNavigate}){
     (ctrJobs||[]).forEach(j=>{
       if(j.status==="complete")return;
       const rows=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id));
-      if(rows.length)(m[String(j.propertyId)]=m[String(j.propertyId)]||[]).push({job:j,rows:rows.sort((a,b)=>(a.status==="Completed")-(b.status==="Completed")||String(b.createdAt||"").localeCompare(String(a.createdAt||"")))});
+      if(rows.length)(m[String(j.propertyId)]=m[String(j.propertyId)]||[]).push({job:j,rows:rows.sort((a,b)=>ctrClosed(a.status)-ctrClosed(b.status)||String(b.createdAt||"").localeCompare(String(a.createdAt||"")))});
     });
     return m;
   },[ctrJobs,ctrTasks]);
   const[extChat,setExtChat]=useState(null); // {task,job} → external/internal chat popup
-  const toggleExtTask=async(t)=>{
-    const done=t.status!=="Completed";
-    try{await ctrSave("contractor_tasks",{...t,status:done?"Completed":"Not Started",doneAt:done?new Date().toISOString():null,doneBy:done?CURRENT_USER:null});}catch{/* keep UI */}
+  const setExtTaskStatus=async(t,s)=>{
+    if(s===(t.status||"Not Started"))return;
+    try{await ctrSave("contractor_tasks",{...t,status:s,statusBy:CURRENT_USER,doneAt:s==="Completed"?new Date().toISOString():null,doneBy:s==="Completed"?CURRENT_USER:null});}catch{return;}
+    notify(null,{toOrg:t.orgId,title:"Task updated by Goldstone",body:`${t.text} — ${s}`});
   };
   // Every request FROM contractors, newest first, open before done — the banner
   // above the task groups opens these in one list regardless of property.
@@ -6902,9 +6919,9 @@ function TasksPage({onNavigate}){
     return (ctrTasks||[]).filter(t=>t.direction==="to_team").map(t=>{
       const job=jobById.get(String(t.jobId));
       return job?{t,job,orgName:ctrOrgName(job.orgId),addr:job.propertyAddress||""}:null;
-    }).filter(Boolean).sort((a,b)=>(a.t.status==="Completed")-(b.t.status==="Completed")||String(b.t.createdAt||"").localeCompare(String(a.t.createdAt||"")));
+    }).filter(Boolean).sort((a,b)=>ctrClosed(a.t.status)-ctrClosed(b.t.status)||String(b.t.createdAt||"").localeCompare(String(a.t.createdAt||"")));
   },[ctrJobs,ctrTasks,ctrOrgs]); // eslint-disable-line react-hooks/exhaustive-deps
-  const openExtCount=extRequests.filter(r=>r.t.status!=="Completed").length;
+  const openExtCount=extRequests.filter(r=>!ctrClosed(r.t.status)).length;
   // Per-user "send this property to the bottom" order (synced in prefs, personal —
   // doesn't reorder the list for teammates). Map of propId -> when it was pushed.
   const propPushOrder=prefs.propPushOrder||{};
@@ -7393,7 +7410,7 @@ function TasksPage({onNavigate}){
                 <span style={{fontSize:15,color:"#8a6d1f",flexShrink:0}}>›</span>
               </button>
             )}
-            {extReqOpen&&<ExternalRequestsPopup requests={extRequests} onToggle={toggleExtTask} onChat={(x)=>setExtChat(x)} onClose={()=>setExtReqOpen(false)}/>}
+            {extReqOpen&&<ExternalRequestsPopup requests={extRequests} onSetStatus={setExtTaskStatus} onChat={(x)=>setExtChat(x)} onClose={()=>setExtReqOpen(false)}/>}
             {/* Group by property, then apply my personal "sent to bottom" order:
                 pushed properties sink below the rest, most-recently-pushed last. */}
             {Object.entries(filteredDisplay.reduce((acc,t)=>{(acc[t.propAddr]=acc[t.propAddr]||[]).push(t);return acc;},{}))
@@ -7440,10 +7457,10 @@ function TasksPage({onNavigate}){
                     </div>
                     {rows.map(t=>(
                       <div key={t.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)"}}>
-                        <input type="checkbox" checked={t.status==="Completed"} onChange={()=>toggleExtTask(t)} style={{width:17,height:17,marginTop:1,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>
+                        <CtrStatusPill t={t} onSet={setExtTaskStatus}/>
                         <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:t.status==="Completed"?0.6:1}}>{t.text}</div>
-                          <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}${t.askedOf&&t.askedOf.length?` → ${t.askedOf.map(n=>n.split(" ")[0]).join(", ")}`:" → everyone"}`:t.status}{t.doneBy?` · ${t.doneBy}`:""}</div>
+                          <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
+                          <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}${t.askedOf&&t.askedOf.length?` → ${t.askedOf.map(n=>n.split(" ")[0]).join(", ")}`:" → everyone"}`:""}{(t.statusBy||t.doneBy)?` · ${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>
                         </div>
                         <button onClick={()=>setExtChat({task:t,job})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
                       </div>

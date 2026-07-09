@@ -9,7 +9,7 @@ import { supabase } from "../supabaseClient";
 import { useAuth } from "../auth/AuthProvider";
 import { useData } from "../data/DataProvider";
 import { T } from "../theme";
-import { notify, qbAuthFetch, uploadAttachment } from "../net";
+import { notify, qbAuthFetch, uploadAttachment, uploadStreamVideo, STREAM_VIDEO_CAP } from "../net";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 
 const inp = { width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" };
@@ -318,7 +318,20 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
   const addPay = async () => { const a = Number(numIn(payDraft.amount)); if (!a) return; await save("contractor_jobs", { ...j, payments: [...(j.payments || []), { id: Date.now(), amount: a, date: payDraft.date, note: payDraft.note.trim() }] }); setPayDraft(null); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(a)} — ${j.propertyAddress}` }); };
   const addTask = async () => { const txt = taskDraft.trim(); if (!txt) return; await save("contractor_tasks", { id: Date.now(), jobId: j.id, orgId: j.orgId, text: txt, status: "Not Started", direction: "to_contractor", createdBy: displayName, createdAt: new Date().toISOString() }); setTaskDraft(""); notify(null, { toOrg: j.orgId, title: "New task from Goldstone", body: `${txt} — ${j.propertyAddress}` }); };
   const toggleTask = async (t) => { const done = t.status !== "Completed"; await save("contractor_tasks", { ...t, status: done ? "Completed" : "Not Started", doneAt: done ? new Date().toISOString() : null, doneBy: done ? displayName : null }); };
-  const pickAtt = async (e) => { const file = (e.target.files || [])[0]; e.target.value = ""; if (!file) return; setBusy(true); try { setPending(await uploadAttachment(file, "portal")); } catch { setErr2("Upload failed."); } setBusy(false); };
+  const pickAtt = async (e) => {
+    const file = (e.target.files || [])[0]; e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    try {
+      // Videos go through Cloudflare Stream (200 MB, transcoded); other files use storage.
+      if ((file.type || "").startsWith("video/")) {
+        if (file.size > STREAM_VIDEO_CAP) throw new Error("Video is too large (max 200 MB).");
+        try { setPending(await uploadStreamVideo(file)); }
+        catch (ex) { if (file.size <= 50 * 1024 * 1024) setPending(await uploadAttachment(file, "portal")); else throw ex; }
+      } else setPending(await uploadAttachment(file, "portal"));
+    } catch (ex) { setErr2(ex.message || "Upload failed."); }
+    setBusy(false);
+  };
   const sendMsg = async () => {
     const txt = msgDraft.trim(); if ((!txt && !pending) || busy) return;
     const msg = { id: Date.now(), jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: txt, at: new Date().toISOString(), readBy: [displayName] };
@@ -447,6 +460,8 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
                 {m.text}
                 {m.attachment && (m.attachment.kind === "image"
                   ? <a href={m.attachment.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={m.attachment.url} alt="" style={{ maxWidth: 200, maxHeight: 220, borderRadius: 9, display: "block", objectFit: "cover" }} /></a>
+                  : m.attachment.kind === "video" && m.attachment.stream
+                  ? <iframe src={m.attachment.url} title={m.attachment.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ marginTop: 6, width: "min(300px,70vw)", aspectRatio: "16/9", border: "none", borderRadius: 9, display: "block", background: "#000" }} />
                   : m.attachment.kind === "video"
                   ? <video src={m.attachment.url} controls playsInline preload="metadata" style={{ marginTop: 6, maxWidth: 220, width: "100%", borderRadius: 9, display: "block", background: "#000" }} />
                   : <a href={m.attachment.url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, padding: "6px 9px", borderRadius: 9, background: mine ? "rgba(255,255,255,0.18)" : "#fff", color: mine ? "#fff" : T.text, textDecoration: "none", fontSize: 11.5, fontWeight: 600, maxWidth: 210 }}>📄 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.attachment.name}</span></a>)}

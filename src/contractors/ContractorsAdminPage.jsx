@@ -38,10 +38,11 @@ function Modal({ title, onClose, children, footer, width = 520 }) {
 function OrgModal({ orgModal, save, onSaved, onClose }) {
   const editing = !!orgModal?.id;
   const [f, setF] = useState({ name: orgModal?.name || "", contactName: orgModal?.contactName || "", phone: orgModal?.phone || "", email: orgModal?.email || "", address: orgModal?.address || "", notes: orgModal?.notes || "" });
+  const [e2, setE2] = useState("");
   const saveOrg = async () => {
     if (!f.name.trim()) return;
     const obj = { ...(editing ? orgModal : { id: "org_" + Date.now(), createdAt: new Date().toISOString() }), ...f, name: f.name.trim() };
-    await save("contractor_orgs", obj);
+    try { await save("contractor_orgs", obj); } catch (ex) { setE2(ex.message || "Save failed — try again."); return; }
     onSaved(String(obj.id)); onClose();
   };
   return (
@@ -55,6 +56,7 @@ function OrgModal({ orgModal, save, onSaved, onClose }) {
       <div><label style={lbl}>Email</label><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} type="email" style={inp} /></div>
       <div><label style={lbl}>Mailing address</label><input value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} placeholder="Street, City, State ZIP" style={inp} /></div>
       <div><label style={lbl}>Notes</label><textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} style={{ ...inp, minHeight: 56, resize: "vertical" }} /></div>
+      {e2 && <div style={{ fontSize: 12.5, color: T.red }}>{e2}</div>}
     </Modal>
   );
 }
@@ -89,6 +91,7 @@ function LoginModal({ org, onClose }) {
 function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
   const editing = !!jobModal?.id;
   const [f, setF] = useState({ propertyId: jobModal?.propertyId || "", title: jobModal?.title || "", scope: jobModal?.scope || "", price: jobModal?.price != null ? String(jobModal.price) : "", startDate: jobModal?.startDate || today() });
+  const [e2, setE2] = useState("");
   const saveJob = async () => {
     const prop = properties.find((p) => String(p.id) === String(f.propertyId));
     if (!prop && !editing) return;
@@ -97,7 +100,7 @@ function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
       propertyId: f.propertyId || jobModal?.propertyId, propertyAddress: prop ? `${prop.address}${prop.city ? `, ${prop.city}` : ""}` : jobModal?.propertyAddress,
       title: f.title.trim(), scope: f.scope, price: Number(numIn(f.price)) || 0, startDate: f.startDate,
     };
-    await save("contractor_jobs", obj);
+    try { await save("contractor_jobs", obj); } catch (ex) { setE2(ex.message || "Save failed — try again."); return; }
     onSaved(obj.id); onClose();
     if (!editing) notify(null, { toOrg: String(org.id), title: "New job from Goldstone", body: `${obj.propertyAddress}${obj.title ? ` — ${obj.title}` : ""}` });
   };
@@ -116,6 +119,7 @@ function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
         <div style={{ flex: 1 }}><label style={lbl}>Contract price</label><input value={f.price} onChange={(e) => setF({ ...f, price: numIn(e.target.value) })} inputMode="decimal" placeholder="e.g. 45000" style={inp} /></div>
         <div style={{ flex: 1 }}><label style={lbl}>Start date</label><input type="date" value={f.startDate} onChange={(e) => setF({ ...f, startDate: e.target.value })} style={inp} /></div>
       </div>
+      {e2 && <div style={{ fontSize: 12.5, color: T.red }}>{e2}</div>}
     </Modal>
   );
 }

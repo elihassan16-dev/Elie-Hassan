@@ -42,9 +42,11 @@ export function useContractorData() {
   }, [loadAll, loadTable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Insert-or-update one row. The full object goes in `data`; orgId also lands in
-  // the org_id column so RLS can scope it.
+  // the org_id column so RLS can scope it. contractor_orgs has NO org_id column
+  // (the row id IS the org) — sending one makes Postgres reject the write.
   const save = useCallback(async (table, obj) => {
-    const row = { id: String(obj.id), org_id: obj.orgId || (table === "contractor_orgs" ? String(obj.id) : null), data: obj, updated_at: new Date().toISOString() };
+    const row = { id: String(obj.id), data: obj, updated_at: new Date().toISOString() };
+    if (table !== "contractor_orgs") row.org_id = obj.orgId != null ? String(obj.orgId) : null;
     const { error: err } = await supabase.from(table).upsert(row, { onConflict: "id" });
     if (err) throw new Error(err.message || "Save failed.");
     await loadTable(table);

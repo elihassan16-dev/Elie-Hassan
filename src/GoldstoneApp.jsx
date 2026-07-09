@@ -6472,6 +6472,70 @@ function AiTasksModal({propAddr,teamMembers=[],existingTasks=[],onCreate,onClose
   );
 }
 
+// 💬 on an EXTERNAL (contractor) task: talk about it with the contractor (their
+// job thread — they see it) OR internally (a 🔒 tagged thread in the property chat
+// that contractors can never read). The toggle makes the audience explicit.
+function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctrMessages,ctrSave,setSharedProps,onClose}){
+  const[mode,setMode]=useState("external");
+  const scrollRef=useRef(null);
+  const external=(ctrMessages||[]).filter(m=>String(m.jobId)===String(job.id)).sort((a,b)=>String(a.at||"").localeCompare(String(b.at||"")));
+  const internal=((property?.messages)||[]).filter(m=>String(m.ctrTaskKey||"")===String(task.id)).sort((a,b)=>msgTime(a.at)-msgTime(b.at));
+  const msgs=mode==="external"?external:internal;
+  useEffect(()=>{const el=scrollRef.current;if(el)el.scrollTop=el.scrollHeight;},[msgs.length,mode]);
+  const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
+  const send=async(txt,att,mentions)=>{
+    const t=(txt||"").trim();if(!t&&!att)return;
+    if(mode==="external"){
+      const msg={id:Date.now(),jobId:job.id,orgId:job.orgId,author:currentUser,side:"team",text:t,at:new Date().toISOString(),readBy:[currentUser]};
+      if(att)msg.attachment=att;
+      await ctrSave("contractor_messages",msg);
+      notify(null,{toOrg:job.orgId,title:`Goldstone — ${job.propertyAddress||""}`,body:t||"(attachment)"});
+    }else{
+      const msg={id:Date.now(),author:currentUser,text:t,at:new Date().toISOString(),readBy:[currentUser],ctrTaskKey:task.id,ctrTaskLabel:`${orgName}: ${(task.text||"").slice(0,48)}`};
+      if(att)msg.attachment=att;
+      if(mentions&&mentions.length)msg.mentions=mentions;
+      setSharedProps(prev=>prev.map(p=>p.id!==property.id?p:{...p,messages:[...(p.messages||[]),msg]}));
+      if(mentions&&mentions.length)notify(mentions.filter(n=>n!==currentUser),{title:`👷 ${orgName} task`,body:`${currentUser}: ${t||"(attachment)"}`,tag:`ctrnote-${task.id}`});
+    }
+  };
+  const ext=mode==="external";
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:420,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(540px,94vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"13px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👷 {task.text}</div>
+            <div style={{fontSize:11.5,color:T.textSub}}>{orgName} · {job.propertyAddress||property?.address||""}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        {/* Audience toggle — the whole point: be explicit about who reads this. */}
+        <div style={{display:"flex",gap:6,padding:"10px 14px 0",flexShrink:0}}>
+          <button onClick={()=>setMode("external")} style={{flex:1,padding:"9px 10px",borderRadius:12,border:ext?"1.5px solid #E8A33D":`1px solid ${T.border}`,background:ext?"#FDE9C8":"#fff",color:ext?"#B45309":T.textSub,fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>👷 External — {orgName} sees this</button>
+          <button onClick={()=>setMode("internal")} style={{flex:1,padding:"9px 10px",borderRadius:12,border:!ext?`1.5px solid ${T.blue}`:`1px solid ${T.border}`,background:!ext?"#EBF4FF":"#fff",color:!ext?T.blue:T.textSub,fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🔒 Internal — team only</button>
+        </div>
+        <div style={{padding:"6px 16px 0",fontSize:11,fontWeight:600,color:ext?"#B45309":T.blue,flexShrink:0}}>{ext?`This is the ${orgName} job thread — everything here reaches their whole team.`:"Contractors can NEVER read this — it also shows in the property chat as a 🔒 thread."}</div>
+        <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"10px 16px",display:"flex",flexDirection:"column",gap:10,minHeight:140,background:ext?"#FFF9EC":"#fff"}}>
+          {msgs.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"26px 0"}}>{ext?"No messages with them on this job yet.":"No internal notes on this task yet."}</div>}
+          {msgs.map(m=>{const mine=ext?m.side==="team":m.author===currentUser;return(
+            <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
+              <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
+              <div style={{background:mine?(ext?T.gold:T.blue):"#F2F2F7",color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+                {m.text}
+                {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
+              </div>
+            </div>
+          );})}
+        </div>
+        <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:ext?"2px solid #E8A33D":`2px solid ${T.blue}`,background:ext?"#FFF9EC":"#fff",flexShrink:0}}>
+          <ChatComposer onSend={(txt,att,mn)=>send(txt,att,mn)} people={ext?[]:teamMembers} currentUser={currentUser}
+            placeholder={ext?`Message ${orgName} — their team sees this…`:"Internal note — team only…"}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // The full task list for ONE property — identical rows/graphics/options to the Tasks
 // tab (status picker, owner→delegate avatars, delegate "to/for" tags, contact 👤 and
 // message 💬 buttons, assign & delegate popup). Reused inside the property detail so
@@ -6509,7 +6573,8 @@ function PropertyTaskList({property}){
   const addTask=(text)=>{const t=(text||"").trim();if(!t)return;setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER,assignedAt:Date.now(),assignedBy:CURRENT_USER}]}));};
   // Contractor tasks, auto-scoped: only companies with a job ON THIS PROPERTY show
   // here — delegate straight to them, no picking through your whole contractor list.
-  const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, save:ctrSave } = useContractorData();
+  const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, save:ctrSave } = useContractorData();
+  const[extChat,setExtChat]=useState(null); // {task,job} → external/internal chat popup
   const propCtrJobs=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(propId)&&j.status!=="complete");
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
   const[ctrDraft,setCtrDraft]=useState({}); // jobId -> new task text
@@ -6612,6 +6677,7 @@ function PropertyTaskList({property}){
                   <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:t.status==="Completed"?0.6:1}}>{t.text}</div>
                   <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.status}{t.doneBy?` · ${t.doneBy}`:""}</div>
                 </div>
+                <button onClick={()=>setExtChat({task:t,job:j})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
               </div>
             ))}
             <div style={{display:"flex",gap:8,padding:"9px 14px 12px",borderTop:jt.length?"1px solid rgba(184,149,63,0.25)":"none"}}>
@@ -6623,6 +6689,7 @@ function PropertyTaskList({property}){
         );
       })}
       {aiTasksOpen&&<AiTasksModal propAddr={propAddr} teamMembers={TEAM_MEMBERS} existingTasks={tasks.map(t=>t.text).filter(Boolean)} onCreate={addAiTasks} onClose={()=>setAiTasksOpen(false)}/>}
+      {extChat&&<ExternalTaskChat task={extChat.task} job={extChat.job} orgName={ctrOrgName(extChat.job.orgId)} property={live} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} ctrMessages={ctrMessages} ctrSave={ctrSave} setSharedProps={setSharedProps} onClose={()=>setExtChat(null)}/>}
     </>
   );
 }
@@ -6644,6 +6711,23 @@ function TasksPage({onNavigate}){
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
   const { isAdmin, prefs, savePrefs } = useAuth();
   const isMobile=useIsMobile();
+  // External (contractor) tasks show alongside internal ones, grouped by property.
+  const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, save:ctrSave } = useContractorData();
+  const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
+  const extByPid=useMemo(()=>{
+    const m={};
+    (ctrJobs||[]).forEach(j=>{
+      if(j.status==="complete")return;
+      const rows=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id));
+      if(rows.length)(m[String(j.propertyId)]=m[String(j.propertyId)]||[]).push({job:j,rows:rows.sort((a,b)=>(a.status==="Completed")-(b.status==="Completed")||String(b.createdAt||"").localeCompare(String(a.createdAt||"")))});
+    });
+    return m;
+  },[ctrJobs,ctrTasks]);
+  const[extChat,setExtChat]=useState(null); // {task,job} → external/internal chat popup
+  const toggleExtTask=async(t)=>{
+    const done=t.status!=="Completed";
+    try{await ctrSave("contractor_tasks",{...t,status:done?"Completed":"Not Started",doneAt:done?new Date().toISOString():null,doneBy:done?CURRENT_USER:null});}catch{/* keep UI */}
+  };
   // Per-user "send this property to the bottom" order (synced in prefs, personal —
   // doesn't reorder the list for teammates). Map of propId -> when it was pushed.
   const propPushOrder=prefs.propPushOrder||{};
@@ -7157,9 +7241,32 @@ function TasksPage({onNavigate}){
                   </div>
                 </div>
                 {ptasks.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+                {/* External (contractor) tasks on this property — amber, clearly marked */}
+                {(extByPid[String(ptasks[0]?.propId)]||[]).map(({job,rows})=>(
+                  <div key={"ext-"+job.id} style={{background:"#FFF9EC",borderTop:`1.5px solid ${T.gold}`}}>
+                    <div style={{padding:"8px 14px 5px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span style={{fontSize:11.5,fontWeight:800,color:"#8a6d1f"}}>👷 {ctrOrgName(job.orgId)}{job.title?` — ${job.title}`:""}</span>
+                      <span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
+                    </div>
+                    {rows.map(t=>(
+                      <div key={t.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)"}}>
+                        <input type="checkbox" checked={t.status==="Completed"} onChange={()=>toggleExtTask(t)} style={{width:17,height:17,marginTop:1,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:t.status==="Completed"?0.6:1}}>{t.text}</div>
+                          <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}`:t.status}{t.doneBy?` · ${t.doneBy}`:""}</div>
+                        </div>
+                        <button onClick={()=>setExtChat({task:t,job})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
                 <AddTaskInline onAdd={(text)=>addTaskToProp(ptasks[0].propId,text)}/>
               </div>
             ))}
+            {extChat&&(()=>{
+              const prop=sharedProps.find(p=>String(p.id)===String(extChat.job.propertyId));
+              return <ExternalTaskChat task={extChat.task} job={extChat.job} orgName={ctrOrgName(extChat.job.orgId)} property={prop} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} ctrMessages={ctrMessages} ctrSave={ctrSave} setSharedProps={setSharedProps} onClose={()=>setExtChat(null)}/>;
+            })()}
           </div>
         )}
       </div>
@@ -8164,7 +8271,7 @@ function UnreadBadge({count,style={}}){
 const buildMessageThreads=(messages)=>{
   const byId=new Map(messages.map(m=>[m.id,m]));
   const rootIdOf=(m)=>{let cur=m,g=0;while(cur.replyToId&&byId.has(cur.replyToId)&&g<200){cur=byId.get(cur.replyToId);g++;}return cur.id;};
-  const keyOf=(m)=>m.ctrJobId?`ctr:${m.ctrJobId}`:m.showingKey?`showing:${m.showingKey}`:m.taskId?`task:${m.taskId}`:`root:${rootIdOf(m)}`;
+  const keyOf=(m)=>m.ctrTaskKey?`ctrnote:${m.ctrTaskKey}`:m.ctrJobId?`ctr:${m.ctrJobId}`:m.showingKey?`showing:${m.showingKey}`:m.taskId?`task:${m.taskId}`:`root:${rootIdOf(m)}`;
   const threads=new Map();
   messages.forEach(m=>{const k=keyOf(m);if(!threads.has(k))threads.set(k,{key:k,items:[]});threads.get(k).items.push(m);});
   const arr=[...threads.values()];
@@ -8224,6 +8331,8 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           const showTag=()=><button onClick={()=>onUpdateProp&&setShowInfo(root.showingKey)} title="This thread is about a showing — tap for the agent's info & lead status" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block",cursor:onUpdateProp?"pointer":"default",fontFamily:"inherit"}}>👥 {root.showingLabel} ›</button>;
           // Contractor-portal thread tag — replies here go to the contractor's portal.
           const ctrTag=()=><span title="This thread is with a contractor — replies go to their portal" style={{fontSize:9,fontWeight:700,color:"#fff",background:T.gold,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>👷 {root.ctrLabel}</span>;
+          // Internal notes ABOUT a contractor task — team-only, contractors never see these.
+          const ctrNoteTag=()=><span title="Internal notes about a contractor task — the contractor can NOT see this" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:"#fff",border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>🔒 {root.ctrTaskLabel} · internal</span>;
           const bubble=(m,{small,onCard}={})=>{
             const mine=m.author===currentUser;
             const theirBg=onCard?T.bg:T.card;
@@ -8251,7 +8360,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           if(replies.length===0&&!root.ctrLabel){
             return(
               <div key={root.id} style={{display:"flex",flexDirection:"column",alignItems:rootMine?"flex-end":"flex-start"}}>
-                {root.showingLabel?<div style={{marginBottom:3}}>{showTag()}</div>:root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
+                {root.ctrTaskLabel?<div style={{marginBottom:3}}>{ctrNoteTag()}</div>:root.showingLabel?<div style={{marginBottom:3}}>{showTag()}</div>:root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
                 {bubble(root)}
               </div>
             );
@@ -8263,7 +8372,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           return(
             <div key={root.id} style={{alignSelf:"stretch",border:isCtr?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,borderRadius:16,background:isCtr?"#FFF9EC":T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                {isCtr?ctrTag():root.showingLabel?showTag():root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
+                {isCtr?ctrTag():root.ctrTaskLabel?ctrNoteTag():root.showingLabel?showTag():root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
                 {isCtr&&<span style={{fontSize:9,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 8px",letterSpacing:"0.05em"}}>EXTERNAL</span>}
                 <span style={{fontSize:10,color:T.textTert}}>{replies.length+1} message{replies.length?"s":""}</span>
               </div>

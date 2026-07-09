@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { T } from "../theme";
-import { notify, uploadAttachment, qbAuthFetch } from "../net";
+import { notify, uploadAttachment, qbAuthFetch, uploadStreamVideo, STREAM_VIDEO_CAP } from "../net";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 
 const TASK_STATUSES = ["Not Started", "In Progress", "Completed"];
@@ -21,6 +21,7 @@ function useIsMobile(bp = 768) {
 function Att({ att }) {
   if (!att || !att.url) return null;
   if (att.kind === "image") return <a href={att.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={att.url} alt={att.name || "photo"} style={{ maxWidth: 220, maxHeight: 260, borderRadius: 10, display: "block", objectFit: "cover" }} /></a>;
+  if (att.kind === "video" && att.stream) return <iframe src={att.url} title={att.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ marginTop: 6, width: "min(320px,72vw)", aspectRatio: "16/9", border: "none", borderRadius: 10, display: "block", background: "#000" }} />;
   if (att.kind === "video") return <video src={att.url} controls playsInline preload="metadata" style={{ marginTop: 6, maxWidth: 240, width: "100%", maxHeight: 300, borderRadius: 10, display: "block", background: "#000" }} />;
   if (att.kind === "audio") return <audio src={att.url} controls preload="metadata" style={{ marginTop: 6, width: 240, height: 40 }} />;
   return <a href={att.url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, padding: "8px 10px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, textDecoration: "none", color: T.text, maxWidth: 240 }}><span style={{ fontSize: 18 }}>📄</span><span style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name || "Attachment"}</span></a>;
@@ -53,11 +54,21 @@ export function ContractorPortal() {
   }, [selJob?.id, tab, (messages || []).length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── shared upload helper (photos, videos, PDFs) ────────────────────────────
+  // Videos ride Cloudflare Stream (200 MB, transcoded); other files use storage.
+  const [pct, setPct] = useState(0);
   const stage = async (file) => {
     if (!file) return null;
     const isVideo = (file.type || "").startsWith("video/");
-    const cap = isVideo ? 50 * 1024 * 1024 : 25 * 1024 * 1024;
-    if (file.size > cap) { setErr(isVideo ? "Video is too large (max 50 MB) — trim it shorter or record at lower quality." : "File is too large (max 25 MB)."); return null; }
+    if (isVideo) {
+      if (file.size > STREAM_VIDEO_CAP) { setErr("Video is too large (max 200 MB) — trim it shorter and try again."); return null; }
+      setErr("");
+      try { return await uploadStreamVideo(file, setPct); }
+      catch (ex) {
+        if (file.size <= 50 * 1024 * 1024) return uploadAttachment(file, "portal");
+        throw ex;
+      } finally { setPct(0); }
+    }
+    if (file.size > 25 * 1024 * 1024) { setErr("File is too large (max 25 MB)."); return null; }
     setErr("");
     return uploadAttachment(file, "portal");
   };
@@ -455,7 +466,7 @@ export function ContractorPortal() {
                       <input ref={attRef} type="file" accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
                       <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} title="Attach a photo, video, or PDF" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>📎</button>
                       <button onClick={startRec} disabled={busy} title="Record a voice note" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>🎤</button>
-                      <textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} placeholder={busy ? "Uploading…" : msgTarget ? "Reply about this task…" : "Message Goldstone…"} disabled={busy}
+                      <textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} placeholder={busy ? (pct ? `Uploading video… ${pct}%` : "Uploading…") : msgTarget ? "Reply about this task…" : "Message Goldstone…"} disabled={busy}
                         style={{ flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 18, border: `1px solid ${msgTarget ? T.gold : T.border}`, background: T.bg, fontSize: 15, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 120, overflowY: "auto", boxSizing: "border-box" }} />
                       <button onClick={sendMsg} disabled={(!draft.trim() && !pending) || busy} style={{ padding: "10px 18px", borderRadius: 22, background: (draft.trim() || pending) && !busy ? T.gold : T.border, border: "none", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Send</button>
                     </div>

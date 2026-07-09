@@ -40,6 +40,38 @@ export async function notify(recipients, { title, body, tag, url, toAdmins, toOr
 // ── Chat attachment upload (Supabase Storage "attachments" bucket) ───────────
 export const attachmentKind = (mime = "") => mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "file";
 export const sanitizeName = (name = "file") => (name.replace(/[^a-zA-Z0-9._-]/g, "_") || "file").slice(-80);
+// ── Big videos (Cloudflare Stream) ───────────────────────────────────────────
+// Videos skip Supabase storage entirely: we mint a one-time upload URL from our
+// API, the phone POSTs the file straight to Cloudflare (with real progress), and
+// playback is a Stream iframe — transcoded, so it plays smoothly on any device.
+export const STREAM_VIDEO_CAP = 200 * 1024 * 1024; // Cloudflare basic-upload limit
+export async function uploadStreamVideo(file, onProgress) {
+  const { uploadURL, uid } = await qbAuthFetch("/api/stream/upload", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name || "video" }),
+  });
+  await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", uploadURL);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100))); };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Video upload failed (${xhr.status}).`)));
+    xhr.onerror = () => reject(new Error("Video upload failed — check your connection."));
+    const fd = new FormData();
+    fd.append("file", file);
+    xhr.send(fd);
+  });
+  if (onProgress) onProgress(100);
+  // Playback URLs come from the video record (they exist even while it encodes).
+  let info = null;
+  for (let i = 0; i < 5; i++) {
+    try { info = await qbAuthFetch(`/api/stream/upload?uid=${encodeURIComponent(uid)}`); } catch { /* retry */ }
+    if (info && info.preview) break;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  const watch = info?.preview || "";
+  if (!watch) throw new Error("Video uploaded but isn't available yet — try again in a minute.");
+  return { kind: "video", stream: true, uid, url: watch.replace(/\/watch$/, "/iframe"), watch, thumbnail: info?.thumbnail || "", name: file.name || "video", mime: file.type || "video/mp4" };
+}
+
 export async function uploadAttachment(file, folder = "chat") {
   const kind = attachmentKind(file.type || "");
   const base = file.name ? sanitizeName(file.name) : `${kind}.${kind === "audio" ? "webm" : kind === "image" ? "jpg" : "bin"}`;

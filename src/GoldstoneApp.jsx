@@ -8,7 +8,7 @@ import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
 import { T } from "./theme";
-import { qbAuthFetch, notify, uploadAttachment, attachmentKind } from "./net";
+import { qbAuthFetch, notify, uploadAttachment, attachmentKind, uploadStreamVideo, STREAM_VIDEO_CAP } from "./net";
 import { ContractorsAdminPage } from "./contractors/ContractorsAdminPage";
 import { useContractorData } from "./contractors/data";
 
@@ -8148,6 +8148,12 @@ function MessageAttachment({att,mine,saveFolder}){
       {saveBtn}
     </div>
   );
+  if(att.kind==="video"&&att.stream)return(
+    <div style={{marginTop:6}}>
+      <iframe src={att.url} title={att.name||"video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen
+        style={{width:"min(320px,72vw)",aspectRatio:"16/9",border:"none",borderRadius:10,display:"block",background:"#000"}}/>
+    </div>
+  );
   if(att.kind==="video")return(
     <div style={{marginTop:6}}>
       <video src={att.url} controls playsInline preload="metadata" style={{maxWidth:240,maxHeight:300,width:"100%",borderRadius:10,display:"block",background:"#000"}}/>
@@ -8181,6 +8187,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
   const[mentions,setMentions]=useState([]); // tagged names ([] = everyone)
   const[showTag,setShowTag]=useState(false);
   const[pendingAtt,setPendingAtt]=useState(null); // attachment staged, not yet sent
+  const[pct,setPct]=useState(0); // big-video upload progress
   const fileRef=useRef(null);
   const mrRef=useRef(null);
   const chunksRef=useRef([]);
@@ -8211,10 +8218,22 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
   // no filename → give them one so they upload with a real extension.
   const uploadStaged=async(file)=>{
     if(!file)return;
-    // Videos get the storage ceiling (~50 MB ≈ a 30–60s phone clip); other files 25 MB.
     const isVideo=(file.type||"").startsWith("video/");
-    const cap=isVideo?50*1024*1024:25*1024*1024;
-    if(file.size>cap){setErr(isVideo?"Video is too large (max 50 MB) — trim it shorter or record at a lower quality and try again.":"File is too large (max 25 MB).");return;}
+    // Videos go to Cloudflare Stream (up to 200 MB, transcoded for smooth playback);
+    // everything else stays in storage with the 25 MB cap.
+    if(isVideo){
+      if(file.size>STREAM_VIDEO_CAP){setErr("Video is too large (max 200 MB) — trim it shorter and try again.");return;}
+      setErr("");setBusy(true);
+      try{ setPendingAtt(await uploadStreamVideo(file,setPct)); }
+      catch(ex){
+        // Stream not configured / hiccup → old storage path still covers small clips.
+        if(file.size<=50*1024*1024){ try{ setPendingAtt(await uploadAttachment(file,"chat")); }catch{ setErr("Upload failed. Try again."); } }
+        else setErr(ex.message||"Video upload failed. Try again.");
+      }
+      setBusy(false);setPct(0);
+      return;
+    }
+    if(file.size>25*1024*1024){setErr("File is too large (max 25 MB).");return;}
     setErr("");setBusy(true);
     try{
       let up=file;
@@ -8387,7 +8406,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
             {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...iconBtn,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
             <textarea ref={taRef} rows={1} value={text} onChange={e=>setText(e.target.value)} onPaste={onPasteFiles}
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(canSend)send();}}}
-              placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":placeholder)} disabled={busy}
+              placeholder={busy?(pct?`Uploading video… ${pct}%`:"Uploading…"):(pendingAtt?"Add a caption… (optional)":placeholder)} disabled={busy}
               style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
             <button onClick={()=>send()} disabled={!canSend} style={{padding:"10px 18px",borderRadius:22,background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
           </>

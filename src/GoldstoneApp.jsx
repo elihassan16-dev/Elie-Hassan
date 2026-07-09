@@ -4500,6 +4500,110 @@ function PropertyAiChat({property,onClose}){
   );
 }
 
+// ✨ Global AI assistant (top bar, every page): sees the whole portfolio + contacts
+// + team, answers anything ("what's the lockbox code for 610 Bayview?") and can
+// draft task lists in chat — proposed tasks show as a card you review and Add.
+function GlobalAiChat({onClose}){
+  const{sharedProps,setSharedProps,contacts:CONTACTS,teamMembers:TEAM_MEMBERS,currentUser:CURRENT_USER,officeTasks,setOfficeTasks,flushOfficeTasks}=useData();
+  const[msgs,setMsgs]=useState([]);
+  const[input,setInput]=useState("");
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
+  const scrollRef=useRef(null);
+  useEffect(()=>{const el=scrollRef.current;if(el)el.scrollTop=el.scrollHeight;},[msgs,busy]);
+  const active=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived),[sharedProps]);
+  const propIndex=useMemo(()=>active.map(p=>({id:String(p.id),address:`${p.address||""}${p.city?`, ${p.city}`:""}`})),[active]);
+  const context=useMemo(()=>{
+    const slimProp=(p)=>{
+      let computed=null;
+      try{const pr=finProfit(p.financials||{},p.status);computed={netProfit:pr.netProfit,effectiveProfit:pr.effective,equityRequired:pr.equityRequired,hardMoneyLoan:pr.hmLoanTotal,hardMoneyInterest:pr.hmInterest,lineOfCreditInterest:pr.gapInterest};}catch{/* raw fields only */}
+      return{id:String(p.id),address:p.address,city:p.city,status:p.status,
+        propertyInfo:p.propertyInfo||{},financials:p.financials||{},computedProfit:computed||undefined,
+        selectedBuyer:p.selectedBuyer||undefined,
+        tasks:(p.tasks||[]).filter(t=>!t.deleted).map(t=>({text:t.text,status:t.status,owner:t.assignee||"",delegate:t.delegate||""}))};
+    };
+    const slimContact=(c)=>{const n=normContact(c);return{name:n.name,company:n.company||undefined,role:n.role||undefined,phones:(n.phones||[]).map(p=>p.number),email:n.email||undefined};};
+    return JSON.stringify({
+      properties:active.map(slimProp),
+      officeTasks:(officeTasks||[]).filter(t=>!t.deleted).map(t=>({text:t.text,status:t.status,owner:t.assignee||"",delegate:t.delegate||""})),
+      contacts:(CONTACTS||[]).map(slimContact),
+    });
+  },[active,officeTasks,CONTACTS]);
+  const sendQ=async(qText)=>{
+    const q=(qText!==undefined?qText:input).trim();
+    if(!q||busy)return;
+    // History is plain text turns; a proposed-task card is summarized into the turn
+    // so follow-ups ("add one more") still make sense to the model.
+    const hist=msgs.map(m=>({role:m.role,content:m.action?`${m.content}\n(Proposed ${m.action.tasks.length} task(s) for ${m.action.propertyAddress}: ${m.action.tasks.map(t=>t.text).join("; ")})`:m.content}));
+    setMsgs(ms=>[...ms,{role:"user",content:q}]);setInput("");setBusy(true);setErr("");
+    try{
+      const d=await qbAuthFetch("/api/ai/assistant",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({question:q,history:hist,context,team:TEAM_MEMBERS,propIndex})});
+      setMsgs(ms=>[...ms,{role:"assistant",content:d.answer||"",action:d.action||null}]);
+    }catch(e){setErr(e.message||"Couldn't get an answer — try again.");}
+    setBusy(false);
+  };
+  // Create the proposed tasks (property or office) and mark the card as applied.
+  const applyAction=(mi)=>{
+    const a=msgs[mi]?.action;if(!a||msgs[mi].applied)return;
+    const base=Date.now();
+    const mk=(r,i)=>({id:base+i,text:r.text,status:"Not Started",assignee:r.assignee||CURRENT_USER,delegate:r.delegate||"",assignedAt:Date.now(),assignedBy:CURRENT_USER});
+    if(a.propertyId==="office"){ setOfficeTasks(prev=>[...(prev||[]),...a.tasks.map(mk)]); if(flushOfficeTasks)setTimeout(flushOfficeTasks,0); }
+    else setSharedProps(prev=>prev.map(p=>String(p.id)!==a.propertyId?p:{...p,tasks:[...(p.tasks||[]),...a.tasks.map(mk)]}));
+    a.tasks.forEach((r,i)=>{const to=[...new Set([r.assignee,r.delegate].filter(m=>m&&m!==CURRENT_USER))];if(to.length)notify(to,{title:"New task for you",body:`${CURRENT_USER} assigned you: ${r.text}`,tag:`task-${base+i}`});});
+    setMsgs(ms=>ms.map((m,j)=>j===mi?{...m,applied:true}:m));
+  };
+  const chips=["What's the lockbox code for…","Create tasks for…","What's the projected profit on…","What's the plumber's number?"];
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:600,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(560px,94vw)",height:"min(680px,88vh)",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight,flexShrink:0}}>
+          <div style={{minWidth:0}}><div style={{fontSize:14,fontWeight:700,color:T.gold}}>✨ Goldstone Assistant</div><div style={{fontSize:11,color:T.textSub}}>Ask about any property, contact, or number — or tell me to create tasks</div></div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+          {msgs.length===0&&(
+            <div style={{textAlign:"center",padding:"18px 8px"}}>
+              <div style={{fontSize:13,color:T.textSub,marginBottom:12,lineHeight:1.5}}>I can see all {active.length} properties, your contacts, and the team. Ask me anything — or say <b>“create tasks for [address]: …”</b>. Tap your keyboard 🎤 to dictate.</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center"}}>
+                {chips.map(c=><button key={c} onClick={()=>setInput(c.endsWith("…")?c.replace(/…$/," "):c)} style={{padding:"7px 13px",borderRadius:18,border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{c}</button>)}
+              </div>
+            </div>
+          )}
+          {msgs.map((m,i)=>(
+            <div key={i} style={{alignSelf:m.role==="user"?"flex-end":"flex-start",maxWidth:"90%",display:"flex",flexDirection:"column",gap:8}}>
+              {m.content&&<div style={{background:m.role==="user"?T.gold:T.bg,color:m.role==="user"?"#fff":T.text,borderRadius:14,padding:"9px 13px",fontSize:14,lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{m.content}</div>}
+              {m.action&&(
+                <div style={{border:`1.5px solid ${T.gold}`,borderRadius:14,background:T.goldLight,padding:"11px 13px"}}>
+                  <div style={{fontSize:12,fontWeight:800,color:"#b8912e",marginBottom:7}}>📋 {m.action.tasks.length} task{m.action.tasks.length===1?"":"s"} → {m.action.propertyAddress}</div>
+                  {m.action.tasks.map((t,j)=>(
+                    <div key={j} style={{fontSize:13,color:T.text,padding:"5px 0",borderTop:j?`1px solid rgba(184,149,63,0.25)`:"none",lineHeight:1.4}}>
+                      • {t.text}
+                      {(t.assignee||t.delegate)&&<span style={{fontSize:11.5,color:T.textSub}}> — {t.assignee||"Unassigned"}{t.delegate?` → ${t.delegate}`:""}</span>}
+                    </div>
+                  ))}
+                  {m.applied
+                    ? <div style={{marginTop:9,fontSize:12.5,fontWeight:700,color:T.green}}>✓ Added{m.action.propertyId==="office"?" to company tasks":""} — assignees notified</div>
+                    : <button onClick={()=>applyAction(i)} style={{marginTop:9,width:"100%",padding:"9px",borderRadius:10,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Add {m.action.tasks.length===1?"this task":"these tasks"}</button>}
+                </div>
+              )}
+            </div>
+          ))}
+          {busy&&<div style={{alignSelf:"flex-start",background:T.bg,borderRadius:14,padding:"9px 13px",fontSize:13,color:T.textSub}}>Thinking…</div>}
+          {err&&<div style={{alignSelf:"stretch",fontSize:12.5,color:T.red,textAlign:"center"}}>{err}</div>}
+        </div>
+        <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"flex-end",flexShrink:0}}>
+          <textarea rows={1} value={input} onChange={e=>setInput(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendQ();}}}
+            placeholder="Ask anything, or “create tasks for…”" disabled={busy}
+            style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:120,overflowY:"auto",boxSizing:"border-box"}}/>
+          <button onClick={()=>sendQ()} disabled={!input.trim()||busy} style={{padding:"10px 18px",borderRadius:22,background:input.trim()&&!busy?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:input.trim()&&!busy?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Ask</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const { contacts: CONTACTS, teamMembers: TEAM_MEMBERS } = useData();
   const isMobile=useIsMobile();
@@ -11695,6 +11799,7 @@ export function GoldstoneShell(){
   const[showProfileMenu,setShowProfileMenu]=useState(false);
   const[showAddTeammate,setShowAddTeammate]=useState(false);
   const[showNavMenu,setShowNavMenu]=useState(false);
+  const[showAiAssistant,setShowAiAssistant]=useState(false); // ✨ global assistant (top bar)
   useEffect(()=>{ if(!navItems.find(n=>n.key===active)) setActive(navItems[0]?.key||"tasks"); },[navItems,active]);
 
   // Which sections show on the mobile bottom bar (customizable via the ☰ menu).
@@ -11828,6 +11933,7 @@ export function GoldstoneShell(){
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             {!isMobile&&<div style={{fontSize:13,color:T.textSub}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>}
+            <button onClick={()=>setShowAiAssistant(true)} title="Goldstone Assistant — ask AI anything" aria-label="AI assistant" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:28,minWidth:28,flexShrink:0,borderRadius:14,border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,padding:isMobile?"0 7px":"0 11px",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:4}}>✨{!isMobile&&" AI"}</button>
             {isMobile&&<div role="button" onClick={()=>setShowProfileMenu(true)} title="Profile & team" aria-label="Profile and team" style={{boxSizing:"border-box",lineHeight:1,width:28,height:28,minWidth:28,maxWidth:28,flex:"0 0 28px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff",cursor:"pointer"}}>{initials}</div>}
             {isAdmin&&<button onClick={()=>setShowSettings(true)} title="Settings" aria-label="Settings" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",height:28,background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14,padding:"0 8px",lineHeight:1}}>⚙</button>}
             {isMobile&&<button onClick={signOut} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",height:28,background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:11.5,padding:"0 10px",lineHeight:1}}>Sign out</button>}
@@ -11850,6 +11956,7 @@ export function GoldstoneShell(){
           </button>
         </nav>
       )}
+      {showAiAssistant&&<GlobalAiChat onClose={()=>setShowAiAssistant(false)}/>}
       {showNavMenu&&<NavMenu items={navItems} active={active} isPinned={isPinned} onNavigate={(k)=>{setActive(k);setShowNavMenu(false);}} onTogglePin={togglePin} onClose={()=>setShowNavMenu(false)}/>}
       {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}/>}
       {showProfileMenu&&<ProfileMenu displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted} setUserSms={setUserSms}

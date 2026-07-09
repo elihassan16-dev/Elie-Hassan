@@ -118,6 +118,12 @@ export function ContractorPortal() {
             </div>
           </div>
         )}
+        {!st && (
+          <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "12px 16px", marginBottom: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: T.textSub, flex: 1, minWidth: 160 }}>Site status (utilities & permits) hasn't been published for this property yet.</span>
+            <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(j.propertyAddress || "")}`} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.blue, borderRadius: 14, padding: "4px 10px", textDecoration: "none" }}>📍 Google Maps</a>
+          </div>
+        )}
         <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "14px 16px" }}>
           <div style={{ display: "flex", gap: 8 }}>
             {[["Contract", money(total)], ["Paid", money(paid)], ["Remaining", money(left)], ["Days", j.status === "complete" ? "Done" : (days == null ? "—" : days)]].map(([l, v], i) => (
@@ -340,6 +346,8 @@ export function ContractorPortal() {
                         <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "86%" }}>
                           <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2, textAlign: mine ? "right" : "left" }}>{m.author || (mine ? "You" : "Goldstone")} · {fmtWhen(m.at)}</div>
                           <div style={{ background: mine ? T.gold : T.card, color: mine ? "#fff" : T.text, borderRadius: 14, padding: "9px 13px", fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", boxShadow: mine ? "none" : T.shadow }}>
+                            {m.taskRefText && <div style={{ fontSize: 10.5, fontWeight: 800, marginBottom: 4, color: mine ? "rgba(255,255,255,0.9)" : "#8a6d1f", background: mine ? "rgba(255,255,255,0.18)" : T.goldLight, borderRadius: 10, padding: "2px 8px", display: "inline-block" }}>↳ Task: {m.taskRefText}</div>}
+                            {m.taskRefText && <br />}
                             {m.text}
                             <Att att={m.attachment} />
                           </div>

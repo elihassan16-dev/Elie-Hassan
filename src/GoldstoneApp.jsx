@@ -4777,7 +4777,9 @@ function PropertyStatusBoard({property,onClose}){
     const ups={},auto={};
     UTIL_DEFS.forEach(([u])=>{if(!(st.utilities||{})[u]&&inferred(u)){ups[u]="on";auto[u]=true;}});
     const infoStale=row&&JSON.stringify(row.info||{})!==JSON.stringify(infoNow);
-    if(Object.keys(ups).length||infoStale)write({utilities:{...(st.utilities||{}),...ups},utilitiesAuto:{...(st.utilitiesAuto||{}),...auto}});
+    // !row: merely OPENING the board publishes it (creates the shared row), so
+    // contractors see the status card without the team having to toggle something.
+    if(!row||Object.keys(ups).length||infoStale)write({utilities:{...(st.utilities||{}),...ups},utilitiesAuto:{...(st.utilitiesAuto||{}),...auto}});
   },[siteStatus===null]); // eslint-disable-line react-hooks/exhaustive-deps
   const effUtil=(u)=>(st.utilities||{})[u]||(inferred(u)?"on":"off");
   const setUtil=(u,v)=>write({utilities:{...(st.utilities||{}),[u]:v},utilitiesAuto:{...(st.utilitiesAuto||{}),[u]:false}});
@@ -6584,10 +6586,11 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
   const send=async(txt,att,mentions)=>{
     const t=(txt||"").trim();if(!t&&!att)return;
     if(mode==="external"){
-      const msg={id:Date.now(),jobId:job.id,orgId:job.orgId,author:currentUser,side:"team",text:t,at:new Date().toISOString(),readBy:[currentUser]};
+      // Carry the task reference so the contractor sees WHICH task this is about.
+      const msg={id:Date.now(),jobId:job.id,orgId:job.orgId,author:currentUser,side:"team",text:t,at:new Date().toISOString(),readBy:[currentUser],taskRefId:task.id,taskRefText:task.text};
       if(att)msg.attachment=att;
       await ctrSave("contractor_messages",msg);
-      notify(null,{toOrg:job.orgId,title:`Goldstone — ${job.propertyAddress||""}`,body:t||"(attachment)"});
+      notify(null,{toOrg:job.orgId,title:`Goldstone — ${task.text||job.propertyAddress||""}`,body:t||"(attachment)"});
     }else{
       const msg={id:Date.now(),author:currentUser,text:t,at:new Date().toISOString(),readBy:[currentUser],ctrTaskKey:task.id,ctrTaskLabel:`${orgName}: ${(task.text||"").slice(0,48)}`};
       if(att)msg.attachment=att;
@@ -6619,6 +6622,7 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
             <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
               <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
               <div style={{background:mine?(ext?T.gold:T.blue):"#F2F2F7",color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+                {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:3,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
                 {m.text}
                 {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
               </div>
@@ -8505,6 +8509,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                   {selMode&&<span style={{width:20,height:20,flexShrink:0,borderRadius:"50%",border:`2px solid ${picked?T.gold:T.border}`,background:picked?T.gold:"transparent",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800}}>{picked?"✓":""}</span>}
                   <div style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`,opacity:selMode&&!picked?0.55:1}}>
                     {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
+                    {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
                     {m.text}
                     {m.attachment&&<MessageAttachment att={m.attachment} mine={mine} saveFolder={property.filesFolder||null}/>}
                   </div>
@@ -8614,6 +8619,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     const pj=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id));
     return pj.flatMap(j=>(ctrMessages||[]).filter(m=>String(m.jobId)===String(j.id)).map(m=>({
       id:"ctr-"+m.id,author:m.author,text:m.text,at:m.at,attachment:m.attachment||null,readBy:m.readBy||[],
+      taskRefText:m.taskRefText||null,
       ctrJobId:j.id,ctrOrgId:String(j.orgId),ctrLabel:`${ctrOrgName(j.orgId)}${j.title?` — ${j.title}`:""}`,
     })));
   };

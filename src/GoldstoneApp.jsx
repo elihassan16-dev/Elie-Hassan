@@ -5964,11 +5964,15 @@ function AiDraftBox({context="",current="",onDraft,sender="",placeholder="Tell A
   );
 }
 
-// In-app email from a task's contact. If the task is linked to a pinned chain,
-// first offers "reply to that chain" vs "compose new"; otherwise goes straight to
-// a new email. Sends through the signed-in Outlook mailbox (Graph).
-function TaskEmailModal({to,name,propAddr,linkedPin,mail,onClose}){
-  const[mode,setMode]=useState(linkedPin?"choose":"new");
+// In-app email from a task's contact. Offers "reply to an existing chain" vs
+// "compose new": the task-linked chain leads when there is one, but EVERY chain
+// pinned to the property is offered too — so a chain that was pinned without the
+// task link (or linked to a sibling task) is still one tap away instead of hidden.
+// Sends through the signed-in Outlook mailbox (Graph).
+function TaskEmailModal({to,name,propAddr,linkedPin,propPins=[],mail,onClose}){
+  const otherPins=(propPins||[]).filter(p=>!linkedPin||p.id!==linkedPin.id);
+  const[mode,setMode]=useState((linkedPin||otherPins.length)?"choose":"new");
+  const[activePin,setActivePin]=useState(linkedPin||null); // chain being replied to
   const[to2,setTo2]=useState(to||"");
   const[subject,setSubject]=useState(propAddr||"");
   const[body,setBody]=useState("");
@@ -5979,12 +5983,14 @@ function TaskEmailModal({to,name,propAddr,linkedPin,mail,onClose}){
   const[done,setDone]=useState("");
   const first=String(name||"").split(" ")[0]||"contact";
   const iS={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
-  const goReply=async()=>{
-    setMode("reply");setResolving(true);setErr("");setLastId(null);
+  const goReply=async(pin)=>{
+    const target=pin||activePin||linkedPin;
+    if(!target)return;
+    setActivePin(target);setMode("reply");setResolving(true);setErr("");setLastId(null);
     try{
       let convId=null;
-      if(linkedPin.internetMessageId){const hit=await mail.findByInternetId(linkedPin.internetMessageId);if(hit)convId=hit.conversationId;}
-      if(!convId&&linkedPin.conversationId)convId=linkedPin.conversationId;
+      if(target.internetMessageId){const hit=await mail.findByInternetId(target.internetMessageId);if(hit)convId=hit.conversationId;}
+      if(!convId&&target.conversationId)convId=target.conversationId;
       if(!convId)throw new Error("This chain isn't in your mailbox.");
       const msgs=await mail.getConversation(convId);
       if(!msgs.length)throw new Error("Couldn't open the chain in your mailbox.");
@@ -6015,11 +6021,20 @@ function TaskEmailModal({to,name,propAddr,linkedPin,mail,onClose}){
             ? <div style={{padding:"18px 0",textAlign:"center",color:"#1a8f43",fontSize:15,fontWeight:700}}>✓ {done}</div>
             : mode==="choose"
             ? <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                <div style={{fontSize:13,color:T.textSub,lineHeight:1.5,marginBottom:2}}>This task is linked to an email chain. What would you like to do?</div>
-                <button onClick={goReply} style={{textAlign:"left",padding:"13px 14px",borderRadius:T.radiusSm,border:`1px solid ${T.gold}`,background:T.goldLight,cursor:"pointer",fontFamily:"inherit"}}>
+                <div style={{fontSize:13,color:T.textSub,lineHeight:1.5,marginBottom:2}}>{linkedPin?"This task is linked to an email chain. What would you like to do?":"This property has pinned email chains. What would you like to do?"}</div>
+                {linkedPin&&<button onClick={()=>goReply(linkedPin)} style={{textAlign:"left",padding:"13px 14px",borderRadius:T.radiusSm,border:`1px solid ${T.gold}`,background:T.goldLight,cursor:"pointer",fontFamily:"inherit"}}>
                   <div style={{fontSize:14,fontWeight:700,color:T.gold}}>↩ Reply to the linked chain</div>
-                  <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{linkedPin?.subject||"(chain)"}</div>
-                </button>
+                  <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{linkedPin.subject||"(chain)"}</div>
+                </button>}
+                {otherPins.length>0&&<>
+                  <div style={{fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",marginTop:linkedPin?4:0}}>{linkedPin?"Other chains pinned to this property":"Reply to a pinned chain"}</div>
+                  {otherPins.map(p=>(
+                    <button key={p.id} onClick={()=>goReply(p)} style={{textAlign:"left",padding:"11px 14px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:"#fff",cursor:"pointer",fontFamily:"inherit"}}>
+                      <div style={{fontSize:13,fontWeight:700,color:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>↩ {p.subject||"(no subject)"}</div>
+                      <div style={{fontSize:11.5,color:T.textTert,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.from||""}{p.date?` · ${mailWhen(p.date)}`:""}</div>
+                    </button>
+                  ))}
+                </>}
                 <button onClick={()=>setMode("new")} style={{textAlign:"left",padding:"13px 14px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,cursor:"pointer",fontFamily:"inherit"}}>
                   <div style={{fontSize:14,fontWeight:700,color:T.text}}>✉️ Send a new email</div>
                   <div style={{fontSize:12,color:T.textSub,marginTop:2}}>Start a fresh email to {first}</div>
@@ -6027,7 +6042,7 @@ function TaskEmailModal({to,name,propAddr,linkedPin,mail,onClose}){
               </div>
             : mode==="new"
             ? <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                {linkedPin&&<button onClick={()=>setMode("choose")} style={{alignSelf:"flex-start",background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",padding:0}}>‹ Back</button>}
+                {(linkedPin||otherPins.length>0)&&<button onClick={()=>setMode("choose")} style={{alignSelf:"flex-start",background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",padding:0}}>‹ Back</button>}
                 <input value={to2} onChange={e=>setTo2(e.target.value)} placeholder="To" style={iS}/>
                 <input value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Subject" style={iS}/>
                 <textarea autoFocus value={body} onChange={e=>setBody(e.target.value)} placeholder={`Write your email to ${first}…`} style={{...iS,minHeight:120,resize:"vertical",lineHeight:1.5}}/>
@@ -6041,7 +6056,7 @@ function TaskEmailModal({to,name,propAddr,linkedPin,mail,onClose}){
               </div>
             : /* reply */ <div style={{display:"flex",flexDirection:"column",gap:10}}>
                 <button onClick={()=>setMode("choose")} style={{alignSelf:"flex-start",background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",padding:0}}>‹ Back</button>
-                <div style={{fontSize:12,color:T.textSub}}>Replying to: <b style={{color:T.text}}>{linkedPin?.subject||"(chain)"}</b></div>
+                <div style={{fontSize:12,color:T.textSub}}>Replying to: <b style={{color:T.text}}>{activePin?.subject||"(chain)"}</b></div>
                 {resolving
                   ? <div style={{padding:"18px 0",textAlign:"center",color:T.textTert,fontSize:13}}>Opening the chain…</div>
                   : err
@@ -6049,7 +6064,7 @@ function TaskEmailModal({to,name,propAddr,linkedPin,mail,onClose}){
                   : <>
                       <textarea autoFocus value={body} onChange={e=>setBody(e.target.value)} placeholder="Write your reply…" style={{...iS,minHeight:120,resize:"vertical",lineHeight:1.5}}/>
                       <AiDraftBox current={body} onDraft={setBody} placeholder={`Tell AI what to reply to ${first}…`}
-                        context={[`Replying to: ${name||to||"a contact"}`,linkedPin?.subject?`Email chain subject: ${linkedPin.subject}`:"",propAddr?`Property: ${propAddr}`:""].filter(Boolean).join("\n")}/>
+                        context={[`Replying to: ${name||to||"a contact"}`,activePin?.subject?`Email chain subject: ${activePin.subject}`:"",propAddr?`Property: ${propAddr}`:""].filter(Boolean).join("\n")}/>
                       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                         <button onClick={()=>sendReply(false)} disabled={sending||!body.trim()} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.text,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit",opacity:(sending||!body.trim())?0.6:1}}>Reply</button>
                         <button onClick={()=>sendReply(true)} disabled={sending||!body.trim()} style={{padding:"9px 18px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",opacity:(sending||!body.trim())?0.6:1,pointerEvents:sending?"none":"auto"}}>{sending?"Sending…":"Reply all"}</button>
@@ -6067,7 +6082,8 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
   const{sharedProps}=useData()||{};
   const mail=useOutlookMail();
   const prop=(sharedProps||[]).find(pp=>String(pp.id)===String(task.propId));
-  const linkedPin=(prop?.pinnedEmails||[]).find(pe=>pe.label&&String(pe.label.taskId)===String(task.id))||null;
+  const propPins=prop?.pinnedEmails||[];
+  const linkedPin=propPins.find(pe=>pe.label&&String(pe.label.taskId)===String(task.id))||null;
   const[emailTo,setEmailTo]=useState(null); // {email,name} → in-app email modal
   const tc=task.taskContact||null;
   const isCompany=!!(tc&&tc.kind==="company");
@@ -6262,7 +6278,7 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
         );
       })()}
       {/* In-app email (connected mailbox) — new email or reply to the linked chain */}
-      {emailTo&&<TaskEmailModal to={emailTo.email} name={emailTo.name} propAddr={propAddr} linkedPin={linkedPin} mail={mail} onClose={()=>setEmailTo(null)}/>}
+      {emailTo&&<TaskEmailModal to={emailTo.email} name={emailTo.name} propAddr={propAddr} linkedPin={linkedPin} propPins={propPins} mail={mail} onClose={()=>setEmailTo(null)}/>}
     </div>
   );
 }

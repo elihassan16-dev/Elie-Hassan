@@ -200,7 +200,7 @@ function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
 }
 
 // ── Job detail — overview (money/docs), tasks, messages ──────────────────────
-function JobDetail({ j, org, tasks, messages, docs, save, remove, displayName, onEditBasics, onClose }) {
+function JobDetail({ j, org, isAdmin = true, tasks, messages, docs, save, remove, displayName, onEditBasics, onClose }) {
   const total = jobTotal(j), paid = jobPaid(j), left = jobLeft(j), days = jobDays(j);
   const jDocs = (docs || []).filter((d) => String(d.jobId) === String(j.id));
   const jTasks = (tasks || []).filter((t) => String(t.jobId) === String(j.id));
@@ -245,7 +245,7 @@ function JobDetail({ j, org, tasks, messages, docs, save, remove, displayName, o
           <button key={k} onClick={() => setTab2(k)} style={{ padding: "7px 15px", borderRadius: 18, border: `1px solid ${tab2 === k ? T.gold : T.border}`, background: tab2 === k ? T.goldLight : "#fff", color: tab2 === k ? "#8a6d1f" : T.textSub, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
         ))}
         <div style={{ flex: 1 }} />
-        <button onClick={() => save("contractor_jobs", { ...j, status: j.status === "complete" ? "active" : "complete" })} style={{ padding: "7px 13px", borderRadius: 18, border: `1px solid ${j.status === "complete" ? T.border : T.green}`, background: j.status === "complete" ? T.bg : "#EDFBF1", color: j.status === "complete" ? T.textSub : "#15803D", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{j.status === "complete" ? "Reopen job" : "✓ Mark complete"}</button>
+        {isAdmin && <button onClick={() => save("contractor_jobs", { ...j, status: j.status === "complete" ? "active" : "complete" })} style={{ padding: "7px 13px", borderRadius: 18, border: `1px solid ${j.status === "complete" ? T.border : T.green}`, background: j.status === "complete" ? T.bg : "#EDFBF1", color: j.status === "complete" ? T.textSub : "#15803D", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{j.status === "complete" ? "Reopen job" : "✓ Mark complete"}</button>}
       </div>
       {err2 && <div onClick={() => setErr2("")} style={{ fontSize: 12.5, color: T.red, cursor: "pointer" }}>{err2}</div>}
 
@@ -259,7 +259,7 @@ function JobDetail({ j, org, tasks, messages, docs, save, remove, displayName, o
           ))}
         </div>
         <div>
-          {secHdr("Scope of work", miniBtn("✎ Edit basics", onEditBasics))}
+          {secHdr("Scope of work", isAdmin ? miniBtn("✎ Edit basics", onEditBasics) : null)}
           <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No scope written — edit the job or let the contractor upload their SOW PDF."}</div>
         </div>
         <div>
@@ -271,12 +271,12 @@ function JobDetail({ j, org, tasks, messages, docs, save, remove, displayName, o
           </div>
         </div>
         <div>
-          {secHdr("Change orders", miniBtn("＋ Change order", () => setCoDraft({ label: "", amount: "", date: today() })))}
+          {secHdr("Change orders", isAdmin ? miniBtn("＋ Change order", () => setCoDraft({ label: "", amount: "", date: today() })) : null)}
           {(j.changeOrders || []).map((c) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "5px 0", borderBottom: `1px solid ${T.border}` }}>
               <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</span>
               <span style={{ color: T.textTert, fontSize: 11.5 }}>{fmtDate(c.date)}</span><b>{money(c.amount)}</b>
-              <button onClick={() => save("contractor_jobs", { ...j, changeOrders: (j.changeOrders || []).filter((x) => x.id !== c.id) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>
+              {isAdmin && <button onClick={() => save("contractor_jobs", { ...j, changeOrders: (j.changeOrders || []).filter((x) => x.id !== c.id) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>}
             </div>
           ))}
           {coDraft && (
@@ -289,12 +289,12 @@ function JobDetail({ j, org, tasks, messages, docs, save, remove, displayName, o
           )}
         </div>
         <div>
-          {secHdr("Payments", miniBtn("＋ Payment", () => setPayDraft({ amount: "", date: today(), note: "" })))}
+          {secHdr("Payments", isAdmin ? miniBtn("＋ Payment", () => setPayDraft({ amount: "", date: today(), note: "" })) : null)}
           {(j.payments || []).map((p) => (
             <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "5px 0", borderBottom: `1px solid ${T.border}` }}>
               <span style={{ flex: 1, minWidth: 0, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.note || "Payment"}</span>
               <span style={{ color: T.textTert, fontSize: 11.5 }}>{fmtDate(p.date)}</span><b style={{ color: T.green }}>{money(p.amount)}</b>
-              <button onClick={() => save("contractor_jobs", { ...j, payments: (j.payments || []).filter((x) => x.id !== p.id) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>
+              {isAdmin && <button onClick={() => save("contractor_jobs", { ...j, payments: (j.payments || []).filter((x) => x.id !== p.id) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>}
             </div>
           ))}
           {payDraft && (
@@ -322,7 +322,7 @@ function JobDetail({ j, org, tasks, messages, docs, save, remove, displayName, o
                 <div style={{ fontSize: 13.5, color: T.text, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: t.status === "Completed" ? 0.6 : 1 }}>{t.text}</div>
                 <div style={{ fontSize: 11, color: T.textTert }}>{t.status}{t.doneBy ? ` · ${t.doneBy}` : ""}</div>
               </div>
-              <button onClick={() => remove("contractor_tasks", t.id)} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
+              {isAdmin && <button onClick={() => remove("contractor_tasks", t.id)} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>}
             </div>
           ))}
           {toThem.length === 0 && <div style={{ fontSize: 12.5, color: T.textTert }}>Nothing delegated on this job yet.</div>}
@@ -373,7 +373,7 @@ function JobDetail({ j, org, tasks, messages, docs, save, remove, displayName, o
 }
 
 export function ContractorsAdminPage() {
-  const { displayName } = useAuth();
+  const { displayName, isAdmin } = useAuth();
   const { sharedProps, contacts } = useData();
   const { orgs, jobs, tasks, messages, docs, save, remove, error } = useContractorData();
   const [selOrgId, setSelOrgId] = useState(null);
@@ -404,7 +404,7 @@ export function ContractorsAdminPage() {
       <div style={{ width: isMobile ? "100%" : 300, flexShrink: 0, display: isMobile && org ? "none" : "flex", flexDirection: "column", borderRight: isMobile ? "none" : `1px solid ${T.border}`, background: T.card, overflow: "hidden" }}>
         <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: T.text, flex: 1 }}>Contractors ({orgList.length})</div>
-          <button onClick={() => setOrgModal({})} style={{ padding: "7px 13px", borderRadius: 16, border: "none", background: T.gold, color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>＋ Company</button>
+          {isAdmin && <button onClick={() => setOrgModal({})} style={{ padding: "7px 13px", borderRadius: 16, border: "none", background: T.gold, color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>＋ Company</button>}
         </div>
         <div style={{ flex: 1, overflowY: "auto" }}>
           {orgList.length === 0 && orgs !== null && <div style={{ padding: 24, textAlign: "center", color: T.textTert, fontSize: 13 }}>Add your first contractor company — then create their login and jobs.</div>}
@@ -441,19 +441,19 @@ export function ContractorsAdminPage() {
                       {org.address && <span>🏠 {org.address}</span>}
                     </div>
                   </div>
-                  <button onClick={() => setOrgModal(org)} style={{ ...ghostBtn, padding: "7px 13px", fontSize: 12, flexShrink: 0 }}>✎ Edit</button>
+                  {isAdmin && <button onClick={() => setOrgModal(org)} style={{ ...ghostBtn, padding: "7px 13px", fontSize: 12, flexShrink: 0 }}>✎ Edit</button>}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
                   <span style={{ fontSize: 11, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em" }}>Portal logins:</span>
                   {logins.map((u) => <span key={u.id} title={u.email} style={{ fontSize: 12, fontWeight: 600, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 14, padding: "3px 10px", color: T.text }}>{u.name}</span>)}
                   {logins.length === 0 && <span style={{ fontSize: 12, color: T.textTert }}>none yet</span>}
-                  <button onClick={() => setLoginModal(true)} style={{ padding: "4px 11px", borderRadius: 14, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>＋ Login</button>
+                  {isAdmin && <button onClick={() => setLoginModal(true)} style={{ padding: "4px 11px", borderRadius: 14, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>＋ Login</button>}
                 </div>
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: T.text, flex: 1 }}>Jobs</div>
-                <button onClick={() => setJobModal({})} style={{ padding: "8px 15px", borderRadius: 16, border: "none", background: T.gold, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>＋ New job</button>
+                {isAdmin && <button onClick={() => setJobModal({})} style={{ padding: "8px 15px", borderRadius: 16, border: "none", background: T.gold, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>＋ New job</button>}
               </div>
               {orgJobs.length === 0 && <div style={{ padding: "22px 16px", textAlign: "center", color: T.textTert, fontSize: 13, background: T.card, borderRadius: T.radius, border: `1px dashed ${T.border}` }}>No jobs yet for {org.name}.</div>}
               {orgJobs.map((j) => {
@@ -478,7 +478,7 @@ export function ContractorsAdminPage() {
       {orgModal && <OrgModal orgModal={orgModal.id ? orgModal : null} contacts={contacts} save={save} onSaved={setSelOrgId} onClose={() => setOrgModal(null)} />}
       {loginModal && org && <LoginModal org={org} contacts={contacts} existingEmails={logins.map((u) => u.email)} onClose={() => setLoginModal(false)} />}
       {jobModal && org && <JobModal org={org} jobModal={jobModal.id ? jobModal : null} properties={properties} save={save} onSaved={setOpenJobId} onClose={() => setJobModal(null)} />}
-      {openJob && <JobDetail j={openJob} org={org} tasks={tasks} messages={messages} docs={docs} save={save} remove={remove} displayName={displayName} onEditBasics={() => setJobModal(openJob)} onClose={() => setOpenJobId(null)} />}
+      {openJob && <JobDetail j={openJob} org={org} isAdmin={isAdmin} tasks={tasks} messages={messages} docs={docs} save={save} remove={remove} displayName={displayName} onEditBasics={() => setJobModal(openJob)} onClose={() => setOpenJobId(null)} />}
     </div>
   );
 }

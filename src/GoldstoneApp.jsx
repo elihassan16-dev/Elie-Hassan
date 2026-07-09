@@ -10,6 +10,7 @@ import { registerServiceWorker, refreshSubscription, enablePush, notificationsSu
 import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind } from "./net";
 import { ContractorsAdminPage } from "./contractors/ContractorsAdminPage";
+import { useContractorData } from "./contractors/data";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -8118,7 +8119,7 @@ function UnreadBadge({count,style={}}){
 const buildMessageThreads=(messages)=>{
   const byId=new Map(messages.map(m=>[m.id,m]));
   const rootIdOf=(m)=>{let cur=m,g=0;while(cur.replyToId&&byId.has(cur.replyToId)&&g<200){cur=byId.get(cur.replyToId);g++;}return cur.id;};
-  const keyOf=(m)=>m.showingKey?`showing:${m.showingKey}`:m.taskId?`task:${m.taskId}`:`root:${rootIdOf(m)}`;
+  const keyOf=(m)=>m.ctrJobId?`ctr:${m.ctrJobId}`:m.showingKey?`showing:${m.showingKey}`:m.taskId?`task:${m.taskId}`:`root:${rootIdOf(m)}`;
   const threads=new Map();
   messages.forEach(m=>{const k=keyOf(m);if(!threads.has(k))threads.set(k,{key:k,items:[]});threads.get(k).items.push(m);});
   const arr=[...threads.values()];
@@ -8176,6 +8177,8 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           const taskTag=(txt)=><span title="This message is on a task" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {txt}</span>;
           // Showing-thread tag — tap for the agent's info + lead status popup.
           const showTag=()=><button onClick={()=>onUpdateProp&&setShowInfo(root.showingKey)} title="This thread is about a showing — tap for the agent's info & lead status" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block",cursor:onUpdateProp?"pointer":"default",fontFamily:"inherit"}}>👥 {root.showingLabel} ›</button>;
+          // Contractor-portal thread tag — replies here go to the contractor's portal.
+          const ctrTag=()=><span title="This thread is with a contractor — replies go to their portal" style={{fontSize:9,fontWeight:700,color:"#fff",background:T.gold,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>👷 {root.ctrLabel}</span>;
           const bubble=(m,{small,onCard}={})=>{
             const mine=m.author===currentUser;
             const theirBg=onCard?T.bg:T.card;
@@ -8201,7 +8204,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           if(replies.length===0){
             return(
               <div key={root.id} style={{display:"flex",flexDirection:"column",alignItems:rootMine?"flex-end":"flex-start"}}>
-                {root.showingLabel?<div style={{marginBottom:3}}>{showTag()}</div>:root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
+                {root.ctrLabel?<div style={{marginBottom:3}}>{ctrTag()}</div>:root.showingLabel?<div style={{marginBottom:3}}>{showTag()}</div>:root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
                 {bubble(root)}
               </div>
             );
@@ -8210,7 +8213,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           return(
             <div key={root.id} style={{alignSelf:"stretch",border:`1px solid ${T.border}`,borderRadius:16,background:T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                {root.showingLabel?showTag():root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
+                {root.ctrLabel?ctrTag():root.showingLabel?showTag():root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
                 <span style={{fontSize:10,color:T.textTert}}>{replies.length+1} messages</span>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -8256,7 +8259,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
         </div>
       )}
       {!selMode&&<div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:target&&!reply?`2px solid ${T.gold}`:`1px solid ${T.border}`,background:T.card,flexShrink:0}}>
-        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply…"):(target?`Message on “${target.text}”…`:"Message your team…")}
+        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.ctrLabel?"Reply — goes to the contractor's portal…":reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply…"):(target?`Message on “${target.text}”…`:"Message your team…")}
           aiContext={[
             `Property: ${addr}`,
             property.status?`Status: ${property.status}`:"",
@@ -8272,6 +8275,18 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
 const OFFICE_ID="__office__";
 function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}){
   const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS, officeMessages, setOfficeMessages, officeTasks, setOfficeTasks, flushOfficeTasks } = useData();
+  // Contractor-portal threads surface INSIDE each property's chat (tagged, like
+  // showing threads) so the whole team sees contractor conversations in context.
+  const { orgs:ctrOrgs, jobs:ctrJobs, messages:ctrMessages, save:ctrSave } = useContractorData();
+  const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
+  const ctrMsgsFor=(p)=>{
+    const pj=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id));
+    return pj.flatMap(j=>(ctrMessages||[]).filter(m=>String(m.jobId)===String(j.id)).map(m=>({
+      id:"ctr-"+m.id,author:m.author,text:m.text,at:m.at,attachment:m.attachment||null,readBy:m.readBy||[],
+      ctrJobId:j.id,ctrOrgId:String(j.orgId),ctrLabel:`${ctrOrgName(j.orgId)}${j.title?` — ${j.title}`:""}`,
+    })));
+  };
+  const mergedFor=(p)=>[...mergePropertyMessages(p),...ctrMsgsFor(p)];
   const officeSorted=officeMerged(officeMessages,officeTasks);
   const officeUnread=officeUnreadCount(officeMessages,officeTasks,CURRENT_USER);
   const saveOfficeTasks=()=>{if(flushOfficeTasks)setTimeout(flushOfficeTasks,0);};
@@ -8296,7 +8311,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);// eslint-disable-line
   const[search,setSearch]=useState("");
   const active=sharedProps.filter(p=>!p.archived);
-  const withMeta=active.map(p=>{const merged=mergePropertyMessages(p);const last=merged[merged.length-1];return {p,last,lastAt:last?new Date(last.at).getTime():0,count:merged.length,unread:merged.reduce((n,m)=>n+(isUnreadForUser(m,CURRENT_USER)?1:0),0)};});
+  const withMeta=active.map(p=>{const merged=mergedFor(p).sort((a,b)=>msgTime(a.at)-msgTime(b.at));const last=merged[merged.length-1];return {p,last,lastAt:last?new Date(last.at).getTime():0,count:merged.length,unread:merged.reduce((n,m)=>n+(isUnreadForUser(m,CURRENT_USER)?1:0),0)};});
   const q=search.toLowerCase();
   const list=withMeta.filter(x=>(x.p.address+" "+(x.p.city||"")).toLowerCase().includes(q))
     .sort((a,b)=>b.lastAt-a.lastAt||a.p.address.localeCompare(b.p.address));
@@ -8310,8 +8325,16 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     const tasks=(p.tasks||[]).map(t=>({...t,messages:mark(t.messages)}));
     return changed?{...p,messages,tasks}:p;
   }));
-  const selUnread=sel?propUnreadCount(sel,CURRENT_USER):0;
-  useEffect(()=>{if(sel&&selUnread>0)markRead(sel.id);},[selId,selUnread]);// eslint-disable-line
+  // Opening a chat also clears unread on its contractor-thread messages (those live
+  // in the portal table, so they're marked read there — team RLS allows the update).
+  const ctrUnreadFor=(p)=>ctrMsgsFor(p).filter(m=>isUnreadForUser(m,CURRENT_USER)).length;
+  const markCtrRead=(p)=>{
+    const pj=new Set((ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id)).map(j=>String(j.id)));
+    (ctrMessages||[]).filter(m=>pj.has(String(m.jobId))&&isUnreadForUser(m,CURRENT_USER))
+      .forEach(m=>{ctrSave("contractor_messages",{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}).catch(()=>{});});
+  };
+  const selUnread=sel?propUnreadCount(sel,CURRENT_USER)+ctrUnreadFor(sel):0;
+  useEffect(()=>{if(sel&&selUnread>0){markRead(sel.id);markCtrRead(sel);}},[selId,selUnread]);// eslint-disable-line
   // Mark office-chat messages read once it's open.
   useEffect(()=>{if(selId===OFFICE_ID&&officeUnread>0){
     setOfficeMessages(prev=>prev.map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}:m));
@@ -8331,6 +8354,15 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   };
   const send=(text,replyTarget,attachment,mentions,targetTaskId)=>{
     const t=(text||"").trim();if((!t&&!attachment)||!sel)return;
+    // Replying inside a contractor thread posts to the portal (and pings their team)
+    // instead of the property's internal messages.
+    if(replyTarget&&replyTarget.ctrJobId){
+      const cm={id:Date.now(),jobId:replyTarget.ctrJobId,orgId:replyTarget.ctrOrgId,author:CURRENT_USER,side:"team",text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
+      if(attachment)cm.attachment=attachment;
+      ctrSave("contractor_messages",cm).catch(()=>{});
+      notify(null,{toOrg:replyTarget.ctrOrgId,title:`Goldstone — ${sel.address}`,body:t||"(attachment)"});
+      return;
+    }
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
     if(attachment)msg.attachment=attachment;
     // Replying to someone auto-notifies just that person (plus anyone you tagged),
@@ -8411,7 +8443,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
         {selId===OFFICE_ID
           ? <MessageThread property={{id:OFFICE_ID,address:"📌 Office Chat",city:"",status:"",tasks:officeTasks||[]}} messages={officeSorted} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={officeSend} onDelete={officeDelete} onBack={()=>setSelId(null)} isMobile={isMobile}/>
           : sel
-          ? <MessageThread property={sel} messages={mergePropertyMessages(sel)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onDelete={deleteMessages} onBack={()=>setSelId(null)} isMobile={isMobile} onUpdateProp={(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p))}/>
+          ? <MessageThread property={sel} messages={mergedFor(sel).sort((a,b)=>msgTime(a.at)-msgTime(b.at))} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onDelete={deleteMessages} onBack={()=>setSelId(null)} isMobile={isMobile} onUpdateProp={(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p))}/>
           : <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:12,color:T.textSub}}>
               <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>💬</div>
               <div style={{fontSize:16,fontWeight:600}}>Select a property</div>
@@ -11088,7 +11120,9 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
 // ADMIN_ONLY_KEYS) are excluded so members never get them.
 const MEMBER_KEYS = new Set(NAV.map(n=>n.key).filter(k=>!ADMIN_ONLY_KEYS.has(k)));
 // Admin-only sections members may still OPEN read-only (view rights, no editing).
-const VIEW_ONLY_MEMBER_KEYS = new Set(["financials"]);
+// Contractors section: members see everything and can message/task, but the
+// money + company management buttons are admin-only inside the page.
+const VIEW_ONLY_MEMBER_KEYS = new Set(["financials","contractors"]);
 
 // ─── Email (Outlook / Microsoft 365 via Graph) ──────────────────────────────
 // Each teammate's OWN mailbox. Reuses the Files-tab Microsoft sign-in, plus the

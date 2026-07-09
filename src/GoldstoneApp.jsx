@@ -4750,6 +4750,14 @@ function GlobalAiChat({onClose}){
 const UTIL_DEFS=[["electric","⚡","Electric"],["gas","🔥","Gas"],["water","💧","Water"]];
 const PERMIT_DEFS=[["building","🏗","Building"],["plumbing","🚿","Plumbing"],["mechanical","❄️","Mechanical"],["electrical","⚡","Electrical"]];
 const UTIL_RX={electric:/\belectric/i,gas:/\bgas\b/i,water:/\bwater\b/i};
+// Each permit tracks three stages, each its own dropdown (blank until someone
+// sets it): filing → plan review → inspections. [field, byField, options].
+const PERMIT_COLS=[
+  ["permits","permitsBy",[["","Filed?"],["yes","Filed ✓"],["na","Not needed"]]],
+  ["permitPlans","permitPlansBy",[["","Plans?"],["approved","Plans approved ✓"],["not_approved","Not approved"]]],
+  ["permitInsp","permitInspBy",[["","Inspections?"],["rough","Rough passed ✓"],["final","Final passed ✓"],["none","None passed yet"]]],
+];
+const PERMIT_VAL_COLOR={yes:["#15803D","#EDFBF1"],na:["#6b6b70","#E9E9EE"],approved:["#15803D","#EDFBF1"],not_approved:["#B42318","#FFF0EF"],rough:["#B45309","#FFF7E8"],final:["#15803D","#EDFBF1"],none:["#B42318","#FFF0EF"]};
 function PropertyStatusBoard({property,onClose}){
   const{currentUser}=useData()||{};
   const{jobs:ctrJobs,tasks:ctrTasks,siteStatus,save:ctrSave}=useContractorData();
@@ -4789,11 +4797,11 @@ function PropertyStatusBoard({property,onClose}){
     orgIds.forEach(oid=>notify(null,{toOrg:oid,title:`Site status — ${property.address}`,body}));
   };
   const setUtil=(u,v)=>{write({utilities:{...(st.utilities||{}),[u]:v},utilitiesAuto:{...(st.utilitiesAuto||{}),[u]:false},utilitiesBy:{...(st.utilitiesBy||{}),[u]:stamp}});notifyOrgs(`${UTIL_DEFS.find(x=>x[0]===u)?.[2]||u} turned ${v.toUpperCase()} by ${currentUser}`);};
-  const setPermit=(k,v)=>{write({permits:{...(st.permits||{}),[k]:v},permitsBy:{...(st.permitsBy||{}),[k]:stamp}});if(v)notifyOrgs(`${PERMIT_DEFS.find(x=>x[0]===k)?.[2]||k} permit: ${v==="yes"?"Filed ✓":v==="no"?"Not filed":"Not needed"} — ${currentUser}`);};
+  const setPermitCol=(field,byField,k,v,opts)=>{write({[field]:{...(st[field]||{}),[k]:v},[byField]:{...(st[byField]||{}),[k]:stamp}});if(v)notifyOrgs(`${PERMIT_DEFS.find(x=>x[0]===k)?.[2]||k} permit — ${(opts.find(o=>o[0]===v)||[])[1]||v} (${currentUser})`);};
   const byCap=(m)=>m&&m.by?`${m.by.split(" ")[0]}${m.at?` · ${new Date(m.at).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`:""}`:null;
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:420,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(500px,94vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(580px,94vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
         <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,background:T.goldLight,flexShrink:0}}>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:15,fontWeight:800,color:T.text}}>🏗 Property Status</div>
@@ -4823,21 +4831,27 @@ function PropertyStatusBoard({property,onClose}){
           <div style={{fontSize:11,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",margin:"18px 0 8px"}}>Permits</div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {PERMIT_DEFS.map(([k,icon,label])=>{
-              const v=(st.permits||{})[k]||"";
-              const seg=(val,txt,onBg,onFg)=>(
-                <button key={val} onClick={()=>setPermit(k,v===val?"":val)} style={{flex:1,padding:"7px 4px",borderRadius:10,border:`1px solid ${v===val?onFg:T.border}`,background:v===val?onBg:"#fff",color:v===val?onFg:T.textSub,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{txt}</button>
-              );
+              // Attribution = whoever touched any of the three stages last.
+              const latest=PERMIT_COLS.map(([,bf])=>(st[bf]||{})[k]).filter(Boolean).sort((a,b)=>String(b.at||"").localeCompare(String(a.at||"")))[0];
               return(
-                <div key={k} style={{display:"flex",alignItems:"center",gap:10,background:T.bg,borderRadius:12,padding:"9px 12px"}}>
+                <div key={k} style={{display:"flex",alignItems:"center",gap:10,background:T.bg,borderRadius:12,padding:"9px 12px",flexWrap:"wrap"}}>
                   <span style={{fontSize:17,flexShrink:0}}>{icon}</span>
                   <span style={{width:86,flexShrink:0}}>
                     <span style={{display:"block",fontSize:13,fontWeight:700,color:T.text}}>{label}</span>
-                    {byCap((st.permitsBy||{})[k])&&<span style={{display:"block",fontSize:9,fontWeight:700,color:T.textTert}}>{byCap((st.permitsBy||{})[k])}</span>}
+                    {byCap(latest)&&<span style={{display:"block",fontSize:9,fontWeight:700,color:T.textTert}}>{byCap(latest)}</span>}
                   </span>
-                  <div style={{flex:1,display:"flex",gap:6}}>
-                    {seg("yes","Filed ✓","#EDFBF1","#15803D")}
-                    {seg("no","Not filed","#FFF0EF",T.red)}
-                    {seg("na","Not needed","#E9E9EE","#6b6b70")}
+                  <div style={{flex:1,display:"flex",gap:6,minWidth:250}}>
+                    {PERMIT_COLS.map(([field,byField,opts])=>{
+                      const raw=(st[field]||{})[k]||"";
+                      const v=field==="permits"&&raw==="no"?"":raw; // legacy "Not filed" → blank
+                      const[fg,bg]=PERMIT_VAL_COLOR[v]||[T.textSub,"#fff"];
+                      return(
+                        <select key={field} value={v} onChange={e=>setPermitCol(field,byField,k,e.target.value,opts)}
+                          style={{flex:1,minWidth:0,padding:"7px 4px",borderRadius:10,border:`1px solid ${v?fg:T.border}`,background:bg,color:v?fg:T.textTert,fontWeight:700,fontSize:11.5,fontFamily:"inherit",cursor:"pointer"}}>
+                          {opts.map(([ov,ol])=><option key={ov} value={ov}>{ol}</option>)}
+                        </select>
+                      );
+                    })}
                   </div>
                 </div>
               );

@@ -29,7 +29,14 @@ function Att({ att }) {
 
 const UTIL_DEFS = [["electric", "⚡", "Electric"], ["gas", "🔥", "Gas"], ["water", "💧", "Water"]];
 const PERMIT_DEFS = [["building", "🏗", "Building"], ["plumbing", "🚿", "Plumbing"], ["mechanical", "❄️", "Mechanical"], ["electrical", "⚡", "Electrical"]];
-const PERMIT_LABEL = { yes: ["Filed ✓", "#15803D", "#EDFBF1"], no: ["Not filed", "#FF3B30", "#FFF0EF"], na: ["Not needed", "#6b6b70", "#E9E9EE"] };
+// Each permit tracks three stages, each its own dropdown (blank until someone
+// sets it): filing → plan review → inspections. Mirrors the Goldstone board.
+const PERMIT_COLS = [
+  ["permits", "permitsBy", [["", "Filed?"], ["yes", "Filed ✓"], ["na", "Not needed"]]],
+  ["permitPlans", "permitPlansBy", [["", "Plans?"], ["approved", "Plans approved ✓"], ["not_approved", "Not approved"]]],
+  ["permitInsp", "permitInspBy", [["", "Inspections?"], ["rough", "Rough passed ✓"], ["final", "Final passed ✓"], ["none", "None passed yet"]]],
+];
+const PERMIT_VAL_COLOR = { yes: ["#15803D", "#EDFBF1"], na: ["#6b6b70", "#E9E9EE"], approved: ["#15803D", "#EDFBF1"], not_approved: ["#B42318", "#FFF0EF"], rough: ["#B45309", "#FFF7E8"], final: ["#15803D", "#EDFBF1"], none: ["#B42318", "#FFF0EF"] };
 
 export function ContractorPortal() {
   const { displayName, contractorOrgId, signOut } = useAuth();
@@ -110,11 +117,14 @@ export function ContractorPortal() {
       const on = (st.utilities || {})[u] === "on";
       writeStatus({ utilities: { ...(st.utilities || {}), [u]: on ? "off" : "on" }, utilitiesBy: { ...(st.utilitiesBy || {}), [u]: stamp } }, `${label} turned ${on ? "OFF" : "ON"}`);
     };
-    const setPermitV = (k, label, v) => writeStatus({ permits: { ...(st.permits || {}), [k]: v }, permitsBy: { ...(st.permitsBy || {}), [k]: stamp } }, v ? `${label} permit: ${v === "yes" ? "Filed ✓" : v === "no" ? "Not filed" : "Not needed"}` : null);
+    const setPermitCol = (field, byField, k, label, v, opts) => writeStatus(
+      { [field]: { ...(st[field] || {}), [k]: v }, [byField]: { ...(st[byField] || {}), [k]: stamp } },
+      v ? `${label} permit — ${(opts.find(o => o[0] === v) || [])[1] || v}` : null
+    );
     const byCap = (m) => m && m.by ? `${m.by.split(" ")[0]}${m.at ? ` · ${fmtDate(m.at).replace(/, \d{4}$/, "")}` : ""}` : null;
     const sec = (t) => <div style={{ fontSize: 10.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", margin: "14px 0 6px" }}>{t}</div>;
     return (
-      <div style={{ padding: 14 }}>
+      <div style={{ padding: 14, maxWidth: 760 }}>
         <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "12px 16px", marginBottom: 12 }}>
           <div style={{ fontSize: 10.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Site status — tap to update, Goldstone sees it too</div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -133,22 +143,28 @@ export function ContractorPortal() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 9 }}>
             {PERMIT_DEFS.map(([k, icon, label]) => {
-              const v = (st.permits || {})[k] || "";
-              const cap = byCap((st.permitsBy || {})[k]);
-              const segB = (val, txt, bg, fg) => (
-                <button key={val} onClick={() => setPermitV(k, label, v === val ? "" : val)} style={{ flex: 1, padding: "6px 3px", borderRadius: 9, border: `1px solid ${v === val ? fg : T.border}`, background: v === val ? bg : "#fff", color: v === val ? fg : T.textSub, fontWeight: 700, fontSize: 10.5, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>{txt}</button>
-              );
+              // Attribution = whoever touched any of the three stages last.
+              const latest = PERMIT_COLS.map(([, bf]) => (st[bf] || {})[k]).filter(Boolean).sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")))[0];
+              const cap = byCap(latest);
               return (
-                <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, background: T.bg, borderRadius: 10, padding: "7px 10px" }}>
+                <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, background: T.bg, borderRadius: 10, padding: "7px 10px", flexWrap: "wrap" }}>
                   <span style={{ fontSize: 15, flexShrink: 0 }}>{icon}</span>
                   <span style={{ width: 78, flexShrink: 0 }}>
                     <span style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: T.text }}>{label}</span>
                     {cap && <span style={{ display: "block", fontSize: 8.5, fontWeight: 700, color: T.textTert }}>{cap}</span>}
                   </span>
-                  <div style={{ flex: 1, display: "flex", gap: 5 }}>
-                    {segB("yes", "Filed ✓", "#EDFBF1", "#15803D")}
-                    {segB("no", "Not filed", "#FFF0EF", T.red)}
-                    {segB("na", "Not needed", "#E9E9EE", "#6b6b70")}
+                  <div style={{ flex: 1, display: "flex", gap: 5, minWidth: 230 }}>
+                    {PERMIT_COLS.map(([field, byField, opts]) => {
+                      const raw = (st[field] || {})[k] || "";
+                      const v = field === "permits" && raw === "no" ? "" : raw; // legacy "Not filed" → blank
+                      const [fg, bg] = PERMIT_VAL_COLOR[v] || [T.textSub, "#fff"];
+                      return (
+                        <select key={field} value={v} onChange={(e) => setPermitCol(field, byField, k, label, e.target.value, opts)}
+                          style={{ flex: 1, minWidth: 0, padding: "6px 3px", borderRadius: 9, border: `1px solid ${v ? fg : T.border}`, background: bg, color: v ? fg : T.textTert, fontWeight: 700, fontSize: 10.5, fontFamily: "inherit", cursor: "pointer" }}>
+                          {opts.map(([ov, ol]) => <option key={ov} value={ov}>{ol}</option>)}
+                        </select>
+                      );
+                    })}
                   </div>
                 </div>
               );

@@ -10932,6 +10932,27 @@ function stripQuotedReply(html){
 }
 const mailAddr=(r)=>r?.emailAddress?.name||r?.emailAddress?.address||"";
 const mailWhen=(iso)=>{if(!iso)return "";try{const d=new Date(iso);const now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:d.getFullYear()===now.getFullYear()?undefined:"numeric"});}catch{return iso;}};
+
+// Pick + list outgoing email attachments (compose, reply, forward). Holds File
+// objects; the mail hook uploads them (chunked for big files) when sending.
+function AttachFilesRow({files,onChange,disabled}){
+  const ref=useRef(null);
+  const fmt=(n)=>n>1048576?`${(n/1048576).toFixed(1)} MB`:`${Math.max(1,Math.round(n/1024))} KB`;
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      <input ref={ref} type="file" multiple onChange={e=>{const list=[...(e.target.files||[])];if(list.length)onChange([...(files||[]),...list]);e.target.value="";}} style={{display:"none"}}/>
+      {(files||[]).map((f,i)=>(
+        <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:T.bg,border:`1px solid ${T.border}`,borderRadius:10}}>
+          <span style={{fontSize:13,flexShrink:0}}>📎</span>
+          <span style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</span>
+          <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{fmt(f.size)}</span>
+          <button onClick={()=>onChange((files||[]).filter((_,j)=>j!==i))} disabled={disabled} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,flexShrink:0,padding:"0 2px"}}>×</button>
+        </div>
+      ))}
+      <button onClick={()=>ref.current&&ref.current.click()} disabled={disabled} style={{alignSelf:"flex-start",display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:16,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>📎 Attach files</button>
+    </div>
+  );
+}
 // Build a property "pinned email" record from an inbox chain.
 function buildEmailPin(chain){const m=(chain&&chain.latest)||{};return {id:Date.now()+"_"+Math.round(Math.random()*1e6),conversationId:chain?.key||"",internetMessageId:m.internetMessageId||"",subject:m.subject||"",from:mailAddr(m.from),fromAddr:m.from?.emailAddress?.address||"",date:m.receivedDateTime||"",preview:m.bodyPreview||""};}
 // Turn a base64 attachment (from Graph) into a File for uploading to OneDrive.
@@ -11266,9 +11287,13 @@ function EmailPage({isMobile}){
 
   const sendReply=async()=>{
     if(!replyDraft||!msgs?.length)return;const last=msgs[msgs.length-1];
+    const targetId=replyDraft.msgId||last.id; // forward can target a specific message
     const body=`<div>${mailEsc(replyDraft.text).replace(/\n/g,"<br>")}</div>`;
     setSending(true);
-    try{await mail.reply(last.id,body,replyDraft.all,replyDraft.cc||"",replyDraft.mentions||[]);setReplyDraft(null);
+    try{
+      if(replyDraft.fwd)await mail.forward(targetId,{to:replyDraft.to||"",cc:replyDraft.cc||"",html:replyDraft.text.trim()?body:"",files:replyDraft.files||[]});
+      else await mail.reply(targetId,body,replyDraft.all,replyDraft.cc||"",replyDraft.mentions||[],replyDraft.files||[]);
+      setReplyDraft(null);
       const m=await mail.getConversation(sel.key);setMsgs(m);setRefreshKey(k=>k+1);
     }catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
     setSending(false);
@@ -11276,7 +11301,7 @@ function EmailPage({isMobile}){
   const sendCompose=async()=>{
     if(!compose)return;const body=`<div>${mailEsc(compose.body).replace(/\n/g,"<br>")}</div>`;
     setSending(true);
-    try{await mail.sendNew({to:compose.to,cc:compose.cc,subject:compose.subject,html:body,mentions:compose.mentions||[]});setCompose(null);setRefreshKey(k=>k+1);}
+    try{await mail.sendNew({to:compose.to,cc:compose.cc,bcc:compose.bcc||"",subject:compose.subject,html:body,mentions:compose.mentions||[],files:compose.files||[]});setCompose(null);setRefreshKey(k=>k+1);}
     catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
     setSending(false);
   };
@@ -11316,7 +11341,7 @@ function EmailPage({isMobile}){
         {mail.account?.username&&<span style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mail.account.username}</span>}
         <div style={{marginLeft:"auto",display:"flex",gap:8}}>
           <button onClick={()=>setRefreshKey(k=>k+1)} title="Refresh" style={{padding:"8px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>⟳</button>
-          {btn("✎ Compose",true,()=>setCompose({to:"",cc:"",subject:"",body:"",mentions:[]}),{padding:"8px 14px"})}
+          {btn("✎ Compose",true,()=>setCompose({to:"",cc:"",bcc:"",subject:"",body:"",mentions:[],files:[]}),{padding:"8px 14px"})}
         </div>
       </div>
 
@@ -11411,14 +11436,16 @@ function EmailPage({isMobile}){
               {/* Reply bar */}
               <div style={{borderTop:`1px solid ${T.border}`,background:T.card,padding:isMobile?"10px 12px":"12px 18px",flexShrink:0}}>
                 {!replyDraft
-                  ? <div style={{display:"flex",gap:8}}>{btn("↩ Reply",true,()=>setReplyDraft({all:false,text:"",cc:"",mentions:[]}),{padding:"9px 16px"})}{btn("↩ Reply all",false,()=>setReplyDraft({all:true,text:"",cc:"",mentions:[]}),{padding:"9px 16px"})}</div>
+                  ? <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{btn("↩ Reply",true,()=>setReplyDraft({all:false,text:"",cc:"",mentions:[],files:[]}),{padding:"9px 16px"})}{btn("↩ Reply all",false,()=>setReplyDraft({all:true,text:"",cc:"",mentions:[],files:[]}),{padding:"9px 16px"})}{btn("↪ Forward",false,()=>setReplyDraft({fwd:true,to:"",cc:"",text:"",files:[]}),{padding:"9px 16px"})}</div>
                   : <div>
-                      <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{replyDraft.all?"Reply all":"Reply"} to {mailAddr(msgs?.[msgs.length-1]?.from)}</div>
-                      <RecipientInput value={replyDraft.cc} onChange={v=>setReplyDraft(d=>({...d,cc:v}))} placeholder="Cc — add people to this reply" style={{...iS,marginBottom:8}} contacts={appPeople} mail={mail}/>
-                      <MentionTextarea value={replyDraft.text} onChange={v=>setReplyDraft(d=>({...d,text:v}))} mentions={replyDraft.mentions||[]} onMentionsChange={ms=>setReplyDraft(d=>({...d,mentions:ms}))} contacts={appPeople} mail={mail} placeholder="Write your reply…  (type @ to tag someone)" style={{...iS,minHeight:90,resize:"vertical",lineHeight:1.5}}/>
+                      <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{replyDraft.fwd?`Forward "${msgs?.[msgs.length-1]?.subject||sel?.latest?.subject||"(no subject)"}"`:`${replyDraft.all?"Reply all":"Reply"} to ${mailAddr(msgs?.[msgs.length-1]?.from)}`}</div>
+                      {replyDraft.fwd&&<RecipientInput value={replyDraft.to} onChange={v=>setReplyDraft(d=>({...d,to:v}))} placeholder="To — who should get this?" style={{...iS,marginBottom:8}} contacts={appPeople} mail={mail}/>}
+                      <RecipientInput value={replyDraft.cc} onChange={v=>setReplyDraft(d=>({...d,cc:v}))} placeholder={replyDraft.fwd?"Cc (optional)":"Cc — add people to this reply"} style={{...iS,marginBottom:8}} contacts={appPeople} mail={mail}/>
+                      <MentionTextarea value={replyDraft.text} onChange={v=>setReplyDraft(d=>({...d,text:v}))} mentions={replyDraft.mentions||[]} onMentionsChange={ms=>setReplyDraft(d=>({...d,mentions:ms}))} contacts={appPeople} mail={mail} placeholder={replyDraft.fwd?"Add a note (optional) — the original email is included below it":"Write your reply…  (type @ to tag someone)"} style={{...iS,minHeight:90,resize:"vertical",lineHeight:1.5}}/>
+                      <div style={{marginTop:8}}><AttachFilesRow files={replyDraft.files||[]} onChange={fs=>setReplyDraft(d=>({...d,files:fs}))} disabled={sending}/></div>
                       <div style={{display:"flex",gap:8,marginTop:8,justifyContent:"flex-end"}}>
                         {btn("Cancel",false,()=>setReplyDraft(null))}
-                        {btn(sending?"Sending…":"Send",true,sendReply,{opacity:sending?0.6:1,pointerEvents:sending?"none":"auto"})}
+                        {(()=>{const blocked=sending||(replyDraft.fwd&&!String(replyDraft.to||"").trim());return btn(sending?"Sending…":replyDraft.fwd?"Forward":"Send",true,sendReply,{opacity:blocked?0.6:1,pointerEvents:blocked?"none":"auto"});})()}
                       </div>
                     </div>}
               </div>
@@ -11437,8 +11464,10 @@ function EmailPage({isMobile}){
             <div style={{flex:1,overflowY:"auto",padding:"12px 18px",display:"flex",flexDirection:"column",gap:10}}>
               <RecipientInput value={compose.to} onChange={v=>setCompose(c=>({...c,to:v}))} placeholder="To" style={iS} contacts={appPeople} mail={mail}/>
               <RecipientInput value={compose.cc} onChange={v=>setCompose(c=>({...c,cc:v}))} placeholder="Cc (optional)" style={iS} contacts={appPeople} mail={mail}/>
+              <RecipientInput value={compose.bcc||""} onChange={v=>setCompose(c=>({...c,bcc:v}))} placeholder="Bcc (optional)" style={iS} contacts={appPeople} mail={mail}/>
               <input value={compose.subject} onChange={e=>setCompose(c=>({...c,subject:e.target.value}))} placeholder="Subject" style={iS}/>
               <MentionTextarea value={compose.body} onChange={v=>setCompose(c=>({...c,body:v}))} mentions={compose.mentions||[]} onMentionsChange={ms=>setCompose(c=>({...c,mentions:ms}))} contacts={appPeople} mail={mail} placeholder="Write your message…  (type @ to tag someone)" style={{...iS,minHeight:160,resize:"vertical",lineHeight:1.5}}/>
+              <AttachFilesRow files={compose.files||[]} onChange={fs=>setCompose(c=>({...c,files:fs}))} disabled={sending}/>
             </div>
             <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
               {btn("Cancel",false,()=>!sending&&setCompose(null))}
@@ -11469,8 +11498,9 @@ function EmailPage({isMobile}){
               {readMsg.hasAttachments&&<EmailAttachments messageId={readMsg.id} mail={mail} od={od} folder={null} properties={savePropList}/>}
             </div>
             <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8,justifyContent:"flex-end",flexShrink:0}}>
-              {btn("Reply",true,()=>{setReadMsg(null);setReplyDraft({all:false,text:"",cc:"",mentions:[]});})}
-              {btn("Reply all",false,()=>{setReadMsg(null);setReplyDraft({all:true,text:"",cc:"",mentions:[]});})}
+              {btn("Reply",true,()=>{setReadMsg(null);setReplyDraft({all:false,text:"",cc:"",mentions:[],files:[]});})}
+              {btn("Reply all",false,()=>{setReadMsg(null);setReplyDraft({all:true,text:"",cc:"",mentions:[],files:[]});})}
+              {btn("↪ Forward",false,(()=>{const mid=readMsg.id;return()=>{setReadMsg(null);setReplyDraft({fwd:true,msgId:mid,to:"",cc:"",text:"",files:[]});};})())}
             </div>
           </div>
         </div>
@@ -11670,7 +11700,10 @@ function PropertyEmails({property,onUpdate,isMobile}){
     if(!vReply||!viewMsgs?.length)return;const last=viewMsgs[viewMsgs.length-1];
     const body=`<div>${mailEsc(vReply.text).replace(/\n/g,"<br>")}</div>`;
     setVSending(true);
-    try{ await mail.reply(last.id,body,vReply.all,vReply.cc||"",vReply.mentions||[]); setVReply(null);
+    try{
+      if(vReply.fwd)await mail.forward(last.id,{to:vReply.to||"",cc:vReply.cc||"",html:vReply.text.trim()?body:"",files:vReply.files||[]});
+      else await mail.reply(last.id,body,vReply.all,vReply.cc||"",vReply.mentions||[],vReply.files||[]);
+      setVReply(null);
       const convId=last.conversationId||viewer.conversationId;
       if(convId){const m=await mail.getConversation(convId);setViewMsgs(m);setVExpanded(m&&m.length?{[m[m.length-1].id]:true}:{});}
     }catch(e){ alert("Couldn't send: "+(e.message||"unknown error")); }
@@ -11796,17 +11829,22 @@ function PropertyEmails({property,onUpdate,isMobile}){
             {viewMsgs&&viewMsgs.length>0&&(
               <div style={{borderTop:`1px solid ${T.border}`,background:T.card,padding:isMobile?"10px 12px max(10px,env(safe-area-inset-bottom))":"12px 18px",flexShrink:0}}>
                 {!vReply
-                  ? <div style={{display:"flex",gap:8}}>
-                      <button onClick={()=>setVReply({all:false,text:"",cc:"",mentions:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply</button>
-                      <button onClick={()=>setVReply({all:true,text:"",cc:"",mentions:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply all</button>
+                  ? <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                      <button onClick={()=>setVReply({all:false,text:"",cc:"",mentions:[],files:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply</button>
+                      <button onClick={()=>setVReply({all:true,text:"",cc:"",mentions:[],files:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply all</button>
+                      <button onClick={()=>setVReply({fwd:true,to:"",cc:"",text:"",files:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↪ Forward</button>
                     </div>
                   : <div>
-                      <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{vReply.all?"Reply all":"Reply"} to {mailAddr(viewMsgs[viewMsgs.length-1]?.from)}</div>
-                      <RecipientInput value={vReply.cc} onChange={v=>setVReply(d=>({...d,cc:v}))} placeholder="Cc — add people to this reply" style={{width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}} contacts={appPeople} mail={mail}/>
-                      <MentionTextarea value={vReply.text} onChange={v=>setVReply(d=>({...d,text:v}))} mentions={vReply.mentions||[]} onMentionsChange={ms=>setVReply(d=>({...d,mentions:ms}))} contacts={appPeople} mail={mail} placeholder="Write your reply…  (type @ to tag someone)" style={{width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",minHeight:90,resize:"vertical",lineHeight:1.5}}/>
+                      <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{vReply.fwd?`Forward "${viewer?.subject||"(no subject)"}"`:`${vReply.all?"Reply all":"Reply"} to ${mailAddr(viewMsgs[viewMsgs.length-1]?.from)}`}</div>
+                      {vReply.fwd&&<RecipientInput value={vReply.to} onChange={v=>setVReply(d=>({...d,to:v}))} placeholder="To — who should get this?" style={{width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}} contacts={appPeople} mail={mail}/>}
+                      <RecipientInput value={vReply.cc} onChange={v=>setVReply(d=>({...d,cc:v}))} placeholder={vReply.fwd?"Cc (optional)":"Cc — add people to this reply"} style={{width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}} contacts={appPeople} mail={mail}/>
+                      <MentionTextarea value={vReply.text} onChange={v=>setVReply(d=>({...d,text:v}))} mentions={vReply.mentions||[]} onMentionsChange={ms=>setVReply(d=>({...d,mentions:ms}))} contacts={appPeople} mail={mail} placeholder={vReply.fwd?"Add a note (optional) — the original email is included below it":"Write your reply…  (type @ to tag someone)"} style={{width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",minHeight:90,resize:"vertical",lineHeight:1.5}}/>
+                      <div style={{marginTop:8}}><AttachFilesRow files={vReply.files||[]} onChange={fs=>setVReply(d=>({...d,files:fs}))} disabled={vSending}/></div>
                       <div style={{display:"flex",gap:8,marginTop:8,justifyContent:"flex-end"}}>
                         <button onClick={()=>setVReply(null)} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
-                        <button onClick={vSendReply} disabled={vSending||!vReply.text.trim()} style={{padding:"9px 18px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",opacity:(vSending||!vReply.text.trim())?0.6:1,pointerEvents:vSending?"none":"auto"}}>{vSending?"Sending…":"Send"}</button>
+                        {(()=>{const blocked=vSending||(vReply.fwd?!String(vReply.to||"").trim():!vReply.text.trim());return(
+                        <button onClick={vSendReply} disabled={blocked} style={{padding:"9px 18px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",opacity:blocked?0.6:1,pointerEvents:blocked?"none":"auto"}}>{vSending?"Sending…":vReply.fwd?"Forward":"Send"}</button>
+                        );})()}
                       </div>
                     </div>}
               </div>

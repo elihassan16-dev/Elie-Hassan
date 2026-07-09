@@ -199,8 +199,60 @@ function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
   );
 }
 
+// ── Pull contractor payments from QuickBooks ──────────────────────────────────
+// Lists the property's QB project transactions (expense side), searchable —
+// prefiltered to the contractor's name — and pins the picked ones onto the job
+// as payments. Already-pinned transactions are marked and can't double-apply.
+function QBPayPicker({ qbProjectId, orgName, existingQbIds, onAdd, onClose }) {
+  const [items, setItems] = useState(null);
+  const [err, setErr] = useState("");
+  const [q, setQ] = useState(orgName || "");
+  const [sel, setSel] = useState(new Set());
+  useEffect(() => {
+    let alive = true;
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(qbProjectId)}`)
+      .then((d) => { if (alive) setItems((d.items || []).filter((t) => (t.section || "").toLowerCase() !== "income" && Math.abs(Number(t.amount) || 0) > 0)); })
+      .catch((e) => { if (alive) { setItems([]); setErr(e.message || "Couldn't load QuickBooks transactions."); } });
+    return () => { alive = false; };
+  }, [qbProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const keyOf = (t) => t.id || `${t.date}|${t.vendor}|${t.amount}`;
+  const have = new Set(existingQbIds || []);
+  const ql = q.trim().toLowerCase();
+  const shown = (items || []).filter((t) => !ql || [t.vendor, t.memo, t.account, t.type, t.num].filter(Boolean).join(" ").toLowerCase().includes(ql))
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  const toggle = (k) => setSel((p) => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const picked = shown.filter((t) => sel.has(keyOf(t)));
+  const total = picked.reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
+  return (
+    <Modal title="Pin payments from QuickBooks" width={560} onClose={onClose}
+      footer={<><button onClick={onClose} style={ghostBtn}>Cancel</button><button onClick={() => onAdd(picked)} disabled={!picked.length} style={goldBtn(!!picked.length)}>Apply {picked.length ? `${picked.length} (${money(total)})` : ""}</button></>}>
+      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search vendor / memo / account…" style={inp} />
+      <div style={{ fontSize: 11.5, color: T.textSub }}>Showing this property's QuickBooks expenses — prefiltered to “{orgName}”. Clear the search to see everything.</div>
+      <div style={{ border: `1px solid ${T.border}`, borderRadius: T.radiusSm, overflow: "hidden", maxHeight: 320, overflowY: "auto" }}>
+        {items === null && <div style={{ padding: 20, textAlign: "center", color: T.textTert, fontSize: 13 }}>Loading QuickBooks…</div>}
+        {items !== null && shown.length === 0 && <div style={{ padding: 20, textAlign: "center", color: T.textTert, fontSize: 13 }}>{err || (ql ? `Nothing matches “${q}”.` : "No expense transactions on this project.")}</div>}
+        {shown.map((t) => {
+          const k = keyOf(t);
+          const already = have.has(k);
+          const on = sel.has(k);
+          return (
+            <div key={k} onClick={() => !already && toggle(k)} style={{ display: "flex", gap: 10, alignItems: "center", padding: "9px 12px", borderTop: `1px solid ${T.border}`, cursor: already ? "default" : "pointer", opacity: already ? 0.5 : 1, background: on ? T.goldLight : "transparent" }}>
+              <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", border: `2px solid ${on ? T.gold : T.border}`, background: on ? T.gold : "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{already ? "✓" : on ? "✓" : ""}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.vendor || t.type || "Transaction"}{already ? " · already applied" : ""}</div>
+                <div style={{ fontSize: 11, color: T.textTert, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[t.date, t.account, t.memo].filter(Boolean).join(" · ")}</div>
+              </div>
+              <b style={{ fontSize: 13, flexShrink: 0 }}>{money(Math.abs(Number(t.amount) || 0))}</b>
+            </div>
+          );
+        })}
+      </div>
+    </Modal>
+  );
+}
+
 // ── Job detail — overview (money/docs), tasks, messages ──────────────────────
-function JobDetail({ j, org, isAdmin = true, tasks, messages, docs, save, remove, displayName, onEditBasics, onClose }) {
+function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages, docs, save, remove, displayName, onEditBasics, onClose }) {
   const total = jobTotal(j), paid = jobPaid(j), left = jobLeft(j), days = jobDays(j);
   const jDocs = (docs || []).filter((d) => String(d.jobId) === String(j.id));
   const jTasks = (tasks || []).filter((t) => String(t.jobId) === String(j.id));
@@ -210,6 +262,14 @@ function JobDetail({ j, org, isAdmin = true, tasks, messages, docs, save, remove
   const [tab2, setTab2] = useState("overview");
   const [coDraft, setCoDraft] = useState(null);
   const [payDraft, setPayDraft] = useState(null);
+  const [qbPick, setQbPick] = useState(false);
+  // Apply picked QuickBooks transactions as payments (deduped by qbId).
+  const applyQb = async (rows) => {
+    const have = new Set((j.payments || []).map((p) => p.qbId).filter(Boolean));
+    const add = rows.filter((t) => !have.has(t.id || `${t.date}|${t.vendor}|${t.amount}`)).map((t, i) => ({ id: Date.now() + i, amount: Math.abs(Number(t.amount) || 0), date: t.date || today(), note: [t.vendor, t.memo].filter(Boolean).join(" — ") || "QuickBooks", qbId: t.id || `${t.date}|${t.vendor}|${t.amount}` }));
+    if (add.length) { await save("contractor_jobs", { ...j, payments: [...(j.payments || []), ...add] }); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(add.reduce((s, p) => s + p.amount, 0))} — ${j.propertyAddress}` }); }
+    setQbPick(false);
+  };
   const [taskDraft, setTaskDraft] = useState("");
   const [msgDraft, setMsgDraft] = useState("");
   const [pending, setPending] = useState(null);
@@ -289,10 +349,10 @@ function JobDetail({ j, org, isAdmin = true, tasks, messages, docs, save, remove
           )}
         </div>
         <div>
-          {secHdr("Payments", isAdmin ? miniBtn("＋ Payment", () => setPayDraft({ amount: "", date: today(), note: "" })) : null)}
+          {secHdr("Payments", isAdmin ? <span style={{ display: "inline-flex", gap: 6 }}>{qbProjectId ? miniBtn("🔍 From QuickBooks", () => setQbPick(true)) : null}{miniBtn("＋ Payment", () => setPayDraft({ amount: "", date: today(), note: "" }))}</span> : null)}
           {(j.payments || []).map((p) => (
             <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "5px 0", borderBottom: `1px solid ${T.border}` }}>
-              <span style={{ flex: 1, minWidth: 0, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.note || "Payment"}</span>
+              <span style={{ flex: 1, minWidth: 0, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.qbId && <span title="Pinned from QuickBooks" style={{ fontSize: 9, fontWeight: 800, color: "#2C7A3F", background: "#E7F6EC", borderRadius: 10, padding: "1px 6px", marginRight: 6 }}>QB</span>}{p.note || "Payment"}</span>
               <span style={{ color: T.textTert, fontSize: 11.5 }}>{fmtDate(p.date)}</span><b style={{ color: T.green }}>{money(p.amount)}</b>
               {isAdmin && <button onClick={() => save("contractor_jobs", { ...j, payments: (j.payments || []).filter((x) => x.id !== p.id) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>}
             </div>
@@ -368,6 +428,7 @@ function JobDetail({ j, org, isAdmin = true, tasks, messages, docs, save, remove
           <button onClick={sendMsg} disabled={(!msgDraft.trim() && !pending) || busy} style={goldBtn(!!(msgDraft.trim() || pending) && !busy)}>Send</button>
         </div>
       </>)}
+      {qbPick && qbProjectId && <QBPayPicker qbProjectId={qbProjectId} orgName={org?.name || ""} existingQbIds={(j.payments || []).map((p) => p.qbId).filter(Boolean)} onAdd={applyQb} onClose={() => setQbPick(false)} />}
     </Modal>
   );
 }
@@ -478,7 +539,7 @@ export function ContractorsAdminPage() {
       {orgModal && <OrgModal orgModal={orgModal.id ? orgModal : null} contacts={contacts} save={save} onSaved={setSelOrgId} onClose={() => setOrgModal(null)} />}
       {loginModal && org && <LoginModal org={org} contacts={contacts} existingEmails={logins.map((u) => u.email)} onClose={() => setLoginModal(false)} />}
       {jobModal && org && <JobModal org={org} jobModal={jobModal.id ? jobModal : null} properties={properties} save={save} onSaved={setOpenJobId} onClose={() => setJobModal(null)} />}
-      {openJob && <JobDetail j={openJob} org={org} isAdmin={isAdmin} tasks={tasks} messages={messages} docs={docs} save={save} remove={remove} displayName={displayName} onEditBasics={() => setJobModal(openJob)} onClose={() => setOpenJobId(null)} />}
+      {openJob && <JobDetail j={openJob} org={org} isAdmin={isAdmin} qbProjectId={(properties.find((p) => String(p.id) === String(openJob.propertyId)) || {}).qbProjectId || null} tasks={tasks} messages={messages} docs={docs} save={save} remove={remove} displayName={displayName} onEditBasics={() => setJobModal(openJob)} onClose={() => setOpenJobId(null)} />}
     </div>
   );
 }

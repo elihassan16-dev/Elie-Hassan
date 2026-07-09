@@ -9621,121 +9621,6 @@ function cashFlowNet(p,accounts,spend,intPaid){
 // Group In-Closing properties by their scheduled closing MONTH and show the net
 // cash landing each month. Properties with no scheduled date fall into an
 // "Unscheduled" bucket surfaced first so they're never silently dropped.
-function CashFlowProjection({sharedProps,onNavigate,isMobile}){
-  const[openId,setOpenId]=useState(null);
-  // Loan balances + all-in spend come from the SHARED QuickBooks layer, so
-  // "Total loans" here always matches the BS report / bank reconciliation.
-  const {connected,accounts,spend,requestSpend}=useQB();
-  const[intPaid,setIntPaid]=useState(()=>qbCache.get("intPaid",{})); // projectId → hard-money interest paid to date (from QB)
-  useEffect(()=>{qbCache.set("intPaid",intPaid);},[intPaid]);
-  const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const inClosing=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&p.status==="In Closing"),[sharedProps]);
-  // The month a property closes: its scheduled closing date, else the selling
-  // date on the Sale Timeline (either one is where you put the sale date).
-  const cfDate=(p)=>((p.propertyInfo||{}).closingDateScheduled||(p.financials||{}).sellingDate||"");
-  const projKey=inClosing.map(p=>p.qbProjectId).filter(Boolean).join(",");
-  useEffect(()=>{if(connected)requestSpend(inClosing.map(p=>p.qbProjectId));},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Sum the interest actually PAID on each property so far — any expense whose
-  // account name mentions "interest". Since LOC is a balloon (unpaid until
-  // closing), what's been paid is the monthly hard-money interest, which we
-  // credit back against the projected hard-money interest. (Cash-flow-specific,
-  // so it stays here rather than in the shared layer.)
-  useEffect(()=>{
-    if(!connected)return;const ids=[...new Set(inClosing.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
-    const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
-      try{const t=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);
-        const paid=(t.items||[]).filter(x=>/interest|debt/i.test(x.account||"")).reduce((s,x)=>s+(Number(x.amount)||0),0);
-        if(!cancelled)setIntPaid(m=>({...m,[id]:paid}));
-      }catch{/* ignore */}}};
-    Promise.all([run(),run()]);return ()=>{cancelled=true;};
-  },[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Bucket by YYYY-MM (or "unscheduled") → chronological list of month groups.
-  const groups=useMemo(()=>{
-    const byKey={};
-    inClosing.forEach(p=>{
-      const iso=cfDate(p);
-      const m=/^(\d{4})-(\d{2})/.exec(iso);
-      const key=m?`${m[1]}-${m[2]}`:"unscheduled";
-      const label=m?`${MONTHS[parseInt(m[2],10)-1]} ${m[1]}`:"Unscheduled";
-      (byKey[key]=byKey[key]||{key,label,items:[]}).items.push(p);
-    });
-    const arr=Object.values(byKey);
-    arr.sort((a,b)=>a.key==="unscheduled"?-1:b.key==="unscheduled"?1:a.key.localeCompare(b.key));
-    arr.forEach(g=>{
-      g.items.sort((a,b)=>String(cfDate(a)).localeCompare(String(cfDate(b))));
-      g.total=g.items.reduce((s,p)=>s+cashFlowNet(p,accounts,spend,intPaid).net,0);
-    });
-    return arr;
-  },[inClosing,accounts,spend,intPaid]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const grandTotal=groups.reduce((s,g)=>s+g.total,0);
-  const card={background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden",marginBottom:14};
-  const row=(label,val,color,bold)=>(
-    <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"6px 0"}}>
-      <span style={{fontSize:13,color:bold?T.text:T.textSub,fontWeight:bold?700:500}}>{label}</span>
-      <span style={{fontSize:13,fontWeight:bold?800:600,color:color||T.text}}>{fmtD(val)}</span>
-    </div>
-  );
-
-  return(
-    <div style={{flex:1,overflowY:"auto",padding:isMobile?14:24}}>
-      {/* Portfolio summary */}
-      <div style={{...card,padding:isMobile?"16px 18px":"18px 22px",background:T.goldLight,border:`1px solid ${T.gold}44`}}>
-        <div style={{fontSize:12,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Projected cash from closings</div>
-        <div style={{fontSize:isMobile?30:36,fontWeight:800,color:grandTotal<0?T.red:T.gold,marginTop:4,lineHeight:1.1}}>{fmtD(grandTotal)}</div>
-        <div style={{fontSize:12.5,color:T.textSub,marginTop:4}}>{inClosing.length} propert{inClosing.length===1?"y":"ies"} in closing · net cash to you (sale − closing costs − loan payoffs)</div>
-      </div>
-
-      {connected===false&&(
-        <div style={{marginBottom:14,padding:"11px 14px",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:T.radiusSm,color:"#8a6d1f",fontSize:12.5,lineHeight:1.5}}>Connect QuickBooks to load live loan balances. Loan payoffs use the same "Total loans" as your Property BS Report.</div>
-      )}
-
-      {inClosing.length===0&&(
-        <div style={{textAlign:"center",color:T.textTert,fontSize:13.5,padding:"40px 24px"}}>No properties are in closing right now. Once a property moves to <b>In Closing</b>, its projected payout shows up here month by month.</div>
-      )}
-
-      {groups.map(g=>(
-        <div key={g.key} style={card}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:isMobile?"11px 16px":"12px 20px",background:T.cardAlt,borderBottom:`1px solid ${T.border}`}}>
-            <span style={{fontSize:14,fontWeight:800,color:g.key==="unscheduled"?T.orange:T.text}}>{g.label}</span>
-            <span style={{fontSize:14,fontWeight:800,color:g.total<0?T.red:T.green}}>{fmtD(g.total)}</span>
-          </div>
-          {g.items.map((p,i)=>{
-            const cf=cashFlowNet(p,accounts,spend,intPaid);
-            const open=openId===p.id;
-            const iso=cfDate(p);
-            return(
-              <div key={p.id} style={{borderTop:i===0?"none":`1px solid ${T.border}`}}>
-                <div onClick={()=>setOpenId(open?null:p.id)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:isMobile?"11px 16px":"12px 20px",cursor:"pointer"}}>
-                  <div style={{minWidth:0,flex:1}}>
-                    <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</div>
-                    <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{iso?finFmtDate(iso):"No closing / selling date set"}{cf.useActual?" · contract price":" · target price"} · tap for breakdown</div>
-                  </div>
-                  <span style={{fontSize:15,fontWeight:800,color:cf.net<0?T.red:T.green,flexShrink:0}}>{fmtD(cf.net)}</span>
-                </div>
-                {open&&(
-                  <div style={{padding:isMobile?"4px 16px 14px":"4px 20px 16px",background:T.cardAlt}}>
-                    {row("Sale price",cf.sale,T.text)}
-                    {row("− Closing costs",-cf.sellingCosts,T.red)}
-                    {row("− Outstanding loans",-cf.loans,T.red)}
-                    {cf.locInt>0&&row("− LOC interest (accrued)",-cf.locInt,T.red)}
-                    {cf.hmIntGross>0&&row("− Hard-money interest",-cf.hmIntGross,T.red)}
-                    {cf.hmIntGross>0&&row("+ HM interest paid to date (QB)",cf.hmPaid,cf.hmPaid>0?T.green:T.textTert)}
-                    <div style={{borderTop:`1px solid ${T.border}`,marginTop:6,paddingTop:2}}>{row("Net cash at closing",cf.net,cf.net<0?T.red:T.green,true)}</div>
-                    <div style={{fontSize:10.5,color:T.textTert,marginTop:6,lineHeight:1.5}}>Outstanding loans = your Property BS Report "Total loans" (pinned QuickBooks loan accounts, incl. the hard-money mortgage). Hard-money interest is paid monthly, so the interest already paid on this address — pulled live from QuickBooks (any "interest" expense account) — is credited back, and only the unpaid balance settles at closing. LOC interest is a balloon, so it's not credited.</div>
-                    {onNavigate&&<button onClick={(e)=>{e.stopPropagation();onNavigate(p.id);}} style={{marginTop:10,padding:"8px 14px",borderRadius:T.radiusSm,background:T.card,border:`1px solid ${T.border}`,color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Open property →</button>}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ─── Report Center ────────────────────────────────────────────────────────────
 // A set of one-tap reports that open in a preview popup and can be exported /
 // saved as a PDF (via the browser's print dialog). Reports run off the same data
@@ -9954,6 +9839,43 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     return {rows,totalBack,totalEquity,net:totalBack-totalEquity};
   },[sharedProps,openDraws]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Report 7 — monthly cash flow from closings (the old Cash Flow Projection tab,
+  // report-style): In-Closing properties grouped by closing month, each line the
+  // same cashFlowNet() math — sale − closing costs − loan payoffs − unpaid interest.
+  const[intPaid,setIntPaid]=useState(()=>qbCache.get("intPaid",{})); // projectId → HM interest paid to date (QB)
+  useEffect(()=>{qbCache.set("intPaid",intPaid);},[intPaid]);
+  const inClosingProps=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&p.status==="In Closing"),[sharedProps]);
+  const icKey=inClosingProps.map(p=>p.qbProjectId).filter(Boolean).join(",");
+  useEffect(()=>{
+    if(!connected)return;const ids=[...new Set(inClosingProps.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
+    const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
+      try{const t=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);
+        const paid=(t.items||[]).filter(x=>/interest|debt/i.test(x.account||"")).reduce((s,x)=>s+(Number(x.amount)||0),0);
+        if(!cancelled)setIntPaid(m=>({...m,[id]:paid}));
+      }catch{/* ignore */}}};
+    Promise.all([run(),run()]);return ()=>{cancelled=true;};
+  },[connected,icKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rptCashflow=useMemo(()=>{
+    const MO=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const byKey={};
+    inClosingProps.forEach(p=>{
+      const iso=cfDate(p);
+      const m=/^(\d{4})-(\d{2})/.exec(iso);
+      const key=m?`${m[1]}-${m[2]}`:"unscheduled";
+      const label=m?`${MO[parseInt(m[2],10)-1]} ${m[1]}`:"Unscheduled";
+      (byKey[key]=byKey[key]||{key,label,items:[]}).items.push(p);
+    });
+    const groups=Object.values(byKey);
+    groups.sort((a,b)=>a.key==="unscheduled"?-1:b.key==="unscheduled"?1:a.key.localeCompare(b.key));
+    groups.forEach(g=>{
+      g.items.sort((a,b)=>String(cfDate(a)).localeCompare(String(cfDate(b))));
+      g.rows=g.items.map(p=>{const cf=cashFlowNet(p,accounts,spend,intPaid);return {p,cf,debt:cf.loans+cf.locInt+cf.hmIntGross-cf.hmPaid};});
+      g.total=g.rows.reduce((s,r)=>s+r.cf.net,0);
+    });
+    const grand=groups.reduce((s,g)=>s+g.total,0);
+    return {groups,grand};
+  },[inClosingProps,accounts,spend,intPaid]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const D=(iso)=>iso?finFmtDate(iso):"—";
   const M=(v)=>v==null?"—":fmtD(v);
   const REPORTS={
@@ -10030,6 +9952,27 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
       ]],
       empty:"No under-contract buys or in-closing sales.",
     },
+    cashflow:{
+      title:"Monthly Cash Flow — Closings",
+      subtitle:"In-closing properties grouped by closing month. Net cash to you at each closing = sale price − closing costs − loan payoffs (BS Report \"Total loans\") − accrued LOC interest − unpaid hard-money interest (interest already paid, from QuickBooks, is credited back).",
+      cols:[{label:"Property"},{label:"Closing"},{label:"Sale price",align:"right"},{label:"Closing costs",align:"right"},{label:"Loans + interest",align:"right"},{label:"Net cash",align:"right"}],
+      rows:rptCashflow.groups.flatMap(g=>[
+        [{t:g.label,strong:true,gold:g.key!=="unscheduled",color:g.key==="unscheduled"?T.orange:undefined},{t:""},{t:""},{t:""},{t:""},{t:fmtD(g.total),align:"right",strong:true,color:g.total<0?T.red:T.green}],
+        ...g.rows.map(({p,cf,debt})=>[
+          {t:"· "+p.address},
+          {t:D(cfDate(p))},
+          {t:fmtD(cf.sale),align:"right"},
+          {t:"−"+fmtD(cf.sellingCosts),align:"right",color:T.textSub},
+          {t:"−"+fmtD(debt),align:"right",color:T.textSub},
+          {t:fmtD(cf.net),align:"right",strong:true,color:cf.net<0?T.red:T.green},
+        ]),
+      ]),
+      foot:[[
+        {t:"Projected cash from closings",strong:true},{t:""},{t:""},{t:""},{t:""},
+        {t:fmtD(rptCashflow.grand),align:"right",strong:true,color:rptCashflow.grand<0?T.red:T.gold},
+      ]],
+      empty:"No properties are in closing right now — once one moves to In Closing, its projected payout shows up here month by month.",
+    },
   };
 
   // Export → open a print window (the browser's "Save as PDF" / print / share).
@@ -10067,6 +10010,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     {id:"hold",icon:"🏗️",title:"Construction Holdback vs Actuals",desc:"Bank's construction holdback vs your underwriting estimate, per property."},
     {id:"draw",icon:"🏦",title:"Construction Draw Report",desc:"Holdback vs draws pinned from each property's mortgage account, and what's left."},
     {id:"closings",icon:"📅",title:"Upcoming Closings — Capital Flow",desc:"In-closing sales returning LOC capital vs under-contract buys needing equity, with a running balance."},
+    {id:"cashflow",icon:"💰",title:"Monthly Cash Flow — Closings",desc:"Net cash landing each month as your in-closing deals settle — sale minus costs, payoffs and unpaid interest."},
   ];
   const rep=open?REPORTS[open]:null;
 
@@ -10484,7 +10428,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           </div>}
         </div>
         <div style={{display:"flex",gap:4,marginTop:12,overflowX:"auto"}}>
-          {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["flow","Cash Flow Projection"],["reports","Report Center"],["docs","Document Creator"]].map(([k,l])=>(
+          {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["reports","Report Center"],["docs","Document Creator"]].map(([k,l])=>(
             <button key={k} onClick={()=>{setSubTab(k);setBsSel(null);}} style={{padding:"9px 14px",border:"none",borderBottom:subTab===k?`2.5px solid ${T.gold}`:"2.5px solid transparent",background:"none",color:subTab===k?T.gold:T.textSub,fontWeight:subTab===k?800:600,fontSize:isMobile?12.5:13.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
           ))}
         </div>
@@ -10519,7 +10463,6 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       </>}
       {subTab==="bs"&&<FinPropertyBS sharedProps={sharedProps} draws={draws} onNavigate={onNavigate} initialSelId={bsSel} isMobile={isMobile} canEdit={canEdit}/>}
       {subTab==="bank"&&<FinBankRecon sharedProps={sharedProps} onOpenProperty={goToBS} isMobile={isMobile} canEdit={canEdit}/>}
-      {subTab==="flow"&&<CashFlowProjection sharedProps={sharedProps} onNavigate={onNavigate} isMobile={isMobile}/>}
       {subTab==="reports"&&<FinReportCenter sharedProps={sharedProps} isMobile={isMobile} canEdit={canEdit}/>}
       {subTab==="docs"&&<FinDocCreator sharedProps={sharedProps} isMobile={isMobile}/>}
     </div>

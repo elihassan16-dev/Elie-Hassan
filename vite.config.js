@@ -15,6 +15,10 @@ export default defineConfig({
           if (!id.includes("node_modules")) return undefined;
           if (id.includes("@azure") || id.includes("msal")) return "msal";
           if (id.includes("@supabase")) return "supabase";
+          // Only ever imported on demand (PDF generation / huge-video uploads) —
+          // keep them out of the launch-critical bundles.
+          if (id.includes("jspdf") || id.includes("fflate")) return "jspdf";
+          if (id.includes("tus-js-client")) return "tus";
           return "vendor";
         },
       },

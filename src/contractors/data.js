@@ -1,66 +1,84 @@
 // Contractor-portal data layer, shared by the admin Contractors page and the
 // contractor-facing portal. Each table is {id, org_id, data(jsonb)} — the app
 // object lives whole in `data`; org_id is denormalized for RLS scoping.
-// Simple load-once + realtime-reload semantics (no offline queue — portal
-// writes are small and immediate).
-import { useCallback, useEffect, useRef, useState } from "react";
+//
+// ONE shared store for the whole app: every useContractorData() consumer reads
+// the same module-level cache, fed by a single load + a single realtime
+// channel. (It used to be per-component: seven mounted copies meant seven full
+// downloads of every table on every change and every app-foregrounding — the
+// #1 reason the app felt slower as messages and jobs piled up.)
+import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 
 const TABLES = ["contractor_orgs", "contractor_jobs", "contractor_tasks", "contractor_messages", "contractor_docs", "site_status"];
+const keyOf = (table) => ({ contractor_orgs: "orgs", contractor_jobs: "jobs", contractor_tasks: "tasks", contractor_messages: "messages", contractor_docs: "docs", site_status: "siteStatus" })[table];
+
+let store = { orgs: null, jobs: null, tasks: null, messages: null, docs: null, siteStatus: null, error: "" };
+const listeners = new Set();
+const emit = () => listeners.forEach((fn) => { try { fn(); } catch { /* consumer unmounted */ } });
+const timers = {};
+let started = false;
+
+async function loadTable(table) {
+  // RLS scopes results automatically: team sees everything, a contractor login
+  // only ever receives their own company's rows.
+  const { data, error: err } = await supabase.from(table).select("id,data").order("id");
+  if (err) { store = { ...store, error: err.message || "Couldn't load portal data." }; emit(); return; }
+  store = { ...store, error: "", [keyOf(table)]: (data || []).map((r) => r.data).filter(Boolean) };
+  emit();
+}
+const loadAll = () => { TABLES.forEach((t) => loadTable(t)); };
+const scheduleLoad = (table) => { clearTimeout(timers[table]); timers[table] = setTimeout(() => loadTable(table), 250); };
+
+function start() {
+  if (started) return;
+  started = true;
+  loadAll();
+  const chan = supabase.channel("ctr-shared");
+  TABLES.forEach((table) => chan.on("postgres_changes", { event: "*", schema: "public", table }, () => scheduleLoad(table)));
+  chan.subscribe();
+  // Refresh when the app comes back to the foreground (same reason the main
+  // DataProvider does — realtime sockets die while a phone is asleep).
+  const onShow = () => { if (document.visibilityState === "visible") TABLES.forEach(scheduleLoad); };
+  document.addEventListener("visibilitychange", onShow);
+  // A different login on the same device sees different rows (RLS): wipe the
+  // cache on sign-out, refetch on the next sign-in.
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_OUT") {
+      store = { orgs: null, jobs: null, tasks: null, messages: null, docs: null, siteStatus: null, error: "" };
+      emit();
+    } else if (event === "SIGNED_IN") loadAll();
+  });
+}
+
+// Insert-or-update one row. The full object goes in `data`; orgId also lands in
+// the org_id column so RLS can scope it. contractor_orgs has NO org_id column
+// (the row id IS the org) — sending one makes Postgres reject the write.
+async function save(table, obj) {
+  const row = { id: String(obj.id), data: obj, updated_at: new Date().toISOString() };
+  // contractor_orgs and site_status have no org_id column (org rows ARE the org;
+  // site_status is keyed by property and shared across every contractor on it).
+  if (table !== "contractor_orgs" && table !== "site_status") row.org_id = obj.orgId != null ? String(obj.orgId) : null;
+  const { error: err } = await supabase.from(table).upsert(row, { onConflict: "id" });
+  if (err) throw new Error(err.message || "Save failed.");
+  await loadTable(table);
+}
+
+async function remove(table, id) {
+  const { error: err } = await supabase.from(table).delete().eq("id", String(id));
+  if (err) throw new Error(err.message || "Delete failed.");
+  await loadTable(table);
+}
 
 export function useContractorData() {
-  const [store, setStore] = useState({ orgs: null, jobs: null, tasks: null, messages: null, docs: null, siteStatus: null });
-  const [error, setError] = useState("");
-  const keyOf = (table) => ({ contractor_orgs: "orgs", contractor_jobs: "jobs", contractor_tasks: "tasks", contractor_messages: "messages", contractor_docs: "docs", site_status: "siteStatus" })[table];
-
-  const loadTable = useCallback(async (table) => {
-    // RLS scopes results automatically: team sees everything, a contractor login
-    // only ever receives their own company's rows.
-    const { data, error: err } = await supabase.from(table).select("id,data").order("id");
-    if (err) { setError(err.message || "Couldn't load portal data."); return; }
-    setStore((s) => ({ ...s, [keyOf(table)]: (data || []).map((r) => r.data).filter(Boolean) }));
-  }, []);
-
-  const loadAll = useCallback(() => { TABLES.forEach(loadTable); }, [loadTable]);
-
-  const timers = useRef({});
+  const [, force] = useState(0);
   useEffect(() => {
-    loadAll();
-    const chan = supabase.channel("ctr-" + Math.random().toString(36).slice(2, 10));
-    TABLES.forEach((table) => {
-      chan.on("postgres_changes", { event: "*", schema: "public", table }, () => {
-        clearTimeout(timers.current[table]);
-        timers.current[table] = setTimeout(() => loadTable(table), 250);
-      });
-    });
-    chan.subscribe();
-    // Also refresh when the app comes back to the foreground (same reason the
-    // main DataProvider does — realtime sockets die while a phone is asleep).
-    const onShow = () => { if (document.visibilityState === "visible") loadAll(); };
-    document.addEventListener("visibilitychange", onShow);
-    return () => { supabase.removeChannel(chan); document.removeEventListener("visibilitychange", onShow); Object.values(timers.current).forEach(clearTimeout); };
-  }, [loadAll, loadTable]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Insert-or-update one row. The full object goes in `data`; orgId also lands in
-  // the org_id column so RLS can scope it. contractor_orgs has NO org_id column
-  // (the row id IS the org) — sending one makes Postgres reject the write.
-  const save = useCallback(async (table, obj) => {
-    const row = { id: String(obj.id), data: obj, updated_at: new Date().toISOString() };
-    // contractor_orgs and site_status have no org_id column (org rows ARE the org;
-    // site_status is keyed by property and shared across every contractor on it).
-    if (table !== "contractor_orgs" && table !== "site_status") row.org_id = obj.orgId != null ? String(obj.orgId) : null;
-    const { error: err } = await supabase.from(table).upsert(row, { onConflict: "id" });
-    if (err) throw new Error(err.message || "Save failed.");
-    await loadTable(table);
-  }, [loadTable]);
-
-  const remove = useCallback(async (table, id) => {
-    const { error: err } = await supabase.from(table).delete().eq("id", String(id));
-    if (err) throw new Error(err.message || "Delete failed.");
-    await loadTable(table);
-  }, [loadTable]);
-
-  return { ...store, error, save, remove, reload: loadAll };
+    start();
+    const fn = () => force((x) => x + 1);
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  }, []);
+  return { ...store, save, remove, reload: loadAll };
 }
 
 // ── Shared job math ──────────────────────────────────────────────────────────

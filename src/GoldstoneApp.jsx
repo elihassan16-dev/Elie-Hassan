@@ -10,6 +10,7 @@ import { registerServiceWorker, refreshSubscription, enablePush, notificationsSu
 import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, STREAM_VIDEO_CAP } from "./net";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
+import { usePersistentDraft } from "./useDraft";
 import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
@@ -4936,10 +4937,14 @@ function PropertyStatusBoard({property,onClose}){
 // have AI draft a full trade-by-trade SOW), send. Lands in their portal as a
 // 🧾 BID job — they read the scope and send one price back.
 function BidRequestModal({property,orgs,onCreate,onClose}){
-  const[orgId,setOrgId]=useState(String(orgs[0]?.id||""));
-  const[title,setTitle]=useState("");
-  const[brief,setBrief]=useState("");
-  const[scope,setScope]=useState("");
+  // The draft survives iOS reloading the app mid-write (and accidental closes):
+  // every field mirrors to this device and comes back when the popup reopens.
+  const[draft,setDraft,clearDraft,hasDraft]=usePersistentDraft(`gs-bid-draft-${property.id}`,{orgId:"",title:"",brief:"",scope:""});
+  const orgId=draft.orgId||String(orgs[0]?.id||""),title=draft.title,brief=draft.brief,scope=draft.scope;
+  const setOrgId=(v)=>setDraft(d=>({...d,orgId:v}));
+  const setTitle=(v)=>setDraft(d=>({...d,title:v}));
+  const setBrief=(v)=>setDraft(d=>({...d,brief:typeof v==="function"?v(d.brief):v}));
+  const setScope=(v)=>setDraft(d=>({...d,scope:v}));
   const[aiBusy,setAiBusy]=useState(false);
   const[busy,setBusy]=useState(false);
   const[err,setErr]=useState("");
@@ -4957,16 +4962,18 @@ function BidRequestModal({property,orgs,onCreate,onClose}){
   const send=async()=>{
     if(!orgId||!scope.trim())return;
     setBusy(true);setErr("");
-    try{await onCreate({orgId,title:title.trim(),scope:scope.trim()});}catch(ex){setErr(ex.message||"Couldn't send the bid request.");setBusy(false);return;}
+    try{await onCreate({orgId,title:title.trim(),scope:scope.trim()});clearDraft(false);}catch(ex){setErr(ex.message||"Couldn't send the bid request.");setBusy(false);return;}
   };
   const inp={padding:"10px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.bg,fontSize:13.5,fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
   return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:440,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+    // A stray tap on the dark backdrop must NOT nuke a written-up scope — with
+    // content present, only × / Cancel close (and the draft survives even that).
+    <div onClick={hasDraft?undefined:onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:440,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(620px,96vw)",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
         <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,background:"#FFF9EC",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:15,fontWeight:800,color:T.text}}>🧾 Request a bid</div>
-            <div style={{fontSize:11.5,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{property.address}{property.city?`, ${property.city}`:""} · goes to their portal, they send back a price</div>
+            <div style={{fontSize:11.5,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{property.address}{property.city?`, ${property.city}`:""} · goes to their portal, they send back a price{hasDraft?" · draft saved on this device":""}</div>
           </div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
         </div>
@@ -5016,7 +5023,7 @@ function PropertyContractorsCard({property}){
     // The SOW ships as a real PDF: uploaded once, linked on the job, filed in
     // documents, and attached to the thread message the contractor opens.
     let pdf=null;
-    try{pdf=await uploadAttachment(sowPdfFile(job),"portal");}catch{/* job still goes out with inline scope */}
+    try{pdf=await uploadAttachment(await sowPdfFile(job),"portal");}catch{/* job still goes out with inline scope */}
     if(pdf){job.sowPdfUrl=pdf.url;job.sowPdfName=pdf.name;}
     await ctrSave("contractor_jobs",job);
     if(pdf)ctrSave("contractor_docs",{id:jobId+1,jobId,orgId,name:pdf.name,url:pdf.url,mime:"application/pdf",by:currentUser,at:new Date().toISOString()}).catch(()=>{});
@@ -9687,9 +9694,12 @@ function NotificationToggle({displayName,isAdmin}){
 }
 // ─── Add teammate — admin creates a login right from the app ───────────────────
 function AddTeammateModal({onClose,onCreated}){
-  const[name,setName]=useState("");
-  const[email,setEmail]=useState("");
-  const[password,setPassword]=useState("");
+  // Fields survive an iOS mid-typing reload (and accidental closes) on this device.
+  const[draft,setDraft,clearDraft,hasDraft]=usePersistentDraft("gs-teammate-draft",{name:"",email:"",password:""});
+  const{name,email,password}=draft;
+  const setName=(v)=>setDraft(d=>({...d,name:v}));
+  const setEmail=(v)=>setDraft(d=>({...d,email:v}));
+  const setPassword=(v)=>setDraft(d=>({...d,password:v}));
   const[busy,setBusy]=useState(false);
   const[err,setErr]=useState("");
   const[done,setDone]=useState(null); // created member {email,password} to show
@@ -9702,6 +9712,7 @@ function AddTeammateModal({onClose,onCreated}){
     try{
       const r=await qbAuthFetch("/api/team/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name.trim(),email:email.trim(),password:password.trim()})});
       setDone({email:email.trim(),password:password.trim(),name:r.member?.name||name.trim()});
+      clearDraft(false);
       onCreated&&onCreated();
     }catch(e){setErr(e.message||"Couldn't add the teammate.");}
     setBusy(false);
@@ -9709,7 +9720,7 @@ function AddTeammateModal({onClose,onCreated}){
   const inp={width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:15,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   const lbl={fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6,display:"block"};
   return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:420,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+    <div onClick={hasDraft&&!done?undefined:onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:420,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(420px,96vw)",boxShadow:"0 12px 48px rgba(0,0,0,0.25)",overflow:"hidden",maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
         <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{fontSize:17,fontWeight:700,color:T.text}}>{done?"Teammate added":"Add a teammate"}</div>

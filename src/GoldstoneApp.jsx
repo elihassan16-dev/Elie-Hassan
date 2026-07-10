@@ -11,6 +11,7 @@ import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, uploadStreamVideo, STREAM_VIDEO_CAP } from "./net";
 import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
+import { sowPdfFile } from "./contractors/sowPdf";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon } from "./contractors/ContractorPortal";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
@@ -4965,7 +4966,7 @@ function BidRequestModal({property,orgs,onCreate,onClose}){
 function PropertyContractorsCard({property}){
   const {isAdmin}=useAuth();
   const {currentUser}=useData();
-  const {orgs:ctrOrgs,jobs:ctrJobs,tasks:ctrTasks,messages:ctrMessages,docs:ctrDocs,save:ctrSave,remove:ctrRemove}=useContractorData();
+  const {orgs:ctrOrgs,jobs:ctrJobs,tasks:ctrTasks,messages:ctrMessages,docs:ctrDocs,siteStatus:ctrSiteStatus,save:ctrSave,remove:ctrRemove}=useContractorData();
   const[openJobId,setOpenJobId]=useState(null);
   const[bidOpen,setBidOpen]=useState(false);
   const pJobs=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(property.id)).sort((a,b)=>(a.status==="complete")-(b.status==="complete")||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
@@ -4975,10 +4976,27 @@ function PropertyContractorsCard({property}){
   const $=(n)=>`$${Number(n||0).toLocaleString()}`;
   const openJob=pJobs.find(j=>String(j.id)===String(openJobId))||null;
   const createBid=async({orgId,title,scope})=>{
-    const job={id:Date.now(),orgId,propertyId:property.id,propertyAddress:`${property.address||""}${property.city?`, ${property.city}`:""}`,title:title||"Bid request",scope,status:"bid",createdAt:new Date().toISOString(),bidRequestedBy:currentUser};
+    const jobId=Date.now();
+    const job={id:jobId,orgId,propertyId:property.id,propertyAddress:`${property.address||""}${property.city?`, ${property.city}`:""}`,title:title||"Bid request",scope,status:"bid",createdAt:new Date().toISOString(),bidRequestedBy:currentUser};
+    // The SOW ships as a real PDF: uploaded once, linked on the job, filed in
+    // documents, and attached to the thread message the contractor opens.
+    let pdf=null;
+    try{pdf=await uploadAttachment(sowPdfFile(job),"portal");}catch{/* job still goes out with inline scope */}
+    if(pdf){job.sowPdfUrl=pdf.url;job.sowPdfName=pdf.name;}
     await ctrSave("contractor_jobs",job);
+    if(pdf)ctrSave("contractor_docs",{id:jobId+1,jobId,orgId,name:pdf.name,url:pdf.url,mime:"application/pdf",by:currentUser,at:new Date().toISOString()}).catch(()=>{});
+    const msg={id:jobId+2,jobId,orgId,author:currentUser,side:"team",text:`🧾 Bid request: ${title||job.propertyAddress}. ${pdf?"The scope of work is attached":"The scope of work is on the job"} — please review it and send your price.`,at:new Date().toISOString(),readBy:[currentUser]};
+    if(pdf)msg.attachment={url:pdf.url,name:pdf.name,mime:"application/pdf",kind:"file"};
+    ctrSave("contractor_messages",msg).catch(()=>{});
+    // Publish block/lot + lockbox to the shared site-status row so the bidder's
+    // card shows the lockbox code without the 🏗 board ever being opened.
+    const pi=property.propertyInfo||{};
+    const info={parcel:pi.parcel||"",lockbox:pi.lockboxCode||""};
+    const stRow=(ctrSiteStatus||[]).find(s=>String(s.id)===String(property.id))||null;
+    if(!stRow||JSON.stringify(stRow.info||{})!==JSON.stringify(info)){
+      ctrSave("site_status",{...(stRow||{id:String(property.id),utilities:{},permits:{}}),address:job.propertyAddress,info,updatedAt:new Date().toISOString(),updatedBy:currentUser}).catch(()=>{});
+    }
     notify(null,{toOrg:orgId,title:"New bid request from Goldstone",body:`${job.propertyAddress}${title?` — ${title}`:""} · review the scope and send your price`});
-    ctrSave("contractor_messages",{id:Date.now()+1,jobId:job.id,orgId,author:currentUser,side:"team",text:`🧾 Bid request: ${title||job.propertyAddress}. The scope of work is on the job — please review it and send your price.`,at:new Date().toISOString(),readBy:[currentUser]}).catch(()=>{});
     setBidOpen(false);
   };
   const acceptBid=async(j)=>{

@@ -471,7 +471,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           </div>
         ))}
         <div>
-          {secHdr("Scope of work", <span style={{ display: "inline-flex", gap: 6 }}>{j.scope ? miniBtn("🖨 Print", () => printSow(j)) : null}{isAdmin && onEditBasics ? miniBtn("✎ Edit basics", onEditBasics) : null}</span>)}
+          {secHdr("Scope of work", <span style={{ display: "inline-flex", gap: 6 }}>{j.sowPdfUrl ? miniBtn("📄 Open PDF", () => window.open(j.sowPdfUrl, "_blank")) : null}{j.scope ? miniBtn("🖨 Print", () => printSow(j)) : null}{isAdmin && onEditBasics ? miniBtn("✎ Edit basics", onEditBasics) : null}</span>)}
           <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No scope written — edit the job or let the contractor upload their SOW PDF."}</div>
         </div>
         <div>

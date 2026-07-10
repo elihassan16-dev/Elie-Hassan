@@ -9224,7 +9224,8 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS, officeMessages, setOfficeMessages, officeTasks, setOfficeTasks, flushOfficeTasks } = useData();
   // Contractor-portal threads surface INSIDE each property's chat (tagged, like
   // showing threads) so the whole team sees contractor conversations in context.
-  const { orgs:ctrOrgs, jobs:ctrJobs, messages:ctrMessages, save:ctrSave } = useContractorData();
+  const { orgs:ctrOrgs, jobs:ctrJobs, messages:ctrMessages, save:ctrSave, remove:ctrRemove } = useContractorData();
+  const { isAdmin } = useAuth()||{};
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
   const ctrMsgsFor=(p)=>{
     const pj=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id));
@@ -9290,8 +9291,15 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     saveOfficeTasks();
   }},[selId,officeUnread]);// eslint-disable-line
   // Delete selected messages (from the general thread and any task threads).
+  // Contractor-thread messages live in the portal table — admins may delete
+  // those too (removed from the contractor's portal as well); contractors have
+  // no delete anywhere in their portal.
   const deleteMessages=(ids)=>{
     if(!sel||!ids||!ids.length)return;
+    if(isAdmin){
+      ids.filter(id=>String(id).startsWith("ctr-"))
+        .forEach(id=>ctrRemove("contractor_messages",String(id).slice(4)).catch(()=>{}));
+    }
     const idset=new Set(ids);
     setSharedProps(prev=>prev.map(p=>{
       if(p.id!==sel.id)return p;

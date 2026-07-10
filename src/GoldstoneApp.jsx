@@ -6097,8 +6097,11 @@ function SwipeToDelete({onDelete,confirm,children,style={}}){
         <button onClick={doDelete} style={{flex:1,border:"none",background:T.red,color:"#fff",fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
       </div>
       {/* transform only while swiped — a resting transform would break any
-          position:fixed popups rendered inside the row */}
-      <div onTouchStart={start} onTouchMove={move} onTouchEnd={end} style={{transform:dx?`translateX(${dx}px)`:"none",transition:drag.current?"none":"transform 0.18s ease-out",position:"relative",zIndex:1,background:T.card}}>
+          position:fixed popups rendered inside the row. No z-index either: it
+          would trap those popups in this row's stacking context, letting later
+          rows paint on top of an open dropdown. Being positioned + later in the
+          DOM already keeps the row above the Delete button. */}
+      <div onTouchStart={start} onTouchMove={move} onTouchEnd={end} style={{transform:dx?`translateX(${dx}px)`:"none",transition:drag.current?"none":"transform 0.18s ease-out",position:"relative",background:T.card}}>
         {children}
       </div>
       {ask&&(
@@ -6915,13 +6918,18 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
 const CTR_STATUSES=["Not Started","In Progress","Completed","N/A"];
 const ctrStColor=(s)=>s==="Completed"?T.green:s==="In Progress"?T.blue:s==="N/A"?"#6b6b70":T.textSub;
 const ctrClosed=(s)=>s==="Completed"||s==="N/A";
-function CtrStatusPill({t,onSet}){
+function CtrStatusPill({t,onSet,onDelete}){
   const v=CTR_STATUSES.includes(t.status)?t.status:"Not Started";
   const c=ctrStColor(v);
   return(
-    <select value={v} onChange={e=>onSet(t,e.target.value)} title="Change status"
+    <select value={v} onChange={e=>{
+        const val=e.target.value;
+        if(val==="__delete__"){e.target.value=v;if(window.confirm(`Delete "${t.text}"? The contractor loses it from their portal too.`))onDelete(t);return;}
+        onSet(t,val);
+      }} title="Change status"
       style={{padding:"3px 6px",borderRadius:20,border:"none",background:c+"22",color:c,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
       {CTR_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+      {onDelete&&<option value="__delete__">🗑 Delete…</option>}
     </select>
   );
 }
@@ -7187,14 +7195,16 @@ function PropertyTaskList({property}){
               <span style={{fontSize:10.5,color:"#B45309",fontWeight:600}}>tasks here go to their portal</span>
             </div>
             {jt.map(t=>(
-              <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",padding:"9px 14px",borderTop:"1px solid rgba(184,149,63,0.25)"}}>
+              <SwipeToDelete key={t.id} onDelete={()=>ctrRemove("contractor_tasks",t.id).catch(()=>{})} confirm={`Delete "${t.text}"? The contractor loses it from their portal too.`} style={{background:"#FFF9EC"}}>
+              <div style={{display:"flex",gap:10,alignItems:"center",padding:"9px 14px",borderTop:"1px solid rgba(184,149,63,0.25)",background:"#FFF9EC"}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
                   <div style={{fontSize:10.5,color:"#8a6d1f"}}>{(t.statusBy||t.doneBy)?`${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>
                 </div>
                 <button onClick={()=>setExtChat({task:t,job:j})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
-                <CtrStatusPill t={t} onSet={setCtrTaskStatus}/>
+                <CtrStatusPill t={t} onSet={setCtrTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/>
               </div>
+              </SwipeToDelete>
             ))}
             <div style={{display:"flex",gap:8,padding:"9px 14px 12px",borderTop:jt.length?"1px solid rgba(184,149,63,0.25)":"none"}}>
               <input value={ctrDraft[j.id]||""} onChange={e=>setCtrDraft(d=>({...d,[j.id]:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addCtrTask(j)} placeholder={`Delegate a task to ${name}…`}
@@ -7830,15 +7840,17 @@ function TasksPage({onNavigate}){
                       <span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
                     </div>
                     {rows.filter(t=>t.status!=="Completed").map(t=>(
-                      <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)"}}>
+                      <SwipeToDelete key={t.id} onDelete={()=>ctrRemove("contractor_tasks",t.id).catch(()=>{})} confirm={`Delete "${t.text}"? The contractor loses it from their portal too.`} style={{background:"#FFF9EC"}}>
+                      <div style={{display:"flex",gap:10,alignItems:"center",padding:"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)",background:"#FFF9EC"}}>
                         {selectMode&&<input type="checkbox" checked={selectedKeys.has(`ext:${t.id}`)} onChange={()=>setSelectedKeys(p=>{const n=new Set(p);const k=`ext:${t.id}`;n.has(k)?n.delete(k):n.add(k);return n;})} style={{width:18,height:18,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>}
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
                           <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}${t.askedOf&&t.askedOf.length?` → ${t.askedOf.map(n=>n.split(" ")[0]).join(", ")}`:" → everyone"}`:""}{(t.statusBy||t.doneBy)?` · ${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>
                         </div>
                         <button onClick={()=>setExtChat({task:t,job})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
-                        <CtrStatusPill t={t} onSet={setExtTaskStatus}/>
+                        <CtrStatusPill t={t} onSet={setExtTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/>
                       </div>
+                      </SwipeToDelete>
                     ))}
                   </div>
                 ))}

@@ -15,9 +15,10 @@ export default async function handler(req, res) {
     const user = await requireAppUser(req);
     if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
     if (!SERVICE_ROLE) { res.status(503).json({ error: "Missing SUPABASE_SERVICE_ROLE_KEY env var." }); return; }
-    const { jobId, label, amount, note, requestId } = req.body || {};
+    const { jobId, label, amount, note, requestId, bidAmount } = req.body || {};
     const amt = Number(amount);
-    if (!jobId || !amt || (!requestId && !String(label || "").trim())) { res.status(400).json({ error: "A description and amount are required." }); return; }
+    const bid = Number(bidAmount);
+    if (!jobId || (!bid && !amt) || (!requestId && !bid && !String(label || "").trim())) { res.status(400).json({ error: "A description and amount are required." }); return; }
 
     const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
     const { data: u } = await db.from("users").select("name,role,contractor_org_id").eq("id", user.id).maybeSingle();
@@ -26,6 +27,20 @@ export default async function handler(req, res) {
     const isTeam = u && (u.role === "admin" || u.role === "member");
     const isOrg = u && u.role === "contractor" && String(u.contractor_org_id) === String(job.org_id);
     if (!isTeam && !isOrg) { res.status(403).json({ error: "Not your job." }); return; }
+
+    // Bidding a whole job Goldstone asked them to price (job status "bid"):
+    // record the number on the job — Goldstone accepts it to make the job live.
+    if (bid) {
+      const { error: e3 } = await db.from("contractor_jobs").update({ data: { ...(job.data || {}), bidAmount: bid, bidBy: u?.name || "", bidAt: new Date().toISOString() } }).eq("id", job.id);
+      if (e3) { res.status(500).json({ error: e3.message }); return; }
+      const bmid = Date.now();
+      await db.from("contractor_messages").insert({
+        id: String(bmid), org_id: job.org_id,
+        data: { id: bmid, jobId: job.id, orgId: job.org_id, author: u?.name || "", side: "contractor", text: `💰 Bid: $${bid.toLocaleString()} for ${(job.data || {}).title || (job.data || {}).propertyAddress || "the job"}`, at: new Date().toISOString(), readBy: [u?.name || ""] },
+      });
+      res.status(200).json({ ok: true });
+      return;
+    }
 
     // Pricing a change order GOLDSTONE asked for (scope came from the team, no
     // price yet): fill in the amount and hand it back as a normal pending request.

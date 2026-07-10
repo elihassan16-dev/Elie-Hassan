@@ -718,26 +718,59 @@ export function ContractorPortal() {
                 <div ref={tab === "messages" ? scrollRef : undefined} style={{ flex: 1, overflowY: "auto", display: tab === "messages" ? "flex" : "block", flexDirection: "column" }}>
                   {tab === "overview" && overview(selJob)}
                   {tab === "tasks" && tasksTab(selJob)}
-                  {tab === "messages" && (
-                    <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-                      {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 13, padding: "40px 0" }}>No messages yet on this job. Say hello below.</div>}
-                      {thread.map((m) => { const mine = m.side === "contractor"; return (
-                        <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "86%" }}>
-                          <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2, textAlign: mine ? "right" : "left" }}>
-                            {m.author || (mine ? "You" : "Goldstone")}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)} ·{" "}
-                            <button onClick={() => setReplyTo(m)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 10, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>↩ Reply</button>
+                  {tab === "messages" && (() => {
+                    // Same look as the Goldstone side: each conversation (general
+                    // thread / task / change order) gets its own card, with a header
+                    // tag, ↩ Reply under every message, and read receipts.
+                    const groups = [];
+                    const byKey = new Map();
+                    thread.forEach((m) => {
+                      const k = m.taskRefId ? String(m.taskRefId) : "general";
+                      if (!byKey.has(k)) { const g = { key: k, label: m.taskRefText || null, msgs: [] }; byKey.set(k, g); groups.push(g); }
+                      const g = byKey.get(k);
+                      if (m.taskRefText && !g.label) g.label = m.taskRefText;
+                      g.msgs.push(m);
+                    });
+                    groups.sort((a, b) => String(a.msgs[a.msgs.length - 1].at || "").localeCompare(String(b.msgs[b.msgs.length - 1].at || "")));
+                    return (
+                      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+                        {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 13, padding: "40px 0" }}>No messages yet on this job. Say hello below.</div>}
+                        {groups.map((g) => (
+                          <div key={g.key} style={{ background: T.card, borderRadius: 16, boxShadow: T.shadow, padding: "10px 12px" }}>
+                            <div style={{ marginBottom: 9 }}>
+                              {g.key === "general"
+                                ? <span style={{ fontSize: 9, fontWeight: 700, color: T.textSub, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 20, padding: "2px 8px", textTransform: "uppercase", letterSpacing: "0.04em" }}>💬 General thread</span>
+                                : <span style={{ fontSize: 9.5, fontWeight: 800, color: "#8a6d1f", background: T.goldLight, border: `1px solid ${T.gold}`, borderRadius: 20, padding: "2px 8px", maxWidth: "94%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block" }}>↳ {g.label || "Task"}</span>}
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                              {g.msgs.map((m) => {
+                                const mine = m.side === "contractor";
+                                const readers = (m.readBy || []).filter((n) => n && n !== m.author).map((n) => String(n).split(" ")[0]);
+                                return (
+                                  <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "88%", display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start" }}>
+                                    <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2 }}>
+                                      {m.author || (mine ? "You" : "Goldstone")}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)}
+                                    </div>
+                                    <div style={{ background: mine ? T.gold : T.bg, color: mine ? "#fff" : T.text, borderRadius: 14, padding: "9px 13px", fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", border: mine ? "none" : `1px solid ${T.border}` }}>
+                                      {m.replyTo && <div style={{ fontSize: 11.5, marginBottom: 5, padding: "5px 9px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 6, background: mine ? "rgba(255,255,255,0.15)" : "#fff", color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
+                                      {m.text}
+                                      <Att att={m.attachment} />
+                                    </div>
+                                    <button onClick={() => setReplyTo(m)} style={{ background: "none", border: "none", color: replyTo && replyTo.id === m.id ? T.gold : T.textTert, cursor: "pointer", fontSize: 11, fontFamily: "inherit", padding: "3px 2px 0", fontWeight: 600 }}>↩ Reply</button>
+                                    {mine && (
+                                      <div title={readers.length ? `Read by ${readers.join(", ")}` : "Delivered — not read yet"} style={{ fontSize: 10, fontWeight: 600, color: readers.length ? T.blue : T.textTert, marginTop: 1 }}>
+                                        {readers.length === 0 ? "✓ Sent" : `✓✓ Read${readers.length <= 2 ? " by " + readers.join(", ") : ` by ${readers.length}`}`}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
-                          <div style={{ background: mine ? T.gold : T.card, color: mine ? "#fff" : T.text, borderRadius: 14, padding: "9px 13px", fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", boxShadow: mine ? "none" : T.shadow }}>
-                            {m.replyTo && <div style={{ fontSize: 11.5, marginBottom: 5, padding: "5px 9px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 6, background: mine ? "rgba(255,255,255,0.15)" : T.bg, color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
-                            {m.taskRefText && <div style={{ fontSize: 10.5, fontWeight: 800, marginBottom: 4, color: mine ? "rgba(255,255,255,0.9)" : "#8a6d1f", background: mine ? "rgba(255,255,255,0.18)" : T.goldLight, borderRadius: 10, padding: "2px 8px", display: "inline-block" }}>↳ Task: {m.taskRefText}</div>}
-                            {m.taskRefText && <br />}
-                            {m.text}
-                            <Att att={m.attachment} />
-                          </div>
-                        </div>
-                      ); })}
-                    </div>
-                  )}
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
                 {tab === "messages" && (() => {
                   const openTasks = (tasks || []).filter((t) => String(t.jobId) === String(selJob.id) && !taskClosed(t.status));

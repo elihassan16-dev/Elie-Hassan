@@ -357,14 +357,25 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
-        <div style={{ padding: "12px 18px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 9, flex: 1 }}>
+        {/* Controls stay pinned above the document — you can read deep into the
+            PDF and still start/stop a recording without scrolling back up.
+            Recording keeps running while you scroll; only ◼ stops it. */}
+        <div style={{ padding: "12px 18px", display: "flex", flexDirection: "column", gap: 9, flexShrink: 0, borderBottom: `1px solid ${T.border}` }}>
           {err && <div onClick={() => setErr("")} style={{ fontSize: 12.5, color: T.red, cursor: "pointer" }}>{err}</div>}
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input value={brief} onChange={(e) => setBrief(e.target.value)} onKeyDown={(e) => e.key === "Enter" && genAi()} placeholder={recOn ? "Recording… tap ◼ when you're done talking" : recBusy ? "Transcribing…" : "✨ Tell the AI what to change — talk or type"} style={{ ...inp2, flex: 1, minWidth: 0, ...(recOn ? { borderColor: "#FF3B30" } : {}) }} />
+            <input value={brief} onChange={(e) => setBrief(e.target.value)} onKeyDown={(e) => e.key === "Enter" && genAi()} placeholder={recOn ? "Recording… read on, tap ◼ when you're done" : recBusy ? "Transcribing…" : "✨ Tell the AI what to change — talk or type"} style={{ ...inp2, flex: 1, minWidth: 0, ...(recOn ? { borderColor: "#FF3B30" } : {}) }} />
             <button onClick={toggleRec} disabled={recBusy || aiBusy} title="Talk — when you stop, the AI applies your changes and the PDF updates" style={micBtnStyle(recOn, T)}>{micGlyph(recOn, recBusy)}</button>
             <button onClick={() => genAi()} disabled={aiBusy} style={{ padding: "9px 15px", borderRadius: 10, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#b8912e", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, whiteSpace: "nowrap" }}>{aiBusy ? "Rewriting…" : "✨ AI edit"}</button>
           </div>
-          {/* No text box: the scope shows as the PDF the contractor will get, pending changes highlighted. */}
+          {scope.trim() && !aiBusy && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 11.5, color: "#8a6d1f", fontWeight: 700, flex: 1, minWidth: 0 }}>{recOn ? "🔴 Recording — scroll and read while you talk" : `📄 ${pendingChanged.length ? "Your unsaved changes are highlighted — this is what they'll see" : "This is the exact PDF the contractor sees"}`}</span>
+              <button onClick={() => setTextEdit((v) => !v)} style={{ padding: "5px 11px", borderRadius: 14, border: `1px solid ${T.border}`, background: "#fff", color: T.textSub, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>{textEdit ? "👁 Back to the PDF" : "✎ Edit the text"}</button>
+            </div>
+          )}
+        </div>
+        {/* The document area scrolls on its own, under the pinned controls. */}
+        <div style={{ padding: "12px 18px", overflowY: "auto", flex: 1, minHeight: 140, display: "flex", flexDirection: "column", gap: 9, background: scope.trim() && !textEdit && !aiBusy ? T.bg : "#fff" }}>
           {aiBusy
             ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 200, background: T.goldLight, borderRadius: 12, border: `1.5px dashed ${T.gold}` }}>
                 <span style={{ fontSize: 26 }}>✨</span>
@@ -372,15 +383,9 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
                 <span style={{ fontSize: 11.5, color: "#8a6d1f" }}>the updated PDF will appear right here</span>
               </div>
             : scope.trim()
-            ? <>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 11.5, color: "#8a6d1f", fontWeight: 700, flex: 1, minWidth: 0 }}>📄 {pendingChanged.length ? "Your unsaved changes are highlighted — this is what they'll see" : "This is the exact PDF the contractor sees"}</span>
-                  <button onClick={() => setTextEdit((v) => !v)} style={{ padding: "5px 11px", borderRadius: 14, border: `1px solid ${T.border}`, background: "#fff", color: T.textSub, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>{textEdit ? "👁 Back to the PDF" : "✎ Edit the text"}</button>
-                </div>
-                {textEdit
-                  ? <textarea value={scope} onChange={(e) => setScope(e.target.value)} rows={14} style={{ ...inp2, resize: "vertical", lineHeight: 1.55, fontSize: 13, minHeight: 220, flex: 1 }} />
-                  : <SowPdfPreview job={previewJob} />}
-              </>
+            ? (textEdit
+                ? <textarea value={scope} onChange={(e) => setScope(e.target.value)} rows={14} style={{ ...inp2, resize: "vertical", lineHeight: 1.55, fontSize: 13, minHeight: 220, flex: 1 }} />
+                : <SowPdfPreview job={previewJob} />)
             : <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 200, background: T.bg, borderRadius: 12, border: `1.5px dashed ${T.border}`, padding: "20px 24px", textAlign: "center" }}>
                 <span style={{ fontSize: 26 }}>🎙</span>
                 <span style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>No scope yet — tap the mic and describe the work</span>

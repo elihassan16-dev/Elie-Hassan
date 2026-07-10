@@ -4,7 +4,7 @@
 // Requires CF_ACCOUNT_ID + CF_AI_TOKEN (a Cloudflare token with Workers AI read).
 import { requireAppUser } from "../../lib/quickbooks.js";
 
-export const config = { maxDuration: 60, api: { bodyParser: { sizeLimit: "10mb" } } };
+export const config = { maxDuration: 120, api: { bodyParser: { sizeLimit: "10mb" } } };
 
 const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID;
 const CF_AI_TOKEN = process.env.CF_AI_TOKEN || process.env.CF_STREAM_TOKEN;

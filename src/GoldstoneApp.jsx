@@ -5693,7 +5693,18 @@ function NewLeadsPage(){
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
           {converted&&<div style={{margin:"10px 12px",padding:"10px 14px",borderRadius:T.radiusSm,background:"#EDFBF1",border:`1px solid ${T.green}`,fontSize:13,color:T.green,fontWeight:600}}>✓ "{converted}" → Under Contract</div>}
-          {sorted.map(item=>{const isActive=item.id===selId;return <div key={item.id} onClick={()=>setSelId(item.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?"#FFF0EF":"transparent",borderLeft:isActive?`3px solid ${T.red}`:"3px solid transparent",transition:"background 0.12s"}}><div style={{fontWeight:isActive?600:400,fontSize:13,color:isActive?T.red:T.text,lineHeight:1.3}}>{item.address||"New Lead"}</div><div style={{fontSize:12,color:T.textSub,marginTop:3}}>{item.city}{item.city&&item.state?", ":""}{item.state}{item.zip?" "+item.zip:""}</div><div style={{marginTop:5,fontSize:11,color:T.textTert}}>{item.dateAdded}</div></div>;})}
+          {sorted.map(item=>{const isActive=item.id===selId;
+            const removeLead=()=>{setLeads(prev=>prev.filter(l=>l.id!==item.id));if(selId===item.id)setSelId(null);};
+            return (
+              <SwipeToDelete key={item.id} onDelete={removeLead} confirm={`Delete the lead "${item.address||"New Lead"}"? Everything on it is gone for good.`}>
+                <div onClick={()=>setSelId(item.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?"#FFF0EF":T.card,borderLeft:isActive?`3px solid ${T.red}`:"3px solid transparent",transition:"background 0.12s",position:"relative"}}>
+                  <div style={{fontWeight:isActive?600:400,fontSize:13,color:isActive?T.red:T.text,lineHeight:1.3,paddingRight:isMobile?0:22}}>{item.address||"New Lead"}</div>
+                  <div style={{fontSize:12,color:T.textSub,marginTop:3}}>{item.city}{item.city&&item.state?", ":""}{item.state}{item.zip?" "+item.zip:""}</div>
+                  <div style={{marginTop:5,fontSize:11,color:T.textTert}}>{item.dateAdded}</div>
+                  {!isMobile&&<button onClick={(e)=>{e.stopPropagation();if(window.confirm(`Delete the lead "${item.address||"New Lead"}"? Everything on it is gone for good.`))removeLead();}} title="Delete this lead" style={{position:"absolute",top:8,right:8,background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:2}}>×</button>}
+                </div>
+              </SwipeToDelete>
+            );})}
         </div>
       </div>
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
@@ -6065,6 +6076,48 @@ function TaskStatusPicker({value,onChange,onDelete}){
 }
 
 // ─── Task Row (module level to avoid React #31) ───────────────────────────────
+// iOS-style swipe-left → red Delete button. Touch-driven; optional `confirm`
+// text shows an are-you-sure popup before actually deleting.
+function SwipeToDelete({onDelete,confirm,children,style={}}){
+  const[dx,setDx]=useState(0);
+  const[ask,setAsk]=useState(false);
+  const drag=useRef(null); // {x,y,base,active}
+  const W=84;
+  const start=(e)=>{const t=e.touches[0];drag.current={x:t.clientX,y:t.clientY,base:dx,active:false};};
+  const move=(e)=>{
+    const d=drag.current;if(!d)return;
+    const t=e.touches[0];const ddx=t.clientX-d.x,ddy=t.clientY-d.y;
+    if(!d.active){if(Math.abs(ddx)<8||Math.abs(ddy)>Math.abs(ddx))return;d.active=true;}
+    setDx(Math.max(-W,Math.min(0,d.base+ddx)));
+  };
+  const end=()=>{drag.current=null;setDx(v=>v<-W/2?-W:0);};
+  const doDelete=()=>{setDx(0);if(confirm)setAsk(true);else onDelete();};
+  return(
+    <div style={{position:"relative",overflow:"hidden",...style}}>
+      <div style={{position:"absolute",top:0,right:0,bottom:0,width:W,display:"flex"}}>
+        <button onClick={doDelete} style={{flex:1,border:"none",background:T.red,color:"#fff",fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
+      </div>
+      {/* transform only while swiped — a resting transform would break any
+          position:fixed popups rendered inside the row */}
+      <div onTouchStart={start} onTouchMove={move} onTouchEnd={end} style={{transform:dx?`translateX(${dx}px)`:"none",transition:drag.current?"none":"transform 0.18s ease-out",position:"relative",zIndex:1,background:T.card}}>
+        {children}
+      </div>
+      {ask&&(
+        <div onClick={()=>setAsk(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:"18px 20px",width:"min(360px,92vw)",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+            <div style={{fontSize:14.5,fontWeight:800,color:T.text,marginBottom:6}}>Are you sure?</div>
+            <div style={{fontSize:13,color:T.textSub,lineHeight:1.5,marginBottom:14}}>{confirm}</div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setAsk(false)} style={{padding:"9px 16px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+              <button onClick={()=>{setAsk(false);onDelete();}} style={{padding:"9px 18px",borderRadius:10,border:"none",background:T.red,color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,currentUser,selectMode,selected,onToggleSelect}){
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
@@ -6099,6 +6152,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   // row omits them and just carries the task itself. Compact Monday-style layout:
   // [select?] task · assignee initials · contact · message · status (far right).
   return(
+    <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
     <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,padding:isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:"#fff"}}>
       {selBox}
       <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{t.text||"(untitled task)"}{t.autoId&&<span style={{marginLeft:5,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}</span>
@@ -6144,6 +6198,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
         </div>
       )}
     </div>
+    </SwipeToDelete>
   );
 }
 
@@ -6989,7 +7044,11 @@ function PropertyTaskList({property}){
 
   const updateTaskStatus=(pid,tid,status)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===tid?(status==="Completed"?{...t,status,completedAt:new Date().toISOString(),completedBy:CURRENT_USER}:{...t,status,completedAt:null,completedBy:null}):t)}));
   const updateTaskText=(pid,tid,text)=>{const v=(text||"").trim();if(!v)return;setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===tid?{...t,text:v}:t)}));};
-  const deleteTask=(pid,tid)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).filter(t=>t.id!==tid)}));
+  const deleteTask=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{
+    if(p.id!==pid)return p;
+    const t=(p.tasks||[]).find(x=>x.id===tid);
+    return {...p,tasks:(p.tasks||[]).filter(x=>x.id!==tid),messages:t&&(t.messages||[]).length?[...(p.messages||[]),...preserveTaskMsgs(t)]:(p.messages||[])};
+  }));
   const setTaskContact=(pid,tid,contact)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,taskContact:contact})}));
   const setTaskRole=(pid,tid,role,member)=>{
     const stamp=member?{assignedAt:Date.now(),assignedBy:CURRENT_USER}:{};
@@ -7294,9 +7353,13 @@ function TasksPage({onNavigate}){
   function deleteSelected(){
     if(selectedKeys.size===0)return;
     setSharedProps(prev=>prev.map(p=>{
-      const keep=(p.tasks||[]).filter(tk=>!selectedKeys.has(`${p.id}:${tk.id}`));
-      return keep.length===(p.tasks||[]).length?p:{...p,tasks:keep};
+      const gone=(p.tasks||[]).filter(tk=>selectedKeys.has(`${p.id}:${tk.id}`));
+      if(!gone.length)return p;
+      const kept=(gone.flatMap(preserveTaskMsgs));
+      return {...p,tasks:(p.tasks||[]).filter(tk=>!selectedKeys.has(`${p.id}:${tk.id}`)),messages:kept.length?[...(p.messages||[]),...kept]:(p.messages||[])};
     }));
+    const goneOffice=(officeTasks||[]).filter(t=>selectedKeys.has(`${OFFICE_TASK_PID}:${t.id}`)&&(t.messages||[]).length);
+    if(goneOffice.length)setOfficeMessages(prev=>[...(prev||[]),...goneOffice.flatMap(preserveTaskMsgs)]);
     setOfficeTasks(prev=>(prev||[]).filter(t=>!selectedKeys.has(`${OFFICE_TASK_PID}:${t.id}`)));saveOffice();
     // Selected external tasks are deleted from the contractor tables too.
     [...selectedKeys].filter(k=>k.startsWith("ext:")).forEach(k=>{ctrRemove("contractor_tasks",k.slice(4)).catch(()=>{});});
@@ -7353,8 +7416,16 @@ function TasksPage({onNavigate}){
   }
 
   function deleteTask(propId,taskId){
-    if(isOffice(propId)){setOfficeTasks(prev=>(prev||[]).filter(t=>t.id!==taskId));saveOffice();return;}
-    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).filter(t=>t.id!==taskId)}));
+    if(isOffice(propId)){
+      const t=(officeTasks||[]).find(x=>x.id===taskId);
+      if(t&&(t.messages||[]).length)setOfficeMessages(prev=>[...(prev||[]),...preserveTaskMsgs(t)]);
+      setOfficeTasks(prev=>(prev||[]).filter(x=>x.id!==taskId));saveOffice();return;
+    }
+    setSharedProps(prev=>prev.map(p=>{
+      if(p.id!==propId)return p;
+      const t=(p.tasks||[]).find(x=>x.id===taskId);
+      return {...p,tasks:(p.tasks||[]).filter(x=>x.id!==taskId),messages:t&&(t.messages||[]).length?[...(p.messages||[]),...preserveTaskMsgs(t)]:(p.messages||[])};
+    }));
   }
   function updateTaskText(propId,taskId,text){
     const v=(text||"").trim();if(!v)return;
@@ -7740,18 +7811,6 @@ function TasksPage({onNavigate}){
                         style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:"3px 9px",borderRadius:6,lineHeight:1}}
                         onMouseEnter={e=>{e.currentTarget.style.color=T.gold;e.currentTarget.style.borderColor=T.gold;}}
                         onMouseLeave={e=>{e.currentTarget.style.color=T.textTert;e.currentTarget.style.borderColor=T.border;}}>⤓</button>
-                      {confirmDeleteProp===addr
-                        ?<div style={{display:"flex",alignItems:"center",gap:6}}>
-                            <span style={{fontSize:12,color:T.red}}>Delete {ptasks.length}?</span>
-                            <button onClick={()=>{ptasks.forEach(t=>deleteTask(t.propId,t.id));setConfirmDeleteProp(null);}}
-                              style={{padding:"3px 10px",borderRadius:6,background:T.red,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Yes</button>
-                            <button onClick={()=>setConfirmDeleteProp(null)}
-                              style={{padding:"3px 10px",borderRadius:6,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>No</button>
-                          </div>
-                        :ptasks.length>0&&<button onClick={()=>setConfirmDeleteProp(addr)} title="Delete all tasks for this property"
-                            style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:"3px 9px",borderRadius:6,lineHeight:1}}
-                            onMouseEnter={e=>{e.currentTarget.style.color=T.red;e.currentTarget.style.borderColor=T.red;}}
-                            onMouseLeave={e=>{e.currentTarget.style.color=T.textTert;e.currentTarget.style.borderColor=T.border;}}>🗑</button>}
                     </div>
                   </div>
                   {/* Row 2: status chip + done — always the same position, all properties aligned */}
@@ -8766,10 +8825,15 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
 // the task they came from), sorted oldest→newest — so task chatter shows up in the
 // property's history too.
 const mergePropertyMessages=(p)=>{
-  const gen=(p.messages||[]).map(m=>({...m,taskText:null,taskId:null}));
-  const tsk=(p.tasks||[]).flatMap(t=>(t.messages||[]).map(m=>({...m,taskText:t.text||"Untitled task",taskId:t.id})));
+  // Messages preserved from a deleted task (taskDeleted) keep their task tag so
+  // the thread lives on in the chat even though the task itself is gone.
+  const gen=(p.messages||[]).map(m=>m.taskDeleted?m:({...m,taskText:null,taskId:null}));
+  const tsk=(p.tasks||[]).flatMap(t=>(t.messages||[]).map(m=>({...m,taskText:t.text||"Untitled task",taskId:t.id,taskStatus:t.status||null})));
   return [...gen,...tsk].sort((a,b)=>(new Date(a.at).getTime()||0)-(new Date(b.at).getTime()||0));
 };
+// When a task with a conversation is deleted, its messages move to the property
+// (or office) chat with the task label kept — the thread survives, tagged "deleted".
+const preserveTaskMsgs=(t)=>((t&&t.messages)||[]).map(m=>({...m,taskId:t.id,taskText:t.text||"Untitled task",taskDeleted:true}));
 const msgTime=(iso)=>{const t=new Date(iso).getTime();return isNaN(t)?0:t;};
 // The Office Chat is modeled like a property: general office messages merged with
 // company-task messages (tagged by task), so task chatter shows in the chat and
@@ -8866,7 +8930,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
         {threads.map(th=>{
           const{root,replies}=th;
           const rootMine=root.author===currentUser;
-          const taskTag=(txt)=><span title="This message is on a task" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {txt}</span>;
+          const taskTag=(txt,state)=><span title={state==="deleted"?"This task was deleted — the conversation is kept here":"This message is on a task"} style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {txt}{state==="deleted"?<span style={{color:T.red,fontWeight:800}}> · deleted task</span>:state==="Completed"?<span style={{color:"#15803D",fontWeight:800}}> · ✓ completed</span>:null}</span>;
           // Showing-thread tag — tap for the agent's info + lead status popup.
           const showTag=()=><button onClick={()=>onUpdateProp&&setShowInfo(root.showingKey)} title="This thread is about a showing — tap for the agent's info & lead status" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block",cursor:onUpdateProp?"pointer":"default",fontFamily:"inherit"}}>👥 {root.showingLabel} ›</button>;
           // Contractor-portal thread tag — replies here go to the contractor's portal.
@@ -8902,7 +8966,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           if(replies.length===0&&!root.ctrLabel){
             return(
               <div key={root.id} style={{display:"flex",flexDirection:"column",alignItems:rootMine?"flex-end":"flex-start"}}>
-                {root.ctrTaskLabel?<div style={{marginBottom:3}}>{ctrNoteTag()}</div>:root.showingLabel?<div style={{marginBottom:3}}>{showTag()}</div>:root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText)}</div>}
+                {root.ctrTaskLabel?<div style={{marginBottom:3}}>{ctrNoteTag()}</div>:root.showingLabel?<div style={{marginBottom:3}}>{showTag()}</div>:root.taskText&&<div style={{marginBottom:3}}>{taskTag(root.taskText,root.taskDeleted?"deleted":root.taskStatus)}</div>}
                 {bubble(root)}
               </div>
             );
@@ -8914,7 +8978,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           return(
             <div key={root.id} style={{alignSelf:"stretch",border:isCtr?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,borderRadius:16,background:isCtr?"#FFF9EC":T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                {isCtr?ctrTag():root.ctrTaskLabel?ctrNoteTag():root.showingLabel?showTag():root.taskText?taskTag(root.taskText):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
+                {isCtr?ctrTag():root.ctrTaskLabel?ctrNoteTag():root.showingLabel?showTag():root.taskText?taskTag(root.taskText,root.taskDeleted?"deleted":root.taskStatus):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
                 {isCtr&&<span style={{fontSize:9,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 8px",letterSpacing:"0.05em"}}>EXTERNAL</span>}
                 <span style={{fontSize:10,color:T.textTert}}>{replies.length+1} message{replies.length?"s":""}</span>
               </div>
@@ -9093,8 +9157,12 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     // Route to a task thread when replying to a task message, or when the composer
     // was aimed at a specific task; otherwise post to the property's general thread.
     const postTaskId=(replyTarget&&replyTarget.taskId)||targetTaskId||null;
-    if(postTaskId){
+    if(postTaskId&&(sel.tasks||[]).some(tk=>tk.id===postTaskId)){
       setSharedProps(prev=>prev.map(p=>p.id!==sel.id?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==postTaskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
+    }else if(postTaskId){
+      // The task is gone (deleted) — keep the reply in the preserved thread.
+      msg.taskId=postTaskId;msg.taskText=(replyTarget&&replyTarget.taskText)||null;msg.taskDeleted=true;
+      setSharedProps(prev=>prev.map(p=>p.id!==sel.id?p:{...p,messages:[...(p.messages||[]),msg]}));
     }else{
       setSharedProps(prev=>prev.map(p=>p.id!==sel.id?p:{...p,messages:[...(p.messages||[]),msg]}));
     }

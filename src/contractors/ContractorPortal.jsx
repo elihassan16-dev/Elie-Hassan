@@ -443,8 +443,12 @@ export function ContractorPortal() {
           </>)}
 
           {sec("Scope of work")}
-          <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No written scope yet — upload your SOW below or ask Goldstone."}</div>
-          {j.scope && <button onClick={() => printSow(j)} style={{ marginTop: 8, padding: "6px 13px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>🖨 Print / save as PDF</button>}
+          {j.sowPdfUrl
+            ? <a href={j.sowPdfUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 14px", borderRadius: 12, border: `1px solid ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>📄 Scope of Work (PDF) — tap to open</a>
+            : <>
+                <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No written scope yet — upload your SOW below or ask Goldstone."}</div>
+                {j.scope && <button onClick={() => printSow(j)} style={{ marginTop: 8, padding: "6px 13px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>🖨 Print / save as PDF</button>}
+              </>}
 
           {sec("Documents")}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
@@ -757,10 +761,19 @@ export function ContractorPortal() {
                                 <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selJob.propertyAddress || "")}`} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.blue, borderRadius: 14, padding: "4px 10px", textDecoration: "none" }}>📍 {selJob.propertyAddress || "Google Maps"}</a>
                                 {stRow2?.info?.lockbox && <span style={{ fontSize: 11, fontWeight: 700, color: T.text, background: T.bg, borderRadius: 14, padding: "4px 10px" }}>🔒 Lockbox: {stRow2.info.lockbox}</span>}
                               </div>
-                              {selJob.scope && (<>
-                                <div style={{ maxHeight: 190, overflowY: "auto", background: T.bg, borderRadius: 10, padding: "9px 11px", fontSize: 12.5, color: T.textSub, whiteSpace: "pre-wrap", lineHeight: 1.55, marginTop: 9 }}>{selJob.scope}</div>
-                                <button onClick={() => printSow(selJob)} style={{ marginTop: 7, padding: "6px 13px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>🖨 Scope of work — print / save as PDF</button>
-                              </>)}
+                              {selJob.sowPdfUrl
+                                ? <a href={selJob.sowPdfUrl} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 9, padding: "11px 13px", borderRadius: 12, border: `1px solid ${T.gold}`, background: T.bg, textDecoration: "none" }}>
+                                    <span style={{ fontSize: 20, flexShrink: 0 }}>📄</span>
+                                    <span style={{ flex: 1, minWidth: 0 }}>
+                                      <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: T.text }}>Scope of Work (PDF)</span>
+                                      <span style={{ display: "block", fontSize: 11, color: T.textSub }}>Tap to open — everything to price is in here</span>
+                                    </span>
+                                    <span style={{ fontSize: 14, color: T.gold, flexShrink: 0 }}>›</span>
+                                  </a>
+                                : selJob.scope && (<>
+                                    <div style={{ maxHeight: 190, overflowY: "auto", background: T.bg, borderRadius: 10, padding: "9px 11px", fontSize: 12.5, color: T.textSub, whiteSpace: "pre-wrap", lineHeight: 1.55, marginTop: 9 }}>{selJob.scope}</div>
+                                    <button onClick={() => printSow(selJob)} style={{ marginTop: 7, padding: "6px 13px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>🖨 Scope of work — print / save as PDF</button>
+                                  </>)}
                               {selJob.bidAmount
                                 ? <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 8 }}>You bid <b>{money(selJob.bidAmount)}</b>{selJob.bidAt ? ` on ${fmtDate(selJob.bidAt)}` : ""} — waiting on Goldstone. You can send an updated number below.</div>
                                 : <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 8 }}>Review the scope and send your price for the whole job — once Goldstone accepts, the full job (tasks, payments, status board) opens up here.</div>}

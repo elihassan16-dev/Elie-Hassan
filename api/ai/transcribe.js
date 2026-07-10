@@ -29,7 +29,7 @@ export default async function handler(req, res) {
   const { audio } = await readBody(req);
   if (!audio) { res.status(400).json({ error: "No audio received." }); return; }
   const b64 = String(audio);
-  if (b64.length > 11 * 1024 * 1024) { res.status(413).json({ error: "Recording is too long — keep it under a minute or two." }); return; }
+  if (b64.length > 11 * 1024 * 1024) { res.status(413).json({ error: "Recording is too long — keep it under five minutes." }); return; }
 
   try {
     // whisper-large-v3-turbo takes base64 JSON (the older whisper wanted raw

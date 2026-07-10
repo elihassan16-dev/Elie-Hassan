@@ -75,7 +75,7 @@ const fmtClock = (t) => { if (!t) return ""; const [h, m] = String(t).split(":")
 
 // The SOW opens as a real PDF (generated on-device) — see ./sowPdf.js.
 // An edited scope clears sowPdfUrl, so regenerating picks up the highlights.
-export const openScopePdf = (job) => { if (job.sowPdfUrl) window.open(job.sowPdfUrl, "_blank"); else openSowPdf(job); };
+export const openScopePdf = (job) => { if (job.sowPdfUrl) window.open(job.sowPdfUrl, "_blank"); else openSowPdf(job).catch(() => {}); };
 const scopeUpdatedRecently = (j) => !!j.scopeEditedAt && (Date.now() - new Date(j.scopeEditedAt).getTime()) < 7 * 86400000;
 
 export function ContractorPortal() {

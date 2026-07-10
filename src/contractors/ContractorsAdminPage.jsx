@@ -11,6 +11,7 @@ import { useData } from "../data/DataProvider";
 import { T } from "../theme";
 import { notify, qbAuthFetch, uploadAttachment, STREAM_VIDEO_CAP } from "../net";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble } from "../videoUpload";
+import { usePersistentDraft } from "../useDraft";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { openSowPdf } from "./sowPdf";
 import { useSpeechToText, micBtnStyle, micGlyph } from "../useSpeech";
@@ -293,8 +294,13 @@ function QBPayPicker({ qbProjectId, orgName, existingQbIds, onAdd, onClose }) {
 // diffs the lines, highlights the new/changed ones in the regenerated PDF,
 // alerts the contractor, and drops a note in the job thread. ─────────────────
 function ScopeEditModal({ j, save, displayName, onClose }) {
-  const [scope, setScope] = useState(j.scope || "");
-  const [brief, setBrief] = useState("");
+  // Edits survive an iOS mid-typing reload: the working copy mirrors to this
+  // device until it's saved (or matches the job's scope again).
+  const [draft, setDraft, clearDraft] = usePersistentDraft(`gs-scope-draft-${j.id}`, { scope: "", brief: "" });
+  const scope = draft.scope || j.scope || "";
+  const brief = draft.brief;
+  const setScope = (v) => setDraft((d) => ({ ...d, scope: v }));
+  const setBrief = (v) => setDraft((d) => ({ ...d, brief: typeof v === "function" ? v(d.brief) : v }));
   const [aiBusy, setAiBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -313,7 +319,7 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
   const saveScope = async () => {
     const txt = scope.trim();
     if (!txt) { setErr("The scope can't be empty."); return; }
-    if (txt === (j.scope || "").trim()) { onClose(); return; }
+    if (txt === (j.scope || "").trim()) { clearDraft(false); onClose(); return; }
     setBusy(true);
     // Line-level diff: anything not present in the old scope counts as changed
     // and gets highlighted in the contractor's PDF.
@@ -323,12 +329,13 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
       await save("contractor_jobs", { ...j, scope: txt, sowPdfUrl: null, scopeChangedLines: changedLines, scopeEditedAt: new Date().toISOString(), scopeEditedBy: displayName });
       notify(null, { toOrg: j.orgId, title: "Scope of work updated", body: `${j.propertyAddress || ""}${j.title ? ` — ${j.title}` : ""} — open the PDF, the changes are highlighted.` });
       save("contractor_messages", { id: Date.now() + 3, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: "📄 The scope of work was updated — open the PDF on this job; the changed lines are highlighted.", at: new Date().toISOString(), readBy: [displayName] }).catch(() => {});
+      clearDraft(false);
       onClose();
     } catch (ex) { setErr(ex.message || "Couldn't save the scope."); setBusy(false); }
   };
   const inp2 = { padding: "9px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, fontSize: 13.5, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 470, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
+    <div onClick={scope.trim() !== (j.scope || "").trim() || brief.trim() ? undefined : onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 470, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, width: "min(640px,96vw)", maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,0.2)", overflow: "hidden" }}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, background: T.goldLight, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -545,7 +552,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           </div>
         ))}
         <div>
-          {secHdr("Scope of work", <span style={{ display: "inline-flex", gap: 6 }}>{j.scope ? miniBtn("📄 Open PDF", () => openSowPdf(j)) : null}{isAdmin ? miniBtn("✎ Edit scope", () => setScopeEdit(true)) : null}{isAdmin && onEditBasics ? miniBtn("✎ Edit basics", onEditBasics) : null}</span>)}
+          {secHdr("Scope of work", <span style={{ display: "inline-flex", gap: 6 }}>{j.scope ? miniBtn("📄 Open PDF", () => openSowPdf(j).catch(() => {})) : null}{isAdmin ? miniBtn("✎ Edit scope", () => setScopeEdit(true)) : null}{isAdmin && onEditBasics ? miniBtn("✎ Edit basics", onEditBasics) : null}</span>)}
           <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No scope written — edit the job or let the contractor upload their SOW PDF."}</div>
         </div>
         <div>

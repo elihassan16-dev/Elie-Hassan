@@ -1,8 +1,9 @@
 // Build a real Scope-of-Work PDF (jsPDF) so contractors open a proper document
 // instead of reading a wall of text. Returns a File ready for uploadAttachment.
-import { jsPDF } from "jspdf";
+// jsPDF is loaded on demand (~350 KB) so it never weighs down app launch.
 
-export function sowPdfFile(job) {
+export async function sowPdfFile(job) {
+  const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "letter" }); // 612 x 792
   const W = 612, H = 792, margin = 56, maxW = W - margin * 2;
   let y = margin;
@@ -54,9 +55,17 @@ export function sowPdfFile(job) {
 
 // One tap → the SOW opens as a real PDF in the browser's viewer (generated
 // on-device, nothing uploaded). Works on both the portal and admin sides.
-export function openSowPdf(job) {
-  const file = sowPdfFile(job);
-  const url = URL.createObjectURL(file);
-  window.open(url, "_blank");
-  setTimeout(() => URL.revokeObjectURL(url), 120000);
+// The window must open INSIDE the tap (popup blockers), then we steer it to
+// the PDF once the on-demand jsPDF chunk has built it.
+export async function openSowPdf(job) {
+  const win = window.open("", "_blank");
+  try {
+    const file = await sowPdfFile(job);
+    const url = URL.createObjectURL(file);
+    if (win) win.location = url; else window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } catch (e) {
+    if (win) win.close();
+    throw e;
+  }
 }

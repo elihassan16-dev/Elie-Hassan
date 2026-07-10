@@ -4898,43 +4898,136 @@ function PropertyStatusBoard({property,onClose}){
   );
 }
 
+// Ask a contractor to bid a whole job: pick the company, write the scope (or
+// have AI draft a full trade-by-trade SOW), send. Lands in their portal as a
+// 🧾 BID job — they read the scope and send one price back.
+function BidRequestModal({property,orgs,onCreate,onClose}){
+  const[orgId,setOrgId]=useState(String(orgs[0]?.id||""));
+  const[title,setTitle]=useState("");
+  const[brief,setBrief]=useState("");
+  const[scope,setScope]=useState("");
+  const[aiBusy,setAiBusy]=useState(false);
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
+  const genAi=async()=>{
+    const b=brief.trim()||title.trim();
+    if(!b){setErr("Describe the job for the AI first (the brief box).");return;}
+    setAiBusy(true);setErr("");
+    try{
+      const d=await qbAuthFetch("/api/ai/sow",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({brief:b,property:`${property.address||""}${property.city?`, ${property.city}`:""}`,current:scope})});
+      setScope(d.sow||"");
+    }catch(ex){setErr(ex.message||"AI draft failed.");}
+    setAiBusy(false);
+  };
+  const send=async()=>{
+    if(!orgId||!scope.trim())return;
+    setBusy(true);setErr("");
+    try{await onCreate({orgId,title:title.trim(),scope:scope.trim()});}catch(ex){setErr(ex.message||"Couldn't send the bid request.");setBusy(false);return;}
+  };
+  const inp={padding:"10px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.bg,fontSize:13.5,fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:440,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(620px,96vw)",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,background:"#FFF9EC",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:800,color:T.text}}>🧾 Request a bid</div>
+            <div style={{fontSize:11.5,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{property.address}{property.city?`, ${property.city}`:""} · goes to their portal, they send back a price</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div style={{padding:"14px 18px",overflowY:"auto",display:"flex",flexDirection:"column",gap:10}}>
+          {err&&<div onClick={()=>setErr("")} style={{fontSize:12.5,color:T.red,cursor:"pointer"}}>{err}</div>}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <select value={orgId} onChange={e=>setOrgId(e.target.value)} style={{...inp,flex:1,minWidth:180}}>
+              {orgs.map(o=><option key={o.id} value={String(o.id)}>{o.name}</option>)}
+            </select>
+            <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Job name — e.g. Full gut renovation" style={{...inp,flex:1,minWidth:180}}/>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <input value={brief} onChange={e=>setBrief(e.target.value)} onKeyDown={e=>e.key==="Enter"&&genAi()} placeholder="Brief for the AI — e.g. gut the kitchen and both baths, refinish floors, paint whole house" style={{...inp,flex:1,minWidth:0}}/>
+            <button onClick={genAi} disabled={aiBusy} style={{padding:"10px 15px",borderRadius:10,border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#b8912e",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap"}}>{aiBusy?"Writing…":"✨ AI: write the full SOW"}</button>
+          </div>
+          <textarea value={scope} onChange={e=>setScope(e.target.value)} rows={12} placeholder="Scope of work the contractor will price — write it yourself or let the AI draft it above, then edit."
+            style={{...inp,resize:"vertical",lineHeight:1.55,fontSize:13,minHeight:180}}/>
+        </div>
+        <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0}}>
+          <button onClick={onClose} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
+          <button onClick={send} disabled={!orgId||!scope.trim()||busy} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:orgId&&scope.trim()&&!busy?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>{busy?"Sending…":"Send bid request"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // 👷 Contractors working THIS property — shown on the Contacts tab with full job
 // control (money, change orders, tasks, messages): the exact same popup as the
-// Contractors section, opened from the property.
+// Contractors section, opened from the property. Plus 🧾 Request a bid.
 function PropertyContractorsCard({property}){
   const {isAdmin}=useAuth();
   const {currentUser}=useData();
   const {orgs:ctrOrgs,jobs:ctrJobs,tasks:ctrTasks,messages:ctrMessages,docs:ctrDocs,save:ctrSave,remove:ctrRemove}=useContractorData();
   const[openJobId,setOpenJobId]=useState(null);
+  const[bidOpen,setBidOpen]=useState(false);
   const pJobs=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(property.id)).sort((a,b)=>(a.status==="complete")-(b.status==="complete")||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
-  if(!pJobs.length)return null;
+  const allOrgs=(ctrOrgs||[]).slice().sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+  if(!pJobs.length&&!allOrgs.length)return null;
   const orgOf=(oid)=>(ctrOrgs||[]).find(o=>String(o.id)===String(oid))||null;
   const $=(n)=>`$${Number(n||0).toLocaleString()}`;
   const openJob=pJobs.find(j=>String(j.id)===String(openJobId))||null;
+  const createBid=async({orgId,title,scope})=>{
+    const job={id:Date.now(),orgId,propertyId:property.id,propertyAddress:`${property.address||""}${property.city?`, ${property.city}`:""}`,title:title||"Bid request",scope,status:"bid",createdAt:new Date().toISOString(),bidRequestedBy:currentUser};
+    await ctrSave("contractor_jobs",job);
+    notify(null,{toOrg:orgId,title:"New bid request from Goldstone",body:`${job.propertyAddress}${title?` — ${title}`:""} · review the scope and send your price`});
+    ctrSave("contractor_messages",{id:Date.now()+1,jobId:job.id,orgId,author:currentUser,side:"team",text:`🧾 Bid request: ${title||job.propertyAddress}. The scope of work is on the job — please review it and send your price.`,at:new Date().toISOString(),readBy:[currentUser]}).catch(()=>{});
+    setBidOpen(false);
+  };
+  const acceptBid=async(j)=>{
+    await ctrSave("contractor_jobs",{...j,status:"active",price:Number(j.bidAmount)||0,startDate:new Date().toISOString().slice(0,10)});
+    notify(null,{toOrg:j.orgId,title:"Bid accepted ✓",body:`${j.propertyAddress}${j.title?` — ${j.title}`:""} — ${$(j.bidAmount)}. You're hired.`});
+  };
+  const declineBid=async(j)=>{
+    await ctrRemove("contractor_jobs",j.id).catch(()=>{});
+    notify(null,{toOrg:j.orgId,title:"Bid declined",body:`${j.propertyAddress}${j.title?` — ${j.title}`:""}`});
+  };
   return(
     <>
       <Card style={{marginBottom:16,border:`1.5px solid ${T.gold}`}}>
-        <div style={{padding:"12px 16px 10px",display:"flex",alignItems:"center",gap:8,background:"#FFF9EC"}}>
+        <div style={{padding:"12px 16px 10px",display:"flex",alignItems:"center",gap:8,background:"#FFF9EC",flexWrap:"wrap"}}>
           <span style={{fontSize:12,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em"}}>👷 Contractors on this property</span>
           <span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
+          <span style={{flex:1}}/>
+          {isAdmin&&allOrgs.length>0&&<button onClick={()=>setBidOpen(true)} style={{padding:"6px 13px",borderRadius:16,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🧾 Request a bid</button>}
         </div>
+        {pJobs.length===0&&<div style={{padding:"14px 16px",fontSize:12.5,color:T.textTert,background:"#FFF9EC"}}>No jobs or bids on this property yet — request a bid to get a price from one of your contractors.</div>}
         {pJobs.map(j=>{
           const org=orgOf(j.orgId);
           const total=ctrJobTotal(j),paid=ctrJobPaid(j);
           const pend=(j.coRequests||[]).filter(r=>r.status==="pending").length;
           const openT=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id)&&t.status!=="Completed"&&t.status!=="N/A").length;
+          const isBid=j.status==="bid";
           return(
-            <div key={j.id} onClick={()=>setOpenJobId(j.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderTop:"1px solid rgba(184,149,63,0.25)",cursor:"pointer",background:"#FFF9EC",opacity:j.status==="complete"?0.6:1}}>
-              <div style={{flex:1,minWidth:0}}>
+            <div key={j.id} onClick={()=>setOpenJobId(j.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderTop:"1px solid rgba(184,149,63,0.25)",cursor:"pointer",background:"#FFF9EC",opacity:j.status==="complete"?0.6:1,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:170}}>
                 <div style={{fontSize:14.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org?.name||"Contractor"}{j.title?` — ${j.title}`:""}</div>
-                <div style={{fontSize:12,color:"#8a6d1f",marginTop:2}}>{j.status==="complete"?"Job complete":`${$(paid)} paid of ${$(total)} · ${$(total-paid)} left`}{openT?` · ${openT} open task${openT!==1?"s":""}`:""}</div>
+                <div style={{fontSize:12,color:"#8a6d1f",marginTop:2}}>
+                  {isBid
+                    ?(j.bidAmount?`🧾 Bid received: ${$(j.bidAmount)}${j.bidBy?` from ${j.bidBy.split(" ")[0]}`:""}`:"🧾 Bid requested — waiting on their price")
+                    :`${j.status==="complete"?"Job complete":`${$(paid)} paid of ${$(total)} · ${$(total-paid)} left`}${openT?` · ${openT} open task${openT!==1?"s":""}`:""}`}
+                </div>
               </div>
-              {pend>0&&<span title="Pending change-order requests" style={{fontSize:10.5,fontWeight:800,color:"#fff",background:T.red,borderRadius:12,padding:"3px 9px",flexShrink:0}}>🧾 {pend}</span>}
-              <span style={{fontSize:12,fontWeight:700,color:"#8a6d1f",flexShrink:0}}>Manage ›</span>
+              {isBid&&j.bidAmount&&isAdmin&&(
+                <div style={{display:"flex",gap:6,flexShrink:0}} onClick={e=>e.stopPropagation()}>
+                  <button onClick={()=>acceptBid(j)} style={{padding:"6px 13px",borderRadius:16,border:"none",background:T.green,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✓ Accept {$(j.bidAmount)}</button>
+                  <button onClick={()=>declineBid(j)} style={{padding:"6px 13px",borderRadius:16,border:`1px solid ${T.red}`,background:"#fff",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Decline</button>
+                </div>
+              )}
+              {!isBid&&pend>0&&<span title="Pending change-order requests" style={{fontSize:10.5,fontWeight:800,color:"#fff",background:T.red,borderRadius:12,padding:"3px 9px",flexShrink:0}}>🧾 {pend}</span>}
+              <span style={{fontSize:12,fontWeight:700,color:"#8a6d1f",flexShrink:0}}>{isBid?"Open ›":"Manage ›"}</span>
             </div>
           );
         })}
       </Card>
+      {bidOpen&&<BidRequestModal property={property} orgs={allOrgs} onCreate={createBid} onClose={()=>setBidOpen(false)}/>}
       {openJob&&<CtrJobDetail j={openJob} org={orgOf(openJob.orgId)} isAdmin={isAdmin} qbProjectId={property.qbProjectId||null} tasks={ctrTasks} messages={ctrMessages} docs={ctrDocs} save={ctrSave} remove={ctrRemove} displayName={currentUser} onClose={()=>setOpenJobId(null)}/>}
     </>
   );

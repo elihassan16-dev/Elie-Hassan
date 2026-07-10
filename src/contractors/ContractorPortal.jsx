@@ -61,6 +61,16 @@ export const eventLabel = (ev) => {
 export const eventIcon = (ev) => (EVENT_TYPES.find((x) => x[0] === ev.type) || EVENT_TYPES[4])[1];
 const fmtClock = (t) => { if (!t) return ""; const [h, m] = String(t).split(":"); const d = new Date(); d.setHours(+h, +m || 0); return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); };
 
+// Branded printable Scope of Work — the browser's print dialog saves it as PDF.
+const escH = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+export const printSow = (job) => {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(`<!doctype html><html><head><title>Scope of Work — ${escH(job.propertyAddress || "")}</title><style>body{font-family:Georgia,serif;max-width:700px;margin:40px auto;padding:0 20px;color:#222}h1{font-size:20px;color:#b8912e;margin:0 0 2px}h2{font-size:14px;margin:4px 0 0;color:#555;font-weight:normal}pre{white-space:pre-wrap;font-family:inherit;font-size:13.5px;line-height:1.65}.hd{border-bottom:2px solid #b8912e;padding-bottom:12px;margin-bottom:18px}.ft{margin-top:34px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:10px}</style></head><body><div class="hd"><h1>Goldstone Properties — Scope of Work</h1><h2>${escH(job.propertyAddress || "")}${job.title ? ` · ${escH(job.title)}` : ""}</h2></div><pre>${escH(job.scope || "")}</pre><div class="ft">Prepared ${new Date().toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })} · Goldstone Properties · gpflips.com</div></body></html>`);
+  w.document.close();
+  setTimeout(() => { try { w.print(); } catch { /* user can print manually */ } }, 300);
+};
+
 export function ContractorPortal() {
   const { displayName, contractorOrgId, signOut } = useAuth();
   const { orgs, jobs, tasks, messages, docs, siteStatus, save, error } = useContractorData();
@@ -75,6 +85,7 @@ export function ContractorPortal() {
   const [coReqOpen, setCoReqOpen] = useState(false); // change-order request form
   const [coReq, setCoReq] = useState({ label: "", amount: "" });
   const [prAmt, setPrAmt] = useState({}); // price drafts for Goldstone-requested COs
+  const [bidAmt, setBidAmt] = useState(""); // bid draft on a "price this job" request
   const [pricePop, setPricePop] = useState(false); // contract-price breakdown popup
   const [doneOpen, setDoneOpen] = useState(false); // ✓ completed-tasks popup
   const [err, setErr] = useState("");
@@ -293,6 +304,31 @@ export function ContractorPortal() {
           );
         })()}
         <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "14px 16px" }}>
+          {/* Bid request: no money yet — review the scope, send one number. */}
+          {j.status === "bid" && (() => {
+            const a = Number(String(bidAmt).replace(/[^0-9.]/g, ""));
+            const sendBid = async () => {
+              if (!a) return;
+              try {
+                await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, bidAmount: a }) });
+                notify(null, { toAdmins: true, title: `Bid from ${org?.name || displayName}`, body: `${j.propertyAddress || ""}${j.title ? ` — ${j.title}` : ""} · ${money(a)}` });
+                setBidAmt("");
+              } catch (ex) { setErr(ex.message || "Couldn't send the bid."); }
+            };
+            return (
+              <div style={{ background: T.goldLight, border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: "11px 13px", marginBottom: 12 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 800, color: T.text }}>🧾 Bid request from Goldstone</div>
+                {j.bidAmount
+                  ? <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 3 }}>You bid <b>{money(j.bidAmount)}</b>{j.bidAt ? ` on ${fmtDate(j.bidAt)}` : ""} — waiting on Goldstone. You can send an updated number below.</div>
+                  : <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 3 }}>Review the scope of work below and send your price for the whole job.</div>}
+                <div style={{ display: "flex", gap: 7, marginTop: 8 }}>
+                  <input value={bidAmt} onChange={(e) => setBidAmt(e.target.value)} inputMode="decimal" placeholder="$ your price for this job" style={{ flex: 1, minWidth: 0, padding: "9px 11px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13.5, fontFamily: "inherit", outline: "none" }} />
+                  <button onClick={sendBid} disabled={!a} style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: a ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 13, cursor: a ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>Send bid</button>
+                </div>
+              </div>
+            );
+          })()}
+          {j.status !== "bid" && (<>
           <div style={{ display: "flex", gap: 8 }}>
             {[["Contract", money(total)], ["Paid", money(paid)], ["Remaining", money(left)], ["Days", j.status === "complete" ? "Done" : (days == null ? "—" : days)]].map(([l, v], i) => {
               const priceClick = l === "Contract" && (j.changeOrders || []).length > 0;
@@ -401,19 +437,11 @@ export function ContractorPortal() {
               </div>
             ))}
           </>)}
-
-          {(j.changeOrders || []).length > 0 && (<>
-            {sec("Change orders")}
-            {(j.changeOrders || []).map((c) => (
-              <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12.5, padding: "4px 0", borderBottom: `1px solid ${T.border}` }}>
-                <span style={{ color: T.textSub, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label || "Change order"}{c.date ? ` · ${fmtDate(c.date)}` : ""}</span>
-                <b style={{ flexShrink: 0 }}>{money(c.amount)}</b>
-              </div>
-            ))}
           </>)}
 
           {sec("Scope of work")}
           <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No written scope yet — upload your SOW below or ask Goldstone."}</div>
+          {j.scope && <button onClick={() => printSow(j)} style={{ marginTop: 8, padding: "6px 13px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>🖨 Print / save as PDF</button>}
 
           {sec("Documents")}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
@@ -641,11 +669,11 @@ export function ContractorPortal() {
                 const un = unreadFor(j.id);
                 const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.direction !== "to_team" && !taskClosed(t.status)).length;
                 return (
-                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); setDoneOpen(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
+                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); setDoneOpen(false); setBidAmt(""); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress || j.title || "Job"}</div>
-                        <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.status === "complete" ? "Complete" : days != null ? `Day ${days}` : "Active"} · {money(jobLeft(j))} left{openT ? ` · ${openT} task${openT !== 1 ? "s" : ""}` : ""}</div>
+                        <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.status === "bid" ? `🧾 Bid request${j.bidAmount ? ` — you bid ${money(j.bidAmount)}` : " — send your price"}` : `${j.status === "complete" ? "Complete" : days != null ? `Day ${days}` : "Active"} · ${money(jobLeft(j))} left${openT ? ` · ${openT} task${openT !== 1 ? "s" : ""}` : ""}`}</div>
                       </div>
                       {un > 0 && <span style={{ minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9, background: T.red, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{un}</span>}
                       <span style={{ fontSize: 14, color: T.textTert, flexShrink: 0 }}>›</span>

@@ -5,17 +5,63 @@
 // the background and the saved message is patched with the real attachment when
 // it lands. The sender sees a live progress bubble; everyone else sees
 // "video on its way" until the patch syncs over.
+//
+// iPhones suspend a web app's work seconds after it's backgrounded and reload
+// it freely — so the pending file also lives in IndexedDB on the sender's
+// device. Reopening the app resumes any unfinished upload; after too many
+// tries (or 24h) the message is patched to a clear "didn't upload" instead of
+// saying "on its way" forever. Coming back to the foreground also restarts an
+// upload that stalled while the phone was asleep.
 import { useEffect, useState } from "react";
 import { uploadStreamVideo, uploadAttachment } from "./net";
 import { supabase } from "./supabaseClient";
 import { T } from "./theme";
 
-const uploads = {}; // uploadId -> {pct, status:"uploading"|"done"|"failed", att, error, placeholder, listeners, ctrBinds}
+const uploads = {}; // uploadId -> {pct, status, att, error, placeholder, file, folder, ctrMsgId, listeners, attempt, lastProgressAt}
+
+// ── On-device persistence (IndexedDB) ─────────────────────────────────────────
+// Best-effort everywhere: private mode / storage pressure just means no resume.
+const idbOpen = () => new Promise((res, rej) => {
+  if (typeof indexedDB === "undefined") { rej(new Error("no idb")); return; }
+  const r = indexedDB.open("gp-video-uploads", 1);
+  r.onupgradeneeded = () => r.result.createObjectStore("pending", { keyPath: "uploadId" });
+  r.onsuccess = () => res(r.result);
+  r.onerror = () => rej(r.error);
+});
+async function idbWrite(fn) {
+  try {
+    const db = await idbOpen();
+    await new Promise((res, rej) => { const tx = db.transaction("pending", "readwrite"); fn(tx.objectStore("pending")); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+    db.close();
+  } catch { /* persistence is best-effort */ }
+}
+const idbPut = (entry) => idbWrite((st) => st.put(entry));
+const idbDel = (uploadId) => idbWrite((st) => st.delete(uploadId));
+async function idbAll() {
+  try {
+    const db = await idbOpen();
+    const rows = await new Promise((res, rej) => { const q = db.transaction("pending").objectStore("pending").getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); });
+    db.close();
+    return rows;
+  } catch { return []; }
+}
+async function idbMerge(uploadId, patch) {
+  try {
+    const db = await idbOpen();
+    await new Promise((res, rej) => {
+      const tx = db.transaction("pending", "readwrite"), st = tx.objectStore("pending");
+      const q = st.get(uploadId);
+      q.onsuccess = () => { if (q.result) st.put({ ...q.result, ...patch }); };
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+    db.close();
+  } catch { /* best-effort */ }
+}
 
 // Warn before closing the tab while an upload is still running (desktop browsers;
-// iOS home-screen apps don't show this, so the chat bubble carries the state).
+// iOS home-screen apps don't show this — IndexedDB resume covers them instead).
 let unloadArmed = false;
-const onUnload = (e) => { e.preventDefault(); e.returnValue = "A video is still uploading — leaving now cancels it."; };
+const onUnload = (e) => { e.preventDefault(); e.returnValue = "A video is still uploading — leaving now pauses it until you reopen the app."; };
 const syncUnloadGuard = () => {
   const active = Object.values(uploads).some((u) => u.status === "uploading");
   if (active && !unloadArmed) { window.addEventListener("beforeunload", onUnload); unloadArmed = true; }
@@ -27,37 +73,75 @@ const syncUnloadGuard = () => {
 let internalPatcher = null;
 export const setVideoPatcher = (fn) => { internalPatcher = fn; };
 
-const finalFailedAtt = (u) => ({ ...u.placeholder, pending: false, failed: true, error: u.error || "Upload failed" });
-const finalAtt = (u) => (u.status === "done" ? u.att : finalFailedAtt(u));
+const finalAtt = (u) => (u.status === "done" ? u.att : { ...u.placeholder, pending: false, failed: true, error: u.error || "Upload failed" });
+const ping = (u) => u.listeners.forEach((fn) => { try { fn(u); } catch { /* listener gone */ } });
+
+// Patch a saved contractor_messages row in place (works from the portal and the
+// admin side; RLS already lets each sender update their own thread's rows). The
+// realtime subscription every client holds re-renders the bubble automatically.
+async function patchCtrRow(msgId, uploadId, att) {
+  try {
+    const { data } = await supabase.from("contractor_messages").select("id,data,org_id").eq("id", String(msgId)).single();
+    const msg = data && data.data;
+    if (!msg || !msg.attachment || msg.attachment.uploadId !== uploadId || !msg.attachment.pending) return;
+    await supabase.from("contractor_messages").upsert(
+      { id: String(msgId), org_id: data.org_id, data: { ...msg, attachment: att }, updated_at: new Date().toISOString() },
+      { onConflict: "id" }
+    );
+  } catch { /* best-effort — the bubble shows the stale state and the sender can resend */ }
+}
 
 function settle(uploadId) {
   const u = uploads[uploadId];
   const att = finalAtt(u);
-  u.listeners.forEach((fn) => { try { fn(u); } catch { /* listener gone */ } });
-  if (internalPatcher) { try { internalPatcher(uploadId, att); } catch { /* best-effort */ } }
-  u.ctrBinds.splice(0).forEach((apply) => apply(att));
+  ping(u);
+  // Patch the message now and again over the next minutes: right after a reload
+  // the resumed upload can finish BEFORE the app's data loads, so an immediate
+  // scan finds nothing. Re-applying is safe — only still-pending placeholders
+  // ever get touched.
+  const applyPatches = () => {
+    if (internalPatcher) { try { internalPatcher(uploadId, att); } catch { /* best-effort */ } }
+    if (u.ctrMsgId) patchCtrRow(u.ctrMsgId, uploadId, att);
+  };
+  applyPatches();
+  [5000, 20000, 60000, 180000].forEach((ms) => setTimeout(applyPatches, ms));
+  idbDel(uploadId);
   syncUnloadGuard();
+}
+
+// One upload attempt. `attempt` tokens make restarts safe: a superseded attempt
+// (e.g. one that hung while the phone slept) can't settle over the live one.
+function runUpload(uploadId) {
+  const u = uploads[uploadId];
+  const token = ++u.attempt;
+  u.status = "uploading"; u.lastProgressAt = Date.now();
+  syncUnloadGuard();
+  (async () => {
+    try {
+      let att;
+      try { att = await uploadStreamVideo(u.file, (p) => { if (u.attempt !== token) return; u.pct = p; u.lastProgressAt = Date.now(); ping(u); }); }
+      catch (ex) {
+        // Stream hiccup → small clips still fit the plain-storage path.
+        if (u.file.size <= 50 * 1024 * 1024) att = await uploadAttachment(u.file, u.folder);
+        else throw ex;
+      }
+      if (u.attempt !== token) return;
+      u.att = att; u.status = "done";
+    } catch (ex) {
+      if (u.attempt !== token) return;
+      u.status = "failed"; u.error = ex.message || "Upload failed";
+    }
+    settle(uploadId);
+  })();
 }
 
 // Kick off the upload and return the placeholder attachment to send immediately.
 export function startVideoUpload(file, folder = "chat") {
   const uploadId = "vu-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
   const placeholder = { kind: "video", stream: true, pending: true, uploadId, name: file.name || "video", mime: file.type || "video/mp4", startedAt: new Date().toISOString() };
-  const u = uploads[uploadId] = { pct: 0, status: "uploading", att: null, error: "", placeholder, listeners: new Set(), ctrBinds: [] };
-  syncUnloadGuard();
-  (async () => {
-    try {
-      let att;
-      try { att = await uploadStreamVideo(file, (p) => { u.pct = p; u.listeners.forEach((fn) => { try { fn(u); } catch { /* gone */ } }); }); }
-      catch (ex) {
-        // Stream hiccup → small clips still fit the plain-storage path.
-        if (file.size <= 50 * 1024 * 1024) att = await uploadAttachment(file, folder);
-        else throw ex;
-      }
-      u.att = att; u.status = "done";
-    } catch (ex) { u.status = "failed"; u.error = ex.message || "Upload failed"; }
-    settle(uploadId);
-  })();
+  uploads[uploadId] = { pct: 0, status: "uploading", att: null, error: "", placeholder, file, folder, ctrMsgId: null, listeners: new Set(), attempt: 0, lastProgressAt: Date.now() };
+  idbPut({ uploadId, file, folder, placeholder, ctrMsgId: null, createdAt: Date.now(), attempts: 1 });
+  runUpload(uploadId);
   return placeholder;
 }
 
@@ -72,30 +156,51 @@ export const resolveVideoAttachment = (att) => {
   return finalAtt(u);
 };
 
-// A contractor_messages row was saved carrying this placeholder — patch that row
-// in place when the upload settles (works from the portal and the admin side;
-// RLS already lets each sender update their own thread's rows). The realtime
-// subscription every client holds re-renders the bubble automatically.
+// A contractor_messages row was saved carrying this placeholder — remember it
+// (in memory AND on disk, so a resumed upload after a reload still knows which
+// row to patch) or patch immediately if the upload already settled.
 export function bindCtrVideoMessage(uploadId, msgId) {
   const u = uploads[uploadId];
   if (!u) return;
-  const apply = async (att) => {
-    try {
-      const { data } = await supabase.from("contractor_messages").select("id,data,org_id").eq("id", String(msgId)).single();
-      const msg = data && data.data;
-      if (!msg || !msg.attachment || msg.attachment.uploadId !== uploadId || !msg.attachment.pending) return;
-      await supabase.from("contractor_messages").upsert(
-        { id: String(msgId), org_id: data.org_id, data: { ...msg, attachment: att }, updated_at: new Date().toISOString() },
-        { onConflict: "id" }
-      );
-    } catch { /* best-effort — the bubble stays "uploading" and the sender can resend */ }
-  };
-  if (u.status === "uploading") u.ctrBinds.push(apply);
-  else apply(finalAtt(u));
+  if (u.status === "uploading") { u.ctrMsgId = msgId; idbMerge(uploadId, { ctrMsgId: msgId }); }
+  else patchCtrRow(msgId, uploadId, finalAtt(u));
 }
 
-// Live state for a local upload (null once the app was reopened — the manager
-// only lives as long as the page).
+// Called once the app is signed in (main shell + portal). Restarts uploads that
+// died with the page; anything too old or too-many-times retried is patched to a
+// clear failure so its message never says "on its way" forever.
+let resumeRan = false;
+export async function resumeVideoUploads() {
+  if (resumeRan) return;
+  resumeRan = true;
+  const entries = await idbAll();
+  for (const e of entries) {
+    if (!e || !e.uploadId || uploads[e.uploadId]) continue;
+    const dead = !e.file || (Date.now() - (e.createdAt || 0)) > 24 * 3600000 || (e.attempts || 0) >= 4;
+    uploads[e.uploadId] = { pct: 0, status: "uploading", att: null, error: "", placeholder: e.placeholder || { kind: "video", pending: true, uploadId: e.uploadId }, file: e.file, folder: e.folder || "chat", ctrMsgId: e.ctrMsgId || null, listeners: new Set(), attempt: 0, lastProgressAt: Date.now() };
+    if (dead) {
+      const u = uploads[e.uploadId];
+      u.status = "failed"; u.error = "The upload didn't finish";
+      settle(e.uploadId);
+      continue;
+    }
+    idbMerge(e.uploadId, { attempts: (e.attempts || 0) + 1 });
+    runUpload(e.uploadId);
+  }
+}
+
+// Coming back to the foreground: an upload that made no progress while the phone
+// was asleep is hung — restart it (the attempt token retires the hung one).
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    Object.entries(uploads).forEach(([id, u]) => {
+      if (u.status === "uploading" && u.file && Date.now() - (u.lastProgressAt || 0) > 90000) runUpload(id);
+    });
+  });
+}
+
+// Live state for a local upload (null when this device isn't doing the upload).
 export function useVideoUpload(uploadId) {
   const [state, setState] = useState(() => { const u = uploadId && uploads[uploadId]; return u ? { pct: u.pct, status: u.status } : null; });
   useEffect(() => {
@@ -114,7 +219,9 @@ export function useVideoUpload(uploadId) {
 export function VideoUploadBubble({ att, mine }) {
   const live = useVideoUpload(att.uploadId);
   const fg = mine ? "#fff" : T.text, sub = mine ? "rgba(255,255,255,0.85)" : T.textSub;
-  const stale = att.pending && !live && att.startedAt && (Date.now() - new Date(att.startedAt).getTime()) > 2 * 3600000;
+  // No live upload on this device and it's been ages — call it dead on screen.
+  // (If the sender's device eventually finishes it, the patch still wins.)
+  const stale = att.pending && !live && att.startedAt && (Date.now() - new Date(att.startedAt).getTime()) > 45 * 60000;
   const failed = att.failed || (live && live.status === "failed") || stale;
   return (
     <div style={{ marginTop: 6, width: "min(240px,64vw)", padding: "10px 12px", borderRadius: 10, background: mine ? "rgba(255,255,255,0.15)" : T.bg, border: `1px solid ${mine ? "rgba(255,255,255,0.3)" : T.border}` }}>

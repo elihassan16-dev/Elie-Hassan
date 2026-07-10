@@ -306,6 +306,7 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [textEdit, setTextEdit] = useState(false); // manual tweaks — the PDF is the default view
+  const [highlight, setHighlight] = useState(true); // off = send a clean PDF, no highlights or UPDATED banner
   // The mic's onDone fires from a closure captured when recording started, so
   // the AI call reads the scope through a ref to see the latest version.
   const scopeRef = useRef(scope); scopeRef.current = scope;
@@ -328,7 +329,7 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
   const openedAtRef = useRef(new Date().toISOString());
   const oldLines = new Set(String(j.scope || "").split("\n").map((l) => l.trim()).filter(Boolean));
   const pendingChanged = scope.split("\n").map((l, i) => (l.trim() && !oldLines.has(l.trim()) ? i : null)).filter((i) => i != null);
-  const previewJob = { ...j, scope, scopeChangedLines: pendingChanged.length ? pendingChanged : j.scopeChangedLines, scopeEditedAt: pendingChanged.length ? openedAtRef.current : j.scopeEditedAt, scopeEditedBy: pendingChanged.length ? displayName : j.scopeEditedBy };
+  const previewJob = { ...j, scope, scopeChangedLines: !highlight ? [] : pendingChanged.length ? pendingChanged : j.scopeChangedLines, scopeEditedAt: pendingChanged.length ? openedAtRef.current : j.scopeEditedAt, scopeEditedBy: pendingChanged.length ? displayName : j.scopeEditedBy };
   const saveScope = async () => {
     const txt = scope.trim();
     if (!txt) { setErr("The scope can't be empty."); return; }
@@ -339,9 +340,10 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
     const oldLines = new Set(String(j.scope || "").split("\n").map((l) => l.trim()).filter(Boolean));
     const changedLines = txt.split("\n").map((l, i) => (l.trim() && !oldLines.has(l.trim()) ? i : null)).filter((i) => i != null);
     try {
-      await save("contractor_jobs", { ...j, scope: txt, sowPdfUrl: null, scopeChangedLines: changedLines, scopeEditedAt: new Date().toISOString(), scopeEditedBy: displayName });
-      notify(null, { toOrg: j.orgId, title: "Scope of work updated", body: `${j.propertyAddress || ""}${j.title ? ` — ${j.title}` : ""} — open the PDF, the changes are highlighted.` });
-      save("contractor_messages", { id: Date.now() + 3, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: "📄 The scope of work was updated — open the PDF on this job; the changed lines are highlighted.", at: new Date().toISOString(), readBy: [displayName] }).catch(() => {});
+      // Highlighting is optional — off ships a clean PDF (no marks, no UPDATED banner).
+      await save("contractor_jobs", { ...j, scope: txt, sowPdfUrl: null, scopeChangedLines: highlight ? changedLines : [], scopeEditedAt: new Date().toISOString(), scopeEditedBy: displayName });
+      notify(null, { toOrg: j.orgId, title: "Scope of work updated", body: `${j.propertyAddress || ""}${j.title ? ` — ${j.title}` : ""} — open the PDF${highlight ? ", the changes are highlighted" : " for the latest version"}.` });
+      save("contractor_messages", { id: Date.now() + 3, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: `📄 The scope of work was updated — open the PDF on this job${highlight ? "; the changed lines are highlighted" : " for the latest version"}.`, at: new Date().toISOString(), readBy: [displayName] }).catch(() => {});
       clearDraft(false);
       onClose();
     } catch (ex) { setErr(ex.message || "Couldn't save the scope."); setBusy(false); }
@@ -369,7 +371,7 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
           </div>
           {scope.trim() && !aiBusy && (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 11.5, color: "#8a6d1f", fontWeight: 700, flex: 1, minWidth: 0 }}>{recOn ? "🔴 Recording — scroll and read while you talk" : `📄 ${pendingChanged.length ? "Your unsaved changes are highlighted — this is what they'll see" : "This is the exact PDF the contractor sees"}`}</span>
+              <span style={{ fontSize: 11.5, color: "#8a6d1f", fontWeight: 700, flex: 1, minWidth: 0 }}>{recOn ? "🔴 Recording — scroll and read while you talk" : `📄 ${pendingChanged.length ? (highlight ? "Your unsaved changes are highlighted — this is what they'll see" : "Sending the clean version — no highlights") : "This is the exact PDF the contractor sees"}`}</span>
               <button onClick={() => setTextEdit((v) => !v)} style={{ padding: "5px 11px", borderRadius: 14, border: `1px solid ${T.border}`, background: "#fff", color: T.textSub, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>{textEdit ? "👁 Back to the PDF" : "✎ Edit the text"}</button>
             </div>
           )}
@@ -392,7 +394,13 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
                 <span style={{ fontSize: 12, color: T.textSub, lineHeight: 1.5 }}>When you stop talking, the AI writes the scope of work and it appears here as the PDF.</span>
               </div>}
         </div>
-        <div style={{ padding: "12px 18px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, justifyContent: "flex-end", flexShrink: 0 }}>
+        <div style={{ padding: "12px 18px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", flexShrink: 0 }}>
+          {pendingChanged.length > 0 && (
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginRight: "auto", fontSize: 12, fontWeight: 600, color: T.textSub, cursor: "pointer", userSelect: "none" }}>
+              <input type="checkbox" checked={highlight} onChange={(e) => setHighlight(e.target.checked)} style={{ accentColor: T.gold, width: 15, height: 15, margin: 0 }} />
+              Highlight the changes for them
+            </label>
+          )}
           <button onClick={onClose} style={{ padding: "10px 18px", borderRadius: 10, background: T.bg, border: "none", color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>Cancel</button>
           <button onClick={saveScope} disabled={busy || !scope.trim()} style={{ padding: "10px 22px", borderRadius: 10, background: scope.trim() && !busy ? T.gold : T.border, border: "none", color: "#fff", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>{busy ? "Saving…" : "Save & notify them"}</button>
         </div>

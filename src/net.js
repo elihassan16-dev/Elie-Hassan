@@ -48,15 +48,20 @@ export const STREAM_VIDEO_CAP = 5 * 1024 * 1024 * 1024; // 5 GB via resumable (t
 const BASIC_CAP = 190 * 1024 * 1024; // single-shot uploads under Cloudflare's 200MB limit
 async function streamDetails(uid) {
   let info = null;
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 10; i++) {
     try { info = await qbAuthFetch(`/api/stream/upload?uid=${encodeURIComponent(uid)}`); } catch { /* retry */ }
     if (info && info.preview) break;
-    await new Promise((r) => setTimeout(r, 1500));
+    await new Promise((r) => setTimeout(r, 700));
   }
   return info;
 }
 export async function uploadStreamVideo(file, onProgress) {
   let uid;
+  // The playback URLs live on the video record, which exists as soon as the
+  // upload session is minted — fetch them WHILE the bytes go up so the message
+  // is ready the instant the upload finishes (no post-upload polling wait).
+  let early = null, earlyP = null;
+  const prefetch = () => { earlyP = qbAuthFetch(`/api/stream/upload?uid=${encodeURIComponent(uid)}`).then((i) => { early = i; }).catch(() => {}); };
   if (file.size > BASIC_CAP) {
     // Resumable chunks: survives flaky signal, no 200MB ceiling.
     const tus = await import("tus-js-client");
@@ -64,6 +69,7 @@ export async function uploadStreamVideo(file, onProgress) {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tus: true, size: file.size, name: file.name || "video" }),
     });
     uid = start.uid;
+    prefetch();
     await new Promise((resolve, reject) => {
       const up = new tus.Upload(file, {
         uploadUrl: start.uploadURL,
@@ -81,6 +87,7 @@ export async function uploadStreamVideo(file, onProgress) {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name || "video" }),
     });
     uid = basicUid;
+    prefetch();
     await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", uploadURL);
@@ -94,7 +101,8 @@ export async function uploadStreamVideo(file, onProgress) {
   }
   if (onProgress) onProgress(100);
   // Playback URLs come from the video record (they exist even while it encodes).
-  const info = await streamDetails(uid);
+  if (earlyP) await earlyP;
+  const info = early && early.preview ? early : await streamDetails(uid);
   const watch = info?.preview || "";
   if (!watch) throw new Error("Video uploaded but isn't available yet — try again in a minute.");
   return { kind: "video", stream: true, uid, url: watch.replace(/\/watch$/, "/iframe"), watch, thumbnail: info?.thumbnail || "", name: file.name || "video", mime: file.type || "video/mp4" };

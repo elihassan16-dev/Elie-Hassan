@@ -11,7 +11,7 @@ import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, uploadStreamVideo, STREAM_VIDEO_CAP } from "./net";
 import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
-import { useSpeechToText, micBtnStyle } from "./useSpeech";
+import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon } from "./contractors/ContractorPortal";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
@@ -4534,31 +4534,9 @@ function GlobalAiChat({onClose}){
   });
   const takeFile=(e)=>{const f=(e.target.files||[])[0];if(f)setPendingFile(f);e.target.value="";};
   const onPaste=(e)=>{const f=[...(e.clipboardData?.files||[])].find(x=>x.type.startsWith("image/")||x.type==="application/pdf");if(f){e.preventDefault();setPendingFile(f);}};
-  // 🎙 Record-to-text via the phone's built-in speech recognition (no server, no
-  // audio upload). Where the OS blocks it (some iOS PWA versions), we say so and
-  // point at the keyboard mic, which always works.
-  const SR=typeof window!=="undefined"?(window.SpeechRecognition||window.webkitSpeechRecognition):null;
-  const[recOn,setRecOn]=useState(false);
-  const recRef=useRef(null);
-  const recBase=useRef("");
-  const toggleRec=()=>{
-    if(recOn){try{recRef.current&&recRef.current.stop();}catch{/* already stopped */}setRecOn(false);return;}
-    if(!SR){setErr("Voice capture isn't available in this view — tap the 🎤 on your keyboard instead (it types as you talk).");return;}
-    try{
-      const r=new SR();
-      r.lang="en-US";r.interimResults=true;r.continuous=true;
-      recBase.current=input.trim();
-      r.onresult=(ev)=>{
-        let text="";
-        for(let i=0;i<ev.results.length;i++)text+=ev.results[i][0].transcript;
-        setInput((recBase.current?recBase.current+" ":"")+text.trim());
-      };
-      r.onerror=(ev)=>{setRecOn(false);if(ev.error==="not-allowed"||ev.error==="service-not-allowed")setErr("Voice capture is blocked here — tap the 🎤 on your keyboard instead (it types as you talk).");};
-      r.onend=()=>setRecOn(false);
-      r.start();recRef.current=r;setRecOn(true);setErr("");
-    }catch{setErr("Couldn't start voice capture — tap the 🎤 on your keyboard instead.");}
-  };
-  useEffect(()=>()=>{try{recRef.current&&recRef.current.stop();}catch{/* unmount */}},[]);
+  // 🎙 Record-to-transcribe — MediaRecorder + server-side Whisper (see
+  // useSpeech.js). The old in-page speech engine froze iOS home-screen apps.
+  const{recOn,busy:recBusy,toggleRec}=useSpeechToText({value:input,onText:setInput,onError:setErr});
   useEffect(()=>{const el=scrollRef.current;if(el)el.scrollTop=el.scrollHeight;},[msgs,busy]);
   const active=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived),[sharedProps]);
   const propIndex=useMemo(()=>active.map(p=>({id:String(p.id),address:`${p.address||""}${p.city?`, ${p.city}`:""}`})),[active]);
@@ -4745,7 +4723,7 @@ function GlobalAiChat({onClose}){
             <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={takeFile} style={{display:"none"}}/>
             <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, screenshot, or PDF" style={{width:38,height:38,minWidth:38,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontSize:15,fontFamily:"inherit",flexShrink:0}}>📎</button>
             <button onClick={()=>camRef.current&&camRef.current.click()} disabled={busy} title="Take a photo" style={{width:38,height:38,minWidth:38,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontSize:15,fontFamily:"inherit",flexShrink:0}}>📷</button>
-            <button onClick={toggleRec} disabled={busy} title={recOn?"Stop recording":"Record — speaks straight into the box"} style={{width:38,height:38,minWidth:38,borderRadius:"50%",border:`1px solid ${recOn?"#FF3B30":T.border}`,background:recOn?"#FFF0EF":"#fff",color:recOn?"#FF3B30":T.textSub,cursor:"pointer",fontSize:15,fontFamily:"inherit",flexShrink:0,animation:recOn?"gsPulse 1.2s ease-in-out infinite":"none"}}>{recOn?"⏹":"🎙"}</button>
+            <button onClick={toggleRec} disabled={busy||recBusy} title={recOn?"Stop — it transcribes into the box":"Record — transcribed to text when you stop"} style={{width:38,height:38,minWidth:38,borderRadius:"50%",border:`1px solid ${recOn?"#FF3B30":T.border}`,background:recOn?"#FFF0EF":"#fff",color:recOn?"#FF3B30":T.textSub,cursor:"pointer",fontSize:15,fontFamily:"inherit",flexShrink:0,animation:recOn?"gsPulse 1.2s ease-in-out infinite":"none"}}>{micGlyph(recOn,recBusy)}</button>
             <textarea rows={1} value={input} onChange={e=>setInput(e.target.value)}
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendQ();}}}
               placeholder={pendingFile?"e.g. “save this to 610 Bayview” or “make this a contact”":"Ask anything, or “create tasks for…”"} disabled={busy}
@@ -4910,7 +4888,7 @@ function BidRequestModal({property,orgs,onCreate,onClose}){
   const[aiBusy,setAiBusy]=useState(false);
   const[busy,setBusy]=useState(false);
   const[err,setErr]=useState("");
-  const{recOn:briefRecOn,toggleRec:toggleBriefRec}=useSpeechToText({value:brief,onText:setBrief,onError:setErr});
+  const{recOn:briefRecOn,busy:briefRecBusy,toggleRec:toggleBriefRec}=useSpeechToText({value:brief,onText:setBrief,onError:setErr});
   const genAi=async()=>{
     const b=brief.trim()||title.trim();
     if(!b){setErr("Describe the job for the AI first (the brief box).");return;}
@@ -4946,8 +4924,8 @@ function BidRequestModal({property,orgs,onCreate,onClose}){
             <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Job name — e.g. Full gut renovation" style={{...inp,flex:1,minWidth:180}}/>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <input value={brief} onChange={e=>setBrief(e.target.value)} onKeyDown={e=>e.key==="Enter"&&genAi()} placeholder={briefRecOn?"Listening… talk, then tap ■":"Brief for the AI — type it or record it, e.g. gut the kitchen and both baths"} style={{...inp,flex:1,minWidth:0,...(briefRecOn?{borderColor:"#FF3B30"}:{})}}/>
-            <button onClick={toggleBriefRec} title="Record — your words appear as text" style={micBtnStyle(briefRecOn,T)}>{briefRecOn?"■":"🎙"}</button>
+            <input value={brief} onChange={e=>setBrief(e.target.value)} onKeyDown={e=>e.key==="Enter"&&genAi()} placeholder={briefRecOn?"Recording… tap ◼ when you're done talking":briefRecBusy?"Transcribing…":"Brief for the AI — type it or record it, e.g. gut the kitchen and both baths"} style={{...inp,flex:1,minWidth:0,...(briefRecOn?{borderColor:"#FF3B30"}:{})}}/>
+            <button onClick={toggleBriefRec} disabled={briefRecBusy} title="Record — transcribed to text when you stop" style={micBtnStyle(briefRecOn,T)}>{micGlyph(briefRecOn,briefRecBusy)}</button>
             <button onClick={genAi} disabled={aiBusy} style={{padding:"10px 15px",borderRadius:10,border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#b8912e",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap"}}>{aiBusy?"Writing…":"✨ AI: write the full SOW"}</button>
           </div>
           <textarea value={scope} onChange={e=>setScope(e.target.value)} rows={12} placeholder="Scope of work the contractor will price — write it yourself or let the AI draft it above, then edit."
@@ -8695,7 +8673,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
   const[showTag,setShowTag]=useState(false);
   const[pendingAtt,setPendingAtt]=useState(null); // attachment staged, not yet sent
   const[pct,setPct]=useState(0); // big-video upload progress
-  const{recOn:aiRecOn,toggleRec:toggleAiRec}=useSpeechToText({value:aiPrompt,onText:setAiPrompt,onError:setErr});
+  const{recOn:aiRecOn,busy:aiRecBusy,toggleRec:toggleAiRec}=useSpeechToText({value:aiPrompt,onText:setAiPrompt,onError:setErr});
   const fileRef=useRef(null);
   const mrRef=useRef(null);
   const chunksRef=useRef([]);
@@ -8882,7 +8860,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
         <div style={{display:"flex",flexDirection:"column",gap:7,padding:"9px 10px",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:14}}>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
             <span style={{fontSize:12,fontWeight:800,color:"#b8912e"}}>✨ AI draft</span>
-            <span style={{fontSize:10.5,color:T.textSub,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{aiRecOn?"Listening — talk, then tap ■":"Type it, or tap 🎙 to talk"}</span>
+            <span style={{fontSize:10.5,color:T.textSub,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{aiRecOn?"Recording — tap ◼ when done":aiRecBusy?"Transcribing…":"Type it, or tap 🎙 to talk"}</span>
             <button onClick={()=>setAiOpen(false)} style={{background:"none",border:"none",color:T.textTert,fontSize:17,cursor:"pointer",lineHeight:1,flexShrink:0,padding:"0 2px"}}>×</button>
           </div>
           <textarea autoFocus rows={2} value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)}
@@ -8891,7 +8869,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
             disabled={aiBusy}
             style={{width:"100%",padding:"9px 12px",borderRadius:12,border:`1px solid ${aiRecOn?"#FF3B30":T.border}`,background:"#fff",fontSize:14,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,boxSizing:"border-box"}}/>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center"}}>
-            <button onClick={toggleAiRec} title="Record — your words appear as text" style={micBtnStyle(aiRecOn,T)}>{aiRecOn?"■":"🎙"}</button>
+            <button onClick={toggleAiRec} disabled={aiRecBusy} title="Record — transcribed to text when you stop" style={micBtnStyle(aiRecOn,T)}>{micGlyph(aiRecOn,aiRecBusy)}</button>
             <button onClick={aiDraft} disabled={!aiPrompt.trim()||aiBusy} style={{padding:"7px 16px",borderRadius:18,border:"none",background:aiPrompt.trim()&&!aiBusy?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:13,cursor:aiPrompt.trim()&&!aiBusy?"pointer":"default",fontFamily:"inherit"}}>{aiBusy?"Writing…":text.trim()?"✨ Rewrite draft":"✨ Draft it"}</button>
           </div>
         </div>

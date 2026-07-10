@@ -332,6 +332,8 @@ export function ContractorPortal() {
               try {
                 await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, label: coReq.label.trim(), amount: amt }) });
                 notify(null, { toAdmins: true, title: `Change order request — ${org?.name || displayName}`, body: `${coReq.label.trim()} — ${money(amt)} · ${j.propertyAddress || ""}` });
+                // Drop it in the job's chat too, so it shows in the property thread on both sides.
+                save("contractor_messages", { id: Date.now() + 1, jobId: j.id, orgId: contractorOrgId, author: displayName, side: "contractor", text: `🧾 Change order request: ${coReq.label.trim()} — ${money(amt)}`, at: new Date().toISOString(), readBy: [displayName] }).catch(() => {});
                 setCoReqOpen(false); setCoReq({ label: "", amount: "" });
               } catch (ex) { setErr(ex.message || "Couldn't send the request."); }
             };

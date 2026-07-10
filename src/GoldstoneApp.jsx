@@ -10,7 +10,7 @@ import { registerServiceWorker, refreshSubscription, enablePush, notificationsSu
 import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, uploadStreamVideo, STREAM_VIDEO_CAP } from "./net";
 import { ContractorsAdminPage } from "./contractors/ContractorsAdminPage";
-import { useContractorData } from "./contractors/data";
+import { useContractorData, jobTotal as ctrJobTotal } from "./contractors/data";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon } from "./contractors/ContractorPortal";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
@@ -6755,7 +6755,7 @@ function CompletedTasksPopup({items,onRestore,onDelete,onClose}){
   );
 }
 
-function ExternalRequestsPopup({requests,onSetStatus,onChat,onClose}){
+function ExternalRequestsPopup({requests,coRequests=[],onDecideCo,onSetStatus,onChat,onClose}){
   const fmtD2=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
@@ -6768,7 +6768,28 @@ function ExternalRequestsPopup({requests,onSetStatus,onChat,onClose}){
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
-          {requests.length===0&&<div style={{padding:"30px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No requests from contractors yet.</div>}
+          {requests.length===0&&coRequests.length===0&&<div style={{padding:"30px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No requests from contractors yet.</div>}
+          {/* Pending change-order requests — money asks, decided right here */}
+          {coRequests.map(({r,job,orgName,addr})=>(
+            <div key={"co"+r.id} style={{display:"flex",gap:10,alignItems:"center",padding:"12px 16px",borderBottom:`1px solid ${T.border}`,background:"#FFF9EC",flexWrap:"wrap"}}>
+              <span style={{fontSize:16,flexShrink:0}}>🧾</span>
+              <div style={{flex:1,minWidth:170}}>
+                <div style={{fontSize:13.5,fontWeight:700,color:T.text}}>{r.label} — ${Number(r.amount||0).toLocaleString()}</div>
+                <div style={{fontSize:11,color:"#8a6d1f",marginTop:2,display:"flex",flexWrap:"wrap",gap:"2px 10px"}}>
+                  <span style={{fontWeight:700}}>Change order request</span>
+                  <span style={{fontWeight:700}}>👷 {orgName}</span>
+                  <span>{addr}</span>
+                  <span>by {r.by}{r.at?` · ${fmtD2(r.at)}`:""}</span>
+                </div>
+              </div>
+              {onDecideCo
+                ?<div style={{display:"flex",gap:6,flexShrink:0}}>
+                    <button onClick={()=>onDecideCo(job,r,true)} style={{padding:"6px 13px",borderRadius:16,border:"none",background:T.green,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✓ Approve</button>
+                    <button onClick={()=>onDecideCo(job,r,false)} style={{padding:"6px 13px",borderRadius:16,border:`1px solid ${T.red}`,background:"#fff",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Deny</button>
+                  </div>
+                :<span style={{fontSize:10.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",borderRadius:12,padding:"3px 9px",flexShrink:0}}>PENDING — admin decides</span>}
+            </div>
+          ))}
           {requests.map(({t,job,orgName,addr})=>(
             <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",padding:"12px 16px",borderBottom:`1px solid ${T.border}`,opacity:ctrClosed(t.status)?0.55:1}}>
               <div style={{flex:1,minWidth:0}}>
@@ -7029,7 +7050,20 @@ function TasksPage({onNavigate}){
       return job?{t,job,orgName:ctrOrgName(job.orgId),addr:job.propertyAddress||""}:null;
     }).filter(Boolean).sort((a,b)=>ctrClosed(a.t.status)-ctrClosed(b.t.status)||String(b.t.createdAt||"").localeCompare(String(a.t.createdAt||"")));
   },[ctrJobs,ctrTasks,ctrOrgs]); // eslint-disable-line react-hooks/exhaustive-deps
-  const openExtCount=extRequests.filter(r=>!ctrClosed(r.t.status)).length;
+  // Pending change-order requests surface here too — under the 👷 External chip,
+  // approvable straight from the popup.
+  const pendingCoReqs=useMemo(()=>(ctrJobs||[]).flatMap(job=>((job.coRequests||[]).filter(r=>r.status==="pending").map(r=>({r,job,orgName:ctrOrgName(job.orgId),addr:job.propertyAddress||""})))),[ctrJobs,ctrOrgs]); // eslint-disable-line react-hooks/exhaustive-deps
+  const decideCoReq=async(job,r,approve)=>{
+    const upd={
+      ...job,
+      coRequests:(job.coRequests||[]).map(x=>x.id===r.id?{...x,status:approve?"approved":"denied",decidedBy:CURRENT_USER,decidedAt:new Date().toISOString()}:x),
+      ...(approve?{changeOrders:[...(job.changeOrders||[]),{id:Date.now(),label:r.label,amount:Number(r.amount)||0,date:new Date().toISOString().slice(0,10),by:r.by,fromRequest:r.id}]}:{}),
+    };
+    try{await ctrSave("contractor_jobs",upd);}catch{return;}
+    notify(null,{toOrg:job.orgId,title:approve?"Change order approved ✓":"Change order denied",body:`${r.label} — $${Number(r.amount||0).toLocaleString()}${approve?` · new contract total $${ctrJobTotal(upd).toLocaleString()}`:""} · ${job.propertyAddress||""}`});
+    ctrSave("contractor_messages",{id:Date.now()+2,jobId:job.id,orgId:job.orgId,author:CURRENT_USER,side:"team",text:`🧾 Change order ${approve?"approved ✓":"denied"}: ${r.label} — $${Number(r.amount||0).toLocaleString()}`,at:new Date().toISOString(),readBy:[CURRENT_USER]}).catch(()=>{});
+  };
+  const openExtCount=extRequests.filter(r=>!ctrClosed(r.t.status)).length+pendingCoReqs.length;
   // Per-user "send this property to the bottom" order (synced in prefs, personal —
   // doesn't reorder the list for teammates). Map of propId -> when it was pushed.
   const propPushOrder=prefs.propPushOrder||{};
@@ -7516,7 +7550,7 @@ function TasksPage({onNavigate}){
             )}
 
             {completedOpen&&<CompletedTasksPopup items={completedItems} onRestore={restoreCompleted} onDelete={deleteCompleted} onClose={()=>setCompletedOpen(false)}/>}
-            {extReqOpen&&<ExternalRequestsPopup requests={extRequests} onSetStatus={setExtTaskStatus} onChat={(x)=>setExtChat(x)} onClose={()=>setExtReqOpen(false)}/>}
+            {extReqOpen&&<ExternalRequestsPopup requests={extRequests} coRequests={pendingCoReqs} onDecideCo={isAdmin?decideCoReq:null} onSetStatus={setExtTaskStatus} onChat={(x)=>setExtChat(x)} onClose={()=>setExtReqOpen(false)}/>}
             {/* Group by property, then apply my personal "sent to bottom" order:
                 pushed properties sink below the rest, most-recently-pushed last. */}
             {(()=>{

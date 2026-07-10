@@ -8768,7 +8768,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     // Videos go to Cloudflare Stream (up to 200 MB, transcoded for smooth playback);
     // everything else stays in storage with the 25 MB cap.
     if(isVideo){
-      if(file.size>STREAM_VIDEO_CAP){setErr("Video is too large (max 200 MB) — trim it shorter and try again.");return;}
+      if(file.size>STREAM_VIDEO_CAP){setErr("Video is too large (max 5 GB) — trim it shorter and try again.");return;}
       setErr("");setBusy(true);
       try{ setPendingAtt(await uploadStreamVideo(file,setPct)); }
       catch(ex){

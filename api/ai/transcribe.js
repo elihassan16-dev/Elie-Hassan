@@ -28,15 +28,16 @@ export default async function handler(req, res) {
 
   const { audio } = await readBody(req);
   if (!audio) { res.status(400).json({ error: "No audio received." }); return; }
-  const buf = Buffer.from(String(audio), "base64");
-  if (!buf.length) { res.status(400).json({ error: "Empty recording." }); return; }
-  if (buf.length > 8 * 1024 * 1024) { res.status(413).json({ error: "Recording is too long — keep it under a minute or two." }); return; }
+  const b64 = String(audio);
+  if (b64.length > 11 * 1024 * 1024) { res.status(413).json({ error: "Recording is too long — keep it under a minute or two." }); return; }
 
   try {
-    const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/openai/whisper`, {
+    // whisper-large-v3-turbo takes base64 JSON (the older whisper wanted raw
+    // bytes and rejected our body with "Request body is not valid json").
+    const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/openai/whisper-large-v3-turbo`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${CF_AI_TOKEN}` },
-      body: buf,
+      headers: { Authorization: `Bearer ${CF_AI_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ audio: b64 }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.success === false) {

@@ -6931,6 +6931,7 @@ function CtrStatusPill({t,onSet}){
 // Completed disappears from the task views and lands in this popup, with full
 // context (property, who completed it and when, assignment). Restorable.
 function CompletedTasksPopup({items,onRestore,onDelete,onClose}){
+  const isMobile=useIsMobile();
   const fmtD3=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});}catch{return "";}};
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
@@ -6945,7 +6946,8 @@ function CompletedTasksPopup({items,onRestore,onDelete,onClose}){
         <div style={{flex:1,overflowY:"auto"}}>
           {items.length===0&&<div style={{padding:"30px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>Nothing completed yet.</div>}
           {items.map(it=>(
-            <div key={it.key} style={{display:"flex",gap:10,alignItems:"center",padding:"11px 16px",borderBottom:`1px solid ${T.border}`,background:it.external?"#FFF9EC":"#fff"}}>
+            <SwipeToDelete key={it.key} onDelete={()=>onDelete&&onDelete(it)} confirm={`Delete "${it.text}" forever? It leaves the completed list too — this can't be undone.`}>
+            <div style={{display:"flex",gap:10,alignItems:"center",padding:"11px 16px",borderBottom:`1px solid ${T.border}`,background:it.external?"#FFF9EC":"#fff"}}>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:13.5,color:T.text,lineHeight:1.4}}>{it.text}</div>
                 <div style={{fontSize:11,color:T.textSub,marginTop:2,display:"flex",flexWrap:"wrap",gap:"2px 10px"}}>
@@ -6958,8 +6960,9 @@ function CompletedTasksPopup({items,onRestore,onDelete,onClose}){
                 </div>
               </div>
               <button onClick={()=>onRestore(it)} title="Put it back on the list as Not Started" style={{padding:"6px 12px",borderRadius:16,border:`1px solid ${T.gold}`,background:T.goldLight,color:"#8a6d1f",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↩ Restore</button>
-              {onDelete&&<button onClick={()=>onDelete(it)} title="Delete forever" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,flexShrink:0}}>🗑</button>}
+              {onDelete&&!isMobile&&<button onClick={()=>{if(window.confirm(`Delete "${it.text}" forever? This can't be undone.`))onDelete(it);}} title="Delete forever" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,flexShrink:0}}>×</button>}
             </div>
+            </SwipeToDelete>
           ))}
         </div>
       </div>

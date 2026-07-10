@@ -43,7 +43,7 @@ export function useSpeechToText({ value, onText, onError }) {
       mr.start();
       mrRef.current = mr;
       setRecOn(true);
-      timerRef.current = setTimeout(stopAll, 120000); // hard cap: 2 minutes
+      timerRef.current = setTimeout(stopAll, 300000); // hard cap: 5 minutes
     } catch { onError && onError("Microphone access was blocked — allow it in your browser settings, or use the keyboard 🎤."); }
   };
   useEffect(() => () => { clearTimeout(timerRef.current); stopAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps

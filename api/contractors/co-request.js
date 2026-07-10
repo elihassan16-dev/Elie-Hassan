@@ -15,9 +15,9 @@ export default async function handler(req, res) {
     const user = await requireAppUser(req);
     if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
     if (!SERVICE_ROLE) { res.status(503).json({ error: "Missing SUPABASE_SERVICE_ROLE_KEY env var." }); return; }
-    const { jobId, label, amount, note } = req.body || {};
+    const { jobId, label, amount, note, requestId } = req.body || {};
     const amt = Number(amount);
-    if (!jobId || !String(label || "").trim() || !amt) { res.status(400).json({ error: "A description and amount are required." }); return; }
+    if (!jobId || !amt || (!requestId && !String(label || "").trim())) { res.status(400).json({ error: "A description and amount are required." }); return; }
 
     const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
     const { data: u } = await db.from("users").select("name,role,contractor_org_id").eq("id", user.id).maybeSingle();
@@ -26,6 +26,24 @@ export default async function handler(req, res) {
     const isTeam = u && (u.role === "admin" || u.role === "member");
     const isOrg = u && u.role === "contractor" && String(u.contractor_org_id) === String(job.org_id);
     if (!isTeam && !isOrg) { res.status(403).json({ error: "Not your job." }); return; }
+
+    // Pricing a change order GOLDSTONE asked for (scope came from the team, no
+    // price yet): fill in the amount and hand it back as a normal pending request.
+    if (requestId) {
+      const reqs = (job.data || {}).coRequests || [];
+      const target = reqs.find((x) => String(x.id) === String(requestId));
+      if (!target) { res.status(404).json({ error: "That change-order request wasn't found." }); return; }
+      const updated = reqs.map((x) => String(x.id) === String(requestId) ? { ...x, amount: amt, by: u?.name || user.email || "", pricedAt: new Date().toISOString(), status: "pending" } : x);
+      const { error: e2 } = await db.from("contractor_jobs").update({ data: { ...(job.data || {}), coRequests: updated } }).eq("id", job.id);
+      if (e2) { res.status(500).json({ error: e2.message }); return; }
+      const mid = Date.now();
+      await db.from("contractor_messages").insert({
+        id: String(mid), org_id: job.org_id,
+        data: { id: mid, jobId: job.id, orgId: job.org_id, author: u?.name || "", side: "contractor", text: `🧾 Price for the requested change order: ${target.label} — $${amt.toLocaleString()}`, at: new Date().toISOString(), readBy: [u?.name || ""], taskRefId: `co:${target.id}`, taskRefText: `🧾 ${target.label}` },
+      });
+      res.status(200).json({ ok: true });
+      return;
+    }
 
     const request = { id: Date.now(), label: String(label).trim().slice(0, 200), amount: amt, note: String(note || "").trim().slice(0, 300), by: u?.name || user.email || "", at: new Date().toISOString(), status: "pending" };
     const data = { ...(job.data || {}), coRequests: [...((job.data || {}).coRequests || []), request] };

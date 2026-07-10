@@ -74,6 +74,7 @@ export function ContractorPortal() {
   const [evDraft, setEvDraft] = useState({ type: "rough", trade: "", date: "", time: "", note: "" });
   const [coReqOpen, setCoReqOpen] = useState(false); // change-order request form
   const [coReq, setCoReq] = useState({ label: "", amount: "" });
+  const [prAmt, setPrAmt] = useState({}); // price drafts for Goldstone-requested COs
   const [pricePop, setPricePop] = useState(false); // contract-price breakdown popup
   const [doneOpen, setDoneOpen] = useState(false); // ✓ completed-tasks popup
   const [err, setErr] = useState("");
@@ -343,7 +344,28 @@ export function ContractorPortal() {
                   <span style={{ color: T.textTert, fontSize: 11 }}>{c.date ? fmtDate(c.date) : ""}</span><b>{money(c.amount)}</b>
                 </div>
               ))}
-              {reqs.map((r) => {
+              {reqs.filter((r) => r.status === "awaiting_price").map((r) => {
+                const a = Number(String(prAmt[r.id] || "").replace(/[^0-9.]/g, ""));
+                const sendPrice = async () => {
+                  if (!a) return;
+                  try {
+                    await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, requestId: r.id, amount: a }) });
+                    notify(null, { toAdmins: true, title: `${org?.name || displayName} priced a change order`, body: `${r.label} — ${money(a)} · ${j.propertyAddress || ""}` });
+                    setPrAmt((p) => ({ ...p, [r.id]: "" }));
+                  } catch (ex) { setErr(ex.message || "Couldn't send the price."); }
+                };
+                return (
+                  <div key={r.id} style={{ background: T.goldLight, border: `1.5px dashed ${T.gold}`, borderRadius: 10, padding: "9px 11px", margin: "7px 0" }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text }}>🧾 Goldstone requested: {r.label}</div>
+                    <div style={{ fontSize: 10.5, color: "#8a6d1f", marginTop: 1 }}>Asked by {r.askedBy || "Goldstone"}{r.at ? ` · ${fmtDate(r.at)}` : ""} — send your price and they'll approve it.</div>
+                    <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
+                      <input value={prAmt[r.id] || ""} onChange={(e) => setPrAmt((p) => ({ ...p, [r.id]: e.target.value }))} inputMode="decimal" placeholder="$ your price" style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+                      <button onClick={sendPrice} disabled={!a} style={{ padding: "8px 15px", borderRadius: 9, border: "none", background: a ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: a ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>Send price</button>
+                    </div>
+                  </div>
+                );
+              })}
+              {reqs.filter((r) => r.status !== "awaiting_price").map((r) => {
                 const [txt, fg, bg] = r.status === "pending" ? ["Pending approval", "#B45309", "#FDE9C8"] : ["Denied", "#B42318", "#FFE1DE"];
                 return (
                   <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, padding: "5px 0", borderBottom: `1px solid ${T.border}`, opacity: r.status === "denied" ? 0.65 : 1 }}>
@@ -692,7 +714,7 @@ export function ContractorPortal() {
                 {tab === "messages" && (() => {
                   const openTasks = (tasks || []).filter((t) => String(t.jobId) === String(selJob.id) && !taskClosed(t.status));
                   // Change orders are message targets too — tag a message to one.
-                  const openCos = (selJob.coRequests || []).filter((r) => r.status === "pending").map((r) => ({ id: `co:${r.id}`, text: `🧾 ${r.label}` }));
+                  const openCos = (selJob.coRequests || []).filter((r) => r.status === "pending" || r.status === "awaiting_price").map((r) => ({ id: `co:${r.id}`, text: `🧾 ${r.label}` }));
                   const targets = [...openTasks.map((t) => ({ id: t.id, text: t.text, label: `↳ ${t.text}` })), ...openCos.map((c) => ({ id: c.id, text: c.text, label: c.text }))];
                   return (
                   <div style={{ background: T.card, borderTop: `1px solid ${T.border}`, padding: "10px 12px max(10px,env(safe-area-inset-bottom))", flexShrink: 0 }}>

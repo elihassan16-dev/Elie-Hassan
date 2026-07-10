@@ -300,6 +300,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   const thread = (messages || []).filter((m) => String(m.jobId) === String(j.id)).sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
   const [tab2, setTab2] = useState("overview");
   const [coDraft, setCoDraft] = useState(null);
+  const [askDraft, setAskDraft] = useState(null); // scope-only CO request TO them (they price it)
   const [pricePop, setPricePop] = useState(false); // original price + change orders
   const [payDraft, setPayDraft] = useState(null);
   const [qbPick, setQbPick] = useState(false);
@@ -322,6 +323,21 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length, tab2]);
 
   const addCO = async () => { const a = Number(numIn(coDraft.amount)); if (!a) return; await save("contractor_jobs", { ...j, changeOrders: [...(j.changeOrders || []), { id: Date.now(), label: coDraft.label.trim() || "Change order", amount: a, date: coDraft.date }] }); setCoDraft(null); notify(null, { toOrg: j.orgId, title: "Change order added", body: `${coDraft.label.trim() || "Change order"} — ${money(a)} · ${j.propertyAddress}` }); };
+  // Scope-only change-order request FROM Goldstone: no price attached — the
+  // contractor sends their price back, then it's approved like any request.
+  const sendAsk = async () => {
+    const label = (askDraft?.label || "").trim();
+    if (!label) return;
+    const r = { id: Date.now(), label: label.slice(0, 200), from: "team", askedBy: displayName, at: new Date().toISOString(), status: "awaiting_price", amount: null };
+    await save("contractor_jobs", { ...j, coRequests: [...(j.coRequests || []), r] });
+    notify(null, { toOrg: j.orgId, title: "Change order requested by Goldstone", body: `${label} — please send your price · ${j.propertyAddress}` });
+    save("contractor_messages", { id: Date.now() + 1, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: `🧾 Change order requested: ${label} — please send a price.`, at: new Date().toISOString(), readBy: [displayName], taskRefId: `co:${r.id}`, taskRefText: `🧾 ${label}` }).catch(() => {});
+    setAskDraft(null);
+  };
+  const cancelAsk = async (r) => {
+    await save("contractor_jobs", { ...j, coRequests: (j.coRequests || []).filter((x) => x.id !== r.id) });
+    notify(null, { toOrg: j.orgId, title: "Change order request withdrawn", body: `${r.label} · ${j.propertyAddress}` });
+  };
   // Contractor-submitted change-order requests: approving one is what actually
   // moves the contract price (it becomes a real change order).
   const decideCoReq = async (r, approve) => {
@@ -426,6 +442,17 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
             </div>
           </div>
         )}
+        {(j.coRequests || []).filter((r) => r.status === "awaiting_price").map((r) => (
+          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#FFF9EC", border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: "10px 13px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>🧾</span>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{r.label}</div>
+              <div style={{ fontSize: 10.5, color: "#8a6d1f" }}>Asked by {r.askedBy}{r.at ? ` · ${fmtDate(r.at)}` : ""}</div>
+            </div>
+            <span style={{ fontSize: 10.5, fontWeight: 800, color: "#B45309", background: "#FDE9C8", borderRadius: 12, padding: "3px 9px", flexShrink: 0 }}>WAITING ON THEIR PRICE</span>
+            {isAdmin && <button onClick={() => cancelAsk(r)} title="Withdraw this request" style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>}
+          </div>
+        ))}
         {(j.coRequests || []).filter((r) => r.status === "pending").map((r) => (
           <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#FFF9EC", border: `1.5px solid ${T.gold}`, borderRadius: 12, padding: "10px 13px", flexWrap: "wrap" }}>
             <span style={{ fontSize: 16, flexShrink: 0 }}>🧾</span>
@@ -455,7 +482,14 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           </div>
         </div>
         <div>
-          {secHdr("Change orders", isAdmin ? miniBtn("＋ Change order", () => setCoDraft({ label: "", amount: "", date: today() })) : null)}
+          {secHdr("Change orders", isAdmin ? <span style={{ display: "inline-flex", gap: 6 }}>{miniBtn("🧾 Ask them for a price", () => setAskDraft({ label: "" }))}{miniBtn("＋ Change order", () => setCoDraft({ label: "", amount: "", date: today() }))}</span> : null)}
+          {askDraft && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+              <input autoFocus value={askDraft.label} onChange={(e) => setAskDraft({ label: e.target.value })} onKeyDown={(e) => e.key === "Enter" && sendAsk()} placeholder="Scope of work you want priced — e.g. Frame out the basement bathroom" style={{ ...inp, flex: 1, minWidth: 200 }} />
+              <button onClick={sendAsk} style={goldBtn(!!(askDraft.label || "").trim())}>Send request</button>
+              <button onClick={() => setAskDraft(null)} style={{ padding: "8px 13px", borderRadius: 10, border: `1px solid ${T.border}`, background: "#fff", color: T.textSub, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+            </div>
+          )}
           {(j.changeOrders || []).map((c) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "5px 0", borderBottom: `1px solid ${T.border}` }}>
               <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</span>

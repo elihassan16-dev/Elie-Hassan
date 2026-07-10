@@ -8,6 +8,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { T } from "../theme";
 import { notify, uploadAttachment, qbAuthFetch, uploadStreamVideo, STREAM_VIDEO_CAP } from "../net";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
+import { openSowPdf } from "./sowPdf";
 
 const TASK_STATUSES = ["Not Started", "In Progress", "Completed", "N/A"];
 const stColor = (s) => s === "Completed" ? T.green : s === "In Progress" ? T.blue : s === "N/A" ? "#6b6b70" : T.textSub;
@@ -61,15 +62,8 @@ export const eventLabel = (ev) => {
 export const eventIcon = (ev) => (EVENT_TYPES.find((x) => x[0] === ev.type) || EVENT_TYPES[4])[1];
 const fmtClock = (t) => { if (!t) return ""; const [h, m] = String(t).split(":"); const d = new Date(); d.setHours(+h, +m || 0); return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); };
 
-// Branded printable Scope of Work — the browser's print dialog saves it as PDF.
-const escH = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-export const printSow = (job) => {
-  const w = window.open("", "_blank");
-  if (!w) return;
-  w.document.write(`<!doctype html><html><head><title>Scope of Work — ${escH(job.propertyAddress || "")}</title><style>body{font-family:Georgia,serif;max-width:700px;margin:40px auto;padding:0 20px;color:#222}h1{font-size:20px;color:#b8912e;margin:0 0 2px}h2{font-size:14px;margin:4px 0 0;color:#555;font-weight:normal}pre{white-space:pre-wrap;font-family:inherit;font-size:13.5px;line-height:1.65}.hd{border-bottom:2px solid #b8912e;padding-bottom:12px;margin-bottom:18px}.ft{margin-top:34px;font-size:11px;color:#888;border-top:1px solid #ddd;padding-top:10px}</style></head><body><div class="hd"><h1>Goldstone Properties — Scope of Work</h1><h2>${escH(job.propertyAddress || "")}${job.title ? ` · ${escH(job.title)}` : ""}</h2></div><pre>${escH(job.scope || "")}</pre><div class="ft">Prepared ${new Date().toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })} · Goldstone Properties · gpflips.com</div></body></html>`);
-  w.document.close();
-  setTimeout(() => { try { w.print(); } catch { /* user can print manually */ } }, 300);
-};
+// The SOW opens as a real PDF (generated on-device) — see ./sowPdf.js.
+export const openScopePdf = (job) => { if (job.sowPdfUrl) window.open(job.sowPdfUrl, "_blank"); else openSowPdf(job); };
 
 export function ContractorPortal() {
   const { displayName, contractorOrgId, signOut } = useAuth();
@@ -443,12 +437,9 @@ export function ContractorPortal() {
           </>)}
 
           {sec("Scope of work")}
-          {j.sowPdfUrl
-            ? <a href={j.sowPdfUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 14px", borderRadius: 12, border: `1px solid ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>📄 Scope of Work (PDF) — tap to open</a>
-            : <>
-                <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No written scope yet — upload your SOW below or ask Goldstone."}</div>
-                {j.scope && <button onClick={() => printSow(j)} style={{ marginTop: 8, padding: "6px 13px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>🖨 Print / save as PDF</button>}
-              </>}
+          {(j.scope || j.sowPdfUrl)
+            ? <button onClick={() => openScopePdf(j)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 15px", borderRadius: 12, border: `1px solid ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>📄 Open to view scope of work (PDF)</button>
+            : <div style={{ fontSize: 13, color: T.textTert, lineHeight: 1.5 }}>No written scope yet — upload your SOW below or ask Goldstone.</div>}
 
           {sec("Documents")}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
@@ -538,6 +529,7 @@ export function ContractorPortal() {
                 <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: taskClosed(t.status) ? 0.6 : 1 }}>{t.text}</div>
                 <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdBy ? `from ${t.createdBy.split(" ")[0]} · ` : ""}{t.createdAt ? fmtDate(t.createdAt) : ""}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${(t.statusBy || t.doneBy).split(" ")[0]}` : ""}</div>
               </div>
+              <button onClick={() => { setMsgTarget({ id: t.id, text: t.text }); setTab("messages"); }} title="Message Goldstone about this task" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 12, color: "#8a6d1f", cursor: "pointer", fontSize: 12, padding: "4px 9px", flexShrink: 0, fontFamily: "inherit" }}>💬</button>
               <StatusPill t={t} onSet={setTaskStatus} />
             </div>
           ))}
@@ -563,6 +555,7 @@ export function ContractorPortal() {
                 <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: taskClosed(t.status) ? 0.6 : 1 }}>{t.text}</div>
                 <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdAt ? fmtDate(t.createdAt) : ""}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${(t.statusBy || t.doneBy).split(" ")[0]}` : ""}</div>
               </div>
+              <button onClick={() => { setMsgTarget({ id: t.id, text: t.text }); setTab("messages"); }} title="Message Goldstone about this request" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 12, color: "#8a6d1f", cursor: "pointer", fontSize: 12, padding: "4px 9px", flexShrink: 0, fontFamily: "inherit" }}>💬</button>
               <StatusPill t={t} onSet={setTaskStatus} />
             </div>
           ))}
@@ -761,19 +754,16 @@ export function ContractorPortal() {
                                 <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selJob.propertyAddress || "")}`} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.blue, borderRadius: 14, padding: "4px 10px", textDecoration: "none" }}>📍 {selJob.propertyAddress || "Google Maps"}</a>
                                 {stRow2?.info?.lockbox && <span style={{ fontSize: 11, fontWeight: 700, color: T.text, background: T.bg, borderRadius: 14, padding: "4px 10px" }}>🔒 Lockbox: {stRow2.info.lockbox}</span>}
                               </div>
-                              {selJob.sowPdfUrl
-                                ? <a href={selJob.sowPdfUrl} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 9, padding: "11px 13px", borderRadius: 12, border: `1px solid ${T.gold}`, background: T.bg, textDecoration: "none" }}>
-                                    <span style={{ fontSize: 20, flexShrink: 0 }}>📄</span>
-                                    <span style={{ flex: 1, minWidth: 0 }}>
-                                      <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: T.text }}>Scope of Work (PDF)</span>
-                                      <span style={{ display: "block", fontSize: 11, color: T.textSub }}>Tap to open — everything to price is in here</span>
-                                    </span>
-                                    <span style={{ fontSize: 14, color: T.gold, flexShrink: 0 }}>›</span>
-                                  </a>
-                                : selJob.scope && (<>
-                                    <div style={{ maxHeight: 190, overflowY: "auto", background: T.bg, borderRadius: 10, padding: "9px 11px", fontSize: 12.5, color: T.textSub, whiteSpace: "pre-wrap", lineHeight: 1.55, marginTop: 9 }}>{selJob.scope}</div>
-                                    <button onClick={() => printSow(selJob)} style={{ marginTop: 7, padding: "6px 13px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>🖨 Scope of work — print / save as PDF</button>
-                                  </>)}
+                              {(selJob.scope || selJob.sowPdfUrl) && (
+                                <div onClick={() => openScopePdf(selJob)} style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 9, padding: "11px 13px", borderRadius: 12, border: `1px solid ${T.gold}`, background: T.bg, cursor: "pointer" }}>
+                                  <span style={{ fontSize: 20, flexShrink: 0 }}>📄</span>
+                                  <span style={{ flex: 1, minWidth: 0 }}>
+                                    <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: T.text }}>Open to view Scope of Work (PDF)</span>
+                                    <span style={{ display: "block", fontSize: 11, color: T.textSub }}>Everything to price is in here</span>
+                                  </span>
+                                  <span style={{ fontSize: 14, color: T.gold, flexShrink: 0 }}>›</span>
+                                </div>
+                              )}
                               {selJob.bidAmount
                                 ? <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 8 }}>You bid <b>{money(selJob.bidAmount)}</b>{selJob.bidAt ? ` on ${fmtDate(selJob.bidAt)}` : ""} — waiting on Goldstone. You can send an updated number below.</div>
                                 : <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 8 }}>Review the scope and send your price for the whole job — once Goldstone accepts, the full job (tasks, payments, status board) opens up here.</div>}

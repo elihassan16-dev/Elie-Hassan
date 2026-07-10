@@ -41,3 +41,12 @@ export function sowPdfFile(job) {
   const safe = String(job.propertyAddress || "job").replace(/[^a-zA-Z0-9 ,.-]/g, "").slice(0, 60);
   return new File([doc.output("blob")], `Scope of Work - ${safe}.pdf`, { type: "application/pdf" });
 }
+
+// One tap → the SOW opens as a real PDF in the browser's viewer (generated
+// on-device, nothing uploaded). Works on both the portal and admin sides.
+export function openSowPdf(job) {
+  const file = sowPdfFile(job);
+  const url = URL.createObjectURL(file);
+  window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 120000);
+}

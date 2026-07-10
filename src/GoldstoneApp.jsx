@@ -9,7 +9,7 @@ import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
 import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, STREAM_VIDEO_CAP } from "./net";
-import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage } from "./videoUpload";
+import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
@@ -13213,6 +13213,9 @@ export function GoldstoneShell(){
         return hit?next:prev;
       });
     });
+    // Restart any upload that died with the app (the file is kept on-device);
+    // hopeless ones get their message patched to a clear "didn't upload".
+    resumeVideoUploads();
     return()=>setVideoPatcher(null);
   },[setSharedProps,setOfficeMessages,setOfficeTasks,flushOfficeTasks]);
 

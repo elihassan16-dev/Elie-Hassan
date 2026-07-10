@@ -8,7 +8,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { T } from "../theme";
 import { notify, uploadAttachment, qbAuthFetch, STREAM_VIDEO_CAP } from "../net";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "../push";
-import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble } from "../videoUpload";
+import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble, resumeVideoUploads } from "../videoUpload";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { openSowPdf } from "./sowPdf";
 import { ContactShareModal, ContactCardBubble } from "../contactShare";
@@ -105,7 +105,7 @@ export function ContractorPortal() {
   const [pushPerm, setPushPerm] = useState(pushOk ? notificationPermission() : "unsupported");
   const [pushBusy, setPushBusy] = useState(false);
   const [pushHide, setPushHide] = useState(() => { try { return localStorage.getItem("ctrPushDismissed") === "1"; } catch { return false; } });
-  useEffect(() => { registerServiceWorker(); if (displayName) refreshSubscription(displayName); }, [displayName]);
+  useEffect(() => { registerServiceWorker(); if (displayName) refreshSubscription(displayName); resumeVideoUploads(); }, [displayName]);
   const turnOnPush = async () => {
     setPushBusy(true); setErr("");
     try { await enablePush(displayName); setPushPerm("granted"); }

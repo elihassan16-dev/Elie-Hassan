@@ -286,7 +286,8 @@ function QBPayPicker({ qbProjectId, orgName, existingQbIds, onAdd, onClose }) {
 }
 
 // ── Job detail — overview (money/docs), tasks, messages ──────────────────────
-function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages, docs, save, remove, displayName, onEditBasics, onClose }) {
+// Exported: the property page's Contacts tab opens the same popup.
+export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages, docs, save, remove, displayName, onEditBasics, onClose }) {
   const total = jobTotal(j), paid = jobPaid(j), left = jobLeft(j), days = jobDays(j);
   const jDocs = (docs || []).filter((d) => String(d.jobId) === String(j.id));
   const jTasks = (tasks || []).filter((t) => String(t.jobId) === String(j.id));
@@ -442,7 +443,7 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
           </div>
         ))}
         <div>
-          {secHdr("Scope of work", isAdmin ? miniBtn("✎ Edit basics", onEditBasics) : null)}
+          {secHdr("Scope of work", isAdmin && onEditBasics ? miniBtn("✎ Edit basics", onEditBasics) : null)}
           <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No scope written — edit the job or let the contractor upload their SOW PDF."}</div>
         </div>
         <div>

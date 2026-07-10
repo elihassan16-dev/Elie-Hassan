@@ -9,8 +9,8 @@ import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
 import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, uploadStreamVideo, STREAM_VIDEO_CAP } from "./net";
-import { ContractorsAdminPage } from "./contractors/ContractorsAdminPage";
-import { useContractorData, jobTotal as ctrJobTotal } from "./contractors/data";
+import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/ContractorsAdminPage";
+import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon } from "./contractors/ContractorPortal";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
@@ -4898,6 +4898,48 @@ function PropertyStatusBoard({property,onClose}){
   );
 }
 
+// 👷 Contractors working THIS property — shown on the Contacts tab with full job
+// control (money, change orders, tasks, messages): the exact same popup as the
+// Contractors section, opened from the property.
+function PropertyContractorsCard({property}){
+  const {isAdmin}=useAuth();
+  const {currentUser}=useData();
+  const {orgs:ctrOrgs,jobs:ctrJobs,tasks:ctrTasks,messages:ctrMessages,docs:ctrDocs,save:ctrSave,remove:ctrRemove}=useContractorData();
+  const[openJobId,setOpenJobId]=useState(null);
+  const pJobs=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(property.id)).sort((a,b)=>(a.status==="complete")-(b.status==="complete")||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
+  if(!pJobs.length)return null;
+  const orgOf=(oid)=>(ctrOrgs||[]).find(o=>String(o.id)===String(oid))||null;
+  const $=(n)=>`$${Number(n||0).toLocaleString()}`;
+  const openJob=pJobs.find(j=>String(j.id)===String(openJobId))||null;
+  return(
+    <>
+      <Card style={{marginBottom:16,border:`1.5px solid ${T.gold}`}}>
+        <div style={{padding:"12px 16px 10px",display:"flex",alignItems:"center",gap:8,background:"#FFF9EC"}}>
+          <span style={{fontSize:12,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em"}}>👷 Contractors on this property</span>
+          <span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
+        </div>
+        {pJobs.map(j=>{
+          const org=orgOf(j.orgId);
+          const total=ctrJobTotal(j),paid=ctrJobPaid(j);
+          const pend=(j.coRequests||[]).filter(r=>r.status==="pending").length;
+          const openT=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id)&&t.status!=="Completed"&&t.status!=="N/A").length;
+          return(
+            <div key={j.id} onClick={()=>setOpenJobId(j.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderTop:"1px solid rgba(184,149,63,0.25)",cursor:"pointer",background:"#FFF9EC",opacity:j.status==="complete"?0.6:1}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:14.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org?.name||"Contractor"}{j.title?` — ${j.title}`:""}</div>
+                <div style={{fontSize:12,color:"#8a6d1f",marginTop:2}}>{j.status==="complete"?"Job complete":`${$(paid)} paid of ${$(total)} · ${$(total-paid)} left`}{openT?` · ${openT} open task${openT!==1?"s":""}`:""}</div>
+              </div>
+              {pend>0&&<span title="Pending change-order requests" style={{fontSize:10.5,fontWeight:800,color:"#fff",background:T.red,borderRadius:12,padding:"3px 9px",flexShrink:0}}>🧾 {pend}</span>}
+              <span style={{fontSize:12,fontWeight:700,color:"#8a6d1f",flexShrink:0}}>Manage ›</span>
+            </div>
+          );
+        })}
+      </Card>
+      {openJob&&<CtrJobDetail j={openJob} org={orgOf(openJob.orgId)} isAdmin={isAdmin} qbProjectId={property.qbProjectId||null} tasks={ctrTasks} messages={ctrMessages} docs={ctrDocs} save={ctrSave} remove={ctrRemove} displayName={currentUser} onClose={()=>setOpenJobId(null)}/>}
+    </>
+  );
+}
+
 function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const { contacts: CONTACTS, teamMembers: TEAM_MEMBERS } = useData();
   const isMobile=useIsMobile();
@@ -5110,6 +5152,8 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
               </div>
             </Card>
             <AddFromDirectory avail={avail} onAdd={addC}/>
+            <div style={{height:16}}/>
+            <PropertyContractorsCard property={property}/>
           </div>
         )}
         {tab==="Files"&&<FilesTab property={property} onUpdate={onUpdate}/>}
@@ -5495,6 +5539,8 @@ function LeadDetail({lead,onUpdate}){
               </div>
             </Card>
             <AddFromDirectory avail={avail} onAdd={addC}/>
+            <div style={{height:16}}/>
+            <PropertyContractorsCard property={property}/>
           </div>
         )}
       </div>

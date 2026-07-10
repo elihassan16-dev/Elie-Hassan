@@ -335,6 +335,7 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
       title: approve ? "Change order approved ✓" : "Change order denied",
       body: `${r.label} — ${money(r.amount)}${approve ? ` · new contract total ${money(jobTotal(upd))}` : ""} · ${j.propertyAddress}`,
     });
+    save("contractor_messages", { id: Date.now() + 2, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: `🧾 Change order ${approve ? "approved ✓" : "denied"}: ${r.label} — ${money(r.amount)}`, at: new Date().toISOString(), readBy: [displayName] }).catch(() => {});
   };
   const addPay = async () => { const a = Number(numIn(payDraft.amount)); if (!a) return; await save("contractor_jobs", { ...j, payments: [...(j.payments || []), { id: Date.now(), amount: a, date: payDraft.date, note: payDraft.note.trim() }] }); setPayDraft(null); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(a)} — ${j.propertyAddress}` }); };
   const addTask = async () => { const txt = taskDraft.trim(); if (!txt) return; await save("contractor_tasks", { id: Date.now(), jobId: j.id, orgId: j.orgId, text: txt, status: "Not Started", direction: "to_contractor", createdBy: displayName, createdAt: new Date().toISOString() }); setTaskDraft(""); notify(null, { toOrg: j.orgId, title: "New task from Goldstone", body: `${txt} — ${j.propertyAddress}` }); };

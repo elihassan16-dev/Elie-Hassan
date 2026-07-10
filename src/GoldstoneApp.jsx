@@ -7238,8 +7238,17 @@ function TasksPage({onNavigate}){
   const { isAdmin, prefs, savePrefs } = useAuth();
   const isMobile=useIsMobile();
   // External (contractor) tasks show alongside internal ones, grouped by property.
-  const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, save:ctrSave, remove:ctrRemove } = useContractorData();
+  const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, siteStatus:ctrSiteStatus, save:ctrSave, remove:ctrRemove } = useContractorData();
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
+  // Desktop right rail: today's showings load once (best-effort).
+  const[railShowings,setRailShowings]=useState(null);
+  useEffect(()=>{
+    if(isMobile)return;
+    qbAuthFetch("/api/showings/status").then(st=>{
+      if(st&&st.configured)fetchShowingsShared().then(d=>setRailShowings(d.showings||[])).catch(()=>setRailShowings([]));
+      else setRailShowings([]);
+    }).catch(()=>setRailShowings([]));
+  },[isMobile]);
   const extByPid=useMemo(()=>{
     const m={};
     (ctrJobs||[]).forEach(j=>{
@@ -7606,6 +7615,8 @@ function TasksPage({onNavigate}){
       </div>
 
       <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
+      <div style={{display:isMobile?"block":"flex",gap:22,alignItems:"flex-start"}}>
+      <div style={{flex:"0 1 840px",minWidth:0}}>
 
         {/* One tidy chip row replaces the old stack of banners: 🔔 new · ✓ done ·
             👷 external · ☑ select. In select mode it becomes the bulk toolbar. */}
@@ -7856,6 +7867,87 @@ function TasksPage({onNavigate}){
             })()}
           </div>
         )}
+      </div>
+
+      {/* ── Desktop right rail: Today + Waiting on you ───────────────────── */}
+      {!isMobile&&!showAutomations&&(()=>{
+        const todayISO=localISO();
+        const today=[];
+        (sharedProps||[]).filter(p=>!p.archived).forEach(p=>CAL_EVENTS.forEach(e=>{
+          const date=String(e.get(p)||"").slice(0,10);if(!date)return;
+          const dismissed=!!(p.calDismissed||{})[`${e.type}:${date}`];
+          const addr=`${p.address||""}${p.city?`, ${p.city}`:""}`;
+          if(date===todayISO)today.push({key:`kd${e.type}${p.id}`,icon:e.icon,label:e.label,addr,pid:p.id,color:e.color});
+          else if(date<todayISO&&e.overdue(p)&&!dismissed)today.push({key:`od${e.type}${p.id}${date}`,icon:"⚠️",label:`${e.label} — overdue`,addr,pid:p.id,color:T.red});
+        }));
+        (ctrSiteStatus||[]).forEach(row=>(row.events||[]).forEach(ev=>{
+          if(String(ev.date||"").slice(0,10)!==todayISO)return;
+          today.push({key:`ev${ev.id}`,icon:ctrEventIcon(ev),label:`${ctrEventLabel(ev)}${ev.time?` · ${clock12(ev.time)}`:""}${ev.orgName?` · ${ev.orgName}`:""}`,addr:row.address||"",pid:row.id,color:"#B45309"});
+        }));
+        (railShowings||[]).forEach(s=>{
+          if(String(s.start||"").slice(0,10)!==todayISO)return;
+          const t=new Date(s.start);
+          today.push({key:`sh${s.start}${s.location||""}`,icon:"👥",label:`Showing${isNaN(t.getTime())?"":` · ${t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})}`}${s.agent?` · ${s.agent}`:""}`,addr:s.location||"",color:T.gold});
+        });
+        const bidsIn=(ctrJobs||[]).filter(j=>j.status==="bid"&&j.bidAmount);
+        const askedOfMe=extRequests.filter(r=>!ctrClosed(r.t.status)&&(r.t.askedOf||[]).includes(CURRENT_USER));
+        const $=(n)=>`$${Number(n||0).toLocaleString()}`;
+        const acceptBid=async(j)=>{await ctrSave("contractor_jobs",{...j,status:"active",price:Number(j.bidAmount)||0,startDate:new Date().toISOString().slice(0,10)});notify(null,{toOrg:j.orgId,title:"Bid accepted ✓",body:`${j.propertyAddress||""}${j.title?` — ${j.title}`:""} — ${$(j.bidAmount)}. You're hired.`});};
+        const declineBid=async(j)=>{if(!window.confirm(`Decline ${ctrOrgName(j.orgId)}'s ${$(j.bidAmount)} bid? The bid request is removed.`))return;await ctrRemove("contractor_jobs",j.id).catch(()=>{});notify(null,{toOrg:j.orgId,title:"Bid declined",body:`${j.propertyAddress||""}${j.title?` — ${j.title}`:""}`});};
+        const hdr=(icon,label,color)=><div style={{padding:"11px 14px 9px",borderBottom:bdr,fontSize:12,fontWeight:800,color,display:"flex",alignItems:"center",gap:6}}>{icon} {label}</div>;
+        const rowS={display:"flex",gap:9,alignItems:"flex-start",padding:"9px 14px",borderBottom:bdr};
+        return(
+          <div style={{width:300,flexShrink:0,position:"sticky",top:0,display:"flex",flexDirection:"column",gap:16}}>
+            <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
+              {hdr("📅","Today",T.text)}
+              {today.length===0&&<div style={{padding:"16px 14px",fontSize:12.5,color:T.textTert}}>Nothing scheduled today. 🎉</div>}
+              {today.slice(0,10).map(x=>(
+                <div key={x.key} onClick={()=>x.pid&&onNavigate&&onNavigate(x.pid)} style={{...rowS,cursor:x.pid?"pointer":"default"}}>
+                  <span style={{fontSize:14,flexShrink:0}}>{x.icon}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:700,color:x.color||T.text,lineHeight:1.35}}>{x.label}</div>
+                    {x.addr&&<div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.addr}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
+              {hdr("⏳","Waiting on you","#B45309")}
+              {pendingCoReqs.length===0&&bidsIn.length===0&&askedOfMe.length===0&&<div style={{padding:"16px 14px",fontSize:12.5,color:T.textTert}}>You're all caught up. ✓</div>}
+              {pendingCoReqs.map(({r,job,orgName,addr})=>(
+                <div key={"co"+r.id} style={{...rowS,background:"#FFF9EC",flexDirection:"column",gap:6,alignItems:"stretch"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:T.text}}>🧾 {r.label} — {$(r.amount)}</div>
+                  <div style={{fontSize:10.5,color:"#8a6d1f"}}>Change order · {orgName} · {addr}</div>
+                  {isAdmin&&<div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>decideCoReq(job,r,true)} style={{flex:1,padding:"6px 0",borderRadius:12,border:"none",background:T.green,color:"#fff",fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>✓ Approve</button>
+                    <button onClick={()=>decideCoReq(job,r,false)} style={{flex:1,padding:"6px 0",borderRadius:12,border:`1px solid ${T.red}`,background:"#fff",color:T.red,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>Deny</button>
+                  </div>}
+                </div>
+              ))}
+              {bidsIn.map(j=>(
+                <div key={"bid"+j.id} style={{...rowS,background:"#FFF9EC",flexDirection:"column",gap:6,alignItems:"stretch"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:T.text}}>💰 Bid: {$(j.bidAmount)} — {ctrOrgName(j.orgId)}</div>
+                  <div style={{fontSize:10.5,color:"#8a6d1f"}}>{j.propertyAddress||""}{j.title?` · ${j.title}`:""}{j.bidBy?` · by ${j.bidBy.split(" ")[0]}`:""}</div>
+                  {isAdmin&&<div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>acceptBid(j)} style={{flex:1,padding:"6px 0",borderRadius:12,border:"none",background:T.green,color:"#fff",fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>✓ Accept</button>
+                    <button onClick={()=>declineBid(j)} style={{flex:1,padding:"6px 0",borderRadius:12,border:`1px solid ${T.red}`,background:"#fff",color:T.red,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>Decline</button>
+                  </div>}
+                </div>
+              ))}
+              {askedOfMe.map(({t,job,orgName,addr})=>(
+                <div key={"ask"+t.id} onClick={()=>setExtChat({task:t,job})} style={{...rowS,cursor:"pointer"}}>
+                  <span style={{fontSize:14,flexShrink:0}}>👷</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:700,color:T.text,lineHeight:1.35}}>{t.text}</div>
+                    <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>asked of you · {orgName} · {addr}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+      </div>
       </div>
     </div>
   );

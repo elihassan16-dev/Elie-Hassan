@@ -31,6 +31,14 @@ export default async function handler(req, res) {
     const data = { ...(job.data || {}), coRequests: [...((job.data || {}).coRequests || []), request] };
     const { error } = await db.from("contractor_jobs").update({ data }).eq("id", job.id);
     if (error) { res.status(500).json({ error: error.message }); return; }
+    // Drop the request into the job's chat thread too (server-side, so it never
+    // gets skipped) — it shows in the property conversation on both sides.
+    const msgId = request.id + 1;
+    await db.from("contractor_messages").insert({
+      id: String(msgId),
+      org_id: job.org_id,
+      data: { id: msgId, jobId: job.id, orgId: job.org_id, author: request.by, side: "contractor", text: `🧾 Change order request: ${request.label} — $${amt.toLocaleString()}${request.note ? `\n${request.note}` : ""}`, at: request.at, readBy: [request.by], taskRefId: `co:${request.id}`, taskRefText: `🧾 ${request.label}` },
+    });
     res.status(200).json({ ok: true, request });
   } catch (e) {
     res.status(500).json({ error: e.message });

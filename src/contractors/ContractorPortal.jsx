@@ -332,8 +332,6 @@ export function ContractorPortal() {
               try {
                 await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, label: coReq.label.trim(), amount: amt }) });
                 notify(null, { toAdmins: true, title: `Change order request — ${org?.name || displayName}`, body: `${coReq.label.trim()} — ${money(amt)} · ${j.propertyAddress || ""}` });
-                // Drop it in the job's chat too, so it shows in the property thread on both sides.
-                save("contractor_messages", { id: Date.now() + 1, jobId: j.id, orgId: contractorOrgId, author: displayName, side: "contractor", text: `🧾 Change order request: ${coReq.label.trim()} — ${money(amt)}`, at: new Date().toISOString(), readBy: [displayName] }).catch(() => {});
                 setCoReqOpen(false); setCoReq({ label: "", amount: "" });
               } catch (ex) { setErr(ex.message || "Couldn't send the request."); }
             };
@@ -352,6 +350,7 @@ export function ContractorPortal() {
                     <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.textSub }}>{r.label}</span>
                     <b>{money(r.amount)}</b>
                     <span style={{ fontSize: 10, fontWeight: 800, color: fg, background: bg, borderRadius: 12, padding: "2px 8px", flexShrink: 0 }}>{txt}</span>
+                    <button onClick={() => { setMsgTarget({ id: `co:${r.id}`, text: `🧾 ${r.label}` }); setTab("messages"); }} title="Message Goldstone about this change order" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 12, color: "#8a6d1f", cursor: "pointer", fontSize: 12, padding: "3px 8px", flexShrink: 0, fontFamily: "inherit" }}>💬</button>
                   </div>
                 );
               })}
@@ -692,14 +691,17 @@ export function ContractorPortal() {
                 </div>
                 {tab === "messages" && (() => {
                   const openTasks = (tasks || []).filter((t) => String(t.jobId) === String(selJob.id) && !taskClosed(t.status));
+                  // Change orders are message targets too — tag a message to one.
+                  const openCos = (selJob.coRequests || []).filter((r) => r.status === "pending").map((r) => ({ id: `co:${r.id}`, text: `🧾 ${r.label}` }));
+                  const targets = [...openTasks.map((t) => ({ id: t.id, text: t.text, label: `↳ ${t.text}` })), ...openCos.map((c) => ({ id: c.id, text: c.text, label: c.text }))];
                   return (
                   <div style={{ background: T.card, borderTop: `1px solid ${T.border}`, padding: "10px 12px max(10px,env(safe-area-inset-bottom))", flexShrink: 0 }}>
-                    {openTasks.length > 0 && (
+                    {targets.length > 0 && (
                       <div style={{ display: "flex", gap: 6, alignItems: "center", overflowX: "auto", marginBottom: 8, paddingBottom: 2 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: T.textTert, flexShrink: 0 }}>Posting to:</span>
                         <button onClick={() => setMsgTarget(null)} style={{ flexShrink: 0, padding: "4px 11px", borderRadius: 14, border: `1px solid ${!msgTarget ? T.gold : T.border}`, background: !msgTarget ? T.goldLight : T.bg, color: !msgTarget ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>💬 General</button>
-                        {openTasks.map((t) => { const on = msgTarget && String(msgTarget.id) === String(t.id); return (
-                          <button key={t.id} onClick={() => setMsgTarget(on ? null : { id: t.id, text: t.text })} title={t.text} style={{ flexShrink: 0, padding: "4px 11px", borderRadius: 14, border: `1px solid ${on ? T.gold : T.border}`, background: on ? T.goldLight : T.bg, color: on ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis" }}>↳ {t.text}</button>
+                        {targets.map((t) => { const on = msgTarget && String(msgTarget.id) === String(t.id); return (
+                          <button key={t.id} onClick={() => setMsgTarget(on ? null : { id: t.id, text: t.text })} title={t.text} style={{ flexShrink: 0, padding: "4px 11px", borderRadius: 14, border: `1px solid ${on ? T.gold : T.border}`, background: on ? T.goldLight : T.bg, color: on ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</button>
                         ); })}
                       </div>
                     )}

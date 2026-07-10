@@ -11,7 +11,7 @@ import { useData } from "../data/DataProvider";
 import { T } from "../theme";
 import { notify, qbAuthFetch, uploadAttachment, uploadStreamVideo, STREAM_VIDEO_CAP } from "../net";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
-import { printSow } from "./ContractorPortal";
+import { openSowPdf } from "./sowPdf";
 
 const inp = { width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" };
 const lbl = { display: "block", fontSize: 11, fontWeight: 700, color: T.textSub, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 };
@@ -471,7 +471,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           </div>
         ))}
         <div>
-          {secHdr("Scope of work", <span style={{ display: "inline-flex", gap: 6 }}>{j.sowPdfUrl ? miniBtn("📄 Open PDF", () => window.open(j.sowPdfUrl, "_blank")) : null}{j.scope ? miniBtn("🖨 Print", () => printSow(j)) : null}{isAdmin && onEditBasics ? miniBtn("✎ Edit basics", onEditBasics) : null}</span>)}
+          {secHdr("Scope of work", <span style={{ display: "inline-flex", gap: 6 }}>{j.scope ? miniBtn("📄 Open PDF", () => openSowPdf(j)) : null}{isAdmin && onEditBasics ? miniBtn("✎ Edit basics", onEditBasics) : null}</span>)}
           <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No scope written — edit the job or let the contractor upload their SOW PDF."}</div>
         </div>
         <div>

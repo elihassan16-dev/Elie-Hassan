@@ -7330,14 +7330,32 @@ function TasksPage({onNavigate}){
 
       <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
 
-        {/* Recently-assigned-to-me banner + popup */}
-        {!showAutomations&&(
-          <button onClick={()=>setShowRecent(true)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",maxWidth:840,padding:"11px 14px",marginBottom:14,borderRadius:T.radius,border:`1px solid ${recentAssigned.length?T.gold:T.border}`,background:recentAssigned.length?T.goldLight:T.card,color:recentAssigned.length?T.gold:T.textSub,fontWeight:600,fontSize:13.5,cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,textAlign:"left"}}>
-            <span style={{fontSize:16}}>🔔</span>
-            <span style={{flex:1}}>{recentAssigned.length>0?`${recentAssigned.length} task${recentAssigned.length>1?"s":""} assigned to you in the last 48 hours`:"Recently assigned to you (last 48 hours)"}</span>
-            <span style={{fontSize:12,fontWeight:700}}>View ›</span>
-          </button>
-        )}
+        {/* One tidy chip row replaces the old stack of banners: 🔔 new · ✓ done ·
+            👷 external · ☑ select. In select mode it becomes the bulk toolbar. */}
+        {!showAutomations&&(()=>{
+          const chip=(fg,bg,on=true)=>({display:"inline-flex",alignItems:"center",gap:6,padding:"8px 13px",borderRadius:20,border:`1px solid ${on?fg:T.border}`,background:on?bg:T.card,color:on?fg:T.textSub,fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,whiteSpace:"nowrap"});
+          const cnt=(n,bg)=><span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:9,background:bg,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>{n}</span>;
+          return(
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14,maxWidth:840}}>
+              {!selectMode?(<>
+                <button onClick={()=>setShowRecent(true)} style={chip("#b8912e",T.goldLight,recentAssigned.length>0)}>🔔 New{recentAssigned.length>0&&cnt(recentAssigned.length,T.gold)}</button>
+                {completedItems.length>0&&<button onClick={()=>setCompletedOpen(true)} style={chip("#15803D","#EDFBF1")}>✓ Done{cnt(completedItems.length,T.green)}</button>}
+                {extRequests.length>0&&<button onClick={()=>setExtReqOpen(true)} style={chip("#8a6d1f","#FFF9EC")}>👷 External{openExtCount>0&&cnt(openExtCount,T.red)}</button>}
+                <div style={{flex:1}}/>
+                {filteredDisplay.length>0&&<button onClick={()=>setSelectMode(true)} style={chip(T.textSub,T.card,false)}>☑ Select</button>}
+              </>):(<>
+                <span style={{fontSize:13,fontWeight:600,color:T.text}}>{selectedKeys.size} selected</span>
+                <select value="" onChange={e=>{if(e.target.value)setSelectedStatus(e.target.value);}} disabled={selectedKeys.size===0}
+                  style={{padding:"6px 10px",borderRadius:20,border:`1px solid ${T.border}`,background:selectedKeys.size?T.card:T.bg,color:selectedKeys.size?T.text:T.textTert,fontSize:12,fontWeight:600,cursor:selectedKeys.size?"pointer":"default",fontFamily:"inherit",outline:"none"}}>
+                  <option value="">Mark as…</option>
+                  {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+                </select>
+                <button onClick={deleteSelected} disabled={selectedKeys.size===0} style={{padding:"6px 14px",borderRadius:20,border:"none",background:selectedKeys.size?T.red:T.border,color:"#fff",fontSize:12,fontWeight:700,cursor:selectedKeys.size?"pointer":"default",fontFamily:"inherit"}}>🗑 Delete</button>
+                <button onClick={()=>{setSelectMode(false);setSelectedKeys(new Set());}} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+              </>)}
+            </div>
+          );
+        })()}
         {showRecent&&<RecentAssignedModal tasks={recentAssigned} currentUser={CURRENT_USER} onClose={()=>setShowRecent(false)} onOpenTask={(t)=>{setShowRecent(false);if(t.propId!==OFFICE_TASK_PID&&onNavigate)onNavigate(t.propId);}}/>}
 
         {!showAutomations&&(()=>{
@@ -7487,24 +7505,6 @@ function TasksPage({onNavigate}){
               <div style={{marginLeft:"auto",fontSize:12,color:T.textSub}}>{filteredDisplay.length} tasks</div>
             </div>}
 
-            {/* Select / bulk-actions toolbar */}
-            {filteredDisplay.length>0&&(
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap"}}>
-                {!selectMode
-                  ? <button onClick={()=>setSelectMode(true)} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>☑ Select</button>
-                  : <>
-                      <span style={{fontSize:13,fontWeight:600,color:T.text}}>{selectedKeys.size} selected</span>
-                      <select value="" onChange={e=>{if(e.target.value)setSelectedStatus(e.target.value);}} disabled={selectedKeys.size===0}
-                        style={{padding:"6px 10px",borderRadius:20,border:`1px solid ${T.border}`,background:selectedKeys.size?T.card:T.bg,color:selectedKeys.size?T.text:T.textTert,fontSize:12,fontWeight:600,cursor:selectedKeys.size?"pointer":"default",fontFamily:"inherit",outline:"none"}}>
-                        <option value="">Mark as…</option>
-                        {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-                      </select>
-                      <button onClick={deleteSelected} disabled={selectedKeys.size===0} style={{padding:"6px 14px",borderRadius:20,border:"none",background:selectedKeys.size?T.red:T.border,color:"#fff",fontSize:12,fontWeight:700,cursor:selectedKeys.size?"pointer":"default",fontFamily:"inherit"}}>🗑 Delete</button>
-                      <button onClick={()=>{setSelectMode(false);setSelectedKeys(new Set());}} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
-                    </>}
-              </div>
-            )}
-
             {filteredDisplay.length===0&&(
               <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,padding:40,textAlign:"center",color:T.textTert,fontSize:14}}>
                 {views.has("my")?"No tasks assigned to you yet."
@@ -7515,30 +7515,7 @@ function TasksPage({onNavigate}){
               </div>
             )}
 
-            {/* Completed tasks banner — everything marked done lives in this popup */}
-            {completedItems.length>0&&(
-              <button onClick={()=>setCompletedOpen(true)} style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"12px 14px",marginBottom:14,borderRadius:T.radius,border:`1.5px solid ${T.green}`,background:"#EDFBF1",cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,textAlign:"left"}}>
-                <span style={{fontSize:20,flexShrink:0}}>✓</span>
-                <span style={{flex:1,minWidth:0}}>
-                  <span style={{display:"block",fontSize:13.5,fontWeight:800,color:T.text}}>Completed tasks</span>
-                  <span style={{display:"block",fontSize:11.5,color:"#15803D"}}>{completedItems.length} done — tucked away here, tap to review or restore</span>
-                </span>
-                <span style={{fontSize:15,color:"#15803D",flexShrink:0}}>›</span>
-              </button>
-            )}
             {completedOpen&&<CompletedTasksPopup items={completedItems} onRestore={restoreCompleted} onDelete={deleteCompleted} onClose={()=>setCompletedOpen(false)}/>}
-            {/* External requests banner — every ask from every contractor, one tap away */}
-            {extRequests.length>0&&(
-              <button onClick={()=>setExtReqOpen(true)} style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"12px 14px",marginBottom:14,borderRadius:T.radius,border:`1.5px solid ${T.gold}`,background:"#FFF9EC",cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,textAlign:"left"}}>
-                <span style={{fontSize:20,flexShrink:0}}>👷</span>
-                <span style={{flex:1,minWidth:0}}>
-                  <span style={{display:"block",fontSize:13.5,fontWeight:800,color:T.text}}>External requests</span>
-                  <span style={{display:"block",fontSize:11.5,color:"#8a6d1f"}}>{openExtCount?`${openExtCount} open request${openExtCount!==1?"s":""} from your contractors`:"All handled — tap to review"}</span>
-                </span>
-                {openExtCount>0&&<span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:10,background:T.red,color:"#fff",fontSize:11.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{openExtCount}</span>}
-                <span style={{fontSize:15,color:"#8a6d1f",flexShrink:0}}>›</span>
-              </button>
-            )}
             {extReqOpen&&<ExternalRequestsPopup requests={extRequests} onSetStatus={setExtTaskStatus} onChat={(x)=>setExtChat(x)} onClose={()=>setExtReqOpen(false)}/>}
             {/* Group by property, then apply my personal "sent to bottom" order:
                 pushed properties sink below the rest, most-recently-pushed last. */}

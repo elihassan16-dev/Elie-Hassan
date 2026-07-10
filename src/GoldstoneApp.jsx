@@ -7173,7 +7173,9 @@ function TasksPage({onNavigate}){
     const m={};
     (ctrJobs||[]).forEach(j=>{
       if(j.status==="complete")return;
-      const rows=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id));
+      // Completed external tasks live in the ✓ popup — they don't spawn an
+      // (empty) amber section or keep a property card alive here.
+      const rows=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id)&&t.status!=="Completed");
       if(rows.length)(m[String(j.propertyId)]=m[String(j.propertyId)]||[]).push({job:j,rows:rows.sort((a,b)=>ctrClosed(a.status)-ctrClosed(b.status)||String(b.createdAt||"").localeCompare(String(a.createdAt||"")))});
     });
     return m;
@@ -7723,6 +7725,9 @@ function TasksPage({onNavigate}){
                 groups.push({addr:prop?`${prop.address}${prop.city?`, ${prop.city}`:""}`:(extByPid[pid][0]?.job?.propertyAddress||"Property"),ptasks:[],gi:groups.length,pid,propStatus:prop?.status});
               });
               return groups
+              // No visible work → no card: everything done (or hidden) drops the
+              // property from the list entirely instead of leaving an empty box.
+              .filter(g=>g.ptasks.some(t=>!hideDone(t))||(extByPid[String(g.pid)]||[]).length>0)
               .sort((a,b)=>{const pa=propPushOrder[String(a.pid)]||0,pb=propPushOrder[String(b.pid)]||0;if(pa&&pb)return pa-pb;if(pa)return 1;if(pb)return -1;return a.gi-b.gi;})
               .map(({addr,ptasks,pid,propStatus})=>(
               <div key={addr} style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14}}>

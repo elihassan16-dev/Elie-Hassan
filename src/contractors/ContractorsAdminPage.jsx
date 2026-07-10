@@ -13,6 +13,7 @@ import { notify, qbAuthFetch, uploadAttachment, uploadStreamVideo, STREAM_VIDEO_
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { openSowPdf } from "./sowPdf";
 import { useSpeechToText, micBtnStyle, micGlyph } from "../useSpeech";
+import { ContactCardBubble } from "../contactShare";
 
 const inp = { width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" };
 const lbl = { display: "block", fontSize: 11, fontWeight: 700, color: T.textSub, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 };
@@ -647,7 +648,9 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
                 {m.replyTo && <div style={{ fontSize: 11, marginBottom: 4, padding: "4px 8px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 5, background: mine ? "rgba(255,255,255,0.15)" : "#fff", color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
                 {m.taskRefText && <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 3, color: mine ? "rgba(255,255,255,0.9)" : "#8a6d1f" }}>↳ Task: {m.taskRefText}</div>}
                 {m.text}
-                {m.attachment && (m.attachment.kind === "image"
+                {m.attachment && (m.attachment.kind === "contact" && m.attachment.contact
+                  ? <ContactCardBubble c={m.attachment.contact} mine={mine} />
+                  : m.attachment.kind === "image"
                   ? <a href={m.attachment.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={m.attachment.url} alt="" style={{ maxWidth: 200, maxHeight: 220, borderRadius: 9, display: "block", objectFit: "cover" }} /></a>
                   : m.attachment.kind === "video" && m.attachment.stream
                   ? <iframe src={m.attachment.url} title={m.attachment.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ marginTop: 6, width: "min(300px,70vw)", aspectRatio: "16/9", border: "none", borderRadius: 9, display: "block", background: "#000" }} />

@@ -12,6 +12,7 @@ import { qbAuthFetch, notify, uploadAttachment, attachmentKind, uploadStreamVide
 import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
+import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon } from "./contractors/ContractorPortal";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
@@ -4752,6 +4753,9 @@ const PERMIT_COLS=[
   ["permitInsp","permitInspBy",[["","Inspections?"],["rough","Rough passed ✓"],["final","Final passed ✓"],["none","None passed yet"]]],
 ];
 const PERMIT_VAL_COLOR={yes:["#15803D","#EDFBF1"],na:["#6b6b70","#E9E9EE"],approved:["#15803D","#EDFBF1"],not_approved:["#B42318","#FFF0EF"],rough:["#B45309","#FFF7E8"],final:["#15803D","#EDFBF1"],none:["#B42318","#FFF0EF"]};
+// Certificate of Occupancy — its own two-way row on the status board.
+const CO_OPTS=[["","Not set"],["not_filed","Not filed"],["filed","Filed ✓"],["inspection","Inspection scheduled"],["passed","Passed ✓"],["failed","Not passed"]];
+const CO_COLOR={not_filed:["#B42318","#FFF0EF"],filed:["#15803D","#EDFBF1"],inspection:["#B45309","#FFF7E8"],passed:["#15803D","#EDFBF1"],failed:["#B42318","#FFF0EF"]};
 function PropertyStatusBoard({property,onClose}){
   const{currentUser}=useData()||{};
   const{jobs:ctrJobs,tasks:ctrTasks,siteStatus,save:ctrSave}=useContractorData();
@@ -4792,6 +4796,7 @@ function PropertyStatusBoard({property,onClose}){
   };
   const setUtil=(u,v)=>{write({utilities:{...(st.utilities||{}),[u]:v},utilitiesAuto:{...(st.utilitiesAuto||{}),[u]:false},utilitiesBy:{...(st.utilitiesBy||{}),[u]:stamp}});notifyOrgs(`${UTIL_DEFS.find(x=>x[0]===u)?.[2]||u} turned ${v.toUpperCase()} by ${currentUser}`);};
   const setPermitCol=(field,byField,k,v,opts)=>{write({[field]:{...(st[field]||{}),[k]:v},[byField]:{...(st[byField]||{}),[k]:stamp}});if(v)notifyOrgs(`${PERMIT_DEFS.find(x=>x[0]===k)?.[2]||k} permit — ${(opts.find(o=>o[0]===v)||[])[1]||v} (${currentUser})`);};
+  const setCo=(v)=>{write({co:v,coBy:stamp});if(v)notifyOrgs(`Certificate of Occupancy — ${(CO_OPTS.find(o=>o[0]===v)||[])[1]||v} (${currentUser})`);};
   const byCap=(m)=>m&&m.by?`${m.by.split(" ")[0]}${m.at?` · ${new Date(m.at).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`:""}`:null;
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:420,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
@@ -4850,6 +4855,19 @@ function PropertyStatusBoard({property,onClose}){
                 </div>
               );
             })}
+          </div>
+          <div style={{fontSize:11,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",margin:"18px 0 8px"}}>Certificate of Occupancy</div>
+          <div style={{display:"flex",alignItems:"center",gap:10,background:T.bg,borderRadius:12,padding:"9px 12px"}}>
+            <span style={{fontSize:17,flexShrink:0}}>🏛</span>
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{display:"block",fontSize:13,fontWeight:700,color:T.text}}>CO</span>
+              {byCap(st.coBy)&&<span style={{display:"block",fontSize:9,fontWeight:700,color:T.textTert}}>{byCap(st.coBy)}</span>}
+            </span>
+            {(()=>{const v=st.co||"";const[fg,bg]=CO_COLOR[v]||[T.textSub,"#fff"];return(
+              <select value={v} onChange={e=>setCo(e.target.value)} style={{flex:1,maxWidth:220,minWidth:0,padding:"7px 6px",borderRadius:10,border:`1px solid ${v?fg:T.border}`,background:bg,color:v?fg:T.textTert,fontWeight:700,fontSize:11.5,fontFamily:"inherit",cursor:"pointer"}}>
+                {CO_OPTS.map(([ov,ol])=><option key={ov} value={ov}>{ol}</option>)}
+              </select>
+            );})()}
           </div>
           {(()=>{
             const evs=(st.events||[]).filter(ev=>String(ev.date||"")>=localISO()).sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.time||"").localeCompare(String(b.time||"")));
@@ -8601,6 +8619,7 @@ const iconBtn={width:40,height:40,flexShrink:0,borderRadius:"50%",border:`1px so
 // "Save to Files" button under PDFs/photos someone sent in chat: the attachment is
 // pulled from storage and uploaded into the property's OneDrive/SharePoint folder.
 function MessageAttachment({att,mine,saveFolder}){
+  if(att&&att.kind==="contact"&&att.contact)return <ContactCardBubble c={att.contact} mine={mine}/>;
   const od=useOneDrive();
   const[sv,setSv]=useState(""); // "" | "saving" | "done" | error text
   if(!att||!att.url)return null;
@@ -8674,6 +8693,11 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
   const[pendingAtt,setPendingAtt]=useState(null); // attachment staged, not yet sent
   const[pct,setPct]=useState(0); // big-video upload progress
   const{recOn:aiRecOn,busy:aiRecBusy,toggleRec:toggleAiRec}=useSpeechToText({value:aiPrompt,onText:setAiPrompt,onError:setErr});
+  // 👤 share a contact — from the app's directory, the phone (where supported), or typed in.
+  const[contactShare,setContactShare]=useState(false);
+  const dataCtx=useData()||{};
+  const shareableContacts=useMemo(()=>((dataCtx.contacts)||[]).map(c=>{const n=normContact(c);return{name:n.name||"",phone:(n.phones&&n.phones[0]&&n.phones[0].number)||"",email:n.email||"",company:n.company||"",role:n.role||""};}).filter(c=>c.name),[dataCtx.contacts]);
+  const stageContact=(c)=>{setPendingAtt({kind:"contact",url:"contact:",name:c.name,mime:"text/vcard",contact:c});setContactShare(false);};
   const fileRef=useRef(null);
   const mrRef=useRef(null);
   const chunksRef=useRef([]);
@@ -8828,7 +8852,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
             ? <img src={pendingAtt.url} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"cover",flexShrink:0}}/>
             : <span style={{fontSize:24,flexShrink:0}}>{pendingAtt.kind==="audio"?"🎤":"📄"}</span>}
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:12,fontWeight:700,color:T.text}}>{pendingAtt.kind==="audio"?"Voice note ready":pendingAtt.kind==="image"?"Photo ready":pendingAtt.kind==="video"?"Video ready":"File ready"}</div>
+            <div style={{fontSize:12,fontWeight:700,color:T.text}}>{pendingAtt.kind==="audio"?"Voice note ready":pendingAtt.kind==="image"?"Photo ready":pendingAtt.kind==="video"?"Video ready":pendingAtt.kind==="contact"?`Contact ready — ${pendingAtt.name}`:"File ready"}</div>
             <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tagOptions.length?"Tag someone below, then Send":(pendingAtt.name||"Ready to send")}</div>
           </div>
           <button onClick={()=>setPendingAtt(null)} title="Remove" style={{background:"none",border:"none",color:T.textTert,fontSize:20,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
@@ -8896,17 +8920,19 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
             <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, video, PDF, or spreadsheet" style={ib}>📎</button>
             <button onClick={startRec} disabled={busy} title="Record a voice note" style={ib}>🎤</button>
             <button onClick={()=>setAiOpen(v=>!v)} disabled={busy} title="Let AI draft this message" style={{...ib,...(aiOpen?{background:T.goldLight,borderColor:T.gold}:{})}}>✨</button>
+            <button onClick={()=>setContactShare(true)} disabled={busy} title="Share a contact card" style={ib}>👤</button>
             {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...ib,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
             <textarea ref={taRef} rows={1} value={text} onChange={e=>setText(e.target.value)} onPaste={onPasteFiles}
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(canSend)send();}}}
               placeholder={busy?(pct?`Uploading video… ${pct}%`:"Uploading…"):(pendingAtt?"Add a caption… (optional)":ph)} disabled={busy}
               style={{flex:1,minWidth:0,padding:isMobile?"8px 12px":"11px 14px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
-            <button onClick={()=>send()} disabled={!canSend} style={{padding:isMobile?"8px 14px":"10px 18px",borderRadius:22,background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:isMobile?13:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
+            <button onClick={()=>send()} disabled={!canSend} style={isMobile?{width:36,height:36,borderRadius:"50%",background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:0}:{padding:"10px 18px",borderRadius:22,background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{isMobile?"➤":"Send"}</button>
           </>
         )}
       </div>
         );
       })()}
+      {contactShare&&<ContactShareModal webContacts={shareableContacts} onPick={stageContact} onClose={()=>setContactShare(false)}/>}
     </div>
   );
 }

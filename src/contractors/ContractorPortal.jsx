@@ -9,6 +9,7 @@ import { T } from "../theme";
 import { notify, uploadAttachment, qbAuthFetch, uploadStreamVideo, STREAM_VIDEO_CAP } from "../net";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { openSowPdf } from "./sowPdf";
+import { ContactShareModal, ContactCardBubble } from "../contactShare";
 
 const TASK_STATUSES = ["Not Started", "In Progress", "Completed", "N/A"];
 const stColor = (s) => s === "Completed" ? T.green : s === "In Progress" ? T.blue : s === "N/A" ? "#6b6b70" : T.textSub;
@@ -32,7 +33,9 @@ function useIsMobile(bp = 768) {
 }
 
 function Att({ att }) {
-  if (!att || !att.url) return null;
+  if (!att) return null;
+  if (att.kind === "contact" && att.contact) return <ContactCardBubble c={att.contact} mine={false} />;
+  if (!att.url) return null;
   if (att.kind === "image") return <a href={att.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={att.url} alt={att.name || "photo"} style={{ maxWidth: 220, maxHeight: 260, borderRadius: 10, display: "block", objectFit: "cover" }} /></a>;
   if (att.kind === "video" && att.stream) return <iframe src={att.url} title={att.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ marginTop: 6, width: "min(320px,72vw)", aspectRatio: "16/9", border: "none", borderRadius: 10, display: "block", background: "#000" }} />;
   if (att.kind === "video") return <video src={att.url} controls playsInline preload="metadata" style={{ marginTop: 6, maxWidth: 240, width: "100%", maxHeight: 300, borderRadius: 10, display: "block", background: "#000" }} />;
@@ -50,6 +53,9 @@ const PERMIT_COLS = [
   ["permitInsp", "permitInspBy", [["", "Inspections?"], ["rough", "Rough passed ✓"], ["final", "Final passed ✓"], ["none", "None passed yet"]]],
 ];
 const PERMIT_VAL_COLOR = { yes: ["#15803D", "#EDFBF1"], na: ["#6b6b70", "#E9E9EE"], approved: ["#15803D", "#EDFBF1"], not_approved: ["#B42318", "#FFF0EF"], rough: ["#B45309", "#FFF7E8"], final: ["#15803D", "#EDFBF1"], none: ["#B42318", "#FFF0EF"] };
+// Certificate of Occupancy — its own two-way row, mirrored with Goldstone.
+const CO_OPTS = [["", "Not set"], ["not_filed", "Not filed"], ["filed", "Filed ✓"], ["inspection", "Inspection scheduled"], ["passed", "Passed ✓"], ["failed", "Not passed"]];
+const CO_COLOR = { not_filed: ["#B42318", "#FFF0EF"], filed: ["#15803D", "#EDFBF1"], inspection: ["#B45309", "#FFF7E8"], passed: ["#15803D", "#EDFBF1"], failed: ["#B42318", "#FFF0EF"] };
 
 // Events a contractor can put on the shared schedule (they land on Goldstone's
 // calendar too). Inspections carry which trade it's for.
@@ -232,6 +238,20 @@ export function ContractorPortal() {
                       </div>
                     );
                   })}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", margin: "18px 0 8px" }}>Certificate of Occupancy</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, background: T.bg, borderRadius: 12, padding: "9px 12px" }}>
+                  <span style={{ fontSize: 17, flexShrink: 0 }}>🏛</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: T.text }}>CO</span>
+                    {byCap(st.coBy) && <span style={{ display: "block", fontSize: 8.5, fontWeight: 700, color: T.textTert }}>{byCap(st.coBy)}</span>}
+                  </span>
+                  {(() => { const v = st.co || ""; const [fg, bg] = CO_COLOR[v] || [T.textSub, "#fff"]; return (
+                    <select value={v} onChange={(e) => writeStatus({ co: e.target.value, coBy: stamp }, e.target.value ? `Certificate of Occupancy — ${(CO_OPTS.find((o) => o[0] === e.target.value) || [])[1]}` : null)}
+                      style={{ flex: 1, maxWidth: 200, minWidth: 0, padding: "7px 4px", borderRadius: 10, border: `1px solid ${v ? fg : T.border}`, background: bg, color: v ? fg : T.textTert, fontWeight: 700, fontSize: 11, fontFamily: "inherit", cursor: "pointer" }}>
+                      {CO_OPTS.map(([ov, ol]) => <option key={ov} value={ov}>{ol}</option>)}
+                    </select>
+                  ); })()}
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 14, alignItems: "center" }}>
                   {st.info?.parcel && <span style={{ fontSize: 11, fontWeight: 700, color: T.text, background: T.bg, borderRadius: 14, padding: "4px 10px" }}>📐 Block/Lot: {st.info.parcel}</span>}
@@ -579,6 +599,7 @@ export function ContractorPortal() {
   const [replyTo, setReplyTo] = useState(null); // {id,author,text} → quote-reply to a message
   const [msgTags, setMsgTags] = useState([]); // Goldstone names to tag ([] = everyone)
   const [tagOpen, setTagOpen] = useState(false);
+  const [contactShare, setContactShare] = useState(false); // 👤 share a contact card
   const [recOn, setRecOn] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
   const mrRef = useRef(null);
@@ -850,7 +871,7 @@ export function ContractorPortal() {
                     )}
                     {pending && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}`, borderRadius: 10, marginBottom: 8 }}>
-                        <span style={{ fontSize: 13 }}>{pending.kind === "image" ? "🖼️" : pending.kind === "video" ? "🎬" : pending.kind === "audio" ? "🎤" : "📄"}</span>
+                        <span style={{ fontSize: 13 }}>{pending.kind === "image" ? "🖼️" : pending.kind === "video" ? "🎬" : pending.kind === "audio" ? "🎤" : pending.kind === "contact" ? "👤" : "📄"}</span>
                         <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pending.name}</span>
                         <button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
                       </div>
@@ -869,11 +890,13 @@ export function ContractorPortal() {
                       <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} title="Attach a photo, video, or PDF" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>📎</button>
                       <button onClick={startRec} disabled={busy} title="Record a voice note" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>🎤</button>
                       {roster.length > 0 && <button onClick={() => setTagOpen((v) => !v)} disabled={busy} title="Tag specific Goldstone people" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${msgTags.length ? T.gold : T.border}`, background: msgTags.length ? T.goldLight : T.bg, fontSize: 17, cursor: "pointer" }}>👥</button>}
+                      <button onClick={() => setContactShare(true)} disabled={busy} title="Share a contact card" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>👤</button>
                       <textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} placeholder={busy ? (pct ? `Uploading video… ${pct}%` : "Uploading…") : msgTarget ? "Reply about this task…" : "Message Goldstone…"} disabled={busy}
                         style={{ flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 18, border: `1px solid ${msgTarget ? T.gold : T.border}`, background: T.bg, fontSize: 15, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 120, overflowY: "auto", boxSizing: "border-box" }} />
                       <button onClick={sendMsg} disabled={(!draft.trim() && !pending) || busy} style={{ padding: "10px 18px", borderRadius: 22, background: (draft.trim() || pending) && !busy ? T.gold : T.border, border: "none", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Send</button>
                     </div>
                     )}
+                    {contactShare && <ContactShareModal onPick={(c) => { setPending({ kind: "contact", url: "contact:", name: c.name, mime: "text/vcard", contact: c }); setContactShare(false); }} onClose={() => setContactShare(false)} />}
                   </div>
                   );
                 })()}

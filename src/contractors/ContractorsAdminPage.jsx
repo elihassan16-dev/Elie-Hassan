@@ -14,6 +14,7 @@ import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVide
 import { usePersistentDraft } from "../useDraft";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { openSowPdf } from "./sowPdf";
+import { SowPdfPreview } from "./SowPdfPreview";
 import { useSpeechToText, micBtnStyle, micGlyph } from "../useSpeech";
 import { ContactCardBubble } from "../contactShare";
 
@@ -304,18 +305,30 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
   const [aiBusy, setAiBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const { recOn, busy: recBusy, toggleRec } = useSpeechToText({ value: brief, onText: setBrief, onError: setErr });
-  const genAi = async () => {
-    const b = brief.trim();
-    if (!b) { setErr("Tell the AI what to change first."); return; }
+  const [textEdit, setTextEdit] = useState(false); // manual tweaks — the PDF is the default view
+  // The mic's onDone fires from a closure captured when recording started, so
+  // the AI call reads the scope through a ref to see the latest version.
+  const scopeRef = useRef(scope); scopeRef.current = scope;
+  const genAi = async (briefText) => {
+    const b = (typeof briefText === "string" ? briefText : brief).trim();
+    if (!b) { setErr("Tell the AI what to change first — talk or type it."); return; }
     setAiBusy(true); setErr("");
     try {
-      const d = await qbAuthFetch("/api/ai/sow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brief: b, property: j.propertyAddress || "", current: scope }) });
-      if (d.sow) setScope(d.sow);
-      setBrief("");
+      const d = await qbAuthFetch("/api/ai/sow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brief: b, property: j.propertyAddress || "", current: scopeRef.current }) });
+      if (d.sow) setDraft((x) => ({ ...x, scope: d.sow, brief: "" }));
+      setTextEdit(false);
     } catch (ex) { setErr(ex.message || "AI edit failed."); }
     setAiBusy(false);
   };
+  // Stop talking → transcribe → AI applies the edit → the PDF re-renders. One tap total.
+  const { recOn, busy: recBusy, toggleRec } = useSpeechToText({ value: brief, onText: setBrief, onError: setErr, onDone: genAi });
+  // Preview exactly what the contractor will see after saving: pending new or
+  // changed lines highlighted, same diff the save uses. Timestamp is pinned
+  // once per open so the preview doesn't rebuild on every render.
+  const openedAtRef = useRef(new Date().toISOString());
+  const oldLines = new Set(String(j.scope || "").split("\n").map((l) => l.trim()).filter(Boolean));
+  const pendingChanged = scope.split("\n").map((l, i) => (l.trim() && !oldLines.has(l.trim()) ? i : null)).filter((i) => i != null);
+  const previewJob = { ...j, scope, scopeChangedLines: pendingChanged.length ? pendingChanged : j.scopeChangedLines, scopeEditedAt: pendingChanged.length ? openedAtRef.current : j.scopeEditedAt, scopeEditedBy: pendingChanged.length ? displayName : j.scopeEditedBy };
   const saveScope = async () => {
     const txt = scope.trim();
     if (!txt) { setErr("The scope can't be empty."); return; }
@@ -347,11 +360,32 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
         <div style={{ padding: "12px 18px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 9, flex: 1 }}>
           {err && <div onClick={() => setErr("")} style={{ fontSize: 12.5, color: T.red, cursor: "pointer" }}>{err}</div>}
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input value={brief} onChange={(e) => setBrief(e.target.value)} onKeyDown={(e) => e.key === "Enter" && genAi()} placeholder={recOn ? "Recording… tap ◼ when you're done talking" : recBusy ? "Transcribing…" : "✨ Tell AI what to change — type it or record it"} style={{ ...inp2, flex: 1, minWidth: 0, ...(recOn ? { borderColor: "#FF3B30" } : {}) }} />
-            <button onClick={toggleRec} disabled={recBusy} title="Record — transcribed to text when you stop" style={micBtnStyle(recOn, T)}>{micGlyph(recOn, recBusy)}</button>
-            <button onClick={genAi} disabled={aiBusy} style={{ padding: "9px 15px", borderRadius: 10, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#b8912e", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, whiteSpace: "nowrap" }}>{aiBusy ? "Rewriting…" : "✨ AI edit"}</button>
+            <input value={brief} onChange={(e) => setBrief(e.target.value)} onKeyDown={(e) => e.key === "Enter" && genAi()} placeholder={recOn ? "Recording… tap ◼ when you're done talking" : recBusy ? "Transcribing…" : "✨ Tell the AI what to change — talk or type"} style={{ ...inp2, flex: 1, minWidth: 0, ...(recOn ? { borderColor: "#FF3B30" } : {}) }} />
+            <button onClick={toggleRec} disabled={recBusy || aiBusy} title="Talk — when you stop, the AI applies your changes and the PDF updates" style={micBtnStyle(recOn, T)}>{micGlyph(recOn, recBusy)}</button>
+            <button onClick={() => genAi()} disabled={aiBusy} style={{ padding: "9px 15px", borderRadius: 10, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#b8912e", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, whiteSpace: "nowrap" }}>{aiBusy ? "Rewriting…" : "✨ AI edit"}</button>
           </div>
-          <textarea value={scope} onChange={(e) => setScope(e.target.value)} rows={16} style={{ ...inp2, resize: "vertical", lineHeight: 1.55, fontSize: 13, minHeight: 240, flex: 1 }} />
+          {/* No text box: the scope shows as the PDF the contractor will get, pending changes highlighted. */}
+          {aiBusy
+            ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 200, background: T.goldLight, borderRadius: 12, border: `1.5px dashed ${T.gold}` }}>
+                <span style={{ fontSize: 26 }}>✨</span>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: "#8a6d1f" }}>Making your changes…</span>
+                <span style={{ fontSize: 11.5, color: "#8a6d1f" }}>the updated PDF will appear right here</span>
+              </div>
+            : scope.trim()
+            ? <>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11.5, color: "#8a6d1f", fontWeight: 700, flex: 1, minWidth: 0 }}>📄 {pendingChanged.length ? "Your unsaved changes are highlighted — this is what they'll see" : "This is the exact PDF the contractor sees"}</span>
+                  <button onClick={() => setTextEdit((v) => !v)} style={{ padding: "5px 11px", borderRadius: 14, border: `1px solid ${T.border}`, background: "#fff", color: T.textSub, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>{textEdit ? "👁 Back to the PDF" : "✎ Edit the text"}</button>
+                </div>
+                {textEdit
+                  ? <textarea value={scope} onChange={(e) => setScope(e.target.value)} rows={14} style={{ ...inp2, resize: "vertical", lineHeight: 1.55, fontSize: 13, minHeight: 220, flex: 1 }} />
+                  : <SowPdfPreview job={previewJob} />}
+              </>
+            : <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 200, background: T.bg, borderRadius: 12, border: `1.5px dashed ${T.border}`, padding: "20px 24px", textAlign: "center" }}>
+                <span style={{ fontSize: 26 }}>🎙</span>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>No scope yet — tap the mic and describe the work</span>
+                <span style={{ fontSize: 12, color: T.textSub, lineHeight: 1.5 }}>When you stop talking, the AI writes the scope of work and it appears here as the PDF.</span>
+              </div>}
         </div>
         <div style={{ padding: "12px 18px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, justifyContent: "flex-end", flexShrink: 0 }}>
           <button onClick={onClose} style={{ padding: "10px 18px", borderRadius: 10, background: T.bg, border: "none", color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>Cancel</button>

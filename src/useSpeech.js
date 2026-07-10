@@ -5,7 +5,9 @@
 import { useEffect, useRef, useState } from "react";
 import { qbAuthFetch } from "./net";
 
-export function useSpeechToText({ value, onText, onError }) {
+// onDone (optional) fires with the full combined text after a successful
+// transcription — lets callers chain straight into an AI call, no extra tap.
+export function useSpeechToText({ value, onText, onError, onDone }) {
   const [recOn, setRecOn] = useState(false);
   const [busy, setBusy] = useState(false); // transcribing after stop
   const mrRef = useRef(null);
@@ -35,8 +37,11 @@ export function useSpeechToText({ value, onText, onError }) {
           const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1] || ""); fr.onerror = rej; fr.readAsDataURL(blob); });
           const d = await qbAuthFetch("/api/ai/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audio: b64, mime: blob.type }) });
           const text = (d.text || "").trim();
-          if (text) onText((baseRef.current ? baseRef.current + " " : "") + text);
-          else onError && onError("Didn't catch anything — try again, a little closer to the mic.");
+          if (text) {
+            const full = (baseRef.current ? baseRef.current + " " : "") + text;
+            onText(full);
+            onDone && onDone(full);
+          } else onError && onError("Didn't catch anything — try again, a little closer to the mic.");
         } catch (ex) { onError && onError(ex.message || "Transcription failed — tap the 🎤 on your keyboard instead."); }
         setBusy(false);
       };

@@ -16,6 +16,8 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES } from "./contractors/ContractorPortal";
+import { sowPdfFile } from "./contractors/sowPdf";
+import { SowPdfPreview } from "./contractors/SowPdfPreview";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -4933,9 +4935,10 @@ function PropertyStatusBoard({property,onClose}){
   );
 }
 
-// Ask a contractor to bid a whole job: pick the company, write the scope (or
-// have AI draft a full trade-by-trade SOW), send. Lands in their portal as a
-// 🧾 BID job — they read the scope and send one price back.
+// Ask a contractor to bid a whole job: pick the company, talk (or type) what
+// the job is, and the AI writes the full trade-by-trade SOW — shown right in
+// the popup as the actual PDF the contractor will receive (no text box).
+// Talk again to tell the AI what to change; the PDF re-renders each round.
 function BidRequestModal({property,orgs,onCreate,onClose}){
   // The draft survives iOS reloading the app mid-write (and accidental closes):
   // every field mirrors to this device and comes back when the popup reopens.
@@ -4948,17 +4951,23 @@ function BidRequestModal({property,orgs,onCreate,onClose}){
   const[aiBusy,setAiBusy]=useState(false);
   const[busy,setBusy]=useState(false);
   const[err,setErr]=useState("");
-  const{recOn:briefRecOn,busy:briefRecBusy,toggleRec:toggleBriefRec}=useSpeechToText({value:brief,onText:setBrief,onError:setErr});
-  const genAi=async()=>{
-    const b=brief.trim()||title.trim();
-    if(!b){setErr("Describe the job for the AI first (the brief box).");return;}
+  const[textEdit,setTextEdit]=useState(false); // manual tweaks — the PDF is the default view
+  // The mic's onDone fires from a closure captured when recording STARTED, so
+  // the AI call must read the scope through a ref to see the latest version.
+  const scopeRef=useRef(scope);scopeRef.current=scope;
+  const genAi=async(briefText)=>{
+    const b=(typeof briefText==="string"?briefText:brief).trim()||title.trim();
+    if(!b){setErr("Describe the job first — tap the mic and talk, or type it.");return;}
     setAiBusy(true);setErr("");
     try{
-      const d=await qbAuthFetch("/api/ai/sow",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({brief:b,property:`${property.address||""}${property.city?`, ${property.city}`:""}`,current:scope})});
-      setScope(d.sow||"");
+      const d=await qbAuthFetch("/api/ai/sow",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({brief:b,property:`${property.address||""}${property.city?`, ${property.city}`:""}`,current:scopeRef.current})});
+      setDraft(x=>({...x,scope:d.sow||x.scope,brief:""}));
+      setTextEdit(false);
     }catch(ex){setErr(ex.message||"AI draft failed.");}
     setAiBusy(false);
   };
+  // Stop talking → transcribe → AI writes/edits the SOW → the PDF appears. One tap total.
+  const{recOn:briefRecOn,busy:briefRecBusy,toggleRec:toggleBriefRec}=useSpeechToText({value:brief,onText:setBrief,onError:setErr,onDone:genAi});
   const send=async()=>{
     if(!orgId||!scope.trim())return;
     setBusy(true);setErr("");
@@ -4986,12 +4995,32 @@ function BidRequestModal({property,orgs,onCreate,onClose}){
             <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Job name — e.g. Full gut renovation" style={{...inp,flex:1,minWidth:180}}/>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <input value={brief} onChange={e=>setBrief(e.target.value)} onKeyDown={e=>e.key==="Enter"&&genAi()} placeholder={briefRecOn?"Recording… tap ◼ when you're done talking":briefRecBusy?"Transcribing…":"Brief for the AI — type it or record it, e.g. gut the kitchen and both baths"} style={{...inp,flex:1,minWidth:0,...(briefRecOn?{borderColor:"#FF3B30"}:{})}}/>
-            <button onClick={toggleBriefRec} disabled={briefRecBusy} title="Record — transcribed to text when you stop" style={micBtnStyle(briefRecOn,T)}>{micGlyph(briefRecOn,briefRecBusy)}</button>
-            <button onClick={genAi} disabled={aiBusy} style={{padding:"10px 15px",borderRadius:10,border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#b8912e",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap"}}>{aiBusy?"Writing…":"✨ AI: write the full SOW"}</button>
+            <input value={brief} onChange={e=>setBrief(e.target.value)} onKeyDown={e=>e.key==="Enter"&&genAi()} placeholder={briefRecOn?"Recording… tap ◼ when you're done talking":briefRecBusy?"Transcribing…":scope.trim()?"Tell the AI what to change — talk or type":"Describe the job — talk or type, e.g. gut the kitchen and both baths"} style={{...inp,flex:1,minWidth:0,...(briefRecOn?{borderColor:"#FF3B30"}:{})}}/>
+            <button onClick={toggleBriefRec} disabled={briefRecBusy||aiBusy} title="Talk — when you stop, the AI writes the scope and the PDF appears" style={micBtnStyle(briefRecOn,T)}>{micGlyph(briefRecOn,briefRecBusy)}</button>
+            <button onClick={()=>genAi()} disabled={aiBusy} style={{padding:"10px 15px",borderRadius:10,border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#b8912e",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap"}}>{aiBusy?"Writing…":scope.trim()?"✨ AI edit":"✨ Write the SOW"}</button>
           </div>
-          <textarea value={scope} onChange={e=>setScope(e.target.value)} rows={12} placeholder="Scope of work the contractor will price — write it yourself or let the AI draft it above, then edit."
-            style={{...inp,resize:"vertical",lineHeight:1.55,fontSize:13,minHeight:180}}/>
+          {/* No text box: the scope lives as the actual PDF the contractor gets. */}
+          {aiBusy
+            ? <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,minHeight:200,background:T.goldLight,borderRadius:12,border:`1.5px dashed ${T.gold}`}}>
+                <span style={{fontSize:26}}>✨</span>
+                <span style={{fontSize:13.5,fontWeight:700,color:"#8a6d1f"}}>{scope.trim()?"Making your changes…":"Writing the scope of work…"}</span>
+                <span style={{fontSize:11.5,color:"#8a6d1f"}}>the PDF will appear right here</span>
+              </div>
+            : scope.trim()
+            ? <>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:11.5,color:"#8a6d1f",fontWeight:700,flex:1,minWidth:0}}>📄 This is the exact PDF the contractor receives</span>
+                  <button onClick={()=>setTextEdit(v=>!v)} style={{padding:"5px 11px",borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontSize:11.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>{textEdit?"👁 Back to the PDF":"✎ Edit the text"}</button>
+                </div>
+                {textEdit
+                  ? <textarea value={scope} onChange={e=>setScope(e.target.value)} rows={14} style={{...inp,resize:"vertical",lineHeight:1.55,fontSize:13,minHeight:220}}/>
+                  : <SowPdfPreview job={{propertyAddress:`${property.address||""}${property.city?`, ${property.city}`:""}`,title:title.trim(),scope}}/>}
+              </>
+            : <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,minHeight:200,background:T.bg,borderRadius:12,border:`1.5px dashed ${T.border}`,padding:"20px 24px",textAlign:"center"}}>
+                <span style={{fontSize:26}}>🎙</span>
+                <span style={{fontSize:13.5,fontWeight:700,color:T.text}}>Tap the mic and describe the job</span>
+                <span style={{fontSize:12,color:T.textSub,lineHeight:1.5}}>When you stop talking, the AI writes the full scope of work and it appears here as the PDF. Talk again anytime to make changes.</span>
+              </div>}
         </div>
         <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0}}>
           <button onClick={onClose} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>

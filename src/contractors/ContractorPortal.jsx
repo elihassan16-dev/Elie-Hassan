@@ -63,7 +63,9 @@ export const eventIcon = (ev) => (EVENT_TYPES.find((x) => x[0] === ev.type) || E
 const fmtClock = (t) => { if (!t) return ""; const [h, m] = String(t).split(":"); const d = new Date(); d.setHours(+h, +m || 0); return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); };
 
 // The SOW opens as a real PDF (generated on-device) — see ./sowPdf.js.
+// An edited scope clears sowPdfUrl, so regenerating picks up the highlights.
 export const openScopePdf = (job) => { if (job.sowPdfUrl) window.open(job.sowPdfUrl, "_blank"); else openSowPdf(job); };
+const scopeUpdatedRecently = (j) => !!j.scopeEditedAt && (Date.now() - new Date(j.scopeEditedAt).getTime()) < 7 * 86400000;
 
 export function ContractorPortal() {
   const { displayName, contractorOrgId, signOut } = useAuth();
@@ -438,7 +440,10 @@ export function ContractorPortal() {
 
           {sec("Scope of work")}
           {(j.scope || j.sowPdfUrl)
-            ? <button onClick={() => openScopePdf(j)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 15px", borderRadius: 12, border: `1px solid ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>📄 Open to view scope of work (PDF)</button>
+            ? <button onClick={() => openScopePdf(j)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 15px", borderRadius: 12, border: `1px solid ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                📄 Open to view scope of work (PDF)
+                {scopeUpdatedRecently(j) && <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", background: T.red, borderRadius: 10, padding: "2px 7px", letterSpacing: "0.04em" }}>UPDATED</span>}
+              </button>
             : <div style={{ fontSize: 13, color: T.textTert, lineHeight: 1.5 }}>No written scope yet — upload your SOW below or ask Goldstone.</div>}
 
           {sec("Documents")}
@@ -758,8 +763,8 @@ export function ContractorPortal() {
                                 <div onClick={() => openScopePdf(selJob)} style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 9, padding: "11px 13px", borderRadius: 12, border: `1px solid ${T.gold}`, background: T.bg, cursor: "pointer" }}>
                                   <span style={{ fontSize: 20, flexShrink: 0 }}>📄</span>
                                   <span style={{ flex: 1, minWidth: 0 }}>
-                                    <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: T.text }}>Open to view Scope of Work (PDF)</span>
-                                    <span style={{ display: "block", fontSize: 11, color: T.textSub }}>Everything to price is in here</span>
+                                    <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: T.text }}>Open to view Scope of Work (PDF){scopeUpdatedRecently(selJob) && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 800, color: "#fff", background: T.red, borderRadius: 10, padding: "2px 7px", letterSpacing: "0.04em", verticalAlign: "middle" }}>UPDATED</span>}</span>
+                                    <span style={{ display: "block", fontSize: 11, color: T.textSub }}>{scopeUpdatedRecently(selJob) ? "The scope changed — highlighted lines are new" : "Everything to price is in here"}</span>
                                   </span>
                                   <span style={{ fontSize: 14, color: T.gold, flexShrink: 0 }}>›</span>
                                 </div>

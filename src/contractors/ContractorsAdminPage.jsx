@@ -286,6 +286,70 @@ function QBPayPicker({ qbProjectId, orgName, existingQbIds, onAdd, onClose }) {
   );
 }
 
+// ── Scope-of-work editor — edit by hand or tell AI what to change. Saving
+// diffs the lines, highlights the new/changed ones in the regenerated PDF,
+// alerts the contractor, and drops a note in the job thread. ─────────────────
+function ScopeEditModal({ j, save, displayName, onClose }) {
+  const [scope, setScope] = useState(j.scope || "");
+  const [brief, setBrief] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const genAi = async () => {
+    const b = brief.trim();
+    if (!b) { setErr("Tell the AI what to change first."); return; }
+    setAiBusy(true); setErr("");
+    try {
+      const d = await qbAuthFetch("/api/ai/sow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brief: b, property: j.propertyAddress || "", current: scope }) });
+      if (d.sow) setScope(d.sow);
+      setBrief("");
+    } catch (ex) { setErr(ex.message || "AI edit failed."); }
+    setAiBusy(false);
+  };
+  const saveScope = async () => {
+    const txt = scope.trim();
+    if (!txt) { setErr("The scope can't be empty."); return; }
+    if (txt === (j.scope || "").trim()) { onClose(); return; }
+    setBusy(true);
+    // Line-level diff: anything not present in the old scope counts as changed
+    // and gets highlighted in the contractor's PDF.
+    const oldLines = new Set(String(j.scope || "").split("\n").map((l) => l.trim()).filter(Boolean));
+    const changedLines = txt.split("\n").map((l, i) => (l.trim() && !oldLines.has(l.trim()) ? i : null)).filter((i) => i != null);
+    try {
+      await save("contractor_jobs", { ...j, scope: txt, sowPdfUrl: null, scopeChangedLines: changedLines, scopeEditedAt: new Date().toISOString(), scopeEditedBy: displayName });
+      notify(null, { toOrg: j.orgId, title: "Scope of work updated", body: `${j.propertyAddress || ""}${j.title ? ` — ${j.title}` : ""} — open the PDF, the changes are highlighted.` });
+      save("contractor_messages", { id: Date.now() + 3, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: "📄 The scope of work was updated — open the PDF on this job; the changed lines are highlighted.", at: new Date().toISOString(), readBy: [displayName] }).catch(() => {});
+      onClose();
+    } catch (ex) { setErr(ex.message || "Couldn't save the scope."); setBusy(false); }
+  };
+  const inp2 = { padding: "9px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, fontSize: 13.5, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 470, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, width: "min(640px,96vw)", maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,0.2)", overflow: "hidden" }}>
+        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, background: T.goldLight, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>✎ Edit scope of work</div>
+            <div style={{ fontSize: 11.5, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress || ""} · the contractor is alerted and sees the changes highlighted</div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+        </div>
+        <div style={{ padding: "12px 18px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 9, flex: 1 }}>
+          {err && <div onClick={() => setErr("")} style={{ fontSize: 12.5, color: T.red, cursor: "pointer" }}>{err}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={brief} onChange={(e) => setBrief(e.target.value)} onKeyDown={(e) => e.key === "Enter" && genAi()} placeholder="✨ Tell AI what to change — e.g. add gutter replacement, drop the deck work" style={{ ...inp2, flex: 1, minWidth: 0 }} />
+            <button onClick={genAi} disabled={aiBusy} style={{ padding: "9px 15px", borderRadius: 10, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#b8912e", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, whiteSpace: "nowrap" }}>{aiBusy ? "Rewriting…" : "✨ AI edit"}</button>
+          </div>
+          <textarea value={scope} onChange={(e) => setScope(e.target.value)} rows={16} style={{ ...inp2, resize: "vertical", lineHeight: 1.55, fontSize: 13, minHeight: 240, flex: 1 }} />
+        </div>
+        <div style={{ padding: "12px 18px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, justifyContent: "flex-end", flexShrink: 0 }}>
+          <button onClick={onClose} style={{ padding: "10px 18px", borderRadius: 10, background: T.bg, border: "none", color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>Cancel</button>
+          <button onClick={saveScope} disabled={busy || !scope.trim()} style={{ padding: "10px 22px", borderRadius: 10, background: scope.trim() && !busy ? T.gold : T.border, border: "none", color: "#fff", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>{busy ? "Saving…" : "Save & notify them"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Job detail — overview (money/docs), tasks, messages ──────────────────────
 // Exported: the property page's Contacts tab opens the same popup.
 export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages, docs, save, remove, displayName, onEditBasics, onClose }) {
@@ -303,6 +367,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   const [coDraft, setCoDraft] = useState(null);
   const [askDraft, setAskDraft] = useState(null); // scope-only CO request TO them (they price it)
   const [pricePop, setPricePop] = useState(false); // original price + change orders
+  const [scopeEdit, setScopeEdit] = useState(false); // ✎ edit the SOW (AI-assisted)
   const [payDraft, setPayDraft] = useState(null);
   const [qbPick, setQbPick] = useState(false);
   // Apply picked QuickBooks transactions as payments (deduped by qbId).
@@ -471,7 +536,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           </div>
         ))}
         <div>
-          {secHdr("Scope of work", <span style={{ display: "inline-flex", gap: 6 }}>{j.scope ? miniBtn("📄 Open PDF", () => openSowPdf(j)) : null}{isAdmin && onEditBasics ? miniBtn("✎ Edit basics", onEditBasics) : null}</span>)}
+          {secHdr("Scope of work", <span style={{ display: "inline-flex", gap: 6 }}>{j.scope ? miniBtn("📄 Open PDF", () => openSowPdf(j)) : null}{isAdmin ? miniBtn("✎ Edit scope", () => setScopeEdit(true)) : null}{isAdmin && onEditBasics ? miniBtn("✎ Edit basics", onEditBasics) : null}</span>)}
           <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No scope written — edit the job or let the contractor upload their SOW PDF."}</div>
         </div>
         <div>
@@ -600,6 +665,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           <button onClick={sendMsg} disabled={(!msgDraft.trim() && !pending) || busy} style={goldBtn(!!(msgDraft.trim() || pending) && !busy)}>Send</button>
         </div>
       </>)}
+      {scopeEdit && <ScopeEditModal j={j} save={save} displayName={displayName} onClose={() => setScopeEdit(false)} />}
       {qbPick && qbProjectId && <QBPayPicker qbProjectId={qbProjectId} orgName={org?.name || ""} existingQbIds={(j.payments || []).map((p) => p.qbId).filter(Boolean)} onAdd={applyQb} onClose={() => setQbPick(false)} />}
     </Modal>
   );

@@ -13,20 +13,30 @@ export function sowPdfFile(job) {
   doc.text("Scope of Work", margin, y); y += 18;
   doc.setFont("times", "normal"); doc.setFontSize(11); doc.setTextColor(90, 90, 90);
   doc.text(`${job.propertyAddress || ""}${job.title ? ` — ${job.title}` : ""}`, margin, y); y += 14;
-  doc.text(`Prepared ${new Date().toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}`, margin, y); y += 10;
+  doc.text(`Prepared ${new Date().toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}`, margin, y); y += 14;
+  // Edited since it was first sent → say so, and highlight what changed below.
+  const changed = new Set(job.scopeChangedLines || []);
+  if (job.scopeEditedAt && changed.size) {
+    doc.setFont("times", "bold"); doc.setTextColor(180, 83, 9);
+    doc.text(`UPDATED ${new Date(job.scopeEditedAt).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}${job.scopeEditedBy ? ` by ${job.scopeEditedBy}` : ""} — highlighted lines are new or changed.`, margin, y);
+    y += 14;
+  } else { y -= 4; }
   doc.setDrawColor(184, 145, 46); doc.setLineWidth(1.4);
   doc.line(margin, y, W - margin, y); y += 22;
 
   doc.setTextColor(25, 25, 25); doc.setFontSize(10.5);
   const lineH = 15;
-  String(job.scope || "").split("\n").forEach((para) => {
+  String(job.scope || "").split("\n").forEach((para, pi) => {
     const lines = para.trim() === "" ? [""] : doc.splitTextToSize(para, maxW);
     // UPPERCASE section headings get bold + a little air above.
     const isHeading = /^[A-Z0-9 &/,'()-]{3,}$/.test(para.trim()) && para.trim() === para.trim().toUpperCase() && /[A-Z]/.test(para);
     if (isHeading && y > margin + 30) y += 6;
     doc.setFont("times", isHeading ? "bold" : "normal");
+    const hl = changed.has(pi) && para.trim() !== "";
     lines.forEach((ln) => {
       if (y > H - margin) { doc.addPage(); y = margin; }
+      if (hl) { doc.setFillColor(253, 233, 200); doc.rect(margin - 4, y - 10.5, maxW + 8, lineH - 0.5, "F"); }
+      doc.setTextColor(25, 25, 25);
       doc.text(ln, margin, y); y += lineH;
     });
   });

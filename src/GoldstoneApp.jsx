@@ -6782,6 +6782,7 @@ function ExternalRequestsPopup({requests,coRequests=[],onDecideCo,onSetStatus,on
                   <span>by {r.by}{r.at?` · ${fmtD2(r.at)}`:""}</span>
                 </div>
               </div>
+              <button onClick={()=>onChat({task:{id:`co:${r.id}`,text:`🧾 ${r.label} — $${Number(r.amount||0).toLocaleString()}`},job})} title="Message about this change order — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
               {onDecideCo
                 ?<div style={{display:"flex",gap:6,flexShrink:0}}>
                     <button onClick={()=>onDecideCo(job,r,true)} style={{padding:"6px 13px",borderRadius:16,border:"none",background:T.green,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✓ Approve</button>

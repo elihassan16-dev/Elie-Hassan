@@ -432,6 +432,7 @@ function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages
               <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{r.label} — {money(r.amount)}</div>
               <div style={{ fontSize: 10.5, color: "#8a6d1f" }}>Change order request · {r.by}{r.at ? ` · ${fmtDate(r.at)}` : ""}{r.note ? ` · ${r.note}` : ""}</div>
             </div>
+            <button onClick={() => setTab2("messages")} title="Open this job's messages" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 14, color: "#8a6d1f", cursor: "pointer", fontSize: 13, padding: "4px 9px", flexShrink: 0, fontFamily: "inherit" }}>💬</button>
             {isAdmin ? (
               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                 <button onClick={() => decideCoReq(r, true)} style={{ padding: "7px 14px", borderRadius: 16, border: "none", background: T.green, color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>✓ Approve</button>

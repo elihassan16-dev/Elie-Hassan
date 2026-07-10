@@ -92,6 +92,9 @@ export function ContractorPortal() {
   const selJob = myJobs.find((j) => String(j.id) === String(selJobId)) || null;
   // Desktop opens straight into the first job, like the main app's lists.
   useEffect(() => { if (!isMobile && !selJobId && myJobs.length) setSelJobId(myJobs[0].id); }, [isMobile, selJobId, myJobs.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A bid request is messaging-only until Goldstone accepts the price —
+  // no overview/tasks tabs, just the scope + bid card and the thread.
+  useEffect(() => { if (selJob && selJob.status === "bid" && tab !== "messages") setTab("messages"); }, [selJob?.id, selJob?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Unread = Goldstone-side messages I haven't read yet, per job.
   const unreadFor = (jobId) => (messages || []).filter((m) => String(m.jobId) === String(jobId) && m.side === "team" && !(m.readBy || []).includes(displayName)).length;
@@ -708,7 +711,7 @@ export function ContractorPortal() {
                       : jobDays(selJob) != null && <span style={{ fontSize: 10, fontWeight: 800, background: T.goldLight, color: "#8a6d1f", borderRadius: 20, padding: "3px 10px", flexShrink: 0 }}>DAY {jobDays(selJob)}</span>}
                   </div>
                   <div style={{ display: "flex", gap: 2, marginTop: 8 }}>
-                    {[["overview", "Overview"], ["tasks", "Tasks"], ["messages", "Messages"]].map(([k, l]) => (
+                    {(selJob.status === "bid" ? [["messages", "Messages"]] : [["overview", "Overview"], ["tasks", "Tasks"], ["messages", "Messages"]]).map(([k, l]) => (
                       <button key={k} onClick={() => setTab(k)} style={{ padding: "8px 16px", border: "none", borderBottom: tab === k ? `2.5px solid ${T.gold}` : "2.5px solid transparent", background: "none", color: tab === k ? T.gold : T.textSub, fontWeight: tab === k ? 800 : 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
                         {l}{k === "messages" && unreadFor(selJob.id) > 0 ? ` (${unreadFor(selJob.id)})` : ""}
                       </button>
@@ -734,7 +737,41 @@ export function ContractorPortal() {
                     groups.sort((a, b) => String(a.msgs[a.msgs.length - 1].at || "").localeCompare(String(b.msgs[b.msgs.length - 1].at || "")));
                     return (
                       <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
-                        {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 13, padding: "40px 0" }}>No messages yet on this job. Say hello below.</div>}
+                        {/* Bid request: everything they need lives right here — the
+                            scope (printable), address/maps/lockbox, and the bid box. */}
+                        {selJob.status === "bid" && (() => {
+                          const stRow2 = (siteStatus || []).find((s) => String(s.id) === String(selJob.propertyId)) || null;
+                          const a = Number(String(bidAmt).replace(/[^0-9.]/g, ""));
+                          const sendBid = async () => {
+                            if (!a) return;
+                            try {
+                              await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: selJob.id, bidAmount: a }) });
+                              notify(null, { toAdmins: true, title: `Bid from ${org?.name || displayName}`, body: `${selJob.propertyAddress || ""}${selJob.title ? ` — ${selJob.title}` : ""} · ${money(a)}` });
+                              setBidAmt("");
+                            } catch (ex) { setErr(ex.message || "Couldn't send the bid."); }
+                          };
+                          return (
+                            <div style={{ background: T.card, borderRadius: 16, boxShadow: T.shadow, border: `1.5px dashed ${T.gold}`, padding: "12px 14px" }}>
+                              <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>🧾 Bid request from Goldstone{selJob.title ? ` — ${selJob.title}` : ""}</div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: 7 }}>
+                                <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selJob.propertyAddress || "")}`} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.blue, borderRadius: 14, padding: "4px 10px", textDecoration: "none" }}>📍 {selJob.propertyAddress || "Google Maps"}</a>
+                                {stRow2?.info?.lockbox && <span style={{ fontSize: 11, fontWeight: 700, color: T.text, background: T.bg, borderRadius: 14, padding: "4px 10px" }}>🔒 Lockbox: {stRow2.info.lockbox}</span>}
+                              </div>
+                              {selJob.scope && (<>
+                                <div style={{ maxHeight: 190, overflowY: "auto", background: T.bg, borderRadius: 10, padding: "9px 11px", fontSize: 12.5, color: T.textSub, whiteSpace: "pre-wrap", lineHeight: 1.55, marginTop: 9 }}>{selJob.scope}</div>
+                                <button onClick={() => printSow(selJob)} style={{ marginTop: 7, padding: "6px 13px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>🖨 Scope of work — print / save as PDF</button>
+                              </>)}
+                              {selJob.bidAmount
+                                ? <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 8 }}>You bid <b>{money(selJob.bidAmount)}</b>{selJob.bidAt ? ` on ${fmtDate(selJob.bidAt)}` : ""} — waiting on Goldstone. You can send an updated number below.</div>
+                                : <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 8 }}>Review the scope and send your price for the whole job — once Goldstone accepts, the full job (tasks, payments, status board) opens up here.</div>}
+                              <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
+                                <input value={bidAmt} onChange={(e) => setBidAmt(e.target.value)} inputMode="decimal" placeholder="$ your price for this job" style={{ flex: 1, minWidth: 0, padding: "9px 11px", borderRadius: 9, border: `1px solid ${T.border}`, background: T.bg, fontSize: 13.5, fontFamily: "inherit", outline: "none" }} />
+                                <button onClick={sendBid} disabled={!a} style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: a ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 13, cursor: a ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>Send bid</button>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                        {thread.length === 0 && selJob.status !== "bid" && <div style={{ textAlign: "center", color: T.textTert, fontSize: 13, padding: "40px 0" }}>No messages yet on this job. Say hello below.</div>}
                         {groups.map((g) => (
                           <div key={g.key} style={{ background: T.card, borderRadius: 16, boxShadow: T.shadow, padding: "10px 12px" }}>
                             <div style={{ marginBottom: 9 }}>

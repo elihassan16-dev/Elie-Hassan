@@ -44,29 +44,57 @@ export const sanitizeName = (name = "file") => (name.replace(/[^a-zA-Z0-9._-]/g,
 // Videos skip Supabase storage entirely: we mint a one-time upload URL from our
 // API, the phone POSTs the file straight to Cloudflare (with real progress), and
 // playback is a Stream iframe — transcoded, so it plays smoothly on any device.
-export const STREAM_VIDEO_CAP = 200 * 1024 * 1024; // Cloudflare basic-upload limit
-export async function uploadStreamVideo(file, onProgress) {
-  const { uploadURL, uid } = await qbAuthFetch("/api/stream/upload", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name || "video" }),
-  });
-  await new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", uploadURL);
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100))); };
-    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Video upload failed (${xhr.status}).`)));
-    xhr.onerror = () => reject(new Error("Video upload failed — check your connection."));
-    const fd = new FormData();
-    fd.append("file", file);
-    xhr.send(fd);
-  });
-  if (onProgress) onProgress(100);
-  // Playback URLs come from the video record (they exist even while it encodes).
+export const STREAM_VIDEO_CAP = 5 * 1024 * 1024 * 1024; // 5 GB via resumable (tus) uploads
+const BASIC_CAP = 190 * 1024 * 1024; // single-shot uploads under Cloudflare's 200MB limit
+async function streamDetails(uid) {
   let info = null;
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     try { info = await qbAuthFetch(`/api/stream/upload?uid=${encodeURIComponent(uid)}`); } catch { /* retry */ }
     if (info && info.preview) break;
     await new Promise((r) => setTimeout(r, 1500));
   }
+  return info;
+}
+export async function uploadStreamVideo(file, onProgress) {
+  let uid;
+  if (file.size > BASIC_CAP) {
+    // Resumable chunks: survives flaky signal, no 200MB ceiling.
+    const tus = await import("tus-js-client");
+    const start = await qbAuthFetch("/api/stream/upload", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tus: true, size: file.size, name: file.name || "video" }),
+    });
+    uid = start.uid;
+    await new Promise((resolve, reject) => {
+      const up = new tus.Upload(file, {
+        uploadUrl: start.uploadURL,
+        chunkSize: 52428800, // 50 MiB — multiple of 256 KiB as Stream requires
+        retryDelays: [0, 2000, 5000, 10000, 20000],
+        metadata: { name: file.name || "video" },
+        onProgress: (sent, total) => { if (onProgress) onProgress(Math.min(99, Math.round((sent / total) * 100))); },
+        onError: (e) => reject(new Error(e?.message || "Video upload failed — check your connection.")),
+        onSuccess: () => resolve(),
+      });
+      up.start();
+    });
+  } else {
+    const { uploadURL, uid: basicUid } = await qbAuthFetch("/api/stream/upload", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name || "video" }),
+    });
+    uid = basicUid;
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", uploadURL);
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100))); };
+      xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Video upload failed (${xhr.status}).`)));
+      xhr.onerror = () => reject(new Error("Video upload failed — check your connection."));
+      const fd = new FormData();
+      fd.append("file", file);
+      xhr.send(fd);
+    });
+  }
+  if (onProgress) onProgress(100);
+  // Playback URLs come from the video record (they exist even while it encodes).
+  const info = await streamDetails(uid);
   const watch = info?.preview || "";
   if (!watch) throw new Error("Video uploaded but isn't available yet — try again in a minute.");
   return { kind: "video", stream: true, uid, url: watch.replace(/\/watch$/, "/iframe"), watch, thumbnail: info?.thumbnail || "", name: file.name || "video", mime: file.type || "video/mp4" };

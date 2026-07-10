@@ -449,7 +449,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
     try {
       // Videos go through Cloudflare Stream (200 MB, transcoded); other files use storage.
       if ((file.type || "").startsWith("video/")) {
-        if (file.size > STREAM_VIDEO_CAP) throw new Error("Video is too large (max 200 MB).");
+        if (file.size > STREAM_VIDEO_CAP) throw new Error("Video is too large (max 5 GB).");
         try { setPending(await uploadStreamVideo(file)); }
         catch (ex) { if (file.size <= 50 * 1024 * 1024) setPending(await uploadAttachment(file, "portal")); else throw ex; }
       } else setPending(await uploadAttachment(file, "portal"));

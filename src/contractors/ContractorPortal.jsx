@@ -115,7 +115,7 @@ export function ContractorPortal() {
     if (!file) return null;
     const isVideo = (file.type || "").startsWith("video/");
     if (isVideo) {
-      if (file.size > STREAM_VIDEO_CAP) { setErr("Video is too large (max 200 MB) — trim it shorter and try again."); return null; }
+      if (file.size > STREAM_VIDEO_CAP) { setErr("Video is too large (max 5 GB) — trim it shorter and try again."); return null; }
       setErr("");
       try { return await uploadStreamVideo(file, setPct); }
       catch (ex) {

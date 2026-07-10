@@ -16,6 +16,26 @@ export default async function handler(req, res) {
     if (!CF_ACCOUNT_ID || !CF_STREAM_TOKEN) { res.status(503).json({ error: "Video service isn't configured yet." }); return; }
     const cf = { Authorization: `Bearer ${CF_STREAM_TOKEN}`, "Content-Type": "application/json" };
 
+    if (req.method === "POST" && req.body && req.body.tus) {
+      // Big files (>200MB) upload in resumable tus chunks — create the upload
+      // session here, the phone PATCHes the pieces straight to Cloudflare.
+      const size = Number(req.body.size) || 0;
+      if (!size) { res.status(400).json({ error: "Missing file size." }); return; }
+      const b64 = (s) => Buffer.from(String(s)).toString("base64");
+      const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/stream?direct_user=true`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${CF_STREAM_TOKEN}`,
+          "Tus-Resumable": "1.0.0",
+          "Upload-Length": String(size),
+          "Upload-Metadata": `name ${b64(String((req.body.name || "video")).slice(0, 120))},maxdurationseconds ${b64("21600")}`,
+        },
+      });
+      if (!r.ok) { const t = await r.text().catch(() => ""); res.status(502).json({ error: `Couldn't start the upload (${r.status}). ${t.slice(0, 200)}` }); return; }
+      res.status(200).json({ uploadURL: r.headers.get("location"), uid: r.headers.get("stream-media-id") });
+      return;
+    }
+
     if (req.method === "POST") {
       const name = (req.body && req.body.name) || "video";
       const r = await fetch(`${API}/direct_upload`, {

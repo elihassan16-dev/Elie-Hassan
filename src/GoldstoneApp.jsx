@@ -7639,17 +7639,10 @@ function TasksPage({onNavigate}){
           const oTasks=(officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company Tasks",propStatus:""}));
           const doneCount=oTasks.filter(t=>t.status==="Completed").length;
           return(
-            <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14}}>
+            <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14,maxWidth:840}}>
               <div style={{padding:"10px 14px",background:"#FAFAFA",borderBottom:bdr,display:"flex",flexDirection:"column",gap:7}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
                   <span style={{fontSize:13,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6}}>🏢 Company Tasks</span>
-                  {oTasks.length>0&&(confirmDeleteProp==="__office__"
-                    ?<div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                        <span style={{fontSize:12,color:T.red}}>Delete {oTasks.length}?</span>
-                        <button onClick={()=>{oTasks.forEach(t=>deleteTask(t.propId,t.id));setConfirmDeleteProp(null);}} style={{padding:"3px 10px",borderRadius:6,background:T.red,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Yes</button>
-                        <button onClick={()=>setConfirmDeleteProp(null)} style={{padding:"3px 10px",borderRadius:6,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>No</button>
-                      </div>
-                    :<button onClick={()=>setConfirmDeleteProp("__office__")} title="Delete all company tasks" style={{flexShrink:0,background:"none",border:`1px solid ${T.border}`,color:T.textTert,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:"3px 9px",borderRadius:6,lineHeight:1}}>🗑</button>)}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:10,fontWeight:700,color:T.gold,background:T.goldLight,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}}>General · not a property</span>

@@ -9,7 +9,8 @@ import { supabase } from "../supabaseClient";
 import { useAuth } from "../auth/AuthProvider";
 import { useData } from "../data/DataProvider";
 import { T } from "../theme";
-import { notify, qbAuthFetch, uploadAttachment, uploadStreamVideo, STREAM_VIDEO_CAP } from "../net";
+import { notify, qbAuthFetch, uploadAttachment, STREAM_VIDEO_CAP } from "../net";
+import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble } from "../videoUpload";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { openSowPdf } from "./sowPdf";
 import { useSpeechToText, micBtnStyle, micGlyph } from "../useSpeech";
@@ -445,24 +446,28 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   const pickAtt = async (e) => {
     const file = (e.target.files || [])[0]; e.target.value = "";
     if (!file) return;
+    // Videos upload in the background — the message can go out immediately with a
+    // placeholder that becomes the playable video once the upload lands.
+    if ((file.type || "").startsWith("video/")) {
+      if (file.size > STREAM_VIDEO_CAP) { setErr2("Video is too large (max 5 GB)."); return; }
+      setErr2("");
+      setPending(startVideoUpload(file, "portal"));
+      return;
+    }
     setBusy(true);
-    try {
-      // Videos go through Cloudflare Stream (200 MB, transcoded); other files use storage.
-      if ((file.type || "").startsWith("video/")) {
-        if (file.size > STREAM_VIDEO_CAP) throw new Error("Video is too large (max 5 GB).");
-        try { setPending(await uploadStreamVideo(file)); }
-        catch (ex) { if (file.size <= 50 * 1024 * 1024) setPending(await uploadAttachment(file, "portal")); else throw ex; }
-      } else setPending(await uploadAttachment(file, "portal"));
-    } catch (ex) { setErr2(ex.message || "Upload failed."); }
+    try { setPending(await uploadAttachment(file, "portal")); }
+    catch (ex) { setErr2(ex.message || "Upload failed."); }
     setBusy(false);
   };
   const sendMsg = async () => {
     const txt = msgDraft.trim(); if ((!txt && !pending) || busy) return;
+    if (pending && pending.uploadId && videoUploadState(pending.uploadId)?.status === "failed") { setErr2("The video didn't upload — remove it (×) and try again."); return; }
     const msg = { id: Date.now(), jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: txt, at: new Date().toISOString(), readBy: [displayName] };
-    if (pending) msg.attachment = pending;
+    if (pending) msg.attachment = resolveVideoAttachment(pending);
     if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: (replyTo.text || (replyTo.attachment ? "📎 attachment" : "")).slice(0, 140) };
     setMsgDraft(""); setPending(null); setReplyTo(null);
     await save("contractor_messages", msg);
+    if (msg.attachment && msg.attachment.pending && msg.attachment.uploadId) bindCtrVideoMessage(msg.attachment.uploadId, msg.id);
     notify(null, { toOrg: j.orgId, title: `Goldstone — ${j.propertyAddress}`, body: txt || "(attachment)" });
   };
   const uploadDoc = async (e) => { const file = (e.target.files || [])[0]; e.target.value = ""; if (!file) return; setBusy(true); try { const up = await uploadAttachment(file, "portal"); await save("contractor_docs", { id: Date.now(), jobId: j.id, orgId: j.orgId, name: up.name, url: up.url, mime: up.mime, by: displayName, at: new Date().toISOString() }); } catch { setErr2("Upload failed."); } setBusy(false); };
@@ -650,6 +655,8 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
                 {m.text}
                 {m.attachment && (m.attachment.kind === "contact" && m.attachment.contact
                   ? <ContactCardBubble c={m.attachment.contact} mine={mine} />
+                  : m.attachment.kind === "video" && (m.attachment.pending || m.attachment.failed)
+                  ? <VideoUploadBubble att={m.attachment} mine={mine} />
                   : m.attachment.kind === "image"
                   ? <a href={m.attachment.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={m.attachment.url} alt="" style={{ maxWidth: 200, maxHeight: 220, borderRadius: 9, display: "block", objectFit: "cover" }} /></a>
                   : m.attachment.kind === "video" && m.attachment.stream
@@ -662,7 +669,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           ); })}
         </div>
         {replyTo && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderLeft: `3px solid ${T.gold}`, borderRadius: 8 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? "📎 attachment" : "")}</span><button onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
-        {pending && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}`, borderRadius: 10 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📎 {pending.name}</span><button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
+        {pending && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}`, borderRadius: 10 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pending.pending ? "🎬 " : "📎 "}{pending.name}{pending.pending ? " — uploading in background, OK to send" : ""}</span><button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
         <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
           <input ref={attRef} type="file" accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
           <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 15, cursor: "pointer" }}>📎</button>

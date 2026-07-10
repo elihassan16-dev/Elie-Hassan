@@ -12,6 +12,7 @@ import { T } from "../theme";
 import { notify, qbAuthFetch, uploadAttachment, uploadStreamVideo, STREAM_VIDEO_CAP } from "../net";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { openSowPdf } from "./sowPdf";
+import { useSpeechToText, micBtnStyle } from "../useSpeech";
 
 const inp = { width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" };
 const lbl = { display: "block", fontSize: 11, fontWeight: 700, color: T.textSub, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 };
@@ -295,6 +296,7 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
   const [aiBusy, setAiBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const { recOn, toggleRec } = useSpeechToText({ value: brief, onText: setBrief, onError: setErr });
   const genAi = async () => {
     const b = brief.trim();
     if (!b) { setErr("Tell the AI what to change first."); return; }
@@ -335,8 +337,9 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
         </div>
         <div style={{ padding: "12px 18px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 9, flex: 1 }}>
           {err && <div onClick={() => setErr("")} style={{ fontSize: 12.5, color: T.red, cursor: "pointer" }}>{err}</div>}
-          <div style={{ display: "flex", gap: 8 }}>
-            <input value={brief} onChange={(e) => setBrief(e.target.value)} onKeyDown={(e) => e.key === "Enter" && genAi()} placeholder="✨ Tell AI what to change — e.g. add gutter replacement, drop the deck work" style={{ ...inp2, flex: 1, minWidth: 0 }} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input value={brief} onChange={(e) => setBrief(e.target.value)} onKeyDown={(e) => e.key === "Enter" && genAi()} placeholder={recOn ? "Listening… talk, then tap 🎙 to stop" : "✨ Tell AI what to change — type it or record it"} style={{ ...inp2, flex: 1, minWidth: 0, ...(recOn ? { borderColor: "#FF3B30" } : {}) }} />
+            <button onClick={toggleRec} title="Record — your words appear as text" style={micBtnStyle(recOn, T)}>{recOn ? "■" : "🎙"}</button>
             <button onClick={genAi} disabled={aiBusy} style={{ padding: "9px 15px", borderRadius: 10, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#b8912e", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, whiteSpace: "nowrap" }}>{aiBusy ? "Rewriting…" : "✨ AI edit"}</button>
           </div>
           <textarea value={scope} onChange={(e) => setScope(e.target.value)} rows={16} style={{ ...inp2, resize: "vertical", lineHeight: 1.55, fontSize: 13, minHeight: 240, flex: 1 }} />

@@ -94,27 +94,65 @@ export function SowPdfPreview({ job }) {
   // Gestures. Native listeners — React attaches touch handlers passive, and a
   // pinch must preventDefault or iOS scrolls instead. During the pinch the
   // container is CSS-scaled live (cheap); releasing commits the zoom (sharp).
+  // The zoom is anchored to the fingers: the content under the pinch midpoint
+  // stays under it (X via this wrapper's scrollLeft, Y via the popup's
+  // vertical scroller), so you zoom into the spot you pinch — not top-left.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
+    // The popup's content area scrolls vertically; this wrapper only scrolls X.
+    // Match on the CSS property, not current overflow — a one-page scope may
+    // not overflow until the zoom itself makes it taller.
+    const vScroller = () => {
+      for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+        if (/(auto|scroll)/.test(getComputedStyle(n).overflowY)) return n;
+      }
+      return document.scrollingElement || document.documentElement;
+    };
     let startDist = 0, startZoom = 1, live = 0, lastTap = 0;
+    let ux = 0, uy = 0, innerTopInVs = 0, wrapLeft = 0, vs = null;
     const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const mid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+    // Remember which page point (in zoom-1 units) sits under the viewport point p.
+    const grab = (p) => {
+      vs = vScroller();
+      wrapLeft = el.getBoundingClientRect().left;
+      const r = innerRef.current.getBoundingClientRect();
+      const z = zoomRef.current;
+      ux = (p.x - r.left) / z;
+      uy = (p.y - r.top) / z;
+      innerTopInVs = r.top - vs.getBoundingClientRect().top + vs.scrollTop; // layout-constant
+    };
+    // Resize to zoom z, scrolled so the grabbed page point lands under p.
+    const anchor = (p, z) => {
+      if (!innerRef.current) return;
+      innerRef.current.style.width = `${z * 100}%`;
+      el.scrollLeft = ux * z - (p.x - wrapLeft);
+      vs.scrollTop = innerTopInVs + uy * z - (p.y - vs.getBoundingClientRect().top);
+    };
     const onStart = (e) => {
-      if (e.touches.length === 2) { e.preventDefault(); startDist = dist(e.touches); startZoom = zoomRef.current; live = startZoom; }
+      if (e.touches.length !== 2) return;
+      e.preventDefault();
+      startDist = dist(e.touches); startZoom = zoomRef.current; live = startZoom;
+      grab(mid(e.touches));
     };
     const onMove = (e) => {
       if (e.touches.length === 2 && startDist) {
         e.preventDefault();
         live = clampZoom(startZoom * (dist(e.touches) / startDist));
-        if (innerRef.current) innerRef.current.style.width = `${live * 100}%`;
+        anchor(mid(e.touches), live); // current midpoint: pinch pans too
       }
     };
     const onEnd = (e) => {
       if (startDist && e.touches.length < 2) { startDist = 0; setZoom(live); return; }
       if (e.touches.length === 0 && e.changedTouches.length === 1) {
         const now = Date.now();
-        if (now - lastTap < 300) { lastTap = 0; setZoom(zoomRef.current > 1 ? 1 : 2); }
-        else lastTap = now;
+        if (now - lastTap < 300) {
+          lastTap = 0;
+          const t = e.changedTouches[0], p = { x: t.clientX, y: t.clientY };
+          const z = zoomRef.current > 1 ? 1 : 2; // double-tap zooms into the tapped spot
+          grab(p); anchor(p, z); setZoom(z);
+        } else lastTap = now;
       }
     };
     el.addEventListener("touchstart", onStart, { passive: false });

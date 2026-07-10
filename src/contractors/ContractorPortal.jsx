@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { T } from "../theme";
 import { notify, uploadAttachment, qbAuthFetch, uploadStreamVideo, STREAM_VIDEO_CAP } from "../net";
+import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "../push";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { openSowPdf } from "./sowPdf";
 import { ContactShareModal, ContactCardBubble } from "../contactShare";
@@ -92,6 +93,24 @@ export function ContractorPortal() {
   const [pricePop, setPricePop] = useState(false); // contract-price breakdown popup
   const [doneOpen, setDoneOpen] = useState(false); // ✓ completed-tasks popup
   const [err, setErr] = useState("");
+  // ── Push notifications ──────────────────────────────────────────────────────
+  // Same pipeline the team app uses: register the service worker, silently
+  // re-subscribe devices that already said yes, and offer a one-tap opt-in for
+  // the rest. The server already targets contractor logins (toOrg), so once a
+  // device is registered it gets pinged on new messages, tasks, and scope edits.
+  const pushOk = notificationsSupported();
+  const [pushPerm, setPushPerm] = useState(pushOk ? notificationPermission() : "unsupported");
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushHide, setPushHide] = useState(() => { try { return localStorage.getItem("ctrPushDismissed") === "1"; } catch { return false; } });
+  useEffect(() => { registerServiceWorker(); if (displayName) refreshSubscription(displayName); }, [displayName]);
+  const turnOnPush = async () => {
+    setPushBusy(true); setErr("");
+    try { await enablePush(displayName); setPushPerm("granted"); }
+    catch (e) { setErr(e.message || "Couldn't enable notifications."); setPushPerm(pushOk ? notificationPermission() : "unsupported"); }
+    setPushBusy(false);
+  };
+  const dismissPush = () => { setPushHide(true); try { localStorage.setItem("ctrPushDismissed", "1"); } catch { /* private mode */ } };
+  const pushWanted = pushOk && pushPerm !== "granted";
   const selJob = myJobs.find((j) => String(j.id) === String(selJobId)) || null;
   // Desktop opens straight into the first job, like the main app's lists.
   useEffect(() => { if (!isMobile && !selJobId && myJobs.length) setSelJobId(myJobs[0].id); }, [isMobile, selJobId, myJobs.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -683,8 +702,17 @@ export function ContractorPortal() {
           <div style={{ fontSize: 14.5, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{org?.name || "Contractor Portal"}</div>
           <div style={{ fontSize: 11, color: T.textSub }}>Goldstone Properties · {displayName}</div>
         </div>
+        {pushWanted && <button onClick={turnOnPush} disabled={pushBusy} title="Turn on notifications" style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 8, color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 15, padding: "5px 9px", flexShrink: 0, opacity: pushBusy ? 0.5 : 1 }}>{pushBusy ? "⏳" : "🔔"}</button>}
         <button onClick={signOut} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 8, color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12, padding: "6px 10px", flexShrink: 0 }}>Sign out</button>
       </div>
+      {pushWanted && !pushHide && (
+        <div style={{ background: T.goldLight, borderBottom: `1px solid ${T.gold}`, padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <span style={{ fontSize: 16, flexShrink: 0 }}>🔔</span>
+          <div style={{ flex: 1, fontSize: 12.5, color: T.text, fontWeight: 600 }}>Get notified when Goldstone messages you or sends a task.</div>
+          <button onClick={turnOnPush} disabled={pushBusy} style={{ background: T.gold, border: "none", borderRadius: 8, color: "#1a1a1e", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 800, padding: "6px 12px", flexShrink: 0, opacity: pushBusy ? 0.6 : 1 }}>{pushBusy ? "…" : "Turn on"}</button>
+          <button onClick={dismissPush} title="Dismiss" style={{ background: "none", border: "none", color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 15, padding: "2px 4px", flexShrink: 0 }}>×</button>
+        </div>
+      )}
       {(error || err) && <div onClick={() => setErr("")} style={{ background: "#FFF0EF", borderBottom: `1px solid ${T.red}`, color: T.red, fontSize: 12.5, fontWeight: 600, padding: "8px 16px", cursor: "pointer", flexShrink: 0 }}>{err || error}</div>}
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>

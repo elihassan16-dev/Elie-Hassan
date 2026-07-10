@@ -8583,6 +8583,7 @@ function MessageAttachment({att,mine,saveFolder}){
 // + 👥 tag teammates. onSend(text, attachment|null, mentions[]) — mentions is the list
 // of tagged names (empty = everyone). attachment is an uploaded {url,name,mime,kind}.
 function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,templates=[],defaultMention=null,quickLinks=[],aiContext=""}){
+  const isMobile=useIsMobile();
   const[text,setText]=useState("");
   const[busy,setBusy]=useState(false);
   const[aiOpen,setAiOpen]=useState(false);
@@ -8794,10 +8795,16 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
           </div>
         </div>
       )}
-      <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+      {(()=>{
+        // Mobile: compact circles + a short placeholder so the input keeps its
+        // width and single-line height instead of ballooning into a tall pill.
+        const ib=isMobile?{...iconBtn,width:33,height:33,fontSize:14.5}:iconBtn;
+        const ph=isMobile?String(placeholder||"").replace(/\s*\([^)]*\)\s*$/,""):placeholder;
+        return(
+      <div style={{display:"flex",gap:isMobile?6:8,alignItems:"flex-end"}}>
         {recording?(
           <>
-            <button onClick={cancelRec} title="Cancel recording" style={{...iconBtn,color:T.textTert}}>×</button>
+            <button onClick={cancelRec} title="Cancel recording" style={{...ib,color:T.textTert}}>×</button>
             <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,color:"#FF3B30",fontSize:14,fontWeight:600}}>
               <span style={{width:9,height:9,borderRadius:"50%",background:"#FF3B30",display:"inline-block",flexShrink:0}}/>
               Recording… {fmtSecs(recSecs)}
@@ -8807,18 +8814,20 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
         ):(
           <>
             <input ref={fileRef} type="file" accept="image/*,video/*,application/pdf,.xls,.xlsx,.csv,.doc,.docx,.ppt,.pptx,.txt,.numbers,.pages,.key" onChange={onPickFile} style={{display:"none"}}/>
-            <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, video, PDF, or spreadsheet" style={iconBtn}>📎</button>
-            <button onClick={startRec} disabled={busy} title="Record a voice note" style={iconBtn}>🎤</button>
-            <button onClick={()=>setAiOpen(v=>!v)} disabled={busy} title="Let AI draft this message" style={{...iconBtn,...(aiOpen?{background:T.goldLight,borderColor:T.gold}:{})}}>✨</button>
-            {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...iconBtn,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
+            <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, video, PDF, or spreadsheet" style={ib}>📎</button>
+            <button onClick={startRec} disabled={busy} title="Record a voice note" style={ib}>🎤</button>
+            <button onClick={()=>setAiOpen(v=>!v)} disabled={busy} title="Let AI draft this message" style={{...ib,...(aiOpen?{background:T.goldLight,borderColor:T.gold}:{})}}>✨</button>
+            {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...ib,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
             <textarea ref={taRef} rows={1} value={text} onChange={e=>setText(e.target.value)} onPaste={onPasteFiles}
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(canSend)send();}}}
-              placeholder={busy?(pct?`Uploading video… ${pct}%`:"Uploading…"):(pendingAtt?"Add a caption… (optional)":placeholder)} disabled={busy}
-              style={{flex:1,minWidth:0,padding:"11px 14px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
-            <button onClick={()=>send()} disabled={!canSend} style={{padding:"10px 18px",borderRadius:22,background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
+              placeholder={busy?(pct?`Uploading video… ${pct}%`:"Uploading…"):(pendingAtt?"Add a caption… (optional)":ph)} disabled={busy}
+              style={{flex:1,minWidth:0,padding:isMobile?"8px 12px":"11px 14px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
+            <button onClick={()=>send()} disabled={!canSend} style={{padding:isMobile?"8px 14px":"10px 18px",borderRadius:22,background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:isMobile?13:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>Send</button>
           </>
         )}
       </div>
+        );
+      })()}
     </div>
   );
 }

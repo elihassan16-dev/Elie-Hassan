@@ -59,13 +59,14 @@ const CO_COLOR = { not_filed: ["#B42318", "#FFF0EF"], filed: ["#15803D", "#EDFBF
 
 // Events a contractor can put on the shared schedule (they land on Goldstone's
 // calendar too). Inspections carry which trade it's for.
-const EVENT_TYPES = [["rough", "🔎", "Rough inspection"], ["final", "✅", "Final inspection"], ["walk", "🚶", "Site walkthrough"], ["delivery", "🚚", "Delivery"], ["other", "📌", "Other"]];
-const EVENT_TRADES = ["Building", "Plumbing", "Mechanical", "Electrical"];
+export const EVENT_TYPES = [["rough", "🔎", "Rough inspection"], ["final", "✅", "Final inspection"], ["custom", "🔍", "Custom inspection (name it)"], ["walk", "🚶", "Site walkthrough"], ["delivery", "🚚", "Delivery"], ["other", "📌", "Other"]];
+export const EVENT_TRADES = ["Building", "Plumbing", "Mechanical", "Electrical"];
 export const eventLabel = (ev) => {
-  const t = EVENT_TYPES.find((x) => x[0] === ev.type) || EVENT_TYPES[4];
+  if (ev.type === "custom") return `${ev.customLabel || "Custom inspection"}${ev.trade ? ` — ${ev.trade}` : ""}`;
+  const t = EVENT_TYPES.find((x) => x[0] === ev.type) || EVENT_TYPES[EVENT_TYPES.length - 1];
   return `${t[2]}${ev.trade ? ` — ${ev.trade}` : ""}`;
 };
-export const eventIcon = (ev) => (EVENT_TYPES.find((x) => x[0] === ev.type) || EVENT_TYPES[4])[1];
+export const eventIcon = (ev) => (EVENT_TYPES.find((x) => x[0] === ev.type) || EVENT_TYPES[EVENT_TYPES.length - 1])[1];
 const fmtClock = (t) => { if (!t) return ""; const [h, m] = String(t).split(":"); const d = new Date(); d.setHours(+h, +m || 0); return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); };
 
 // The SOW opens as a real PDF (generated on-device) — see ./sowPdf.js.
@@ -83,7 +84,7 @@ export function ContractorPortal() {
   const [tab, setTab] = useState("overview");
   const [statusOpen, setStatusOpen] = useState(false); // 🏗 site-status popup
   const [evOpen, setEvOpen] = useState(false); // 📅 schedule-an-event form
-  const [evDraft, setEvDraft] = useState({ type: "rough", trade: "", date: "", time: "", note: "" });
+  const [evDraft, setEvDraft] = useState({ type: "rough", trade: "", date: "", time: "", note: "", customLabel: "" });
   const [coReqOpen, setCoReqOpen] = useState(false); // change-order request form
   const [coReq, setCoReq] = useState({ label: "", amount: "" });
   const [prAmt, setPrAmt] = useState({}); // price drafts for Goldstone-requested COs
@@ -270,9 +271,10 @@ export function ContractorPortal() {
           const upcoming = evs.filter((e) => String(e.date || "") >= todayISO);
           const saveEv = () => {
             if (!evDraft.date) { setErr("Pick a date for the event."); return; }
-            const ev = { id: Date.now(), type: evDraft.type, trade: evDraft.type === "rough" || evDraft.type === "final" ? evDraft.trade : "", date: evDraft.date, time: evDraft.time, note: evDraft.note.trim(), by: displayName, orgName: org?.name || "", at: new Date().toISOString() };
+            if (evDraft.type === "custom" && !evDraft.customLabel.trim()) { setErr("Name the custom inspection."); return; }
+            const ev = { id: Date.now(), type: evDraft.type, customLabel: evDraft.type === "custom" ? evDraft.customLabel.trim() : "", trade: ["rough", "final", "custom"].includes(evDraft.type) ? evDraft.trade : "", date: evDraft.date, time: evDraft.time, note: evDraft.note.trim(), by: displayName, orgName: org?.name || "", at: new Date().toISOString() };
             writeStatus({ events: [...(st.events || []), ev] }, `📅 ${eventLabel(ev)} scheduled ${fmtDate(ev.date)}${ev.time ? ` · ${fmtClock(ev.time)}` : ""}${ev.note ? ` — ${ev.note}` : ""}`);
-            setEvOpen(false); setEvDraft({ type: "rough", trade: "", date: "", time: "", note: "" });
+            setEvOpen(false); setEvDraft({ type: "rough", trade: "", date: "", time: "", note: "", customLabel: "" });
           };
           const removeEv = (ev) => writeStatus({ events: (st.events || []).filter((x) => x.id !== ev.id) }, `📅 Cancelled: ${eventLabel(ev)} ${fmtDate(ev.date)}`);
           const selS = { padding: "8px 10px", borderRadius: 10, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
@@ -290,7 +292,10 @@ export function ContractorPortal() {
                     <select value={evDraft.type} onChange={(e) => setEvDraft((d) => ({ ...d, type: e.target.value }))} style={{ ...selS, flex: 1, minWidth: 150 }}>
                       {EVENT_TYPES.map(([v, ic, l]) => <option key={v} value={v}>{ic} {l}</option>)}
                     </select>
-                    {(evDraft.type === "rough" || evDraft.type === "final") && (
+                    {evDraft.type === "custom" && (
+                      <input value={evDraft.customLabel} onChange={(e) => setEvDraft((d) => ({ ...d, customLabel: e.target.value }))} placeholder="Inspection name — e.g. Fire marshal" style={{ ...selS, flex: 2, minWidth: 170 }} />
+                    )}
+                    {(evDraft.type === "rough" || evDraft.type === "final" || evDraft.type === "custom") && (
                       <select value={evDraft.trade} onChange={(e) => setEvDraft((d) => ({ ...d, trade: e.target.value }))} style={{ ...selS, flex: 1, minWidth: 120 }}>
                         <option value="">Which trade?</option>
                         {EVENT_TRADES.map((t) => <option key={t} value={t}>{t}</option>)}

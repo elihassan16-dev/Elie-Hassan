@@ -17,9 +17,10 @@ export function useSpeechToText({ value, onText, onError }) {
     if (busy) return;
     if (recOn) { stopAll(); return; } // onstop finishes the job
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
       const mime = ["audio/mp4", "audio/webm"].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
-      const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      // Speech-quality bitrate: ~4x smaller files → much faster upload on cell.
+      const mr = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 32000 });
       chunksRef.current = [];
       baseRef.current = (value || "").trim();
       mr.ondataavailable = (e) => { if (e.data && e.data.size) chunksRef.current.push(e.data); };

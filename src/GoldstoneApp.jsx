@@ -13,7 +13,7 @@ import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/C
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
-import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon } from "./contractors/ContractorPortal";
+import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES } from "./contractors/ContractorPortal";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -4762,6 +4762,8 @@ function PropertyStatusBoard({property,onClose}){
   const row=(siteStatus||[]).find(s=>String(s.id)===String(property.id))||null;
   const st=row||{id:String(property.id),address:`${property.address}${property.city?`, ${property.city}`:""}`,utilities:{},utilitiesAuto:{},permits:{}};
   const[err,setErr]=useState("");
+  const[evOpen,setEvOpen]=useState(false); // 📅 add-event form (two-way, same as portal)
+  const[evDraft,setEvDraft]=useState({type:"rough",trade:"",date:"",time:"",note:"",customLabel:""});
   // Completed task texts — internal tasks + this property's contractor tasks.
   const doneTexts=useMemo(()=>{
     const internal=(property.tasks||[]).filter(t=>t.status==="Completed").map(t=>t.text||"");
@@ -4871,9 +4873,43 @@ function PropertyStatusBoard({property,onClose}){
           </div>
           {(()=>{
             const evs=(st.events||[]).filter(ev=>String(ev.date||"")>=localISO()).sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.time||"").localeCompare(String(b.time||"")));
-            if(!evs.length)return null;
+            const saveEv=()=>{
+              if(!evDraft.date){setErr("Pick a date for the event.");return;}
+              if(evDraft.type==="custom"&&!evDraft.customLabel.trim()){setErr("Name the custom inspection.");return;}
+              const ev={id:Date.now(),type:evDraft.type,customLabel:evDraft.type==="custom"?evDraft.customLabel.trim():"",trade:["rough","final","custom"].includes(evDraft.type)?evDraft.trade:"",date:evDraft.date,time:evDraft.time,note:evDraft.note.trim(),by:currentUser||"",orgName:"",at:new Date().toISOString()};
+              write({events:[...(st.events||[]),ev]});
+              notifyOrgs(`📅 ${ctrEventLabel(ev)} scheduled ${ev.date}${ev.time?` · ${clock12(ev.time)}`:""} — ${currentUser}`);
+              setEvOpen(false);setEvDraft({type:"rough",trade:"",date:"",time:"",note:"",customLabel:""});
+            };
+            const selS={padding:"8px 10px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
             return(<>
-              <div style={{fontSize:11,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",margin:"18px 0 8px"}}>Scheduled events</div>
+              <div style={{display:"flex",alignItems:"center",gap:8,margin:"18px 0 8px"}}>
+                <span style={{flex:1,fontSize:11,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>Scheduled events</span>
+                <button onClick={()=>setEvOpen(v=>!v)} style={{padding:"5px 12px",borderRadius:16,border:`1px solid ${T.gold}`,background:evOpen?"#fff":T.goldLight,color:"#8a6d1f",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{evOpen?"Cancel":"＋ Add event"}</button>
+              </div>
+              {evOpen&&(
+                <div style={{display:"flex",flexDirection:"column",gap:8,background:T.bg,borderRadius:12,padding:"10px 12px",marginBottom:8}}>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    <select value={evDraft.type} onChange={e=>setEvDraft(d=>({...d,type:e.target.value}))} style={{...selS,flex:1,minWidth:150}}>
+                      {CTR_EVENT_TYPES.map(([v,ic,l])=><option key={v} value={v}>{ic} {l}</option>)}
+                    </select>
+                    {evDraft.type==="custom"&&<input value={evDraft.customLabel} onChange={e=>setEvDraft(d=>({...d,customLabel:e.target.value}))} placeholder="Inspection name — e.g. Fire marshal" style={{...selS,flex:2,minWidth:170}}/>}
+                    {["rough","final","custom"].includes(evDraft.type)&&(
+                      <select value={evDraft.trade} onChange={e=>setEvDraft(d=>({...d,trade:e.target.value}))} style={{...selS,flex:1,minWidth:120}}>
+                        <option value="">Which trade?</option>
+                        {CTR_EVENT_TRADES.map(t=><option key={t} value={t}>{t}</option>)}
+                      </select>
+                    )}
+                  </div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    <input type="date" value={evDraft.date} onChange={e=>setEvDraft(d=>({...d,date:e.target.value}))} style={{...selS,flex:1,minWidth:130}}/>
+                    <input type="time" value={evDraft.time} onChange={e=>setEvDraft(d=>({...d,time:e.target.value}))} style={{...selS,flex:1,minWidth:100}}/>
+                  </div>
+                  <input value={evDraft.note} onChange={e=>setEvDraft(d=>({...d,note:e.target.value}))} placeholder="Note (optional)" style={selS}/>
+                  <button onClick={saveEv} disabled={!evDraft.date} style={{padding:"9px",borderRadius:10,border:"none",background:evDraft.date?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:13,cursor:evDraft.date?"pointer":"default",fontFamily:"inherit"}}>Add to schedule</button>
+                </div>
+              )}
+              {evs.length===0&&!evOpen&&<div style={{fontSize:11.5,color:T.textTert}}>Nothing scheduled — inspections and walkthroughs from either side show here and on the Calendar.</div>}
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {evs.map(ev=>(
                   <div key={ev.id} style={{display:"flex",alignItems:"center",gap:9,background:T.bg,borderRadius:10,padding:"8px 11px"}}>

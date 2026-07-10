@@ -5,7 +5,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { requireAppUser } from "../../lib/quickbooks.js";
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 300 };
 
 async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;

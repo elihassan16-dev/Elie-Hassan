@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { supabase } from "../supabaseClient";
+import { readSnap, writeSnap, ensureSnapOwner } from "../snapshot";
 
 export const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
@@ -21,6 +22,7 @@ export function AuthProvider({ children }) {
       await new Promise((r) => setTimeout(r, 600));
       ({ data } = await supabase.from("users").select("*").eq("id", sess.user.id).maybeSingle());
     }
+    if (data) writeSnap(`profile-${sess.user.id}`, data); // next launch skips the splash wait
     setProfile(
       data || {
         id: sess.user.id,
@@ -36,12 +38,23 @@ export function AuthProvider({ children }) {
     supabase.auth.getSession().then(async ({ data }) => {
       if (!active) return;
       setSession(data.session);
-      await loadProfile(data.session);
-      setLoading(false);
+      if (data.session?.user?.id) ensureSnapOwner(data.session.user.id);
+      // A returning user's profile is cached: render NOW with it and refresh in
+      // the background, instead of holding the splash for a network round-trip.
+      const cached = data.session?.user?.id ? readSnap(`profile-${data.session.user.id}`) : null;
+      if (cached) {
+        setProfile(cached);
+        setLoading(false);
+        loadProfile(data.session);
+      } else {
+        await loadProfile(data.session);
+        setLoading(false);
+      }
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, sess) => {
       setSession(sess);
+      if (sess?.user?.id) ensureSnapOwner(sess.user.id); // fresh sign-in on a shared device wipes the previous account's snapshots
       await loadProfile(sess);
       setLoading(false);
     });

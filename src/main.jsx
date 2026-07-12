@@ -38,19 +38,25 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// Process any Microsoft (OneDrive) redirect sign-in result before rendering, so a
-// user returning from the Microsoft login lands connected on whatever page they're on.
+// Process any Microsoft (OneDrive) redirect sign-in result — but only BLOCK the
+// first render for it when the URL actually carries a Microsoft response (the
+// return trip from their login page). A normal launch used to wait on MSAL
+// initializing before painting anything, which read as a frozen white screen.
 async function boot() {
-  try {
-    await ensureMsalReady();
-    const res = await msalInstance.handleRedirectPromise();
-    if (res?.account) msalInstance.setActiveAccount(res.account);
-  } catch (e) {
-    console.error("[msal] redirect handling failed:", e?.message || e);
-  }
-  // Rotate the Microsoft refresh token on every app open/resume so the Email and
-  // Files sign-in stays alive (see keepMsalFresh in onedrive/msal.js).
-  startMsalKeepAlive();
+  const fromMsRedirect = /[#?&](code|error)=/.test(window.location.hash) || /[?&](code|error)=/.test(window.location.search);
+  const msal = (async () => {
+    try {
+      await ensureMsalReady();
+      const res = await msalInstance.handleRedirectPromise();
+      if (res?.account) msalInstance.setActiveAccount(res.account);
+    } catch (e) {
+      console.error("[msal] redirect handling failed:", e?.message || e);
+    }
+    // Rotate the Microsoft refresh token on every app open/resume so the Email
+    // and Files sign-in stays alive (see keepMsalFresh in onedrive/msal.js).
+    startMsalKeepAlive();
+  })();
+  if (fromMsRedirect) await msal;
   createRoot(document.getElementById("root")).render(
     <React.StrictMode>
       <ErrorBoundary>

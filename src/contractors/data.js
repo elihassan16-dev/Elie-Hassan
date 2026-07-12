@@ -9,6 +9,7 @@
 // #1 reason the app felt slower as messages and jobs piled up.)
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
+import { readSnap, writeSnap } from "../snapshot";
 
 const TABLES = ["contractor_orgs", "contractor_jobs", "contractor_tasks", "contractor_messages", "contractor_docs", "site_status"];
 const keyOf = (table) => ({ contractor_orgs: "orgs", contractor_jobs: "jobs", contractor_tasks: "tasks", contractor_messages: "messages", contractor_docs: "docs", site_status: "siteStatus" })[table];
@@ -19,6 +20,14 @@ const emit = () => listeners.forEach((fn) => { try { fn(); } catch { /* consumer
 const timers = {};
 let started = false;
 
+// Snapshot the whole store (debounced — the six launch loads collapse to one
+// write) so the next launch paints the portal instantly from the device.
+let snapTimer = null;
+const scheduleSnap = () => {
+  clearTimeout(snapTimer);
+  snapTimer = setTimeout(() => { const { error: _e, ...data } = store; writeSnap("ctr-store", data); }, 800);
+};
+
 async function loadTable(table) {
   // RLS scopes results automatically: team sees everything, a contractor login
   // only ever receives their own company's rows.
@@ -26,6 +35,7 @@ async function loadTable(table) {
   if (err) { store = { ...store, error: err.message || "Couldn't load portal data." }; emit(); return; }
   store = { ...store, error: "", [keyOf(table)]: (data || []).map((r) => r.data).filter(Boolean) };
   emit();
+  scheduleSnap();
 }
 const loadAll = () => { TABLES.forEach((t) => loadTable(t)); };
 const scheduleLoad = (table) => { clearTimeout(timers[table]); timers[table] = setTimeout(() => loadTable(table), 250); };
@@ -33,6 +43,9 @@ const scheduleLoad = (table) => { clearTimeout(timers[table]); timers[table] = s
 function start() {
   if (started) return;
   started = true;
+  // Paint instantly from the last snapshot; the loads below replace it in place.
+  const snap = readSnap("ctr-store");
+  if (snap) { store = { ...store, ...snap, error: "" }; emit(); }
   loadAll();
   const chan = supabase.channel("ctr-shared");
   TABLES.forEach((table) => chan.on("postgres_changes", { event: "*", schema: "public", table }, () => scheduleLoad(table)));

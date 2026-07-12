@@ -79,11 +79,13 @@ export const openScopePdf = (job) => { if (job.sowPdfUrl) window.open(job.sowPdf
 const scopeUpdatedRecently = (j) => !!j.scopeEditedAt && (Date.now() - new Date(j.scopeEditedAt).getTime()) < 7 * 86400000;
 
 export function ContractorPortal() {
-  const { displayName, contractorOrgId, signOut } = useAuth();
+  const { displayName, contractorOrgId, signOut, user } = useAuth();
   const { orgs, jobs, tasks, messages, docs, siteStatus, save, error } = useContractorData();
   const isMobile = useIsMobile();
+  // Per-job crew: a job with a crew list is only visible to those logins.
+  const myUserId = user?.id;
   const org = (orgs || []).find((o) => String(o.id) === String(contractorOrgId)) || null;
-  const myJobs = useMemo(() => (jobs || []).filter((j) => j.orgId === contractorOrgId).sort((a, b) => (a.status === "complete") - (b.status === "complete") || String(b.createdAt || "").localeCompare(String(a.createdAt || ""))), [jobs, contractorOrgId]);
+  const myJobs = useMemo(() => (jobs || []).filter((j) => j.orgId === contractorOrgId && (!Array.isArray(j.crew) || !j.crew.length || j.crew.includes(myUserId))).sort((a, b) => (a.status === "complete") - (b.status === "complete") || String(b.createdAt || "").localeCompare(String(a.createdAt || ""))), [jobs, contractorOrgId, myUserId]);
   // 🔗 Notification deep links: tapping a push opens /?goto=job:<jobId> — land
   // straight on that job's messages. Read at mount (BEFORE the desktop
   // auto-select effect, which would otherwise override it), then URL cleaned.

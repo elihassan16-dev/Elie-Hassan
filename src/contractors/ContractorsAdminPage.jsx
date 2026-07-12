@@ -413,6 +413,22 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
 // Exported: the property page's Contacts tab opens the same popup.
 export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages, docs, save, remove, displayName, onEditBasics, onClose }) {
   const total = jobTotal(j), paid = jobPaid(j), left = jobLeft(j), days = jobDays(j);
+  // Per-job crew: a company can have several logins (foremen) but not all of
+  // them work every job. j.crew = [user ids] limits who sees this job in the
+  // portal (empty/absent = the whole company, the default). Alerts about the
+  // job follow the same list — filtered server-side by the notify fan-out.
+  const { ctrUsers } = useData() || {};
+  const orgLogins = (ctrUsers || []).filter((u) => String(u.orgId) === String(j.orgId));
+  const crew = Array.isArray(j.crew) ? j.crew : [];
+  const onJob = (id) => !crew.length || crew.includes(id);
+  const toggleCrew = async (u) => {
+    const all = orgLogins.map((x) => x.id);
+    let next = crew.length ? [...crew] : all;
+    next = next.includes(u.id) ? next.filter((x) => x !== u.id) : [...next, u.id];
+    if (!next.length) return; // someone has to keep the job
+    if (all.every((id) => next.includes(id))) next = []; // everyone → back to the default
+    await save("contractor_jobs", { ...j, crew: next });
+  };
   const jDocs = (docs || []).filter((d) => String(d.jobId) === String(j.id));
   const jTasks = (tasks || []).filter((t) => String(t.jobId) === String(j.id));
   const closed = (s) => s === "Completed" || s === "N/A";
@@ -602,6 +618,17 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           {secHdr("Scope of work", <span style={{ display: "inline-flex", gap: 6 }}>{j.scope ? miniBtn("📄 Open PDF", () => openSowPdf(j).catch(() => {})) : null}{isAdmin ? miniBtn("✎ Edit scope", () => setScopeEdit(true)) : null}{isAdmin && onEditBasics ? miniBtn("✎ Edit basics", onEditBasics) : null}</span>)}
           <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No scope written — edit the job or let the contractor upload their SOW PDF."}</div>
         </div>
+        {isAdmin && orgLogins.length > 1 && (
+          <div>
+            {secHdr(`${org?.name || "Their"} people on this job`)}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {orgLogins.map((u) => { const on = onJob(u.id); return (
+                <button key={u.id} onClick={() => toggleCrew(u)} title={on ? "On this job — tap to remove them" : "Removed — tap to add them back"} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 16, border: `1.5px solid ${on ? T.gold : T.border}`, background: on ? T.goldLight : T.bg, color: on ? "#8a6d1f" : T.textTert, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", textDecoration: on ? "none" : "line-through" }}>{on ? "✓" : "✕"} {u.name}</button>
+              ); })}
+            </div>
+            <div style={{ fontSize: 11, color: T.textTert, marginTop: 6 }}>Tap a name to remove or re-add them. Removed people don't see this job — or its messages, tasks, and alerts — in their portal.</div>
+          </div>
+        )}
         <div>
           {secHdr("Documents", miniBtn(busy ? "Uploading…" : "＋ Upload", () => docRef.current && docRef.current.click()))}
           <input ref={docRef} type="file" accept="application/pdf,image/*" onChange={uploadDoc} style={{ display: "none" }} />

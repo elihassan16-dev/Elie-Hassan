@@ -427,7 +427,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
     next = next.includes(u.id) ? next.filter((x) => x !== u.id) : [...next, u.id];
     if (!next.length) return; // someone has to keep the job
     if (all.every((id) => next.includes(id))) next = []; // everyone → back to the default
-    await save("contractor_jobs", { ...j, crew: next });
+    try { await save("contractor_jobs", { ...j, crew: next }); } catch { /* realtime refresh restores the truth */ }
   };
   const jDocs = (docs || []).filter((d) => String(d.jobId) === String(j.id));
   const jTasks = (tasks || []).filter((t) => String(t.jobId) === String(j.id));

@@ -165,7 +165,7 @@ export function DataProvider({ children }) {
     if (!error && data) {
       const t = data.filter((u) => u.role !== "contractor");
       setTeam(t); writeSnap("team", t);
-      const c = data.filter((u) => u.role === "contractor").map((u) => ({ name: u.name || u.email, orgId: u.contractor_org_id }));
+      const c = data.filter((u) => u.role === "contractor").map((u) => ({ id: u.id, name: u.name || u.email, orgId: u.contractor_org_id }));
       setCtrUsers(c); writeSnap("ctr-users", c);
     }
   }, []);

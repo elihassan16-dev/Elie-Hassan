@@ -84,8 +84,18 @@ export function ContractorPortal() {
   const isMobile = useIsMobile();
   const org = (orgs || []).find((o) => String(o.id) === String(contractorOrgId)) || null;
   const myJobs = useMemo(() => (jobs || []).filter((j) => j.orgId === contractorOrgId).sort((a, b) => (a.status === "complete") - (b.status === "complete") || String(b.createdAt || "").localeCompare(String(a.createdAt || ""))), [jobs, contractorOrgId]);
-  const [selJobId, setSelJobId] = useState(null);
-  const [tab, setTab] = useState("overview");
+  // 🔗 Notification deep links: tapping a push opens /?goto=job:<jobId> — land
+  // straight on that job's messages. Read at mount (BEFORE the desktop
+  // auto-select effect, which would otherwise override it), then URL cleaned.
+  const [gotoJob] = useState(() => {
+    try {
+      const g = new URLSearchParams(window.location.search).get("goto");
+      if (g) window.history.replaceState(null, "", window.location.pathname);
+      return g && g.startsWith("job:") ? g.slice(4) : null;
+    } catch { return null; }
+  });
+  const [selJobId, setSelJobId] = useState(gotoJob);
+  const [tab, setTab] = useState(gotoJob ? "messages" : "overview");
   const [statusOpen, setStatusOpen] = useState(false); // 🏗 site-status popup
   const [evOpen, setEvOpen] = useState(false); // 📅 schedule-an-event form
   const [evDraft, setEvDraft] = useState({ type: "rough", trade: "", date: "", time: "", note: "", customLabel: "" });
@@ -158,7 +168,7 @@ export function ContractorPortal() {
       const up = await stage(file);
       if (up) {
         await save("contractor_docs", { id: Date.now(), jobId: selJob.id, orgId: contractorOrgId, name: up.name, url: up.url, mime: up.mime, by: displayName, at: new Date().toISOString() });
-        notify(null, { toAdmins: true, title: `${org?.name || displayName} uploaded a document`, body: `${up.name} — ${selJob.propertyAddress}` });
+        notify(null, { toAdmins: true, title: `${org?.name || displayName} uploaded a document`, body: `${up.name} — ${selJob.propertyAddress}`, url: `/?goto=chat:${selJob.propertyId || ""}` });
       }
     } catch (ex) { setErr(ex.message || "Upload failed."); }
     setSowBusy(false);
@@ -177,7 +187,7 @@ export function ContractorPortal() {
     const writeStatus = async (patch, note) => {
       try {
         await save("site_status", { ...st, ...patch, updatedAt: new Date().toISOString(), updatedBy: displayName });
-        if (note) notify(null, { toAdmins: true, title: `Site status — ${j.propertyAddress || ""}`, body: `${note} — ${displayName} (${org?.name || "contractor"})` });
+        if (note) notify(null, { toAdmins: true, title: `Site status — ${j.propertyAddress || ""}`, body: `${note} — ${displayName} (${org?.name || "contractor"})`, url: `/?goto=chat:${j.propertyId || ""}` });
       } catch (ex) { setErr(ex.message || "Couldn't update the status board."); }
     };
     const flipUtil = (u, label) => {
@@ -506,7 +516,7 @@ export function ContractorPortal() {
   const setTaskStatus = async (t, next) => {
     if (next === (t.status || "Not Started")) return;
     await save("contractor_tasks", { ...t, status: next, statusBy: displayName, doneAt: next === "Completed" ? new Date().toISOString() : null, doneBy: next === "Completed" ? displayName : null });
-    notify(null, { toAdmins: true, title: next === "Completed" ? `${org?.name || displayName} completed a task` : `${org?.name || displayName} updated a task`, body: `${t.text} — ${next} · ${selJob?.propertyAddress || ""}` });
+    notify(null, { toAdmins: true, title: next === "Completed" ? `${org?.name || displayName} completed a task` : `${org?.name || displayName} updated a task`, body: `${t.text} — ${next} · ${selJob?.propertyAddress || ""}`, url: `/?goto=chat:${selJob?.propertyId || ""}` });
   };
   const sendRequest = async () => {
     const txt = reqText.trim(); if (!txt || !selJob) return;
@@ -515,9 +525,10 @@ export function ContractorPortal() {
     // Aimed at specific people → alert just them; otherwise the whole team.
     const title = `Task request from ${org?.name || displayName}`;
     const body = `${txt} — ${selJob.propertyAddress}`;
-    if (reqWho.length) notify(reqWho, { title, body });
-    else if (roster.length) notify(roster, { title, body });
-    else notify(null, { toAdmins: true, title, body });
+    const url = `/?goto=chat:${selJob.propertyId || ""}`;
+    if (reqWho.length) notify(reqWho, { title, body, url });
+    else if (roster.length) notify(roster, { title, body, url });
+    else notify(null, { toAdmins: true, title, body, url });
   };
   const tasksTab = (j) => {
     const jt = (tasks || []).filter((t) => t.orgId === contractorOrgId && String(t.jobId) === String(j.id));
@@ -684,8 +695,9 @@ export function ContractorPortal() {
     // Tagged specific Goldstone people → alert just them; otherwise the admins.
     const title = `${org?.name || displayName} — ${msgTarget ? msgTarget.text : selJob.propertyAddress}`;
     const body = txt || "(attachment)";
-    if (msgTags.length) notify(msgTags, { title, body });
-    else notify(null, { toAdmins: true, title, body });
+    const url = `/?goto=chat:${selJob.propertyId || ""}`;
+    if (msgTags.length) notify(msgTags, { title, body, url });
+    else notify(null, { toAdmins: true, title, body, url });
   };
 
   // ── Layout ──────────────────────────────────────────────────────────────────

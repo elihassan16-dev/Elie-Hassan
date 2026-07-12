@@ -217,7 +217,7 @@ function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
     };
     try { await save("contractor_jobs", obj); } catch (ex) { setE2(ex.message || "Save failed — try again."); return; }
     onSaved(obj.id); onClose();
-    if (!editing) notify(null, { toOrg: String(org.id), title: "New job from Goldstone", body: `${obj.propertyAddress}${obj.title ? ` — ${obj.title}` : ""}` });
+    if (!editing) notify(null, { toOrg: String(org.id), title: "New job from Goldstone", body: `${obj.propertyAddress}${obj.title ? ` — ${obj.title}` : ""}`, url: `/?goto=job:${obj.id}` });
   };
   return (
     <Modal title={editing ? "Edit job" : `New job — ${org?.name}`} onClose={onClose}
@@ -342,7 +342,7 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
     try {
       // Highlighting is optional — off ships a clean PDF (no marks, no UPDATED banner).
       await save("contractor_jobs", { ...j, scope: txt, sowPdfUrl: null, scopeChangedLines: highlight ? changedLines : [], scopeEditedAt: new Date().toISOString(), scopeEditedBy: displayName });
-      notify(null, { toOrg: j.orgId, title: "Scope of work updated", body: `${j.propertyAddress || ""}${j.title ? ` — ${j.title}` : ""} — open the PDF${highlight ? ", the changes are highlighted" : " for the latest version"}.` });
+      notify(null, { toOrg: j.orgId, title: "Scope of work updated", body: `${j.propertyAddress || ""}${j.title ? ` — ${j.title}` : ""} — open the PDF${highlight ? ", the changes are highlighted" : " for the latest version"}.`, url: `/?goto=job:${j.id}` });
       save("contractor_messages", { id: Date.now() + 3, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: `📄 The scope of work was updated — open the PDF on this job${highlight ? "; the changed lines are highlighted" : " for the latest version"}.`, at: new Date().toISOString(), readBy: [displayName] }).catch(() => {});
       clearDraft(false);
       onClose();
@@ -433,7 +433,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   const applyQb = async (rows) => {
     const have = new Set((j.payments || []).map((p) => p.qbId).filter(Boolean));
     const add = rows.filter((t) => !have.has(t.id || `${t.date}|${t.vendor}|${t.amount}`)).map((t, i) => ({ id: Date.now() + i, amount: Math.abs(Number(t.amount) || 0), date: t.date || today(), note: [t.vendor, t.memo].filter(Boolean).join(" — ") || "QuickBooks", qbId: t.id || `${t.date}|${t.vendor}|${t.amount}` }));
-    if (add.length) { await save("contractor_jobs", { ...j, payments: [...(j.payments || []), ...add] }); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(add.reduce((s, p) => s + p.amount, 0))} — ${j.propertyAddress}` }); }
+    if (add.length) { await save("contractor_jobs", { ...j, payments: [...(j.payments || []), ...add] }); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(add.reduce((s, p) => s + p.amount, 0))} — ${j.propertyAddress}`, url: `/?goto=job:${j.id}` }); }
     setQbPick(false);
   };
   const [taskDraft, setTaskDraft] = useState("");
@@ -447,7 +447,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   const scrollRef = useRef(null);
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length, tab2]);
 
-  const addCO = async () => { const a = Number(numIn(coDraft.amount)); if (!a) return; await save("contractor_jobs", { ...j, changeOrders: [...(j.changeOrders || []), { id: Date.now(), label: coDraft.label.trim() || "Change order", amount: a, date: coDraft.date }] }); setCoDraft(null); notify(null, { toOrg: j.orgId, title: "Change order added", body: `${coDraft.label.trim() || "Change order"} — ${money(a)} · ${j.propertyAddress}` }); };
+  const addCO = async () => { const a = Number(numIn(coDraft.amount)); if (!a) return; await save("contractor_jobs", { ...j, changeOrders: [...(j.changeOrders || []), { id: Date.now(), label: coDraft.label.trim() || "Change order", amount: a, date: coDraft.date }] }); setCoDraft(null); notify(null, { toOrg: j.orgId, title: "Change order added", body: `${coDraft.label.trim() || "Change order"} — ${money(a)} · ${j.propertyAddress}`, url: `/?goto=job:${j.id}` }); };
   // Scope-only change-order request FROM Goldstone: no price attached — the
   // contractor sends their price back, then it's approved like any request.
   const sendAsk = async () => {
@@ -455,13 +455,13 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
     if (!label) return;
     const r = { id: Date.now(), label: label.slice(0, 200), from: "team", askedBy: displayName, at: new Date().toISOString(), status: "awaiting_price", amount: null };
     await save("contractor_jobs", { ...j, coRequests: [...(j.coRequests || []), r] });
-    notify(null, { toOrg: j.orgId, title: "Change order requested by Goldstone", body: `${label} — please send your price · ${j.propertyAddress}` });
+    notify(null, { toOrg: j.orgId, title: "Change order requested by Goldstone", body: `${label} — please send your price · ${j.propertyAddress}`, url: `/?goto=job:${j.id}` });
     save("contractor_messages", { id: Date.now() + 1, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: `🧾 Change order requested: ${label} — please send a price.`, at: new Date().toISOString(), readBy: [displayName], taskRefId: `co:${r.id}`, taskRefText: `🧾 ${label}` }).catch(() => {});
     setAskDraft(null);
   };
   const cancelAsk = async (r) => {
     await save("contractor_jobs", { ...j, coRequests: (j.coRequests || []).filter((x) => x.id !== r.id) });
-    notify(null, { toOrg: j.orgId, title: "Change order request withdrawn", body: `${r.label} · ${j.propertyAddress}` });
+    notify(null, { toOrg: j.orgId, title: "Change order request withdrawn", body: `${r.label} · ${j.propertyAddress}`, url: `/?goto=job:${j.id}` });
   };
   // Contractor-submitted change-order requests: approving one is what actually
   // moves the contract price (it becomes a real change order).
@@ -479,12 +479,12 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
     });
     save("contractor_messages", { id: Date.now() + 2, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: `🧾 Change order ${approve ? "approved ✓" : "denied"}: ${r.label} — ${money(r.amount)}`, at: new Date().toISOString(), readBy: [displayName] }).catch(() => {});
   };
-  const addPay = async () => { const a = Number(numIn(payDraft.amount)); if (!a) return; await save("contractor_jobs", { ...j, payments: [...(j.payments || []), { id: Date.now(), amount: a, date: payDraft.date, note: payDraft.note.trim() }] }); setPayDraft(null); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(a)} — ${j.propertyAddress}` }); };
-  const addTask = async () => { const txt = taskDraft.trim(); if (!txt) return; await save("contractor_tasks", { id: Date.now(), jobId: j.id, orgId: j.orgId, text: txt, status: "Not Started", direction: "to_contractor", createdBy: displayName, createdAt: new Date().toISOString() }); setTaskDraft(""); notify(null, { toOrg: j.orgId, title: "New task from Goldstone", body: `${txt} — ${j.propertyAddress}` }); };
+  const addPay = async () => { const a = Number(numIn(payDraft.amount)); if (!a) return; await save("contractor_jobs", { ...j, payments: [...(j.payments || []), { id: Date.now(), amount: a, date: payDraft.date, note: payDraft.note.trim() }] }); setPayDraft(null); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(a)} — ${j.propertyAddress}`, url: `/?goto=job:${j.id}` }); };
+  const addTask = async () => { const txt = taskDraft.trim(); if (!txt) return; await save("contractor_tasks", { id: Date.now(), jobId: j.id, orgId: j.orgId, text: txt, status: "Not Started", direction: "to_contractor", createdBy: displayName, createdAt: new Date().toISOString() }); setTaskDraft(""); notify(null, { toOrg: j.orgId, title: "New task from Goldstone", body: `${txt} — ${j.propertyAddress}`, url: `/?goto=job:${j.id}` }); };
   const setTaskStatus = async (t, s) => {
     if (s === (t.status || "Not Started")) return;
     await save("contractor_tasks", { ...t, status: s, statusBy: displayName, doneAt: s === "Completed" ? new Date().toISOString() : null, doneBy: s === "Completed" ? displayName : null });
-    notify(null, { toOrg: t.orgId, title: "Task updated by Goldstone", body: `${t.text} — ${s}` });
+    notify(null, { toOrg: t.orgId, title: "Task updated by Goldstone", body: `${t.text} — ${s}`, url: `/?goto=job:${t.jobId}` });
   };
   const statusPill = (t) => {
     const STS = ["Not Started", "In Progress", "Completed", "N/A"];
@@ -522,7 +522,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
     setMsgDraft(""); setPending(null); setReplyTo(null);
     await save("contractor_messages", msg);
     if (msg.attachment && msg.attachment.pending && msg.attachment.uploadId) bindCtrVideoMessage(msg.attachment.uploadId, msg.id);
-    notify(null, { toOrg: j.orgId, title: `Goldstone — ${j.propertyAddress}`, body: txt || "(attachment)" });
+    notify(null, { toOrg: j.orgId, title: `Goldstone — ${j.propertyAddress}`, body: txt || "(attachment)", url: `/?goto=job:${j.id}` });
   };
   const uploadDoc = async (e) => { const file = (e.target.files || [])[0]; e.target.value = ""; if (!file) return; setBusy(true); try { const up = await uploadAttachment(file, "portal"); await save("contractor_docs", { id: Date.now(), jobId: j.id, orgId: j.orgId, name: up.name, url: up.url, mime: up.mime, by: displayName, at: new Date().toISOString() }); } catch { setErr2("Upload failed."); } setBusy(false); };
 

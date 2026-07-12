@@ -9160,6 +9160,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
   // open the approve/deny popup (shared store — no extra load).
   const {jobs:ctrJobsAll,orgs:ctrOrgsAll,save:ctrSaveShared}=useContractorData();
   const {isAdmin:amAdmin}=useAuth()||{};
+  const {ctrUsers}=useData()||{};
   const[coPopup,setCoPopup]=useState(null); // {jobId, reqId}
   const scrollRef=useRef(null);
   const[showInfo,setShowInfo]=useState(null); // showingKey whose agent-info popup is open
@@ -9315,7 +9316,13 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
         </div>
       )}
       {!selMode&&<div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:reply&&reply.ctrLabel?"none":target&&!reply?`2px solid ${T.gold}`:`1px solid ${T.border}`,background:reply&&reply.ctrLabel?"#FFF9EC":T.card,flexShrink:0}}>
-        <ChatComposer onSend={handleSend} people={teamMembers} currentUser={currentUser} placeholder={reply?(reply.ctrLabel?`Reply to ${reply.ctrLabel} — their team sees this…`:reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply… (internal)"):(target?`Message on “${target.text}”…`:"Message your team… (internal — contractors never see this)")}
+        <ChatComposer onSend={handleSend} people={(()=>{
+          // Replying externally → the contractor company's people lead the tag
+          // list (they're who you're talking to), teammates still taggable after.
+          if(!reply||!reply.ctrOrgId)return teamMembers;
+          const ext=(ctrUsers||[]).filter(u=>String(u.orgId)===String(reply.ctrOrgId)).map(u=>u.name).filter(Boolean);
+          return [...new Set([...ext,...teamMembers])];
+        })()} currentUser={currentUser} placeholder={reply?(reply.ctrLabel?`Reply to ${reply.ctrLabel} — their team sees this…`:reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply… (internal)"):(target?`Message on “${target.text}”…`:"Message your team… (internal — contractors never see this)")}
           aiContext={[
             `Property: ${addr}`,
             property.status?`Status: ${property.status}`:"",
@@ -9436,11 +9443,16 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       // contractor sees the reply in context in their portal.
       cm.replyTo={id:String(replyTarget.id||"").replace(/^ctr-/,""),author:replyTarget.author||"",text:(replyTarget.text||(replyTarget.attachment?"📎 attachment":"")).slice(0,140)};
       if(replyTarget.taskRefText)cm.taskRefText=replyTarget.taskRefText;
+      // Tagging works here too: tagged names (their people and/or teammates) show
+      // on the message and get pinged directly instead of the whole company.
+      const tagged=[...new Set(mentions||[])].filter(n=>n&&n!==CURRENT_USER);
+      if(tagged.length)cm.mentions=tagged;
       ctrSave("contractor_messages",cm).then(()=>{
         // Background video: patch this portal row once the upload lands.
         if(cm.attachment&&cm.attachment.pending&&cm.attachment.uploadId)bindCtrVideoMessage(cm.attachment.uploadId,cm.id);
       }).catch(()=>{});
-      notify(null,{toOrg:replyTarget.ctrOrgId,title:`Goldstone — ${sel.address}`,body:t||"(attachment)"});
+      if(tagged.length)notify(tagged,{title:`Goldstone — ${sel.address}`,body:t||"(attachment)"});
+      else notify(null,{toOrg:replyTarget.ctrOrgId,title:`Goldstone — ${sel.address}`,body:t||"(attachment)"});
       return;
     }
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};

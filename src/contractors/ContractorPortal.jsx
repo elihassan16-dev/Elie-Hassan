@@ -354,8 +354,7 @@ export function ContractorPortal() {
               if (!a) return;
               try {
                 await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, bidAmount: a }) });
-                notify(null, { toAdmins: true, title: `Bid from ${org?.name || displayName}`, body: `${j.propertyAddress || ""}${j.title ? ` — ${j.title}` : ""} · ${money(a)}` });
-                setBidAmt("");
+                setBidAmt(""); // the API pings the admins server-side — reliable even if the app closes now
               } catch (ex) { setErr(ex.message || "Couldn't send the bid."); }
             };
             return (
@@ -411,8 +410,7 @@ export function ContractorPortal() {
               if (!coReq.label.trim() || !amt) return;
               try {
                 await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, label: coReq.label.trim(), amount: amt }) });
-                notify(null, { toAdmins: true, title: `Change order request — ${org?.name || displayName}`, body: `${coReq.label.trim()} — ${money(amt)} · ${j.propertyAddress || ""}` });
-                setCoReqOpen(false); setCoReq({ label: "", amount: "" });
+                setCoReqOpen(false); setCoReq({ label: "", amount: "" }); // the API pings the admins server-side
               } catch (ex) { setErr(ex.message || "Couldn't send the request."); }
             };
             return (<>
@@ -429,8 +427,7 @@ export function ContractorPortal() {
                   if (!a) return;
                   try {
                     await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, requestId: r.id, amount: a }) });
-                    notify(null, { toAdmins: true, title: `${org?.name || displayName} priced a change order`, body: `${r.label} — ${money(a)} · ${j.propertyAddress || ""}` });
-                    setPrAmt((p) => ({ ...p, [r.id]: "" }));
+                    setPrAmt((p) => ({ ...p, [r.id]: "" })); // the API pings the admins server-side
                   } catch (ex) { setErr(ex.message || "Couldn't send the price."); }
                 };
                 return (
@@ -804,8 +801,7 @@ export function ContractorPortal() {
                             if (!a) return;
                             try {
                               await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: selJob.id, bidAmount: a }) });
-                              notify(null, { toAdmins: true, title: `Bid from ${org?.name || displayName}`, body: `${selJob.propertyAddress || ""}${selJob.title ? ` — ${selJob.title}` : ""} · ${money(a)}` });
-                              setBidAmt("");
+                              setBidAmt(""); // the API pings the admins server-side — reliable even if the app closes now
                             } catch (ex) { setErr(ex.message || "Couldn't send the bid."); }
                           };
                           return (

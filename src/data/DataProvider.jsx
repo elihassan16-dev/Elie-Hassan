@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, useCallback } f
 import { supabase } from "../supabaseClient";
 import { useAuth } from "../auth/AuthProvider";
 import { INIT_PROPS, INIT_LEADS, DEFAULT_CONTACTS } from "../seed";
+import { readSnap, writeSnap } from "../snapshot";
 
 export const DataCtx = createContext(null);
 export const useData = () => useContext(DataCtx);
@@ -35,9 +36,16 @@ const mapData = (data) => data.map((r) => (r && r.data ? r.data : r)).filter(Boo
 //   one write carrying the latest values → no out-of-order overwrite.
 // - A realtime refresh never reverts a row with unsaved local edits ("dirty").
 function useSyncedCollection(table, toRow, mapRows, reportError) {
-  const [items, setItems] = useState([]);
-  const ref = useRef([]);            // latest items (sync source of truth for flush)
-  const synced = useRef(new Map());  // id -> JSON string of last-known DB state
+  // Hydrate from the last on-device snapshot so launch paints instantly; the
+  // snapshot doubles as the last-known DB state, so the flush diff stays exact.
+  const [boot] = useState(() => {
+    const snap = readSnap(table);
+    const items = Array.isArray(snap) ? snap : [];
+    return { items, map: new Map(items.map((x) => [String(x.id), JSON.stringify(x)])) };
+  });
+  const [items, setItems] = useState(boot.items);
+  const ref = useRef(boot.items);    // latest items (sync source of truth for flush)
+  const synced = useRef(boot.map);   // id -> JSON string of last-known DB state
   const dirty = useRef(new Set());   // ids with local changes not yet saved
   const timer = useRef(null);
   const flushing = useRef(false);
@@ -109,6 +117,7 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
     [...synced.current.keys()].forEach((id) => { if (!dbIds.has(id) && !dirty.current.has(id)) synced.current.delete(id); });
     ref.current = merged;
     setItems(merged);
+    writeSnap(table, merged); // next launch paints instantly with this
   }, [table, mapRows]);
 
   const flushNow = useCallback(() => { clearTimeout(timer.current); return flush(); }, [flush]);
@@ -119,8 +128,10 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
 export function DataProvider({ children }) {
   const { user, isAdmin, displayName } = useAuth();
 
-  const [team, setTeam] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [team, setTeam] = useState(() => readSnap("team") || []);
+  // With snapshots on this device the shell renders immediately (data refreshes
+  // in place); the "Loading Goldstone…" gate only holds on a truly first launch.
+  const [loading, setLoading] = useState(() => !readSnap("properties"));
   const [saveError, setSaveError] = useState(null);
   const seededRef = useRef(false);
 
@@ -148,7 +159,7 @@ export function DataProvider({ children }) {
     // Contractor-portal logins are NOT teammates: keep them out of the roster so
     // they never show in assign/delegate/mention pickers or get internal tasks —
     // contractors get work through their portal jobs instead.
-    if (!error && data) setTeam(data.filter((u) => u.role !== "contractor"));
+    if (!error && data) { const t = data.filter((u) => u.role !== "contractor"); setTeam(t); writeSnap("team", t); }
   }, []);
 
   // Admin-only: mute/unmute a teammate's notifications (RLS lets admins update any user row).
@@ -188,7 +199,6 @@ export function DataProvider({ children }) {
     let cancelled = false;
 
     (async () => {
-      setLoading(true);
       await seedIfEmpty();
       await Promise.all([propsC.load(), leadsC.load(), contactsC.load(), autosC.load(), fundersC.load(), drawsC.load(), officeC.load(), officeTasksC.load(), bankC.load(), settingsC.load(), rentalsC.load(), loadTeam()]);
       if (!cancelled) setLoading(false);

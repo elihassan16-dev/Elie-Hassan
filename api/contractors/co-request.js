@@ -34,7 +34,7 @@ export default async function handler(req, res) {
     const jd = job.data || {};
     const { data: orgRow } = await db.from("contractor_orgs").select("data").eq("id", job.org_id).maybeSingle();
     const orgName = (orgRow && orgRow.data && orgRow.data.name) || u?.name || "Contractor";
-    const pingAdmins = (title, body) => notifyFanout(db, user.id, { toAdmins: true, title, body }).catch((e) => console.error("[co-request] notify failed:", e.message));
+    const pingAdmins = (title, body) => notifyFanout(db, user.id, { toAdmins: true, title, body, url: jd.propertyId ? `/?goto=chat:${jd.propertyId}` : "/" }).catch((e) => console.error("[co-request] notify failed:", e.message));
 
     // Bidding a whole job Goldstone asked them to price (job status "bid"):
     // record the number on the job — Goldstone accepts it to make the job live.

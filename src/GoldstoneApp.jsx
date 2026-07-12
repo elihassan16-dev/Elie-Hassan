@@ -15,7 +15,7 @@ import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/C
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
-import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES } from "./contractors/ContractorPortal";
+import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES, openScopePdf } from "./contractors/ContractorPortal";
 import { sowPdfFile } from "./contractors/sowPdf";
 import { SowPdfPreview } from "./contractors/SowPdfPreview";
 
@@ -9101,6 +9101,9 @@ const buildMessageThreads=(messages)=>{
   return arr;
 };
 function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelete,onBack,isMobile,onUpdateProp}){
+  // Contractor jobs, so a "scope of work" message in an external thread can
+  // open the job's SOW PDF right from the chat (shared store — no extra load).
+  const {jobs:ctrJobsAll}=useContractorData();
   const scrollRef=useRef(null);
   const[showInfo,setShowInfo]=useState(null); // showingKey whose agent-info popup is open
   // Jump to the newest message when a chat opens or a message arrives.
@@ -9153,17 +9156,20 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
             const mine=m.author===currentUser;
             const theirBg=onCard?T.bg:T.card;
             const picked=selIds.has(m.id);
+            // Scope-of-work messages on a contractor job open the SOW PDF on tap.
+            const sowJob=!selMode&&m.ctrJobId&&/scope of work/i.test(m.text||"")?(ctrJobsAll||[]).find(j=>String(j.id)===String(m.ctrJobId)):null;
             return(
               <div key={m.id} onClick={selMode?()=>toggleSel(m.id):undefined} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"92%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start",cursor:selMode?"pointer":"default"}}>
                 <div style={{fontSize:10,color:T.textTert,marginBottom:2}}>{m.author||"—"} · {fmt(m.at)}</div>
                 <div style={{display:"flex",alignItems:"center",gap:8,flexDirection:mine?"row-reverse":"row"}}>
                   {selMode&&<span style={{width:20,height:20,flexShrink:0,borderRadius:"50%",border:`2px solid ${picked?T.gold:T.border}`,background:picked?T.gold:"transparent",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800}}>{picked?"✓":""}</span>}
-                  <div style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`,opacity:selMode&&!picked?0.55:1}}>
+                  <div onClick={sowJob?()=>openScopePdf(sowJob):undefined} style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`,opacity:selMode&&!picked?0.55:1,cursor:sowJob?"pointer":undefined}}>
                     {m.replyTo&&<div style={{fontSize:11,marginBottom:4,padding:"4px 8px",borderLeft:`3px solid ${mine?"rgba(255,255,255,0.6)":T.gold}`,borderRadius:5,background:mine?"rgba(255,255,255,0.15)":T.bg,color:mine?"rgba(255,255,255,0.92)":T.textSub,overflow:"hidden"}}><b>{(m.replyTo.author||"").split(" ")[0]}</b>: {m.replyTo.text}</div>}
                     {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                     {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
                     {m.text}
                     {m.attachment&&<MessageAttachment att={m.attachment} mine={mine} saveFolder={property.filesFolder||null}/>}
+                    {sowJob&&<div style={{fontSize:10.5,fontWeight:800,marginTop:5,color:mine?"rgba(255,255,255,0.92)":"#b8912e"}}>📄 Tap to open the PDF</div>}
                   </div>
                 </div>
                 {/* Reply to THIS specific message (notifies its author) */}

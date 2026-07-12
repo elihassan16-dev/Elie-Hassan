@@ -4,6 +4,7 @@
 // denies it in the app; approving is what actually changes the price.
 import { createClient } from "@supabase/supabase-js";
 import { requireAppUser } from "../../lib/showings.js";
+import { notifyFanout } from "../../lib/notify.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://wtmsukjnuqsprtvfytin.supabase.co";
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -28,6 +29,13 @@ export default async function handler(req, res) {
     const isOrg = u && u.role === "contractor" && String(u.contractor_org_id) === String(job.org_id);
     if (!isTeam && !isOrg) { res.status(403).json({ error: "Not your job." }); return; }
 
+    // The admin ping is sent HERE (server-side) — the old client-side ping was
+    // silently lost whenever the contractor's app closed right after submitting.
+    const jd = job.data || {};
+    const { data: orgRow } = await db.from("contractor_orgs").select("data").eq("id", job.org_id).maybeSingle();
+    const orgName = (orgRow && orgRow.data && orgRow.data.name) || u?.name || "Contractor";
+    const pingAdmins = (title, body) => notifyFanout(db, user.id, { toAdmins: true, title, body }).catch((e) => console.error("[co-request] notify failed:", e.message));
+
     // Bidding a whole job Goldstone asked them to price (job status "bid"):
     // record the number on the job — Goldstone accepts it to make the job live.
     if (bid) {
@@ -38,6 +46,7 @@ export default async function handler(req, res) {
         id: String(bmid), org_id: job.org_id,
         data: { id: bmid, jobId: job.id, orgId: job.org_id, author: u?.name || "", side: "contractor", text: `💰 Bid: $${bid.toLocaleString()} for ${(job.data || {}).title || (job.data || {}).propertyAddress || "the job"}`, at: new Date().toISOString(), readBy: [u?.name || ""] },
       });
+      await pingAdmins(`Bid from ${orgName}`, `${jd.propertyAddress || ""}${jd.title ? ` — ${jd.title}` : ""} · $${bid.toLocaleString()}`);
       res.status(200).json({ ok: true });
       return;
     }
@@ -56,6 +65,7 @@ export default async function handler(req, res) {
         id: String(mid), org_id: job.org_id,
         data: { id: mid, jobId: job.id, orgId: job.org_id, author: u?.name || "", side: "contractor", text: `🧾 Price for the requested change order: ${target.label} — $${amt.toLocaleString()}`, at: new Date().toISOString(), readBy: [u?.name || ""], taskRefId: `co:${target.id}`, taskRefText: `🧾 ${target.label}` },
       });
+      await pingAdmins(`${orgName} priced a change order`, `${target.label} — $${amt.toLocaleString()} · ${jd.propertyAddress || ""}`);
       res.status(200).json({ ok: true });
       return;
     }
@@ -72,6 +82,7 @@ export default async function handler(req, res) {
       org_id: job.org_id,
       data: { id: msgId, jobId: job.id, orgId: job.org_id, author: request.by, side: "contractor", text: `🧾 Change order request: ${request.label} — $${amt.toLocaleString()}${request.note ? `\n${request.note}` : ""}`, at: request.at, readBy: [request.by], taskRefId: `co:${request.id}`, taskRefText: `🧾 ${request.label}` },
     });
+    await pingAdmins(`Change order request — ${orgName}`, `${request.label} — $${amt.toLocaleString()} · ${jd.propertyAddress || ""}`);
     res.status(200).json({ ok: true, request });
   } catch (e) {
     res.status(500).json({ error: e.message });

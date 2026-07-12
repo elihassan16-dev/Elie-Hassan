@@ -129,6 +129,8 @@ export function DataProvider({ children }) {
   const { user, isAdmin, displayName } = useAuth();
 
   const [team, setTeam] = useState(() => readSnap("team") || []);
+  // Contractor-portal logins (name + org), so external chats can @-tag them.
+  const [ctrUsers, setCtrUsers] = useState(() => readSnap("ctr-users") || []);
   // With snapshots on this device the shell renders immediately (data refreshes
   // in place); the "Loading Goldstone…" gate only holds on a truly first launch.
   const [loading, setLoading] = useState(() => !readSnap("properties"));
@@ -158,8 +160,14 @@ export function DataProvider({ children }) {
     const { data, error } = await supabase.from("users").select("*").order("name");
     // Contractor-portal logins are NOT teammates: keep them out of the roster so
     // they never show in assign/delegate/mention pickers or get internal tasks —
-    // contractors get work through their portal jobs instead.
-    if (!error && data) { const t = data.filter((u) => u.role !== "contractor"); setTeam(t); writeSnap("team", t); }
+    // contractors get work through their portal jobs instead. They're kept
+    // separately (name + org only) so EXTERNAL threads can tag them.
+    if (!error && data) {
+      const t = data.filter((u) => u.role !== "contractor");
+      setTeam(t); writeSnap("team", t);
+      const c = data.filter((u) => u.role === "contractor").map((u) => ({ name: u.name || u.email, orgId: u.contractor_org_id }));
+      setCtrUsers(c); writeSnap("ctr-users", c);
+    }
   }, []);
 
   // Admin-only: mute/unmute a teammate's notifications (RLS lets admins update any user row).
@@ -292,6 +300,7 @@ export function DataProvider({ children }) {
     setRentals: rentalsC.set,
     flushRentals: rentalsC.flushNow,
     team,
+    ctrUsers,
     teamMembers,
     setUserMuted,
     setUserSms,

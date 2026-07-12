@@ -9100,10 +9100,67 @@ const buildMessageThreads=(messages)=>{
   arr.sort((a,b)=>a.lastAt-b.lastAt||msgTime(a.root.at)-msgTime(b.root.at));
   return arr;
 };
+// 🧾 Tap a change-order message in the chat → review it and approve or deny it
+// right there. Same writes as the Tasks page's External-requests popup: the
+// decision lands on the job, the contractor is notified, the thread gets a note.
+function CoDecidePopup({job,req,orgName,isAdmin,currentUser,ctrSave,onClose}){
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
+  const amt=Number(req.amount||0);
+  const when=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
+  const decide=async(approve)=>{
+    setBusy(true);setErr("");
+    const upd={
+      ...job,
+      coRequests:(job.coRequests||[]).map(x=>x.id===req.id?{...x,status:approve?"approved":"denied",decidedBy:currentUser,decidedAt:new Date().toISOString()}:x),
+      ...(approve?{changeOrders:[...(job.changeOrders||[]),{id:Date.now(),label:req.label,amount:amt,date:new Date().toISOString().slice(0,10),by:req.by,fromRequest:req.id}]}:{}),
+    };
+    try{await ctrSave("contractor_jobs",upd);}catch(ex){setErr(ex.message||"Couldn't save the decision.");setBusy(false);return;}
+    notify(null,{toOrg:job.orgId,title:approve?"Change order approved ✓":"Change order denied",body:`${req.label} — $${amt.toLocaleString()}${approve?` · new contract total $${ctrJobTotal(upd).toLocaleString()}`:""} · ${job.propertyAddress||""}`});
+    ctrSave("contractor_messages",{id:Date.now()+2,jobId:job.id,orgId:job.orgId,author:currentUser,side:"team",text:`🧾 Change order ${approve?"approved ✓":"denied"}: ${req.label} — $${amt.toLocaleString()}`,at:new Date().toISOString(),readBy:[currentUser]}).catch(()=>{});
+    onClose();
+  };
+  const chip=(txt,color,bg)=><span style={{alignSelf:"flex-start",fontSize:10.5,fontWeight:800,color,background:bg,borderRadius:12,padding:"3px 10px",letterSpacing:"0.03em"}}>{txt}</span>;
+  const status=req.status||"pending";
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:480,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(440px,94vw)",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,background:"#FFF9EC",display:"flex",alignItems:"center",gap:10}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:800,color:T.text}}>🧾 Change order request</div>
+            <div style={{fontSize:11.5,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👷 {orgName} · {job.propertyAddress||""}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div style={{padding:"16px 18px",display:"flex",flexDirection:"column",gap:10}}>
+          {err&&<div style={{fontSize:12.5,color:T.red}}>{err}</div>}
+          <div style={{fontSize:15,fontWeight:700,color:T.text,lineHeight:1.4}}>{req.label||"Change order"}</div>
+          <div style={{fontSize:26,fontWeight:800,color:"#8a6d1f"}}>${amt.toLocaleString()}</div>
+          {req.note&&<div style={{fontSize:12.5,color:T.textSub,whiteSpace:"pre-wrap",lineHeight:1.5}}>{req.note}</div>}
+          <div style={{fontSize:11.5,color:T.textTert}}>Requested by {req.by||orgName}{req.at?` · ${when(req.at)}`:""}</div>
+          {status==="approved"&&chip(`APPROVED ✓${req.decidedBy?` by ${req.decidedBy}`:""}${req.decidedAt?` · ${when(req.decidedAt)}`:""}`,"#166534","#DCFCE7")}
+          {status==="denied"&&chip(`DENIED${req.decidedBy?` by ${req.decidedBy}`:""}${req.decidedAt?` · ${when(req.decidedAt)}`:""}`,T.red,"#FEE2E2")}
+          {status==="awaiting_price"&&chip("WAITING ON THEIR PRICE","#B45309","#FDE9C8")}
+          {status==="pending"&&!isAdmin&&chip("PENDING — an admin decides","#B45309","#FDE9C8")}
+          {status==="pending"&&isAdmin&&(<>
+            <div style={{display:"flex",gap:10,marginTop:4}}>
+              <button onClick={()=>decide(true)} disabled={busy} style={{flex:1,padding:"12px",borderRadius:12,border:"none",background:T.green,color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>{busy?"Saving…":"✓ Approve"}</button>
+              <button onClick={()=>decide(false)} disabled={busy} style={{flex:1,padding:"12px",borderRadius:12,border:`1.5px solid ${T.red}`,background:"#fff",color:T.red,fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Deny</button>
+            </div>
+            <div style={{fontSize:11,color:T.textTert,lineHeight:1.45}}>Approving adds ${amt.toLocaleString()} to the contract total and notifies {orgName}. Denying just notifies them.</div>
+          </>)}
+        </div>
+      </div>
+    </div>
+  );
+}
 function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelete,onBack,isMobile,onUpdateProp}){
   // Contractor jobs, so a "scope of work" message in an external thread can
-  // open the job's SOW PDF right from the chat (shared store — no extra load).
-  const {jobs:ctrJobsAll}=useContractorData();
+  // open the job's SOW PDF right from the chat, and a change-order message can
+  // open the approve/deny popup (shared store — no extra load).
+  const {jobs:ctrJobsAll,orgs:ctrOrgsAll,save:ctrSaveShared}=useContractorData();
+  const {isAdmin:amAdmin}=useAuth()||{};
+  const[coPopup,setCoPopup]=useState(null); // {jobId, reqId}
   const scrollRef=useRef(null);
   const[showInfo,setShowInfo]=useState(null); // showingKey whose agent-info popup is open
   // Jump to the newest message when a chat opens or a message arrives.
@@ -9158,18 +9215,23 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
             const picked=selIds.has(m.id);
             // Scope-of-work messages on a contractor job open the SOW PDF on tap.
             const sowJob=!selMode&&m.ctrJobId&&/scope of work/i.test(m.text||"")?(ctrJobsAll||[]).find(j=>String(j.id)===String(m.ctrJobId)):null;
+            // Change-order messages carry a co:<id> ref — tap opens approve/deny.
+            const coJob=!selMode&&m.ctrJobId&&String(m.taskRefId||"").startsWith("co:")?(ctrJobsAll||[]).find(j=>String(j.id)===String(m.ctrJobId)):null;
+            const coReq=coJob?(coJob.coRequests||[]).find(x=>`co:${x.id}`===m.taskRefId):null;
             return(
               <div key={m.id} onClick={selMode?()=>toggleSel(m.id):undefined} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"92%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start",cursor:selMode?"pointer":"default"}}>
                 <div style={{fontSize:10,color:T.textTert,marginBottom:2}}>{m.author||"—"} · {fmt(m.at)}</div>
                 <div style={{display:"flex",alignItems:"center",gap:8,flexDirection:mine?"row-reverse":"row"}}>
                   {selMode&&<span style={{width:20,height:20,flexShrink:0,borderRadius:"50%",border:`2px solid ${picked?T.gold:T.border}`,background:picked?T.gold:"transparent",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800}}>{picked?"✓":""}</span>}
-                  <div onClick={sowJob?()=>openScopePdf(sowJob):undefined} style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`,opacity:selMode&&!picked?0.55:1,cursor:sowJob?"pointer":undefined}}>
+                  <div onClick={coReq?()=>setCoPopup({jobId:coJob.id,reqId:coReq.id}):sowJob?()=>openScopePdf(sowJob):undefined} style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`,opacity:selMode&&!picked?0.55:1,cursor:coReq||sowJob?"pointer":undefined}}>
                     {m.replyTo&&<div style={{fontSize:11,marginBottom:4,padding:"4px 8px",borderLeft:`3px solid ${mine?"rgba(255,255,255,0.6)":T.gold}`,borderRadius:5,background:mine?"rgba(255,255,255,0.15)":T.bg,color:mine?"rgba(255,255,255,0.92)":T.textSub,overflow:"hidden"}}><b>{(m.replyTo.author||"").split(" ")[0]}</b>: {m.replyTo.text}</div>}
                     {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                     {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
                     {m.text}
                     {m.attachment&&<MessageAttachment att={m.attachment} mine={mine} saveFolder={property.filesFolder||null}/>}
-                    {sowJob&&<div style={{fontSize:10.5,fontWeight:800,marginTop:5,color:mine?"rgba(255,255,255,0.92)":"#b8912e"}}>📄 Tap to open the PDF</div>}
+                    {coReq
+                      ?<div style={{fontSize:10.5,fontWeight:800,marginTop:5,color:mine?"rgba(255,255,255,0.92)":"#b8912e"}}>🧾 {coReq.status==="pending"&&amAdmin?"Tap to approve or deny":"Tap to view the change order"}</div>
+                      :sowJob&&<div style={{fontSize:10.5,fontWeight:800,marginTop:5,color:mine?"rgba(255,255,255,0.92)":"#b8912e"}}>📄 Tap to open the PDF</div>}
                   </div>
                 </div>
                 {/* Reply to THIS specific message (notifies its author) */}
@@ -9263,6 +9325,14 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           ].filter(Boolean).join("\n")}/>
       </div>}
       {showInfo&&onUpdateProp&&<ShowingInfoPopup property={property} skey={showInfo} onUpdate={onUpdateProp} onClose={()=>setShowInfo(null)}/>}
+      {coPopup&&(()=>{
+        // Resolve live so the popup reflects a decision made elsewhere in realtime.
+        const job=(ctrJobsAll||[]).find(j=>String(j.id)===String(coPopup.jobId));
+        const req=job&&(job.coRequests||[]).find(x=>String(x.id)===String(coPopup.reqId));
+        if(!job||!req)return null;
+        const orgName=((ctrOrgsAll||[]).find(o=>String(o.id)===String(job.orgId))||{}).name||"Contractor";
+        return <CoDecidePopup job={job} req={req} orgName={orgName} isAdmin={amAdmin} currentUser={currentUser} ctrSave={ctrSaveShared} onClose={()=>setCoPopup(null)}/>;
+      })()}
     </div>
   );
 }
@@ -9278,7 +9348,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     const pj=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id));
     return pj.flatMap(j=>(ctrMessages||[]).filter(m=>String(m.jobId)===String(j.id)).map(m=>({
       id:"ctr-"+m.id,author:m.author,text:m.text,at:m.at,attachment:m.attachment||null,readBy:m.readBy||[],
-      taskRefText:m.taskRefText||null,replyTo:m.replyTo||null,mentions:m.mentions||null,
+      taskRefText:m.taskRefText||null,taskRefId:m.taskRefId||null,replyTo:m.replyTo||null,mentions:m.mentions||null,
       ctrJobId:j.id,ctrOrgId:String(j.orgId),ctrLabel:`${ctrOrgName(j.orgId)}${j.title?` — ${j.title}`:""}`,
     })));
   };

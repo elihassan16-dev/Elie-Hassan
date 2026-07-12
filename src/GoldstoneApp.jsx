@@ -2612,6 +2612,8 @@ function ShowingsPage(){
   const[search,setSearch]=useState("");
   const[showConn,setShowConn]=useState(false);
   const[copied,setCopied]=useState(false);
+  const[view,setView]=useState("props"); // props (per-property) | hot (every live lead, ranked)
+  const[hotOpen,setHotOpen]=useState(null); // {propId, skey} → ShowingInfoPopup
   useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
   const load=useCallback((force)=>{setLoading(true);setError("");fetchShowingsShared(force).then(d=>setShowings(d.showings||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
   useEffect(()=>{if(status&&status.configured)load();},[status,load]);
@@ -2658,7 +2660,54 @@ function ShowingsPage(){
   const sel=selMeta?.p||null;
   const iS={width:"100%",padding:"7px 10px 7px 28px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
 
+  // 🔥 Hot leads: every showing/lead across ALL properties whose status is set
+  // and not "Not interested", hottest first. Built from the saved snapshots on
+  // each property, so it works even while the ShowingTime feed is still loading.
+  const hotRows=(()=>{
+    const out=[];
+    sharedProps.filter(p=>!p.archived).forEach(p=>{
+      const snaps=p.showingSnapshots||{};
+      Object.entries(p.showingLeads||{}).forEach(([k,lead])=>{
+        if(!lead||lead==="not")return;
+        const sn=snaps[k]||{};
+        out.push({p,skey:k,lead,name:sn.agent||sn.summary||"Showing agent",when:sn.start||"",ts:sn.start?new Date(sn.start).getTime():0});
+      });
+      (p.customLeads||[]).forEach(l=>{
+        if(!l.lead||l.lead==="not")return;
+        out.push({p,skey:"lead-"+l.id,lead:l.lead,name:l.name||"(no name)",when:l.at||"",ts:l.at?new Date(l.at).getTime():0});
+      });
+    });
+    return out.sort((a,b)=>showingLeadRank(a.lead)-showingLeadRank(b.lead)||b.ts-a.ts);
+  })();
   return(
+    <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
+    <div style={{display:"flex",gap:6,padding:"10px 14px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+      {[["props","🏠 By property"],["hot",`🔥 Hot leads${hotRows.length?` (${hotRows.length})`:""}`]].map(([k,l])=>{
+        const on=view===k;
+        return <button key={k} onClick={()=>setView(k)} style={{padding:"7px 14px",borderRadius:20,fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub}}>{l}</button>;
+      })}
+    </div>
+    {view==="hot"?(
+      <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+        <div style={{maxWidth:640,margin:"0 auto",padding:"6px 16px 40px",boxSizing:"border-box"}}>
+          {hotRows.length===0&&<div style={{padding:"46px 20px",textAlign:"center",color:T.textTert,fontSize:13,lineHeight:1.6}}>No live leads yet.<br/>Set a lead status on a showing (anything except "Not interested") and it shows up here, hottest first.</div>}
+          {(()=>{let last=null;return hotRows.map(r=>{
+            const meta=SHOWING_LEADS.find(x=>x.key===r.lead)||{};
+            const hdr=r.lead!==last?meta.label:null;last=r.lead;
+            return(<Fragment key={String(r.p.id)+"|"+r.skey}>
+              {hdr&&<div style={{padding:"16px 2px 7px",fontSize:11,fontWeight:800,color:meta.color||T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>{hdr}</div>}
+              <div onClick={()=>setHotOpen({propId:r.p.id,skey:r.skey})} style={{display:"flex",alignItems:"center",gap:10,background:"#fff",border:`1px solid ${T.border}`,borderLeft:`3px solid ${meta.color||T.border}`,borderRadius:12,padding:"11px 13px",marginBottom:8,cursor:"pointer",boxShadow:T.shadow}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</div>
+                  <div style={{fontSize:11.5,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.p.address}{r.p.city?`, ${r.p.city}`:""}{r.when?` · ${fmtShowingTime(r.when)}`:""}</div>
+                </div>
+                <span style={{flexShrink:0,fontSize:10.5,fontWeight:800,color:meta.color,background:meta.bg,borderRadius:12,padding:"3px 9px"}}>{meta.short||r.lead}</span>
+              </div>
+            </Fragment>);
+          });})()}
+        </div>
+      </div>
+    ):(
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
       {/* Left: property list */}
       <div style={{width:isMobile?"100%":340,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
@@ -2747,6 +2796,14 @@ function ShowingsPage(){
           </div>
         )}
       </div>
+    </div>
+    )}
+    {/* Tap a hot lead → the full agent card (call/text, change the status). */}
+    {hotOpen&&(()=>{
+      const p=sharedProps.find(x=>String(x.id)===String(hotOpen.propId));
+      if(!p)return null;
+      return <ShowingInfoPopup property={p} skey={hotOpen.skey} onUpdate={onUpdate} onClose={()=>setHotOpen(null)}/>;
+    })()}
     </div>
   );
 }

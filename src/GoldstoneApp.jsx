@@ -6234,7 +6234,11 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
     <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
     <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,padding:isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:"#fff"}}>
       {selBox}
-      <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{t.text||"(untitled task)"}{t.autoId&&<span style={{marginLeft:5,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}</span>
+      {/* The AUTO pill sits OUTSIDE the truncating text so a long title can't clip it. */}
+      <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
+        {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
+      </span>
       {t.delegate&&t.delegate===currentUser&&t.assignee
         ? <span title={`You're doing this for ${t.assignee}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>for {t.assignee.split(" ")[0]}</span>
         : (t.delegate&&t.assignee===currentUser)

@@ -2624,6 +2624,23 @@ function ShowingsPage(){
     setSaving(false);
   };
   const onUpdate=(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));
+  // One-time scrub: lead statuses whose showing snapshot never got saved (keys
+  // from before snapshots existed / old key formats) have no name, phone, or
+  // date attached — nothing to act on. Purge them from each property so they
+  // stop resurfacing anywhere. Every current flow saves a snapshot alongside
+  // the status, so nothing set today ever matches this.
+  const scrubbedRef=useRef(false);
+  useEffect(()=>{
+    if(scrubbedRef.current||!sharedProps.length)return;
+    scrubbedRef.current=true;
+    sharedProps.forEach(p=>{
+      if(p.archived)return;
+      const snaps=p.showingSnapshots||{};
+      const leads=p.showingLeads||{};
+      const bad=Object.keys(leads).filter(k=>{const sn=snaps[k];return !sn||!(sn.agent||sn.summary);});
+      if(bad.length){const next={...leads};bad.forEach(k=>delete next[k]);onUpdate(p.id,"showingLeads",next);}
+    });
+  },[sharedProps.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const wrap={padding:"18px 16px 40px",maxWidth:600,margin:"0 auto",width:"100%",boxSizing:"border-box"};
   if(!status) return <div style={{...wrap,color:T.textSub,fontSize:14}}>Loading…</div>;
@@ -2670,7 +2687,9 @@ function ShowingsPage(){
       Object.entries(p.showingLeads||{}).forEach(([k,lead])=>{
         if(!lead||lead==="not")return;
         const sn=snaps[k]||{};
-        out.push({p,skey:k,lead,name:sn.agent||sn.summary||"Showing agent",when:sn.start||"",ts:sn.start?new Date(sn.start).getTime():0});
+        const nm=sn.agent||sn.summary;
+        if(!nm)return; // no snapshot = a stale key with no person attached — junk
+        out.push({p,skey:k,lead,name:nm,when:sn.start||"",ts:sn.start?new Date(sn.start).getTime():0});
       });
       (p.customLeads||[]).forEach(l=>{
         if(!l.lead||l.lead==="not")return;

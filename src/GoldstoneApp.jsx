@@ -7069,6 +7069,37 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
   );
 }
 
+// 💬 tapped on a task where contractors work that property: pick the audience
+// FIRST — an internal team note or a contractor's job thread — so an external
+// message is a deliberate choice, never an accident.
+function MsgAudiencePopup({task,jobs,orgName,onInternal,onExternal,onClose}){
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:430,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(430px,94vw)",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:800,color:T.text}}>Who is this message for?</div>
+            <div style={{fontSize:11.5,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>↳ {task.text||"Task"}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div style={{padding:"12px 16px 16px",display:"flex",flexDirection:"column",gap:8}}>
+          <button onClick={onInternal} style={{padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.blue}`,background:"#EBF4FF",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+            <div style={{fontWeight:800,fontSize:13.5,color:T.blue}}>🔒 Internal note</div>
+            <div style={{fontWeight:600,fontSize:11.5,color:T.blue,opacity:0.8,marginTop:2}}>Your team only — contractors never see it</div>
+          </button>
+          {jobs.map(j=>(
+            <button key={j.id} onClick={()=>onExternal(j)} style={{padding:"12px 14px",borderRadius:12,border:"1.5px solid #E8A33D",background:"#FDE9C8",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+              <div style={{fontWeight:800,fontSize:13.5,color:"#B45309"}}>👷 {orgName(j.orgId)}{j.title?` — ${j.title}`:""}</div>
+              <div style={{fontWeight:600,fontSize:11.5,color:"#B45309",opacity:0.85,marginTop:2}}>EXTERNAL — goes to their job thread, their whole team sees it</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // 👷 All requests FROM contractors in one place (Tasks page banner → this popup):
 // who's asking, which property, who it's aimed at. Checkbox completes; 💬 opens
 // the external/internal task chat.
@@ -7478,6 +7509,7 @@ function TasksPage({onNavigate}){
   const[taskContactTarget,setTaskContactTarget]=useState(null);
   const[contactSearch,setContactSearch]=useState(""); // the task we're setting a contact for
   const[taskMsgTarget,setTaskMsgTarget]=useState(null); // task whose messages are open
+  const[msgAudience,setMsgAudience]=useState(null); // 💬 chooser: internal note vs a contractor thread
   const[taskAssignTarget,setTaskAssignTarget]=useState(null); // task we're delegating
   const[showAddTasks,setShowAddTasks]=useState(false); // bulk add-tasks popup
   const[selectMode,setSelectMode]=useState(false);
@@ -7529,6 +7561,13 @@ function TasksPage({onNavigate}){
     }));
   }
   useEffect(()=>{if(taskMsgTarget)markTaskRead(taskMsgTarget.propId,taskMsgTarget.id);},[taskMsgTarget]);// eslint-disable-line
+  // 💬 on a task: when contractors work that property, ask who the message is
+  // for (internal vs a contractor's thread) instead of assuming internal.
+  const openTaskMsg=(t)=>{
+    const jobs=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(t.propId)&&j.status!=="complete"&&j.status!=="bid");
+    if(!jobs.length){setTaskMsgTarget(t);return;}
+    setMsgAudience({task:t,jobs});
+  };
   function deleteSelected(){
     if(selectedKeys.size===0)return;
     setSharedProps(prev=>prev.map(p=>{
@@ -7707,6 +7746,10 @@ function TasksPage({onNavigate}){
         );
       })()}
       {/* Task messages popup */}
+      {msgAudience&&<MsgAudiencePopup task={msgAudience.task} jobs={msgAudience.jobs} orgName={ctrOrgName}
+        onInternal={()=>{setTaskMsgTarget(msgAudience.task);setMsgAudience(null);}}
+        onExternal={(job)=>{setExtChat({task:msgAudience.task,job});setMsgAudience(null);}}
+        onClose={()=>setMsgAudience(null)}/>}
       {taskMsgTarget&&(()=>{
         const liveTask=findLiveTask(taskMsgTarget.propId,taskMsgTarget.id);
         return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} task={liveTask||taskMsgTarget} saveFolder={(sharedProps.find(p=>p.id===taskMsgTarget.propId)?.filesFolder)||null} contacts={dir} messages={(liveTask||taskMsgTarget)?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
@@ -7818,7 +7861,7 @@ function TasksPage({onNavigate}){
                   <span style={{fontSize:11,color:T.textSub}}>{doneCount}/{oTasks.length} done</span>
                 </div>
               </div>
-              {oTasks.filter(t=>!hideDone(t)).map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+              {oTasks.filter(t=>!hideDone(t)).map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
               <AddTaskInline onAdd={addOfficeTask} placeholder="Add a company task…"/>
             </div>
           );
@@ -7993,7 +8036,7 @@ function TasksPage({onNavigate}){
                     <span style={{fontSize:11,color:T.textSub}}>{ptasks.length?`${ptasks.filter(t=>t.status==="Completed").length}/${ptasks.length} done`:"external tasks only"}</span>
                   </div>
                 </div>
-                {ptasks.filter(t=>!hideDone(t)).map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={setTaskMsgTarget} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+                {ptasks.filter(t=>!hideDone(t)).map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
                 {/* External (contractor) tasks on this property — amber, clearly marked */}
                 {(extByPid[String(pid)]||[]).map(({job,rows})=>(
                   <div key={"ext-"+job.id} style={{background:"#FFF9EC",borderTop:`1.5px solid ${T.gold}`}}>

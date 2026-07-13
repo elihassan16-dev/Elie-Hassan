@@ -5825,7 +5825,7 @@ function LeadDetail({lead,onUpdate}){
             </Card>
             <AddFromDirectory avail={avail} onAdd={addC}/>
             <div style={{height:16}}/>
-            <PropertyContractorsCard property={property}/>
+            <PropertyContractorsCard property={lead}/>{/* a lead quacks enough like a property (id/address/city); the bare `property` here was a ReferenceError that crashed the app on a lead's Contacts tab */}
           </div>
         )}
       </div>

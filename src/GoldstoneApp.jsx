@@ -5490,6 +5490,8 @@ function SortModal({order,hidden,onSave,onClose}){
 
 // ─── Properties Page ──────────────────────────────────────────────────────────
 function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,onArchive,onOpenChat}){
+  // 📧 unread-pinned-email badge on each list row (same one as the Portfolio).
+  const {emailBadge}=usePinnedEmailUnread(sharedProps.filter(p=>!p.archived));
   const { leads, setLeads }=useData();
   const props=sharedProps.filter(p=>!p.archived&&p.status!=="New Leads"); // New Leads live in the Leads section
   const setProps=setSharedProps;
@@ -5566,7 +5568,7 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
           {grouped.map((item,i)=>{
             if(item.type==="h"){const s=SC[item.status]||{color:"#64748B"};const cnt=sorted.filter(p=>p.status===item.status).length;return <div key={`h${i}`} style={{padding:"9px 14px 4px",background:T.bg,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8}}><span style={{width:7,height:7,borderRadius:"50%",background:s.color,flexShrink:0}}/><span style={{fontSize:10,fontWeight:700,color:s.color,textTransform:"uppercase",letterSpacing:"0.07em",flex:1}}>{item.status}</span><span style={{fontSize:10,color:T.textTert,fontWeight:600}}>{cnt}</span></div>;}
             const isActive=item.id===selId;
-            return <div key={item.id} onClick={()=>setSelId(item.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?T.goldLight:"transparent",borderLeft:isActive?`3px solid ${T.gold}`:"3px solid transparent",transition:"background 0.12s"}}><div style={{fontWeight:isActive?600:400,fontSize:13,color:isActive?T.gold:T.text,lineHeight:1.3}}>{item.address}</div><div style={{fontSize:12,color:T.textSub,marginTop:3}}>{item.city}{item.city&&item.state?", ":""}{item.state}{item.zip?" "+item.zip:""}</div></div>;
+            return <div key={item.id} onClick={()=>setSelId(item.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?T.goldLight:"transparent",borderLeft:isActive?`3px solid ${T.gold}`:"3px solid transparent",transition:"background 0.12s"}}><div style={{display:"flex",alignItems:"center",gap:7}}><span style={{flex:1,minWidth:0,fontWeight:isActive?600:400,fontSize:13,color:isActive?T.gold:T.text,lineHeight:1.3}}>{item.address}</span>{emailBadge(item.id)}</div><div style={{fontSize:12,color:T.textSub,marginTop:3}}>{item.city}{item.city&&item.state?", ":""}{item.state}{item.zip?" "+item.zip:""}</div></div>;
           })}
         </div>
       </div>
@@ -5918,12 +5920,11 @@ function NewLeadsPage(){
 const ACTIVE_STATUSES=["Under Contract","Purchased","Under Construction","On Market","In Closing"];
 const STATUS_COLORS=Object.fromEntries(Object.entries(SC).map(([k,v])=>[k,{bg:v.bg,badge:v.color}]));
 
-function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
-  const isMobile=useIsMobile();
-  const props=sharedProps.filter(p=>!p.archived&&ACTIVE_STATUSES.includes(p.status));
-  // Unread-email badge per property: count unread messages across each property's
-  // pinned chains (only properties that have pinned emails, checked in the
-  // background). Shows a 📧 badge on the row so a new email stands out.
+// Unread-email badge per property: counts unread messages across each property's
+// pinned chains (only properties that have pinned emails, checked in the
+// background). Shared by the Portfolio table and the Properties list, so a new
+// email about a deal stands out on both.
+function usePinnedEmailUnread(props){
   const mail=useOutlookMail();
   const[unreadByProp,setUnreadByProp]=useState({});
   const pinSig=useMemo(()=>props.filter(p=>(p.pinnedEmails||[]).length).map(p=>`${p.id}:${(p.pinnedEmails||[]).map(pe=>pe.id).join("|")}`).join(","),[props]);
@@ -5952,6 +5953,12 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
     return ()=>{alive=false;};
   },[mail.signedIn,pinSig]); // eslint-disable-line react-hooks/exhaustive-deps
   const emailBadge=(pid)=>{const n=unreadByProp[pid]||0;return n>0?<span title={`${n} unread email${n>1?"s":""} on a pinned chain`} style={{display:"inline-flex",alignItems:"center",gap:3,flexShrink:0,fontSize:10,fontWeight:800,color:"#fff",background:T.blue,borderRadius:12,padding:"1px 7px",whiteSpace:"nowrap"}}>📧 {n}</span>:null;};
+  return {unreadByProp,emailBadge};
+}
+function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
+  const isMobile=useIsMobile();
+  const props=sharedProps.filter(p=>!p.archived&&ACTIVE_STATUSES.includes(p.status));
+  const {unreadByProp,emailBadge}=usePinnedEmailUnread(props);
 
   // Calculate net profit per property using same formula as FinOverview
   // Uses the shared finProfit() so this ALWAYS matches the property's Financial Overview.

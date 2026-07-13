@@ -206,6 +206,11 @@ function ManageLoginModal({ login, onDone, onClose }) {
 function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
   const editing = !!jobModal?.id;
   const [f, setF] = useState({ propertyId: jobModal?.propertyId || "", title: jobModal?.title || "", scope: jobModal?.scope || "", price: jobModal?.price != null ? String(jobModal.price) : "", startDate: jobModal?.startDate || today() });
+  // "Already underway": bring a job that started before the portal into the
+  // app mid-flight — record what's been paid so far, and tell their team the
+  // job is "now in the portal" instead of announcing a brand-new job.
+  const [underway, setUnderway] = useState(false);
+  const [paidSoFar, setPaidSoFar] = useState("");
   const [e2, setE2] = useState("");
   const saveJob = async () => {
     const prop = properties.find((p) => String(p.id) === String(f.propertyId));
@@ -215,9 +220,16 @@ function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
       propertyId: f.propertyId || jobModal?.propertyId, propertyAddress: prop ? `${prop.address}${prop.city ? `, ${prop.city}` : ""}` : jobModal?.propertyAddress,
       title: f.title.trim(), scope: f.scope, price: Number(numIn(f.price)) || 0, startDate: f.startDate,
     };
+    const paid = Number(numIn(paidSoFar)) || 0;
+    if (!editing && underway && paid > 0) obj.payments = [{ id: Date.now(), amount: paid, date: today(), note: "Paid to date — before the portal" }];
     try { await save("contractor_jobs", obj); } catch (ex) { setE2(ex.message || "Save failed — try again."); return; }
     onSaved(obj.id); onClose();
-    if (!editing) notify(null, { toOrg: String(org.id), title: "New job from Goldstone", body: `${obj.propertyAddress}${obj.title ? ` — ${obj.title}` : ""}`, url: `/?goto=job:${obj.id}` });
+    if (!editing) notify(null, {
+      toOrg: String(org.id),
+      title: underway ? "Your job is now in the Goldstone portal" : "New job from Goldstone",
+      body: `${obj.propertyAddress}${obj.title ? ` — ${obj.title}` : ""}${underway ? " · scope, tasks, and messages live here from now on" : ""}`,
+      url: `/?goto=job:${obj.id}`,
+    });
   };
   return (
     <Modal title={editing ? "Edit job" : `New job — ${org?.name}`} onClose={onClose}
@@ -234,6 +246,18 @@ function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
         <div style={{ flex: 1 }}><label style={lbl}>Contract price</label><input value={f.price} onChange={(e) => setF({ ...f, price: numIn(e.target.value) })} inputMode="decimal" placeholder="e.g. 45000" style={inp} /></div>
         <div style={{ flex: 1 }}><label style={lbl}>Start date</label><input type="date" value={f.startDate} onChange={(e) => setF({ ...f, startDate: e.target.value })} style={inp} /></div>
       </div>
+      {!editing && (
+        <div style={{ background: T.bg, borderRadius: T.radiusSm, padding: "10px 12px" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: T.text, cursor: "pointer" }}>
+            <input type="checkbox" checked={underway} onChange={(e) => setUnderway(e.target.checked)} style={{ width: 16, height: 16, accentColor: T.gold, margin: 0 }} />
+            This job is already underway
+          </label>
+          {underway && (<>
+            <div style={{ marginTop: 9 }}><label style={lbl}>Paid so far (optional)</label><input value={paidSoFar} onChange={(e) => setPaidSoFar(numIn(e.target.value))} inputMode="decimal" placeholder="e.g. 20000 — recorded as a payment dated today" style={inp} /></div>
+            <div style={{ fontSize: 11, color: T.textTert, marginTop: 6, lineHeight: 1.45 }}>Their team gets "your job is now in the portal" instead of a new-job announcement, and the remaining balance starts from the right number. Individual past payments can be added later on the job.</div>
+          </>)}
+        </div>
+      )}
       {e2 && <div style={{ fontSize: 12.5, color: T.red }}>{e2}</div>}
     </Modal>
   );

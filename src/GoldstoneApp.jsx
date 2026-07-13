@@ -12749,6 +12749,18 @@ function EmailPage({isMobile}){
     setLoadingMore(false);
   };
 
+  // Land on the NEWEST message: the chain renders oldest→newest, so a fresh
+  // open used to sit at the top reading the oldest. Re-nudge briefly after,
+  // once the expanded message's body/iframe has sized itself.
+  useEffect(()=>{
+    if(!msgs||!msgs.length)return;
+    const el=threadRef.current;if(!el)return;
+    const down=()=>{el.scrollTop=el.scrollHeight;};
+    down();
+    const t1=setTimeout(down,300),t2=setTimeout(down,900);
+    return()=>{clearTimeout(t1);clearTimeout(t2);};
+  },[msgs]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(()=>{
     if(!sel){setMsgs(null);setReplyDraft(null);setThreadErr("");setLabelOpen(false);return;}
     let alive=true;setMsgs(null);setExpanded({});setThreadErr("");setLabelOpen(false);

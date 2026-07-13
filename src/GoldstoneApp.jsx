@@ -2192,6 +2192,20 @@ function ShowingInfoPopup({property,skey,onUpdate,onClose}){
     else{const next={...(property.showingLeads||{})};if(val)next[skey]=val;else delete next[skey];onUpdate(property.id,"showingLeads",next);}
   };
   const row=(label,val)=>val?<div style={{display:"flex",gap:10,fontSize:13,padding:"7px 0",borderTop:`1px solid ${T.border}`}}><span style={{width:86,flexShrink:0,color:T.textTert,fontWeight:600,fontSize:11.5,textTransform:"uppercase",letterSpacing:"0.03em",paddingTop:1}}>{label}</span><span style={{color:T.text,minWidth:0,wordBreak:"break-word"}}>{val}</span></div>:null;
+  // 📇 vCard → iPhone Contacts. A PWA can't hook the incoming-call screen
+  // (Apple reserves caller ID for native apps), but a saved contact named
+  // "Agent (Property St)" makes iOS itself show who's calling and about what.
+  const saveContact=async()=>{
+    const fullName=`${agent}${property.address?` (${property.address})`:""}`.replace(/[\n;]/g," ");
+    const tels=phones.map(ph=>`TEL;TYPE=CELL:${ph.replace(/[^\d+]/g,"")}`).join("\n");
+    const note=`${lead?lead.short+" · ":""}${property.address||""}${property.city?`, ${property.city}`:""} — Goldstone lead`;
+    const vcf=`BEGIN:VCARD\nVERSION:3.0\nN:;${fullName};;;\nFN:${fullName}\nORG:Goldstone Properties Lead\n${tels}${snap.email?`\nEMAIL:${snap.email}`:""}\nNOTE:${note}\nEND:VCARD`;
+    const file=new File([vcf],`${(agent||"lead").replace(/[^a-zA-Z0-9 ]/g,"").trim()||"lead"}.vcf`,{type:"text/vcard"});
+    try{
+      if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file]});return;}
+    }catch(e){if(e&&e.name==="AbortError")return;/* unsupported → fall through */}
+    const u=URL.createObjectURL(file);window.open(u,"_blank");setTimeout(()=>URL.revokeObjectURL(u),60000);
+  };
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:450,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(440px,94vw)",maxHeight:"84vh",overflowY:"auto",boxShadow:"0 8px 40px rgba(0,0,0,0.2)"}}>
@@ -2222,6 +2236,12 @@ function ShowingInfoPopup({property,skey,onUpdate,onClose}){
             </div>
           ))}
           {phones.length===0&&<div style={{fontSize:12.5,color:T.textTert,padding:"8px 0",borderTop:`1px solid ${T.border}`}}>No phone number on file.</div>}
+          {phones.length>0&&(
+            <div style={{paddingTop:10,borderTop:`1px solid ${T.border}`}}>
+              <button onClick={saveContact} style={{width:"100%",padding:"10px 14px",borderRadius:12,border:`1.5px solid ${T.gold}`,background:T.goldLight,color:"#8a6d1f",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>📇 Save to Contacts</button>
+              <div style={{fontSize:10.5,color:T.textTert,marginTop:5,lineHeight:1.45,textAlign:"center"}}>Saves “{agent}{property.address?` (${property.address})`:""}” to your phone — when they call, that's the name you'll see.</div>
+            </div>
+          )}
         </div>
       </div>
     </div>

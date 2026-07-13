@@ -7090,7 +7090,7 @@ function MsgAudiencePopup({task,jobs,orgName,onInternal,onExternal,onClose}){
           </button>
           {jobs.map(j=>(
             <button key={j.id} onClick={()=>onExternal(j)} style={{padding:"12px 14px",borderRadius:12,border:"1.5px solid #E8A33D",background:"#FDE9C8",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
-              <div style={{fontWeight:800,fontSize:13.5,color:"#B45309"}}>👷 {orgName(j.orgId)}{j.title?` — ${j.title}`:""}</div>
+              <div style={{fontWeight:800,fontSize:13.5,color:"#B45309"}}>👷 {orgName(j.orgId)}{j.title?` — ${j.title}`:""}{j.status==="bid"?" · 🧾 bidding":""}</div>
               <div style={{fontWeight:600,fontSize:11.5,color:"#B45309",opacity:0.85,marginTop:2}}>EXTERNAL — goes to their job thread, their whole team sees it</div>
             </button>
           ))}
@@ -7563,8 +7563,16 @@ function TasksPage({onNavigate}){
   useEffect(()=>{if(taskMsgTarget)markTaskRead(taskMsgTarget.propId,taskMsgTarget.id);},[taskMsgTarget]);// eslint-disable-line
   // 💬 on a task: when contractors work that property, ask who the message is
   // for (internal vs a contractor's thread) instead of assuming internal.
+  // Jobs match by property id OR by address text (older jobs weren't linked by
+  // id), and bid-stage jobs count too — you can message a bidder about a task.
   const openTaskMsg=(t)=>{
-    const jobs=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(t.propId)&&j.status!=="complete"&&j.status!=="bid");
+    const prop=sharedProps.find(p=>String(p.id)===String(t.propId));
+    const addr=(prop?.address||"").trim().toLowerCase();
+    const jobs=(ctrJobs||[]).filter(j=>{
+      if(j.status==="complete")return false;
+      if(String(j.propertyId)===String(t.propId))return true;
+      return !!addr&&String(j.propertyAddress||"").toLowerCase().includes(addr);
+    });
     if(!jobs.length){setTaskMsgTarget(t);return;}
     setMsgAudience({task:t,jobs});
   };

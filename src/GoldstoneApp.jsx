@@ -549,20 +549,26 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
   });
   const[note,setNote]=useState("");
   const setV=(id,v)=>setState(st=>({...st,[id]:v}));
-  // Everyone who showed the property or was added as a lead — hottest first —
-  // so "Selected Buyer" is usually one pick instead of retyping a name. Picking
-  // fills the fields; they stay editable, and typing your own still works.
+  // One pick instead of retyping a name: contacts ALREADY on this lead/property
+  // first, then everyone who showed it (hottest lead first), then the whole
+  // contacts directory. Picking fills the fields; they stay editable, and
+  // typing your own still works.
+  const {contacts:dirContacts}=useData()||{};
   const leadOpts=useMemo(()=>{
     const out=[],seen=new Set();
-    const push=(nm,phone,email,lead)=>{
+    const push=(nm,phone,email,tag)=>{
       const name=(nm||"").trim();if(!name)return;
       const key=name.toLowerCase();if(seen.has(key))return;seen.add(key);
-      out.push({name,phone:parseShowingPhones(phone)[0]||"",email:email||"",lead:lead||""});
+      out.push({name,phone:parseShowingPhones(phone)[0]||String(phone||"").trim(),email:email||"",tag:tag||""});
     };
-    Object.entries(property?.showingSnapshots||{}).forEach(([k,sn])=>push(sn.agent||sn.summary,sn.phone,sn.email,(property.showingLeads||{})[k]));
-    (property?.customLeads||[]).forEach(l=>push(l.name,l.phone,"",l.lead));
-    return out.sort((a,b)=>showingLeadRank(a.lead)-showingLeadRank(b.lead)||a.name.localeCompare(b.name));
-  },[property]);
+    (property?.contacts||[]).forEach(c=>push(c.name,c.phone,c.email,c.role||"on this one"));
+    const shows=[];
+    Object.entries(property?.showingSnapshots||{}).forEach(([k,sn])=>shows.push({nm:sn.agent||sn.summary,ph:sn.phone,em:sn.email,lead:(property.showingLeads||{})[k]||""}));
+    (property?.customLeads||[]).forEach(l=>shows.push({nm:l.name,ph:l.phone,em:"",lead:l.lead||""}));
+    shows.sort((a,b)=>showingLeadRank(a.lead)-showingLeadRank(b.lead)).forEach(x=>{const meta=SHOWING_LEADS.find(m=>m.key===x.lead);push(x.nm,x.ph,x.em,meta?meta.short:"showed it");});
+    (dirContacts||[]).forEach(c=>push(c.name,c.phone,c.email,c.role||"directory"));
+    return out;
+  },[property,dirContacts]);
   const isDone=(r)=>{
     const v=state[r.id];
     if(r.type==="field")return String(v||"").trim()!=="";
@@ -627,8 +633,8 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
                     {leadOpts.length>0&&(
                       <select value="" onChange={e=>{const o=leadOpts[Number(e.target.value)];if(o)setV(r.id,{name:o.name,phone:o.phone,email:o.email});}} style={{...dInp,width:"100%",minWidth:0,maxWidth:"100%",fontWeight:600,color:"#8a6d1f",background:T.goldLight,borderColor:T.gold}}>
-                        <option value="">👥 Pick who showed it / a lead — or type below…</option>
-                        {leadOpts.map((o,i)=>{const meta=SHOWING_LEADS.find(x=>x.key===o.lead);return <option key={i} value={i}>{o.name}{meta?` — ${meta.short}`:""}{o.phone?` · ${o.phone}`:""}</option>;})}
+                        <option value="">👥 Pick a contact / who showed it — or type below…</option>
+                        {leadOpts.map((o,i)=><option key={i} value={i}>{o.name}{o.tag?` — ${o.tag}`:""}{o.phone?` · ${o.phone}`:""}</option>)}
                       </select>
                     )}
                     <input value={c.name||""} onChange={e=>setV(r.id,{...c,name:e.target.value})} placeholder="Name *" style={{...dInp,width:"100%"}}/>
@@ -5967,7 +5973,7 @@ function LeadDetail({lead,onUpdate}){
 }
 
 function NewLeadsPage(){
-  const { sharedProps, setSharedProps, leads, setLeads } = useData();
+  const { sharedProps, setSharedProps, leads, setLeads, appSettings } = useData();
   const isMobile=useIsMobile();
   const[selId,setSelId]=useState(null);
   useEffect(()=>{ if(!isMobile && selId==null && leads.length) setSelId(leads[0].id); },[leads,selId,isMobile]);
@@ -5979,14 +5985,34 @@ function NewLeadsPage(){
   const upLead=(id,key,val)=>setLeads(prev=>prev.map(l=>l.id===id?{...l,[key]:val}:l));
   const filtered=leads.filter(l=>(l.address+" "+l.city).toLowerCase().includes(search.toLowerCase()));
   const sorted=useMemo(()=>[...filtered].sort((a,b)=>a.address.localeCompare(b.address)),[filtered]);
+  // Converting runs the SAME Under Contract questionnaire as a property status
+  // change (dates, checkboxes, contact person) before anything is created.
+  const[gateLead,setGateLead]=useState(null); // {lead,reqs}
   function moveToUnderContract(lead){
+    const reqs=gateReqsFor(appSettings,"Under Contract");
+    if(reqs.length){setGateLead({lead,reqs});return;}
+    convertLead(lead,null,"",{});
+  }
+  function convertLead(lead,answers,note,fieldValues){
     const newProp={id:Date.now(),address:lead.address,city:lead.city,state:lead.state,zip:lead.zip,status:"Under Contract",financials:{...lead.financials},propertyInfo:{type:lead.info.type||"",beds:lead.info.beds||"",baths:lead.info.baths||"",sqft:lead.info.sqft||"",yearBuilt:lead.info.yearBuilt||"",lot:"",parcel:"",lockboxCode:(lead.propertyInfo||{}).lockboxCode||"",dropboxLink:(lead.propertyInfo||{}).dropboxLink||"",closingDateScheduled:(lead.propertyInfo||{}).closingDateScheduled||"",mortgageCommitment:(lead.propertyInfo||{}).mortgageCommitment||"",inspectionDue:(lead.propertyInfo||{}).inspectionDue||"",notes:lead.notes||""},tasks:lead.tasks||[],contacts:lead.contacts||[]};
+    // Gate answers land on the new property: date fields into their homes, the
+    // contact person onto the property's contacts, the record under statusGates.
+    Object.entries(fieldValues||{}).forEach(([fk,v])=>{const s=GATE_FIELDS[fk];if(!s)return;newProp[s.top]={...(newProp[s.top]||{}),[s.key]:v};});
+    (answers||[]).filter(a=>a.type==="contact"&&a.value&&String(a.value.name||"").trim()).forEach((a,i)=>{
+      const nm=String(a.value.name).trim().toLowerCase();
+      if(!(newProp.contacts||[]).some(c=>String(c.name||"").trim().toLowerCase()===nm))
+        newProp.contacts=[...(newProp.contacts||[]),{id:Date.now()+i+1,name:a.value.name.trim(),role:a.label,phone:a.value.phone||"",email:a.value.email||""}];
+    });
+    if(answers)newProp.statusGates={"Under Contract":{answers,note,at:new Date().toISOString()}};
     setSharedProps(prev=>[...prev,newProp]);
     const remaining=leads.filter(l=>l.id!==lead.id);
     setLeads(remaining);setConverted(lead.address);setSelId(remaining.length>0?remaining[0].id:null);
     setTimeout(()=>setConverted(null),3000);
   }
   function addLead(){if(!form.addr.trim())return;const l=mkLead({address:form.addr,city:form.city,state:form.state,zip:form.zip});setLeads(prev=>[...prev,l]);setSelId(l.id);setShowAdd(false);setForm({addr:"",city:"",state:"NJ",zip:""});}
+  const gateModal=gateLead&&<StatusGateModal from="New Leads" to="Under Contract" reqs={gateLead.reqs} property={gateLead.lead}
+    onCancel={()=>setGateLead(null)}
+    onConfirm={(answers,note,fieldValues)=>{convertLead(gateLead.lead,answers,note,fieldValues);setGateLead(null);}}/>;
   const iS={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
@@ -6045,6 +6071,7 @@ function NewLeadsPage(){
           </div>
         </div>
       )}
+      {gateModal}
     </div>
   );
 }

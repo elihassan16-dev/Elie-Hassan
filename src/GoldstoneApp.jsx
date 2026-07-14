@@ -17,6 +17,7 @@ import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES, openScopePdf } from "./contractors/ContractorPortal";
 import { sowPdfFile } from "./contractors/sowPdf";
+import { jvPdfFile } from "./jvPdf";
 import { SowPdfPreview } from "./contractors/SowPdfPreview";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
@@ -11666,10 +11667,12 @@ function JVAgreementModal({property,onClose}){
   // The counterparties are the LOC lenders (Financial Section funders) — each
   // already carries a mailing address "used on partnership documents".
   const { funders }=useData();
+  const mail=useOutlookMail();
   const f=property.financials||{};
   const _fp=finProfit(f,property.status);
   const dir=(funders||[]).slice().sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
-  const[inv,setInv]=useState({name:"",address:""});
+  const[inv,setInv]=useState({name:"",address:"",email:""});
+  const[emailing,setEmailing]=useState(""); // "" | "sending" | "sent" | error text
   const[amount,setAmount]=useState(String(Math.round(_fp.equityRequired||0)||""));
   const[ownPct,setOwnPct]=useState("50");
   const[retPct,setRetPct]=useState("15");
@@ -11744,6 +11747,22 @@ function JVAgreementModal({property,onClose}){
     w.document.write(html);w.document.close();w.focus();
     setTimeout(()=>{try{w.print();}catch(e){/* user can print manually */}},600);
   };
+  // One tap → the agreement is built as a real PDF and sent to the investor's
+  // saved email as a brand-new chain: "Hi, please see attached…", subject
+  // "<address> JV Agreement". Goes out from the signed-in Outlook mailbox.
+  const emailOk=/\S+@\S+\.\S+/.test(inv.email||"");
+  const sendEmail=async()=>{
+    if(!ok||!emailOk||emailing==="sending")return;
+    setEmailing("sending");
+    try{
+      const file=await jvPdfFile({address:property.address,propLegal,invName:inv.name.trim(),invAddress:inv.address.trim(),short,today,amount:money2(amt),ownPct:String(ownPct||"0"),retPct:String(retPct||"0"),days:String(days||"0"),buyout:money2(buyout)});
+      const bodyHtml=`<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1a1a1a">Hi,<br><br>Please see attached JV agreement for ${esc(addrFull)}.<br><br>Let me know if you have any questions or concerns.<br><br>Thank you,<br>Goldstone Properties</div>`;
+      await mail.sendNew({to:inv.email.trim(),subject:`${property.address||""} JV Agreement`.trim(),html:bodyHtml,files:[file]});
+      setEmailing("sent");
+    }catch(e){
+      setEmailing(String(e?.message||"Couldn't send — make sure you're signed in on the Email page."));
+    }
+  };
   const inp={width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:14,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none",boxSizing:"border-box"};
   const lbl={fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5,display:"block"};
   const ok=!!inv.name.trim()&&amt>0;
@@ -11757,12 +11776,13 @@ function JVAgreementModal({property,onClose}){
         <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:13}}>
           <div style={{fontSize:12,color:T.textSub,lineHeight:1.5}}><b>{property.address}{property.city?`, ${property.city}`:""}</b>{parcel?` · ${parcel}`:" · no block/lot on file (Property Info → Parcel)"} — dated {today}, signed by Moshe Hamaoui, President.</div>
           <div><label style={lbl}>Investor — your line-of-credit lenders</label>
-            <select value="" onChange={e=>{const c=dir[Number(e.target.value)];if(c)setInv({name:c.name||"",address:c.address||""});}} style={{...inp,color:T.textSub,fontWeight:600,marginBottom:6}}>
+            <select value="" onChange={e=>{const c=dir[Number(e.target.value)];if(c){setInv({name:c.name||"",address:c.address||"",email:c.email||""});setEmailing("");}}} style={{...inp,color:T.textSub,fontWeight:600,marginBottom:6}}>
               <option value="">{dir.length?"💰 Pick a lender…":"💰 No lenders yet — add them in Financial Section"}</option>
               {dir.map((c,i)=><option key={c.id||i} value={i}>{c.name}{c.address?"":" · no address saved"}</option>)}
             </select>
             <input value={inv.name} onChange={e=>setInv(v=>({...v,name:e.target.value}))} placeholder="Full name *" style={{...inp,marginBottom:6}}/>
-            <input value={inv.address} onChange={e=>setInv(v=>({...v,address:e.target.value}))} placeholder="Their mailing address (blank = line to fill in ink)" style={inp}/>
+            <input value={inv.address} onChange={e=>setInv(v=>({...v,address:e.target.value}))} placeholder="Their mailing address (blank = line to fill in ink)" style={{...inp,marginBottom:6}}/>
+            <input value={inv.email} onChange={e=>{setInv(v=>({...v,email:e.target.value}));setEmailing("");}} placeholder="Their email (to send the PDF)" inputMode="email" autoCapitalize="none" style={inp}/>
           </div>
           <div><label style={lbl}>Cash contribution — the raise</label>
             <input value={amount} onChange={e=>setAmount(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" style={inp}/>
@@ -11775,7 +11795,10 @@ function JVAgreementModal({property,onClose}){
           </div>
           <div style={{background:T.goldLight,borderRadius:10,padding:"10px 13px",fontSize:12.5,color:"#8a6d1f",lineHeight:1.55}}>Buyout price: <b>{money2(buyout)}</b> — {retPct||0}%/yr on {`$${amt.toLocaleString()}`} over {days||0} days, prorated to the buyout date (same math as the original agreement).</div>
           <button onClick={generate} disabled={!ok} style={{padding:"12px",borderRadius:12,background:ok?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:ok?"pointer":"default",fontFamily:"inherit"}}>📄 Generate agreement</button>
-          <div style={{fontSize:11,color:T.textTert,lineHeight:1.5,marginTop:-4}}>Opens the print dialog — choose "Save as PDF". Profits/losses read "in proportion to ownership interests" so the document stays correct at any percentage.</div>
+          <button onClick={sendEmail} disabled={!ok||!emailOk||emailing==="sending"} style={{padding:"12px",borderRadius:12,background:ok&&emailOk?T.blue:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:ok&&emailOk&&emailing!=="sending"?"pointer":"default",fontFamily:"inherit",marginTop:-5}}>{emailing==="sending"?"Sending…":`✉️ Email PDF to ${inv.name.trim().split(/\s+/)[0]||"investor"}`}</button>
+          {emailing==="sent"&&<div style={{background:"#e8f6ec",borderRadius:10,padding:"9px 13px",fontSize:12.5,color:"#1d7a3a",fontWeight:600,marginTop:-5}}>✅ Sent to {inv.email.trim()} — a new email chain with the agreement PDF attached.</div>}
+          {emailing&&emailing!=="sending"&&emailing!=="sent"&&<div style={{background:"#fdecec",borderRadius:10,padding:"9px 13px",fontSize:12.5,color:"#b3261e",fontWeight:600,marginTop:-5}}>⚠️ {emailing}</div>}
+          <div style={{fontSize:11,color:T.textTert,lineHeight:1.5,marginTop:-4}}>Generate opens the print dialog — choose "Save as PDF". Email builds the PDF and starts a fresh chain from your Outlook: "{property.address} JV Agreement" with the agreement attached{mail.signedIn?"":" (sign in on the Email page first)"}.</div>
         </div>
       </div>
     </div>

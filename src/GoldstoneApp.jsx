@@ -8433,7 +8433,7 @@ function ContactsPage(){
   const companies=[...new Set(dir.map(c=>c.company).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const save=(c)=>{
     const phones=(c.phones||[]).map(p=>({label:(p.label||"Mobile").trim()||"Mobile",number:String(p.number||"").trim()})).filter(p=>p.number);
-    const clean={id:c.id||Date.now(),name:(c.name||"").trim(),company:(c.company||"").trim(),role:(c.role||"").trim(),email:(c.email||"").trim(),notes:(c.notes||"").trim(),phones,tags:(c.tags||[]).map(t=>t.trim()).filter(Boolean),phone:phones[0]?.number||""};
+    const clean={id:c.id||Date.now(),name:(c.name||"").trim(),company:(c.company||"").trim(),role:(c.role||"").trim(),email:(c.email||"").trim(),address:(c.address||"").trim(),notes:(c.notes||"").trim(),phones,tags:(c.tags||[]).map(t=>t.trim()).filter(Boolean),phone:phones[0]?.number||""};
     if(!clean.name&&!clean.phones.length&&!clean.email&&!clean.company)return;
     setContacts(prev=>prev.some(x=>x.id===clean.id)?prev.map(x=>x.id===clean.id?clean:x):[...prev,clean]);
     saveNow();setEditing(null);setSelId(clean.id);
@@ -8602,7 +8602,7 @@ function ContactsPage(){
 }
 function ContactForm({draft,isMobile,companies=[],onSave,onCancel,onDelete}){
   const nd=normContact(draft);
-  const[c,setC]=useState({id:draft.id,name:nd.name,company:nd.company,role:nd.role,email:nd.email,notes:nd.notes,
+  const[c,setC]=useState({id:draft.id,name:nd.name,company:nd.company,role:nd.role,email:nd.email,address:draft.address||"",notes:nd.notes,
     phones:nd.phones.length?nd.phones:[{label:"Mobile",number:""}],tags:[...nd.tags]});
   const[tagInput,setTagInput]=useState("");
   const up=(k,v)=>setC(p=>({...p,[k]:v}));
@@ -8638,6 +8638,7 @@ function ContactForm({draft,isMobile,companies=[],onSave,onCancel,onDelete}){
             </div>
           </div>
           <div><label style={lbl}>Email</label><input value={c.email} onChange={e=>up("email",e.target.value)} placeholder="Email" autoCapitalize="none" inputMode="email" style={iS}/></div>
+          <div><label style={lbl}>Mailing address <span style={{textTransform:"none",fontWeight:400,color:T.textTert}}>(used on agreements)</span></label><input value={c.address} onChange={e=>up("address",e.target.value)} placeholder="Street, City, State ZIP" style={iS}/></div>
           {/* Tags */}
           <div>
             <label style={lbl}>Tags <span style={{textTransform:"none",fontWeight:400,color:T.textTert}}>(trade / type)</span></label>
@@ -11653,16 +11654,139 @@ function cashFlowNet(p,accounts,spend,intPaid){
 // saved as a PDF (via the browser's print dialog). Reports run off the same data
 // as the rest of the Financial Section so the numbers always agree.
 // ─── Document Creator — branded documents generated from live deal data ───────
+// ─── Joint Venture Agreement — the v3 agreement, templated off live deal data ──
+// Investor picked from Contacts (their stored mailing address rides along, both
+// editable), subject property + block/lot from the property record, the raise
+// defaulting to the deal's cash-needed-in, ownership % (default 50) and annual
+// return % (default 15) driving the prorated buyout exactly like v3's numbers
+// ($225,534.25 on $210,000 = 15%/yr over the 180-day window). Signed for
+// Goldstone by Moshe Hamaoui, President, in a script hand, dated the day it's
+// created — with a matching signature + date block for the investor.
+function JVAgreementModal({property,onClose}){
+  const { contacts }=useData();
+  const f=property.financials||{};
+  const _fp=finProfit(f,property.status);
+  const dir=(contacts||[]).slice().sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+  const[inv,setInv]=useState({name:"",address:""});
+  const[amount,setAmount]=useState(String(Math.round(_fp.equityRequired||0)||""));
+  const[ownPct,setOwnPct]=useState("50");
+  const[retPct,setRetPct]=useState("15");
+  const[days,setDays]=useState("180");
+  const amt=Number(numIn?numIn(amount):amount)||Number(String(amount).replace(/[^0-9.]/g,""))||0;
+  const buyout=amt*(1+((Number(retPct)||0)/100)*((Number(days)||0)/365));
+  const money2=(v)=>`$${(Math.round(v*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const today=new Date().toLocaleDateString(undefined,{month:"long",day:"numeric",year:"numeric"});
+  const addrFull=`${property.address||""}${property.city?`, ${property.city}`:""}, ${property.state||"New Jersey"}${property.zip?` ${property.zip}`:""}`.replace(", NJ"," , New Jersey").replace(" , ",", ");
+  const parcel=String((property.propertyInfo||{}).parcel||"").trim();
+  const propLegal=`${addrFull}${parcel?` (${parcel})`:""}`;
+  const short=(String(inv.name||"").trim().split(/\s+/).slice(-1)[0]||"Investor");
+  const esc=(x)=>String(x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const generate=()=>{
+    const nm=esc(inv.name.trim()||"____________________________");
+    const ad=esc(inv.address.trim()||"____________________________");
+    const sh=esc(short);
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>Joint Venture Agreement — ${esc(property.address||"")}</title>
+    <style>
+      @page{size:letter;margin:1in;}
+      body{font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.5;color:#000;margin:0;}
+      h1{font-size:14pt;text-align:center;letter-spacing:0.02em;margin:0 0 14pt;}
+      h2{font-size:12pt;margin:14pt 0 4pt;}
+      p{margin:0 0 8pt;text-align:justify;}
+      .sig{margin-top:28pt;page-break-inside:avoid;}
+      .script{font-family:'Snell Roundhand','Savoye LET','Segoe Script','Brush Script MT','Lucida Handwriting',cursive;font-size:26pt;color:#1a2b57;line-height:1;margin:14pt 0 -2pt 8pt;}
+      .line{border-bottom:1px solid #000;width:260px;display:inline-block;}
+      .lbl{margin:2pt 0;}
+      @media screen{body{padding:40px;background:#f4f2ee;}main{background:#fff;max-width:8.5in;margin:0 auto;padding:1in;box-shadow:0 2px 18px rgba(0,0,0,0.15);}}
+    </style></head><body><main>
+    <h1>JOINT VENTURE AGREEMENT</h1>
+    <p>This Joint Venture Agreement (the "Agreement") is entered into as of ${esc(today)}, by and between: <b>Goldstone Properties LLC</b>, having an address at 17 Natures Way, Lakewood, New Jersey 08701 (\u201cGoldstone\u201d) and <b>${nm}</b>, having an address at ${ad} (\u201c${sh}\u201d) (collectively referred to as the "Parties").</p>
+    <h2>1. BACKGROUND</h2>
+    <p>The Parties desire to enter into a joint venture for the purpose of purchase and construction of real estate property (the "Venture").</p>
+    <h2>2. CONTRIBUTIONS</h2>
+    <p><b>2.1 Cash Contribution:</b> ${sh} agrees to contribute ${money2(amt)} in cash towards the purchase and construction of ${esc(propLegal)} (the \u201cProperty\u201d).</p>
+    <p><b>2.2 Ownership Interest:</b> In consideration of the cash contribution, ${sh} shall be entitled to a ${esc(ownPct)} percent ownership interest in the Venture.</p>
+    <h2>3. BUYOUT OPTION</h2>
+    <p><b>3.1 Buyout Price:</b> Goldstone shall have the option to buy out ${sh}'s ${esc(ownPct)} percent ownership interest in the Venture within ${esc(days)} days of the effective date of this Agreement (the \u201cBuyout Period\u201d) for the total amount of ${money2(buyout)} which shall be prorated based on the date of the buyout.</p>
+    <h2>4. MANAGEMENT</h2>
+    <p><b>4.1 Decision-Making:</b> The Parties agree that Goldstone shall have sole authority to make major decisions regarding the Venture.</p>
+    <p><b>4.2 Management Responsibilities:</b> Goldstone shall have full management responsibility for the Venture, including but not limited to decision-making and day-to-day operations.</p>
+    <h2>5. PROFITS AND LOSSES</h2>
+    <p>The profits and losses of the Venture shall be allocated between the Parties in proportion to their respective ownership interests.</p>
+    <h2>6. TERM AND TERMINATION</h2>
+    <p>This Agreement shall commence on the effective date and shall continue until sale of Property.</p>
+    <h2>7. MISCELLANEOUS</h2>
+    <p><b>7.1 Governing Law:</b> This Agreement shall be governed by and construed in accordance with the laws of New Jersey.</p>
+    <p><b>7.2 Amendments:</b> No amendment or modification of this Agreement shall be valid unless in writing and signed by both Parties.</p>
+    <p><b>7.3 Signatures:</b> This Agreement may be executed in counterparts, each of which shall be deemed an original, but all of which together shall constitute one and the same instrument. The Agreement when signed by a party and delivered to the other party by fax or other electronic means, shall be deemed a document containing the original signature of the transmitting party and shall be fully enforceable against the transmitting party. If reasonably requested, each party shall provide the other with a copy of the Contract bearing the original signature of the party whom such request has been made.</p>
+    <p style="margin-top:12pt"><b>Subject Property:</b> ${esc(propLegal)}</p>
+    <p>IN WITNESS WHEREOF, the Parties hereto have executed this Joint Venture Agreement as of the date first above written.</p>
+    <div class="sig">
+      <p style="margin-bottom:0"><b>GOLDSTONE PROPERTIES LLC</b></p>
+      <div class="script">Moshe Hamaoui</div>
+      <div class="lbl">By: <span class="line"></span></div>
+      <div class="lbl">Name: Moshe Hamaoui</div>
+      <div class="lbl">Title: President</div>
+      <div class="lbl">Date: ${esc(today)}</div>
+    </div>
+    <div class="sig">
+      <div class="lbl" style="margin-top:26pt"><span class="line"></span></div>
+      <div class="lbl"><b>${nm.toUpperCase()}</b></div>
+      <div class="lbl">Date: ${esc(today)}</div>
+    </div>
+    </main></body></html>`;
+    const w=window.open("","_blank");
+    if(!w){alert("Please allow pop-ups for this site to generate the agreement.");return;}
+    w.document.write(html);w.document.close();w.focus();
+    setTimeout(()=>{try{w.print();}catch(e){/* user can print manually */}},600);
+  };
+  const inp={width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:14,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none",boxSizing:"border-box"};
+  const lbl={fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5,display:"block"};
+  const ok=!!inv.name.trim()&&amt>0;
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:420,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(470px,96vw)",maxHeight:"88vh",overflowY:"auto",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+        <div style={{padding:"15px 20px",borderBottom:`2px solid ${T.gold}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:T.gold}}>Goldstone Properties</div><div style={{fontSize:16,fontWeight:800,color:T.text}}>Joint Venture Agreement</div></div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:13}}>
+          <div style={{fontSize:12,color:T.textSub,lineHeight:1.5}}><b>{property.address}{property.city?`, ${property.city}`:""}</b>{parcel?` · ${parcel}`:" · no block/lot on file (Property Info → Parcel)"} — dated {today}, signed by Moshe Hamaoui, President.</div>
+          <div><label style={lbl}>Investor — pick from Contacts or type</label>
+            <select value="" onChange={e=>{const c=dir[Number(e.target.value)];if(c)setInv({name:c.name||"",address:c.address||""});}} style={{...inp,color:T.textSub,fontWeight:600,marginBottom:6}}>
+              <option value="">👥 Pick a contact…</option>
+              {dir.map((c,i)=><option key={c.id||i} value={i}>{c.name}{c.company?` — ${c.company}`:""}{c.address?"":" · no address saved"}</option>)}
+            </select>
+            <input value={inv.name} onChange={e=>setInv(v=>({...v,name:e.target.value}))} placeholder="Full name *" style={{...inp,marginBottom:6}}/>
+            <input value={inv.address} onChange={e=>setInv(v=>({...v,address:e.target.value}))} placeholder="Their mailing address (blank = line to fill in ink)" style={inp}/>
+          </div>
+          <div><label style={lbl}>Cash contribution — the raise</label>
+            <input value={amount} onChange={e=>setAmount(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" style={inp}/>
+            <div style={{fontSize:11,color:T.textTert,marginTop:4}}>Defaults to this deal's cash-needed-in ({`$${Math.round(_fp.equityRequired||0).toLocaleString()}`}) — type over it for your own number.</div>
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <div style={{flex:1}}><label style={lbl}>Ownership %</label><input value={ownPct} onChange={e=>setOwnPct(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" style={inp}/></div>
+            <div style={{flex:1}}><label style={lbl}>Annual return %</label><input value={retPct} onChange={e=>setRetPct(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" style={inp}/></div>
+            <div style={{flex:1}}><label style={lbl}>Buyout days</label><input value={days} onChange={e=>setDays(e.target.value.replace(/[^0-9]/g,""))} inputMode="numeric" style={inp}/></div>
+          </div>
+          <div style={{background:T.goldLight,borderRadius:10,padding:"10px 13px",fontSize:12.5,color:"#8a6d1f",lineHeight:1.55}}>Buyout price: <b>{money2(buyout)}</b> — {retPct||0}%/yr on {`$${amt.toLocaleString()}`} over {days||0} days, prorated to the buyout date (same math as the original agreement).</div>
+          <button onClick={generate} disabled={!ok} style={{padding:"12px",borderRadius:12,background:ok?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:ok?"pointer":"default",fontFamily:"inherit"}}>📄 Generate agreement</button>
+          <div style={{fontSize:11,color:T.textTert,lineHeight:1.5,marginTop:-4}}>Opens the print dialog — choose "Save as PDF". Profits/losses read "in proportion to ownership interests" so the document stays correct at any percentage.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 // One home for every printable template. For now: the Investor Packet (pick an
 // Under Contract deal → same generator as the property page). Future templates
 // (term sheets, lender one-pagers, payoff letters…) slot in as new cards.
 function FinDocCreator({sharedProps,isMobile}){
   const { setSharedProps, flushProps }=useData();
   const onUpdate=(id,key,val)=>{setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
-  const[picking,setPicking]=useState(false);
+  const[picking,setPicking]=useState(null); // which template is choosing a deal: "packet" | "jv"
   const[q,setQ]=useState("");
   const[showAll,setShowAll]=useState(false);
   const[packetFor,setPacketFor]=useState(null);
+  const[jvFor,setJvFor]=useState(null);
   const active=(sharedProps||[]).filter(p=>!p.archived);
   // Raising capital happens BEFORE you own the deal — default to Under Contract.
   const pool=showAll?active.filter(p=>p.status!=="Sold"):active.filter(p=>p.status==="Under Contract");
@@ -11673,11 +11797,19 @@ function FinDocCreator({sharedProps,isMobile}){
     <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?14:"20px 24px"}}>
       <div style={{maxWidth:680,margin:"0 auto"}}>
         <div style={{fontSize:12.5,color:T.textSub,marginBottom:14,lineHeight:1.5}}>Branded documents generated straight from your live deal data — pick a template, pick a deal, save as PDF.</div>
-        <div onClick={()=>{setQ("");setShowAll(false);setPicking(true);}} style={{...card,padding:"16px 18px",display:"flex",alignItems:"center",gap:14,cursor:"pointer",marginBottom:12}}>
+        <div onClick={()=>{setQ("");setShowAll(false);setPicking("packet");}} style={{...card,padding:"16px 18px",display:"flex",alignItems:"center",gap:14,cursor:"pointer",marginBottom:12}}>
           <div style={{width:46,height:46,borderRadius:12,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>📄</div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:15,fontWeight:800,color:T.text}}>Investor Packet</div>
             <div style={{fontSize:12.5,color:T.textSub,marginTop:2}}>Branded deal packet for raising LOC capital — photo, specs, economics, comps, the ask.</div>
+          </div>
+          <span style={{fontSize:15,color:T.gold,fontWeight:700,flexShrink:0}}>Create ›</span>
+        </div>
+        <div onClick={()=>{setQ("");setShowAll(false);setPicking("jv");}} style={{...card,padding:"16px 18px",display:"flex",alignItems:"center",gap:14,cursor:"pointer",marginBottom:12}}>
+          <div style={{width:46,height:46,borderRadius:12,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>🤝</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:800,color:T.text}}>Joint Venture Agreement</div>
+            <div style={{fontSize:12.5,color:T.textSub,marginTop:2}}>The investor JV contract — address & block/lot, their name and address from Contacts, the raise, and signatures, all filled in.</div>
           </div>
           <span style={{fontSize:15,color:T.gold,fontWeight:700,flexShrink:0}}>Create ›</span>
         </div>
@@ -11687,7 +11819,7 @@ function FinDocCreator({sharedProps,isMobile}){
         </div>
       </div>
       {picking&&(
-        <div onClick={()=>setPicking(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:410,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
+        <div onClick={()=>setPicking(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:410,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(460px,96vw)",maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
             <div style={{padding:"14px 18px 10px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -11703,7 +11835,7 @@ function FinDocCreator({sharedProps,isMobile}){
             <div style={{overflowY:"auto",flex:1}}>
               {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{showAll?"No matching properties.":"No Under Contract properties right now — tick “Show all” above."}</div>}
               {list.map(p=>{const sc=SC[p.status]||{};return(
-                <button key={p.id} onClick={()=>{setPicking(false);setPacketFor(p);}} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:10,padding:"12px 18px",background:"transparent",border:"none",borderTop:`1px solid ${T.border}`,cursor:"pointer",fontFamily:"inherit"}}>
+                <button key={p.id} onClick={()=>{const t=picking;setPicking(null);(t==="jv"?setJvFor:setPacketFor)(p);}} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:10,padding:"12px 18px",background:"transparent",border:"none",borderTop:`1px solid ${T.border}`,cursor:"pointer",fontFamily:"inherit"}}>
                   <span style={{flex:1,minWidth:0,fontSize:14,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}{p.city?`, ${p.city}`:""}</span>
                   <span style={{flexShrink:0,fontSize:10.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}}>{p.status}</span>
                 </button>
@@ -11713,6 +11845,7 @@ function FinDocCreator({sharedProps,isMobile}){
         </div>
       )}
       {packetFor&&<InvestorPacketModal property={packetFor} onUpdate={onUpdate} onClose={()=>setPacketFor(null)}/>}
+      {jvFor&&<JVAgreementModal property={jvFor} onClose={()=>setJvFor(null)}/>}
     </div>
   );
 }

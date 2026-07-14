@@ -4829,9 +4829,11 @@ function GlobalAiChat({onClose}){
       const L=a.lead;
       const nl=mkLead({address:L.address,city:L.city,state:L.state||"NJ",zip:L.zip,notes:L.notes||""});
       nl.info={...nl.info,sellerName:L.sellerName||"",sellerPhone:L.sellerPhone||"",sellerEmail:L.sellerEmail||"",source:L.source||"",askingPrice:L.askingPrice||"",closingTarget:L.closingTarget||"",type:L.type||"",beds:L.beds||"",baths:L.baths||"",sqft:L.sqft||"",yearBuilt:L.yearBuilt||"",condition:L.condition||""};
-      // Their claimed numbers seed the underwriting as a starting point (visible on
-      // the review card): ARV → Sale Price, their rehab # → Rehab Costs.
-      if(L.arv||L.rehabEstimate)nl.financials={...nl.financials,...(L.arv?{salePrice:L.arv}:{}),...(L.rehabEstimate?{rehabCosts:L.rehabEstimate}:{})};
+      // The numbers seed the underwriting as a starting point: ARV → Sale Price,
+      // rehab # → Rehab Costs, OUR offer (else their ask) → Purchase Price, and
+      // a stated hold length → Hold Period — so the money grid is live on save.
+      const buyAt=L.offerPrice||L.askingPrice;
+      if(L.arv||L.rehabEstimate||buyAt||L.holdPeriod)nl.financials={...nl.financials,...(L.arv?{salePrice:L.arv}:{}),...(L.rehabEstimate?{rehabCosts:L.rehabEstimate}:{}),...(buyAt?{purchasePrice:buyAt}:{}),...(L.holdPeriod?{holdPeriod:L.holdPeriod}:{})};
       setLeads(prev=>[...prev,nl]);
     }else{
       const base=Date.now();
@@ -5545,7 +5547,14 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                 {linked.map((c,i)=>(
                   <div key={c.id} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderTop:i===0?"none":`1px solid ${T.border}`}}>
                     <div style={{width:40,height:40,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:15,color:"#fff",flexShrink:0}}>{c.name[0]}</div>
-                    <div style={{flex:1}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div></div>
+                    <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div>{(c.phone||c.email)&&(()=>{const d=String(c.phone||"").replace(/[^\d]/g,"");const wa=d.length===10?`1${d}`:d;const lk={padding:"4px 11px",borderRadius:14,fontSize:11.5,fontWeight:700,textDecoration:"none",border:`1px solid ${T.border}`,background:T.bg,color:T.textSub};return(
+                      <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
+                        {d&&<a href={`tel:${d}`} style={lk}>📞 Call</a>}
+                        {d&&<a href={`sms:${d}`} style={lk}>💬 Text</a>}
+                        {wa.length>=11&&<a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" style={{...lk,border:"1px solid #25D366",color:"#128C7E",background:"#E9FBF0"}}>🟢 WhatsApp</a>}
+                        {c.email&&<a href={`mailto:${c.email}`} style={lk}>✉️ Email</a>}
+                      </div>
+                    );})()}</div>
                     <button onClick={()=>remC(c.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>Remove</button>
                   </div>
                 ))}
@@ -5934,7 +5943,14 @@ function LeadDetail({lead,onUpdate}){
                 {linked.map((c,i)=>(
                   <div key={c.id} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderTop:i===0?"none":`1px solid ${T.border}`}}>
                     <div style={{width:40,height:40,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:15,color:"#fff",flexShrink:0}}>{c.name[0]}</div>
-                    <div style={{flex:1}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div></div>
+                    <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div>{(c.phone||c.email)&&(()=>{const d=String(c.phone||"").replace(/[^\d]/g,"");const wa=d.length===10?`1${d}`:d;const lk={padding:"4px 11px",borderRadius:14,fontSize:11.5,fontWeight:700,textDecoration:"none",border:`1px solid ${T.border}`,background:T.bg,color:T.textSub};return(
+                      <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
+                        {d&&<a href={`tel:${d}`} style={lk}>📞 Call</a>}
+                        {d&&<a href={`sms:${d}`} style={lk}>💬 Text</a>}
+                        {wa.length>=11&&<a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" style={{...lk,border:"1px solid #25D366",color:"#128C7E",background:"#E9FBF0"}}>🟢 WhatsApp</a>}
+                        {c.email&&<a href={`mailto:${c.email}`} style={lk}>✉️ Email</a>}
+                      </div>
+                    );})()}</div>
                     <button onClick={()=>remC(c.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>Remove</button>
                   </div>
                 ))}

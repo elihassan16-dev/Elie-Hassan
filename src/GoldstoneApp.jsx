@@ -1888,9 +1888,20 @@ function WhatIfPopup({property,onClose}){
   const f=property.financials||{};
   const[draft,setDraft,clearDraft]=usePersistentDraft(`gs-whatif-${property.id}`,{purchasePrice:"",rehabCosts:"",salePrice:"",holdPeriod:""});
   const val=(k)=>draft[k]!==""?draft[k]:String(f[k]??"");
-  const scenario={...f,purchasePrice:val("purchasePrice"),rehabCosts:val("rehabCosts"),salePrice:val("salePrice"),holdPeriod:val("holdPeriod")};
-  const base=finProfit(f,property.status);
-  const what=finProfit(scenario,property.status);
+  // EVERY derived number must re-run off the levers — so both sides drop the
+  // grid's hand-entered overrides (hmInterest / locInterest / locLoan) and let
+  // the live financing formulas drive, and flat fallbacks (a selling or
+  // holding total typed as one number, no line items) scale with the lever
+  // they follow. Same treatment on both sides → no tweaks means zero deltas.
+  const run=(vals)=>{
+    const c={...f,purchasePrice:vals.purchasePrice,rehabCosts:vals.rehabCosts,salePrice:vals.salePrice,holdPeriod:vals.holdPeriod,hmInterest:"",locInterest:"",locLoan:""};
+    if(!(f.sellingCostItems||[]).length&&n(f.salePrice)>0)c.sellingCosts=String(Math.round(n(f.sellingCosts)*(n(vals.salePrice)/n(f.salePrice))));
+    if(!(f.holdingCostItems||[]).length&&n(f.holdPeriod)>0)c.annualHoldingCosts=String(Math.round(n(f.annualHoldingCosts)*(n(vals.holdPeriod)/n(f.holdPeriod))));
+    return finProfit(c,property.status);
+  };
+  const planVals={purchasePrice:String(f.purchasePrice??""),rehabCosts:String(f.rehabCosts??""),salePrice:String(f.salePrice??""),holdPeriod:String(f.holdPeriod??"")};
+  const base=run(planVals);
+  const what=run({purchasePrice:val("purchasePrice"),rehabCosts:val("rehabCosts"),salePrice:val("salePrice"),holdPeriod:val("holdPeriod")});
   const fmt=(v)=>`$${Math.round(n(v)).toLocaleString()}`;
   const delta=(a,b,invert)=>{const d=Math.round(n(b)-n(a));if(!d)return <span style={{color:T.textTert,fontWeight:600}}>—</span>;const good=invert?d<0:d>0;return <span style={{color:good?T.green:T.red,fontWeight:800}}>{d>0?"+":"−"}${Math.abs(d).toLocaleString()}</span>;};
   const row=(label,a,b,{strong,invert}={})=>(
@@ -1919,7 +1930,7 @@ function WhatIfPopup({property,onClose}){
             <div key={k} style={{display:"grid",gridTemplateColumns:"1.25fr 1fr 1fr 0.9fr",gap:6,alignItems:"center",padding:"6px 0"}}>
               <span style={{fontSize:12.5,fontWeight:700,color:T.text}}>{label}</span>
               <span style={{fontSize:12,color:T.textTert,textAlign:"right"}}>{k==="holdPeriod"?`${n(f[k])||0} mo`:fmt(f[k])}</span>
-              <input value={draft[k]!==""?draft[k]:""} onChange={e=>{const v=e.target.value.replace(/[^0-9.]/g,"");setDraft(d=>({...d,[k]:v}));}} inputMode="decimal" placeholder={k==="holdPeriod"?String(n(f[k])||0):Math.round(n(f[k])).toLocaleString()} style={inpW}/>
+              <input value={draft[k]!==""?draft[k]:String(n(f[k])||"")} onChange={e=>{const v=e.target.value.replace(/[^0-9.]/g,"");setDraft(d=>({...d,[k]:v===String(n(f[k])||"")?"":v||" "}));}} onFocus={e=>e.target.select()} inputMode="decimal" placeholder={k==="holdPeriod"?String(n(f[k])||0):Math.round(n(f[k])).toLocaleString()} style={inpW}/>
               <span/>
             </div>
           ))}
@@ -1934,7 +1945,7 @@ function WhatIfPopup({property,onClose}){
           {row("Financing / interest",base.debtService,what.debtService,{invert:true})}
           {row("Cash you'd need in",base.equityRequired,what.equityRequired,{invert:true})}
           {row("Net profit",base.netProfit,what.netProfit,{strong:true})}
-          <div style={{fontSize:11,color:T.textTert,marginTop:10,lineHeight:1.5}}>Commission, transfer tax, holding, and financing all recompute off your what-if numbers with the plan's rates and terms. Blank inputs fall back to the plan. Your scenario is remembered on this device only.</div>
+          <div style={{fontSize:11,color:T.textTert,marginTop:10,lineHeight:1.5}}>Everything re-runs live off each column's numbers — commission, transfer tax, holding, financing, and cash-in — using the plan's rates and terms (hand-entered overrides on the grid are set aside here so the levers actually move the results). Tap a field and type over it. Your scenario is remembered on this device only.</div>
         </div>
         <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0}}>
           {changed&&<button onClick={()=>clearDraft(true)} style={{marginRight:"auto",padding:"10px 16px",borderRadius:10,background:T.bg,border:"none",color:T.textSub,fontWeight:600,cursor:"pointer",fontFamily:"inherit",fontSize:13.5}}>↺ Reset to plan</button>}

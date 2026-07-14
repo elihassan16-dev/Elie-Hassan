@@ -27,6 +27,17 @@ as $$
   );
 $$;
 
+-- Any real teammate (admin or member) — contractor logins are NOT team.
+create or replace function public.is_team()
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists(select 1 from public.users where id = auth.uid() and role in ('admin','member'));
+$$;
+
 -- When someone signs up, create their profile row. Your email is seeded as admin.
 create or replace function public.handle_new_user()
 returns trigger
@@ -193,12 +204,17 @@ begin
     execute format('create policy %1$s_update on public.%1$s for update to authenticated using (true) with check (true)', tbl);
 
     execute format('drop policy if exists %1$s_insert on public.%1$s', tbl);
-    execute format('create policy %1$s_insert on public.%1$s for insert to authenticated with check (public.is_admin())', tbl);
+    execute format('create policy %1$s_insert on public.%1$s for insert to authenticated with check (public.is_team())', tbl);
 
     execute format('drop policy if exists %1$s_delete on public.%1$s', tbl);
     execute format('create policy %1$s_delete on public.%1$s for delete to authenticated using (public.is_admin())', tbl);
   end loop;
 end $$;
+
+-- Converting a lead to Under Contract deletes the lead row — members do this
+-- too, so lead deletes are team-wide (property/contact deletes stay admin-only).
+drop policy if exists leads_delete on public.leads;
+create policy leads_delete on public.leads for delete to authenticated using (public.is_team());
 
 -- tasks: read-only to clients (the table is maintained by the trigger above).
 drop policy if exists tasks_select on public.tasks;

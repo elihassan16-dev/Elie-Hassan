@@ -1878,6 +1878,72 @@ function InvestorPacketModal({property,onUpdate,onClose}){
     </div>
   );
 }
+// ⚖️ Quick what-if: tweak the big levers (purchase, rehab scope, sale price,
+// hold) on a SCRATCH copy of the projected numbers and compare against the
+// current plan side by side — run through finProfit, the same single source
+// of truth as the real grid, so the scenario math can never disagree with it.
+// Nothing here writes to the property: the scenario is remembered on this
+// device only (survives closing the popup), and Reset clears it.
+function WhatIfPopup({property,onClose}){
+  const f=property.financials||{};
+  const[draft,setDraft,clearDraft]=usePersistentDraft(`gs-whatif-${property.id}`,{purchasePrice:"",rehabCosts:"",salePrice:"",holdPeriod:""});
+  const val=(k)=>draft[k]!==""?draft[k]:String(f[k]??"");
+  const scenario={...f,purchasePrice:val("purchasePrice"),rehabCosts:val("rehabCosts"),salePrice:val("salePrice"),holdPeriod:val("holdPeriod")};
+  const base=finProfit(f,property.status);
+  const what=finProfit(scenario,property.status);
+  const fmt=(v)=>`$${Math.round(n(v)).toLocaleString()}`;
+  const delta=(a,b,invert)=>{const d=Math.round(n(b)-n(a));if(!d)return <span style={{color:T.textTert,fontWeight:600}}>—</span>;const good=invert?d<0:d>0;return <span style={{color:good?T.green:T.red,fontWeight:800}}>{d>0?"+":"−"}${Math.abs(d).toLocaleString()}</span>;};
+  const row=(label,a,b,{strong,invert}={})=>(
+    <div key={label} style={{display:"grid",gridTemplateColumns:"1.25fr 1fr 1fr 0.9fr",gap:6,padding:strong?"12px 0":"8px 0",borderTop:strong?`2px solid ${T.border}`:`1px solid ${T.border}`,alignItems:"center"}}>
+      <span style={{fontSize:12.5,fontWeight:strong?800:600,color:strong?T.text:T.textSub}}>{label}</span>
+      <span style={{fontSize:strong?15:12.5,fontWeight:strong?700:500,color:T.textTert,textAlign:"right"}}>{fmt(a)}</span>
+      <span style={{fontSize:strong?15:12.5,fontWeight:strong?800:600,color:strong?(n(b)>=0?T.green:T.red):T.text,textAlign:"right"}}>{fmt(b)}</span>
+      <span style={{fontSize:strong?13:11.5,textAlign:"right"}}>{delta(a,b,invert)}</span>
+    </div>
+  );
+  const FIELDS=[["purchasePrice","Purchase price"],["rehabCosts","Rehab / scope budget"],["salePrice","Sale price (ARV)"],["holdPeriod","Hold period (months)"]];
+  const inpW={padding:"9px 11px",borderRadius:10,border:`1.5px solid ${T.gold}`,background:"#fff",fontSize:13.5,fontWeight:700,color:T.text,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box",textAlign:"right"};
+  const changed=FIELDS.some(([k])=>draft[k]!==""&&String(draft[k])!==String(f[k]??""));
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:460,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(560px,96vw)",maxHeight:"92vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,background:T.goldLight,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:800,color:T.text}}>⚖️ Quick what-if</div>
+            <div style={{fontSize:11.5,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{property.address} · scratch numbers — the real plan is never touched</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div style={{padding:"12px 18px 16px",overflowY:"auto",flex:1}}>
+          {FIELDS.map(([k,label])=>(
+            <div key={k} style={{display:"grid",gridTemplateColumns:"1.25fr 1fr 1fr 0.9fr",gap:6,alignItems:"center",padding:"6px 0"}}>
+              <span style={{fontSize:12.5,fontWeight:700,color:T.text}}>{label}</span>
+              <span style={{fontSize:12,color:T.textTert,textAlign:"right"}}>{k==="holdPeriod"?`${n(f[k])||0} mo`:fmt(f[k])}</span>
+              <input value={draft[k]!==""?draft[k]:""} onChange={e=>{const v=e.target.value.replace(/[^0-9.]/g,"");setDraft(d=>({...d,[k]:v}));}} inputMode="decimal" placeholder={k==="holdPeriod"?String(n(f[k])||0):Math.round(n(f[k])).toLocaleString()} style={inpW}/>
+              <span/>
+            </div>
+          ))}
+          <div style={{display:"grid",gridTemplateColumns:"1.25fr 1fr 1fr 0.9fr",gap:6,padding:"10px 0 4px"}}>
+            <span/>
+            <span style={{fontSize:10,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",textAlign:"right"}}>Current plan</span>
+            <span style={{fontSize:10,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em",textAlign:"right"}}>What-if</span>
+            <span style={{fontSize:10,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",textAlign:"right"}}>Difference</span>
+          </div>
+          {row("Selling costs",base.sellingTotal,what.sellingTotal,{invert:true})}
+          {row("Holding costs",base.holdingTotal,what.holdingTotal,{invert:true})}
+          {row("Financing / interest",base.debtService,what.debtService,{invert:true})}
+          {row("Cash you'd need in",base.equityRequired,what.equityRequired,{invert:true})}
+          {row("Net profit",base.netProfit,what.netProfit,{strong:true})}
+          <div style={{fontSize:11,color:T.textTert,marginTop:10,lineHeight:1.5}}>Commission, transfer tax, holding, and financing all recompute off your what-if numbers with the plan's rates and terms. Blank inputs fall back to the plan. Your scenario is remembered on this device only.</div>
+        </div>
+        <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0}}>
+          {changed&&<button onClick={()=>clearDraft(true)} style={{marginRight:"auto",padding:"10px 16px",borderRadius:10,background:T.bg,border:"none",color:T.textSub,fontWeight:600,cursor:"pointer",fontFamily:"inherit",fontSize:13.5}}>↺ Reset to plan</button>}
+          <button onClick={onClose} style={{padding:"10px 22px",borderRadius:10,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 function FinOverview({property,onUpdate}){
   const isMobile=useIsMobile();
   const { draws } = useData();
@@ -1894,6 +1960,7 @@ function FinOverview({property,onUpdate}){
   const[showActualFinancing,setShowActualFinancing]=useState(false);
   const[showFinancingP,setShowFinancingP]=useState(false);
   const[showActual,setShowActual]=useState(!!f.useActualProfit);
+  const[whatIf,setWhatIf]=useState(false); // ⚖️ scratch comparison popup
 
   // Balance Sheet loan totals for this property, so the Actual Financing popup can
   // cross-check the hard-money / LOC amounts against what's pinned on the BS report.
@@ -2031,6 +2098,11 @@ function FinOverview({property,onUpdate}){
             {showActual?"Showing Actual Column":"Show Actual Column"}
           </span>
         </div>
+        <div onClick={()=>setWhatIf(true)}
+          style={{display:"inline-flex",alignItems:"center",gap:8,background:T.bg,border:`1.5px dashed ${T.gold}`,borderRadius:20,padding:"7px 18px",cursor:"pointer"}}>
+          <span style={{fontSize:14,lineHeight:1}}>⚖️</span>
+          <span style={{fontSize:13,fontWeight:600,color:"#8a6d1f"}}>Quick what-if</span>
+        </div>
         {showActual&&<div onClick={()=>up("useActualProfit",!f.useActualProfit)}
           style={{display:"inline-flex",alignItems:"center",gap:10,background:f.useActualProfit?T.gold+"22":T.bg,border:`1.5px solid ${f.useActualProfit?T.gold:T.border}`,borderRadius:20,padding:"7px 18px",cursor:"pointer"}}>
           <div style={{width:18,height:18,borderRadius:9,background:f.useActualProfit?T.gold:"#ccc",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
@@ -2042,6 +2114,7 @@ function FinOverview({property,onUpdate}){
         </div>}
       </div>
       {f.useActualProfit&&<div style={{textAlign:"center",fontSize:12,color:T.gold,marginBottom:14,marginTop:-12}}>Actual net profit now feeds Portfolio Overview totals · projected numbers shown faded for reference</div>}
+      {whatIf&&<WhatIfPopup property={property} onClose={()=>setWhatIf(false)}/>}
 
       <div style={{maxWidth:showActual?900:520,margin:"0 auto"}}>
         <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>

@@ -9038,11 +9038,15 @@ function MessageAttachment({att,mine,saveFolder}){
     if(sv==="saving"||sv==="done")return;
     setSv("saving");
     try{
-      const r=await fetch(att.url);
-      if(!r.ok)throw new Error("Couldn't download the attachment.");
-      const blob=await r.blob();
-      const file=new File([blob],att.name||"attachment",{type:att.mime||blob.type||"application/octet-stream"});
-      await od.uploadFile(saveFolder.driveId,saveFolder.id,file);
+      // A photo-grid message saves every photo; anything else saves the one file.
+      const list=att.kind==="images"&&Array.isArray(att.items)?att.items:[att];
+      for(const a of list){
+        const r=await fetch(a.url);
+        if(!r.ok)throw new Error("Couldn't download the attachment.");
+        const blob=await r.blob();
+        const file=new File([blob],a.name||"attachment",{type:a.mime||blob.type||"application/octet-stream"});
+        await od.uploadFile(saveFolder.driveId,saveFolder.id,file);
+      }
       setSv("done");
     }catch(err){setSv(err.message||"Save failed");setTimeout(()=>setSv(""),3500);}
   };
@@ -9052,6 +9056,18 @@ function MessageAttachment({att,mine,saveFolder}){
       {sv==="done"?"✓ Saved to Files":sv==="saving"?"Saving…":sv?`⚠ ${sv}`:"💾 Save to Files"}
     </button>
   ):null;
+  if(att.kind==="images"&&Array.isArray(att.items))return(
+    <div style={{marginTop:6}}>
+      <div style={{display:"flex",flexWrap:"wrap",gap:4,maxWidth:236}}>
+        {att.items.map((it,i)=>(
+          <a key={i} href={it.url} target="_blank" rel="noreferrer" style={{display:"block"}}>
+            <img src={it.url} alt={it.name||`photo ${i+1}`} loading="lazy" style={{width:att.items.length===2?114:76,height:att.items.length===2?114:76,borderRadius:8,objectFit:"cover",display:"block"}}/>
+          </a>
+        ))}
+      </div>
+      {saveBtn}
+    </div>
+  );
   if(att.kind==="image")return(
     <div style={{marginTop:6}}>
       <a href={att.url} target="_blank" rel="noreferrer" style={{display:"block"}}>
@@ -9092,7 +9108,7 @@ function StagedVideoStatus({uploadId}){
   const done=live&&live.status==="done";
   return(
     <div style={{flex:1,minWidth:0}}>
-      <div style={{fontSize:12,fontWeight:700,color:failed?T.red:T.text}}>{failed?"Video didn't upload":done?"Video ready":`Video uploading… ${live?live.pct||0:0}%`}</div>
+      <div style={{fontSize:12,fontWeight:700,color:failed?T.red:T.text}}>{failed?"Video didn't upload":done?"Video ready":live&&live.stage==="compress"?`Compressing video… ${live.pct||0}%`:`Video uploading… ${live?live.pct||0:0}%`}</div>
       <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{failed?"Remove it (×) and try again.":done?"Ready to send":"You can Send now — it finishes in the background."}</div>
     </div>
   );
@@ -9174,10 +9190,24 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     }catch{ setErr("Upload failed. Try again."); }
     setBusy(false);
   };
+  // Picking several photos at once (up to 10) sends them as ONE message with a
+  // photo grid. Mixing in a video/PDF still works one file at a time.
+  const uploadStagedMany=async(files)=>{
+    const imgs=files.filter(f=>(f.type||"").startsWith("image/")).slice(0,10);
+    if(!imgs.length){setErr("Videos and PDFs go one at a time — photos can be sent up to 10 together.");return;}
+    setErr(imgs.length<files.length?"Only photos can go together — the other files were skipped.":"");
+    setBusy(true);
+    try{
+      const items=await Promise.all(imgs.map(f=>uploadAttachment(f,"chat")));
+      setPendingAtt({kind:"images",items,name:`${items.length} photos`,url:items[0].url});
+    }catch{ setErr("Upload failed. Try again."); }
+    setBusy(false);
+  };
   const onPickFile=async(e)=>{
-    const file=e.target.files&&e.target.files[0];
+    const files=Array.from(e.target.files||[]);
     if(fileRef.current)fileRef.current.value="";
-    await uploadStaged(file);
+    if(files.length>1)await uploadStagedMany(files);
+    else await uploadStaged(files[0]);
   };
   const onPasteFiles=(e)=>{
     const items=e.clipboardData?.items||[];
@@ -9267,13 +9297,13 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
       {/* Staged attachment — attach/record first, then tag + Send */}
       {pendingAtt&&!recording&&(
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"6px 8px",background:T.bg,border:`1px solid ${T.border}`,borderRadius:12}}>
-          {pendingAtt.kind==="image"
+          {pendingAtt.kind==="image"||pendingAtt.kind==="images"
             ? <img src={pendingAtt.url} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"cover",flexShrink:0}}/>
             : <span style={{fontSize:24,flexShrink:0}}>{pendingAtt.kind==="audio"?"🎤":pendingAtt.kind==="video"?"🎬":"📄"}</span>}
           {pendingAtt.pending&&pendingAtt.uploadId
             ? <StagedVideoStatus uploadId={pendingAtt.uploadId}/>
             : <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,fontWeight:700,color:T.text}}>{pendingAtt.kind==="audio"?"Voice note ready":pendingAtt.kind==="image"?"Photo ready":pendingAtt.kind==="video"?"Video ready":pendingAtt.kind==="contact"?`Contact ready — ${pendingAtt.name}`:"File ready"}</div>
+                <div style={{fontSize:12,fontWeight:700,color:T.text}}>{pendingAtt.kind==="audio"?"Voice note ready":pendingAtt.kind==="images"?`${(pendingAtt.items||[]).length} photos ready`:pendingAtt.kind==="image"?"Photo ready":pendingAtt.kind==="video"?"Video ready":pendingAtt.kind==="contact"?`Contact ready — ${pendingAtt.name}`:"File ready"}</div>
                 <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tagOptions.length?"Tag someone below, then Send":(pendingAtt.name||"Ready to send")}</div>
               </div>}
           <button onClick={()=>setPendingAtt(null)} title="Remove" style={{background:"none",border:"none",color:T.textTert,fontSize:20,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
@@ -9337,7 +9367,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
           </>
         ):(
           <>
-            <input ref={fileRef} type="file" accept="image/*,video/*,application/pdf,.xls,.xlsx,.csv,.doc,.docx,.ppt,.pptx,.txt,.numbers,.pages,.key" onChange={onPickFile} style={{display:"none"}}/>
+            <input ref={fileRef} type="file" multiple accept="image/*,video/*,application/pdf,.xls,.xlsx,.csv,.doc,.docx,.ppt,.pptx,.txt,.numbers,.pages,.key" onChange={onPickFile} style={{display:"none"}}/>
             <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, video, PDF, or spreadsheet" style={ib}>📎</button>
             <button onClick={startRec} disabled={busy} title="Record a voice note" style={ib}>🎤</button>
             <button onClick={()=>setAiOpen(v=>!v)} disabled={busy} title="Let AI draft this message" style={{...ib,...(aiOpen?{background:T.goldLight,borderColor:T.gold}:{})}}>✨</button>
@@ -9832,7 +9862,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
                   <div style={{flex:1,minWidth:0,fontSize:12,color:hasUnread?T.text:T.textSub,fontWeight:hasUnread?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                    {last?<>{last.author?`${last.author.split(" ")[0]}: `:""}{last.text||(last.attachment?(last.attachment.kind==="image"?"📷 Photo":last.attachment.kind==="audio"?"🎤 Voice note":"📎 Attachment"):"")}</>:<span style={{color:T.textTert}}>General team chat — not tied to a property</span>}
+                    {last?<>{last.author?`${last.author.split(" ")[0]}: `:""}{last.text||(last.attachment?(last.attachment.kind==="images"?`📷 ${(last.attachment.items||[]).length} photos`:last.attachment.kind==="image"?"📷 Photo":last.attachment.kind==="audio"?"🎤 Voice note":"📎 Attachment"):"")}</>:<span style={{color:T.textTert}}>General team chat — not tied to a property</span>}
                   </div>
                   {hasUnread&&<UnreadBadge count={officeUnread}/>}
                 </div>
@@ -9852,7 +9882,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
                   <div style={{flex:1,minWidth:0,fontSize:12,color:hasUnread?T.text:T.textSub,fontWeight:hasUnread?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                    {last?<>{last.taskText?<span title={`On task: ${last.taskText}`} style={{color:"#b8912e"}}>↳ </span>:null}{last.author?`${last.author.split(" ")[0]}: `:""}{last.text||(last.attachment?(last.attachment.kind==="image"?"📷 Photo":last.attachment.kind==="audio"?"🎤 Voice note":"📎 Attachment"):"")}</>:<span style={{color:T.textTert}}>No messages yet</span>}
+                    {last?<>{last.taskText?<span title={`On task: ${last.taskText}`} style={{color:"#b8912e"}}>↳ </span>:null}{last.author?`${last.author.split(" ")[0]}: `:""}{last.text||(last.attachment?(last.attachment.kind==="images"?`📷 ${(last.attachment.items||[]).length} photos`:last.attachment.kind==="image"?"📷 Photo":last.attachment.kind==="audio"?"🎤 Voice note":"📎 Attachment"):"")}</>:<span style={{color:T.textTert}}>No messages yet</span>}
                   </div>
                   {hasUnread&&<UnreadBadge count={unread}/>}
                 </div>

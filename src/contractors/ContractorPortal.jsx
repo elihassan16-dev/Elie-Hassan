@@ -118,6 +118,15 @@ function Att({ att }) {
   // Video still uploading in the background (or failed) — progress bubble instead.
   if (att.kind === "video" && (att.pending || att.failed)) return <VideoUploadBubble att={att} mine={false} />;
   if (!att.url) return null;
+  if (att.kind === "images" && Array.isArray(att.items)) return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxWidth: 236, marginTop: 6 }}>
+      {att.items.map((it, i) => (
+        <a key={i} href={it.url} target="_blank" rel="noreferrer" style={{ display: "block" }}>
+          <img src={it.url} alt={it.name || `photo ${i + 1}`} loading="lazy" style={{ width: att.items.length === 2 ? 114 : 76, height: att.items.length === 2 ? 114 : 76, borderRadius: 8, objectFit: "cover", display: "block" }} />
+        </a>
+      ))}
+    </div>
+  );
   if (att.kind === "image") return <a href={att.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={att.url} alt={att.name || "photo"} style={{ maxWidth: 220, maxHeight: 260, borderRadius: 10, display: "block", objectFit: "cover" }} /></a>;
   if (att.kind === "video" && att.stream) return <iframe src={att.url} title={att.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ marginTop: 6, width: "min(320px,72vw)", aspectRatio: "16/9", border: "none", borderRadius: 10, display: "block", background: "#000" }} />;
   if (att.kind === "video") return <video src={att.url} controls playsInline preload="metadata" style={{ marginTop: 6, maxWidth: 240, width: "100%", maxHeight: 300, borderRadius: 10, display: "block", background: "#000" }} />;
@@ -707,10 +716,22 @@ export function ContractorPortal() {
   const thread = selJob ? (messages || []).filter((m) => m.orgId === contractorOrgId && String(m.jobId) === String(selJob.id)).sort((a, b) => String(a.at || "").localeCompare(String(b.at || ""))) : [];
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length, tab, selJobId]);
   const pickAtt = async (e) => {
-    const file = (e.target.files || [])[0]; e.target.value = "";
-    if (!file) return;
+    const files = Array.from(e.target.files || []); e.target.value = "";
+    if (!files.length) return;
     setBusy(true);
-    try { const up = await stage(file); if (up) setPending(up); } catch (ex) { setErr(ex.message || "Upload failed."); }
+    try {
+      if (files.length === 1) { const up = await stage(files[0]); if (up) setPending(up); }
+      else {
+        // Several photos at once (up to 10) → one message with a photo grid.
+        const imgs = files.filter((f) => (f.type || "").startsWith("image/")).slice(0, 10);
+        if (!imgs.length) setErr("Videos and PDFs go one at a time — photos can be sent up to 10 together.");
+        else {
+          const items = await Promise.all(imgs.map((f) => uploadAttachment(f, "portal")));
+          setPending({ kind: "images", items, name: `${items.length} photos`, url: items[0].url });
+          setErr(imgs.length < files.length ? "Only photos can go together — the other files were skipped." : "");
+        }
+      }
+    } catch (ex) { setErr(ex.message || "Upload failed."); }
     setBusy(false);
   };
   // Voice notes — MediaRecorder, uploaded like any attachment.
@@ -963,7 +984,7 @@ export function ContractorPortal() {
                     )}
                     {pending && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}`, borderRadius: 10, marginBottom: 8 }}>
-                        <span style={{ fontSize: 13 }}>{pending.kind === "image" ? "🖼️" : pending.kind === "video" ? "🎬" : pending.kind === "audio" ? "🎤" : pending.kind === "contact" ? "👤" : "📄"}</span>
+                        <span style={{ fontSize: 13 }}>{pending.kind === "image" || pending.kind === "images" ? "🖼️" : pending.kind === "video" ? "🎬" : pending.kind === "audio" ? "🎤" : pending.kind === "contact" ? "👤" : "📄"}</span>
                         <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pending.name}{pending.pending ? " — uploading in background, OK to send" : ""}</span>
                         <button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
                       </div>
@@ -978,7 +999,7 @@ export function ContractorPortal() {
                       </div>
                     ) : (
                     <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-                      <input ref={attRef} type="file" accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
+                      <input ref={attRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
                       <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} title="Attach a photo, video, or PDF" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>📎</button>
                       <button onClick={startRec} disabled={busy} title="Record a voice note" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>🎤</button>
                       {roster.length > 0 && <button onClick={() => setTagOpen((v) => !v)} disabled={busy} title="Tag specific Goldstone people" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${msgTags.length ? T.gold : T.border}`, background: msgTags.length ? T.goldLight : T.bg, fontSize: 17, cursor: "pointer" }}>👥</button>}

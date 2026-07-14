@@ -11663,10 +11663,12 @@ function cashFlowNet(p,accounts,spend,intPaid){
 // Goldstone by Moshe Hamaoui, President, in a script hand, dated the day it's
 // created — with a matching signature + date block for the investor.
 function JVAgreementModal({property,onClose}){
-  const { contacts }=useData();
+  // The counterparties are the LOC lenders (Financial Section funders) — each
+  // already carries a mailing address "used on partnership documents".
+  const { funders }=useData();
   const f=property.financials||{};
   const _fp=finProfit(f,property.status);
-  const dir=(contacts||[]).slice().sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+  const dir=(funders||[]).slice().sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
   const[inv,setInv]=useState({name:"",address:""});
   const[amount,setAmount]=useState(String(Math.round(_fp.equityRequired||0)||""));
   const[ownPct,setOwnPct]=useState("50");
@@ -11751,10 +11753,10 @@ function JVAgreementModal({property,onClose}){
         </div>
         <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:13}}>
           <div style={{fontSize:12,color:T.textSub,lineHeight:1.5}}><b>{property.address}{property.city?`, ${property.city}`:""}</b>{parcel?` · ${parcel}`:" · no block/lot on file (Property Info → Parcel)"} — dated {today}, signed by Moshe Hamaoui, President.</div>
-          <div><label style={lbl}>Investor — pick from Contacts or type</label>
+          <div><label style={lbl}>Investor — your line-of-credit lenders</label>
             <select value="" onChange={e=>{const c=dir[Number(e.target.value)];if(c)setInv({name:c.name||"",address:c.address||""});}} style={{...inp,color:T.textSub,fontWeight:600,marginBottom:6}}>
-              <option value="">👥 Pick a contact…</option>
-              {dir.map((c,i)=><option key={c.id||i} value={i}>{c.name}{c.company?` — ${c.company}`:""}{c.address?"":" · no address saved"}</option>)}
+              <option value="">{dir.length?"💰 Pick a lender…":"💰 No lenders yet — add them in Financial Section"}</option>
+              {dir.map((c,i)=><option key={c.id||i} value={i}>{c.name}{c.address?"":" · no address saved"}</option>)}
             </select>
             <input value={inv.name} onChange={e=>setInv(v=>({...v,name:e.target.value}))} placeholder="Full name *" style={{...inp,marginBottom:6}}/>
             <input value={inv.address} onChange={e=>setInv(v=>({...v,address:e.target.value}))} placeholder="Their mailing address (blank = line to fill in ink)" style={inp}/>

@@ -11695,8 +11695,12 @@ function JVAgreementModal({property,onClose}){
       h2{font-size:12pt;margin:14pt 0 4pt;}
       p{margin:0 0 8pt;text-align:justify;}
       .sig{margin-top:28pt;page-break-inside:avoid;}
-      .script{font-family:'Snell Roundhand','Savoye LET','Segoe Script','Brush Script MT','Lucida Handwriting',cursive;font-size:26pt;color:#1a2b57;line-height:1;margin:14pt 0 -2pt 8pt;}
       .line{border-bottom:1px solid #000;width:260px;display:inline-block;}
+      /* A pen-on-the-line signature: script ink centered ON the By: line, descenders
+         crossing it, tilted a touch, with a flourish stroke underneath. */
+      .sigline{position:relative;display:inline-block;width:260px;height:16pt;border-bottom:1px solid #000;vertical-align:baseline;}
+      .sigink{position:absolute;left:50%;bottom:-5pt;transform:translateX(-50%) rotate(-3.5deg);font-family:'Snell Roundhand','Edwardian Script ITC','Monotype Corsiva','Lucida Calligraphy','Segoe Script','Brush Script MT',cursive;font-size:21pt;color:#1a2b57;white-space:nowrap;line-height:1;}
+      .swash{position:absolute;left:10px;bottom:-7px;width:calc(100% - 20px);height:14px;}
       .lbl{margin:2pt 0;}
       @media screen{body{padding:40px;background:#f4f2ee;}main{background:#fff;max-width:8.5in;margin:0 auto;padding:1in;box-shadow:0 2px 18px rgba(0,0,0,0.15);}}
     </style></head><body><main>
@@ -11724,8 +11728,7 @@ function JVAgreementModal({property,onClose}){
     <p>IN WITNESS WHEREOF, the Parties hereto have executed this Joint Venture Agreement as of the date first above written.</p>
     <div class="sig">
       <p style="margin-bottom:0"><b>GOLDSTONE PROPERTIES LLC</b></p>
-      <div class="script">Moshe Hamaoui</div>
-      <div class="lbl">By: <span class="line"></span></div>
+      <div class="lbl" style="margin-top:24pt">By: <span class="sigline"><span class="sigink">Moshe Hamaoui</span><svg class="swash" viewBox="0 0 240 14" preserveAspectRatio="none"><path d="M3 9 C 55 13, 165 1, 237 7" stroke="#1a2b57" stroke-width="1.4" fill="none" stroke-linecap="round" opacity="0.85"/></svg></span></div>
       <div class="lbl">Name: Moshe Hamaoui</div>
       <div class="lbl">Title: President</div>
       <div class="lbl">Date: ${esc(today)}</div>

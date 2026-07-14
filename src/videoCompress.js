@@ -28,10 +28,15 @@ export async function compressVideo(file, onProgress) {
     // not oversized → re-encoding would just burn battery for nothing.
     const dur = await input.computeDuration();
     if (dur > 0 && (file.size * 8) / dur < VIDEO_BITRATE * 1.5 && scale === 1) return null;
+    // H.264 everywhere it exists (iPhones, Android, desktop); a couple of
+    // fallbacks for browsers built without it. Nothing encodable → original.
+    const outW = Math.round((w * scale) / 2) * 2, outH = Math.round((h * scale) / 2) * 2;
+    const codec = await mb.getFirstEncodableVideoCodec(["avc", "hevc", "vp9"], { width: outW, height: outH, bitrate: VIDEO_BITRATE });
+    if (!codec) return null;
     const output = new mb.Output({ format: new mb.Mp4OutputFormat(), target: new mb.BufferTarget() });
     const conversion = await mb.Conversion.init({
       input, output,
-      video: { width: Math.round((w * scale) / 2) * 2, codec: "avc", bitrate: VIDEO_BITRATE },
+      video: { width: outW, codec, bitrate: VIDEO_BITRATE },
     });
     if (!conversion.isValid) return null;
     // Never ship a silently-muted video: if the audio track can't come along

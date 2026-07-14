@@ -6,30 +6,22 @@
 
 function signaturePng() {
   try {
-    const scale = 3, w = 260, h = 64, BASE = 40; // BASE = the name's baseline inside the canvas
+    const scale = 3, w = 300, h = 70, BASE = 46; // BASE = the name's baseline inside the canvas
     const c = document.createElement("canvas");
     c.width = w * scale; c.height = h * scale;
     const ctx = c.getContext("2d");
     if (!ctx) return null;
     ctx.scale(scale, scale);
     const stack = "'Snell Roundhand','Edwardian Script ITC','Monotype Corsiva','Lucida Calligraphy','Segoe Script','Brush Script MT',cursive";
-    let size = 30;
+    let size = 38;
     ctx.font = `${size}px ${stack}`;
-    while (ctx.measureText("Moshe Hamaoui").width > w - 24 && size > 16) { size -= 1; ctx.font = `${size}px ${stack}`; }
+    while (ctx.measureText("Moshe Hamaoui").width > w - 20 && size > 16) { size -= 1; ctx.font = `${size}px ${stack}`; }
     ctx.fillStyle = "#1a2b57";
     ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
-    ctx.save();
     ctx.translate(w / 2, BASE);
-    ctx.rotate(-3.5 * Math.PI / 180);
+    ctx.rotate(-2 * Math.PI / 180);
     ctx.fillText("Moshe Hamaoui", 0, 0);
-    ctx.restore();
-    // The flourish stroke swept under the name.
-    ctx.strokeStyle = "rgba(26,43,87,0.85)"; ctx.lineWidth = 1.6; ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(14, 50);
-    ctx.bezierCurveTo(66, 54, 170, 42, 246, 48);
-    ctx.stroke();
-    const k = 0.6; // page size: 156 x 38.4 pt
+    const k = 0.62; // page size: 186 x 43.4 pt
     return { data: c.toDataURL("image/png"), w: w * k, h: h * k, baseline: BASE * k };
   } catch { return null; }
 }

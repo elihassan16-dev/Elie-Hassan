@@ -1886,22 +1886,24 @@ function InvestorPacketModal({property,onUpdate,onClose}){
 // device only (survives closing the popup), and Reset clears it.
 function WhatIfPopup({property,onClose}){
   const f=property.financials||{};
-  const[draft,setDraft,clearDraft]=usePersistentDraft(`gs-whatif-${property.id}`,{purchasePrice:"",rehabCosts:"",salePrice:"",holdPeriod:""});
+  const[draft,setDraft,clearDraft]=usePersistentDraft(`gs-whatif-${property.id}`,{purchasePrice:"",rehabCosts:"",salePrice:"",holdPeriod:"",sellingCosts:""});
   const val=(k)=>draft[k]!==""?draft[k]:String(f[k]??"");
   // EVERY derived number must re-run off the levers — so both sides drop the
   // grid's hand-entered overrides (hmInterest / locInterest / locLoan) and let
   // the live financing formulas drive, and flat fallbacks (a selling or
   // holding total typed as one number, no line items) scale with the lever
   // they follow. Same treatment on both sides → no tweaks means zero deltas.
-  const run=(vals)=>{
+  const run=(vals,sellingOverride)=>{
     const c={...f,purchasePrice:vals.purchasePrice,rehabCosts:vals.rehabCosts,salePrice:vals.salePrice,holdPeriod:vals.holdPeriod,hmInterest:"",locInterest:"",locLoan:""};
-    if(!(f.sellingCostItems||[]).length&&n(f.salePrice)>0)c.sellingCosts=String(Math.round(n(f.sellingCosts)*(n(vals.salePrice)/n(f.salePrice))));
+    // Selling costs typed directly into the popup beat the derived number.
+    if(sellingOverride!=null){c.sellingCostItems=[];c.sellingCosts=String(n(sellingOverride));}
+    else if(!(f.sellingCostItems||[]).length&&n(f.salePrice)>0)c.sellingCosts=String(Math.round(n(f.sellingCosts)*(n(vals.salePrice)/n(f.salePrice))));
     if(!(f.holdingCostItems||[]).length&&n(f.holdPeriod)>0)c.annualHoldingCosts=String(Math.round(n(f.annualHoldingCosts)*(n(vals.holdPeriod)/n(f.holdPeriod))));
     return finProfit(c,property.status);
   };
   const planVals={purchasePrice:String(f.purchasePrice??""),rehabCosts:String(f.rehabCosts??""),salePrice:String(f.salePrice??""),holdPeriod:String(f.holdPeriod??"")};
   const base=run(planVals);
-  const what=run({purchasePrice:val("purchasePrice"),rehabCosts:val("rehabCosts"),salePrice:val("salePrice"),holdPeriod:val("holdPeriod")});
+  const what=run({purchasePrice:val("purchasePrice"),rehabCosts:val("rehabCosts"),salePrice:val("salePrice"),holdPeriod:val("holdPeriod")},draft.sellingCosts!==""?draft.sellingCosts:null);
   const fmt=(v)=>`$${Math.round(n(v)).toLocaleString()}`;
   const delta=(a,b,invert)=>{const d=Math.round(n(b)-n(a));if(!d)return <span style={{color:T.textTert,fontWeight:600}}>—</span>;const good=invert?d<0:d>0;return <span style={{color:good?T.green:T.red,fontWeight:800}}>{d>0?"+":"−"}${Math.abs(d).toLocaleString()}</span>;};
   const row=(label,a,b,{strong,invert}={})=>(
@@ -1912,9 +1914,17 @@ function WhatIfPopup({property,onClose}){
       <span style={{fontSize:strong?13:11.5,textAlign:"right"}}>{delta(a,b,invert)}</span>
     </div>
   );
-  const FIELDS=[["purchasePrice","Purchase price"],["rehabCosts","Rehab / scope budget"],["salePrice","Sale price (ARV)"],["holdPeriod","Hold period (months)"]];
+  const FIELDS=[
+    {k:"purchasePrice",label:"Purchase price",plan:n(f.purchasePrice)||0},
+    {k:"rehabCosts",label:"Rehab / scope budget",plan:n(f.rehabCosts)||0},
+    {k:"salePrice",label:"Sale price (ARV)",plan:n(f.salePrice)||0},
+    {k:"holdPeriod",label:"Hold period (months)",plan:n(f.holdPeriod)||0,mo:true},
+    // Prefilled with the DERIVED plan total; untouched it keeps auto-scaling
+    // with the sale price, typed-over it becomes a flat override.
+    {k:"sellingCosts",label:"Selling costs (total)",plan:Math.round(base.sellingTotal)},
+  ];
   const inpW={padding:"9px 11px",borderRadius:10,border:`1.5px solid ${T.gold}`,background:"#fff",fontSize:13.5,fontWeight:700,color:T.text,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box",textAlign:"right"};
-  const changed=FIELDS.some(([k])=>draft[k]!==""&&String(draft[k])!==String(f[k]??""));
+  const changed=FIELDS.some(({k,plan})=>draft[k]!==""&&String(draft[k]).trim()!==String(plan));
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:460,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(560px,96vw)",maxHeight:"92vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
@@ -1926,11 +1936,11 @@ function WhatIfPopup({property,onClose}){
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
         </div>
         <div style={{padding:"12px 18px 16px",overflowY:"auto",flex:1}}>
-          {FIELDS.map(([k,label])=>(
+          {FIELDS.map(({k,label,plan,mo})=>(
             <div key={k} style={{display:"grid",gridTemplateColumns:"1.25fr 1fr 1fr 0.9fr",gap:6,alignItems:"center",padding:"6px 0"}}>
               <span style={{fontSize:12.5,fontWeight:700,color:T.text}}>{label}</span>
-              <span style={{fontSize:12,color:T.textTert,textAlign:"right"}}>{k==="holdPeriod"?`${n(f[k])||0} mo`:fmt(f[k])}</span>
-              <input value={draft[k]!==""?draft[k]:String(n(f[k])||"")} onChange={e=>{const v=e.target.value.replace(/[^0-9.]/g,"");setDraft(d=>({...d,[k]:v===String(n(f[k])||"")?"":v||" "}));}} onFocus={e=>e.target.select()} inputMode="decimal" placeholder={k==="holdPeriod"?String(n(f[k])||0):Math.round(n(f[k])).toLocaleString()} style={inpW}/>
+              <span style={{fontSize:12,color:T.textTert,textAlign:"right"}}>{mo?`${plan} mo`:fmt(plan)}</span>
+              <input value={draft[k]!==""?draft[k]:String(plan||"")} onChange={e=>{const v=e.target.value.replace(/[^0-9.]/g,"");setDraft(d=>({...d,[k]:v===String(plan||"")?"":v||" "}));}} onFocus={e=>e.target.select()} inputMode="decimal" placeholder={mo?String(plan):Math.round(plan).toLocaleString()} style={inpW}/>
               <span/>
             </div>
           ))}

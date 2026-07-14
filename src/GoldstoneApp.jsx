@@ -1940,6 +1940,7 @@ function WhatIfPopup({property,onClose}){
             <span style={{fontSize:10,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em",textAlign:"right"}}>What-if</span>
             <span style={{fontSize:10,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",textAlign:"right"}}>Difference</span>
           </div>
+          {row("Buying costs",base.buyingTotal,what.buyingTotal,{invert:true})}
           {row("Selling costs",base.sellingTotal,what.sellingTotal,{invert:true})}
           {row("Holding costs",base.holdingTotal,what.holdingTotal,{invert:true})}
           {row("Financing / interest",base.debtService,what.debtService,{invert:true})}

@@ -505,6 +505,18 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   };
   // Contractor-submitted change-order requests: approving one is what actually
   // moves the contract price (it becomes a real change order).
+  // Pull the contractor off the job: delete the job and everything on it —
+  // tasks, thread, docs — from both sides. The company is told; irreversible.
+  const removeJob = async () => {
+    const nm = org?.name || "this contractor";
+    if (!window.confirm(`Remove this job from ${nm}?\n\nIt disappears from their portal and yours — the scope, ${jTasks.length} task${jTasks.length === 1 ? "" : "s"}, ${thread.length} message${thread.length === 1 ? "" : "s"}, ${jDocs.length} document${jDocs.length === 1 ? "" : "s"}, and all payment records on it are deleted. This can't be undone.`)) return;
+    try { await remove("contractor_jobs", j.id); } catch (ex) { window.alert(ex.message || "Couldn't remove the job."); return; }
+    jTasks.forEach((t) => remove("contractor_tasks", t.id).catch(() => {}));
+    thread.forEach((m) => remove("contractor_messages", m.id).catch(() => {}));
+    jDocs.forEach((d) => remove("contractor_docs", d.id).catch(() => {}));
+    notify(null, { toOrg: j.orgId, title: "Job removed from your portal", body: `${j.propertyAddress || ""}${j.title ? ` — ${j.title}` : ""} — reach out to Goldstone with any questions.` });
+    onClose();
+  };
   const decideCoReq = async (r, approve) => {
     const upd = {
       ...j,
@@ -704,6 +716,13 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
             </div>
           )}
         </div>
+        {/* Danger zone: pull the contractor off this job entirely. Confirmed,
+            then the job and everything hanging off it is deleted on both sides. */}
+        {isAdmin && (
+          <button onClick={removeJob} style={{ marginTop: 4, padding: "10px", borderRadius: T.radiusSm, border: `1px solid ${T.red}`, background: "#FFF0EF", color: T.red, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+            🗑 Remove this job from {org?.name || "the contractor"}
+          </button>
+        )}
       </>)}
 
       {tab2 === "tasks" && (<>

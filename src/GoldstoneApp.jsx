@@ -549,6 +549,20 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
   });
   const[note,setNote]=useState("");
   const setV=(id,v)=>setState(st=>({...st,[id]:v}));
+  // Everyone who showed the property or was added as a lead — hottest first —
+  // so "Selected Buyer" is usually one pick instead of retyping a name. Picking
+  // fills the fields; they stay editable, and typing your own still works.
+  const leadOpts=useMemo(()=>{
+    const out=[],seen=new Set();
+    const push=(nm,phone,email,lead)=>{
+      const name=(nm||"").trim();if(!name)return;
+      const key=name.toLowerCase();if(seen.has(key))return;seen.add(key);
+      out.push({name,phone:parseShowingPhones(phone)[0]||"",email:email||"",lead:lead||""});
+    };
+    Object.entries(property?.showingSnapshots||{}).forEach(([k,sn])=>push(sn.agent||sn.summary,sn.phone,sn.email,(property.showingLeads||{})[k]));
+    (property?.customLeads||[]).forEach(l=>push(l.name,l.phone,"",l.lead));
+    return out.sort((a,b)=>showingLeadRank(a.lead)-showingLeadRank(b.lead)||a.name.localeCompare(b.name));
+  },[property]);
   const isDone=(r)=>{
     const v=state[r.id];
     if(r.type==="field")return String(v||"").trim()!=="";
@@ -596,7 +610,9 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
                       <span style={{fontSize:13.5,fontWeight:600,color:T.text}}>{r.label}<span style={{color:T.red,marginLeft:3}}>*</span></span>
                       {done&&<span style={{fontSize:11,color:"#1a8f43",fontWeight:700}}>✓ set</span>}
                     </div>
-                    <input type={fk.kind==="date"?"date":"text"} value={state[r.id]||""} onChange={e=>setV(r.id,e.target.value)} placeholder={fk.kind==="date"?"":`Enter ${r.label.toLowerCase()}…`} style={{...dInp,width:"100%"}}/>
+                    {/* iOS date inputs have an intrinsic width that overflows the card
+                        unless min/max width clamp it (plain width:100% is ignored). */}
+                    <input type={fk.kind==="date"?"date":"text"} value={state[r.id]||""} onChange={e=>setV(r.id,e.target.value)} placeholder={fk.kind==="date"?"":`Enter ${r.label.toLowerCase()}…`} style={{...dInp,width:"100%",minWidth:0,maxWidth:"100%",display:"block"}}/>
                   </div>
                 );
               }
@@ -609,6 +625,12 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
                     {done&&<span style={{fontSize:11,color:"#1a8f43",fontWeight:700}}>✓</span>}
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {leadOpts.length>0&&(
+                      <select value="" onChange={e=>{const o=leadOpts[Number(e.target.value)];if(o)setV(r.id,{name:o.name,phone:o.phone,email:o.email});}} style={{...dInp,width:"100%",minWidth:0,maxWidth:"100%",fontWeight:600,color:"#8a6d1f",background:T.goldLight,borderColor:T.gold}}>
+                        <option value="">👥 Pick who showed it / a lead — or type below…</option>
+                        {leadOpts.map((o,i)=>{const meta=SHOWING_LEADS.find(x=>x.key===o.lead);return <option key={i} value={i}>{o.name}{meta?` — ${meta.short}`:""}{o.phone?` · ${o.phone}`:""}</option>;})}
+                      </select>
+                    )}
                     <input value={c.name||""} onChange={e=>setV(r.id,{...c,name:e.target.value})} placeholder="Name *" style={{...dInp,width:"100%"}}/>
                     <div style={{display:"flex",gap:6}}>
                       <input value={c.phone||""} onChange={e=>setV(r.id,{...c,phone:e.target.value})} placeholder="Phone" style={{...dInp,flex:1,minWidth:0,fontWeight:400}}/>

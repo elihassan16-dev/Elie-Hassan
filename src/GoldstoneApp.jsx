@@ -5330,6 +5330,9 @@ function PropertyContractorsCard({property}){
                     ?(j.bidAmount?`🧾 Bid received: ${$(j.bidAmount)}${j.bidBy?` from ${j.bidBy.split(" ")[0]}`:""}`:"🧾 Bid requested — waiting on their price")
                     :`${j.status==="complete"?"Job complete":`${$(paid)} paid of ${$(total)} · ${$(total-paid)} left`}${openT?` · ${openT} open task${openT!==1?"s":""}`:""}`}
                 </div>
+                {isBid&&(j.bidItems||[]).length>0&&<div style={{marginTop:5,fontSize:11.5,color:T.textSub,lineHeight:1.7,maxWidth:420}}>
+                  {j.bidItems.map((r,i)=><div key={i} style={{display:"flex",gap:10}}><span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.label}</span><b style={{flexShrink:0,color:T.text}}>{$(r.amount)}</b></div>)}
+                </div>}
               </div>
               {isBid&&j.bidAmount&&isAdmin&&(
                 <div style={{display:"flex",gap:6,flexShrink:0}} onClick={e=>e.stopPropagation()}>
@@ -8325,6 +8328,9 @@ function TasksPage({onNavigate}){
                 <div key={"bid"+j.id} style={{...rowS,background:"#FFF9EC",flexDirection:"column",gap:6,alignItems:"stretch"}}>
                   <div style={{fontSize:12,fontWeight:700,color:T.text}}>💰 Bid: {$(j.bidAmount)} — {ctrOrgName(j.orgId)}</div>
                   <div style={{fontSize:10.5,color:"#8a6d1f"}}>{j.propertyAddress||""}{j.title?` · ${j.title}`:""}{j.bidBy?` · by ${j.bidBy.split(" ")[0]}`:""}</div>
+                  {(j.bidItems||[]).length>0&&<div style={{fontSize:10.5,color:T.textSub,lineHeight:1.7}}>
+                    {j.bidItems.map((r,i)=><div key={i} style={{display:"flex",gap:8}}><span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.label}</span><b style={{flexShrink:0,color:T.text}}>{$(r.amount)}</b></div>)}
+                  </div>}
                   {isAdmin&&<div style={{display:"flex",gap:6}}>
                     <button onClick={()=>acceptBid(j)} style={{flex:1,padding:"6px 0",borderRadius:12,border:"none",background:T.green,color:"#fff",fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>✓ Accept</button>
                     <button onClick={()=>declineBid(j)} style={{flex:1,padding:"6px 0",borderRadius:12,border:`1px solid ${T.red}`,background:"#fff",color:T.red,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>Decline</button>

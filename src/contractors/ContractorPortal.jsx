@@ -13,8 +13,7 @@ import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate,
 import { openSowPdf } from "./sowPdf";
 import { ContactShareModal, ContactCardBubble } from "../contactShare";
 
-const TASK_STATUSES = ["Not Started", "In Progress", "Completed", "N/A"];
-const stColor = (s) => s === "Completed" ? T.green : s === "In Progress" ? T.blue : s === "N/A" ? "#6b6b70" : T.textSub;
+const TASK_STATUSES = ["Not Started", "In Progress", "Completed", "N/A"];const stColor = (s) => s === "Completed" ? T.green : s === "In Progress" ? T.blue : s === "N/A" ? "#6b6b70" : T.textSub;
 const taskClosed = (s) => s === "Completed" || s === "N/A";
 // Same status pill both sides use — a dropdown styled like the app's status chips.
 function StatusPill({ t, onSet }) {
@@ -25,6 +24,85 @@ function StatusPill({ t, onSet }) {
       style={{ padding: "3px 6px", borderRadius: 20, border: "none", background: c + "22", color: c, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
       {TASK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
     </select>
+  );
+}
+
+// The bid entry box (shared by the overview card and the messages tab). The
+// contractor picks how to price the job: one lump sum, or line by line — rows
+// of work item + price whose sum becomes the bid. Line-item drafts mirror to
+// localStorage so an iOS PWA reload mid-typing doesn't eat the breakdown.
+const emptyRows = () => [{ label: "", amt: "" }, { label: "", amt: "" }, { label: "", amt: "" }];
+function BidBox({ job, onError }) {
+  const [mode, setMode] = useState((job.bidItems || []).length ? "items" : "lump");
+  const [amt, setAmt] = useState("");
+  const [rows, setRows] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem(`bid-rows-${job.id}`) || "null"); if (Array.isArray(s) && s.length) return s; } catch { /* ignore */ }
+    return emptyRows();
+  });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    try {
+      const blank = rows.every((r) => !String(r.label || "").trim() && !String(r.amt || "").trim());
+      if (blank) localStorage.removeItem(`bid-rows-${job.id}`); else localStorage.setItem(`bid-rows-${job.id}`, JSON.stringify(rows));
+    } catch { /* private mode — drafts just don't persist */ }
+  }, [rows, job.id]);
+  const num = (v) => Number(String(v).replace(/[^0-9.]/g, "")) || 0;
+  const filled = rows.filter((r) => String(r.label || "").trim() || num(r.amt) > 0);
+  const itemsOk = filled.length > 0 && filled.every((r) => String(r.label || "").trim() && num(r.amt) > 0);
+  const total = mode === "items" ? filled.reduce((s, r) => s + num(r.amt), 0) : num(amt);
+  const ok = mode === "items" ? itemsOk : total > 0;
+  const setRow = (i, k, v) => setRows((rs) => rs.map((r, x) => x === i ? { ...r, [k]: v } : r));
+  const send = async () => {
+    if (!ok || busy) return;
+    setBusy(true);
+    try {
+      const body = mode === "items"
+        ? { jobId: job.id, bidAmount: total, bidItems: filled.map((r) => ({ label: r.label.trim(), amount: num(r.amt) })) }
+        : { jobId: job.id, bidAmount: total };
+      // The API pings the admins server-side — reliable even if the app closes now.
+      await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      setAmt(""); setRows(emptyRows());
+      try { localStorage.removeItem(`bid-rows-${job.id}`); } catch { /* ignore */ }
+    } catch (ex) { onError && onError(ex.message || "Couldn't send the bid."); }
+    setBusy(false);
+  };
+  const inp = { padding: "9px 11px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13.5, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
+  const sendBtn = (
+    <button onClick={send} disabled={!ok || busy} style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: ok && !busy ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 13, cursor: ok && !busy ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>{busy ? "Sending…" : "Send bid"}</button>
+  );
+  return (
+    <div>
+      {job.bidAmount
+        ? <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 8 }}>You bid <b>{money(job.bidAmount)}</b>{(job.bidItems || []).length ? ` (${job.bidItems.length} line items)` : ""}{job.bidAt ? ` on ${fmtDate(job.bidAt)}` : ""} — waiting on Goldstone. You can send an updated bid below.</div>
+        : <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 8 }}>Review the scope and send your price — one number for the whole job, or broken down line by line.</div>}
+      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        {[["lump", "One price"], ["items", "Line by line"]].map(([k, l]) => (
+          <button key={k} onClick={() => setMode(k)} style={{ flex: 1, padding: "7px 0", borderRadius: 18, border: mode === k ? `1.5px solid ${T.gold}` : `1px solid ${T.border}`, background: mode === k ? "#fff" : "transparent", color: mode === k ? "#8a6d1f" : T.textSub, fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
+        ))}
+      </div>
+      {mode === "lump" ? (
+        <div style={{ display: "flex", gap: 7, marginTop: 8 }}>
+          <input value={amt} onChange={(e) => setAmt(e.target.value)} inputMode="decimal" placeholder="$ your price for this job" style={{ ...inp, flex: 1, minWidth: 0 }} />
+          {sendBtn}
+        </div>
+      ) : (
+        <div style={{ marginTop: 8 }}>
+          {rows.map((r, i) => (
+            <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+              <input value={r.label} onChange={(e) => setRow(i, "label", e.target.value)} placeholder={`Work item ${i + 1} — e.g. Demo, Roof, Kitchen`} style={{ ...inp, flex: 1, minWidth: 0 }} />
+              <input value={r.amt} onChange={(e) => setRow(i, "amt", e.target.value)} inputMode="decimal" placeholder="$" style={{ ...inp, width: 92, flexShrink: 0 }} />
+              <button onClick={() => setRows((rs) => rs.length > 1 ? rs.filter((_, x) => x !== i) : emptyRows().slice(0, 1))} title="Remove line" style={{ background: "none", border: "none", color: T.textTert, fontSize: 16, cursor: "pointer", padding: "0 2px", flexShrink: 0, fontFamily: "inherit" }}>×</button>
+            </div>
+          ))}
+          <button onClick={() => setRows((rs) => [...rs, { label: "", amt: "" }])} style={{ background: "none", border: `1px dashed ${T.border}`, borderRadius: 9, padding: "7px 12px", color: T.textSub, fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit", width: "100%" }}>+ Add line</button>
+          {filled.length > 0 && !itemsOk && <div style={{ fontSize: 11, color: T.red, marginTop: 6 }}>Each line needs both a description and a price.</div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+            <div style={{ flex: 1, fontSize: 13, fontWeight: 800, color: T.text }}>Total: {money(total)}</div>
+            {sendBtn}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -104,7 +182,6 @@ export function ContractorPortal() {
   const [coReqOpen, setCoReqOpen] = useState(false); // change-order request form
   const [coReq, setCoReq] = useState({ label: "", amount: "" });
   const [prAmt, setPrAmt] = useState({}); // price drafts for Goldstone-requested COs
-  const [bidAmt, setBidAmt] = useState(""); // bid draft on a "price this job" request
   const [pricePop, setPricePop] = useState(false); // contract-price breakdown popup
   const [doneOpen, setDoneOpen] = useState(false); // ✓ completed-tasks popup
   const [err, setErr] = useState("");
@@ -359,29 +436,13 @@ export function ContractorPortal() {
           );
         })()}
         <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "14px 16px" }}>
-          {/* Bid request: no money yet — review the scope, send one number. */}
-          {j.status === "bid" && (() => {
-            const a = Number(String(bidAmt).replace(/[^0-9.]/g, ""));
-            const sendBid = async () => {
-              if (!a) return;
-              try {
-                await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, bidAmount: a }) });
-                setBidAmt(""); // the API pings the admins server-side — reliable even if the app closes now
-              } catch (ex) { setErr(ex.message || "Couldn't send the bid."); }
-            };
-            return (
-              <div style={{ background: T.goldLight, border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: "11px 13px", marginBottom: 12 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 800, color: T.text }}>🧾 Bid request from Goldstone</div>
-                {j.bidAmount
-                  ? <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 3 }}>You bid <b>{money(j.bidAmount)}</b>{j.bidAt ? ` on ${fmtDate(j.bidAt)}` : ""} — waiting on Goldstone. You can send an updated number below.</div>
-                  : <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 3 }}>Review the scope of work below and send your price for the whole job.</div>}
-                <div style={{ display: "flex", gap: 7, marginTop: 8 }}>
-                  <input value={bidAmt} onChange={(e) => setBidAmt(e.target.value)} inputMode="decimal" placeholder="$ your price for this job" style={{ flex: 1, minWidth: 0, padding: "9px 11px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13.5, fontFamily: "inherit", outline: "none" }} />
-                  <button onClick={sendBid} disabled={!a} style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: a ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 13, cursor: a ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>Send bid</button>
-                </div>
-              </div>
-            );
-          })()}
+          {/* Bid request: no money yet — review the scope, price it lump-sum or line by line. */}
+          {j.status === "bid" && (
+            <div style={{ background: T.goldLight, border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: "11px 13px", marginBottom: 12 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: T.text }}>🧾 Bid request from Goldstone</div>
+              <BidBox key={j.id} job={j} onError={setErr} />
+            </div>
+          )}
           {j.status !== "bid" && (<>
           <div style={{ display: "flex", gap: 8 }}>
             {[["Contract", money(total)], ["Paid", money(paid)], ["Remaining", money(left)], ["Days", j.status === "complete" ? "Done" : (days == null ? "—" : days)]].map(([l, v], i) => {
@@ -741,7 +802,7 @@ export function ContractorPortal() {
                 const un = unreadFor(j.id);
                 const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.direction !== "to_team" && !taskClosed(t.status)).length;
                 return (
-                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); setDoneOpen(false); setBidAmt(""); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
+                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); setDoneOpen(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress || j.title || "Job"}</div>
@@ -810,14 +871,6 @@ export function ContractorPortal() {
                             scope (printable), address/maps/lockbox, and the bid box. */}
                         {selJob.status === "bid" && (() => {
                           const stRow2 = (siteStatus || []).find((s) => String(s.id) === String(selJob.propertyId)) || null;
-                          const a = Number(String(bidAmt).replace(/[^0-9.]/g, ""));
-                          const sendBid = async () => {
-                            if (!a) return;
-                            try {
-                              await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: selJob.id, bidAmount: a }) });
-                              setBidAmt(""); // the API pings the admins server-side — reliable even if the app closes now
-                            } catch (ex) { setErr(ex.message || "Couldn't send the bid."); }
-                          };
                           return (
                             <div style={{ background: T.card, borderRadius: 16, boxShadow: T.shadow, border: `1.5px dashed ${T.gold}`, padding: "12px 14px" }}>
                               <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>🧾 Bid request from Goldstone{selJob.title ? ` — ${selJob.title}` : ""}</div>
@@ -835,13 +888,7 @@ export function ContractorPortal() {
                                   <span style={{ fontSize: 14, color: T.gold, flexShrink: 0 }}>›</span>
                                 </div>
                               )}
-                              {selJob.bidAmount
-                                ? <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 8 }}>You bid <b>{money(selJob.bidAmount)}</b>{selJob.bidAt ? ` on ${fmtDate(selJob.bidAt)}` : ""} — waiting on Goldstone. You can send an updated number below.</div>
-                                : <div style={{ fontSize: 12, color: "#8a6d1f", marginTop: 8 }}>Review the scope and send your price for the whole job — once Goldstone accepts, the full job (tasks, payments, status board) opens up here.</div>}
-                              <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
-                                <input value={bidAmt} onChange={(e) => setBidAmt(e.target.value)} inputMode="decimal" placeholder="$ your price for this job" style={{ flex: 1, minWidth: 0, padding: "9px 11px", borderRadius: 9, border: `1px solid ${T.border}`, background: T.bg, fontSize: 13.5, fontFamily: "inherit", outline: "none" }} />
-                                <button onClick={sendBid} disabled={!a} style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: a ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 13, cursor: a ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>Send bid</button>
-                              </div>
+                              <BidBox key={selJob.id} job={selJob} onError={setErr} />
                             </div>
                           );
                         })()}

@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     const user = await requireAppUser(req);
     if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
     if (!SERVICE_ROLE) { res.status(503).json({ error: "Missing SUPABASE_SERVICE_ROLE_KEY env var." }); return; }
-    const { jobId, label, amount, note, requestId, bidAmount } = req.body || {};
+    const { jobId, label, amount, note, requestId, bidAmount, bidItems } = req.body || {};
     const amt = Number(amount);
     const bid = Number(bidAmount);
     if (!jobId || (!bid && !amt) || (!requestId && !bid && !String(label || "").trim())) { res.status(400).json({ error: "A description and amount are required." }); return; }
@@ -38,15 +38,22 @@ export default async function handler(req, res) {
 
     // Bidding a whole job Goldstone asked them to price (job status "bid"):
     // record the number on the job — Goldstone accepts it to make the job live.
+    // The bid is either one lump sum, or a line-item breakdown whose sum is the
+    // bid (the server re-totals the items so the two can never disagree).
     if (bid) {
-      const { error: e3 } = await db.from("contractor_jobs").update({ data: { ...(job.data || {}), bidAmount: bid, bidBy: u?.name || "", bidAt: new Date().toISOString() } }).eq("id", job.id);
+      const items = Array.isArray(bidItems)
+        ? bidItems.slice(0, 80).map((r) => ({ label: String((r && r.label) || "").trim().slice(0, 200), amount: Number(r && r.amount) || 0 })).filter((r) => r.label && r.amount > 0)
+        : [];
+      const totalBid = items.length ? items.reduce((s, r) => s + r.amount, 0) : bid;
+      const { error: e3 } = await db.from("contractor_jobs").update({ data: { ...(job.data || {}), bidAmount: totalBid, bidItems: items.length ? items : null, bidBy: u?.name || "", bidAt: new Date().toISOString() } }).eq("id", job.id);
       if (e3) { res.status(500).json({ error: e3.message }); return; }
       const bmid = Date.now();
+      const breakdown = items.length ? `\n${items.map((r) => `• ${r.label} — $${r.amount.toLocaleString()}`).join("\n")}` : "";
       await db.from("contractor_messages").insert({
         id: String(bmid), org_id: job.org_id,
-        data: { id: bmid, jobId: job.id, orgId: job.org_id, author: u?.name || "", side: "contractor", text: `💰 Bid: $${bid.toLocaleString()} for ${(job.data || {}).title || (job.data || {}).propertyAddress || "the job"}`, at: new Date().toISOString(), readBy: [u?.name || ""] },
+        data: { id: bmid, jobId: job.id, orgId: job.org_id, author: u?.name || "", side: "contractor", text: `💰 Bid: $${totalBid.toLocaleString()} for ${(job.data || {}).title || (job.data || {}).propertyAddress || "the job"}${breakdown}`, at: new Date().toISOString(), readBy: [u?.name || ""] },
       });
-      await pingAdmins(`Bid from ${orgName}`, `${jd.propertyAddress || ""}${jd.title ? ` — ${jd.title}` : ""} · $${bid.toLocaleString()}`);
+      await pingAdmins(`Bid from ${orgName}`, `${jd.propertyAddress || ""}${jd.title ? ` — ${jd.title}` : ""} · $${totalBid.toLocaleString()}${items.length ? ` · ${items.length} line items` : ""}`);
       res.status(200).json({ ok: true });
       return;
     }

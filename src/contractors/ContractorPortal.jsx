@@ -704,6 +704,7 @@ export function ContractorPortal() {
   const [msgTags, setMsgTags] = useState([]); // Goldstone names to tag ([] = everyone)
   const [tagOpen, setTagOpen] = useState(false);
   const [contactShare, setContactShare] = useState(false); // 👤 share a contact card
+  const [moreOpen, setMoreOpen] = useState(false); // the ＋ menu (attach/voice/tag/contact)
   const [recOn, setRecOn] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
   const mrRef = useRef(null);
@@ -712,7 +713,10 @@ export function ContractorPortal() {
   const timerRef = useRef(null);
   const attRef = useRef(null);
   const scrollRef = useRef(null);
+  const draftRef = useRef(null);
   useEffect(() => () => clearInterval(timerRef.current), []);
+  // Grow the typing box with its content (up to a cap) so long messages stay visible.
+  useEffect(() => { const el = draftRef.current; if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 120) + "px"; } }, [draft]);
   const thread = selJob ? (messages || []).filter((m) => m.orgId === contractorOrgId && String(m.jobId) === String(selJob.id)).sort((a, b) => String(a.at || "").localeCompare(String(b.at || ""))) : [];
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length, tab, selJobId]);
   const pickAtt = async (e) => {
@@ -997,18 +1001,27 @@ export function ContractorPortal() {
                         <button onClick={cancelRec} style={{ padding: "9px 14px", borderRadius: 20, border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
                         <button onClick={stopRec} style={{ padding: "9px 16px", borderRadius: 20, border: "none", background: T.red, color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>■ Stop</button>
                       </div>
-                    ) : (
-                    <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                    ) : (<>
+                    {/* The ＋ menu — tools as labeled chips so the typing box keeps its width. */}
+                    {moreOpen && (() => {
+                      const chip = { display: "inline-flex", alignItems: "center", gap: 5, padding: "8px 13px", borderRadius: 18, border: `1px solid ${T.border}`, background: "#fff", fontSize: 12.5, fontWeight: 700, color: T.text, cursor: "pointer", fontFamily: "inherit" };
+                      return (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                          <button style={chip} disabled={busy} onClick={() => { setMoreOpen(false); attRef.current && attRef.current.click(); }}>📎 Photos & files</button>
+                          <button style={chip} disabled={busy} onClick={() => { setMoreOpen(false); startRec(); }}>🎤 Voice note</button>
+                          {roster.length > 0 && <button style={chip} disabled={busy} onClick={() => { setMoreOpen(false); setTagOpen(true); }}>👥 Tag Goldstone</button>}
+                          <button style={chip} disabled={busy} onClick={() => { setMoreOpen(false); setContactShare(true); }}>👤 Contact</button>
+                        </div>
+                      );
+                    })()}
+                    <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
                       <input ref={attRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
-                      <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} title="Attach a photo, video, or PDF" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>📎</button>
-                      <button onClick={startRec} disabled={busy} title="Record a voice note" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>🎤</button>
-                      {roster.length > 0 && <button onClick={() => setTagOpen((v) => !v)} disabled={busy} title="Tag specific Goldstone people" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${msgTags.length ? T.gold : T.border}`, background: msgTags.length ? T.goldLight : T.bg, fontSize: 17, cursor: "pointer" }}>👥</button>}
-                      <button onClick={() => setContactShare(true)} disabled={busy} title="Share a contact card" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 17, cursor: "pointer" }}>👤</button>
-                      <textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} placeholder={busy ? "Uploading…" : msgTarget ? "Reply about this task…" : "Message Goldstone…"} disabled={busy}
+                      <button onClick={() => setMoreOpen((v) => !v)} disabled={busy} title="Attach, voice note, tag & more" style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${moreOpen || msgTags.length ? T.gold : T.border}`, background: moreOpen || msgTags.length ? T.goldLight : T.bg, fontSize: 20, fontWeight: 600, color: moreOpen || msgTags.length ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit", lineHeight: 1 }}>{moreOpen ? "×" : "＋"}</button>
+                      <textarea ref={draftRef} rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} placeholder={busy ? "Uploading…" : msgTarget ? "Reply about this task…" : "Message Goldstone…"} disabled={busy}
                         style={{ flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 18, border: `1px solid ${msgTarget ? T.gold : T.border}`, background: T.bg, fontSize: 15, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 120, overflowY: "auto", boxSizing: "border-box" }} />
-                      <button onClick={sendMsg} disabled={(!draft.trim() && !pending) || busy} style={{ padding: "10px 18px", borderRadius: 22, background: (draft.trim() || pending) && !busy ? T.gold : T.border, border: "none", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Send</button>
+                      <button onClick={sendMsg} disabled={(!draft.trim() && !pending) || busy} style={{ width: 38, height: 38, borderRadius: "50%", background: (draft.trim() || pending) && !busy ? T.gold : T.border, border: "none", color: "#fff", fontWeight: 800, fontSize: 16, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>➤</button>
                     </div>
-                    )}
+                    </>)}
                     {contactShare && <ContactShareModal onPick={(c) => { setPending({ kind: "contact", url: "contact:", name: c.name, mime: "text/vcard", contact: c }); setContactShare(false); }} onClose={() => setContactShare(false)} />}
                   </div>
                   );

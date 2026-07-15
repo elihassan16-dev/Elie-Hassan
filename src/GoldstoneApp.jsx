@@ -14,6 +14,7 @@ import { usePersistentDraft } from "./useDraft";
 import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
+import { MicIcon } from "./icons";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES, openScopePdf } from "./contractors/ContractorPortal";
 import { sowPdfFile } from "./contractors/sowPdf";
@@ -5244,7 +5245,7 @@ function BidRequestModal({property,orgs,onCreate,onClose}){
                 ? <textarea value={scope} onChange={e=>setScope(e.target.value)} rows={14} style={{...inp,resize:"vertical",lineHeight:1.55,fontSize:13,minHeight:220,flex:1}}/>
                 : <SowPdfPreview job={{propertyAddress:`${property.address||""}${property.city?`, ${property.city}`:""}`,title:title.trim(),scope}}/>)
             : <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,minHeight:200,background:T.bg,borderRadius:12,border:`1.5px dashed ${T.border}`,padding:"20px 24px",textAlign:"center"}}>
-                <span style={{fontSize:26}}>🎙</span>
+                <span style={{color:T.textSub}}><MicIcon size={28}/></span>
                 <span style={{fontSize:13.5,fontWeight:700,color:T.text}}>Tap the mic and describe the job</span>
                 <span style={{fontSize:12,color:T.textSub,lineHeight:1.5}}>When you stop talking, the AI writes the full scope of work and it appears here as the PDF. Talk again anytime to make changes.</span>
               </div>}
@@ -9337,7 +9338,6 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
         return(
           <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"2px 2px"}}>
             <button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);fileRef.current&&fileRef.current.click();}}>📎 Photos & files</button>
-            <button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);startRec();}}>🎤 Voice note</button>
             <button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);setAiOpen(true);}}>✨ AI draft</button>
             <button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);setContactShare(true);}}>👤 Contact</button>
             {tagOptions.length>0&&<button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);setShowTag(true);}}>👥 Tag people</button>}
@@ -9388,7 +9388,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
               <button onClick={()=>setMoreOpen(v=>!v)} disabled={busy} title="Attach, voice note, AI & more" style={{...ib,width:36,height:36,fontSize:20,fontWeight:600,color:T.textSub,...(moreOpen||mentions.length?{background:T.goldLight,borderColor:T.gold,color:"#8a6d1f"}:{})}}>{moreOpen?"×":"＋"}</button>
             ):(<>
             <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, video, PDF, or spreadsheet" style={ib}>📎</button>
-            <button onClick={startRec} disabled={busy} title="Record a voice note" style={ib}>🎤</button>
+            <button onClick={startRec} disabled={busy} title="Record a voice note" style={{...ib,color:T.textSub}}><MicIcon size={19}/></button>
             <button onClick={()=>setAiOpen(v=>!v)} disabled={busy} title="Let AI draft this message" style={{...ib,...(aiOpen?{background:T.goldLight,borderColor:T.gold}:{})}}>✨</button>
             <button onClick={()=>setContactShare(true)} disabled={busy} title="Share a contact card" style={ib}>👤</button>
             {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...ib,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
@@ -9397,6 +9397,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(canSend)send();}}}
               placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":ph)} disabled={busy}
               style={{flex:1,minWidth:0,padding:isMobile?"8px 12px":"11px 14px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
+            {isMobile&&<button onClick={startRec} disabled={busy} title="Record a voice note" style={{...ib,width:36,height:36,color:T.textSub}}><MicIcon size={21}/></button>}
             <button onClick={()=>send()} disabled={!canSend} style={isMobile?{width:36,height:36,borderRadius:"50%",background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:0}:{padding:"10px 18px",borderRadius:22,background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{isMobile?"➤":"Send"}</button>
           </>
         )}

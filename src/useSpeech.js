@@ -2,8 +2,9 @@
 // notes — reliable on iOS, including home-screen PWAs) and transcribes server-
 // side via /api/ai/transcribe (Cloudflare Whisper). The old in-page
 // SpeechRecognition froze iOS PWAs mid-recording, so it's gone.
-import { useEffect, useRef, useState } from "react";
+import { createElement, useEffect, useRef, useState } from "react";
 import { qbAuthFetch } from "./net";
+import { MicIcon } from "./icons";
 
 // onDone (optional) fires with the full combined text after a successful
 // transcription — lets callers chain straight into an AI call, no extra tap.
@@ -56,5 +57,5 @@ export function useSpeechToText({ value, onText, onError, onDone }) {
 }
 
 // The matching button — red while recording, hourglass while transcribing.
-export const micBtnStyle = (on, T) => ({ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1.5px solid ${on ? "#FF3B30" : T.border}`, background: on ? "#FFF0EF" : "#fff", fontSize: 15, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1 });
-export const micGlyph = (on, busy) => (on ? "◼" : busy ? "⏳" : "🎙");
+export const micBtnStyle = (on, T) => ({ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1.5px solid ${on ? "#FF3B30" : T.border}`, background: on ? "#FFF0EF" : "#fff", color: on ? "#FF3B30" : T.textSub, fontSize: 15, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1 });
+export const micGlyph = (on, busy) => (on ? "◼" : busy ? "⏳" : createElement(MicIcon, { size: 19 }));

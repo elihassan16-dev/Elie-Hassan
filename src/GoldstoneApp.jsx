@@ -9183,7 +9183,13 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     if(pendingAtt&&pendingAtt.uploadId&&videoUploadState(pendingAtt.uploadId)?.status==="failed"){setErr("The video didn't upload — remove it (×) and try again.");return;}
     const att=resolveVideoAttachment(pendingAtt),mn=mentions;
     setText("");setPendingAtt(null);setMentions([]);setShowTag(false);setErr("");setAtQuery(null);
-    try{ await onSend(t,att||null,mn); }catch{ setErr("Send failed. Try again."); }
+    try{ await onSend(t,att||null,mn); }
+    catch(ex){
+      // Put the message back so nothing is lost, and say WHY it failed —
+      // a silent failure looks like the message just disappeared.
+      setText(t);if(att)setPendingAtt(att);setMentions(mn);
+      setErr(ex&&ex.message?`Couldn't send — ${ex.message}`:"Send failed. Try again.");
+    }
   };
   // Stage any file (from the picker, a paste, or a drop). Pasted images often have
   // no filename → give them one so they upload with a real extension.
@@ -9898,13 +9904,14 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       // on the message and get pinged directly instead of the whole company.
       const tagged=[...new Set(mentions||[])].filter(n=>n&&n!==CURRENT_USER);
       if(tagged.length)cm.mentions=tagged;
-      ctrSave("contractor_messages",cm).then(()=>{
+      // Propagate failures to the composer (it restores the text and shows the
+      // reason) — a swallowed rejection here looked like the message vanished.
+      return ctrSave("contractor_messages",cm).then(()=>{
         // Background video: patch this portal row once the upload lands.
         if(cm.attachment&&cm.attachment.pending&&cm.attachment.uploadId)bindCtrVideoMessage(cm.attachment.uploadId,cm.id);
-      }).catch(()=>{});
-      if(tagged.length)notify(tagged,{title:`Goldstone — ${sel.address}`,body:t||"(attachment)",url:`/?goto=job:${replyTarget.ctrJobId}`});
-      else notify(null,{toOrg:replyTarget.ctrOrgId,title:`Goldstone — ${sel.address}`,body:t||"(attachment)",url:`/?goto=job:${replyTarget.ctrJobId}`});
-      return;
+        if(tagged.length)notify(tagged,{title:`Goldstone — ${sel.address}`,body:t||"(attachment)",url:`/?goto=job:${replyTarget.ctrJobId}`});
+        else notify(null,{toOrg:replyTarget.ctrOrgId,title:`Goldstone — ${sel.address}`,body:t||"(attachment)",url:`/?goto=job:${replyTarget.ctrJobId}`});
+      });
     }
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
     if(attachment)msg.attachment=attachment;

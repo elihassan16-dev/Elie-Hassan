@@ -781,7 +781,14 @@ export function ContractorPortal() {
     if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: (replyTo.text || (replyTo.attachment ? "📎 attachment" : "")).slice(0, 140) };
     if (msgTags.length) msg.mentions = msgTags;
     setDraft(""); setPending(null); setReplyTo(null); setMsgTags([]); setTagOpen(false);
-    await save("contractor_messages", msg);
+    try { await save("contractor_messages", msg); }
+    catch (ex) {
+      // Put everything back and show why — a silent failure looks like the
+      // message just disappeared.
+      setDraft(txt); if (msg.attachment) setPending(msg.attachment);
+      setErr(`Couldn't send — ${ex.message || "try again."}`);
+      return;
+    }
     if (msg.attachment && msg.attachment.pending && msg.attachment.uploadId) bindCtrVideoMessage(msg.attachment.uploadId, msg.id);
     // Tagged specific Goldstone people → alert just them; otherwise the admins.
     const title = `${org?.name || displayName} — ${msgTarget ? msgTarget.text : selJob.propertyAddress}`;

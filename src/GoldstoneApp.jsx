@@ -9108,7 +9108,7 @@ function StagedVideoStatus({uploadId}){
   const done=live&&live.status==="done";
   return(
     <div style={{flex:1,minWidth:0}}>
-      <div style={{fontSize:12,fontWeight:700,color:failed?T.red:T.text}}>{failed?"Video didn't upload":done?"Video ready":live&&live.stage==="compress"?`Compressing video… ${live.pct||0}%`:`Video uploading… ${live?live.pct||0:0}%`}</div>
+      <div style={{fontSize:12,fontWeight:700,color:failed?T.red:T.text}}>{failed?"Video didn't upload":done?"Video ready":live&&live.stage==="compress"?`Compressing video… ${live.pct||0}%`:live&&live.stage==="process"?"Processing video…":`Video uploading… ${live?live.pct||0:0}%`}</div>
       <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{failed?"Remove it (×) and try again.":done?"Ready to send":"You can Send now — it finishes in the background."}</div>
     </div>
   );

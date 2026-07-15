@@ -4,6 +4,51 @@
 // contractor portal (view-only, no tags — it's all one chat to them).
 import { useEffect, useRef, useState } from "react";
 import { T } from "./theme";
+import { qbAuthFetch } from "./net";
+
+// Save a gallery item the way people expect: on the phone, the share sheet
+// opens with "Save Image/Video" (straight into the camera roll); on a
+// computer it downloads as a file. Never shows the raw storage URL.
+// Stream videos have no single file until Cloudflare renders the MP4 — we
+// kick that off and poll (onStatus gets progress text for the UI).
+async function saveMediaItem(x, onStatus) {
+  let url = x.url, name = x.name || (x.kind === "image" ? "photo.jpg" : "video.mp4");
+  if (x.kind === "video" && x.uid) {
+    onStatus("Preparing video…");
+    let ready = null;
+    for (let i = 0; i < 70; i++) {
+      const d = await qbAuthFetch("/api/stream/download", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid: x.uid }) });
+      if (d.status === "ready" && d.url) { ready = d.url; break; }
+      onStatus(`Preparing video… ${d.percent || 0}%`);
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+    if (!ready) throw new Error("The video is still being prepared — try again in a minute.");
+    url = ready;
+    if (!/\.mp4$/i.test(name)) name = name.replace(/\.[a-z0-9]+$/i, "") + ".mp4";
+  }
+  onStatus(x.kind === "image" ? "Saving…" : "Downloading…");
+  let blob;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error();
+    blob = await r.blob();
+  } catch {
+    // Cross-origin fetch blocked → let the browser handle the file directly.
+    window.open(url, "_blank", "noreferrer");
+    return;
+  }
+  const file = new File([blob], name, { type: blob.type || (x.kind === "image" ? "image/jpeg" : "video/mp4") });
+  const mobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent);
+  if (mobile && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return; } // "Save Image" → camera roll
+    catch (e) { if (e && e.name === "AbortError") return; /* they closed the sheet */ }
+  }
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = u; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 60000);
+}
 
 // Pull media out of a message list. Handles single attachments and photo grids
 // ({kind:"images", items}). `extOf(m)` returns a label when the message came
@@ -19,8 +64,8 @@ export function collectMedia(messages, extOf) {
     } else if (att.kind === "image" && att.url) {
       out.push({ ...base, key: String(m.id), kind: "image", url: att.url, name: att.name || "" });
     } else if (att.kind === "video" && !att.pending && !att.failed && att.url) {
-      // Stream videos: url = the watch page (open-in-new-tab), embed = the iframe player.
-      out.push({ ...base, key: String(m.id), kind: "video", url: att.watch || att.url, embed: att.stream ? att.url : null, thumb: att.thumbnail || "", name: att.name || "" });
+      // Stream videos: url = the watch page, embed = the iframe player, uid → MP4 downloads.
+      out.push({ ...base, key: String(m.id), kind: "video", url: att.watch || att.url, embed: att.stream ? att.url : null, uid: att.stream ? (att.uid || null) : null, thumb: att.thumbnail || "", name: att.name || "" });
     }
   });
   return out.sort((a, b) => String(b.at).localeCompare(String(a.at)));
@@ -38,6 +83,7 @@ function Lightbox({ items, idx, setIdx, onClose }) {
   const [scale, setScale] = useState(1);
   const [tx, setTx] = useState(0);
   const [ty, setTy] = useState(0);
+  const [saveState, setSaveState] = useState(""); // "" | status text while saving | "✓ Saved"
   const stRef = useRef({ s: 1, tx: 0, ty: 0 });
   stRef.current = { s: scale, tx, ty };
   const g = useRef({ mode: null }); // live gesture
@@ -47,7 +93,18 @@ function Lightbox({ items, idx, setIdx, onClose }) {
     next: () => setIdx((i) => Math.min(items.length - 1, i + 1)),
     close: onClose,
   };
-  useEffect(() => { setScale(1); setTx(0); setTy(0); }, [idx]);
+  useEffect(() => { setScale(1); setTx(0); setTy(0); setSaveState(""); }, [idx]);
+  const doSave = async () => {
+    if (saveState && saveState !== "✓ Saved") return;
+    try {
+      await saveMediaItem(items[idx], (s) => setSaveState(s));
+      setSaveState("✓ Saved");
+      setTimeout(() => setSaveState(""), 2200);
+    } catch (e) {
+      setSaveState("");
+      alert(e.message || "Couldn't save — try again.");
+    }
+  };
   useEffect(() => { // preload the neighbors so swiping feels instant
     [idx - 1, idx + 1].forEach((i) => { const it = items[i]; if (it && it.kind === "image") { const im = new Image(); im.src = it.url; } });
   }, [idx, items]);
@@ -151,7 +208,7 @@ function Lightbox({ items, idx, setIdx, onClose }) {
         <button onClick={() => zoomBy(1 / 1.5)} title="Zoom out" style={zBtn}>−</button>
         {scale > 1 && <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.8)", minWidth: 34, textAlign: "center" }}>{Math.round(scale * 100)}%</span>}
         <button onClick={() => zoomBy(1.5)} title="Zoom in" style={zBtn}>＋</button>
-        <a href={x.url} target="_blank" rel="noreferrer" title="Open the original (save from there)" style={{ color: "rgba(255,255,255,0.85)", fontSize: 17, textDecoration: "none", padding: "0 4px" }}>⤓</a>
+        <button onClick={doSave} title={x.kind === "image" ? "Save to your photos" : "Download the video"} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.85)", fontSize: 17, cursor: "pointer", padding: "0 4px", fontFamily: "inherit", lineHeight: 1 }}>{saveState && saveState !== "✓ Saved" ? "⏳" : "⤓"}</button>
         <button onClick={onClose} style={{ background: "none", border: "none", color: "#fff", fontSize: 26, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>×</button>
       </div>
       <div ref={boxRef} style={{ flex: 1, position: "relative", overflow: "hidden", minHeight: 0, touchAction: "none" }}>
@@ -170,7 +227,7 @@ function Lightbox({ items, idx, setIdx, onClose }) {
       </div>
       <div style={{ padding: "10px 16px max(12px,env(safe-area-inset-bottom))", textAlign: "center", flexShrink: 0 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.8)" }}>{(x.author || "").split(" ")[0]}{x.at ? ` · ${fmt(x.at)}` : ""}</span>
-        <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.45)", marginTop: 2 }}>{scale > 1 ? "Drag to move · pinch or double-tap to zoom out" : "Pinch or double-tap to zoom · swipe to browse · swipe down to close"}</div>
+        <div style={{ fontSize: 10.5, color: saveState ? "#7fdc9a" : "rgba(255,255,255,0.45)", marginTop: 2, fontWeight: saveState ? 700 : 400 }}>{saveState || (scale > 1 ? "Drag to move · pinch or double-tap to zoom out" : "Pinch or double-tap to zoom · swipe to browse · swipe down to close")}</div>
       </div>
     </div>
   );

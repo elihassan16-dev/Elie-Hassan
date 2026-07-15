@@ -587,7 +587,12 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
     if (pending) msg.attachment = resolveVideoAttachment(pending);
     if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: (replyTo.text || (replyTo.attachment ? "📎 attachment" : "")).slice(0, 140) };
     setMsgDraft(""); setPending(null); setReplyTo(null);
-    await save("contractor_messages", msg);
+    try { await save("contractor_messages", msg); }
+    catch (ex) {
+      setMsgDraft(txt); if (msg.attachment) setPending(msg.attachment);
+      setErr2(`Couldn't send — ${ex.message || "try again."}`);
+      return;
+    }
     if (msg.attachment && msg.attachment.pending && msg.attachment.uploadId) bindCtrVideoMessage(msg.attachment.uploadId, msg.id);
     notify(null, { toOrg: j.orgId, title: `Goldstone — ${j.propertyAddress}`, body: txt || "(attachment)", url: `/?goto=job:${j.id}` });
   };

@@ -9129,6 +9129,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
   const[mentions,setMentions]=useState([]); // tagged names ([] = everyone)
   const[showTag,setShowTag]=useState(false);
   const[pendingAtt,setPendingAtt]=useState(null); // attachment staged, not yet sent
+  const[moreOpen,setMoreOpen]=useState(false); // phone: the ＋ menu (attach/voice/AI/contact/tag)
   const{recOn:aiRecOn,busy:aiRecBusy,toggleRec:toggleAiRec}=useSpeechToText({value:aiPrompt,onText:setAiPrompt,onError:setErr});
   // 👤 share a contact — from the app's directory, the phone (where supported), or typed in.
   const[contactShare,setContactShare]=useState(false);
@@ -9329,6 +9330,20 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
           ))}
         </div>
       )}
+      {/* Phone: the ＋ menu — every composer tool as a labeled chip, so the icons
+          don't crowd the typing box into a sliver. */}
+      {!recording&&moreOpen&&(()=>{
+        const chip={display:"inline-flex",alignItems:"center",gap:5,padding:"8px 13px",borderRadius:18,border:`1px solid ${T.border}`,background:"#fff",fontSize:12.5,fontWeight:700,color:T.text,cursor:"pointer",fontFamily:"inherit"};
+        return(
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"2px 2px"}}>
+            <button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);fileRef.current&&fileRef.current.click();}}>📎 Photos & files</button>
+            <button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);startRec();}}>🎤 Voice note</button>
+            <button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);setAiOpen(true);}}>✨ AI draft</button>
+            <button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);setContactShare(true);}}>👤 Contact</button>
+            {tagOptions.length>0&&<button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);setShowTag(true);}}>👥 Tag people</button>}
+          </div>
+        );
+      })()}
       {/* AI drafting panel — describe the message (or dictate with the keyboard mic),
           Claude writes it into the box for review before Send. */}
       {!recording&&aiOpen&&(
@@ -9368,11 +9383,16 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
         ):(
           <>
             <input ref={fileRef} type="file" multiple accept="image/*,video/*,application/pdf,.xls,.xlsx,.csv,.doc,.docx,.ppt,.pptx,.txt,.numbers,.pages,.key" onChange={onPickFile} style={{display:"none"}}/>
+            {isMobile?(
+              /* Phone: ONE ＋ button opens the tool chips — the typing box gets the width. */
+              <button onClick={()=>setMoreOpen(v=>!v)} disabled={busy} title="Attach, voice note, AI & more" style={{...ib,width:36,height:36,fontSize:20,fontWeight:600,color:T.textSub,...(moreOpen||mentions.length?{background:T.goldLight,borderColor:T.gold,color:"#8a6d1f"}:{})}}>{moreOpen?"×":"＋"}</button>
+            ):(<>
             <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, video, PDF, or spreadsheet" style={ib}>📎</button>
             <button onClick={startRec} disabled={busy} title="Record a voice note" style={ib}>🎤</button>
             <button onClick={()=>setAiOpen(v=>!v)} disabled={busy} title="Let AI draft this message" style={{...ib,...(aiOpen?{background:T.goldLight,borderColor:T.gold}:{})}}>✨</button>
             <button onClick={()=>setContactShare(true)} disabled={busy} title="Share a contact card" style={ib}>👤</button>
             {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...ib,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
+            </>)}
             <textarea ref={taRef} rows={1} value={text} onChange={e=>setText(e.target.value)} onPaste={onPasteFiles}
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(canSend)send();}}}
               placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":ph)} disabled={busy}

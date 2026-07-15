@@ -56,7 +56,7 @@ export default async function handler(req, res) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.success) { res.status(502).json({ error: j.errors?.[0]?.message || "Couldn't fetch the video." }); return; }
       const v = j.result || {};
-      res.status(200).json({ uid, readyToStream: !!v.readyToStream, preview: v.preview || "", thumbnail: v.thumbnail || "", duration: v.duration || 0 });
+      res.status(200).json({ uid, readyToStream: !!v.readyToStream, state: (v.status && v.status.state) || "", preview: v.preview || "", thumbnail: v.thumbnail || "", duration: v.duration || 0 });
       return;
     }
 

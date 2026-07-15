@@ -132,6 +132,24 @@ export async function compressImage(file) {
   } catch { return file; }
 }
 
+// After the bytes land, Cloudflare still has to TRANSCODE the video before its
+// player works — swapping the chat bubble to the player too early shows
+// "An unknown error occurred" to whoever taps it. Poll until it's actually
+// playable (or Cloudflare reports a hard failure). Bounded so a stuck encode
+// can't hold the message hostage forever.
+export async function waitStreamReady(uid, maxMs = 8 * 60000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < maxMs) {
+    try {
+      const info = await qbAuthFetch(`/api/stream/upload?uid=${encodeURIComponent(uid)}`);
+      if (info && info.readyToStream) return "ready";
+      if (info && info.state === "error") return "error";
+    } catch { /* transient — keep waiting */ }
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  return "timeout";
+}
+
 export async function uploadAttachment(rawFile, folder = "chat") {
   const file = await compressImage(rawFile);
   const kind = attachmentKind(file.type || "");

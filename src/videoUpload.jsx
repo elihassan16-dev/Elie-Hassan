@@ -13,7 +13,7 @@
 // saying "on its way" forever. Coming back to the foreground also restarts an
 // upload that stalled while the phone was asleep.
 import { useEffect, useState } from "react";
-import { uploadStreamVideo, uploadAttachment } from "./net";
+import { uploadStreamVideo, uploadAttachment, waitStreamReady } from "./net";
 import { supabase } from "./supabaseClient";
 import { T } from "./theme";
 
@@ -138,6 +138,14 @@ function runUpload(uploadId) {
         else throw ex;
       }
       if (u.attempt !== token) return;
+      // Hold the "on its way" bubble until Cloudflare has finished transcoding —
+      // swapping in the player early shows an error screen to whoever taps it.
+      if (att && att.stream && att.uid) {
+        u.stage = "process"; u.lastProgressAt = Date.now(); ping(u);
+        const readiness = await waitStreamReady(att.uid);
+        if (u.attempt !== token) return;
+        if (readiness === "error") throw new Error("Cloudflare couldn't process that video — try sending it again.");
+      }
       u.att = att; u.status = "done";
     } catch (ex) {
       if (u.attempt !== token) return;
@@ -207,7 +215,9 @@ if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
     Object.entries(uploads).forEach(([id, u]) => {
-      if (u.status === "uploading" && u.file && Date.now() - (u.lastProgressAt || 0) > 90000) runUpload(id);
+      // "process" = waiting on Cloudflare's transcode; its poll loop resumes on
+      // its own after sleep — restarting would re-upload the whole file.
+      if (u.status === "uploading" && u.stage !== "process" && u.file && Date.now() - (u.lastProgressAt || 0) > 90000) runUpload(id);
     });
   });
 }
@@ -241,14 +251,14 @@ export function VideoUploadBubble({ att, mine }) {
         <span style={{ fontSize: 18, flexShrink: 0 }}>{failed ? "⚠️" : "🎬"}</span>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: failed ? (mine ? "#fff" : T.red) : fg }}>
-            {failed ? "Video didn't upload" : live ? (live.stage === "compress" ? `Compressing video… ${live.pct || 0}%` : `Uploading video… ${live.pct || 0}%`) : "Video on its way…"}
+            {failed ? "Video didn't upload" : live ? (live.stage === "compress" ? `Compressing video… ${live.pct || 0}%` : live.stage === "process" ? "Processing video…" : `Uploading video… ${live.pct || 0}%`) : "Video on its way…"}
           </div>
           <div style={{ fontSize: 10.5, color: sub, marginTop: 1 }}>
-            {failed ? "Send it again when you have signal." : live ? "Keep the app open until it finishes." : "It appears here once the sender's upload finishes."}
+            {failed ? "Send it again when you have signal." : live ? (live.stage === "process" ? "Uploaded ✓ — it turns into the player by itself in a moment." : "Keep the app open until it finishes.") : "It appears here once the sender's upload finishes."}
           </div>
         </div>
       </div>
-      {!failed && live && (
+      {!failed && live && live.stage !== "process" && (
         <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: mine ? "rgba(255,255,255,0.25)" : T.border, overflow: "hidden" }}>
           <div style={{ width: `${live.pct || 0}%`, height: "100%", background: mine ? "#fff" : T.gold, transition: "width 0.3s" }} />
         </div>

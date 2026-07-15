@@ -16,6 +16,7 @@ import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate,
 import { openSowPdf } from "./sowPdf";
 import { SowPdfPreview } from "./SowPdfPreview";
 import { useSpeechToText, micBtnStyle, micGlyph } from "../useSpeech";
+import { MicIcon } from "../icons";
 import { ContactCardBubble } from "../contactShare";
 
 const inp = { width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" };
@@ -413,7 +414,7 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
                 ? <textarea value={scope} onChange={(e) => setScope(e.target.value)} rows={14} style={{ ...inp2, resize: "vertical", lineHeight: 1.55, fontSize: 13, minHeight: 220, flex: 1 }} />
                 : <SowPdfPreview job={previewJob} />)
             : <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 200, background: T.bg, borderRadius: 12, border: `1.5px dashed ${T.border}`, padding: "20px 24px", textAlign: "center" }}>
-                <span style={{ fontSize: 26 }}>🎙</span>
+                <span style={{ color: T.textSub }}><MicIcon size={28} /></span>
                 <span style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>No scope yet — tap the mic and describe the work</span>
                 <span style={{ fontSize: 12, color: T.textSub, lineHeight: 1.5 }}>When you stop talking, the AI writes the scope of work and it appears here as the PDF.</span>
               </div>}

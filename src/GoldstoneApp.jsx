@@ -15,6 +15,7 @@ import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/C
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon } from "./icons";
+import { MediaGallery, collectMedia } from "./MediaGallery";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES, openScopePdf } from "./contractors/ContractorPortal";
 import { sowPdfFile } from "./contractors/sowPdf";
@@ -9531,7 +9532,7 @@ function CoDecidePopup({job,req,orgName,isAdmin,currentUser,ctrSave,onClose}){
     </div>
   );
 }
-function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelete,onBack,isMobile,onUpdateProp}){
+function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelete,onDeleteMedia,onBack,isMobile,onUpdateProp}){
   // Contractor jobs, so a "scope of work" message in an external thread can
   // open the job's SOW PDF right from the chat, and a change-order message can
   // open the approve/deny popup (shared store — no extra load).
@@ -9546,6 +9547,10 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
   const[reply,setReply]=useState(null); // message being replied to
   const[selMode,setSelMode]=useState(false); // select-to-delete mode
   const[selIds,setSelIds]=useState(new Set());
+  const[mediaOpen,setMediaOpen]=useState(false); // 🖼 all photos & videos in this chat
+  // Media from the whole merged thread — items from the contractor thread carry
+  // an EXT tag so it's obvious what the outside team sent (or can see).
+  const mediaItems=collectMedia(messages,(m)=>m.ctrLabel||null);
   const[target,setTarget]=useState(null); // {id,text} → post onto that task; null → general thread
   const[pickTask,setPickTask]=useState(false); // task-target dropdown open
   const propTasks=(property.tasks||[]).filter(t=>(t.text||"").trim());
@@ -9564,8 +9569,10 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
       <div style={{padding:"12px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         {isMobile&&<button onClick={onBack} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",padding:"2px 4px",flexShrink:0}}>‹</button>}
         <div style={{minWidth:0,flex:1}}><div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>{property.status&&<span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{property.status}</span>}</div>
+        {mediaItems.length>0&&!selMode&&<button onClick={()=>setMediaOpen(true)} title="All photos & videos in this chat" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 12px",flexShrink:0}}>🖼 {mediaItems.length}</button>}
         {messages.length>0&&!selMode&&<button onClick={()=>setSelMode(true)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 12px",flexShrink:0}}>Select</button>}
       </div>
+      {mediaOpen&&<MediaGallery title={addr} items={mediaItems} canDelete={!!onDeleteMedia} onDelete={(items)=>onDeleteMedia&&onDeleteMedia(items)} onClose={()=>setMediaOpen(false)}/>}
       {selMode&&(
         <div style={{padding:"8px 14px",background:T.goldLight,borderBottom:`1px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <span style={{fontSize:13,fontWeight:700,color:T.text}}>{selIds.size} selected</span>
@@ -9809,6 +9816,40 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       return {...p,messages,tasks};
     }));
   };
+  // Delete media picked in the gallery. Strips just the chosen photos/videos:
+  // a photo-grid message keeps its other photos, a message with text keeps the
+  // text, and a message left with nothing is removed entirely. External items
+  // live in the portal table — updated there too, so the contractor side
+  // stops seeing them as well.
+  const deleteMedia=(items)=>{
+    if(!sel||!items||!items.length)return;
+    const byMsg=new Map(); // msgId -> Set of grid indexes (-1 = the whole single attachment)
+    items.forEach(x=>{const k=String(x.msgId);if(!byMsg.has(k))byMsg.set(k,new Set());byMsg.get(k).add(x.idx!=null?x.idx:-1);});
+    const applyMsg=(m)=>{
+      const picks=byMsg.get(String(m.id));
+      if(!picks)return m;
+      const att=m.attachment;
+      if(att&&att.kind==="images"&&Array.isArray(att.items)&&!picks.has(-1)){
+        const left=att.items.filter((_,i)=>!picks.has(i));
+        if(left.length>1)return{...m,attachment:{...att,items:left,name:`${left.length} photos`,url:left[0].url}};
+        if(left.length===1)return{...m,attachment:{...left[0],kind:"image"}};
+      }
+      const rest={...m};delete rest.attachment;
+      return (rest.text||"").trim()?rest:null;
+    };
+    setSharedProps(prev=>prev.map(p=>{
+      if(p.id!==sel.id)return p;
+      const mapArr=(arr)=>(arr||[]).map(applyMsg).filter(Boolean);
+      return {...p,messages:mapArr(p.messages),tasks:(p.tasks||[]).map(t=>({...t,messages:mapArr(t.messages)}))};
+    }));
+    [...byMsg.keys()].filter(k=>k.startsWith("ctr-")).forEach(k=>{
+      const raw=(ctrMessages||[]).find(m=>String(m.id)===k.slice(4));
+      if(!raw)return;
+      const upd=applyMsg({...raw,id:k});
+      if(upd===null)ctrRemove("contractor_messages",raw.id).catch(()=>{});
+      else ctrSave("contractor_messages",{...upd,id:raw.id}).catch(()=>{});
+    });
+  };
   const send=(text,replyTarget,attachment,mentions,targetTaskId)=>{
     const t=(text||"").trim();if((!t&&!attachment)||!sel)return;
     // Replying inside a contractor thread posts to the portal (and pings their team)
@@ -9916,7 +9957,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
         {selId===OFFICE_ID
           ? <MessageThread property={{id:OFFICE_ID,address:"📌 Office Chat",city:"",status:"",tasks:officeTasks||[]}} messages={officeSorted} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={officeSend} onDelete={officeDelete} onBack={()=>setSelId(null)} isMobile={isMobile}/>
           : sel
-          ? <MessageThread property={sel} messages={mergedFor(sel).sort((a,b)=>msgTime(a.at)-msgTime(b.at))} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onDelete={deleteMessages} onBack={()=>setSelId(null)} isMobile={isMobile} onUpdateProp={(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p))}/>
+          ? <MessageThread property={sel} messages={mergedFor(sel).sort((a,b)=>msgTime(a.at)-msgTime(b.at))} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onDelete={deleteMessages} onDeleteMedia={deleteMedia} onBack={()=>setSelId(null)} isMobile={isMobile} onUpdateProp={(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p))}/>
           : <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:12,color:T.textSub}}>
               <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>💬</div>
               <div style={{fontSize:16,fontWeight:600}}>Select a property</div>

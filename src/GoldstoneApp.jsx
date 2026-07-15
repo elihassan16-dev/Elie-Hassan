@@ -9132,6 +9132,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
   const[showTag,setShowTag]=useState(false);
   const[pendingAtt,setPendingAtt]=useState(null); // attachment staged, not yet sent
   const[moreOpen,setMoreOpen]=useState(false); // phone: the ＋ menu (attach/voice/AI/contact/tag)
+  const[atQuery,setAtQuery]=useState(null); // typing "@…" → live tag picker (null = not typing one)
   const{recOn:aiRecOn,busy:aiRecBusy,toggleRec:toggleAiRec}=useSpeechToText({value:aiPrompt,onText:setAiPrompt,onError:setErr});
   // 👤 share a contact — from the app's directory, the phone (where supported), or typed in.
   const[contactShare,setContactShare]=useState(false);
@@ -9149,6 +9150,24 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
   useEffect(()=>{const el=taRef.current;if(!el)return;el.style.height="auto";el.style.height=Math.min(el.scrollHeight,150)+"px";},[text]);
   const tagOptions=(people||[]).filter(n=>n&&n!==currentUser);
   const toggleMention=(n)=>setMentions(prev=>prev.includes(n)?prev.filter(x=>x!==n):[...prev,n]);
+  // Typing "@" opens a live picker of everyone taggable in this thread —
+  // teammates, and the contractor's people when the thread is external.
+  const detectAt=(val,caret)=>{
+    const m=val.slice(0,Math.max(0,caret)).match(/(^|\s)@([^\s@]{0,25})$/);
+    setAtQuery(m?m[2]:null);
+  };
+  const pickAt=(name)=>{
+    const el=taRef.current;
+    const caret=el?el.selectionStart:text.length;
+    const before=text.slice(0,caret),after=text.slice(caret);
+    const m=before.match(/(^|\s)@([^\s@]{0,25})$/);
+    const kept=m?before.slice(0,m.index+m[1].length):before;
+    const next=`${kept}@${name.split(" ")[0]} `;
+    setText(next+after);
+    if(!mentions.includes(name))setMentions(prev=>[...prev,name]);
+    setAtQuery(null);
+    setTimeout(()=>{if(el){el.focus();el.setSelectionRange(next.length,next.length);}},0);
+  };
   // Tap a template → drop it into the box (auto-tagging the task's assignee so it
   // notifies them), ready to review and Send. We prefill rather than auto-send so
   // nothing goes out by accident.
@@ -9163,7 +9182,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     // A staged video that already failed shouldn't go out as a dead bubble.
     if(pendingAtt&&pendingAtt.uploadId&&videoUploadState(pendingAtt.uploadId)?.status==="failed"){setErr("The video didn't upload — remove it (×) and try again.");return;}
     const att=resolveVideoAttachment(pendingAtt),mn=mentions;
-    setText("");setPendingAtt(null);setMentions([]);setShowTag(false);setErr("");
+    setText("");setPendingAtt(null);setMentions([]);setShowTag(false);setErr("");setAtQuery(null);
     try{ await onSend(t,att||null,mn); }catch{ setErr("Send failed. Try again."); }
   };
   // Stage any file (from the picker, a paste, or a drop). Pasted images often have
@@ -9365,6 +9384,20 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
           </div>
         </div>
       )}
+      {/* "@" live tag picker — filters as they keep typing, tap a name to tag them. */}
+      {!recording&&atQuery!=null&&tagOptions.length>0&&(()=>{
+        const q=atQuery.toLowerCase();
+        const hits=tagOptions.filter(n=>n.toLowerCase().includes(q)&&!mentions.includes(n)).slice(0,8);
+        if(!hits.length)return null;
+        return(
+          <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:14,boxShadow:T.shadow,overflow:"hidden"}}>
+            <div style={{padding:"6px 13px 4px",fontSize:10,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>Tag someone</div>
+            {hits.map(n=>(
+              <button key={n} onClick={()=>pickAt(n)} style={{display:"block",width:"100%",padding:"9px 13px",border:"none",borderTop:`1px solid ${T.bg}`,background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13.5,fontWeight:600,color:T.text,textAlign:"left"}}><span style={{color:T.gold,fontWeight:800}}>@</span> {n}</button>
+            ))}
+          </div>
+        );
+      })()}
       {(()=>{
         // Mobile: compact circles + a short placeholder so the input keeps its
         // width and single-line height instead of ballooning into a tall pill.
@@ -9394,8 +9427,8 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
             <button onClick={()=>setContactShare(true)} disabled={busy} title="Share a contact card" style={ib}>👤</button>
             {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...ib,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
             </>)}
-            <textarea ref={taRef} rows={1} value={text} onChange={e=>setText(e.target.value)} onPaste={onPasteFiles}
-              onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(canSend)send();}}}
+            <textarea ref={taRef} rows={1} value={text} onChange={e=>{setText(e.target.value);detectAt(e.target.value,e.target.selectionStart);}} onPaste={onPasteFiles}
+              onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(canSend)send();}if(e.key==="Escape")setAtQuery(null);}}
               placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":ph)} disabled={busy}
               style={{flex:1,minWidth:0,padding:isMobile?"8px 12px":"11px 14px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
             {isMobile&&<button onClick={startRec} disabled={busy} title="Record a voice note" style={{...ib,width:36,height:36,color:T.textSub}}><MicIcon size={21}/></button>}

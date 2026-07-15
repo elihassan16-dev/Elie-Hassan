@@ -59,7 +59,9 @@ function Lightbox({ items, idx, setIdx, onClose }) {
   const fmt = (iso) => { try { return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
   const arrowStyle = (side, enabled) => ({ position: "absolute", [side]: 6, top: "50%", transform: "translateY(-50%)", width: 38, height: 38, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", fontSize: 20, fontWeight: 700, cursor: enabled ? "pointer" : "default", opacity: enabled ? 1 : 0.25, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3, fontFamily: "inherit", padding: 0 });
   return (
-    <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ position: "fixed", inset: 0, background: "#000", zIndex: 490, display: "flex", flexDirection: "column", touchAction: "pan-y" }}>
+    // stopPropagation: the lightbox lives inside the gallery's click-to-close
+    // backdrop — without it, tapping an arrow closed everything back to chat.
+    <div onClick={(e) => e.stopPropagation()} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ position: "fixed", inset: 0, background: "#000", zIndex: 490, display: "flex", flexDirection: "column", touchAction: "pan-y" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "max(10px,env(safe-area-inset-top)) 14px 10px", flexShrink: 0 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.85)" }}>{idx + 1} / {items.length}</span>
         {x.ext && <span title={x.ext} style={{ fontSize: 9, fontWeight: 800, color: "#B45309", background: "#FDE9C8", borderRadius: 10, padding: "2px 8px", letterSpacing: "0.04em" }}>👷 EXT</span>}
@@ -71,7 +73,7 @@ function Lightbox({ items, idx, setIdx, onClose }) {
         {x.kind === "image"
           ? <img key={x.key} src={x.url} alt={x.name || "photo"} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }} />
           : x.embed
-          ? <iframe key={x.key} src={x.embed} title={x.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ width: "100%", aspectRatio: "16/9", maxHeight: "100%", border: "none", background: "#000" }} />
+          ? <iframe key={x.key} src={x.embed} title={x.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", background: "#000" }} />
           : <video key={x.key} src={x.url} controls playsInline style={{ maxWidth: "100%", maxHeight: "100%", display: "block", background: "#000" }} />}
         <button onClick={prev} disabled={idx === 0} style={arrowStyle("left", idx > 0)}>‹</button>
         <button onClick={next} disabled={idx === items.length - 1} style={arrowStyle("right", idx < items.length - 1)}>›</button>

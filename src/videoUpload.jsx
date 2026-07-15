@@ -114,15 +114,27 @@ function settle(uploadId) {
 function runUpload(uploadId) {
   const u = uploads[uploadId];
   const token = ++u.attempt;
-  u.status = "uploading"; u.lastProgressAt = Date.now();
+  u.status = "uploading"; u.stage = u.upFile ? "upload" : "compress"; u.lastProgressAt = Date.now();
   syncUnloadGuard();
   (async () => {
     try {
+      // WhatsApp-style shrink before the bytes go up (hardware encoder; ~10x
+      // smaller). Returns null whenever it can't/shouldn't — original uploads.
+      if (!u.upFile) {
+        u.stage = "compress"; u.pct = 0; ping(u);
+        try {
+          const { compressVideo } = await import("./videoCompress");
+          const small = await compressVideo(u.file, (p) => { if (u.attempt !== token) return; u.pct = p; u.lastProgressAt = Date.now(); ping(u); });
+          if (u.attempt !== token) return;
+          u.upFile = small || u.file;
+        } catch { u.upFile = u.file; }
+      }
+      u.stage = "upload"; u.pct = 0; u.lastProgressAt = Date.now(); ping(u);
       let att;
-      try { att = await uploadStreamVideo(u.file, (p) => { if (u.attempt !== token) return; u.pct = p; u.lastProgressAt = Date.now(); ping(u); }); }
+      try { att = await uploadStreamVideo(u.upFile, (p) => { if (u.attempt !== token) return; u.pct = p; u.lastProgressAt = Date.now(); ping(u); }); }
       catch (ex) {
         // Stream hiccup → small clips still fit the plain-storage path.
-        if (u.file.size <= 50 * 1024 * 1024) att = await uploadAttachment(u.file, u.folder);
+        if (u.upFile.size <= 50 * 1024 * 1024) att = await uploadAttachment(u.upFile, u.folder);
         else throw ex;
       }
       if (u.attempt !== token) return;
@@ -202,11 +214,11 @@ if (typeof document !== "undefined") {
 
 // Live state for a local upload (null when this device isn't doing the upload).
 export function useVideoUpload(uploadId) {
-  const [state, setState] = useState(() => { const u = uploadId && uploads[uploadId]; return u ? { pct: u.pct, status: u.status } : null; });
+  const [state, setState] = useState(() => { const u = uploadId && uploads[uploadId]; return u ? { pct: u.pct, status: u.status, stage: u.stage } : null; });
   useEffect(() => {
     const u = uploadId && uploads[uploadId];
     if (!u) { setState(null); return; }
-    const fn = () => setState({ pct: u.pct, status: u.status });
+    const fn = () => setState({ pct: u.pct, status: u.status, stage: u.stage });
     fn();
     u.listeners.add(fn);
     return () => u.listeners.delete(fn);
@@ -229,7 +241,7 @@ export function VideoUploadBubble({ att, mine }) {
         <span style={{ fontSize: 18, flexShrink: 0 }}>{failed ? "⚠️" : "🎬"}</span>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: failed ? (mine ? "#fff" : T.red) : fg }}>
-            {failed ? "Video didn't upload" : live ? `Uploading video… ${live.pct || 0}%` : "Video on its way…"}
+            {failed ? "Video didn't upload" : live ? (live.stage === "compress" ? `Compressing video… ${live.pct || 0}%` : `Uploading video… ${live.pct || 0}%`) : "Video on its way…"}
           </div>
           <div style={{ fontSize: 10.5, color: sub, marginTop: 1 }}>
             {failed ? "Send it again when you have signal." : live ? "Keep the app open until it finishes." : "It appears here once the sender's upload finishes."}

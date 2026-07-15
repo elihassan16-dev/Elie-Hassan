@@ -108,7 +108,32 @@ export async function uploadStreamVideo(file, onProgress) {
   return { kind: "video", stream: true, uid, url: watch.replace(/\/watch$/, "/iframe"), watch, thumbnail: info?.thumbnail || "", name: file.name || "video", mime: file.type || "video/mp4" };
 }
 
-export async function uploadAttachment(file, folder = "chat") {
+// WhatsApp-style photo shrink before upload: a 4–8 MB camera shot becomes a
+// few hundred KB at 2048px — uploads AND loads in chats many times faster,
+// still plenty sharp to zoom into. Any failure (odd format, old browser)
+// returns the original file untouched.
+export async function compressImage(file) {
+  try {
+    if (!file || !(file.type || "").startsWith("image/") || file.size < 400 * 1024) return file;
+    if (/gif|svg/.test(file.type)) return file; // animations / vectors — leave alone
+    const bmp = await createImageBitmap(file); // browsers bake in EXIF rotation here
+    const scale = Math.min(1, 2048 / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bmp, 0, 0, w, h);
+    bmp.close();
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.82));
+    if (!blob || blob.size >= file.size * 0.9) return file; // barely shrank — keep original
+    const name = (file.name || "photo").replace(/\.[a-z0-9]+$/i, "") + ".jpg";
+    return new File([blob], name, { type: "image/jpeg" });
+  } catch { return file; }
+}
+
+export async function uploadAttachment(rawFile, folder = "chat") {
+  const file = await compressImage(rawFile);
   const kind = attachmentKind(file.type || "");
   const base = file.name ? sanitizeName(file.name) : `${kind}.${kind === "audio" ? "webm" : kind === "image" ? "jpg" : "bin"}`;
   const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${base}`;

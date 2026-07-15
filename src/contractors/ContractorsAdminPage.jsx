@@ -550,8 +550,22 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
     );
   };
   const pickAtt = async (e) => {
-    const file = (e.target.files || [])[0]; e.target.value = "";
-    if (!file) return;
+    const files = Array.from(e.target.files || []); e.target.value = "";
+    if (!files.length) return;
+    // Several photos at once (up to 10) → one message with a photo grid.
+    if (files.length > 1) {
+      const imgs = files.filter((f) => (f.type || "").startsWith("image/")).slice(0, 10);
+      if (!imgs.length) { setErr2("Videos and PDFs go one at a time — photos can be sent up to 10 together."); return; }
+      setErr2(imgs.length < files.length ? "Only photos can go together — the other files were skipped." : "");
+      setBusy(true);
+      try {
+        const items = await Promise.all(imgs.map((f) => uploadAttachment(f, "portal")));
+        setPending({ kind: "images", items, name: `${items.length} photos`, url: items[0].url });
+      } catch (ex) { setErr2(ex.message || "Upload failed."); }
+      setBusy(false);
+      return;
+    }
+    const file = files[0];
     // Videos upload in the background — the message can go out immediately with a
     // placeholder that becomes the playable video once the upload lands.
     if ((file.type || "").startsWith("video/")) {
@@ -781,6 +795,8 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
                   ? <ContactCardBubble c={m.attachment.contact} mine={mine} />
                   : m.attachment.kind === "video" && (m.attachment.pending || m.attachment.failed)
                   ? <VideoUploadBubble att={m.attachment} mine={mine} />
+                  : m.attachment.kind === "images" && Array.isArray(m.attachment.items)
+                  ? <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxWidth: 216, marginTop: 6 }}>{m.attachment.items.map((it, i) => <a key={i} href={it.url} target="_blank" rel="noreferrer" style={{ display: "block" }}><img src={it.url} alt="" loading="lazy" style={{ width: m.attachment.items.length === 2 ? 104 : 68, height: m.attachment.items.length === 2 ? 104 : 68, borderRadius: 8, objectFit: "cover", display: "block" }} /></a>)}</div>
                   : m.attachment.kind === "image"
                   ? <a href={m.attachment.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={m.attachment.url} alt="" style={{ maxWidth: 200, maxHeight: 220, borderRadius: 9, display: "block", objectFit: "cover" }} /></a>
                   : m.attachment.kind === "video" && m.attachment.stream
@@ -795,7 +811,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
         {replyTo && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderLeft: `3px solid ${T.gold}`, borderRadius: 8 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? "📎 attachment" : "")}</span><button onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
         {pending && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}`, borderRadius: 10 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pending.pending ? "🎬 " : "📎 "}{pending.name}{pending.pending ? " — uploading in background, OK to send" : ""}</span><button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
         <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-          <input ref={attRef} type="file" accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
+          <input ref={attRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
           <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 15, cursor: "pointer" }}>📎</button>
           <textarea rows={1} value={msgDraft} onChange={(e) => setMsgDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} placeholder={`Message ${org?.name}…`} disabled={busy}
             style={{ flex: 1, minWidth: 0, padding: "10px 13px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, fontSize: 14, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 110, boxSizing: "border-box" }} />

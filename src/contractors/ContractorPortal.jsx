@@ -34,7 +34,7 @@ function StatusPill({ t, onSet }) {
 // of work item + price whose sum becomes the bid. Line-item drafts mirror to
 // localStorage so an iOS PWA reload mid-typing doesn't eat the breakdown.
 const emptyRows = () => [{ label: "", amt: "" }, { label: "", amt: "" }, { label: "", amt: "" }];
-function BidBox({ job, onError }) {
+function BidBox({ job, onError, onSent }) {
   const [mode, setMode] = useState((job.bidItems || []).length ? "items" : "lump");
   const [amt, setAmt] = useState("");
   const [rows, setRows] = useState(() => {
@@ -65,6 +65,7 @@ function BidBox({ job, onError }) {
       await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       setAmt(""); setRows(emptyRows());
       try { localStorage.removeItem(`bid-rows-${job.id}`); } catch { /* ignore */ }
+      onSent && onSent();
     } catch (ex) { onError && onError(ex.message || "Couldn't send the bid."); }
     setBusy(false);
   };
@@ -708,6 +709,7 @@ export function ContractorPortal() {
   const [contactShare, setContactShare] = useState(false); // 👤 share a contact card
   const [moreOpen, setMoreOpen] = useState(false); // the ＋ menu (attach/voice/tag/contact)
   const [mediaOpen, setMediaOpen] = useState(false); // 🖼 all photos & videos on this job
+  const [bidPop, setBidPop] = useState(false); // 💰 submit-bid popup (so you don't scroll up)
   const [recOn, setRecOn] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
   const mrRef = useRef(null);
@@ -837,7 +839,7 @@ export function ContractorPortal() {
                 const un = unreadFor(j.id);
                 const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.direction !== "to_team" && !taskClosed(t.status)).length;
                 return (
-                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); setDoneOpen(false); setMediaOpen(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
+                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); setDoneOpen(false); setMediaOpen(false); setBidPop(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress || j.title || "Job"}</div>
@@ -871,12 +873,31 @@ export function ContractorPortal() {
                       </div>
                       {selJob.title && selJob.propertyAddress && <div style={{ fontSize: 11.5, color: T.textSub }}>{selJob.title}</div>}
                     </div>
+                    {/* Bid jobs: a bid button right in the header, always in reach —
+                        no scrolling up to the bid card to send your price. */}
+                    {selJob.status === "bid" && <button onClick={() => setBidPop(true)} style={{ background: T.gold, border: "none", borderRadius: 20, color: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 11.5, fontWeight: 800, padding: "5px 13px", flexShrink: 0 }}>💰 {selJob.bidAmount ? "Update bid" : "Submit bid"}</button>}
                     {(() => { const n = collectMedia(thread).length; return n > 0 && <button onClick={() => setMediaOpen(true)} title="All photos & videos on this job" style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 20, color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 11.5, fontWeight: 700, padding: "4px 11px", flexShrink: 0 }}>🖼 {n}</button>; })()}
                     {selJob.status === "complete"
                       ? <span style={{ fontSize: 10, fontWeight: 800, background: T.bg, color: T.textSub, borderRadius: 20, padding: "3px 10px", flexShrink: 0 }}>COMPLETE</span>
                       : jobDays(selJob) != null && <span style={{ fontSize: 10, fontWeight: 800, background: T.goldLight, color: "#8a6d1f", borderRadius: 20, padding: "3px 10px", flexShrink: 0 }}>DAY {jobDays(selJob)}</span>}
                   </div>
                   {mediaOpen && <MediaGallery title={selJob.propertyAddress || selJob.title || ""} items={collectMedia(thread)} canDelete={false} onClose={() => setMediaOpen(false)} />}
+                  {bidPop && selJob.status === "bid" && (
+                    <div onClick={() => setBidPop(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 460, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, boxSizing: "border-box", backdropFilter: "blur(5px)" }}>
+                      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: "min(440px,96vw)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 12px 48px rgba(0,0,0,0.25)" }}>
+                        <div style={{ padding: "14px 18px", borderBottom: `2px solid ${T.gold}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>🧾 Submit your bid</div>
+                            <div style={{ fontSize: 11.5, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selJob.propertyAddress || selJob.title}{selJob.title && selJob.propertyAddress ? ` — ${selJob.title}` : ""}</div>
+                          </div>
+                          <button onClick={() => setBidPop(false)} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+                        </div>
+                        <div style={{ padding: "14px 18px" }}>
+                          <BidBox key={selJob.id} job={selJob} onError={setErr} onSent={() => setBidPop(false)} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div style={{ display: "flex", gap: 2, marginTop: 8 }}>
                     {(selJob.status === "bid" ? [["messages", "Messages"]] : [["overview", "Overview"], ["tasks", "Tasks"], ["messages", "Messages"]]).map(([k, l]) => (
                       <button key={k} onClick={() => setTab(k)} style={{ padding: "8px 16px", border: "none", borderBottom: tab === k ? `2.5px solid ${T.gold}` : "2.5px solid transparent", background: "none", color: tab === k ? T.gold : T.textSub, fontWeight: tab === k ? 800 : 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>

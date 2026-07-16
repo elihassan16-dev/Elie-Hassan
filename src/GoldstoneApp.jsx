@@ -7201,6 +7201,12 @@ function AiTasksModal({propAddr,teamMembers=[],existingTasks=[],onCreate,onClose
 function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctrMessages,ctrSave,setSharedProps,onClose}){
   const[mode,setMode]=useState("external");
   const scrollRef=useRef(null);
+  const {ctrUsers}=useData()||{};
+  // Who you can @-tag: teammates always; in the external thread the contractor
+  // company's people too (they're who you're talking to). Same list the property
+  // chat offers — so you can loop a teammate in even on a task they don't own.
+  const extPeople=(ctrUsers||[]).filter(u=>String(u.orgId)===String(job.orgId)).map(u=>u.name).filter(Boolean);
+  const tagPeople=mode==="external"?[...new Set([...extPeople,...(teamMembers||[])])]:(teamMembers||[]);
   const external=(ctrMessages||[]).filter(m=>String(m.jobId)===String(job.id)).sort((a,b)=>String(a.at||"").localeCompare(String(b.at||"")));
   const internal=((property?.messages)||[]).filter(m=>String(m.ctrTaskKey||"")===String(task.id)).sort((a,b)=>msgTime(a.at)-msgTime(b.at));
   const msgs=mode==="external"?external:internal;
@@ -7210,11 +7216,16 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
     const t=(txt||"").trim();if(!t&&!att)return;
     if(mode==="external"){
       // Carry the task reference so the contractor sees WHICH task this is about.
+      const tagged=[...new Set(mentions||[])].filter(n=>n&&n!==currentUser);
       const msg={id:Date.now(),jobId:job.id,orgId:job.orgId,author:currentUser,side:"team",text:t,at:new Date().toISOString(),readBy:[currentUser],taskRefId:task.id,taskRefText:task.text};
       if(att)msg.attachment=att;
+      if(tagged.length)msg.mentions=tagged;
       await ctrSave("contractor_messages",msg);
       if(att&&att.pending&&att.uploadId)bindCtrVideoMessage(att.uploadId,msg.id);
-      notify(null,{toOrg:job.orgId,title:`Goldstone — ${task.text||job.propertyAddress||""}`,body:t||"(attachment)",url:`/?goto=job:${job.id}`});
+      // Tagged people (teammates and/or the contractor's crew) get pinged directly;
+      // otherwise the whole company is notified as before.
+      if(tagged.length)notify(tagged,{title:`Goldstone — ${task.text||job.propertyAddress||""}`,body:`${currentUser}: ${t||"(attachment)"}`,url:`/?goto=job:${job.id}`});
+      else notify(null,{toOrg:job.orgId,title:`Goldstone — ${task.text||job.propertyAddress||""}`,body:t||"(attachment)",url:`/?goto=job:${job.id}`});
     }else{
       const msg={id:Date.now(),author:currentUser,text:t,at:new Date().toISOString(),readBy:[currentUser],ctrTaskKey:task.id,ctrTaskLabel:`${orgName}: ${(task.text||"").slice(0,48)}`};
       if(att)msg.attachment=att;
@@ -7254,7 +7265,7 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
           );})}
         </div>
         <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:ext?"2px solid #E8A33D":`2px solid ${T.blue}`,background:ext?"#FFF9EC":"#fff",flexShrink:0}}>
-          <ChatComposer onSend={(txt,att,mn)=>send(txt,att,mn)} people={ext?[]:teamMembers} currentUser={currentUser}
+          <ChatComposer onSend={(txt,att,mn)=>send(txt,att,mn)} people={tagPeople} currentUser={currentUser}
             placeholder={ext?`Message ${orgName} — their team sees this…`:"Internal note — team only…"}/>
         </div>
       </div>

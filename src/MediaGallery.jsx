@@ -15,16 +15,19 @@ async function saveMediaItem(x, onStatus) {
   let url = x.url, name = x.name || (x.kind === "image" ? "photo.jpg" : "video.mp4");
   if (x.kind === "video" && x.uid) {
     onStatus("Preparing video…");
-    let ready = null;
+    let ready = false;
     for (let i = 0; i < 70; i++) {
       const d = await qbAuthFetch("/api/stream/download", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid: x.uid }) });
-      if (d.status === "ready" && d.url) { ready = d.url; break; }
+      if (d.status === "ready" && d.url) { ready = true; break; }
       onStatus(`Preparing video… ${d.percent || 0}%`);
       await new Promise((r) => setTimeout(r, 2500));
     }
     if (!ready) throw new Error("The video is still being prepared — try again in a minute.");
-    url = ready;
     if (!/\.mp4$/i.test(name)) name = name.replace(/\.[a-z0-9]+$/i, "") + ".mp4";
+    // Download through OUR domain (edge proxy) — fetching Cloudflare's domain
+    // directly gets blocked by cross-origin rules on some devices, which used
+    // to dump people onto the raw cloudflarestream.com page instead of saving.
+    url = `/api/stream/file?uid=${encodeURIComponent(x.uid)}&name=${encodeURIComponent(name.replace(/\.mp4$/i, ""))}`;
   }
   onStatus(x.kind === "image" ? "Saving…" : "Downloading…");
   let blob;

@@ -114,7 +114,19 @@ export async function uploadStreamVideo(file, onProgress) {
 // returns the original file untouched.
 export async function compressImage(file) {
   try {
-    if (!file || !(file.type || "").startsWith("image/") || file.size < 400 * 1024) return file;
+    if (!file) return file;
+    // HEIC/HEIF (Samsung "high efficiency" photos, some iPhones): browsers other
+    // than Safari can't display these AT ALL — they rendered as broken links in
+    // chat. Convert to JPEG first, always (converter loads on demand, ~once).
+    if (/heic|heif/i.test(file.type || "") || /\.(heic|heif)$/i.test(file.name || "")) {
+      try {
+        const mod = await import("heic2any");
+        const out = await mod.default({ blob: file, toType: "image/jpeg", quality: 0.85 });
+        const jb = Array.isArray(out) ? out[0] : out;
+        file = new File([jb], (file.name || "photo").replace(/\.[a-z0-9]+$/i, "") + ".jpg", { type: "image/jpeg" });
+      } catch { /* Safari can often decode HEIC natively — fall through and try below */ }
+    }
+    if (!(file.type || "").startsWith("image/") || file.size < 400 * 1024) return file;
     if (/gif|svg/.test(file.type)) return file; // animations / vectors — leave alone
     const bmp = await createImageBitmap(file); // browsers bake in EXIF rotation here
     const scale = Math.min(1, 2048 / Math.max(bmp.width, bmp.height));

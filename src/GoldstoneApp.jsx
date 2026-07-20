@@ -6379,10 +6379,22 @@ function AssigneeAvatar({name,size=24}){
     ? <span title={name} style={{width:size,height:size,borderRadius:"50%",background:avatarColor(name),color:"#fff",fontSize:size*0.42,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,lineHeight:1}}>{initialsOf(name)}</span>
     : <span title="Unassigned" style={{width:size,height:size,borderRadius:"50%",background:"transparent",border:`1px dashed ${T.border}`,color:T.textTert,fontSize:size*0.5,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,lineHeight:1}}>+</span>;
 }
+// The delegation mark, used EVERYWHERE a task shows its people: ONE circle —
+// whoever is DOING the task — with a tiny corner badge for the owner when it's
+// been delegated. One footprint, so columns and lists always line up.
+function DoerAvatar({assignee,delegate,size=24}){
+  const badge=delegate&&assignee&&delegate!==assignee;
+  return(
+    <span style={{position:"relative",display:"inline-flex",flexShrink:0}}>
+      <AssigneeAvatar name={delegate||assignee} size={size}/>
+      {badge&&<span style={{position:"absolute",bottom:-3,right:-5,borderRadius:"50%",border:"1.5px solid #fff",display:"flex"}}><AssigneeAvatar name={assignee} size={Math.max(11,Math.round(size*0.55))}/></span>}
+    </span>
+  );
+}
 
 // Custom status picker — colored options + a red Delete at the bottom (native
 // <select> can't color options on iOS, and we want a Delete action in here).
-function TaskStatusPicker({value,onChange,onDelete}){
+function TaskStatusPicker({value,onChange,onDelete,small}){
   const[open,setOpen]=useState(false);
   const[pos,setPos]=useState({top:0,left:0});
   const btnRef=useRef(null);
@@ -6402,7 +6414,7 @@ function TaskStatusPicker({value,onChange,onDelete}){
   };
   return(
     <div style={{flexShrink:0}}>
-      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:22,padding:"0 11px",background:sc.bg,color:sc.color,border:"none",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
+      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:small?20:22,padding:small?"0 9px":"0 11px",background:sc.bg,color:sc.color,border:"none",borderRadius:20,fontSize:small?10.5:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
       {open&&(<>
         {/* fixed positioning so the menu isn't clipped by the property card's overflow:hidden */}
         <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:290}}/>
@@ -6466,7 +6478,7 @@ function SwipeToDelete({onDelete,confirm,children,style={}}){
   );
 }
 
-function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,currentUser,selectMode,selected,onToggleSelect}){
+function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onNavigate,currentUser,selectMode,selected,onToggleSelect,compact,stripe,grid}){
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
@@ -6475,7 +6487,8 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   // <button>s) for the same reason the avatar stays perfectly round: iOS Safari
   // forces its own sizing onto <button> elements, squashing them into ovals even
   // with appearance:none. A div sidesteps that entirely.
-  const D=24; // circular icon size — same as AssigneeAvatar size below
+  compact=compact||!!grid;
+  const D=compact?22:24; // circular icon size — same as AssigneeAvatar size below
   // Tap the title → popup with the FULL text (long tasks get cut off in the row),
   // with an Edit mode inside the popup (multiline) instead of the old one-line
   // inline edit that made long tasks unreadable while typing too.
@@ -6487,7 +6500,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   const saveEdit=()=>{const v=draft.trim();if(v&&v!==(t.text||"")&&onRename)onRename(t.propId,t.id,v);setEditing(false);};
   const closeViewer=()=>{setViewer(false);setEditing(false);};
   const pBtn=(primary)=>({padding:"9px 18px",borderRadius:T.radiusSm,border:primary?"none":`1px solid ${T.border}`,background:primary?T.gold:"#fff",color:primary?"#fff":T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"});
-  const circleBtn=(active)=>({boxSizing:"border-box",lineHeight:1,background:active?"#EBF4FF":"#fff",border:`1px solid ${active?T.blue:T.border}`,borderRadius:"50%",width:D,height:D,minWidth:D,maxWidth:D,flex:`0 0 ${D}px`,alignSelf:"center",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,color:active?T.blue:T.textTert});
+  const circleBtn=(active)=>({boxSizing:"border-box",lineHeight:1,background:active?"#EBF4FF":"#fff",border:`1px solid ${active?T.blue:T.border}`,borderRadius:"50%",width:D,height:D,minWidth:D,maxWidth:D,flex:`0 0 ${D}px`,alignSelf:"center",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:compact?11:12,color:active?T.blue:T.textTert});
   const contactBtnEl=(
     <div role="button" onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name||""}`:"Link a contact"}
       style={circleBtn(!!t.taskContact)}>{t.taskContact?.kind==="company"?"🏢":(t.taskContact?.name?.[0]||"👤")}</div>
@@ -6499,28 +6512,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   // Address + property status are already shown in the group header above, so the
   // row omits them and just carries the task itself. Compact Monday-style layout:
   // [select?] task · assignee initials · contact · message · status (far right).
-  return(
-    <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
-    <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,padding:isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:"#fff"}}>
-      {selBox}
-      {/* The AUTO pill sits OUTSIDE the truncating text so a long title can't clip it. */}
-      <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
-        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
-        {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
-      </span>
-      {t.delegate&&t.delegate===currentUser&&t.assignee
-        ? <span title={`You're doing this for ${t.assignee}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>for {t.assignee.split(" ")[0]}</span>
-        : (t.delegate&&t.assignee===currentUser)
-          ? <span title={`You delegated this to ${t.delegate}`} style={{fontSize:10,color:T.blue,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>to {t.delegate.split(" ")[0]}</span>
-          : null}
-      <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
-        <AssigneeAvatar name={t.assignee} size={24}/>
-        {t.delegate&&<><span style={{color:T.textTert,fontSize:11,fontWeight:700}}>→</span><AssigneeAvatar name={t.delegate} size={24}/></>}
-      </button>
-      {contactBtnEl}
-      {msgBtnEl}
-      <TaskStatusPicker value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
-      {viewer&&(
+  const viewerEl=viewer?(
         <div onClick={closeViewer} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:430,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(480px,94vw)",maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
             <div style={{padding:"13px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
@@ -6537,7 +6529,13 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
                     style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.blue}`,fontSize:14.5,lineHeight:1.55,fontFamily:"inherit",color:T.text,outline:"none",resize:"vertical"}}/>
                 : <div style={{fontSize:14.5,lineHeight:1.6,color:T.text,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{t.text||"(untitled task)"}</div>}
             </div>
-            <div style={{padding:"12px 18px max(12px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+            <div style={{padding:"12px 18px max(12px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8}}>
+              {!editing&&onContact&&(
+                <button onClick={()=>{closeViewer();onContact(t);}} title={t.taskContact?`Open ${t.taskContact.name||"the contact"} — call, text or email`:"Link a contact to this task"}
+                  style={{...pBtn(false),marginRight:"auto",display:"inline-flex",alignItems:"center",gap:6,maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:t.taskContact?T.blue:T.textSub,borderColor:t.taskContact?T.blue:T.border}}>
+                  {t.taskContact?.kind==="company"?"🏢":"👤"} {t.taskContact?.name||"Link a contact"}
+                </button>
+              )}
               {editing?(<>
                 <button onClick={()=>setEditing(false)} style={pBtn(false)}>Cancel</button>
                 <button onClick={saveEdit} style={pBtn(true)}>Save</button>
@@ -6548,7 +6546,56 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
             </div>
           </div>
         </div>
-      )}
+  ):null;
+  // Excel-style spreadsheet row (desktop compact view): aligned columns —
+  // Task | Property | Who | chat | Status — sharing the same popups/handlers.
+  if(grid){
+    const isOfficeRow=String(t.propId)===OFFICE_TASK_PID;
+    const whoTip=t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate";
+    return(
+      <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
+      <div style={{display:"grid",gridTemplateColumns:grid,columnGap:8,alignItems:"center",padding:"5px 12px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
+        {selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>}
+        <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+          <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
+          {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
+        </span>
+        <span onClick={()=>!isOfficeRow&&onNavigate&&t.propId&&onNavigate(t.propId)} title={isOfficeRow?undefined:"Open this property"} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11.5,color:T.textSub,cursor:isOfficeRow?"default":"pointer"}}>{isOfficeRow?"Company":(t.propAddr||"")}</span>
+        <span style={{display:"flex",alignItems:"center",justifyContent:"center",whiteSpace:"nowrap",minWidth:0}}>
+          {/* One circle per row (the DOER) so the column lines up perfectly; a
+              tiny corner badge shows the owner when the task is delegated. */}
+          <button onClick={()=>onAssign&&onAssign(t)} title={whoTip} style={{background:"none",border:"none",padding:0,cursor:"pointer",position:"relative",display:"inline-flex",flexShrink:0}}>
+            <DoerAvatar assignee={t.assignee} delegate={t.delegate} size={22}/>
+          </button>
+        </span>
+        {msgBtnEl}
+        <span style={{justifySelf:"end"}}><TaskStatusPicker small value={t.status||"Not Started"} onChange={(st)=>onStatusChange(t.propId,t.id,st)} onDelete={()=>onDelete(t.propId,t.id)}/></span>
+        {viewerEl}
+      </div>
+      </SwipeToDelete>
+    );
+  }
+  return(
+    <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
+    <div style={{display:"flex",alignItems:"center",gap:compact?8:isMobile?8:10,padding:compact?"5px 12px":isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
+      {selBox}
+      {/* The AUTO pill sits OUTSIDE the truncating text so a long title can't clip it. */}
+      <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
+        {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
+      </span>
+      {t.delegate&&t.delegate===currentUser&&t.assignee
+        ? <span title={`You're doing this for ${t.assignee}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>for {t.assignee.split(" ")[0]}</span>
+        : (t.delegate&&t.assignee===currentUser)
+          ? <span title={`You delegated this to ${t.delegate}`} style={{fontSize:10,color:T.blue,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>to {t.delegate.split(" ")[0]}</span>
+          : null}
+      <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
+        <DoerAvatar assignee={t.assignee} delegate={t.delegate} size={D}/>
+      </button>
+      {contactBtnEl}
+      {msgBtnEl}
+      <TaskStatusPicker small={compact} value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
+      {viewerEl}
     </div>
     </SwipeToDelete>
   );
@@ -6611,12 +6658,12 @@ function MultiSelect({placeholder,options,selected,onToggle,style}){
 }
 
 // Inline "add a task" row shown at the bottom of each property group in the Task Center.
-function AddTaskInline({onAdd,placeholder}){
+function AddTaskInline({onAdd,placeholder,compact}){
   const[text,setText]=useState("");
   const submit=()=>{const t=text.trim();if(!t)return;onAdd(t);setText("");};
   return(
-    <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderTop:`1px solid ${T.border}`}}>
-      <span style={{color:T.blue,fontSize:17,fontWeight:700,flexShrink:0,lineHeight:1}}>+</span>
+    <div style={{display:"flex",alignItems:"center",gap:8,padding:compact?"6px 12px":"9px 12px",borderTop:`1px solid ${T.border}`}}>
+      <span style={{color:T.blue,fontSize:compact?15:17,fontWeight:700,flexShrink:0,lineHeight:1}}>+</span>
       <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder={placeholder||"Add a task for this property…"}
         style={{flex:1,minWidth:0,background:"transparent",border:"none",outline:"none",fontSize:13,color:T.text,fontFamily:"inherit"}}/>
       {text.trim()&&<button onClick={submit} style={{padding:"5px 14px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Add</button>}
@@ -7630,6 +7677,15 @@ function TasksPage({onNavigate}){
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
   const { isAdmin, prefs, savePrefs } = useAuth();
   const isMobile=useIsMobile();
+  // Excel-style density on desktop: slimmer rows + one-line property headers so
+  // far more tasks fit on screen. Toggleable (☰ Compact chip), remembered per
+  // device; phones keep the roomier touch-friendly layout.
+  const[compactView,setCompactView]=useState(()=>{try{const v=localStorage.getItem("tasksCompact");return v==null?true:v==="1";}catch{return true;}});
+  // The saved ACCOUNT preference (Supabase user metadata) beats the device cache —
+  // whatever view each user picks follows them to any phone or computer.
+  useEffect(()=>{const pv=prefs&&prefs.tasksView;if(pv)setCompactView(pv==="grid");},[prefs&&prefs.tasksView]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggleCompact=()=>{setCompactView(v=>{const nv=!v;try{localStorage.setItem("tasksCompact",nv?"1":"0");}catch{/* ignore */}if(savePrefs)savePrefs({tasksView:nv?"grid":"boxes"});return nv;});};
+  const compact=!isMobile&&compactView;
   // External (contractor) tasks show alongside internal ones, grouped by property.
   const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, siteStatus:ctrSiteStatus, save:ctrSave, remove:ctrRemove } = useContractorData();
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
@@ -8043,6 +8099,7 @@ function TasksPage({onNavigate}){
                 {completedItems.length>0&&<button onClick={()=>setCompletedOpen(true)} style={chip("#15803D","#EDFBF1")}>✓ Done{cnt(completedItems.length,T.green)}</button>}
                 {extRequests.length>0&&<button onClick={()=>setExtReqOpen(true)} style={chip("#8a6d1f","#FFF9EC")}>👷 External{openExtCount>0&&cnt(openExtCount,T.red)}</button>}
                 <div style={{flex:1}}/>
+                {!isMobile&&<button onClick={toggleCompact} title={compactView?"Switch back to the property boxes":"One Excel-style grid — every task a row"} style={chip(compactView?"#b8912e":T.textSub,compactView?T.goldLight:T.card,compactView)}>▦ Spreadsheet</button>}
                 {filteredDisplay.length>0&&<button onClick={()=>setSelectMode(true)} style={chip(T.textSub,T.card,false)}>☑ Select</button>}
               </>):(<>
                 <span style={{fontSize:13,fontWeight:600,color:T.text}}>{selectedKeys.size} selected</span>
@@ -8059,11 +8116,18 @@ function TasksPage({onNavigate}){
         })()}
         {showRecent&&<RecentAssignedModal tasks={recentAssigned} currentUser={CURRENT_USER} onClose={()=>setShowRecent(false)} onOpenTask={(t)=>{setShowRecent(false);if(t.propId!==OFFICE_TASK_PID&&onNavigate)onNavigate(t.propId);}}/>}
 
-        {!showAutomations&&(()=>{
+        {!showAutomations&&!compact&&(()=>{
           const oTasks=(officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company Tasks",propStatus:""}));
           const doneCount=oTasks.filter(t=>t.status==="Completed").length;
           return(
-            <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14,maxWidth:840}}>
+            <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:compact?8:14,maxWidth:840}}>
+              {compact?(
+                <div style={{padding:"7px 12px",background:"#FAFAFA",borderBottom:bdr,display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:13,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>🏢 Company Tasks</span>
+                  <span style={{fontSize:9.5,fontWeight:700,color:T.gold,background:T.goldLight,padding:"2px 8px",borderRadius:20,whiteSpace:"nowrap"}}>General</span>
+                  <span style={{fontSize:10.5,color:T.textSub,whiteSpace:"nowrap"}}>{doneCount}/{oTasks.length} done</span>
+                </div>
+              ):(
               <div style={{padding:"10px 14px",background:"#FAFAFA",borderBottom:bdr,display:"flex",flexDirection:"column",gap:7}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
                   <span style={{fontSize:13,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6}}>🏢 Company Tasks</span>
@@ -8073,8 +8137,9 @@ function TasksPage({onNavigate}){
                   <span style={{fontSize:11,color:T.textSub}}>{doneCount}/{oTasks.length} done</span>
                 </div>
               </div>
-              {oTasks.filter(t=>!hideDone(t)).map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
-              <AddTaskInline onAdd={addOfficeTask} placeholder="Add a company task…"/>
+              )}
+              {oTasks.filter(t=>!hideDone(t)).map((t,ri)=><TaskRow key={t.id} t={t} compact={compact} stripe={compact&&ri%2===1} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+              <AddTaskInline compact={compact} onAdd={addOfficeTask} placeholder="Add a company task…"/>
             </div>
           );
         })()}
@@ -8224,13 +8289,63 @@ function TasksPage({onNavigate}){
                 const prop=sharedProps.find(p=>String(p.id)===String(pid));
                 groups.push({addr:prop?`${prop.address}${prop.city?`, ${prop.city}`:""}`:(extByPid[pid][0]?.job?.propertyAddress||"Property"),ptasks:[],gi:groups.length,pid,propStatus:prop?.status});
               });
-              return groups
+              const ordered=groups
               // No visible work → no card: everything done (or hidden) drops the
               // property from the list entirely instead of leaving an empty box.
               .filter(g=>g.ptasks.some(t=>!hideDone(t))||(extByPid[String(g.pid)]||[]).length>0)
-              .sort((a,b)=>{const pa=propPushOrder[String(a.pid)]||0,pb=propPushOrder[String(b.pid)]||0;if(pa&&pb)return pa-pb;if(pa)return 1;if(pb)return -1;return a.gi-b.gi;})
+              .sort((a,b)=>{const pa=propPushOrder[String(a.pid)]||0,pb=propPushOrder[String(b.pid)]||0;if(pa&&pb)return pa-pb;if(pa)return 1;if(pb)return -1;return a.gi-b.gi;});
+              // ── Excel-style spreadsheet (desktop compact view, approved mock A):
+              // one card, gold column headers, every task a striped row. Company
+              // tasks lead; each property's tasks stay grouped by the same order
+              // the cards use. Adding tasks happens via ＋ Add Tasks / the property.
+              if(compact){
+                const GRID=selectMode?"22px minmax(0,1fr) 150px 138px 30px 112px":"minmax(0,1fr) 150px 138px 30px 112px";
+                const oTasks=(officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company",propStatus:""}));
+                const rows=[];
+                oTasks.filter(t=>!hideDone(t)).forEach(t=>rows.push({kind:"task",t}));
+                ordered.forEach(g=>{
+                  g.ptasks.filter(t=>!hideDone(t)).forEach(t=>rows.push({kind:"task",t}));
+                  (extByPid[String(g.pid)]||[]).forEach(({job,rows:xr})=>xr.filter(t=>t.status!=="Completed").forEach(t=>rows.push({kind:"ext",t,job,addr:g.addr})));
+                });
+                const th={fontSize:9.5,letterSpacing:"0.06em",textTransform:"uppercase",color:T.gold,fontWeight:800,whiteSpace:"nowrap"};
+                return(
+                  <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14,maxWidth:860}}>
+                    <div style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"7px 12px",background:T.goldLight,borderBottom:`1.5px solid ${T.gold}55`}}>
+                      {selectMode&&<span/>}
+                      <span style={th}>Task</span><span style={th}>Property</span><span style={{...th,justifySelf:"center"}}>Who</span><span/><span style={{...th,justifySelf:"end"}}>Status</span>
+                    </div>
+                    {rows.length===0&&<div style={{padding:"28px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No tasks to show.</div>}
+                    {rows.map((r,ri)=>r.kind==="task"
+                      ?<TaskRow key={"t"+r.t.propId+":"+r.t.id} t={r.t} grid={GRID} stripe={ri%2===1} onNavigate={onNavigate} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(r.t))} onToggleSelect={toggleSelect}/>
+                      :(
+                      <div key={"x"+r.t.id} style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"5px 12px",borderTop:"1px solid rgba(184,149,63,0.25)",background:ri%2===1?"#FBF3DC":"#FFF9EC"}}>
+                        {selectMode&&<input type="checkbox" checked={selectedKeys.has(`ext:${r.t.id}`)} onChange={()=>setSelectedKeys(p=>{const n=new Set(p);const k=`ext:${r.t.id}`;n.has(k)?n.delete(k):n.add(k);return n;})} style={{width:16,height:16,accentColor:T.gold,cursor:"pointer"}}/>}
+                        <span title={r.t.direction==="to_team"?`Asked by ${r.t.createdBy||ctrOrgName(r.job.orgId)}`:undefined} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,color:T.text,textDecoration:r.t.status==="Completed"?"line-through":"none",opacity:ctrClosed(r.t.status)?0.6:1}}>{r.t.text}</span>
+                        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11.5,color:T.textSub}}>{r.addr||r.job.propertyAddress||""}</span>
+                        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:10.5,fontWeight:800,color:"#8a6d1f"}}>👷 {ctrOrgName(r.job.orgId)}</span>
+                        <button onClick={()=>setExtChat({task:r.t,job:r.job})} title="Message about this task" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:12,color:"#8a6d1f",cursor:"pointer",fontSize:11,padding:"2px 6px",fontFamily:"inherit",lineHeight:1.2}}>💬</button>
+                        <span style={{justifySelf:"end"}}><CtrStatusPill t={r.t} onSet={setExtTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/></span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+              return ordered
               .map(({addr,ptasks,pid,propStatus})=>(
-              <div key={addr} style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14}}>
+              <div key={addr} style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:compact?8:14}}>
+                {compact?(
+                  /* Excel-style one-line header: address · status · done ······ ⤓ */
+                  <div style={{padding:"7px 12px",background:"#FAFAFA",borderBottom:bdr,display:"flex",alignItems:"center",gap:8}}>
+                    <span onClick={()=>onNavigate&&pid&&onNavigate(pid)} title="Open this property" style={{fontSize:13,fontWeight:700,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:onNavigate?"pointer":"default"}}>{addr}</span>
+                    {(()=>{const ps=ptasks[0]?.propStatus||propStatus;const sc=SC[ps]||{};return ps?<span style={{flexShrink:0,fontSize:9.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20,whiteSpace:"nowrap"}}>{ps}</span>:null;})()}
+                    <span style={{flexShrink:0,fontSize:10.5,color:T.textSub,whiteSpace:"nowrap"}}>{ptasks.length?`${ptasks.filter(t=>t.status==="Completed").length}/${ptasks.length} done`:"external only"}</span>
+                    <div style={{flex:1}}/>
+                    <button onClick={()=>pushPropToBottom(pid)} title="Send this property to the bottom of my list"
+                      style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,cursor:"pointer",fontSize:11,fontFamily:"inherit",padding:"2px 7px",borderRadius:6,lineHeight:1,flexShrink:0}}
+                      onMouseEnter={e=>{e.currentTarget.style.color=T.gold;e.currentTarget.style.borderColor=T.gold;}}
+                      onMouseLeave={e=>{e.currentTarget.style.color=T.textTert;e.currentTarget.style.borderColor=T.border;}}>⤓</button>
+                  </div>
+                ):(
                 <div style={{padding:"10px 14px",background:"#FAFAFA",borderBottom:bdr,display:"flex",flexDirection:"column",gap:7}}>
                   {/* Row 1: address + send-to-bottom + delete */}
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
@@ -8248,7 +8363,8 @@ function TasksPage({onNavigate}){
                     <span style={{fontSize:11,color:T.textSub}}>{ptasks.length?`${ptasks.filter(t=>t.status==="Completed").length}/${ptasks.length} done`:"external tasks only"}</span>
                   </div>
                 </div>
-                {ptasks.filter(t=>!hideDone(t)).map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+                )}
+                {ptasks.filter(t=>!hideDone(t)).map((t,ri)=><TaskRow key={t.id} t={t} compact={compact} stripe={compact&&ri%2===1} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
                 {/* External (contractor) tasks on this property — amber, clearly marked */}
                 {(extByPid[String(pid)]||[]).map(({job,rows})=>(
                   <div key={"ext-"+job.id} style={{background:"#FFF9EC",borderTop:`1.5px solid ${T.gold}`}}>
@@ -8258,11 +8374,11 @@ function TasksPage({onNavigate}){
                     </div>
                     {rows.filter(t=>t.status!=="Completed").map(t=>(
                       <SwipeToDelete key={t.id} onDelete={()=>ctrRemove("contractor_tasks",t.id).catch(()=>{})} confirm={`Delete "${t.text}"? The contractor loses it from their portal too.`} style={{background:"#FFF9EC"}}>
-                      <div style={{display:"flex",gap:10,alignItems:"center",padding:"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)",background:"#FFF9EC"}}>
+                      <div style={{display:"flex",gap:10,alignItems:"center",padding:compact?"5px 12px":"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)",background:"#FFF9EC"}}>
                         {selectMode&&<input type="checkbox" checked={selectedKeys.has(`ext:${t.id}`)} onChange={()=>setSelectedKeys(p=>{const n=new Set(p);const k=`ext:${t.id}`;n.has(k)?n.delete(k):n.add(k);return n;})} style={{width:18,height:18,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>}
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
-                          <div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}${t.askedOf&&t.askedOf.length?` → ${t.askedOf.map(n=>n.split(" ")[0]).join(", ")}`:" → everyone"}`:""}{(t.statusBy||t.doneBy)?` · ${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>
+                        <div style={{flex:1,minWidth:0}} title={t.direction==="to_team"?`Asked by ${t.createdBy||ctrOrgName(job.orgId)}${t.askedOf&&t.askedOf.length?` → ${t.askedOf.join(", ")}`:" → everyone"}`:undefined}>
+                          <div style={{fontSize:compact?13:13.5,color:T.text,lineHeight:1.4,overflow:compact?"hidden":"visible",textOverflow:compact?"ellipsis":"clip",whiteSpace:compact?"nowrap":"normal",textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
+                          {!compact&&<div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}${t.askedOf&&t.askedOf.length?` → ${t.askedOf.map(n=>n.split(" ")[0]).join(", ")}`:" → everyone"}`:""}{(t.statusBy||t.doneBy)?` · ${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>}
                         </div>
                         <button onClick={()=>setExtChat({task:t,job})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
                         <CtrStatusPill t={t} onSet={setExtTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/>
@@ -8271,7 +8387,7 @@ function TasksPage({onNavigate}){
                     ))}
                   </div>
                 ))}
-                <AddTaskInline onAdd={(text)=>addTaskToProp(pid,text)}/>
+                <AddTaskInline compact={compact} onAdd={(text)=>addTaskToProp(pid,text)}/>
               </div>
             ));})()}
             {extChat&&(()=>{

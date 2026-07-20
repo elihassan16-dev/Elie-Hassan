@@ -12,6 +12,7 @@
     "@anthropic-ai/sdk": "^0.110.0",
     "@azure/msal-browser": "^5.16.0",
     "@supabase/supabase-js": "^2.45.4",
+    "heic2any": "^0.0.4",
     "jspdf": "^4.2.1",
     "mediabunny": "^1.50.8",
     "pdfjs-dist": "^5.7.284",

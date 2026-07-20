@@ -6466,7 +6466,7 @@ function SwipeToDelete({onDelete,confirm,children,style={}}){
   );
 }
 
-function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,currentUser,selectMode,selected,onToggleSelect,compact,stripe}){
+function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onNavigate,currentUser,selectMode,selected,onToggleSelect,compact,stripe,grid}){
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
@@ -6475,6 +6475,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   // <button>s) for the same reason the avatar stays perfectly round: iOS Safari
   // forces its own sizing onto <button> elements, squashing them into ovals even
   // with appearance:none. A div sidesteps that entirely.
+  compact=compact||!!grid;
   const D=compact?22:24; // circular icon size — same as AssigneeAvatar size below
   // Tap the title → popup with the FULL text (long tasks get cut off in the row),
   // with an Edit mode inside the popup (multiline) instead of the old one-line
@@ -6499,28 +6500,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   // Address + property status are already shown in the group header above, so the
   // row omits them and just carries the task itself. Compact Monday-style layout:
   // [select?] task · assignee initials · contact · message · status (far right).
-  return(
-    <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
-    <div style={{display:"flex",alignItems:"center",gap:compact?8:isMobile?8:10,padding:compact?"5px 12px":isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
-      {selBox}
-      {/* The AUTO pill sits OUTSIDE the truncating text so a long title can't clip it. */}
-      <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
-        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
-        {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
-      </span>
-      {t.delegate&&t.delegate===currentUser&&t.assignee
-        ? <span title={`You're doing this for ${t.assignee}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>for {t.assignee.split(" ")[0]}</span>
-        : (t.delegate&&t.assignee===currentUser)
-          ? <span title={`You delegated this to ${t.delegate}`} style={{fontSize:10,color:T.blue,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>to {t.delegate.split(" ")[0]}</span>
-          : null}
-      <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
-        <AssigneeAvatar name={t.assignee} size={D}/>
-        {t.delegate&&<><span style={{color:T.textTert,fontSize:compact?10:11,fontWeight:700}}>→</span><AssigneeAvatar name={t.delegate} size={D}/></>}
-      </button>
-      {contactBtnEl}
-      {msgBtnEl}
-      <TaskStatusPicker small={compact} value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
-      {viewer&&(
+  const viewerEl=viewer?(
         <div onClick={closeViewer} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:430,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(480px,94vw)",maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
             <div style={{padding:"13px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
@@ -6548,7 +6528,58 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
             </div>
           </div>
         </div>
-      )}
+  ):null;
+  // Excel-style spreadsheet row (desktop compact view): aligned columns —
+  // Task | Property | Who | chat | Status — sharing the same popups/handlers.
+  if(grid){
+    const isOfficeRow=String(t.propId)===OFFICE_TASK_PID;
+    const whoLabel=t.delegate&&t.delegate===currentUser&&t.assignee?{txt:`for ${t.assignee.split(" ")[0]}`,color:T.textTert}
+      :(t.delegate&&t.assignee===currentUser)?{txt:`to ${t.delegate.split(" ")[0]}`,color:T.blue}:null;
+    return(
+      <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
+      <div style={{display:"grid",gridTemplateColumns:grid,columnGap:8,alignItems:"center",padding:"5px 12px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
+        {selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>}
+        <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+          <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
+          {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
+        </span>
+        <span onClick={()=>!isOfficeRow&&onNavigate&&t.propId&&onNavigate(t.propId)} title={isOfficeRow?undefined:"Open this property"} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11.5,color:T.textSub,cursor:isOfficeRow?"default":"pointer"}}>{isOfficeRow?"Company":(t.propAddr||"")}</span>
+        <span style={{display:"flex",alignItems:"center",gap:3,whiteSpace:"nowrap",minWidth:0}}>
+          {whoLabel&&<span style={{fontSize:10,color:whoLabel.color,fontWeight:600,flexShrink:0}}>{whoLabel.txt}</span>}
+          <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
+            <AssigneeAvatar name={t.assignee} size={20}/>
+            {t.delegate&&<><span style={{color:T.textTert,fontSize:9,fontWeight:700}}>→</span><AssigneeAvatar name={t.delegate} size={20}/></>}
+          </button>
+        </span>
+        {msgBtnEl}
+        <span style={{justifySelf:"end"}}><TaskStatusPicker small value={t.status||"Not Started"} onChange={(st)=>onStatusChange(t.propId,t.id,st)} onDelete={()=>onDelete(t.propId,t.id)}/></span>
+        {viewerEl}
+      </div>
+      </SwipeToDelete>
+    );
+  }
+  return(
+    <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
+    <div style={{display:"flex",alignItems:"center",gap:compact?8:isMobile?8:10,padding:compact?"5px 12px":isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
+      {selBox}
+      {/* The AUTO pill sits OUTSIDE the truncating text so a long title can't clip it. */}
+      <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
+        {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
+      </span>
+      {t.delegate&&t.delegate===currentUser&&t.assignee
+        ? <span title={`You're doing this for ${t.assignee}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>for {t.assignee.split(" ")[0]}</span>
+        : (t.delegate&&t.assignee===currentUser)
+          ? <span title={`You delegated this to ${t.delegate}`} style={{fontSize:10,color:T.blue,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>to {t.delegate.split(" ")[0]}</span>
+          : null}
+      <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
+        <AssigneeAvatar name={t.assignee} size={D}/>
+        {t.delegate&&<><span style={{color:T.textTert,fontSize:compact?10:11,fontWeight:700}}>→</span><AssigneeAvatar name={t.delegate} size={D}/></>}
+      </button>
+      {contactBtnEl}
+      {msgBtnEl}
+      <TaskStatusPicker small={compact} value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
+      {viewerEl}
     </div>
     </SwipeToDelete>
   );
@@ -8049,7 +8080,7 @@ function TasksPage({onNavigate}){
                 {completedItems.length>0&&<button onClick={()=>setCompletedOpen(true)} style={chip("#15803D","#EDFBF1")}>✓ Done{cnt(completedItems.length,T.green)}</button>}
                 {extRequests.length>0&&<button onClick={()=>setExtReqOpen(true)} style={chip("#8a6d1f","#FFF9EC")}>👷 External{openExtCount>0&&cnt(openExtCount,T.red)}</button>}
                 <div style={{flex:1}}/>
-                {!isMobile&&<button onClick={toggleCompact} title={compactView?"Switch to the roomier layout":"Fit more tasks on screen"} style={chip(compactView?"#b8912e":T.textSub,compactView?T.goldLight:T.card,compactView)}>☰ Compact</button>}
+                {!isMobile&&<button onClick={toggleCompact} title={compactView?"Switch back to the property boxes":"One Excel-style grid — every task a row"} style={chip(compactView?"#b8912e":T.textSub,compactView?T.goldLight:T.card,compactView)}>▦ Spreadsheet</button>}
                 {filteredDisplay.length>0&&<button onClick={()=>setSelectMode(true)} style={chip(T.textSub,T.card,false)}>☑ Select</button>}
               </>):(<>
                 <span style={{fontSize:13,fontWeight:600,color:T.text}}>{selectedKeys.size} selected</span>
@@ -8066,7 +8097,7 @@ function TasksPage({onNavigate}){
         })()}
         {showRecent&&<RecentAssignedModal tasks={recentAssigned} currentUser={CURRENT_USER} onClose={()=>setShowRecent(false)} onOpenTask={(t)=>{setShowRecent(false);if(t.propId!==OFFICE_TASK_PID&&onNavigate)onNavigate(t.propId);}}/>}
 
-        {!showAutomations&&(()=>{
+        {!showAutomations&&!compact&&(()=>{
           const oTasks=(officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company Tasks",propStatus:""}));
           const doneCount=oTasks.filter(t=>t.status==="Completed").length;
           return(
@@ -8239,11 +8270,48 @@ function TasksPage({onNavigate}){
                 const prop=sharedProps.find(p=>String(p.id)===String(pid));
                 groups.push({addr:prop?`${prop.address}${prop.city?`, ${prop.city}`:""}`:(extByPid[pid][0]?.job?.propertyAddress||"Property"),ptasks:[],gi:groups.length,pid,propStatus:prop?.status});
               });
-              return groups
+              const ordered=groups
               // No visible work → no card: everything done (or hidden) drops the
               // property from the list entirely instead of leaving an empty box.
               .filter(g=>g.ptasks.some(t=>!hideDone(t))||(extByPid[String(g.pid)]||[]).length>0)
-              .sort((a,b)=>{const pa=propPushOrder[String(a.pid)]||0,pb=propPushOrder[String(b.pid)]||0;if(pa&&pb)return pa-pb;if(pa)return 1;if(pb)return -1;return a.gi-b.gi;})
+              .sort((a,b)=>{const pa=propPushOrder[String(a.pid)]||0,pb=propPushOrder[String(b.pid)]||0;if(pa&&pb)return pa-pb;if(pa)return 1;if(pb)return -1;return a.gi-b.gi;});
+              // ── Excel-style spreadsheet (desktop compact view, approved mock A):
+              // one card, gold column headers, every task a striped row. Company
+              // tasks lead; each property's tasks stay grouped by the same order
+              // the cards use. Adding tasks happens via ＋ Add Tasks / the property.
+              if(compact){
+                const GRID=selectMode?"22px minmax(0,1fr) 150px 138px 30px 112px":"minmax(0,1fr) 150px 138px 30px 112px";
+                const oTasks=(officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company",propStatus:""}));
+                const rows=[];
+                oTasks.filter(t=>!hideDone(t)).forEach(t=>rows.push({kind:"task",t}));
+                ordered.forEach(g=>{
+                  g.ptasks.filter(t=>!hideDone(t)).forEach(t=>rows.push({kind:"task",t}));
+                  (extByPid[String(g.pid)]||[]).forEach(({job,rows:xr})=>xr.filter(t=>t.status!=="Completed").forEach(t=>rows.push({kind:"ext",t,job,addr:g.addr})));
+                });
+                const th={fontSize:9.5,letterSpacing:"0.06em",textTransform:"uppercase",color:T.gold,fontWeight:800,whiteSpace:"nowrap"};
+                return(
+                  <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14,maxWidth:860}}>
+                    <div style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"7px 12px",background:T.goldLight,borderBottom:`1.5px solid ${T.gold}55`}}>
+                      {selectMode&&<span/>}
+                      <span style={th}>Task</span><span style={th}>Property</span><span style={th}>Who</span><span/><span style={{...th,justifySelf:"end"}}>Status</span>
+                    </div>
+                    {rows.length===0&&<div style={{padding:"28px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No tasks to show.</div>}
+                    {rows.map((r,ri)=>r.kind==="task"
+                      ?<TaskRow key={"t"+r.t.propId+":"+r.t.id} t={r.t} grid={GRID} stripe={ri%2===1} onNavigate={onNavigate} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(r.t))} onToggleSelect={toggleSelect}/>
+                      :(
+                      <div key={"x"+r.t.id} style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"5px 12px",borderTop:"1px solid rgba(184,149,63,0.25)",background:ri%2===1?"#FBF3DC":"#FFF9EC"}}>
+                        {selectMode&&<input type="checkbox" checked={selectedKeys.has(`ext:${r.t.id}`)} onChange={()=>setSelectedKeys(p=>{const n=new Set(p);const k=`ext:${r.t.id}`;n.has(k)?n.delete(k):n.add(k);return n;})} style={{width:16,height:16,accentColor:T.gold,cursor:"pointer"}}/>}
+                        <span title={r.t.direction==="to_team"?`Asked by ${r.t.createdBy||ctrOrgName(r.job.orgId)}`:undefined} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,color:T.text,textDecoration:r.t.status==="Completed"?"line-through":"none",opacity:ctrClosed(r.t.status)?0.6:1}}>{r.t.text}</span>
+                        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11.5,color:T.textSub}}>{r.addr||r.job.propertyAddress||""}</span>
+                        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:10.5,fontWeight:800,color:"#8a6d1f"}}>👷 {ctrOrgName(r.job.orgId)}</span>
+                        <button onClick={()=>setExtChat({task:r.t,job:r.job})} title="Message about this task" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:12,color:"#8a6d1f",cursor:"pointer",fontSize:11,padding:"2px 6px",fontFamily:"inherit",lineHeight:1.2}}>💬</button>
+                        <span style={{justifySelf:"end"}}><CtrStatusPill t={r.t} onSet={setExtTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/></span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+              return ordered
               .map(({addr,ptasks,pid,propStatus})=>(
               <div key={addr} style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:compact?8:14}}>
                 {compact?(

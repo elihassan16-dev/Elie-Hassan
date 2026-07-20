@@ -6379,6 +6379,18 @@ function AssigneeAvatar({name,size=24}){
     ? <span title={name} style={{width:size,height:size,borderRadius:"50%",background:avatarColor(name),color:"#fff",fontSize:size*0.42,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,lineHeight:1}}>{initialsOf(name)}</span>
     : <span title="Unassigned" style={{width:size,height:size,borderRadius:"50%",background:"transparent",border:`1px dashed ${T.border}`,color:T.textTert,fontSize:size*0.5,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,lineHeight:1}}>+</span>;
 }
+// The delegation mark, used EVERYWHERE a task shows its people: ONE circle —
+// whoever is DOING the task — with a tiny corner badge for the owner when it's
+// been delegated. One footprint, so columns and lists always line up.
+function DoerAvatar({assignee,delegate,size=24}){
+  const badge=delegate&&assignee&&delegate!==assignee;
+  return(
+    <span style={{position:"relative",display:"inline-flex",flexShrink:0}}>
+      <AssigneeAvatar name={delegate||assignee} size={size}/>
+      {badge&&<span style={{position:"absolute",bottom:-3,right:-5,borderRadius:"50%",border:"1.5px solid #fff",display:"flex"}}><AssigneeAvatar name={assignee} size={Math.max(11,Math.round(size*0.55))}/></span>}
+    </span>
+  );
+}
 
 // Custom status picker — colored options + a red Delete at the bottom (native
 // <select> can't color options on iOS, and we want a Delete action in here).
@@ -6553,10 +6565,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
           {/* One circle per row (the DOER) so the column lines up perfectly; a
               tiny corner badge shows the owner when the task is delegated. */}
           <button onClick={()=>onAssign&&onAssign(t)} title={whoTip} style={{background:"none",border:"none",padding:0,cursor:"pointer",position:"relative",display:"inline-flex",flexShrink:0}}>
-            <AssigneeAvatar name={t.delegate||t.assignee} size={22}/>
-            {t.delegate&&t.assignee&&t.delegate!==t.assignee&&(
-              <span style={{position:"absolute",bottom:-3,right:-5,borderRadius:"50%",border:"1.5px solid #fff",display:"flex"}}><AssigneeAvatar name={t.assignee} size={12}/></span>
-            )}
+            <DoerAvatar assignee={t.assignee} delegate={t.delegate} size={22}/>
           </button>
         </span>
         {msgBtnEl}
@@ -6581,8 +6590,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
           ? <span title={`You delegated this to ${t.delegate}`} style={{fontSize:10,color:T.blue,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>to {t.delegate.split(" ")[0]}</span>
           : null}
       <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
-        <AssigneeAvatar name={t.assignee} size={D}/>
-        {t.delegate&&<><span style={{color:T.textTert,fontSize:compact?10:11,fontWeight:700}}>→</span><AssigneeAvatar name={t.delegate} size={D}/></>}
+        <DoerAvatar assignee={t.assignee} delegate={t.delegate} size={D}/>
       </button>
       {contactBtnEl}
       {msgBtnEl}
@@ -7673,7 +7681,10 @@ function TasksPage({onNavigate}){
   // far more tasks fit on screen. Toggleable (☰ Compact chip), remembered per
   // device; phones keep the roomier touch-friendly layout.
   const[compactView,setCompactView]=useState(()=>{try{const v=localStorage.getItem("tasksCompact");return v==null?true:v==="1";}catch{return true;}});
-  const toggleCompact=()=>{setCompactView(v=>{try{localStorage.setItem("tasksCompact",v?"0":"1");}catch{/* ignore */}return !v;});};
+  // The saved ACCOUNT preference (Supabase user metadata) beats the device cache —
+  // whatever view each user picks follows them to any phone or computer.
+  useEffect(()=>{const pv=prefs&&prefs.tasksView;if(pv)setCompactView(pv==="grid");},[prefs&&prefs.tasksView]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggleCompact=()=>{setCompactView(v=>{const nv=!v;try{localStorage.setItem("tasksCompact",nv?"1":"0");}catch{/* ignore */}if(savePrefs)savePrefs({tasksView:nv?"grid":"boxes"});return nv;});};
   const compact=!isMobile&&compactView;
   // External (contractor) tasks show alongside internal ones, grouped by property.
   const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, siteStatus:ctrSiteStatus, save:ctrSave, remove:ctrRemove } = useContractorData();

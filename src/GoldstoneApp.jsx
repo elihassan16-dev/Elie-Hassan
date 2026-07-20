@@ -6517,7 +6517,13 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
                     style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.blue}`,fontSize:14.5,lineHeight:1.55,fontFamily:"inherit",color:T.text,outline:"none",resize:"vertical"}}/>
                 : <div style={{fontSize:14.5,lineHeight:1.6,color:T.text,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{t.text||"(untitled task)"}</div>}
             </div>
-            <div style={{padding:"12px 18px max(12px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+            <div style={{padding:"12px 18px max(12px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8}}>
+              {!editing&&onContact&&(
+                <button onClick={()=>{closeViewer();onContact(t);}} title={t.taskContact?`Open ${t.taskContact.name||"the contact"} — call, text or email`:"Link a contact to this task"}
+                  style={{...pBtn(false),marginRight:"auto",display:"inline-flex",alignItems:"center",gap:6,maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:t.taskContact?T.blue:T.textSub,borderColor:t.taskContact?T.blue:T.border}}>
+                  {t.taskContact?.kind==="company"?"🏢":"👤"} {t.taskContact?.name||"Link a contact"}
+                </button>
+              )}
               {editing?(<>
                 <button onClick={()=>setEditing(false)} style={pBtn(false)}>Cancel</button>
                 <button onClick={saveEdit} style={pBtn(true)}>Save</button>
@@ -6533,8 +6539,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   // Task | Property | Who | chat | Status — sharing the same popups/handlers.
   if(grid){
     const isOfficeRow=String(t.propId)===OFFICE_TASK_PID;
-    const whoLabel=t.delegate&&t.delegate===currentUser&&t.assignee?{txt:`for ${t.assignee.split(" ")[0]}`,color:T.textTert}
-      :(t.delegate&&t.assignee===currentUser)?{txt:`to ${t.delegate.split(" ")[0]}`,color:T.blue}:null;
+    const whoTip=t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate";
     return(
       <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
       <div style={{display:"grid",gridTemplateColumns:grid,columnGap:8,alignItems:"center",padding:"5px 12px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
@@ -6544,9 +6549,8 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
           {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
         </span>
         <span onClick={()=>!isOfficeRow&&onNavigate&&t.propId&&onNavigate(t.propId)} title={isOfficeRow?undefined:"Open this property"} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11.5,color:T.textSub,cursor:isOfficeRow?"default":"pointer"}}>{isOfficeRow?"Company":(t.propAddr||"")}</span>
-        <span style={{display:"flex",alignItems:"center",gap:3,whiteSpace:"nowrap",minWidth:0}}>
-          {whoLabel&&<span style={{fontSize:10,color:whoLabel.color,fontWeight:600,flexShrink:0}}>{whoLabel.txt}</span>}
-          <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
+        <span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:3,whiteSpace:"nowrap",minWidth:0}}>
+          <button onClick={()=>onAssign&&onAssign(t)} title={whoTip} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
             <AssigneeAvatar name={t.assignee} size={20}/>
             {t.delegate&&<><span style={{color:T.textTert,fontSize:9,fontWeight:700}}>→</span><AssigneeAvatar name={t.delegate} size={20}/></>}
           </button>
@@ -8293,7 +8297,7 @@ function TasksPage({onNavigate}){
                   <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14,maxWidth:860}}>
                     <div style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"7px 12px",background:T.goldLight,borderBottom:`1.5px solid ${T.gold}55`}}>
                       {selectMode&&<span/>}
-                      <span style={th}>Task</span><span style={th}>Property</span><span style={th}>Who</span><span/><span style={{...th,justifySelf:"end"}}>Status</span>
+                      <span style={th}>Task</span><span style={th}>Property</span><span style={{...th,justifySelf:"center"}}>Who</span><span/><span style={{...th,justifySelf:"end"}}>Status</span>
                     </div>
                     {rows.length===0&&<div style={{padding:"28px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No tasks to show.</div>}
                     {rows.map((r,ri)=>r.kind==="task"

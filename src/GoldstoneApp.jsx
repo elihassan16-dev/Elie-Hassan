@@ -6549,10 +6549,14 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
           {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
         </span>
         <span onClick={()=>!isOfficeRow&&onNavigate&&t.propId&&onNavigate(t.propId)} title={isOfficeRow?undefined:"Open this property"} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11.5,color:T.textSub,cursor:isOfficeRow?"default":"pointer"}}>{isOfficeRow?"Company":(t.propAddr||"")}</span>
-        <span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:3,whiteSpace:"nowrap",minWidth:0}}>
-          <button onClick={()=>onAssign&&onAssign(t)} title={whoTip} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
-            <AssigneeAvatar name={t.assignee} size={20}/>
-            {t.delegate&&<><span style={{color:T.textTert,fontSize:9,fontWeight:700}}>→</span><AssigneeAvatar name={t.delegate} size={20}/></>}
+        <span style={{display:"flex",alignItems:"center",justifyContent:"center",whiteSpace:"nowrap",minWidth:0}}>
+          {/* One circle per row (the DOER) so the column lines up perfectly; a
+              tiny corner badge shows the owner when the task is delegated. */}
+          <button onClick={()=>onAssign&&onAssign(t)} title={whoTip} style={{background:"none",border:"none",padding:0,cursor:"pointer",position:"relative",display:"inline-flex",flexShrink:0}}>
+            <AssigneeAvatar name={t.delegate||t.assignee} size={22}/>
+            {t.delegate&&t.assignee&&t.delegate!==t.assignee&&(
+              <span style={{position:"absolute",bottom:-3,right:-5,borderRadius:"50%",border:"1.5px solid #fff",display:"flex"}}><AssigneeAvatar name={t.assignee} size={12}/></span>
+            )}
           </button>
         </span>
         {msgBtnEl}

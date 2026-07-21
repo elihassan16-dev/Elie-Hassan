@@ -2605,7 +2605,13 @@ function PropertyShowings({property,showings,onUpdate,flush}){
           {outreachLine(ph,rowKey)}
         </div>
         <CallA phone={ph} title="Call" style={icoS}>📞</CallA>
-        <TextA phone={ph} title="Text — conversation & templates" onInApp={()=>setSmsPop({phone:ph,name,rowKey})} style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
+        <TextA phone={ph} title="Text — conversation & templates" onInApp={()=>setSmsPop({phone:ph,name,rowKey})}
+          templates={[
+            {kind:"initial",label:"Initial intro",text:showingMessage("initial",name,address)},
+            {kind:"followup",label:"Follow-up",text:showingMessage("followup",name,address)},
+          ]}
+          onTemplate={(kind)=>markText(rowKey,kind)}
+          style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
           <SmsChatIcon size={15} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:8,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
         </TextA>
         {msgMeta&&msgIco(msgMeta)}

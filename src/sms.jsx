@@ -116,34 +116,61 @@ const fmtPhone = (p) => {
   return n.length === 10 ? `(${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}` : String(p || "");
 };
 
-function PhoneChooser({ phone, mode, onInApp, onClose }) {
+const smsHref = (phone, body) => {
+  const clean = String(phone || "").replace(/[^\d+]/g, "");
+  if (!body) return `sms:${clean}`;
+  const sep = (typeof navigator !== "undefined" && /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent)) ? "&" : "?"; // iOS wants &body=
+  return `sms:${clean}${sep}body=${encodeURIComponent(body)}`;
+};
+
+function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClose }) {
   const { from } = useSmsTexting();
   const digits = String(phone || "").replace(/[^\d+]/g, "");
+  // For texting with templates on offer, "My phone" opens a second step:
+  // blank text or one of the templates, prefilled into the Messages app.
+  const [step, setStep] = useState("main");
   const go = (href) => { onClose(); window.location.href = href; };
   const opt = { display: "flex", alignItems: "center", gap: 13, width: "100%", padding: "13px 15px", borderRadius: 14, border: `1px solid ${T.border}`, background: "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left", boxSizing: "border-box" };
   return (
     <div onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 470, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 14, boxSizing: "border-box", backdropFilter: "blur(4px)" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: T.bg, borderRadius: 20, width: "min(420px,96vw)", padding: 12, boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 8, marginBottom: "env(safe-area-inset-bottom)", boxShadow: "0 12px 48px rgba(0,0,0,0.3)" }}>
-        <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px", display: "flex", alignItems: "center", gap: 6 }}>{mode === "call" ? "📞 Call" : <><SmsChatIcon size={13} color="#15803D" /> Text</>} {fmtPhone(phone)} using…</div>
-        <button style={opt} onClick={() => {
-          if (mode === "call") go(`openphone://dial?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}&action=call`);
-          else if (onInApp) { onClose(); onInApp(); }
-          else go(`openphone://message?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}`);
-        }}>
-          <span style={{ fontSize: 22, flexShrink: 0 }}>💼</span>
-          <span style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Business line{from ? ` · ${fmtPhone(from)}` : ""}</div>
-            <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Opens the Quo app — they see the company number" : onInApp ? "Right here in the app — saved to the conversation" : "Opens the Quo app — sends from the company number"}</div>
-          </span>
-        </button>
-        <button style={opt} onClick={() => go(mode === "call" ? `tel:${digits}` : `sms:${digits}`)}>
-          <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
-          <span style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My phone</div>
-            <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Regular call from this phone's own number" : "Messages app — from this phone's own number"}</div>
-          </span>
-        </button>
-        <button onClick={onClose} style={{ ...opt, justifyContent: "center", background: T.bg, border: "none", fontWeight: 700, fontSize: 13.5, color: T.textSub, padding: "10px 15px" }}>Cancel</button>
+        {step === "main" ? (<>
+          <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px", display: "flex", alignItems: "center", gap: 6 }}>{mode === "call" ? "📞 Call" : <><SmsChatIcon size={13} color="#15803D" /> Text</>} {fmtPhone(phone)} using…</div>
+          <button style={opt} onClick={() => {
+            if (mode === "call") go(`openphone://dial?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}&action=call`);
+            else if (onInApp) { onClose(); onInApp(); }
+            else go(`openphone://message?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}`);
+          }}>
+            <span style={{ fontSize: 22, flexShrink: 0 }}>💼</span>
+            <span style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Business line{from ? ` · ${fmtPhone(from)}` : ""}</div>
+              <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Opens the Quo app — they see the company number" : onInApp ? "Right here in the app — templates & history inside" : "Opens the Quo app — sends from the company number"}</div>
+            </span>
+          </button>
+          <button style={opt} onClick={() => { if (mode === "text" && templates.length) setStep("personal"); else go(mode === "call" ? `tel:${digits}` : `sms:${digits}`); }}>
+            <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
+            <span style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My phone</div>
+              <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Regular call from this phone's own number" : `Messages app — from this phone's own number${templates.length ? ", blank or a template" : ""}`}</div>
+            </span>
+          </button>
+        </>) : (<>
+          <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px" }}>📱 Text from my phone — start with…</div>
+          <button style={opt} onClick={() => go(smsHref(phone))}>
+            <span style={{ fontSize: 20, flexShrink: 0 }}>✏️</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Blank text</span>
+          </button>
+          {templates.map((t) => (
+            <button key={t.kind} style={opt} onClick={() => { onTemplate && onTemplate(t.kind); go(smsHref(phone, t.text)); }}>
+              <span style={{ fontSize: 20, flexShrink: 0 }}>📋</span>
+              <span style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{t.label}</div>
+                <div style={{ fontSize: 11, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.text}</div>
+              </span>
+            </button>
+          ))}
+        </>)}
+        <button onClick={step === "main" ? onClose : () => setStep("main")} style={{ ...opt, justifyContent: "center", background: T.bg, border: "none", fontWeight: 700, fontSize: 13.5, color: T.textSub, padding: "10px 15px" }}>{step === "main" ? "Cancel" : "‹ Back"}</button>
       </div>
     </div>
   );
@@ -164,14 +191,14 @@ export function CallA({ phone, style, title, children }) {
   </>);
 }
 
-export function TextA({ phone, style, title, onInApp, children }) {
+export function TextA({ phone, style, title, onInApp, templates, onTemplate, children }) {
   const { connected } = useSmsTexting();
   const [choose, setChoose] = useState(false);
   const digits = String(phone || "").replace(/[^\d+]/g, "");
   const intercept = connected && (IS_PHONE || !!onInApp);
   return (<>
     <a href={`sms:${digits}`} title={title} onClick={intercept ? (e) => { e.preventDefault(); e.stopPropagation(); if (IS_PHONE) setChoose(true); else onInApp(); } : undefined} style={style}>{children}</a>
-    {choose && <PhoneChooser phone={phone} mode="text" onInApp={onInApp} onClose={() => setChoose(false)} />}
+    {choose && <PhoneChooser phone={phone} mode="text" onInApp={onInApp} templates={templates || []} onTemplate={onTemplate} onClose={() => setChoose(false)} />}
   </>);
 }
 

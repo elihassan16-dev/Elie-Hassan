@@ -18,6 +18,7 @@ import { SowPdfPreview } from "./SowPdfPreview";
 import { useSpeechToText, micBtnStyle, micGlyph } from "../useSpeech";
 import { MicIcon } from "../icons";
 import { ContactCardBubble } from "../contactShare";
+import { CallA } from "../sms";
 
 const inp = { width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" };
 const lbl = { display: "block", fontSize: 11, fontWeight: 700, color: T.textSub, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 };
@@ -896,7 +897,7 @@ export function ContractorsAdminPage() {
                     <div style={{ fontSize: 17, fontWeight: 800, color: T.text }}>{org.name}</div>
                     <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 2, display: "flex", flexWrap: "wrap", gap: "2px 12px" }}>
                       {org.contactName && <span>👤 {org.contactName}</span>}
-                      {org.phone && <a href={`tel:${String(org.phone).replace(/[^\d+]/g, "")}`} style={{ color: T.blue, textDecoration: "none" }}>📞 {org.phone}</a>}
+                      {org.phone && <CallA phone={org.phone} style={{ color: T.blue, textDecoration: "none" }}>📞 {org.phone}</CallA>}
                       {org.email && <a href={`mailto:${org.email}`} style={{ color: T.blue, textDecoration: "none" }}>✉️ {org.email}</a>}
                       {org.address && <span>🏠 {org.address}</span>}
                     </div>

@@ -14,7 +14,7 @@ import { usePersistentDraft } from "./useDraft";
 import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
-import { MicIcon } from "./icons";
+import { MicIcon, TeamChatIcon, SmsChatIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
 import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
@@ -2359,7 +2359,7 @@ function ShowingInfoPopup({property,skey,onUpdate,onClose}){
             <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderTop:`1px solid ${T.border}`}}>
               <span style={{flex:1,fontSize:13.5,fontWeight:600,color:T.text}}>{ph}</span>
               <CallA phone={ph} style={{padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:700,textDecoration:"none",background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</CallA>
-              <TextA phone={ph} style={{padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:700,textDecoration:"none",background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</TextA>
+              <TextA phone={ph} style={{padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:700,textDecoration:"none",background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>
             </div>
           ))}
           {phones.length===0&&<div style={{fontSize:12.5,color:T.textTert,padding:"8px 0",borderTop:`1px solid ${T.border}`}}>No phone number on file.</div>}
@@ -2381,7 +2381,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS }=useData();
   // Business texting (Quo): when connected, Text/template buttons open a real
   // in-app conversation sent from the company line; otherwise sms: links as before.
-  const {connected:smsOn,threadFor}=useSmsTexting();
+  const {connected:smsOn,threadFor,unreadFor}=useSmsTexting();
   const[smsPop,setSmsPop]=useState(null); // {phone,name,rowKey,kind}
   const all=showings||[];
   const address=`${property.address}${property.city?`, ${property.city}`:""}`;
@@ -2426,7 +2426,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     const unread=msgs.some(m=>isUnreadForUser(m,CURRENT_USER));
     return(
       <button onClick={()=>openThread(key,label,snapData)} title="Message your team about this person" style={{position:"relative",display:"inline-flex",alignItems:"center",gap:5,padding:"0 11px",height:30,boxSizing:"border-box",lineHeight:1,borderRadius:20,border:`1px solid ${msgs.length?T.gold:T.border}`,background:msgs.length?T.goldLight:"#fff",color:msgs.length?"#b8912e":T.textSub,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-        <span style={{fontSize:12,lineHeight:1}}>💬</span> {msgs.length||"Message"}
+        <TeamChatIcon size={13}/> {msgs.length||"Message"}
         {unread&&<span style={{position:"absolute",top:-3,right:-3,width:9,height:9,borderRadius:5,background:T.red}}/>}
       </button>
     );
@@ -2569,7 +2569,9 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     return(
       <div style={{fontSize:10,color:T.textSub,marginTop:2}}>
         ↗ You {ev.label?<>sent the <b style={{color:"#8a6d1f"}}>{ev.label}</b></>:"texted"} · {fmtDT(ev.at)}
-        {lastIn&&<> &nbsp;·&nbsp; ↙ they replied {fmtDT(lastIn.at)}</>}
+        {lastIn&&(unreadFor(ph)>0
+          ?<> &nbsp;·&nbsp; <b style={{color:T.red}}>↙ replied {fmtDT(lastIn.at)} — unread</b></>
+          :<> &nbsp;·&nbsp; ↙ they replied {fmtDT(lastIn.at)}</>)}
       </div>
     );
   };
@@ -2578,7 +2580,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     const unread=msgs.some(m=>isUnreadForUser(m,CURRENT_USER));
     return(
       <button onClick={()=>openThread(meta.key,meta.label,meta.snap)} title="Message your team about this person" style={{...icoS,border:`1px solid ${msgs.length?T.gold:T.border}`,background:msgs.length?T.goldLight:"#fff"}}>
-        🗨{msgs.length>0&&<span style={{position:"absolute",top:-4,right:-4,minWidth:14,height:14,borderRadius:7,background:unread?T.red:T.gold,color:"#fff",fontSize:8.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px",boxSizing:"border-box"}}>{msgs.length}</span>}
+        <TeamChatIcon size={15} color="#8a6d1f"/>{msgs.length>0&&<span style={{position:"absolute",top:-4,right:-4,minWidth:14,height:14,borderRadius:7,background:unread?T.red:T.gold,color:"#fff",fontSize:8.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px",boxSizing:"border-box"}}>{msgs.length}</span>}
       </button>
     );
   };
@@ -2588,7 +2590,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         <div style={{fontSize:12,color:T.textSub,marginBottom:5,display:"flex",alignItems:"center",gap:7}}>{ph} <SmsBadge phone={ph}/></div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           <CallA phone={ph} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>{emo("📞")} Call</CallA>
-          <TextA phone={ph} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>{emo("💬")} Text</TextA>
+          <TextA phone={ph} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>
           {tmplBtn(ph,name,rowKey,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
           {tmplBtn(ph,name,rowKey,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
         </div>
@@ -2604,7 +2606,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         </div>
         <CallA phone={ph} title="Call" style={icoS}>📞</CallA>
         <TextA phone={ph} title="Text — conversation & templates" onInApp={()=>setSmsPop({phone:ph,name,rowKey})} style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
-          💬{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:8,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
+          <SmsChatIcon size={15} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:8,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
         </TextA>
         {msgMeta&&msgIco(msgMeta)}
       </div>
@@ -3146,7 +3148,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
             <div style={{fontSize:11.5,color:T.textSub,marginBottom:4}}>{ph}</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               <CallA phone={ph} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}><span style={{fontSize:11.5,lineHeight:1}}>📞</span> Call</CallA>
-              <TextA phone={ph} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><span style={{fontSize:11.5,lineHeight:1}}>💬</span> Text</TextA>
+              <TextA phone={ph} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>
               {tmpl(ph,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
               {tmpl(ph,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
             </div>
@@ -3595,7 +3597,7 @@ function RentalPortfolioPage(){
                 </div>;})()}
                 {(u.tenant?.phone||u.tenant?.email||u.leaseLink)&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:9}}>
                   {u.tenant?.phone&&<CallA phone={u.tenant.phone} style={{fontSize:12,fontWeight:600,color:T.textSub,textDecoration:"none",border:`1px solid ${T.border}`,borderRadius:16,padding:"5px 11px"}}>📞 Call</CallA>}
-                  {u.tenant?.phone&&<TextA phone={u.tenant.phone} style={{fontSize:12,fontWeight:600,color:"#15803D",textDecoration:"none",border:`1px solid ${T.green}`,background:"#EDFBF1",borderRadius:16,padding:"5px 11px"}}>💬 Text</TextA>}
+                  {u.tenant?.phone&&<TextA phone={u.tenant.phone} style={{fontSize:12,fontWeight:600,color:"#15803D",textDecoration:"none",border:`1px solid ${T.green}`,background:"#EDFBF1",borderRadius:16,padding:"5px 11px"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>}
                   {u.tenant?.email&&<a href={`mailto:${u.tenant.email}`} style={{fontSize:12,fontWeight:600,color:T.blue,textDecoration:"none",border:`1px solid ${T.blue}`,background:"#EBF4FF",borderRadius:16,padding:"5px 11px"}}>✉️ Email</a>}
                   {u.leaseLink&&<a href={u.leaseLink} target="_blank" rel="noreferrer" style={{fontSize:12,fontWeight:600,color:T.gold,textDecoration:"none",border:`1px solid ${T.gold}`,background:T.goldLight,borderRadius:16,padding:"5px 11px"}}>📄 Lease</a>}
                 </div>}
@@ -5468,7 +5470,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
             <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis"}}>{full}</div>
             <button onClick={()=>setShowInfo(true)} title="Property info" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,cursor:"pointer",fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>i</button>
-            {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>💬</button>}
+            {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}><TeamChatIcon size={13}/></button>}
             <button onClick={()=>setAiChat(true)} title="Ask AI about this property" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✨</button>
             <button onClick={()=>setStatusBoard(true)} title="Property status — utilities & permits (contractors see this too)" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>🏗</button>
           </div>
@@ -5538,7 +5540,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                     {sb.phone&&<div style={{fontSize:13,color:T.text,marginTop:6}}>{sb.phone}</div>}
                     <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
                       {sb.phone&&<CallA phone={sb.phone} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.border}`,color:T.textSub,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>📞 Call</CallA>}
-                      {sb.phone&&<TextA phone={sb.phone} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",fontSize:12.5,fontWeight:600,textDecoration:"none"}}>💬 Text</TextA>}
+                      {sb.phone&&<TextA phone={sb.phone} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",fontSize:12.5,fontWeight:600,textDecoration:"none"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>}
                       {sb.email&&<a href={`mailto:${sb.email}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>✉️ Email</a>}
                     </div>
                   </div>
@@ -5631,7 +5633,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                     <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div>{(c.phone||c.email)&&(()=>{const d=String(c.phone||"").replace(/[^\d]/g,"");const wa=d.length===10?`1${d}`:d;const lk={padding:"4px 11px",borderRadius:14,fontSize:11.5,fontWeight:700,textDecoration:"none",border:`1px solid ${T.border}`,background:T.bg,color:T.textSub};return(
                       <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
                         {d&&<CallA phone={d} style={lk}>📞 Call</CallA>}
-                        {d&&<TextA phone={d} style={lk}>💬 Text</TextA>}
+                        {d&&<TextA phone={d} style={lk}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>}
                         {wa.length>=11&&<a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" style={{...lk,border:"1px solid #25D366",color:"#128C7E",background:"#E9FBF0"}}>🟢 WhatsApp</a>}
                         {c.email&&<a href={`mailto:${c.email}`} style={lk}>✉️ Email</a>}
                       </div>
@@ -6027,7 +6029,7 @@ function LeadDetail({lead,onUpdate}){
                     <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div>{(c.phone||c.email)&&(()=>{const d=String(c.phone||"").replace(/[^\d]/g,"");const wa=d.length===10?`1${d}`:d;const lk={padding:"4px 11px",borderRadius:14,fontSize:11.5,fontWeight:700,textDecoration:"none",border:`1px solid ${T.border}`,background:T.bg,color:T.textSub};return(
                       <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
                         {d&&<CallA phone={d} style={lk}>📞 Call</CallA>}
-                        {d&&<TextA phone={d} style={lk}>💬 Text</TextA>}
+                        {d&&<TextA phone={d} style={lk}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>}
                         {wa.length>=11&&<a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" style={{...lk,border:"1px solid #25D366",color:"#128C7E",background:"#E9FBF0"}}>🟢 WhatsApp</a>}
                         {c.email&&<a href={`mailto:${c.email}`} style={lk}>✉️ Email</a>}
                       </div>
@@ -6575,7 +6577,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       style={circleBtn(!!t.taskContact)}>{t.taskContact?.kind==="company"?"🏢":(t.taskContact?.name?.[0]||"👤")}</div>
   );
   const msgBtnEl=(
-    <div role="button" onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",...circleBtn(!!msgCount)}}>💬{msgCount>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgCount}</span>}</div>
+    <div role="button" onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",...circleBtn(!!msgCount)}}><TeamChatIcon size={13}/>{msgCount>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgCount}</span>}</div>
   );
   const selBox=selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:18,height:18,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>;
   // Address + property status are already shown in the group header above, so the
@@ -7074,7 +7076,7 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
   const phoneRow=(num,name)=>(
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
       <CallA phone={num} style={{...actA,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</CallA>
-      <button onClick={()=>openCompose("text",num,name)} style={{...actA,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D",cursor:"pointer",fontFamily:"inherit"}}>💬 Text</button>
+      <button onClick={()=>openCompose("text",num,name)} style={{...actA,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D",cursor:"pointer",fontFamily:"inherit"}}><SmsChatIcon size={12} color="#15803D"/> Text</button>
       <button onClick={()=>openCompose("whatsapp",num,name)} style={{...actA,background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B",cursor:"pointer",fontFamily:"inherit"}}>WhatsApp</button>
     </div>
   );
@@ -7513,7 +7515,7 @@ function ExternalRequestsPopup({requests,coRequests=[],onDecideCo,onSetStatus,on
                   <span>by {r.by}{r.at?` · ${fmtD2(r.at)}`:""}</span>
                 </div>
               </div>
-              <button onClick={()=>onChat({task:{id:`co:${r.id}`,text:`🧾 ${r.label} — $${Number(r.amount||0).toLocaleString()}`},job})} title="Message about this change order — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
+              <button onClick={()=>onChat({task:{id:`co:${r.id}`,text:`🧾 ${r.label} — $${Number(r.amount||0).toLocaleString()}`},job})} title="Message about this change order — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit",display:"inline-flex",alignItems:"center"}}><TeamChatIcon size={13}/></button>
               {onDecideCo
                 ?<div style={{display:"flex",gap:6,flexShrink:0}}>
                     <button onClick={()=>onDecideCo(job,r,true)} style={{padding:"6px 13px",borderRadius:16,border:"none",background:T.green,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✓ Approve</button>
@@ -7534,7 +7536,7 @@ function ExternalRequestsPopup({requests,coRequests=[],onDecideCo,onSetStatus,on
                   {t.createdAt&&<span>{fmtD2(t.createdAt)}</span>}
                 </div>
               </div>
-              <button onClick={()=>onChat({task:t,job})} title="Message about this — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
+              <button onClick={()=>onChat({task:t,job})} title="Message about this — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit",display:"inline-flex",alignItems:"center"}}><TeamChatIcon size={13}/></button>
               <CtrStatusPill t={t} onSet={onSetStatus}/>
             </div>
           ))}
@@ -7710,7 +7712,7 @@ function PropertyTaskList({property}){
                   <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
                   <div style={{fontSize:10.5,color:"#8a6d1f"}}>{(t.statusBy||t.doneBy)?`${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>
                 </div>
-                <button onClick={()=>setExtChat({task:t,job:j})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
+                <button onClick={()=>setExtChat({task:t,job:j})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit",display:"inline-flex",alignItems:"center"}}><TeamChatIcon size={13}/></button>
                 <CtrStatusPill t={t} onSet={setCtrTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/>
               </div>
               </SwipeToDelete>
@@ -8392,7 +8394,7 @@ function TasksPage({onNavigate}){
                         <span title={r.t.direction==="to_team"?`Asked by ${r.t.createdBy||ctrOrgName(r.job.orgId)}`:undefined} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,color:T.text,textDecoration:r.t.status==="Completed"?"line-through":"none",opacity:ctrClosed(r.t.status)?0.6:1}}>{r.t.text}</span>
                         <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11.5,color:T.textSub}}>{r.addr||r.job.propertyAddress||""}</span>
                         <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:10.5,fontWeight:800,color:"#8a6d1f"}}>👷 {ctrOrgName(r.job.orgId)}</span>
-                        <button onClick={()=>setExtChat({task:r.t,job:r.job})} title="Message about this task" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:12,color:"#8a6d1f",cursor:"pointer",fontSize:11,padding:"2px 6px",fontFamily:"inherit",lineHeight:1.2}}>💬</button>
+                        <button onClick={()=>setExtChat({task:r.t,job:r.job})} title="Message about this task" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:12,color:"#8a6d1f",cursor:"pointer",fontSize:11,padding:"2px 6px",fontFamily:"inherit",lineHeight:1.2,display:"inline-flex",alignItems:"center"}}><TeamChatIcon size={11}/></button>
                         <span style={{justifySelf:"end"}}><CtrStatusPill t={r.t} onSet={setExtTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/></span>
                       </div>
                     ))}
@@ -8449,7 +8451,7 @@ function TasksPage({onNavigate}){
                           <div style={{fontSize:compact?13:13.5,color:T.text,lineHeight:1.4,overflow:compact?"hidden":"visible",textOverflow:compact?"ellipsis":"clip",whiteSpace:compact?"nowrap":"normal",textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
                           {!compact&&<div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}${t.askedOf&&t.askedOf.length?` → ${t.askedOf.map(n=>n.split(" ")[0]).join(", ")}`:" → everyone"}`:""}{(t.statusBy||t.doneBy)?` · ${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>}
                         </div>
-                        <button onClick={()=>setExtChat({task:t,job})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit"}}>💬</button>
+                        <button onClick={()=>setExtChat({task:t,job})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit",display:"inline-flex",alignItems:"center"}}><TeamChatIcon size={13}/></button>
                         <CtrStatusPill t={t} onSet={setExtTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/>
                       </div>
                       </SwipeToDelete>
@@ -8742,7 +8744,7 @@ function ContactsPage(){
                       <div key={i} style={{padding:"11px 16px",borderBottom:(i<sel.phones.length-1||sel.email||sel.notes)?`1px solid ${T.border}`:"none"}}>
                         <div style={{fontSize:10.5,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5}}>{p.label||"Phone"}</div>
                         <div style={{fontSize:15,color:T.text,marginBottom:8}}>{p.number}</div>
-                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><CallA phone={p.number} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</CallA><TextA phone={p.number} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</TextA></div>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><CallA phone={p.number} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</CallA><TextA phone={p.number} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA></div>
                       </div>
                     ))}
                     {sel.email&&<div style={{padding:"11px 16px",borderBottom:sel.notes?`1px solid ${T.border}`:"none"}}><div style={{fontSize:10.5,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5}}>Email</div><a href={`mailto:${sel.email}`} style={{fontSize:15,color:T.blue,textDecoration:"none"}}>{sel.email}</a></div>}

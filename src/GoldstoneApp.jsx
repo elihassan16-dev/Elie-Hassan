@@ -16,6 +16,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
+import { useSmsTexting, SmsBadge, SmsThreadPopup } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES, openScopePdf } from "./contractors/ContractorPortal";
 import { sowPdfFile } from "./contractors/sowPdf";
@@ -2378,6 +2379,10 @@ function ShowingInfoPopup({property,skey,onUpdate,onClose}){
 // the per-property Showings tab and the top-level Showings page.
 function PropertyShowings({property,showings,onUpdate,flush}){
   const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS }=useData();
+  // Business texting (Quo): when connected, Text/template buttons open a real
+  // in-app conversation sent from the company line; otherwise sms: links as before.
+  const {connected:smsOn}=useSmsTexting();
+  const[smsPop,setSmsPop]=useState(null); // {phone,name,rowKey,kind}
   const all=showings||[];
   const address=`${property.address}${property.city?`, ${property.city}`:""}`;
   const leadMap=property.showingLeads||{};
@@ -2530,9 +2535,13 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   // small × lets you clear a mistaken mark.
   const tmplBtn=(ph,name,rowKey,kind,label,idle)=>{
     const sent=(showingTexts[rowKey]||{})[kind];
+    const style={...actBtn,...(sent?{background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}:idle)};
+    const text=sent?`✓ ${label} · ${fmtSent(sent)}`:label;
     return(
       <span style={{display:"inline-flex",alignItems:"center",gap:2}}>
-        <a href={showingSms(ph,showingMessage(kind,name,address))} onClick={()=>markText(rowKey,kind)} title={sent?`${label} text sent ${fmtSent(sent)} — tap to send again`:`Send the ${label.toLowerCase()} text`} style={{...actBtn,...(sent?{background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}:idle)}}>{sent?`✓ ${label} · ${fmtSent(sent)}`:label}</a>
+        {smsOn
+          ?<button onClick={()=>setSmsPop({phone:ph,name,rowKey,kind})} title={sent?`${label} text sent ${fmtSent(sent)} — open the conversation`:`Send the ${label.toLowerCase()} text from the business line`} style={style}>{text}</button>
+          :<a href={showingSms(ph,showingMessage(kind,name,address))} onClick={()=>markText(rowKey,kind)} title={sent?`${label} text sent ${fmtSent(sent)} — tap to send again`:`Send the ${label.toLowerCase()} text`} style={style}>{text}</a>}
         {sent&&<button onClick={()=>{if(window.confirm(`Clear the "${label} sent" mark?`))clearText(rowKey,kind);}} title="Clear the sent mark" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:"0 2px"}}>×</button>}
       </span>
     );
@@ -2540,10 +2549,12 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   // Actions for one phone number — plain Text (no template) + the two templates.
   const phoneActions=(ph,name,rowKey)=>(
     <div style={{marginTop:8}}>
-      <div style={{fontSize:12,color:T.textSub,marginBottom:5}}>{ph}</div>
+      <div style={{fontSize:12,color:T.textSub,marginBottom:5,display:"flex",alignItems:"center",gap:7}}>{ph} <SmsBadge phone={ph}/></div>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>{emo("📞")} Call</a>
-        <a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>{emo("💬")} Text</a>
+        {smsOn
+          ?<button onClick={()=>setSmsPop({phone:ph,name,rowKey})} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>{emo("💬")} Text</button>
+          :<a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>{emo("💬")} Text</a>}
         {tmplBtn(ph,name,rowKey,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
         {tmplBtn(ph,name,rowKey,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
       </div>
@@ -2664,6 +2675,12 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         return combined.map(x=>x.t==="s"?Row(x.item):LeadRow(x.item));
       })()}
     </Card>
+    {smsPop&&<SmsThreadPopup phone={smsPop.phone} name={smsPop.name||"Agent"} initialKind={smsPop.kind||null}
+      templates={[
+        {kind:"initial",label:"Initial intro",text:showingMessage("initial",smsPop.name,address)},
+        {kind:"followup",label:"Follow-up",text:showingMessage("followup",smsPop.name,address)},
+      ]}
+      onSent={(kind)=>{if(kind&&smsPop.rowKey)markText(smsPop.rowKey,kind);}} onClose={()=>setSmsPop(null)}/>}
     {msgFor&&(()=>{
       const first=(msgFor.label.split("—")[1]||"").trim().split(/\s+/)[0]||"them";
       return <TaskMessagesPopup title={`${msgFor.label} · ${address}`} task={null} saveFolder={property.filesFolder||null} messages={threadMsgs(msgFor.key)} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}

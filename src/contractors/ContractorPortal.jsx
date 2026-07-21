@@ -175,7 +175,7 @@ export function ContractorPortal() {
   // Per-job crew: a job with a crew list is only visible to those logins.
   const myUserId = user?.id;
   const org = (orgs || []).find((o) => String(o.id) === String(contractorOrgId)) || null;
-  const myJobs = useMemo(() => (jobs || []).filter((j) => j.orgId === contractorOrgId && (!Array.isArray(j.crew) || !j.crew.length || j.crew.includes(myUserId))).sort((a, b) => (a.status === "complete") - (b.status === "complete") || String(b.createdAt || "").localeCompare(String(a.createdAt || ""))), [jobs, contractorOrgId, myUserId]);
+  const myJobs = useMemo(() => (jobs || []).filter((j) => j.orgId === contractorOrgId && j.status !== "removed" && (!Array.isArray(j.crew) || !j.crew.length || j.crew.includes(myUserId))).sort((a, b) => (a.status === "complete") - (b.status === "complete") || String(b.createdAt || "").localeCompare(String(a.createdAt || ""))), [jobs, contractorOrgId, myUserId]);
   // 🔗 Notification deep links: tapping a push opens /?goto=job:<jobId> — land
   // straight on that job's messages. Read at mount (BEFORE the desktop
   // auto-select effect, which would otherwise override it), then URL cleaned.

@@ -11350,9 +11350,9 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
   const amt=(v,{size=15,weight=800,color=T.text}={})=><span style={{fontSize:size,fontWeight:weight,color,whiteSpace:"nowrap"}}>{v}</span>;
   const slot=(el)=><span style={{width:SLOT,flexShrink:0,display:"flex",justifyContent:"center"}}>{el||null}</span>;
   const xBtn=(fn,title)=><button onClick={fn} title={title} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,padding:0}}>×</button>;
-  const addBtn=(key)=>canEdit?<button onClick={()=>{setDraft({label:"",amount:""});setEditId(null);setAddFor(key);}} style={{width:"100%",padding:"9px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add manual line</button>:null;
+  const addBtn=(key)=>canEdit?<button onClick={()=>{setDraft({label:"",amount:""});setEditId(null);setAddFor(key);}} style={{width:"100%",padding:"6px 16px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add manual line</button>:null;
   const addForm=(key)=>(
-    <div style={{display:"flex",gap:6,padding:"10px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
+    <div style={{display:"flex",gap:6,padding:"7px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
       <input autoFocus value={draft.label} onChange={e=>setDraft(d=>({...d,label:e.target.value}))} placeholder="Label" style={{...inS,flex:1,minWidth:110}}/>
       <button onClick={()=>setDraft(d=>({...d,amount:d.amount.trim().startsWith("-")?d.amount.replace("-",""):"-"+d.amount.trim()}))} title="Make negative / positive" style={{padding:"7px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>±</button>
       <input value={draft.amount} onChange={e=>setDraft(d=>({...d,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addCustom(key)} placeholder="Amount" inputMode="decimal" style={{...inS,width:96,textAlign:"right"}}/>
@@ -11362,25 +11362,24 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
   );
   const editLine=(key,l)=>{setDraft({label:l.label,amount:String(l.amount)});setEditId(l.id);setAddFor(key);};
   const customRow=(key,l)=>(
-    <div key={l.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderTop:`1px solid ${T.border}`}}>
-      <span onClick={()=>editLine(key,l)} title="Tap to edit" style={{flex:1,minWidth:0,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{l.label} <span style={{fontSize:10,color:T.textTert}}>· tap to edit</span></span>
+    <div key={l.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 16px",borderTop:`1px solid ${T.border}`}}>
+      <span onClick={()=>editLine(key,l)} title="Tap to edit" style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{l.label} <span style={{fontSize:10,color:T.textTert}}>· tap to edit</span></span>
       <span onClick={()=>editLine(key,l)} style={{cursor:"pointer"}}>{amt(money(Number(l.amount)||0),{size:13,weight:700})}</span>
       {slot(xBtn(()=>delCustom(key,l.id),"Remove"))}
     </div>
   );
   const bigSubtotal=(label,val)=>(
-    <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`2px solid ${T.border}`,background:T.bg}}>
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:`2px solid ${T.border}`,background:T.bg}}>
       <span style={{flex:1,fontSize:13,fontWeight:800,color:T.text}}>{label}</span>{amt(money(val))}{slot()}
     </div>
   );
   // Compact tappable row on the Interest Reserve card → opens a manage popup.
   const reserveRow=(label,sub,val,onOpen)=>(
-    <div onClick={onOpen} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
+    <div onClick={onOpen} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 16px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:14,fontWeight:600,color:T.text}}>{label}</div>
-        <div style={{fontSize:11,color:T.textTert}}>{sub}</div>
+        <div style={{fontSize:13,fontWeight:600,color:T.text}}>{label} <span style={{fontSize:10,color:T.textTert,fontWeight:500}}>{sub}</span></div>
       </div>
-      {amt(money(val),{size:15})}
+      {amt(money(val),{size:14})}
       <span style={{color:T.textTert,fontSize:16,flexShrink:0}}>›</span>
     </div>
   );
@@ -11441,35 +11440,34 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
   return(
     <div>
       {/* Where this property's money sits + which number it contributes to that bank */}
-      <Card style={{marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`,flexWrap:"wrap"}}>
-          <span style={{fontSize:12.5,fontWeight:700,color:T.textSub,flexShrink:0}}>Held in bank</span>
-          <select value={property.bsBankAccount||""} disabled={!canEdit} onChange={e=>onUpdate(property.id,"bsBankAccount",e.target.value)} style={{flex:1,minWidth:140,padding:"8px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none"}}>
+      <Card style={{marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"7px 16px",borderBottom:`1px solid ${T.border}`,flexWrap:"wrap"}}>
+          <span style={{fontSize:12,fontWeight:700,color:T.textSub,flexShrink:0}}>Held in bank</span>
+          <select value={property.bsBankAccount||""} disabled={!canEdit} onChange={e=>onUpdate(property.id,"bsBankAccount",e.target.value)} style={{flex:1,minWidth:140,padding:"5px 10px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:12.5,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none"}}>
             <option value="">— Select a bank account —</option>
             {(bankAccounts||[]).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 16px",flexWrap:"wrap"}}>
-          <span style={{fontSize:12.5,fontWeight:700,color:T.textSub,flexShrink:0}}>Calculate</span>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 16px",flexWrap:"wrap"}}>
+          <span style={{fontSize:12,fontWeight:700,color:T.textSub,flexShrink:0}}>Calculate</span>
           {[["reserve","Interest Reserve"],["equity","Personal Equity"]].map(([k,l])=>{const on=calcMode===k;return(
-            <button key={k} onClick={canEdit?()=>onUpdate(property.id,"bsCalcMode",k):undefined} style={{padding:"6px 12px",borderRadius:20,fontSize:12,fontWeight:700,cursor:canEdit?"pointer":"default",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub,opacity:canEdit||on?1:0.6}}>{l}</button>
+            <button key={k} onClick={canEdit?()=>onUpdate(property.id,"bsCalcMode",k):undefined} style={{padding:"4px 11px",borderRadius:20,fontSize:11.5,fontWeight:700,cursor:canEdit?"pointer":"default",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub,opacity:canEdit||on?1:0.6}}>{l}</button>
           );})}
         </div>
       </Card>
       {/* Box 1 — LOC / loans → total loans */}
-      <Card style={{marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:`1px solid ${T.border}`}}>
-          <div style={{fontSize:12.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Loans</div>
-          {canEdit&&<button onClick={()=>setPickerOpen(true)} style={{padding:"7px 13px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>🔍 Search &amp; pin</button>}
+      <Card style={{marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 16px",borderBottom:`1px solid ${T.border}`}}>
+          <div style={{fontSize:12,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Loans</div>
+          {canEdit&&<button onClick={()=>setPickerOpen(true)} style={{padding:"5px 12px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>🔍 Search &amp; pin</button>}
         </div>
         {pinned.length===0&&loanCustom.length===0&&addFor!=="qbLoanCustom"&&<div style={{padding:"14px 16px",fontSize:13,color:T.textTert}}>No loans pinned yet. Tap <b>Search &amp; pin</b> to add this property&rsquo;s loan accounts (pin as many as you need), or add a manual line.</div>}
         {pinned.map(id=>{const a=acct(id);return(
-          <div key={id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
+          <div key={id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 16px",borderTop:`1px solid ${T.border}`}}>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a?a.name:"(account not found)"}</div>
-              {a&&<div style={{fontSize:11,color:T.textTert}}>{a.subType||a.type}</div>}
+              <div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a?a.name:"(account not found)"} {a&&<span style={{fontSize:10,color:T.textTert,fontWeight:500}}>{a.subType||a.type}</span>}</div>
             </div>
-            {amt(a?money(loanBal(a)):"—",{size:13.5,weight:700})}
+            {amt(a?money(loanBal(a)):"—",{size:13,weight:700})}
             {slot(xBtn(()=>toggle(id),"Unpin"))}
           </div>
         );})}
@@ -11479,13 +11477,13 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
       </Card>
 
       {/* Box 2 — balance sheet: all-in cost, total loans, personal equity */}
-      <Card style={{border:`1px solid ${T.gold}`,marginBottom:16}}>
+      <Card style={{border:`1px solid ${T.gold}`,marginBottom:10}}>
         <GHeader label="Balance Sheet"/>
-        <div style={{padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
+        <div style={{padding:"6px 16px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <div onClick={()=>pnl&&setShowBreak(true)} style={{flex:1,minWidth:0,cursor:pnl?"pointer":"default"}}>
-              <div style={{fontSize:14,fontWeight:600,color:T.text}}>All-in cost {pnl&&<span style={{fontSize:11,color:T.blue,fontWeight:600}}>ⓘ breakdown</span>}</div>
-              <div style={{fontSize:11,color:T.textTert}}>
+              <div style={{fontSize:13,fontWeight:600,color:T.text}}>All-in cost {pnl&&<span style={{fontSize:10.5,color:T.blue,fontWeight:600}}>ⓘ breakdown</span>}</div>
+              <div style={{fontSize:10,color:T.textTert}}>
                 {hasManual
                   ?<>manual · <span onClick={e=>{e.stopPropagation();onUpdate(property.id,"qbAllInCost","");}} style={{color:T.blue,cursor:"pointer",fontWeight:600}}>use QuickBooks</span></>
                   :allInLoading?"loading…":"QuickBooks actual spend"}
@@ -11499,14 +11497,14 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
           </div>
           {allInVal==null&&!allInLoading&&<div style={{fontSize:11.5,color:T.textTert,marginTop:4}}>Map this property to its QuickBooks project (QuickBooks tab), or tap ✎ to set a manual amount.</div>}
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderBottom:`1px solid ${T.border}`}}>
-          <span style={{flex:1,fontSize:14,fontWeight:600,color:T.text}}>Total loans</span>{amt(money(totalLoans))}{slot()}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"7px 16px",borderBottom:`1px solid ${T.border}`}}>
+          <span style={{flex:1,fontSize:13,fontWeight:600,color:T.text}}>Total loans</span>{amt(money(totalLoans))}{slot()}
         </div>
         {bsCustom.map(l=>customRow("qbBsCustom",l))}
         {addFor==="qbBsCustom"?addForm("qbBsCustom"):addBtn("qbBsCustom")}
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 16px",background:T.gold+"14"}}>
-          <div style={{flex:1}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Personal equity</div><div style={{fontSize:11,color:T.textTert}}>All-in cost − total loans{bsCustom.length?" + adjustments":""}</div></div>
-          {amt(equity==null?"—":money(equity),{size:19,color:equity==null?T.textTert:(equity>=0?T.green:T.red)})}{slot()}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",background:T.gold+"14"}}>
+          <div style={{flex:1}}><div style={{fontSize:13,fontWeight:800,color:T.gold}}>Personal equity</div><div style={{fontSize:10,color:T.textTert}}>All-in cost − total loans{bsCustom.length?" + adjustments":""}</div></div>
+          {amt(equity==null?"—":money(equity),{size:17,color:equity==null?T.textTert:(equity>=0?T.green:T.red)})}{slot()}
         </div>
       </Card>
 
@@ -11516,9 +11514,9 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
         {reserveRow("LOC pot",`${potIds.length} of ${pinned.length+loanCustom.length} loan${pinned.length+loanCustom.length!==1?"s":""}`,pot,()=>setSectionModal("pot"))}
         {reserveRow("Deployed",`${floatTxns.length+(property.qbFloatCustom||[]).length} item${floatTxns.length+(property.qbFloatCustom||[]).length!==1?"s":""} · down payment, deposit`,floatSum,()=>setSectionModal("float"))}
         {reserveRow("Debt service paid",`${debtTxns.length+(property.qbDebtCustom||[]).length} item${debtTxns.length+(property.qbDebtCustom||[]).length!==1?"s":""}`,debtSum,()=>setSectionModal("debt"))}
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
-          <div style={{flex:1}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Interest Reserve left</div><div style={{fontSize:11,color:T.textTert}}>LOC pot − deployed − debt service</div></div>
-          {amt(money(interestReserve),{size:19,color:interestReserve>=0?T.green:T.red})}{slot()}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+          <div style={{flex:1}}><div style={{fontSize:13,fontWeight:800,color:T.gold}}>Interest Reserve left</div><div style={{fontSize:10,color:T.textTert}}>LOC pot − deployed − debt service</div></div>
+          {amt(money(interestReserve),{size:17,color:interestReserve>=0?T.green:T.red})}{slot()}
         </div>
       </Card>
 

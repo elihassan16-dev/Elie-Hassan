@@ -30,7 +30,9 @@ const scheduleLoad = () => { clearTimeout(loadT); loadT = setTimeout(loadMsgs, 2
 function start() {
   if (started) return;
   started = true;
-  fetch("/api/texting/status", { cache: "no-store" }).then((r) => r.json()).then((s) => {
+  // Authenticated: the server only reports connected:true to admins (the
+  // connected Quo number is the admin's own line for now).
+  qbAuthFetch("/api/texting/status").then((s) => {
     store = { ...store, connected: !!s.connected, from: s.from || "" };
     emit();
     if (s.connected) {

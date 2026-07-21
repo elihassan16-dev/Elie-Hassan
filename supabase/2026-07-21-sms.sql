@@ -1,7 +1,9 @@
 -- Business texting (Quo / OpenPhone): every SMS the company sends or receives,
 -- one row per message, so the app can show real conversation threads on
--- showings, leads, and contacts. Written by the server (service role); the
--- whole team can read. Paste into Supabase -> SQL Editor -> Run. Idempotent.
+-- showings, leads, and contacts. Written by the server (service role).
+-- Admin-only read for now — the connected Quo number is the admin's own line;
+-- opens up per-user once each teammate has their own number.
+-- Paste into Supabase -> SQL Editor -> Run. Idempotent.
 
 create table if not exists public.sms_messages (
   id         text primary key,
@@ -20,7 +22,7 @@ begin
     execute format('drop policy if exists %I on public.sms_messages', pol.policyname);
   end loop;
 end $$;
-create policy sms_messages_select on public.sms_messages for select to authenticated using (public.is_team());
+create policy sms_messages_select on public.sms_messages for select to authenticated using (public.is_admin());
 create policy sms_messages_delete on public.sms_messages for delete to authenticated using (public.is_admin());
 
 -- Live updates: replies pop into open threads instantly.

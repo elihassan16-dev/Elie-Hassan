@@ -2381,7 +2381,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS }=useData();
   // Business texting (Quo): when connected, Text/template buttons open a real
   // in-app conversation sent from the company line; otherwise sms: links as before.
-  const {connected:smsOn}=useSmsTexting();
+  const {connected:smsOn,threadFor}=useSmsTexting();
   const[smsPop,setSmsPop]=useState(null); // {phone,name,rowKey,kind}
   const all=showings||[];
   const address=`${property.address}${property.city?`, ${property.city}`:""}`;
@@ -2546,18 +2546,70 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       </span>
     );
   };
-  // Actions for one phone number — plain Text (no template) + the two templates.
-  const phoneActions=(ph,name,rowKey)=>(
-    <div style={{marginTop:8}}>
-      <div style={{fontSize:12,color:T.textSub,marginBottom:5,display:"flex",alignItems:"center",gap:7}}>{ph} <SmsBadge phone={ph}/></div>
-      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        <CallA phone={ph} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>{emo("📞")} Call</CallA>
-        <TextA phone={ph} onInApp={()=>setSmsPop({phone:ph,name,rowKey})} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>{emo("💬")} Text</TextA>
-        {tmplBtn(ph,name,rowKey,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
-        {tmplBtn(ph,name,rowKey,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
+  // Compact per-number row (texting connected): number + reply badge + a small
+  // "last outreach" line on the left, three round icon buttons on the right —
+  // 📞 call · 💬 text (templates live inside the conversation) · 🗨 team note.
+  // Without texting (members), the old labeled pills incl. template links stay.
+  const icoS={width:32,height:32,borderRadius:16,border:`1px solid ${T.border}`,background:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",textDecoration:"none",flexShrink:0,position:"relative",boxSizing:"border-box",lineHeight:1,fontFamily:"inherit",padding:0};
+  const fmtDT=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
+  // When did we last reach out to this number, and how? Newest of the template
+  // stamps and the business-line thread — on the row, so nobody has to open the
+  // conversation just to check.
+  const outreachLine=(ph,rowKey)=>{
+    const t=showingTexts[rowKey]||{};
+    const th=smsOn?threadFor(ph):[];
+    const lastOut=[...th].reverse().find(m=>m.direction!=="in");
+    const lastIn=[...th].reverse().find(m=>m.direction==="in");
+    const ev=[
+      t.initial&&{label:"Initial text",at:t.initial},
+      t.followup&&{label:"Follow-up text",at:t.followup},
+      lastOut&&{label:"",at:lastOut.at},
+    ].filter(Boolean).sort((a,b)=>new Date(b.at)-new Date(a.at))[0];
+    if(!ev)return <div style={{fontSize:10,color:T.textTert,marginTop:2}}>No outreach yet</div>;
+    return(
+      <div style={{fontSize:10,color:T.textSub,marginTop:2}}>
+        ↗ You {ev.label?<>sent the <b style={{color:"#8a6d1f"}}>{ev.label}</b></>:"texted"} · {fmtDT(ev.at)}
+        {lastIn&&<> &nbsp;·&nbsp; ↙ they replied {fmtDT(lastIn.at)}</>}
       </div>
-    </div>
-  );
+    );
+  };
+  const msgIco=(meta)=>{
+    const msgs=threadMsgs(meta.key);
+    const unread=msgs.some(m=>isUnreadForUser(m,CURRENT_USER));
+    return(
+      <button onClick={()=>openThread(meta.key,meta.label,meta.snap)} title="Message your team about this person" style={{...icoS,border:`1px solid ${msgs.length?T.gold:T.border}`,background:msgs.length?T.goldLight:"#fff"}}>
+        🗨{msgs.length>0&&<span style={{position:"absolute",top:-4,right:-4,minWidth:14,height:14,borderRadius:7,background:unread?T.red:T.gold,color:"#fff",fontSize:8.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px",boxSizing:"border-box"}}>{msgs.length}</span>}
+      </button>
+    );
+  };
+  const phoneActions=(ph,name,rowKey,msgMeta)=>{
+    if(!smsOn)return(
+      <div style={{marginTop:8}}>
+        <div style={{fontSize:12,color:T.textSub,marginBottom:5,display:"flex",alignItems:"center",gap:7}}>{ph} <SmsBadge phone={ph}/></div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <CallA phone={ph} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>{emo("📞")} Call</CallA>
+          <TextA phone={ph} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>{emo("💬")} Text</TextA>
+          {tmplBtn(ph,name,rowKey,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
+          {tmplBtn(ph,name,rowKey,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
+        </div>
+      </div>
+    );
+    const t=showingTexts[rowKey]||{};
+    const anySent=!!(t.initial||t.followup);
+    return(
+      <div style={{marginTop:8,display:"flex",alignItems:"center",gap:7}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:12.5,fontWeight:600,color:T.text,display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>{ph} <SmsBadge phone={ph}/></div>
+          {outreachLine(ph,rowKey)}
+        </div>
+        <CallA phone={ph} title="Call" style={icoS}>📞</CallA>
+        <TextA phone={ph} title="Text — conversation & templates" onInApp={()=>setSmsPop({phone:ph,name,rowKey})} style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
+          💬{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:8,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
+        </TextA>
+        {msgMeta&&msgIco(msgMeta)}
+      </div>
+    );
+  };
   const Row=(s)=>{
     const phones=[...parseShowingPhones(s.phone),...extraPhones(s)];
     const leadKey=leadMap[showingKey(s)]||"";
@@ -2576,9 +2628,9 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         {s.email&&<div><a href={`mailto:${s.email}`} style={{fontSize:12,color:T.textSub,textDecoration:"none"}}>{s.email}</a></div>}
         <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           {leadSelect(leadKey,e=>setLead(s,e.target.value),lead)}
-          {msgBtn(showingKey(s),`Showing — ${s.agent||"agent"}`,{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""})}
+          {(!smsOn||phones.length===0)&&msgBtn(showingKey(s),`Showing — ${s.agent||"agent"}`,{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""})}
         </div>
-        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,s.agent,showingKey(s))}</div>)}
+        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,s.agent,showingKey(s),{key:showingKey(s),label:`Showing — ${s.agent||"agent"}`,snap:{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""}})}</div>)}
         {!s.agent&&phones.length===0&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>}
         {addNumberUI(showingKey(s),()=>addShowingPhone(s))}
       </div>
@@ -2596,9 +2648,9 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         <div style={{fontSize:14,fontWeight:600,color:T.text}}>{l.name||"(no name)"}</div>
         <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           {leadSelect(l.lead||"",e=>setCustomStatus(l.id,e.target.value),lead)}
-          {msgBtn("lead-"+l.id,`Lead — ${l.name||"lead"}`,{agent:l.name||"",phone:l.phone||"",start:l.at||""})}
+          {(!smsOn||phones.length===0)&&msgBtn("lead-"+l.id,`Lead — ${l.name||"lead"}`,{agent:l.name||"",phone:l.phone||"",start:l.at||""})}
         </div>
-        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,l.name,"lead-"+l.id)}</div>)}
+        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,l.name,"lead-"+l.id,{key:"lead-"+l.id,label:`Lead — ${l.name||"lead"}`,snap:{agent:l.name||"",phone:l.phone||"",start:l.at||""}})}</div>)}
         {phones.length===0&&<div style={{fontSize:12,color:T.textTert,marginTop:6}}>No phone number.</div>}
         {addNumberUI("lead-"+l.id,()=>addLeadPhone(l))}
       </div>
@@ -2678,6 +2730,8 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         {kind:"initial",label:"Initial intro",text:showingMessage("initial",smsPop.name,address)},
         {kind:"followup",label:"Follow-up",text:showingMessage("followup",smsPop.name,address)},
       ]}
+      sentStamps={showingTexts[smsPop.rowKey]||{}}
+      onClearStamp={(kind)=>smsPop.rowKey&&clearText(smsPop.rowKey,kind)}
       onSent={(kind)=>{if(kind&&smsPop.rowKey)markText(smsPop.rowKey,kind);}} onClose={()=>setSmsPop(null)}/>}
     {msgFor&&(()=>{
       const first=(msgFor.label.split("—")[1]||"").trim().split(/\s+/)[0]||"them";

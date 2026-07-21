@@ -507,8 +507,22 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   };
   // Contractor-submitted change-order requests: approving one is what actually
   // moves the contract price (it becomes a real change order).
-  // Pull the contractor off the job: delete the job and everything on it —
-  // tasks, thread, docs — from both sides. The company is told; irreversible.
+  // Remove the CONTRACTOR but keep the job: their portal loses it instantly,
+  // while the scope, tasks, thread, docs and payment history all stay here as
+  // the company's record. Reversible via Restore (it was one status flip).
+  const isRemoved = j.status === "removed";
+  const removeContractor = async () => {
+    const nm = org?.name || "this contractor";
+    if (!window.confirm(`Remove ${nm} from this job?\n\nThe job disappears from their portal immediately. Everything — scope, tasks, messages, documents, payments — stays here as your record. You can restore them later if this was a mistake.`)) return;
+    try { await save("contractor_jobs", { ...j, status: "removed", prevStatus: j.status || "active", removedAt: new Date().toISOString(), removedBy: displayName }); } catch (ex) { window.alert(ex.message || "Couldn't remove the contractor."); return; }
+    notify(null, { toOrg: j.orgId, title: "You've been removed from a job", body: `${j.propertyAddress || ""}${j.title ? ` — ${j.title}` : ""} — reach out to Goldstone with any questions.` });
+  };
+  const restoreContractor = async () => {
+    await save("contractor_jobs", { ...j, status: (j.prevStatus && j.prevStatus !== "removed") ? j.prevStatus : "active", prevStatus: null, removedAt: null, removedBy: null });
+    notify(null, { toOrg: j.orgId, title: "Job restored", body: `${j.propertyAddress || ""}${j.title ? ` — ${j.title}` : ""} is back in your portal.`, url: `/?goto=job:${j.id}` });
+  };
+  // Delete the job and everything on it — tasks, thread, docs — from both
+  // sides. The company is told; irreversible.
   const removeJob = async () => {
     const nm = org?.name || "this contractor";
     if (!window.confirm(`Remove this job from ${nm}?\n\nIt disappears from their portal and yours — the scope, ${jTasks.length} task${jTasks.length === 1 ? "" : "s"}, ${thread.length} message${thread.length === 1 ? "" : "s"}, ${jDocs.length} document${jDocs.length === 1 ? "" : "s"}, and all payment records on it are deleted. This can't be undone.`)) return;
@@ -609,8 +623,14 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           <button key={k} onClick={() => setTab2(k)} style={{ padding: "7px 15px", borderRadius: 18, border: `1px solid ${tab2 === k ? T.gold : T.border}`, background: tab2 === k ? T.goldLight : "#fff", color: tab2 === k ? "#8a6d1f" : T.textSub, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
         ))}
         <div style={{ flex: 1 }} />
-        {isAdmin && <button onClick={() => save("contractor_jobs", { ...j, status: j.status === "complete" ? "active" : "complete" })} style={{ padding: "7px 13px", borderRadius: 18, border: `1px solid ${j.status === "complete" ? T.border : T.green}`, background: j.status === "complete" ? T.bg : "#EDFBF1", color: j.status === "complete" ? T.textSub : "#15803D", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{j.status === "complete" ? "Reopen job" : "✓ Mark complete"}</button>}
+        {isAdmin && !isRemoved && <button onClick={() => save("contractor_jobs", { ...j, status: j.status === "complete" ? "active" : "complete" })} style={{ padding: "7px 13px", borderRadius: 18, border: `1px solid ${j.status === "complete" ? T.border : T.green}`, background: j.status === "complete" ? T.bg : "#EDFBF1", color: j.status === "complete" ? T.textSub : "#15803D", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{j.status === "complete" ? "Reopen job" : "✓ Mark complete"}</button>}
       </div>
+      {isRemoved && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#FFF0EF", border: `1px solid ${T.red}`, borderRadius: 10, padding: "9px 12px" }}>
+          <div style={{ flex: 1, fontSize: 12.5, color: T.red, fontWeight: 700 }}>🚫 {org?.name || "The contractor"} was removed from this job{j.removedAt ? ` ${fmtDate(j.removedAt)}` : ""}{j.removedBy ? ` by ${j.removedBy}` : ""}. All records are kept — their portal no longer shows it.</div>
+          {isAdmin && <button onClick={restoreContractor} style={{ padding: "6px 12px", borderRadius: 14, border: `1px solid ${T.red}`, background: "#fff", color: T.red, fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Restore</button>}
+        </div>
+      )}
       {err2 && <div onClick={() => setErr2("")} style={{ fontSize: 12.5, color: T.red, cursor: "pointer" }}>{err2}</div>}
 
       {tab2 === "overview" && (<>
@@ -695,7 +715,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           </div>
         </div>
         <div>
-          {secHdr("Change orders", isAdmin ? <span style={{ display: "inline-flex", gap: 6 }}>{miniBtn("🧾 Ask them for a price", () => setAskDraft({ label: "" }))}{miniBtn("＋ Change order", () => setCoDraft({ label: "", amount: "", date: today() }))}</span> : null)}
+          {secHdr("Change orders", isAdmin && !isRemoved ? <span style={{ display: "inline-flex", gap: 6 }}>{miniBtn("🧾 Ask them for a price", () => setAskDraft({ label: "" }))}{miniBtn("＋ Change order", () => setCoDraft({ label: "", amount: "", date: today() }))}</span> : null)}
           {askDraft && (
             <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
               <input autoFocus value={askDraft.label} onChange={(e) => setAskDraft({ label: e.target.value })} onKeyDown={(e) => e.key === "Enter" && sendAsk()} placeholder="Scope of work you want priced — e.g. Frame out the basement bathroom" style={{ ...inp, flex: 1, minWidth: 200 }} />
@@ -737,22 +757,29 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
             </div>
           )}
         </div>
-        {/* Danger zone: pull the contractor off this job entirely. Confirmed,
-            then the job and everything hanging off it is deleted on both sides. */}
+        {/* Danger zone. "Remove" pulls the contractor but keeps every record;
+            "Delete" erases the job and everything on it from both sides. */}
         {isAdmin && (
-          <button onClick={removeJob} style={{ marginTop: 4, padding: "10px", borderRadius: T.radiusSm, border: `1px solid ${T.red}`, background: "#FFF0EF", color: T.red, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
-            🗑 Remove this job from {org?.name || "the contractor"}
-          </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+            {!isRemoved && (
+              <button onClick={removeContractor} style={{ padding: "10px", borderRadius: T.radiusSm, border: `1px solid ${T.red}`, background: "#fff", color: T.red, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+                🚫 Remove {org?.name || "the contractor"} from this job — keep all records
+              </button>
+            )}
+            <button onClick={removeJob} style={{ padding: "10px", borderRadius: T.radiusSm, border: `1px solid ${T.red}`, background: "#FFF0EF", color: T.red, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+              🗑 Delete this job entirely — erases scope, tasks, messages & payments
+            </button>
+          </div>
         )}
       </>)}
 
       {tab2 === "tasks" && (<>
         <div>
           {secHdr(`Tasks for ${org?.name || "them"}`)}
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          {!isRemoved && <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input value={taskDraft} onChange={(e) => setTaskDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder="Delegate a task to them…" style={{ ...inp, flex: 1 }} />
             <button onClick={addTask} style={goldBtn(!!taskDraft.trim())}>Add</button>
-          </div>
+          </div>}
           {toThem.map((t) => (
             <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
               {statusPill(t)}
@@ -817,13 +844,13 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
         </div>
         {replyTo && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderLeft: `3px solid ${T.gold}`, borderRadius: 8 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? "📎 attachment" : "")}</span><button onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
         {pending && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}`, borderRadius: 10 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pending.pending ? "🎬 " : "📎 "}{pending.name}{pending.pending ? " — uploading in background, OK to send" : ""}</span><button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+        {isRemoved ? <div style={{ fontSize: 12.5, color: T.textTert, textAlign: "center", padding: "8px 0" }}>Contractor removed — the thread is kept as a record. Restore them to message again.</div> : <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
           <input ref={attRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
           <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 15, cursor: "pointer" }}>📎</button>
           <textarea rows={1} value={msgDraft} onChange={(e) => setMsgDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} placeholder={`Message ${org?.name}…`} disabled={busy}
             style={{ flex: 1, minWidth: 0, padding: "10px 13px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, fontSize: 14, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 110, boxSizing: "border-box" }} />
           <button onClick={sendMsg} disabled={(!msgDraft.trim() && !pending) || busy} style={goldBtn(!!(msgDraft.trim() || pending) && !busy)}>Send</button>
-        </div>
+        </div>}
       </>)}
       {scopeEdit && <ScopeEditModal j={j} save={save} displayName={displayName} onClose={() => setScopeEdit(false)} />}
       {qbPick && qbProjectId && <QBPayPicker qbProjectId={qbProjectId} orgName={org?.name || ""} existingQbIds={(j.payments || []).map((p) => p.qbId).filter(Boolean)} onAdd={applyQb} onClose={() => setQbPick(false)} />}
@@ -847,7 +874,7 @@ export function ContractorsAdminPage() {
 
   const orgList = (orgs || []).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   const org = orgList.find((o) => String(o.id) === String(selOrgId)) || null;
-  const orgJobs = (jobs || []).filter((j) => org && j.orgId === String(org.id)).sort((a, b) => (a.status === "complete") - (b.status === "complete") || String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const orgJobs = (jobs || []).filter((j) => org && j.orgId === String(org.id)).sort((a, b) => ((a.status === "complete" || a.status === "removed") ? 1 : 0) - ((b.status === "complete" || b.status === "removed") ? 1 : 0) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const openJob = orgJobs.find((j) => String(j.id) === String(openJobId)) || null;
   const properties = (sharedProps || []).filter((p) => !p.archived).sort((a, b) => (a.address || "").localeCompare(b.address || ""));
 
@@ -870,7 +897,7 @@ export function ContractorsAdminPage() {
         <div style={{ flex: 1, overflowY: "auto" }}>
           {orgList.length === 0 && orgs !== null && <div style={{ padding: 24, textAlign: "center", color: T.textTert, fontSize: 13 }}>Add your first contractor company — then create their login and jobs.</div>}
           {orgList.map((o) => {
-            const n = (jobs || []).filter((jj) => jj.orgId === String(o.id) && jj.status !== "complete").length;
+            const n = (jobs || []).filter((jj) => jj.orgId === String(o.id) && jj.status !== "complete" && jj.status !== "removed").length;
             const on = String(selOrgId) === String(o.id);
             return (
               <div key={o.id} onClick={() => setSelOrgId(String(o.id))} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on ? T.goldLight : "transparent" }}>
@@ -921,13 +948,13 @@ export function ContractorsAdminPage() {
                 const total = jobTotal(j), paid = jobPaid(j), days = jobDays(j);
                 const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.status !== "Completed").length;
                 return (
-                  <div key={j.id} onClick={() => setOpenJobId(j.id)} style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "13px 16px", marginBottom: 10, cursor: "pointer", opacity: j.status === "complete" ? 0.65 : 1 }}>
+                  <div key={j.id} onClick={() => setOpenJobId(j.id)} style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "13px 16px", marginBottom: 10, cursor: "pointer", opacity: (j.status === "complete" || j.status === "removed") ? 0.65 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14.5, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress}{j.title ? ` — ${j.title}` : ""}</div>
                         <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>{money(paid)} of {money(total)} paid · {money(jobLeft(j))} left{days != null && j.status !== "complete" ? ` · day ${days}` : ""}{openT ? ` · ${openT} open task${openT !== 1 ? "s" : ""}` : ""}</div>
                       </div>
-                      {j.status === "complete" ? <span style={{ fontSize: 10, fontWeight: 800, background: T.bg, color: T.textSub, borderRadius: 14, padding: "3px 9px", flexShrink: 0 }}>DONE</span> : <span style={{ fontSize: 15, color: T.textTert, flexShrink: 0 }}>›</span>}
+                      {j.status === "removed" ? <span style={{ fontSize: 10, fontWeight: 800, background: "#FFF0EF", color: T.red, borderRadius: 14, padding: "3px 9px", flexShrink: 0 }}>REMOVED</span> : j.status === "complete" ? <span style={{ fontSize: 10, fontWeight: 800, background: T.bg, color: T.textSub, borderRadius: 14, padding: "3px 9px", flexShrink: 0 }}>DONE</span> : <span style={{ fontSize: 15, color: T.textTert, flexShrink: 0 }}>›</span>}
                     </div>
                   </div>
                 );

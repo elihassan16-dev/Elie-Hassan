@@ -129,30 +129,30 @@ function PhoneChooser({ phone, mode, onInApp, onClose }) {
 // otherwise they behave exactly like the plain links they replace. TextA's
 // optional onInApp opens the in-app thread as the "business line" choice
 // (and stays the direct desktop behavior, as before).
-export function CallA({ phone, style, children }) {
+export function CallA({ phone, style, title, children }) {
   const { connected } = useSmsTexting();
   const [choose, setChoose] = useState(false);
   const digits = String(phone || "").replace(/[^\d+]/g, "");
   return (<>
-    <a href={`tel:${digits}`} onClick={connected && IS_PHONE ? (e) => { e.preventDefault(); e.stopPropagation(); setChoose(true); } : undefined} style={style}>{children}</a>
+    <a href={`tel:${digits}`} title={title} onClick={connected && IS_PHONE ? (e) => { e.preventDefault(); e.stopPropagation(); setChoose(true); } : undefined} style={style}>{children}</a>
     {choose && <PhoneChooser phone={phone} mode="call" onClose={() => setChoose(false)} />}
   </>);
 }
 
-export function TextA({ phone, style, onInApp, children }) {
+export function TextA({ phone, style, title, onInApp, children }) {
   const { connected } = useSmsTexting();
   const [choose, setChoose] = useState(false);
   const digits = String(phone || "").replace(/[^\d+]/g, "");
   const intercept = connected && (IS_PHONE || !!onInApp);
   return (<>
-    <a href={`sms:${digits}`} onClick={intercept ? (e) => { e.preventDefault(); e.stopPropagation(); if (IS_PHONE) setChoose(true); else onInApp(); } : undefined} style={style}>{children}</a>
+    <a href={`sms:${digits}`} title={title} onClick={intercept ? (e) => { e.preventDefault(); e.stopPropagation(); if (IS_PHONE) setChoose(true); else onInApp(); } : undefined} style={style}>{children}</a>
     {choose && <PhoneChooser phone={phone} mode="text" onInApp={onInApp} onClose={() => setChoose(false)} />}
   </>);
 }
 
 // The conversation popup: full back-and-forth with one number, template chips,
 // and a composer that sends from the company line.
-export function SmsThreadPopup({ phone, name, templates = [], initialKind = null, onSent, onClose }) {
+export function SmsThreadPopup({ phone, name, templates = [], initialKind = null, sentStamps = {}, onClearStamp, onSent, onClose }) {
   const { from, threadFor, send } = useSmsTexting();
   const init = templates.find((t) => t.kind === initialKind);
   const [draft, setDraft] = useState(init ? init.text : "");
@@ -202,9 +202,21 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
           {err && <div style={{ fontSize: 11.5, color: T.red, fontWeight: 600, marginBottom: 6 }}>{err}</div>}
           {templates.length > 0 && (
             <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 8, paddingBottom: 2 }}>
-              {templates.map((t) => (
-                <button key={t.kind} onClick={() => { setDraft(t.text); setKind(t.kind); }} style={{ whiteSpace: "nowrap", flexShrink: 0, fontSize: 11.5, fontWeight: 700, padding: "5px 11px", borderRadius: 16, border: `1px solid ${kind === t.kind ? T.gold : T.border}`, background: kind === t.kind ? T.goldLight : "#fff", color: kind === t.kind ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit" }}>{t.label}</button>
-              ))}
+              {templates.map((t) => {
+                const sent = sentStamps[t.kind];
+                const sentD = sent ? (() => { try { return new Date(sent).toLocaleDateString(undefined, { month: "short", day: "numeric" }); } catch { return ""; } })() : "";
+                const active = kind === t.kind;
+                return (
+                  <span key={t.kind} style={{ display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+                    <button onClick={() => { setDraft(t.text); setKind(t.kind); }}
+                      title={sent ? `${t.label} sent ${sentD} — tap to load it again` : `Load the ${t.label.toLowerCase()} text`}
+                      style={{ whiteSpace: "nowrap", fontSize: 11.5, fontWeight: 700, padding: "5px 11px", borderRadius: 16, border: `1px solid ${sent ? "#3BA55D" : active ? T.gold : T.border}`, background: sent ? "#EDFBF1" : active ? T.goldLight : "#fff", color: sent ? "#15803D" : active ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit" }}>
+                      {sent ? `✓ ${t.label} · sent ${sentD}` : t.label}
+                    </button>
+                    {sent && onClearStamp && <button onClick={() => { if (window.confirm(`Clear the "${t.label} sent" mark?`)) onClearStamp(t.kind); }} title="Clear the sent mark" style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "0 2px" }}>×</button>}
+                  </span>
+                );
+              })}
             </div>
           )}
           <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>

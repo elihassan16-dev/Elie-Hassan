@@ -8,7 +8,7 @@ import { supabase } from "./supabaseClient";
 import { qbAuthFetch } from "./net";
 import { T } from "./theme";
 
-const e164 = (n) => {
+export const e164 = (n) => {
   const d = String(n || "").replace(/[^\d+]/g, "");
   if (d.startsWith("+")) return d;
   if (d.length === 10) return "+1" + d;
@@ -62,7 +62,7 @@ export function useSmsTexting() {
     await qbAuthFetch("/api/texting/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, message: text }) });
     setTimeout(loadMsgs, 500);
   };
-  return { connected: store.connected, from: store.from, threadFor, statusFor, send };
+  return { connected: store.connected, from: store.from, msgs, threadFor, statusFor, send };
 }
 
 // Tiny thread-status badge for lists: ⏳ we texted, no reply yet · 💬 they replied.
@@ -74,6 +74,59 @@ export function SmsBadge({ phone }) {
   return st === "awaiting"
     ? <span title="Text sent — waiting on their reply" style={{ fontSize: 10.5, fontWeight: 800, color: "#B45309", background: "#FDE9C8", borderRadius: 12, padding: "2px 7px", whiteSpace: "nowrap" }}>⏳ no reply</span>
     : <span title="They replied — open the conversation" style={{ fontSize: 10.5, fontWeight: 800, color: "#15803D", background: "#EDFBF1", borderRadius: 12, padding: "2px 7px", whiteSpace: "nowrap" }}>💬 replied</span>;
+}
+
+const fmtPhone = (p) => {
+  const d = String(p || "").replace(/\D/g, "");
+  const n = d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
+  return n.length === 10 ? `(${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}` : String(p || "");
+};
+
+// The Texts inbox: every SMS conversation on the business line, newest first.
+// Lives in the Messages tab so a text from ANY number — a saved agent or a
+// total stranger — always has a home. Tapping a row opens the full thread.
+export function SmsInboxPanel({ nameFor, onBack, isMobile }) {
+  const { from, msgs, statusFor } = useSmsTexting();
+  const [pop, setPop] = useState(null); // phone of the open thread
+  const byPhone = new Map();
+  (msgs || []).forEach((m) => { const p = e164(m.phone); if (!p) return; if (!byPhone.has(p)) byPhone.set(p, []); byPhone.get(p).push(m); });
+  const threads = [...byPhone.entries()]
+    .map(([phone, list]) => ({ phone, last: list[list.length - 1] }))
+    .sort((a, b) => new Date(b.last.at || 0) - new Date(a.last.at || 0));
+  const fmt = (iso) => { try { const d = new Date(iso), now = new Date(); return d.toDateString() === now.toDateString() ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : d.toLocaleDateString(undefined, { month: "short", day: "numeric" }); } catch { return ""; } };
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: T.bg }}>
+      <div style={{ padding: "13px 16px", borderBottom: `1px solid ${T.border}`, background: "#fff", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+        {isMobile && <button onClick={onBack} style={{ background: "none", border: "none", fontSize: 22, color: T.gold, cursor: "pointer", padding: "0 6px 0 0", lineHeight: 1 }}>‹</button>}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>📱 Texts</div>
+          <div style={{ fontSize: 11, color: T.textSub }}>Business line {fmtPhone(from)} — every text, sent or received, any number</div>
+        </div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {threads.length === 0 && <div style={{ padding: "40px 24px", textAlign: "center", color: T.textTert, fontSize: 13, lineHeight: 1.6 }}>No text conversations yet. Texts you send from Showings — and anything anyone texts to the business line — will show up here.</div>}
+        {threads.map((t) => {
+          const name = (nameFor && nameFor(t.phone)) || "";
+          const mine = t.last.direction !== "in";
+          return (
+            <div key={t.phone} onClick={() => setPop(t.phone)} style={{ padding: "12px 16px", cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: "#fff" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontWeight: 700, fontSize: 13.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{name || fmtPhone(t.phone)}</span>
+                <span style={{ fontSize: 10.5, color: T.textTert, flexShrink: 0 }}>{fmt(t.last.at)}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {name && <span style={{ color: T.textTert }}>{fmtPhone(t.phone)} · </span>}{mine ? `${(t.last.by || "You").split(" ")[0]}: ` : ""}{t.last.text}
+                </div>
+                {statusFor(t.phone) && <SmsBadge phone={t.phone} />}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {pop && <SmsThreadPopup phone={pop} name={(nameFor && nameFor(pop)) || fmtPhone(pop)} onClose={() => setPop(null)} />}
+    </div>
+  );
 }
 
 // The conversation popup: full back-and-forth with one number, template chips,

@@ -16,7 +16,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, SmsBadge, SmsThreadPopup } from "./sms";
+import { useSmsTexting, SmsBadge, SmsThreadPopup, SmsInboxPanel, e164 as smsE164 } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES, openScopePdf } from "./contractors/ContractorPortal";
 import { sowPdfFile } from "./contractors/sowPdf";
@@ -9911,8 +9911,9 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
   );
 }
 const OFFICE_ID="__office__";
+const SMS_ID="__sms__";
 function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}){
-  const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS, officeMessages, setOfficeMessages, officeTasks, setOfficeTasks, flushOfficeTasks } = useData();
+  const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS, contacts:dirContacts, officeMessages, setOfficeMessages, officeTasks, setOfficeTasks, flushOfficeTasks } = useData();
   // Contractor-portal threads surface INSIDE each property's chat (tagged, like
   // showing threads) so the whole team sees contractor conversations in context.
   const { orgs:ctrOrgs, jobs:ctrJobs, messages:ctrMessages, save:ctrSave, remove:ctrRemove } = useContractorData();
@@ -9947,6 +9948,22 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   };
   const officeDelete=(ids)=>{const s=new Set(ids);setOfficeMessages(prev=>prev.filter(m=>!s.has(m.id)));setOfficeTasks(prev=>(prev||[]).map(tk=>(tk.messages||[]).some(m=>s.has(m.id))?{...tk,messages:tk.messages.filter(m=>!s.has(m.id))}:tk));saveOfficeTasks();};
   const isMobile=useIsMobile();
+  // Business-line texting inbox (pinned under Office Chat when connected).
+  const {connected:smsOn,msgs:smsMsgs}=useSmsTexting();
+  // Who is this number? Check each property's saved contacts, showing agents,
+  // and hand-added leads, then the contacts directory — so text threads show
+  // names instead of raw phone numbers whenever we know the person.
+  const smsNameFor=(ph)=>{
+    const p=smsE164(ph);if(!p)return "";
+    const hit=(raw)=>parseShowingPhones(raw).some(x=>smsE164(x)===p);
+    for(const pr of sharedProps||[]){
+      for(const c of pr.contacts||[]) if(c.phone&&hit(c.phone)) return c.name||"";
+      for(const sn of Object.values(pr.showingSnapshots||{})) if(sn.phone&&hit(sn.phone)) return sn.agent||sn.summary||"";
+      for(const l of pr.customLeads||[]) if(l.phone&&hit(l.phone)) return l.name||"";
+    }
+    for(const c of dirContacts||[]) if(c.phone&&hit(c.phone)) return c.name||"";
+    return "";
+  };
   const[selId,setSelId]=useState(initialSelId||null);
   useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);// eslint-disable-line
   const[search,setSearch]=useState("");
@@ -10086,7 +10103,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-      <div style={{width:isMobile?"100%":320,flexShrink:0,display:isMobile&&(sel||selId===OFFICE_ID)?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+      <div style={{width:isMobile?"100%":320,flexShrink:0,display:isMobile&&(sel||selId===OFFICE_ID||selId===SMS_ID)?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{fontWeight:700,fontSize:15,color:T.text,marginBottom:10}}>Messages</div>
           <div style={{position:"relative"}}>
@@ -10115,6 +10132,22 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
               </div>
             );
           })()}
+          {/* Pinned business-line Texts inbox — every SMS thread, saved contact or not */}
+          {smsOn&&(()=>{
+            const isActive=selId===SMS_ID;
+            const last=(smsMsgs||[])[(smsMsgs||[]).length-1];
+            return(
+              <div onClick={()=>setSelId(SMS_ID)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?T.goldLight:T.goldLight+"55",borderLeft:`3px solid ${T.gold}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
+                  <span style={{fontWeight:700,fontSize:13,color:isActive?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>📱 Texts</span>
+                  {last&&<span style={{fontSize:10,color:T.textTert,flexShrink:0}}>{fmtShort(last.at)}</span>}
+                </div>
+                <div style={{marginTop:2,fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {last?<>{last.direction==="in"?`${(smsNameFor(last.phone)||last.phone||"").split(" ")[0]}: `:`${(last.by||"You").split(" ")[0]}: `}{last.text}</>:<span style={{color:T.textTert}}>Texts on the business line</span>}
+                </div>
+              </div>
+            );
+          })()}
           {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No properties.</div>}
           {list.map(({p,last,unread})=>{
             const isActive=p.id===selId;
@@ -10137,8 +10170,10 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
           })}
         </div>
       </div>
-      <div style={{flex:1,display:isMobile&&!sel&&selId!==OFFICE_ID?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
-        {selId===OFFICE_ID
+      <div style={{flex:1,display:isMobile&&!sel&&selId!==OFFICE_ID&&selId!==SMS_ID?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
+        {selId===SMS_ID
+          ? <SmsInboxPanel nameFor={smsNameFor} onBack={()=>setSelId(null)} isMobile={isMobile}/>
+          : selId===OFFICE_ID
           ? <MessageThread property={{id:OFFICE_ID,address:"📌 Office Chat",city:"",status:"",tasks:officeTasks||[]}} messages={officeSorted} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={officeSend} onDelete={officeDelete} onBack={()=>setSelId(null)} isMobile={isMobile}/>
           : sel
           ? <MessageThread property={sel} messages={mergedFor(sel).sort((a,b)=>msgTime(a.at)-msgTime(b.at))} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={send} onDelete={deleteMessages} onDeleteMedia={deleteMedia} onBack={()=>setSelId(null)} isMobile={isMobile} onUpdateProp={(id,key,val)=>setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p))}/>
@@ -14023,7 +14058,7 @@ export function GoldstoneShell(){
     const i=pendingGoto.indexOf(":");
     const kind=i<0?pendingGoto:pendingGoto.slice(0,i),id=i<0?"":pendingGoto.slice(i+1);
     if(kind==="tasks"){setActive("tasks");setPendingGoto(null);return;}
-    if(kind==="chat"&&id==="__office__"){setActive("messages");setNavChatId("__office__");setPendingGoto(null);return;}
+    if(kind==="chat"&&(id==="__office__"||id==="__sms__")){setActive("messages");setNavChatId(id);setPendingGoto(null);return;}
     if(kind==="chat"||kind==="prop"){
       const p=(sharedProps||[]).find(x=>String(x.id)===String(id));
       if(p){setActive(kind==="chat"?"messages":"properties");(kind==="chat"?setNavChatId:setNavPropId)(p.id);setPendingGoto(null);}

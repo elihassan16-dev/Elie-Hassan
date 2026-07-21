@@ -10,7 +10,7 @@ import { notify, uploadAttachment, qbAuthFetch, STREAM_VIDEO_CAP } from "../net"
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "../push";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble, resumeVideoUploads } from "../videoUpload";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
-import { MicIcon } from "../icons";
+import { MicIcon, TeamChatIcon } from "../icons";
 import { MediaGallery, collectMedia } from "../MediaGallery";
 import { openSowPdf } from "./sowPdf";
 import { ContactShareModal, ContactCardBubble } from "../contactShare";
@@ -533,7 +533,7 @@ export function ContractorPortal() {
                     <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.textSub }}>{r.label}</span>
                     <b>{money(r.amount)}</b>
                     <span style={{ fontSize: 10, fontWeight: 800, color: fg, background: bg, borderRadius: 12, padding: "2px 8px", flexShrink: 0 }}>{txt}</span>
-                    <button onClick={() => { setMsgTarget({ id: `co:${r.id}`, text: `🧾 ${r.label}` }); setTab("messages"); }} title="Message Goldstone about this change order" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 12, color: "#8a6d1f", cursor: "pointer", fontSize: 12, padding: "3px 8px", flexShrink: 0, fontFamily: "inherit" }}>💬</button>
+                    <button onClick={() => { setMsgTarget({ id: `co:${r.id}`, text: `🧾 ${r.label}` }); setTab("messages"); }} title="Message Goldstone about this change order" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 12, color: "#8a6d1f", cursor: "pointer", fontSize: 12, padding: "3px 8px", flexShrink: 0, fontFamily: "inherit", display: "inline-flex", alignItems: "center" }}><TeamChatIcon size={13}/></button>
                   </div>
                 );
               })}
@@ -661,7 +661,7 @@ export function ContractorPortal() {
                 <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: taskClosed(t.status) ? 0.6 : 1 }}>{t.text}</div>
                 <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdBy ? `from ${t.createdBy.split(" ")[0]} · ` : ""}{t.createdAt ? fmtDate(t.createdAt) : ""}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${(t.statusBy || t.doneBy).split(" ")[0]}` : ""}</div>
               </div>
-              <button onClick={() => { setMsgTarget({ id: t.id, text: t.text }); setTab("messages"); }} title="Message Goldstone about this task" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 12, color: "#8a6d1f", cursor: "pointer", fontSize: 12, padding: "4px 9px", flexShrink: 0, fontFamily: "inherit" }}>💬</button>
+              <button onClick={() => { setMsgTarget({ id: t.id, text: t.text }); setTab("messages"); }} title="Message Goldstone about this task" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 12, color: "#8a6d1f", cursor: "pointer", fontSize: 12, padding: "4px 9px", flexShrink: 0, fontFamily: "inherit", display: "inline-flex", alignItems: "center" }}><TeamChatIcon size={13}/></button>
               <StatusPill t={t} onSet={setTaskStatus} />
             </div>
           ))}
@@ -687,7 +687,7 @@ export function ContractorPortal() {
                 <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: taskClosed(t.status) ? 0.6 : 1 }}>{t.text}</div>
                 <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdAt ? fmtDate(t.createdAt) : ""}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${(t.statusBy || t.doneBy).split(" ")[0]}` : ""}</div>
               </div>
-              <button onClick={() => { setMsgTarget({ id: t.id, text: t.text }); setTab("messages"); }} title="Message Goldstone about this request" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 12, color: "#8a6d1f", cursor: "pointer", fontSize: 12, padding: "4px 9px", flexShrink: 0, fontFamily: "inherit" }}>💬</button>
+              <button onClick={() => { setMsgTarget({ id: t.id, text: t.text }); setTab("messages"); }} title="Message Goldstone about this request" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 12, color: "#8a6d1f", cursor: "pointer", fontSize: 12, padding: "4px 9px", flexShrink: 0, fontFamily: "inherit", display: "inline-flex", alignItems: "center" }}><TeamChatIcon size={13}/></button>
               <StatusPill t={t} onSet={setTaskStatus} />
             </div>
           ))}

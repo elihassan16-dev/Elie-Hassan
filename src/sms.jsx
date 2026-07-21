@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { qbAuthFetch } from "./net";
 import { T } from "./theme";
+import { SmsChatIcon } from "./icons";
 
 const e164 = (n) => {
   const d = String(n || "").replace(/[^\d+]/g, "");
@@ -17,6 +18,9 @@ const e164 = (n) => {
 };
 
 let store = { connected: null, from: "", msgs: null };
+// Per-user "last read" time per conversation (keyed by E.164 number), saved in
+// the account's metadata so read/unread follows you across phone and computer.
+let readMap = {};
 const listeners = new Set();
 const emit = () => listeners.forEach((fn) => { try { fn(); } catch { /* consumer gone */ } });
 let started = false, loadT = null;
@@ -37,12 +41,22 @@ function start() {
     emit();
     if (s.connected) {
       loadMsgs();
+      supabase.auth.getUser().then(({ data }) => { readMap = (data?.user?.user_metadata?.smsRead) || {}; emit(); }).catch(() => {});
       const ch = supabase.channel("sms-shared");
       ch.on("postgres_changes", { event: "*", schema: "public", table: "sms_messages" }, scheduleLoad);
       ch.subscribe();
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") scheduleLoad(); });
     }
   }).catch(() => { store = { ...store, connected: false }; emit(); });
+}
+
+// Opening a conversation marks it read (for this account, on every device).
+function markThreadRead(phone) {
+  const p = e164(phone);
+  if (!p) return;
+  readMap = { ...readMap, [p]: new Date().toISOString() };
+  emit();
+  supabase.auth.updateUser({ data: { smsRead: readMap } }).catch(() => {});
 }
 
 export function useSmsTexting() {
@@ -60,22 +74,33 @@ export function useSmsTexting() {
     if (!t.length) return "";
     return t[t.length - 1].direction === "in" ? "replied" : "awaiting";
   };
+  // Incoming texts newer than the last time this user opened the conversation.
+  const unreadFor = (ph) => {
+    const p = e164(ph);
+    if (!p) return 0;
+    const since = readMap[p] || "";
+    return threadFor(p).filter((m) => m.direction === "in" && String(m.at || "") > since).length;
+  };
   const send = async (to, text) => {
     await qbAuthFetch("/api/texting/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, message: text }) });
     setTimeout(loadMsgs, 500);
   };
-  return { connected: store.connected, from: store.from, threadFor, statusFor, send };
+  return { connected: store.connected, from: store.from, threadFor, statusFor, unreadFor, send };
 }
 
-// Tiny thread-status badge for lists: ⏳ we texted, no reply yet · 💬 they replied.
+// Tiny thread-status badge for lists: ⏳ we texted, no reply yet · replied
+// (green) · NEW REPLY (red) until the conversation is opened.
 export function SmsBadge({ phone }) {
-  const { connected, statusFor } = useSmsTexting();
+  const { connected, statusFor, unreadFor } = useSmsTexting();
   if (!connected) return null;
   const st = statusFor(phone);
   if (!st) return null;
+  const pill = { display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 800, borderRadius: 12, padding: "2px 7px", whiteSpace: "nowrap" };
+  if (st === "replied" && unreadFor(phone) > 0)
+    return <span title="New reply you haven't read — open the conversation" style={{ ...pill, color: "#fff", background: T.red }}><SmsChatIcon size={10} color="#fff" strokeWidth={2.5} /> new reply</span>;
   return st === "awaiting"
-    ? <span title="Text sent — waiting on their reply" style={{ fontSize: 10.5, fontWeight: 800, color: "#B45309", background: "#FDE9C8", borderRadius: 12, padding: "2px 7px", whiteSpace: "nowrap" }}>⏳ no reply</span>
-    : <span title="They replied — open the conversation" style={{ fontSize: 10.5, fontWeight: 800, color: "#15803D", background: "#EDFBF1", borderRadius: 12, padding: "2px 7px", whiteSpace: "nowrap" }}>💬 replied</span>;
+    ? <span title="Text sent — waiting on their reply" style={{ ...pill, color: "#B45309", background: "#FDE9C8" }}>⏳ no reply</span>
+    : <span title="They replied — open the conversation" style={{ ...pill, color: "#15803D", background: "#EDFBF1" }}><SmsChatIcon size={10} color="#15803D" strokeWidth={2.5} /> replied</span>;
 }
 
 // ─── "Which phone?" chooser ──────────────────────────────────────────────────
@@ -91,34 +116,61 @@ const fmtPhone = (p) => {
   return n.length === 10 ? `(${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}` : String(p || "");
 };
 
-function PhoneChooser({ phone, mode, onInApp, onClose }) {
+const smsHref = (phone, body) => {
+  const clean = String(phone || "").replace(/[^\d+]/g, "");
+  if (!body) return `sms:${clean}`;
+  const sep = (typeof navigator !== "undefined" && /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent)) ? "&" : "?"; // iOS wants &body=
+  return `sms:${clean}${sep}body=${encodeURIComponent(body)}`;
+};
+
+function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClose }) {
   const { from } = useSmsTexting();
   const digits = String(phone || "").replace(/[^\d+]/g, "");
+  // For texting with templates on offer, "My phone" opens a second step:
+  // blank text or one of the templates, prefilled into the Messages app.
+  const [step, setStep] = useState("main");
   const go = (href) => { onClose(); window.location.href = href; };
   const opt = { display: "flex", alignItems: "center", gap: 13, width: "100%", padding: "13px 15px", borderRadius: 14, border: `1px solid ${T.border}`, background: "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left", boxSizing: "border-box" };
   return (
     <div onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 470, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 14, boxSizing: "border-box", backdropFilter: "blur(4px)" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: T.bg, borderRadius: 20, width: "min(420px,96vw)", padding: 12, boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 8, marginBottom: "env(safe-area-inset-bottom)", boxShadow: "0 12px 48px rgba(0,0,0,0.3)" }}>
-        <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px" }}>{mode === "call" ? "📞 Call" : "💬 Text"} {fmtPhone(phone)} using…</div>
-        <button style={opt} onClick={() => {
-          if (mode === "call") go(`openphone://dial?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}&action=call`);
-          else if (onInApp) { onClose(); onInApp(); }
-          else go(`openphone://message?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}`);
-        }}>
-          <span style={{ fontSize: 22, flexShrink: 0 }}>💼</span>
-          <span style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Business line{from ? ` · ${fmtPhone(from)}` : ""}</div>
-            <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Opens the Quo app — they see the company number" : onInApp ? "Right here in the app — saved to the conversation" : "Opens the Quo app — sends from the company number"}</div>
-          </span>
-        </button>
-        <button style={opt} onClick={() => go(mode === "call" ? `tel:${digits}` : `sms:${digits}`)}>
-          <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
-          <span style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My phone</div>
-            <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Regular call from this phone's own number" : "Messages app — from this phone's own number"}</div>
-          </span>
-        </button>
-        <button onClick={onClose} style={{ ...opt, justifyContent: "center", background: T.bg, border: "none", fontWeight: 700, fontSize: 13.5, color: T.textSub, padding: "10px 15px" }}>Cancel</button>
+        {step === "main" ? (<>
+          <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px", display: "flex", alignItems: "center", gap: 6 }}>{mode === "call" ? "📞 Call" : <><SmsChatIcon size={13} color="#15803D" /> Text</>} {fmtPhone(phone)} using…</div>
+          <button style={opt} onClick={() => {
+            if (mode === "call") go(`openphone://dial?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}&action=call`);
+            else if (onInApp) { onClose(); onInApp(); }
+            else go(`openphone://message?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}`);
+          }}>
+            <span style={{ fontSize: 22, flexShrink: 0 }}>💼</span>
+            <span style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Business line{from ? ` · ${fmtPhone(from)}` : ""}</div>
+              <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Opens the Quo app — they see the company number" : onInApp ? "Right here in the app — templates & history inside" : "Opens the Quo app — sends from the company number"}</div>
+            </span>
+          </button>
+          <button style={opt} onClick={() => { if (mode === "text" && templates.length) setStep("personal"); else go(mode === "call" ? `tel:${digits}` : `sms:${digits}`); }}>
+            <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
+            <span style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My phone</div>
+              <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Regular call from this phone's own number" : `Messages app — from this phone's own number${templates.length ? ", blank or a template" : ""}`}</div>
+            </span>
+          </button>
+        </>) : (<>
+          <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px" }}>📱 Text from my phone — start with…</div>
+          <button style={opt} onClick={() => go(smsHref(phone))}>
+            <span style={{ fontSize: 20, flexShrink: 0 }}>✏️</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Blank text</span>
+          </button>
+          {templates.map((t) => (
+            <button key={t.kind} style={opt} onClick={() => { onTemplate && onTemplate(t.kind); go(smsHref(phone, t.text)); }}>
+              <span style={{ fontSize: 20, flexShrink: 0 }}>📋</span>
+              <span style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{t.label}</div>
+                <div style={{ fontSize: 11, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.text}</div>
+              </span>
+            </button>
+          ))}
+        </>)}
+        <button onClick={step === "main" ? onClose : () => setStep("main")} style={{ ...opt, justifyContent: "center", background: T.bg, border: "none", fontWeight: 700, fontSize: 13.5, color: T.textSub, padding: "10px 15px" }}>{step === "main" ? "Cancel" : "‹ Back"}</button>
       </div>
     </div>
   );
@@ -139,14 +191,14 @@ export function CallA({ phone, style, title, children }) {
   </>);
 }
 
-export function TextA({ phone, style, title, onInApp, children }) {
+export function TextA({ phone, style, title, onInApp, templates, onTemplate, children }) {
   const { connected } = useSmsTexting();
   const [choose, setChoose] = useState(false);
   const digits = String(phone || "").replace(/[^\d+]/g, "");
   const intercept = connected && (IS_PHONE || !!onInApp);
   return (<>
     <a href={`sms:${digits}`} title={title} onClick={intercept ? (e) => { e.preventDefault(); e.stopPropagation(); if (IS_PHONE) setChoose(true); else onInApp(); } : undefined} style={style}>{children}</a>
-    {choose && <PhoneChooser phone={phone} mode="text" onInApp={onInApp} onClose={() => setChoose(false)} />}
+    {choose && <PhoneChooser phone={phone} mode="text" onInApp={onInApp} templates={templates || []} onTemplate={onTemplate} onClose={() => setChoose(false)} />}
   </>);
 }
 
@@ -162,6 +214,9 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
   const thread = threadFor(phone);
   const scrollRef = useRef(null);
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length]);
+  // Having the conversation open means you've read it — clears the red
+  // "new reply" badge on every device (re-marks as new messages stream in).
+  useEffect(() => { markThreadRead(phone); }, [phone, thread.length]);
   const doSend = async () => {
     const t = draft.trim();
     if (!t || busy) return;
@@ -179,7 +234,7 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
       <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: "min(480px,96vw)", height: "min(640px,90vh)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 48px rgba(0,0,0,0.25)" }}>
         <div style={{ padding: "13px 16px", borderBottom: `2px solid ${T.gold}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>💬 {name || phone}</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 7 }}><SmsChatIcon size={15} color="#15803D" /> {name || phone}</div>
             <div style={{ fontSize: 11, color: T.textSub }}>{phone} · from your business line {from}</div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>

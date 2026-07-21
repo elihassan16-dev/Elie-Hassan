@@ -1,5 +1,6 @@
 // Send a text from the company Quo number, and log it so the conversation
-// thread shows it. Any signed-in team member can send.
+// thread shows it. Admin-only for now — the connected Quo number is Elie's
+// own line; once each teammate has their own number this opens up per-user.
 import { requireAppUser } from "../../lib/showings.js";
 import { config, sendSms, storeSms, e164 } from "../../lib/quo.js";
 import { createClient } from "@supabase/supabase-js";
@@ -18,7 +19,7 @@ export default async function handler(req, res) {
     if (SERVICE_ROLE) {
       const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
       const { data: u } = await db.from("users").select("role,name").eq("id", user.id).maybeSingle();
-      if (!u || (u.role !== "admin" && u.role !== "member")) { res.status(403).json({ error: "Team members only." }); return; }
+      if (!u || u.role !== "admin") { res.status(403).json({ error: "The business texting line is admin-only for now." }); return; }
       req._senderName = u.name || user.email || "";
     }
     const { to, message } = req.body || {};

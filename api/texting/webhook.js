@@ -37,7 +37,7 @@ export default async function handler(req, res) {
           toAdmins: true,
           title: `💬 Text from ${from}`,
           body: String(msg.text || msg.body || "").slice(0, 140) || "(no text)",
-          url: "/?goto=chat:__sms__",
+          url: "/",
           tag: `sms-${from}`,
         }).catch(() => {});
       }

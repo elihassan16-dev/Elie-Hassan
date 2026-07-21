@@ -16,7 +16,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, SmsBadge, SmsThreadPopup } from "./sms";
+import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES, openScopePdf } from "./contractors/ContractorPortal";
 import { sowPdfFile } from "./contractors/sowPdf";
@@ -2358,8 +2358,8 @@ function ShowingInfoPopup({property,skey,onUpdate,onClose}){
           {phones.map((ph,i)=>(
             <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderTop:`1px solid ${T.border}`}}>
               <span style={{flex:1,fontSize:13.5,fontWeight:600,color:T.text}}>{ph}</span>
-              <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:700,textDecoration:"none",background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
-              <a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:700,textDecoration:"none",background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a>
+              <CallA phone={ph} style={{padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:700,textDecoration:"none",background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</CallA>
+              <TextA phone={ph} style={{padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:700,textDecoration:"none",background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</TextA>
             </div>
           ))}
           {phones.length===0&&<div style={{fontSize:12.5,color:T.textTert,padding:"8px 0",borderTop:`1px solid ${T.border}`}}>No phone number on file.</div>}
@@ -2551,10 +2551,8 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     <div style={{marginTop:8}}>
       <div style={{fontSize:12,color:T.textSub,marginBottom:5,display:"flex",alignItems:"center",gap:7}}>{ph} <SmsBadge phone={ph}/></div>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>{emo("📞")} Call</a>
-        {smsOn
-          ?<button onClick={()=>setSmsPop({phone:ph,name,rowKey})} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>{emo("💬")} Text</button>
-          :<a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>{emo("💬")} Text</a>}
+        <CallA phone={ph} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>{emo("📞")} Call</CallA>
+        <TextA phone={ph} onInApp={()=>setSmsPop({phone:ph,name,rowKey})} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>{emo("💬")} Text</TextA>
         {tmplBtn(ph,name,rowKey,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
         {tmplBtn(ph,name,rowKey,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
       </div>
@@ -3093,8 +3091,8 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
           <div key={i}>
             <div style={{fontSize:11.5,color:T.textSub,marginBottom:4}}>{ph}</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              <a href={`tel:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}><span style={{fontSize:11.5,lineHeight:1}}>📞</span> Call</a>
-              <a href={`sms:${ph.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><span style={{fontSize:11.5,lineHeight:1}}>💬</span> Text</a>
+              <CallA phone={ph} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}><span style={{fontSize:11.5,lineHeight:1}}>📞</span> Call</CallA>
+              <TextA phone={ph} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><span style={{fontSize:11.5,lineHeight:1}}>💬</span> Text</TextA>
               {tmpl(ph,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
               {tmpl(ph,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
             </div>
@@ -3542,8 +3540,8 @@ function RentalPortfolioPage(){
                   </button>
                 </div>;})()}
                 {(u.tenant?.phone||u.tenant?.email||u.leaseLink)&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:9}}>
-                  {u.tenant?.phone&&<a href={`tel:${tel}`} style={{fontSize:12,fontWeight:600,color:T.textSub,textDecoration:"none",border:`1px solid ${T.border}`,borderRadius:16,padding:"5px 11px"}}>📞 Call</a>}
-                  {u.tenant?.phone&&<a href={`sms:${tel}`} style={{fontSize:12,fontWeight:600,color:"#15803D",textDecoration:"none",border:`1px solid ${T.green}`,background:"#EDFBF1",borderRadius:16,padding:"5px 11px"}}>💬 Text</a>}
+                  {u.tenant?.phone&&<CallA phone={u.tenant.phone} style={{fontSize:12,fontWeight:600,color:T.textSub,textDecoration:"none",border:`1px solid ${T.border}`,borderRadius:16,padding:"5px 11px"}}>📞 Call</CallA>}
+                  {u.tenant?.phone&&<TextA phone={u.tenant.phone} style={{fontSize:12,fontWeight:600,color:"#15803D",textDecoration:"none",border:`1px solid ${T.green}`,background:"#EDFBF1",borderRadius:16,padding:"5px 11px"}}>💬 Text</TextA>}
                   {u.tenant?.email&&<a href={`mailto:${u.tenant.email}`} style={{fontSize:12,fontWeight:600,color:T.blue,textDecoration:"none",border:`1px solid ${T.blue}`,background:"#EBF4FF",borderRadius:16,padding:"5px 11px"}}>✉️ Email</a>}
                   {u.leaseLink&&<a href={u.leaseLink} target="_blank" rel="noreferrer" style={{fontSize:12,fontWeight:600,color:T.gold,textDecoration:"none",border:`1px solid ${T.gold}`,background:T.goldLight,borderRadius:16,padding:"5px 11px"}}>📄 Lease</a>}
                 </div>}
@@ -5485,8 +5483,8 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                     {sb.broker&&<div style={{fontSize:13,color:T.textSub,marginTop:1}}>{sb.broker}</div>}
                     {sb.phone&&<div style={{fontSize:13,color:T.text,marginTop:6}}>{sb.phone}</div>}
                     <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
-                      {sb.phone&&<a href={`tel:${tel}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.border}`,color:T.textSub,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>📞 Call</a>}
-                      {sb.phone&&<a href={`sms:${tel}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",fontSize:12.5,fontWeight:600,textDecoration:"none"}}>💬 Text</a>}
+                      {sb.phone&&<CallA phone={sb.phone} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.border}`,color:T.textSub,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>📞 Call</CallA>}
+                      {sb.phone&&<TextA phone={sb.phone} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",fontSize:12.5,fontWeight:600,textDecoration:"none"}}>💬 Text</TextA>}
                       {sb.email&&<a href={`mailto:${sb.email}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>✉️ Email</a>}
                     </div>
                   </div>
@@ -5578,8 +5576,8 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                     <div style={{width:40,height:40,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:15,color:"#fff",flexShrink:0}}>{c.name[0]}</div>
                     <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div>{(c.phone||c.email)&&(()=>{const d=String(c.phone||"").replace(/[^\d]/g,"");const wa=d.length===10?`1${d}`:d;const lk={padding:"4px 11px",borderRadius:14,fontSize:11.5,fontWeight:700,textDecoration:"none",border:`1px solid ${T.border}`,background:T.bg,color:T.textSub};return(
                       <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
-                        {d&&<a href={`tel:${d}`} style={lk}>📞 Call</a>}
-                        {d&&<a href={`sms:${d}`} style={lk}>💬 Text</a>}
+                        {d&&<CallA phone={d} style={lk}>📞 Call</CallA>}
+                        {d&&<TextA phone={d} style={lk}>💬 Text</TextA>}
                         {wa.length>=11&&<a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" style={{...lk,border:"1px solid #25D366",color:"#128C7E",background:"#E9FBF0"}}>🟢 WhatsApp</a>}
                         {c.email&&<a href={`mailto:${c.email}`} style={lk}>✉️ Email</a>}
                       </div>
@@ -5974,8 +5972,8 @@ function LeadDetail({lead,onUpdate}){
                     <div style={{width:40,height:40,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:15,color:"#fff",flexShrink:0}}>{c.name[0]}</div>
                     <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div>{(c.phone||c.email)&&(()=>{const d=String(c.phone||"").replace(/[^\d]/g,"");const wa=d.length===10?`1${d}`:d;const lk={padding:"4px 11px",borderRadius:14,fontSize:11.5,fontWeight:700,textDecoration:"none",border:`1px solid ${T.border}`,background:T.bg,color:T.textSub};return(
                       <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
-                        {d&&<a href={`tel:${d}`} style={lk}>📞 Call</a>}
-                        {d&&<a href={`sms:${d}`} style={lk}>💬 Text</a>}
+                        {d&&<CallA phone={d} style={lk}>📞 Call</CallA>}
+                        {d&&<TextA phone={d} style={lk}>💬 Text</TextA>}
                         {wa.length>=11&&<a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" style={{...lk,border:"1px solid #25D366",color:"#128C7E",background:"#E9FBF0"}}>🟢 WhatsApp</a>}
                         {c.email&&<a href={`mailto:${c.email}`} style={lk}>✉️ Email</a>}
                       </div>
@@ -7021,7 +7019,7 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
   const openCompose=(channel,target,name)=>{setCustom("");setCompose({channel,target,name});};
   const phoneRow=(num,name)=>(
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
-      <a href={`tel:${String(num||"").replace(/[^\d+]/g,"")}`} style={{...actA,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a>
+      <CallA phone={num} style={{...actA,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</CallA>
       <button onClick={()=>openCompose("text",num,name)} style={{...actA,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D",cursor:"pointer",fontFamily:"inherit"}}>💬 Text</button>
       <button onClick={()=>openCompose("whatsapp",num,name)} style={{...actA,background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B",cursor:"pointer",fontFamily:"inherit"}}>WhatsApp</button>
     </div>
@@ -8690,7 +8688,7 @@ function ContactsPage(){
                       <div key={i} style={{padding:"11px 16px",borderBottom:(i<sel.phones.length-1||sel.email||sel.notes)?`1px solid ${T.border}`:"none"}}>
                         <div style={{fontSize:10.5,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5}}>{p.label||"Phone"}</div>
                         <div style={{fontSize:15,color:T.text,marginBottom:8}}>{p.number}</div>
-                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><a href={`tel:${p.number.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</a><a href={`sms:${p.number.replace(/[^\d+]/g,"")}`} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</a></div>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><CallA phone={p.number} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</CallA><TextA phone={p.number} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}>💬 Text</TextA></div>
                       </div>
                     ))}
                     {sel.email&&<div style={{padding:"11px 16px",borderBottom:sel.notes?`1px solid ${T.border}`:"none"}}><div style={{fontSize:10.5,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5}}>Email</div><a href={`mailto:${sel.email}`} style={{fontSize:15,color:T.blue,textDecoration:"none"}}>{sel.email}</a></div>}
@@ -12847,7 +12845,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
         </div>
         {(f.address||f.phone||f.email)&&<div style={{fontSize:12.5,color:T.textSub,marginBottom:f.notes?6:14,display:"flex",flexWrap:"wrap",gap:"3px 14px"}}>
           {f.address&&<span>🏠 {f.address}</span>}
-          {f.phone&&<a href={`tel:${String(f.phone).replace(/[^\d+]/g,"")}`} style={{color:T.blue,textDecoration:"none"}}>📞 {f.phone}</a>}
+          {f.phone&&<CallA phone={f.phone} style={{color:T.blue,textDecoration:"none"}}>📞 {f.phone}</CallA>}
           {f.email&&<a href={`mailto:${f.email}`} style={{color:T.blue,textDecoration:"none"}}>✉️ {f.email}</a>}
         </div>}
         {f.notes&&<div style={{fontSize:13,color:T.textSub,marginBottom:14,whiteSpace:"pre-wrap"}}>{f.notes}</div>}

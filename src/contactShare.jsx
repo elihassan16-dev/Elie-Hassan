@@ -4,6 +4,7 @@
 // phone opens straight into Contacts.
 import { useState } from "react";
 import { T } from "./theme";
+import { PhoneIcon, SmsChatIcon, MailIcon } from "./icons";
 
 export const vcfHref = (c) => "data:text/vcard;charset=utf-8," + encodeURIComponent(
   `BEGIN:VCARD\nVERSION:3.0\nFN:${c.name || "Contact"}\n${c.company ? `ORG:${c.company}\n` : ""}${c.phone ? `TEL;TYPE=CELL:${c.phone}\n` : ""}${c.email ? `EMAIL:${c.email}\n` : ""}END:VCARD`
@@ -11,7 +12,8 @@ export const vcfHref = (c) => "data:text/vcard;charset=utf-8," + encodeURICompon
 
 export function ContactCardBubble({ c, mine }) {
   if (!c) return null;
-  const chip = (bg, fg, br) => ({ display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 11px", borderRadius: 14, background: bg, color: fg, border: `1px solid ${br || bg}`, fontSize: 11.5, fontWeight: 700, textDecoration: "none", fontFamily: "inherit" });
+  // Uniform white contact pill (approved Option C) — colored icon, calm shell.
+  const chip = () => ({ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 14, background: "#fff", color: T.text, border: `1px solid ${T.border}`, fontSize: 11.5, fontWeight: 700, textDecoration: "none", fontFamily: "inherit" });
   const num = String(c.phone || "").replace(/[^\d+]/g, "");
   return (
     <div style={{ marginTop: 6, background: mine ? "rgba(255,255,255,0.16)" : "#fff", border: `1px solid ${mine ? "rgba(255,255,255,0.4)" : T.border}`, borderRadius: 12, padding: "10px 12px", maxWidth: 250 }}>
@@ -24,10 +26,10 @@ export function ContactCardBubble({ c, mine }) {
         </span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
-        {num && <a href={`tel:${num}`} style={chip("#EDFBF1", "#15803D", T.green)}>📞 Call</a>}
-        {num && <a href={`sms:${num}`} style={chip("#EBF4FF", T.blue, T.blue)}>💬 Text</a>}
-        {c.email && <a href={`mailto:${c.email}`} style={chip(T.goldLight, "#8a6d1f", T.gold)}>✉️ Email</a>}
-        <a href={vcfHref(c)} download={`${(c.name || "contact").replace(/[^a-zA-Z0-9 ]/g, "")}.vcf`} style={chip("#fff", T.textSub, T.border)}>⬇ Save</a>
+        {num && <a href={`tel:${num}`} style={chip()}><PhoneIcon size={12} color={T.text} /> Call</a>}
+        {num && <a href={`sms:${num}`} style={chip()}><SmsChatIcon size={12} color="#15803D" /> Text</a>}
+        {c.email && <a href={`mailto:${c.email}`} style={chip()}><MailIcon size={12} color={T.blue} /> Email</a>}
+        <a href={vcfHref(c)} download={`${(c.name || "contact").replace(/[^a-zA-Z0-9 ]/g, "")}.vcf`} style={{ ...chip(), color: T.textSub }}>⬇ Save</a>
       </div>
     </div>
   );

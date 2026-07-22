@@ -21,6 +21,35 @@ export function TeamChatIcon({ size = 15, color = "currentColor", strokeWidth = 
   );
 }
 
+// Phone handset — THE call symbol on contact-action buttons.
+export function PhoneIcon({ size = 13, color = "currentColor", strokeWidth = 2 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: "block" }}>
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
+}
+
+// WhatsApp — bubble with a handset curve, in WhatsApp green.
+export function WhatsAppIcon({ size = 13, color = "#25D366", strokeWidth = 2 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: "block" }}>
+      <path d="M21 11.5a8.5 8.5 0 1 0-15.9 4.2L4 21l5.4-1.2A8.5 8.5 0 0 0 21 11.5z" />
+      <path d="M9.5 8.8c.3 2.2 1.8 4 4.3 5l1.2-1.1 1.5.9" />
+    </svg>
+  );
+}
+
+// Envelope — THE email symbol on contact-action buttons.
+export function MailIcon({ size = 13, color = "currentColor", strokeWidth = 2 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: "block" }}>
+      <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+      <path d="M3 7l9 6 9-6" />
+    </svg>
+  );
+}
+
 // Business texting (SMS) — one bubble with typing dots. THE symbol for
 // "text this person" everywhere in the app (green contexts).
 export function SmsChatIcon({ size = 15, color = "currentColor", strokeWidth = 2 }) {

@@ -169,8 +169,8 @@ export default async function handler(req, res) {
 
   const dateStr = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   const { data: props } = await db.from("properties").select("id,address,city,status,data");
-  const { data: users } = await db.from("users").select("id,email,name,notify_muted");
-  const list = (users || []).filter((u) => u.email && u.name && !u.notify_muted && (!onlyUser || u.id === onlyUser.id));
+  const { data: users } = await db.from("users").select("id,email,name,notify_muted,notify_channels");
+  const list = (users || []).filter((u) => u.email && u.name && !u.notify_muted && (!u.notify_channels || u.notify_channels.email !== false) && (!onlyUser || u.id === onlyUser.id));
 
   let emailed = 0, openForSelf = 0, selfEmail = "skipped";
   for (const u of list) {

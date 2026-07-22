@@ -177,6 +177,25 @@ function ManageLoginModal({ login, onDone, onClose }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [e2, setE2] = useState("");
+  // Which channels this person gets (push / email / text) + the master mute —
+  // saved instantly on tap, same controls the team roster has.
+  const [chan, setChan] = useState(() => { const c = login.notify_channels || {}; return { push: c.push !== false, email: c.email !== false, sms: c.sms !== false }; });
+  const [muted, setMuted] = useState(!!login.notify_muted);
+  const saveChan = async (next, nextMuted) => {
+    setChan(next); setMuted(nextMuted);
+    const allOn = next.push && next.email && next.sms;
+    const { error } = await supabase.from("users").update({ notify_channels: allOn ? null : next, notify_muted: nextMuted }).eq("id", login.id);
+    if (error) setE2(error.message);
+    else onDone();
+  };
+  const chip = (k, icon, label) => {
+    const on = chan[k];
+    return (
+      <button onClick={() => saveChan({ ...chan, [k]: !on }, muted)} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 16, border: `1px solid ${on ? T.green : T.border}`, background: on ? "#EDFBF1" : T.bg, color: on ? "#15803D" : T.textTert, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+        {icon} {label} {on ? "✓" : "✕"}
+      </button>
+    );
+  };
   const call = async (payload) => {
     setBusy(true); setE2("");
     try {
@@ -196,6 +215,19 @@ function ManageLoginModal({ login, onDone, onClose }) {
           <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Leave blank to keep current" style={{ ...inp, flex: 1 }} />
           <button onClick={() => setPassword(genPassword())} style={{ ...ghostBtn, padding: "10px 13px", flexShrink: 0 }}>🎲 New</button>
         </div>
+      </div>
+      <div>
+        <label style={lbl}>Notifications</label>
+        <div style={{ fontSize: 11.5, color: T.textSub, marginBottom: 8, lineHeight: 1.45 }}>How {String(login.name || "").split(" ")[0] || "they"} gets notified about jobs, tasks and messages. Changes save instantly.</div>
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+          {chip("push", "🔔", "Push")}
+          {chip("email", "✉️", "Email")}
+          {chip("sms", "📱", "Text")}
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: muted ? T.red : T.textSub, fontWeight: 600, cursor: "pointer", marginTop: 9 }}>
+          <input type="checkbox" checked={muted} onChange={() => saveChan(chan, !muted)} style={{ width: 15, height: 15, cursor: "pointer", accentColor: T.red }} />
+          Mute everything for {String(login.name || "").split(" ")[0] || "them"}
+        </label>
       </div>
       {e2 && <div style={{ fontSize: 12.5, color: T.red }}>{e2}</div>}
       <button onClick={() => { if (window.confirm(`Remove ${login.name}'s login? They won't be able to sign in anymore. Their past messages and tasks stay.`)) call({ remove: true }); }} disabled={busy}
@@ -882,7 +914,7 @@ export function ContractorsAdminPage() {
   useEffect(() => {
     if (!org) { setLogins([]); return; }
     let alive = true;
-    supabase.from("users").select("id,name,email").eq("contractor_org_id", String(org.id)).then(({ data }) => { if (alive) setLogins(data || []); });
+    supabase.from("users").select("id,name,email,notify_muted,notify_channels").eq("contractor_org_id", String(org.id)).then(({ data }) => { if (alive) setLogins(data || []); });
     return () => { alive = false; };
   }, [org?.id, loginModal, loginsBump]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -14,7 +14,7 @@ import { usePersistentDraft } from "./useDraft";
 import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
-import { MicIcon, TeamChatIcon, SmsChatIcon } from "./icons";
+import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
 import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
@@ -2395,6 +2395,8 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   // in-app conversation sent from the company line; otherwise sms: links as before.
   const {connected:smsOn,threadFor,unreadFor}=useSmsTexting();
   const[smsPop,setSmsPop]=useState(null); // {phone,name,rowKey,kind,bt}
+  const isMobile=useIsMobile();
+  const[leadTab,setLeadTab]=useState("agents"); // approved: tab switcher — agents | BoldTrail buyers
   // BoldTrail buyers who inquired about THIS property (matched by pb-hashtag),
   // minus anyone already added by hand (same phone).
   const btAllLeads=useBtLeads();
@@ -2634,78 +2636,111 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       </div>
     );
   };
-  const Row=(s)=>{
-    const phones=[...parseShowingPhones(s.phone),...extraPhones(s)];
-    const leadKey=leadMap[showingKey(s)]||"";
-    const lead=SHOWING_LEADS.find(l=>l.key===leadKey);
+  // ── Approved compact rows (tab switcher, desktop & mobile) ────────────────
+  const icoC={...icoS,width:28,height:28,borderRadius:14};
+  const fmtD=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
+  const outreachMini=(ph,rowKey)=>{
+    const t=showingTexts[rowKey]||{};
+    const th=smsOn?threadFor(ph):[];
+    const lastOut=[...th].reverse().find(m=>m.direction!=="in");
+    const lastIn=[...th].reverse().find(m=>m.direction==="in");
+    const ev=[t.initial&&{label:"Initial",at:t.initial},t.followup&&{label:"F-up",at:t.followup},lastOut&&{label:"texted",at:lastOut.at}]
+      .filter(Boolean).sort((a,b)=>new Date(b.at)-new Date(a.at))[0];
+    if(!ev)return <span style={{color:T.textTert}}>No outreach yet</span>;
+    return(<>
+      <span title="Your last outreach">↗ {ev.label} {fmtD(ev.at)}</span>
+      {lastIn&&(unreadFor(ph)>0
+        ?<b style={{color:T.red}}> · ↙ replied — unread</b>
+        :<span> · ↙ replied {fmtD(lastIn.at)}</span>)}
+    </>);
+  };
+  // The full action set for one number, icon-sized: call / text / email / team
+  // note (+ the personal-phone template links for members without texting).
+  const iconCluster=(ph,name,rowKey,msgMeta,bt,email)=>{
+    const t=showingTexts[rowKey]||{};
+    const anySent=!!(t.initial||t.followup);
+    const tmplText=(kind)=>(bt?btMessage:showingMessage)(kind,name,address);
     return(
-    <div key={s.uid||s.ts+s.summary} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`,background:lead?lead.bg+"66":"transparent"}}>
-      <div style={{width:7,height:7,borderRadius:4,background:/cancel|declin/i.test(s.status)?T.red:T.green,flexShrink:0,marginTop:5}}/>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:14,fontWeight:600,color:T.text}}>{fmtShowingTime(s.start)}</div>
-        {(s.agent||phones.length>0)&&(
-          <div style={{fontSize:13,color:T.text,marginTop:2}}>
-            {s.agent&&<span style={{fontWeight:500}}>{s.agent}</span>}
-            {s.broker&&<span style={{color:T.textSub}}> · {s.broker}</span>}
+      <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+        <CallA phone={ph} title="Call" style={icoC}><PhoneIcon size={13} color={T.text}/></CallA>
+        <TextA phone={ph} title="Text \u2014 conversation & templates" onInApp={()=>setSmsPop({phone:ph,name,rowKey,bt})}
+          templates={[{kind:"initial",label:"Initial intro",text:tmplText("initial")},{kind:"followup",label:"Follow-up",text:tmplText("followup")}]}
+          onTemplate={(kind)=>markText(rowKey,kind)}
+          style={{...icoC,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
+          <SmsChatIcon size={13} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:12,height:12,borderRadius:6,background:T.green,color:"#fff",fontSize:7.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>\u2713</span>}
+        </TextA>
+        {email&&<a href={`mailto:${email}`} title={`Email ${email}`} style={{...icoC,border:`1px solid ${T.blue}`,background:"#EBF4FF"}}><MailIcon size={13} color={T.blue}/></a>}
+        {msgMeta&&msgIco(msgMeta)}
+        {!smsOn&&<a href={showingSms(ph,tmplText("initial"))} onClick={()=>markText(rowKey,"initial")} title="Send the initial text" style={{...icoC,width:"auto",padding:"0 8px",fontSize:10,fontWeight:800,color:"#8a6d1f",border:`1px solid ${T.gold}`,background:T.goldLight,display:"inline-flex",alignItems:"center"}}>{t.initial?"\u2713 ":""}In</a>}
+        {!smsOn&&<a href={showingSms(ph,tmplText("followup"))} onClick={()=>markText(rowKey,"followup")} title="Send the follow-up text" style={{...icoC,width:"auto",padding:"0 8px",fontSize:10,fontWeight:800,color:T.blue,border:`1px solid ${T.blue}`,background:"#EBF4FF",display:"inline-flex",alignItems:"center"}}>{t.followup?"\u2713 ":""}F-up</a>}
+      </div>
+    );
+  };
+  // One condensed row for all three kinds — showing agent, hand-added lead,
+  // BoldTrail buyer. Desktop: single line. Mobile: two lines. Gold stripes.
+  const CompactRow=({idx,dot,name,nameTitle,meta,phones,rowKey,leadVal,onLead,email,msgMeta,bt,onRemove,addUI})=>{
+    const lead=SHOWING_LEADS.find(x=>x.key===(leadVal||""));
+    const stripe=lead?lead.bg+"55":(idx%2?T.goldLight+"55":"transparent");
+    const first=phones[0];
+    const phoneSeg=(ph)=>(
+      <span style={{fontSize:isMobile?10.5:11,color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:5}}>
+        <span style={{fontWeight:600,color:T.text}}>{ph}</span> <SmsBadge phone={ph}/> <span>{outreachMini(ph,rowKey)}</span>
+      </span>
+    );
+    const removeBtn=onRemove&&<button onClick={onRemove} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:"0 2px",flexShrink:0}}>\u00d7</button>;
+    return(
+      <div style={{padding:isMobile?"7px 12px":"5px 14px",borderTop:`1px solid ${T.border}`,background:stripe}}>
+        <div style={{display:"flex",alignItems:"center",gap:7}}>
+          <span style={{width:7,height:7,borderRadius:4,background:dot,flexShrink:0}}/>
+          <span title={nameTitle||name} style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...(isMobile?{flex:1,minWidth:0}:{flex:"0 0 150px"})}}>{name}</span>
+          <span style={{fontSize:9.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0,...(isMobile?{}:{width:100,overflow:"hidden",textOverflow:"ellipsis"})}}>{meta}</span>
+          {!isMobile&&<span style={{flex:1,minWidth:0,display:"flex"}}>{first?phoneSeg(first):<span style={{fontSize:11,color:T.textTert}}>No phone number.</span>}</span>}
+          {leadSelect(leadVal||"",onLead,lead)}
+          {!isMobile&&first&&iconCluster(first,name,rowKey,msgMeta,bt,email)}
+          {removeBtn}
+        </div>
+        {isMobile&&(
+          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4,paddingLeft:14}}>
+            <span style={{flex:1,minWidth:0,display:"flex"}}>{first?phoneSeg(first):<span style={{fontSize:10.5,color:T.textTert}}>No phone number.</span>}</span>
+            {first&&iconCluster(first,name,rowKey,msgMeta,bt,email)}
           </div>
         )}
-        {s.email&&<div><a href={`mailto:${s.email}`} style={{fontSize:12,color:T.textSub,textDecoration:"none"}}>{s.email}</a></div>}
-        <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-          {leadSelect(leadKey,e=>setLead(s,e.target.value),lead)}
-          {(!smsOn||phones.length===0)&&msgBtn(showingKey(s),`Showing — ${s.agent||"agent"}`,{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""})}
-        </div>
-        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,s.agent,showingKey(s),{key:showingKey(s),label:`Showing — ${s.agent||"agent"}`,snap:{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""}})}</div>)}
-        {!s.agent&&phones.length===0&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.summary||s.location}</div>}
-        {addNumberUI(showingKey(s),()=>addShowingPhone(s))}
+        {phones.slice(1).map((ph,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:6,marginTop:4,paddingLeft:14}}>
+            <span style={{flex:1,minWidth:0,display:"flex"}}>{phoneSeg(ph)}</span>
+            {iconCluster(ph,name,rowKey,msgMeta,bt,null)}
+          </div>
+        ))}
+        {addUI}
       </div>
-      {s.status&&<span style={{fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",flexShrink:0,marginTop:3}}>{s.status}</span>}
-    </div>
     );
   };
-  const LeadRow=(l)=>{
-    const lead=SHOWING_LEADS.find(x=>x.key===l.lead);
-    const phones=parseShowingPhones(l.phone);
-    return(
-    <div key={l.id} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`,background:lead?lead.bg+"66":"transparent"}}>
-      <div style={{width:7,height:7,borderRadius:4,background:T.gold,flexShrink:0,marginTop:5}}/>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:14,fontWeight:600,color:T.text}}>{l.name||"(no name)"}</div>
-        <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-          {leadSelect(l.lead||"",e=>setCustomStatus(l.id,e.target.value),lead)}
-          {(!smsOn||phones.length===0)&&msgBtn("lead-"+l.id,`Lead — ${l.name||"lead"}`,{agent:l.name||"",phone:l.phone||"",start:l.at||""})}
-        </div>
-        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,l.name,"lead-"+l.id,{key:"lead-"+l.id,label:`Lead — ${l.name||"lead"}`,snap:{agent:l.name||"",phone:l.phone||"",start:l.at||""}})}</div>)}
-        {phones.length===0&&<div style={{fontSize:12,color:T.textTert,marginTop:6}}>No phone number.</div>}
-        {addNumberUI("lead-"+l.id,()=>addLeadPhone(l))}
-      </div>
-      <button onClick={()=>removeLead(l.id)} title="Remove lead" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
-    </div>
-    );
+  const ShowRow=(s,idx)=>{
+    const phones=[...parseShowingPhones(s.phone),...extraPhones(s)];
+    const k=showingKey(s);
+    const snap={uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""};
+    const when=(()=>{try{return new Date(s.start).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}})();
+    return <CompactRow key={s.uid||s.ts+s.summary} idx={idx} dot={/cancel|declin/i.test(s.status)?T.red:T.green}
+      name={s.agent||s.summary||"(agent)"} nameTitle={[s.agent,s.broker,s.email,s.status].filter(Boolean).join(" \u00b7 ")}
+      meta={when} phones={phones} rowKey={k}
+      leadVal={leadMap[k]||""} onLead={e=>setLead(s,e.target.value)}
+      email={s.email||null} msgMeta={{key:k,label:`Showing \u2014 ${s.agent||"agent"}`,snap}}
+      addUI={addNumberUI(k,()=>addShowingPhone(s))}/>;
   };
-  // A buyer who inquired through BoldTrail — auto-imported, tagged, same
-  // texting/status treatment as any lead (rowKey "bt-<id>" for stamps/status).
-  const BtRow=(l)=>{
+  const LeadRowC=(l,idx)=>(
+    <CompactRow key={l.id} idx={idx} dot={T.gold} name={l.name||"(no name)"}
+      meta={l.at?`added ${fmtD(l.at)}`:"added by you"} phones={parseShowingPhones(l.phone)} rowKey={"lead-"+l.id}
+      leadVal={l.lead||""} onLead={e=>setCustomStatus(l.id,e.target.value)}
+      email={null} msgMeta={{key:"lead-"+l.id,label:`Lead \u2014 ${l.name||"lead"}`,snap:{agent:l.name||"",phone:l.phone||"",start:l.at||""}}}
+      onRemove={()=>{if(window.confirm(`Remove the lead "${l.name||"lead"}"? Everything on it is gone for good.`))removeLead(l.id);}}
+      addUI={addNumberUI("lead-"+l.id,()=>addLeadPhone(l))}/>
+  );
+  const BtRowC=(l,idx)=>{
     const k="bt-"+l.id;
-    const lead=SHOWING_LEADS.find(x=>x.key===(leadMap[k]||""));
-    const phones=parseShowingPhones(l.phone);
-    return(
-    <div key={l.id} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`,background:lead?lead.bg+"66":"transparent"}}>
-      <div style={{width:7,height:7,borderRadius:4,background:"#DB2777",flexShrink:0,marginTop:5}}/>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
-          <span style={{fontSize:14,fontWeight:600,color:T.text}}>{l.name||"(no name)"}</span>
-          <span title="Came in through BoldTrail — a buyer who expressed interest in this property" style={{fontSize:9,fontWeight:800,color:"#DB2777",background:"#FCE7F3",borderRadius:10,padding:"2px 7px"}}>BoldTrail buyer</span>
-        </div>
-        {l.email&&<div><a href={`mailto:${l.email}`} style={{fontSize:12,color:T.textSub,textDecoration:"none"}}>{l.email}</a></div>}
-        <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-          {leadSelect(leadMap[k]||"",e=>{const next={...leadMap};if(e.target.value)next[k]=e.target.value;else delete next[k];onUpdate(property.id,"showingLeads",next);saveNow();},lead)}
-          {(!smsOn||phones.length===0)&&msgBtn(k,`Lead — ${l.name||"buyer"}`,{agent:l.name||"",phone:l.phone||"",start:l.createdAt||""})}
-        </div>
-        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,l.name,k,{key:k,label:`Lead — ${l.name||"buyer"}`,snap:{agent:l.name||"",phone:l.phone||"",start:l.createdAt||""}},true)}</div>)}
-        {phones.length===0&&<div style={{fontSize:12,color:T.textTert,marginTop:6}}>No phone number.</div>}
-      </div>
-    </div>
-    );
+    return <CompactRow key={l.id} idx={idx} dot="#DB2777" name={l.name||"(no name)"} nameTitle={[l.name,l.email,"BoldTrail buyer"].filter(Boolean).join(" \u00b7 ")}
+      meta={l.createdAt?`inquired ${fmtD(l.createdAt)}`:"BoldTrail"} phones={parseShowingPhones(l.phone)} rowKey={k} bt
+      leadVal={leadMap[k]||""} onLead={e=>{const next={...leadMap};if(e.target.value)next[k]=e.target.value;else delete next[k];onUpdate(property.id,"showingLeads",next);saveNow();}}
+      email={l.email||null} msgMeta={{key:k,label:`Lead \u2014 ${l.name||"buyer"}`,snap:{agent:l.name||"",phone:l.phone||"",start:l.createdAt||""}}}/>;
   };
   const inpS={width:"100%",padding:"9px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   const notNot=(leadKey)=>!hideNot||leadKey!=="not";
@@ -2746,39 +2781,51 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       <input type="checkbox" checked={hideNot} onChange={toggleHide} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>
       Hide "not interested" leads{hideNot&&hiddenCount>0?` (${hiddenCount} hidden)`:""}
     </label>
-    {upcomingShown.length>0&&<Card style={{marginBottom:12}}><GHeader label="Upcoming"/>{upcomingShown.map(Row)}</Card>}
-    {/* One ranked list — showings AND leads you added, sorted by disposition
-        (Selected buyer → Offer received → Expecting → Interested → Not interested),
-        so a hand-added lead ranks right alongside the showings instead of at the bottom. */}
-    <Card>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px 10px"}}>
-        <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.06em"}}>Leads &amp; past showings</div>
-        {!showAdd&&<button onClick={()=>setShowAdd(true)} style={{padding:"5px 12px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add lead</button>}
-      </div>
-      {showAdd&&(
-        <div style={{padding:"6px 16px 12px",display:"flex",flexDirection:"column",gap:8,borderTop:`1px solid ${T.border}`}}>
-          <input autoFocus value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} placeholder="Name (agent or buyer)" style={inpS}/>
-          <input value={draft.phone} onChange={e=>setDraft(d=>({...d,phone:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addLead()} placeholder="Phone number" inputMode="tel" style={inpS}/>
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <button onClick={()=>{setShowAdd(false);setDraft({name:"",phone:""});}} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Cancel</button>
-            <button onClick={addLead} disabled={!draft.name.trim()&&!draft.phone.trim()} style={{padding:"8px 18px",borderRadius:T.radiusSm,background:(draft.name.trim()||draft.phone.trim())?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Add lead</button>
+    {upcomingShown.length>0&&<Card style={{marginBottom:12}}><GHeader label="Upcoming"/>{upcomingShown.map((x,i)=>ShowRow(x,i))}</Card>}
+    {/* Approved layout: tab switcher \u2014 \ud83c\udfe0 agents (+ your hand-added leads) | \ud83d\udd25 BoldTrail buyers */}
+    {(()=>{
+      const handPhones=new Set(customLeads.flatMap(l=>parseShowingPhones(l.phone)).map(x=>x.replace(/\D/g,"")));
+      const btShown=btAllLeads.filter(l=>btMatchesProperty(l,property))
+        .filter(l=>{const d=String(l.phone||"").replace(/\D/g,"");return !d||!handPhones.has(d);})
+        .filter(l=>notNot(leadMap["bt-"+l.id])&&(!aq||[l.name,l.phone,l.email].filter(Boolean).join(" ").toLowerCase().includes(aq)))
+        .map(l=>({l,k:leadMap["bt-"+l.id]||"",ts:l.createdAt?new Date(l.createdAt).getTime():0}))
+        .sort((a,b)=>{const ra=showingLeadRank(a.k),rb=showingLeadRank(b.k);return ra!==rb?ra-rb:b.ts-a.ts;});
+      const agentItems=[
+        ...pastShown.slice(0,40).map(x=>({t:"s",item:x,k:leadMap[showingKey(x)]||"",ts:x.ts})),
+        ...leadsShown.map(l=>({t:"l",item:l,k:l.lead||"",ts:l.at?new Date(l.at).getTime():0})),
+      ].sort((a,b)=>{const ra=showingLeadRank(a.k),rb=showingLeadRank(b.k);return ra!==rb?ra-rb:b.ts-a.ts;});
+      const phonesOf=(x)=>x.t==="s"?[...parseShowingPhones(x.item.phone),...extraPhones(x.item)]:parseShowingPhones(x.item.phone);
+      const newAg=smsOn?agentItems.filter(x=>phonesOf(x).some(ph=>unreadFor(ph)>0)).length:0;
+      const newBt=smsOn?btShown.filter(x=>parseShowingPhones(x.l.phone).some(ph=>unreadFor(ph)>0)).length:0;
+      const pill=(on,color)=>({padding:"6px 13px",borderRadius:16,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${on?color:T.border}`,background:on?color:"#fff",color:on?"#fff":T.textSub});
+      return(
+        <Card>
+          <div style={{display:"flex",alignItems:"center",gap:7,padding:"10px 14px",flexWrap:"wrap"}}>
+            <button onClick={()=>setLeadTab("agents")} style={pill(leadTab==="agents",T.gold)}>🏠 Agents · {agentItems.length}{newAg?` (${newAg} new)`:""}</button>
+            <button onClick={()=>setLeadTab("buyers")} style={pill(leadTab==="buyers","#DB2777")}>🔥 Buyers · {btShown.length}{newBt?` (${newBt} new)`:""}</button>
+            <div style={{flex:1}}/>
+            {leadTab==="agents"&&!showAdd&&<button onClick={()=>setShowAdd(true)} style={{padding:"5px 12px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add lead</button>}
           </div>
-        </div>
-      )}
-      {(()=>{
-        const handPhones=new Set(customLeads.flatMap(l=>parseShowingPhones(l.phone)).map(x=>x.replace(/\D/g,"")));
-        const btShown=btAllLeads.filter(l=>btMatchesProperty(l,property))
-          .filter(l=>{const d=String(l.phone||"").replace(/\D/g,"");return !d||!handPhones.has(d);})
-          .filter(l=>notNot(leadMap["bt-"+l.id])&&(!aq||[l.name,l.phone,l.email].filter(Boolean).join(" ").toLowerCase().includes(aq)));
-        const combined=[
-          ...pastShown.slice(0,40).map(s=>({t:"s",item:s,k:leadMap[showingKey(s)]||"",ts:s.ts})),
-          ...leadsShown.map(l=>({t:"l",item:l,k:l.lead||"",ts:l.at?new Date(l.at).getTime():0})),
-          ...btShown.map(l=>({t:"b",item:l,k:leadMap["bt-"+l.id]||"",ts:l.createdAt?new Date(l.createdAt).getTime():0})),
-        ].sort((a,b)=>{const ra=showingLeadRank(a.k),rb=showingLeadRank(b.k);return ra!==rb?ra-rb:b.ts-a.ts;});
-        if(combined.length===0&&!showAdd) return <div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>{mine.length===0?"No showings matched this property's address yet. Add a lead to call or text a buyer/agent who isn't in your ShowingTime feed.":"Add a lead to call or text a buyer/agent who isn't in your ShowingTime feed."}</div>;
-        return combined.map(x=>x.t==="s"?Row(x.item):x.t==="b"?BtRow(x.item):LeadRow(x.item));
-      })()}
-    </Card>
+          {showAdd&&leadTab==="agents"&&(
+            <div style={{padding:"6px 16px 12px",display:"flex",flexDirection:"column",gap:8,borderTop:`1px solid ${T.border}`}}>
+              <input autoFocus value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} placeholder="Name (agent or buyer)" style={inpS}/>
+              <input value={draft.phone} onChange={e=>setDraft(d=>({...d,phone:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addLead()} placeholder="Phone number" inputMode="tel" style={inpS}/>
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <button onClick={()=>{setShowAdd(false);setDraft({name:"",phone:""});}} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Cancel</button>
+                <button onClick={addLead} disabled={!draft.name.trim()&&!draft.phone.trim()} style={{padding:"8px 18px",borderRadius:T.radiusSm,background:(draft.name.trim()||draft.phone.trim())?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Add lead</button>
+              </div>
+            </div>
+          )}
+          {leadTab==="agents"
+            ?(agentItems.length===0&&!showAdd
+              ?<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>No showings matched this property\u2019s address yet. Add a lead to call or text someone who isn\u2019t in your ShowingTime feed.</div>
+              :agentItems.map((x,i)=>x.t==="s"?ShowRow(x.item,i):LeadRowC(x.item,i)))
+            :(btShown.length===0
+              ?<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>No BoldTrail buyers for this property yet \u2014 they land here automatically when someone inquires about it.</div>
+              :btShown.map((x,i)=>BtRowC(x.l,i)))}
+        </Card>
+      );
+    })()}
     {smsPop&&<SmsThreadPopup phone={smsPop.phone} name={smsPop.name||(smsPop.bt?"Buyer":"Agent")} initialKind={smsPop.kind||null}
       templates={[
         {kind:"initial",label:"Initial intro",text:(smsPop.bt?btMessage:showingMessage)("initial",smsPop.name,address)},
@@ -3209,10 +3256,13 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
   // including the sent-mark on the two templates (stored on the matched property).
   const actBtn={display:"inline-flex",alignItems:"center",gap:4,padding:"0 10px",height:28,boxSizing:"border-box",lineHeight:1,borderRadius:16,fontSize:11.5,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap",fontFamily:"inherit"};
   const showingActions=(s,address,prop)=>{
-    const phones=parseShowingPhones(s.phone);
+    const k=showingKey(s);
+    // Feed phones plus any numbers hand-added on the property's Showings row —
+    // ShowingTime doesn't always pull one, so the manual add must follow the
+    // showing here too.
+    const phones=[...parseShowingPhones(s.phone),...(((prop&&prop.showingPhones)||{})[k]||[])];
     if(!phones.length)return null;
     const name=s.agent||"";
-    const k=showingKey(s);
     const texts=(prop&&prop.showingTexts)||{};
     const mark=(kind)=>{if(!prop)return;upd(prop.id,"showingTexts",{...texts,[k]:{...(texts[k]||{}),[kind]:new Date().toISOString()}});};
     const fmtSent=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};

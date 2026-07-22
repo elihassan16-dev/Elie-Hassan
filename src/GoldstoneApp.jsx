@@ -18,6 +18,7 @@ import { MicIcon, TeamChatIcon, SmsChatIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
 import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
+import { ContactActions, contactPill } from "./contactActions";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES, openScopePdf } from "./contractors/ContractorPortal";
 import { sowPdfFile } from "./contractors/sowPdf";
 import { jvPdfFile } from "./jvPdf";
@@ -2358,8 +2359,7 @@ function ShowingInfoPopup({property,skey,onUpdate,onClose}){
           {phones.map((ph,i)=>(
             <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderTop:`1px solid ${T.border}`}}>
               <span style={{flex:1,fontSize:13.5,fontWeight:600,color:T.text}}>{ph}</span>
-              <CallA phone={ph} style={{padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:700,textDecoration:"none",background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</CallA>
-              <TextA phone={ph} style={{padding:"6px 12px",borderRadius:16,fontSize:12,fontWeight:700,textDecoration:"none",background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>
+              <ContactActions phone={ph} whatsapp={false}/>
             </div>
           ))}
           {phones.length===0&&<div style={{fontSize:12.5,color:T.textTert,padding:"8px 0",borderTop:`1px solid ${T.border}`}}>No phone number on file.</div>}
@@ -3602,10 +3602,9 @@ function RentalPortfolioPage(){
                   </button>
                 </div>;})()}
                 {(u.tenant?.phone||u.tenant?.email||u.leaseLink)&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:9}}>
-                  {u.tenant?.phone&&<CallA phone={u.tenant.phone} style={{fontSize:12,fontWeight:600,color:T.textSub,textDecoration:"none",border:`1px solid ${T.border}`,borderRadius:16,padding:"5px 11px"}}>📞 Call</CallA>}
-                  {u.tenant?.phone&&<TextA phone={u.tenant.phone} style={{fontSize:12,fontWeight:600,color:"#15803D",textDecoration:"none",border:`1px solid ${T.green}`,background:"#EDFBF1",borderRadius:16,padding:"5px 11px"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>}
-                  {u.tenant?.email&&<a href={`mailto:${u.tenant.email}`} style={{fontSize:12,fontWeight:600,color:T.blue,textDecoration:"none",border:`1px solid ${T.blue}`,background:"#EBF4FF",borderRadius:16,padding:"5px 11px"}}>✉️ Email</a>}
-                  {u.leaseLink&&<a href={u.leaseLink} target="_blank" rel="noreferrer" style={{fontSize:12,fontWeight:600,color:T.gold,textDecoration:"none",border:`1px solid ${T.gold}`,background:T.goldLight,borderRadius:16,padding:"5px 11px"}}>📄 Lease</a>}
+                  <ContactActions phone={u.tenant?.phone} email={u.tenant?.email}>
+                    {u.leaseLink&&<a href={u.leaseLink} target="_blank" rel="noreferrer" style={{...contactPill,color:T.gold}}>📄 Lease</a>}
+                  </ContactActions>
                 </div>}
               </div>
             );})}
@@ -5545,9 +5544,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                     {sb.broker&&<div style={{fontSize:13,color:T.textSub,marginTop:1}}>{sb.broker}</div>}
                     {sb.phone&&<div style={{fontSize:13,color:T.text,marginTop:6}}>{sb.phone}</div>}
                     <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
-                      {sb.phone&&<CallA phone={sb.phone} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.border}`,color:T.textSub,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>📞 Call</CallA>}
-                      {sb.phone&&<TextA phone={sb.phone} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",fontSize:12.5,fontWeight:600,textDecoration:"none"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>}
-                      {sb.email&&<a href={`mailto:${sb.email}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:20,border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>✉️ Email</a>}
+                      <ContactActions phone={sb.phone} email={sb.email} whatsapp={false}/>
                     </div>
                   </div>
                 </div>
@@ -5636,14 +5633,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                 {linked.map((c,i)=>(
                   <div key={c.id} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderTop:i===0?"none":`1px solid ${T.border}`}}>
                     <div style={{width:40,height:40,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:15,color:"#fff",flexShrink:0}}>{c.name[0]}</div>
-                    <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div>{(c.phone||c.email)&&(()=>{const d=String(c.phone||"").replace(/[^\d]/g,"");const wa=d.length===10?`1${d}`:d;const lk={padding:"4px 11px",borderRadius:14,fontSize:11.5,fontWeight:700,textDecoration:"none",border:`1px solid ${T.border}`,background:T.bg,color:T.textSub};return(
-                      <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
-                        {d&&<CallA phone={d} style={lk}>📞 Call</CallA>}
-                        {d&&<TextA phone={d} style={lk}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>}
-                        {wa.length>=11&&<a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" style={{...lk,border:"1px solid #25D366",color:"#128C7E",background:"#E9FBF0"}}>🟢 WhatsApp</a>}
-                        {c.email&&<a href={`mailto:${c.email}`} style={lk}>✉️ Email</a>}
-                      </div>
-                    );})()}</div>
+                    <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div>{(c.phone||c.email)&&<div style={{marginTop:7}} onClick={e=>e.stopPropagation()}><ContactActions phone={c.phone} email={c.email}/></div>}</div>
                     <button onClick={()=>remC(c.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>Remove</button>
                   </div>
                 ))}
@@ -6047,14 +6037,7 @@ function LeadDetail({lead,onUpdate}){
                 {linked.map((c,i)=>(
                   <div key={c.id} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderTop:i===0?"none":`1px solid ${T.border}`}}>
                     <div style={{width:40,height:40,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:15,color:"#fff",flexShrink:0}}>{c.name[0]}</div>
-                    <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div>{(c.phone||c.email)&&(()=>{const d=String(c.phone||"").replace(/[^\d]/g,"");const wa=d.length===10?`1${d}`:d;const lk={padding:"4px 11px",borderRadius:14,fontSize:11.5,fontWeight:700,textDecoration:"none",border:`1px solid ${T.border}`,background:T.bg,color:T.textSub};return(
-                      <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
-                        {d&&<CallA phone={d} style={lk}>📞 Call</CallA>}
-                        {d&&<TextA phone={d} style={lk}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>}
-                        {wa.length>=11&&<a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" style={{...lk,border:"1px solid #25D366",color:"#128C7E",background:"#E9FBF0"}}>🟢 WhatsApp</a>}
-                        {c.email&&<a href={`mailto:${c.email}`} style={lk}>✉️ Email</a>}
-                      </div>
-                    );})()}</div>
+                    <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div>{(c.phone||c.email)&&<div style={{marginTop:7}} onClick={e=>e.stopPropagation()}><ContactActions phone={c.phone} email={c.email}/></div>}</div>
                     <button onClick={()=>remC(c.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>Remove</button>
                   </div>
                 ))}
@@ -7104,10 +7087,8 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
   };
   const openCompose=(channel,target,name)=>{setCustom("");setCompose({channel,target,name});};
   const phoneRow=(num,name)=>(
-    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
-      <CallA phone={num} style={{...actA,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</CallA>
-      <button onClick={()=>openCompose("text",num,name)} style={{...actA,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D",cursor:"pointer",fontFamily:"inherit"}}><SmsChatIcon size={12} color="#15803D"/> Text</button>
-      <button onClick={()=>openCompose("whatsapp",num,name)} style={{...actA,background:"#E7F9EF",border:"1px solid #25D366",color:"#128C4B",cursor:"pointer",fontFamily:"inherit"}}>WhatsApp</button>
+    <div style={{marginTop:6}}>
+      <ContactActions phone={num} onText={()=>openCompose("text",num,name)} onWhatsApp={()=>openCompose("whatsapp",num,name)}/>
     </div>
   );
   // In-app email when the mailbox is connected (offers reply-to-linked-chain);
@@ -8774,7 +8755,7 @@ function ContactsPage(){
                       <div key={i} style={{padding:"11px 16px",borderBottom:(i<sel.phones.length-1||sel.email||sel.notes)?`1px solid ${T.border}`:"none"}}>
                         <div style={{fontSize:10.5,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5}}>{p.label||"Phone"}</div>
                         <div style={{fontSize:15,color:T.text,marginBottom:8}}>{p.number}</div>
-                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><CallA phone={p.number} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>📞 Call</CallA><TextA phone={p.number} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA></div>
+                        <ContactActions phone={p.number} whatsapp={false}/>
                       </div>
                     ))}
                     {sel.email&&<div style={{padding:"11px 16px",borderBottom:sel.notes?`1px solid ${T.border}`:"none"}}><div style={{fontSize:10.5,color:T.textTert,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5}}>Email</div><a href={`mailto:${sel.email}`} style={{fontSize:15,color:T.blue,textDecoration:"none"}}>{sel.email}</a></div>}
@@ -9814,6 +9795,24 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
   const[reply,setReply]=useState(null); // message being replied to
   const[selMode,setSelMode]=useState(false); // select-to-delete mode
   const[selIds,setSelIds]=useState(new Set());
+  // Tap a quoted reply → scroll to the original message and flash it gold.
+  const[flashId,setFlashId]=useState(null);
+  const flashT=useRef(null);
+  const jumpToOriginal=(m)=>{
+    const raw=m.replyToId!=null?m.replyToId:(m.replyTo&&m.replyTo.id);
+    if(raw==null||raw==="")return;
+    const cands=[String(raw),"ctr-"+String(raw)];
+    const sc=scrollRef.current;if(!sc)return;
+    for(const id of cands){
+      const el=sc.querySelector(`[data-mid="${CSS.escape(id)}"]`);
+      if(el){
+        el.scrollIntoView({behavior:"smooth",block:"center"});
+        setFlashId(id);
+        clearTimeout(flashT.current);flashT.current=setTimeout(()=>setFlashId(null),1800);
+        return;
+      }
+    }
+  };
   const[mediaOpen,setMediaOpen]=useState(false); // 🖼 all photos & videos in this chat
   // Media from the whole merged thread — items from the contractor thread carry
   // an EXT tag so it's obvious what the outside team sent (or can see).
@@ -9871,12 +9870,17 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
             const coJob=!selMode&&m.ctrJobId&&String(m.taskRefId||"").startsWith("co:")?(ctrJobsAll||[]).find(j=>String(j.id)===String(m.ctrJobId)):null;
             const coReq=coJob?(coJob.coRequests||[]).find(x=>`co:${x.id}`===m.taskRefId):null;
             return(
-              <div key={m.id} onClick={selMode?()=>toggleSel(m.id):undefined} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"92%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start",cursor:selMode?"pointer":"default"}}>
+              <div key={m.id} data-mid={String(m.id)} onClick={selMode?()=>toggleSel(m.id):undefined} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"92%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start",cursor:selMode?"pointer":"default"}}>
                 <div style={{fontSize:10,color:T.textTert,marginBottom:2}}>{m.author||"—"} · {fmt(m.at)}</div>
                 <div style={{display:"flex",alignItems:"center",gap:8,flexDirection:mine?"row-reverse":"row"}}>
                   {selMode&&<span style={{width:20,height:20,flexShrink:0,borderRadius:"50%",border:`2px solid ${picked?T.gold:T.border}`,background:picked?T.gold:"transparent",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800}}>{picked?"✓":""}</span>}
-                  <div onClick={coReq?()=>setCoPopup({jobId:coJob.id,reqId:coReq.id}):sowJob?()=>openScopePdf(sowJob):undefined} style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`,opacity:selMode&&!picked?0.55:1,cursor:coReq||sowJob?"pointer":undefined}}>
-                    {m.replyTo&&<div style={{fontSize:11,marginBottom:4,padding:"4px 8px",borderLeft:`3px solid ${mine?"rgba(255,255,255,0.6)":T.gold}`,borderRadius:5,background:mine?"rgba(255,255,255,0.15)":T.bg,color:mine?"rgba(255,255,255,0.92)":T.textSub,overflow:"hidden"}}><b>{(m.replyTo.author||"").split(" ")[0]}</b>: {m.replyTo.text}</div>}
+                  <div onClick={coReq?()=>setCoPopup({jobId:coJob.id,reqId:coReq.id}):sowJob?()=>openScopePdf(sowJob):undefined} style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:String(m.id)===flashId?`0 0 0 3px ${T.gold}`:(onCard?"none":T.shadow),transition:"box-shadow 0.35s",border:mine?"none":`1px solid ${T.border}`,opacity:selMode&&!picked?0.55:1,cursor:coReq||sowJob?"pointer":undefined}}>
+                    {m.replyTo&&(()=>{const jumpable=!selMode&&(m.replyToId!=null||(m.replyTo&&m.replyTo.id!=null));return(
+                      <div onClick={jumpable?(e)=>{e.stopPropagation();jumpToOriginal(m);}:undefined} title={jumpable?"Tap to jump to the original message":undefined}
+                        style={{fontSize:11,marginBottom:4,padding:"4px 8px",borderLeft:`3px solid ${mine?"rgba(255,255,255,0.6)":T.gold}`,borderRadius:5,background:mine?"rgba(255,255,255,0.15)":T.bg,color:mine?"rgba(255,255,255,0.92)":T.textSub,overflow:"hidden",cursor:jumpable?"pointer":undefined}}>
+                        <b>{(m.replyTo.author||"").split(" ")[0]}</b>: {m.replyTo.text}
+                      </div>
+                    );})()}
                     {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                     {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
                     {m.text}

@@ -359,10 +359,12 @@ function finProfit(f,status){
   const holdingTotal=holdingItems.length>0?holdingItems.reduce((s,i)=>s+(i.perYear?n(i.amount)/12:n(i.amount))*months,0):n(f.annualHoldingCosts)||0;
   const totalCosts=n(f.purchasePrice)+buyingTotal+n(f.rehabCosts)+holdingTotal;
   const liveHmLoan=Math.round(n(f.purchasePrice)*(n(f.hmLoanPct||90)/100));
-  const liveHmMonthly=Math.round(liveHmLoan*(n(f.hmRate||9)/100)/12);
-  const liveHmReserve=Math.round(liveHmMonthly*months);
   const liveRehabLoan=Math.round(n(f.rehabCosts)*(n(f.rehabFinPct||100)/100));
   const liveHmTotal=liveHmLoan+liveRehabLoan;
+  // Interest on the FULL hard-money commitment (purchase + rehab financing) —
+  // matches the Financing Breakdown popup and the Actual-financing math.
+  const liveHmMonthly=Math.round(liveHmTotal*(n(f.hmRate||9)/100)/12);
+  const liveHmReserve=Math.round(liveHmMonthly*months);
   const liveHmOrigFee=Math.round(liveHmTotal*(n(f.hmOrigPct||0)/100));
   const liveHmDoc=n(f.hmDocFee||1000);
   const liveGapPrinc=Math.round(n(f.purchasePrice)*(1-n(f.hmLoanPct||90)/100))+Math.round(n(f.rehabCosts)*(1-n(f.rehabFinPct||100)/100))+buyingTotal+liveHmReserve+liveHmOrigFee+liveHmDoc;
@@ -1174,7 +1176,9 @@ function FinancingPopup({fin, onSave, onClose}){
   const hmTotal      =hmLoan+hmRehabLoan;
   const hmOrigFee    =Math.round(hmTotal*(n(hmOrigPct)/100));
   const hmDoc        =n(hmDocFee);
-  const hmMonthlyInt =Math.round(hmLoan*(n(hmRate)/100)/12);
+  // Interest accrues on the FULL hard-money commitment — purchase draw AND the
+  // rehab financing — not just the purchase side ($237k @ 9% ≈ $1,778/mo).
+  const hmMonthlyInt =Math.round(hmTotal*(n(hmRate)/100)/12);
   const hmIntReserve =Math.round(hmMonthlyInt*holdMonths);
   const downPmt      =Math.round(pp*(1-n(hmPct)/100));
   const rehabGap     =Math.round(rehab*(1-n(rehabPct)/100));

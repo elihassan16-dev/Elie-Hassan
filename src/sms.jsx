@@ -138,13 +138,14 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
           <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px", display: "flex", alignItems: "center", gap: 6 }}>{mode === "call" ? "📞 Call" : <><SmsChatIcon size={13} color="#15803D" /> Text</>} {fmtPhone(phone)} using…</div>
           <button style={opt} onClick={() => {
             if (mode === "call") go(`openphone://dial?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}&action=call`);
+            else if (onInApp && templates.length) setStep("business");
             else if (onInApp) { onClose(); onInApp(); }
             else go(`openphone://message?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}`);
           }}>
             <span style={{ fontSize: 22, flexShrink: 0 }}>💼</span>
             <span style={{ minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Business line{from ? ` · ${fmtPhone(from)}` : ""}</div>
-              <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Opens the Quo app — they see the company number" : onInApp ? "Right here in the app — templates & history inside" : "Opens the Quo app — sends from the company number"}</div>
+              <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Opens the Quo app — they see the company number" : onInApp ? "Right here in the app — conversation, templates or custom text" : "Opens the Quo app — sends from the company number"}</div>
             </span>
           </button>
           <button style={opt} onClick={() => { if (mode === "text" && templates.length) setStep("personal"); else go(mode === "call" ? `tel:${digits}` : `sms:${digits}`); }}>
@@ -154,6 +155,24 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
               <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Regular call from this phone's own number" : `Messages app — from this phone's own number${templates.length ? ", blank or a template" : ""}`}</div>
             </span>
           </button>
+        </>) : step === "business" ? (<>
+          <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px" }}>💼 Business line — start with…</div>
+          <button style={opt} onClick={() => { onClose(); onInApp(null); }}>
+            <span style={{ fontSize: 20, flexShrink: 0 }}>💬</span>
+            <span style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Open the conversation</div>
+              <div style={{ fontSize: 11, color: T.textSub, marginTop: 1 }}>Full history — write your own text or pick a template inside</div>
+            </span>
+          </button>
+          {templates.map((t) => (
+            <button key={t.kind} style={opt} onClick={() => { onClose(); onInApp(t.kind); }}>
+              <span style={{ fontSize: 20, flexShrink: 0 }}>📋</span>
+              <span style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{t.label}</div>
+                <div style={{ fontSize: 11, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.text}</div>
+              </span>
+            </button>
+          ))}
         </>) : (<>
           <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px" }}>📱 Text from my phone — start with…</div>
           <button style={opt} onClick={() => go(smsHref(phone))}>

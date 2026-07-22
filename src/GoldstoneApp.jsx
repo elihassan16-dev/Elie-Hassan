@@ -2279,14 +2279,27 @@ function showingMessage(kind,agentName,address){
   const fn=showingFirstName(agentName);
   if(kind==="followup")
     return `Hey ${fn}, Eli again — just following up to see your client's interest and whether we can expect an offer. Thanks!`;
+  if(kind==="sweeten")
+    return `Hey ${fn}, Eli again — anything we can do to sweeten the deal and get something rolling? Happy to talk it through.`;
   return `Hi ${fn}, Eli from Goldstone Properties. I believe you showed your client ${address}. I'm actually the owner of the property — Esther is my full-time employee. Just wanted to touch base and see how the showing went.`;
 }
 // Templates for BoldTrail BUYER leads (people interested in the property) —
 // different voice than the agent templates above.
 function btMessage(kind,name,address){
   const fn=(String(name||"").trim().split(/\s+/)[0])||"there";
-  if(kind==="followup")return `Hi ${fn}, Eli from Goldstone Properties following up on ${address} \u2014 still interested? Happy to set up a time for you to see it.`;
-  return `Hi ${fn}, this is Eli from Goldstone Properties. I saw you were interested in ${address} \u2014 are you still looking? Happy to answer any questions or set up a showing.`;
+  if(kind==="followup")return `Hi ${fn}, Eli from Goldstone Properties following up about ${address} — still interested? I'm the owner, so I can answer anything directly or set up another look whenever works for you.`;
+  if(kind==="sweeten")return `Hi ${fn}, Eli again from Goldstone Properties — anything we can do to sweeten the deal and put you in the house? Happy to talk it through.`;
+  return `Hi ${fn}, my name is Eli from Goldstone Properties. I saw you inquired about ${address}. I'm the owner of the property — just wanted to reach out personally and see if there's anything I can do to help. Happy to answer questions or set up a time to see it.`;
+}
+// The one template list used by every texting entry point (property showings,
+// showings page, calendar) so the options are identical everywhere.
+function showingTemplates(bt,name,address){
+  const t=(kind)=>(bt?btMessage:showingMessage)(kind,name,address);
+  return[
+    {kind:"initial",label:"Initial intro",text:t("initial")},
+    {kind:"followup",label:"Follow-up",text:t("followup")},
+    {kind:"sweeten",label:"Sweeten the deal",text:t("sweeten")},
+  ];
 }
 const showingSms=(phone,body)=>{
   const clean=(phone||"").replace(/[^\d+]/g,"");
@@ -2580,6 +2593,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     const ev=[
       t.initial&&{label:"Initial text",at:t.initial},
       t.followup&&{label:"Follow-up text",at:t.followup},
+      t.sweeten&&{label:"Sweeten text",at:t.sweeten},
       lastOut&&{label:"",at:lastOut.at},
     ].filter(Boolean).sort((a,b)=>new Date(b.at)-new Date(a.at))[0];
     if(!ev)return <div style={{fontSize:10,color:T.textTert,marginTop:2}}>No outreach yet</div>;
@@ -2611,11 +2625,12 @@ function PropertyShowings({property,showings,onUpdate,flush}){
           <TextA phone={ph} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>
           {tmplBtn(ph,name,rowKey,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
           {tmplBtn(ph,name,rowKey,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
+          {tmplBtn(ph,name,rowKey,"sweeten","Sweeten",{background:"#F0FDFA",border:"1px solid #0F766E",color:"#0F766E"})}
         </div>
       </div>
     );
     const t=showingTexts[rowKey]||{};
-    const anySent=!!(t.initial||t.followup);
+    const anySent=!!(t.initial||t.followup||t.sweeten);
     return(
       <div style={{marginTop:8,display:"flex",alignItems:"center",gap:7}}>
         <div style={{flex:1,minWidth:0}}>
@@ -2623,11 +2638,8 @@ function PropertyShowings({property,showings,onUpdate,flush}){
           {outreachLine(ph,rowKey)}
         </div>
         <CallA phone={ph} title="Call" style={icoS}>📞</CallA>
-        <TextA phone={ph} title="Text — conversation & templates" onInApp={()=>setSmsPop({phone:ph,name,rowKey,bt})}
-          templates={[
-            {kind:"initial",label:"Initial intro",text:tmplText("initial")},
-            {kind:"followup",label:"Follow-up",text:tmplText("followup")},
-          ]}
+        <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setSmsPop({phone:ph,name,rowKey,bt,kind:kind||null})}
+          templates={showingTemplates(bt,name,address)}
           onTemplate={(kind)=>markText(rowKey,kind)}
           style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
           <SmsChatIcon size={15} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:8,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
@@ -2644,7 +2656,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     const th=smsOn?threadFor(ph):[];
     const lastOut=[...th].reverse().find(m=>m.direction!=="in");
     const lastIn=[...th].reverse().find(m=>m.direction==="in");
-    const ev=[t.initial&&{label:"Initial",at:t.initial},t.followup&&{label:"F-up",at:t.followup},lastOut&&{label:"texted",at:lastOut.at}]
+    const ev=[t.initial&&{label:"Initial",at:t.initial},t.followup&&{label:"F-up",at:t.followup},t.sweeten&&{label:"Sweeten",at:t.sweeten},lastOut&&{label:"texted",at:lastOut.at}]
       .filter(Boolean).sort((a,b)=>new Date(b.at)-new Date(a.at))[0];
     if(!ev)return <span style={{color:T.textTert}}>No outreach yet</span>;
     return(<>
@@ -2658,13 +2670,13 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   // note (+ the personal-phone template links for members without texting).
   const iconCluster=(ph,name,rowKey,msgMeta,bt,email)=>{
     const t=showingTexts[rowKey]||{};
-    const anySent=!!(t.initial||t.followup);
+    const anySent=!!(t.initial||t.followup||t.sweeten);
     const tmplText=(kind)=>(bt?btMessage:showingMessage)(kind,name,address);
     return(
       <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
         <CallA phone={ph} title="Call" style={icoC}><PhoneIcon size={13} color={T.text}/></CallA>
-        <TextA phone={ph} title="Text — conversation & templates" onInApp={()=>setSmsPop({phone:ph,name,rowKey,bt})}
-          templates={[{kind:"initial",label:"Initial intro",text:tmplText("initial")},{kind:"followup",label:"Follow-up",text:tmplText("followup")}]}
+        <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setSmsPop({phone:ph,name,rowKey,bt,kind:kind||null})}
+          templates={showingTemplates(bt,name,address)}
           onTemplate={(kind)=>markText(rowKey,kind)}
           style={{...icoC,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
           <SmsChatIcon size={13} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:12,height:12,borderRadius:6,background:T.green,color:"#fff",fontSize:7.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
@@ -2831,10 +2843,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       );
     })()}
     {smsPop&&<SmsThreadPopup phone={smsPop.phone} name={smsPop.name||(smsPop.bt?"Buyer":"Agent")} initialKind={smsPop.kind||null}
-      templates={[
-        {kind:"initial",label:"Initial intro",text:(smsPop.bt?btMessage:showingMessage)("initial",smsPop.name,address)},
-        {kind:"followup",label:"Follow-up",text:(smsPop.bt?btMessage:showingMessage)("followup",smsPop.name,address)},
-      ]}
+      templates={showingTemplates(smsPop.bt,smsPop.name,address)}
       sentStamps={showingTexts[smsPop.rowKey]||{}}
       onClearStamp={(kind)=>smsPop.rowKey&&clearText(smsPop.rowKey,kind)}
       onSent={(kind)=>{if(kind&&smsPop.rowKey)markText(smsPop.rowKey,kind);}} onClose={()=>setSmsPop(null)}/>}
@@ -3256,9 +3265,20 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
     .sort((a,b)=>String(a.s.start||"").localeCompare(String(b.s.start||"")));
   const shToday=useMemo(()=>shForDay(todayISO),[showings,active]); // eslint-disable-line
 
-  // Call / text templates for a showing agent — same set as the Showings section,
-  // including the sent-mark on the two templates (stored on the matched property).
+  // Call / text / email for a showing agent — the SAME uniform icon cluster and
+  // template set as the Showings section (call chooses office/personal, text
+  // opens the chooser with conversation + templates, sent-marks shared via the
+  // matched property).
+  const {connected:calSmsOn}=useSmsTexting();
+  const [calSmsPop,setCalSmsPop]=useState(null); // {phone,name,propId,k,address,kind}
   const actBtn={display:"inline-flex",alignItems:"center",gap:4,padding:"0 10px",height:28,boxSizing:"border-box",lineHeight:1,borderRadius:16,fontSize:11.5,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap",fontFamily:"inherit"};
+  const calIco={width:30,height:30,borderRadius:15,border:`1px solid ${T.border}`,background:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",cursor:"pointer",textDecoration:"none",flexShrink:0,position:"relative",boxSizing:"border-box",lineHeight:1,fontFamily:"inherit",padding:0};
+  const markShowingText=(propId,k,kind)=>setSharedProps(prev=>prev.map(p=>p.id===propId?{...p,showingTexts:{...(p.showingTexts||{}),[k]:{...((p.showingTexts||{})[k]||{}),[kind]:new Date().toISOString()}}}:p));
+  const clearShowingText=(propId,k,kind)=>setSharedProps(prev=>prev.map(p=>{
+    if(p.id!==propId)return p;
+    const cur={...(((p.showingTexts||{})[k])||{})};delete cur[kind];
+    return {...p,showingTexts:{...(p.showingTexts||{}),[k]:cur}};
+  }));
   const showingActions=(s,address,prop)=>{
     const k=showingKey(s);
     // Feed phones plus any numbers hand-added on the property's Showings row —
@@ -3268,12 +3288,33 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
     if(!phones.length)return null;
     const name=s.agent||"";
     const texts=(prop&&prop.showingTexts)||{};
-    const mark=(kind)=>{if(!prop)return;upd(prop.id,"showingTexts",{...texts,[k]:{...(texts[k]||{}),[kind]:new Date().toISOString()}});};
+    const t=texts[k]||{};
+    const anySent=!!(t.initial||t.followup||t.sweeten);
     const fmtSent=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
     const tmpl=(ph,kind,label,idle)=>{
-      const sent=(texts[k]||{})[kind];
-      return <a href={showingSms(ph,showingMessage(kind,name,address))} onClick={()=>mark(kind)} style={{...actBtn,...(sent?{background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}:idle)}}>{sent?`✓ ${label} · ${fmtSent(sent)}`:label}</a>;
+      const sent=t[kind];
+      return <a href={showingSms(ph,showingMessage(kind,name,address))} onClick={()=>prop&&markShowingText(prop.id,k,kind)} style={{...actBtn,...(sent?{background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}:idle)}}>{sent?`✓ ${label} · ${fmtSent(sent)}`:label}</a>;
     };
+    // Texting connected + a matched property: the uniform icon cluster
+    // (templates and history live inside the text chooser / conversation).
+    if(calSmsOn&&prop)return(
+      <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:7}}>
+        {phones.map((ph,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:6}}>
+            <div style={{flex:1,minWidth:0,fontSize:12,fontWeight:600,color:T.text,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>{ph} <SmsBadge phone={ph}/></div>
+            <CallA phone={ph} title="Call" style={calIco}><PhoneIcon size={14} color={T.text}/></CallA>
+            <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setCalSmsPop({phone:ph,name,propId:prop.id,k,address,kind:kind||null})}
+              templates={showingTemplates(false,name,address)}
+              onTemplate={(kind)=>markShowingText(prop.id,k,kind)}
+              style={{...calIco,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
+              <SmsChatIcon size={14} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:8,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
+            </TextA>
+            {s.email&&<a href={`mailto:${s.email}`} title={`Email ${s.email}`} style={{...calIco,border:`1px solid ${T.blue}`,background:"#EBF4FF"}}><MailIcon size={14} color={T.blue}/></a>}
+          </div>
+        ))}
+      </div>
+    );
+    // Fallback (members without texting): labeled pills incl. all three templates.
     return(
       <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:7}}>
         {phones.map((ph,i)=>(
@@ -3284,6 +3325,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
               <TextA phone={ph} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>
               {tmpl(ph,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
               {tmpl(ph,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
+              {tmpl(ph,"sweeten","Sweeten",{background:"#F0FDFA",border:"1px solid #0F766E",color:"#0F766E"})}
             </div>
           </div>
         ))}
@@ -3311,6 +3353,18 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
 
   const wrap={padding:isMobile?"14px 14px 40px":"18px 24px 40px",maxWidth:640,margin:"0 auto",width:"100%",boxSizing:"border-box"};
   const card={background:T.card,borderRadius:T.radius,boxShadow:T.shadow,border:`1px solid ${T.border}`,overflow:"hidden"};
+  // The same conversation popup as the Showings section — sent-marks read/write
+  // the matched property's showingTexts, so both places stay in step.
+  const calSmsPopup=calSmsPop&&(()=>{
+    const prop=(sharedProps||[]).find(p=>p.id===calSmsPop.propId);
+    const stamps=((prop&&prop.showingTexts)||{})[calSmsPop.k]||{};
+    return <SmsThreadPopup phone={calSmsPop.phone} name={calSmsPop.name||"Agent"} initialKind={calSmsPop.kind||null}
+      templates={showingTemplates(false,calSmsPop.name,calSmsPop.address)}
+      sentStamps={stamps}
+      onClearStamp={(kind)=>clearShowingText(calSmsPop.propId,calSmsPop.k,kind)}
+      onSent={(kind)=>{if(kind)markShowingText(calSmsPop.propId,calSmsPop.k,kind);}}
+      onClose={()=>setCalSmsPop(null)}/>;
+  })();
 
   const OverdueCard=({x})=>{
     const {p,e,date}=x;
@@ -3354,6 +3408,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
 
   return(
     <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+      {calSmsPopup}
       <div style={wrap}>
         {/* Segmented control */}
         <div style={{display:"flex",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:3,gap:3,marginBottom:16}}>

@@ -9795,6 +9795,24 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
   const[reply,setReply]=useState(null); // message being replied to
   const[selMode,setSelMode]=useState(false); // select-to-delete mode
   const[selIds,setSelIds]=useState(new Set());
+  // Tap a quoted reply → scroll to the original message and flash it gold.
+  const[flashId,setFlashId]=useState(null);
+  const flashT=useRef(null);
+  const jumpToOriginal=(m)=>{
+    const raw=m.replyToId!=null?m.replyToId:(m.replyTo&&m.replyTo.id);
+    if(raw==null||raw==="")return;
+    const cands=[String(raw),"ctr-"+String(raw)];
+    const sc=scrollRef.current;if(!sc)return;
+    for(const id of cands){
+      const el=sc.querySelector(`[data-mid="${CSS.escape(id)}"]`);
+      if(el){
+        el.scrollIntoView({behavior:"smooth",block:"center"});
+        setFlashId(id);
+        clearTimeout(flashT.current);flashT.current=setTimeout(()=>setFlashId(null),1800);
+        return;
+      }
+    }
+  };
   const[mediaOpen,setMediaOpen]=useState(false); // 🖼 all photos & videos in this chat
   // Media from the whole merged thread — items from the contractor thread carry
   // an EXT tag so it's obvious what the outside team sent (or can see).
@@ -9852,12 +9870,17 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
             const coJob=!selMode&&m.ctrJobId&&String(m.taskRefId||"").startsWith("co:")?(ctrJobsAll||[]).find(j=>String(j.id)===String(m.ctrJobId)):null;
             const coReq=coJob?(coJob.coRequests||[]).find(x=>`co:${x.id}`===m.taskRefId):null;
             return(
-              <div key={m.id} onClick={selMode?()=>toggleSel(m.id):undefined} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"92%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start",cursor:selMode?"pointer":"default"}}>
+              <div key={m.id} data-mid={String(m.id)} onClick={selMode?()=>toggleSel(m.id):undefined} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"92%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start",cursor:selMode?"pointer":"default"}}>
                 <div style={{fontSize:10,color:T.textTert,marginBottom:2}}>{m.author||"—"} · {fmt(m.at)}</div>
                 <div style={{display:"flex",alignItems:"center",gap:8,flexDirection:mine?"row-reverse":"row"}}>
                   {selMode&&<span style={{width:20,height:20,flexShrink:0,borderRadius:"50%",border:`2px solid ${picked?T.gold:T.border}`,background:picked?T.gold:"transparent",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800}}>{picked?"✓":""}</span>}
-                  <div onClick={coReq?()=>setCoPopup({jobId:coJob.id,reqId:coReq.id}):sowJob?()=>openScopePdf(sowJob):undefined} style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:onCard?"none":T.shadow,border:mine?"none":`1px solid ${T.border}`,opacity:selMode&&!picked?0.55:1,cursor:coReq||sowJob?"pointer":undefined}}>
-                    {m.replyTo&&<div style={{fontSize:11,marginBottom:4,padding:"4px 8px",borderLeft:`3px solid ${mine?"rgba(255,255,255,0.6)":T.gold}`,borderRadius:5,background:mine?"rgba(255,255,255,0.15)":T.bg,color:mine?"rgba(255,255,255,0.92)":T.textSub,overflow:"hidden"}}><b>{(m.replyTo.author||"").split(" ")[0]}</b>: {m.replyTo.text}</div>}
+                  <div onClick={coReq?()=>setCoPopup({jobId:coJob.id,reqId:coReq.id}):sowJob?()=>openScopePdf(sowJob):undefined} style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:14,padding:small?"7px 11px":"9px 13px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:String(m.id)===flashId?`0 0 0 3px ${T.gold}`:(onCard?"none":T.shadow),transition:"box-shadow 0.35s",border:mine?"none":`1px solid ${T.border}`,opacity:selMode&&!picked?0.55:1,cursor:coReq||sowJob?"pointer":undefined}}>
+                    {m.replyTo&&(()=>{const jumpable=!selMode&&(m.replyToId!=null||(m.replyTo&&m.replyTo.id!=null));return(
+                      <div onClick={jumpable?(e)=>{e.stopPropagation();jumpToOriginal(m);}:undefined} title={jumpable?"Tap to jump to the original message":undefined}
+                        style={{fontSize:11,marginBottom:4,padding:"4px 8px",borderLeft:`3px solid ${mine?"rgba(255,255,255,0.6)":T.gold}`,borderRadius:5,background:mine?"rgba(255,255,255,0.15)":T.bg,color:mine?"rgba(255,255,255,0.92)":T.textSub,overflow:"hidden",cursor:jumpable?"pointer":undefined}}>
+                        <b>{(m.replyTo.author||"").split(" ")[0]}</b>: {m.replyTo.text}
+                      </div>
+                    );})()}
                     {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                     {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
                     {m.text}

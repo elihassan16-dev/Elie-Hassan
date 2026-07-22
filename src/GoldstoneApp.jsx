@@ -2822,8 +2822,13 @@ function ShowingsTab({property,onUpdate}){
 }
 // ─── Showings page — every on-market property's showings in one schedule ───────
 function ShowingsPage(){
-  const { sharedProps, setSharedProps, flushProps }=useData();
+  const { sharedProps, setSharedProps, flushProps, appSettings, setAppSettings, teamMembers }=useData();
   const { isAdmin }=useAuth();
+  // Who gets pinged when a brand-new showing lands on the calendar. Empty list
+  // (the default) = admins only; checking people adds them.
+  const[alertsOpen,setAlertsOpen]=useState(false);
+  const alertNames=(()=>{const r=(appSettings||[]).find(x=>x.id==="showing_alerts");return (r&&Array.isArray(r.recipients))?r.recipients:[];})();
+  const saveAlertNames=(names)=>{const rest=(appSettings||[]).filter(x=>x.id!=="showing_alerts");setAppSettings([...rest,{id:"showing_alerts",recipients:names}]);};
   const isMobile=useIsMobile();
   const[status,setStatus]=useState(null);
   const[showings,setShowings]=useState(null);
@@ -2959,8 +2964,30 @@ function ShowingsPage(){
               <div style={{fontWeight:700,fontSize:15,color:T.text}}>Showings</div>
               <div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>{totalUpcoming} upcoming · {rows.length} on market</div>
             </div>
+            {isAdmin&&<button onClick={()=>setAlertsOpen(true)} title="Who gets notified when a new showing is scheduled" style={{padding:"6px 10px",borderRadius:T.radiusSm,background:"#fff",color:T.textSub,border:`1px solid ${T.border}`,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>🔔</button>}
             <button onClick={()=>load(true)} title="Refresh" style={{padding:"6px 12px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻</button>
           </div>
+          {alertsOpen&&(
+            <div onClick={()=>setAlertsOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:420,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",boxSizing:"border-box"}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(400px,96vw)",boxShadow:"0 12px 48px rgba(0,0,0,0.25)",overflow:"hidden"}}>
+                <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center"}}>
+                  <div style={{flex:1,fontSize:15,fontWeight:800,color:T.text}}>📅 New-showing alerts</div>
+                  <button onClick={()=>setAlertsOpen(false)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+                </div>
+                <div style={{padding:"14px 18px"}}>
+                  <div style={{fontSize:12.5,color:T.textSub,lineHeight:1.5,marginBottom:12}}>The moment a new showing appears on the calendar, these people get a notification (each through their own notification channels).</div>
+                  <div style={{fontSize:12,fontWeight:700,color:alertNames.length?T.textTert:"#15803D",marginBottom:10}}>{alertNames.length?"Going to the people checked below:":"✓ Right now: admins only (you)."}</div>
+                  {(teamMembers||[]).map(nm=>(
+                    <label key={nm} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",fontSize:13.5,color:T.text,cursor:"pointer"}}>
+                      <input type="checkbox" checked={alertNames.includes(nm)} onChange={()=>saveAlertNames(alertNames.includes(nm)?alertNames.filter(x=>x!==nm):[...alertNames,nm])} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>
+                      {nm}
+                    </label>
+                  ))}
+                  <div style={{fontSize:11,color:T.textTert,marginTop:10,lineHeight:1.45}}>Nobody checked = just the admins. Check people to set an exact list (then admins are only included if checked too).</div>
+                </div>
+              </div>
+            </div>
+          )}
           <div style={{position:"relative"}}>
             <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:14,pointerEvents:"none"}}>⌕</span>
             <input placeholder="Search properties…" value={search} onChange={e=>setSearch(e.target.value)} style={iS}/>
@@ -14141,6 +14168,7 @@ export function GoldstoneShell(){
     const i=pendingGoto.indexOf(":");
     const kind=i<0?pendingGoto:pendingGoto.slice(0,i),id=i<0?"":pendingGoto.slice(i+1);
     if(kind==="tasks"){setActive("tasks");setPendingGoto(null);return;}
+    if(kind==="showings"){setActive("showings");setPendingGoto(null);return;}
     if(kind==="chat"&&id==="__office__"){setActive("messages");setNavChatId("__office__");setPendingGoto(null);return;}
     if(kind==="chat"||kind==="prop"){
       const p=(sharedProps||[]).find(x=>String(x.id)===String(id));

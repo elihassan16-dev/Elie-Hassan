@@ -168,6 +168,8 @@ export default async function handler(req, res) {
   }
 
   const dateStr = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  // Piggyback: the new-showing watcher gets at least one daily run via this cron.
+  try { const { checkNewShowings } = await import("../../lib/showings.js"); await checkNewShowings(); } catch { /* best effort */ }
   const { data: props } = await db.from("properties").select("id,address,city,status,data");
   const { data: users } = await db.from("users").select("id,email,name,notify_muted,notify_channels");
   const list = (users || []).filter((u) => u.email && u.name && !u.notify_muted && (!u.notify_channels || u.notify_channels.email !== false) && (!onlyUser || u.id === onlyUser.id));

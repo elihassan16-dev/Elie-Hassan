@@ -2,7 +2,7 @@
 // be verified straight from a browser tab. Reports ONLY connection facts:
 // which endpoint variant answered, counts, and the API's field names. No lead
 // names, phones, or any contact data ever leaves the server here.
-import { fetchContacts, normalizeContact, probeDetail } from "../../lib/boldtrail.js";
+import { fetchContacts, normalizeContact, probeDetail, storedLeadStats } from "../../lib/boldtrail.js";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
@@ -18,6 +18,7 @@ export default async function handler(req, res) {
     totalReturned: r.contacts.length,
     buyersInFirstPage: normalized.filter((n) => /buyer/i.test(n.type || "")).length,
     withPhone: normalized.filter((n) => n.phone).length,
+    stored: await storedLeadStats(),
     detailProbe,
   });
 }

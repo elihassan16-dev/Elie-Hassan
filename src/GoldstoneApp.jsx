@@ -2663,11 +2663,11 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     return(
       <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
         <CallA phone={ph} title="Call" style={icoC}><PhoneIcon size={13} color={T.text}/></CallA>
-        <TextA phone={ph} title="Text \u2014 conversation & templates" onInApp={()=>setSmsPop({phone:ph,name,rowKey,bt})}
+        <TextA phone={ph} title="Text — conversation & templates" onInApp={()=>setSmsPop({phone:ph,name,rowKey,bt})}
           templates={[{kind:"initial",label:"Initial intro",text:tmplText("initial")},{kind:"followup",label:"Follow-up",text:tmplText("followup")}]}
           onTemplate={(kind)=>markText(rowKey,kind)}
           style={{...icoC,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
-          <SmsChatIcon size={13} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:12,height:12,borderRadius:6,background:T.green,color:"#fff",fontSize:7.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>\u2713</span>}
+          <SmsChatIcon size={13} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:12,height:12,borderRadius:6,background:T.green,color:"#fff",fontSize:7.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
         </TextA>
         {email&&<a href={`mailto:${email}`} title={`Email ${email}`} style={{...icoC,border:`1px solid ${T.blue}`,background:"#EBF4FF"}}><MailIcon size={13} color={T.blue}/></a>}
         {msgMeta&&msgIco(msgMeta)}
@@ -2687,7 +2687,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         <span style={{fontWeight:600,color:T.text}}>{ph}</span> <SmsBadge phone={ph}/> <span>{outreachMini(ph,rowKey)}</span>
       </span>
     );
-    const removeBtn=onRemove&&<button onClick={onRemove} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:"0 2px",flexShrink:0}}>\u00d7</button>;
+    const removeBtn=onRemove&&<button onClick={onRemove} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>;
     return(
       <div style={{padding:isMobile?"7px 12px":"5px 14px",borderTop:`1px solid ${T.border}`,background:stripe}}>
         <div style={{display:"flex",alignItems:"center",gap:7}}>
@@ -2818,10 +2818,10 @@ function PropertyShowings({property,showings,onUpdate,flush}){
           )}
           {leadTab==="agents"
             ?(agentItems.length===0&&!showAdd
-              ?<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>No showings matched this property\u2019s address yet. Add a lead to call or text someone who isn\u2019t in your ShowingTime feed.</div>
+              ?<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>No showings matched this property's address yet. Add a lead to call or text someone who isn't in your ShowingTime feed.</div>
               :agentItems.map((x,i)=>x.t==="s"?ShowRow(x.item,i):LeadRowC(x.item,i)))
             :(btShown.length===0
-              ?<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>No BoldTrail buyers for this property yet \u2014 they land here automatically when someone inquires about it.</div>
+              ?<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>No BoldTrail buyers for this property yet — they land here automatically when someone inquires about it.</div>
               :btShown.map((x,i)=>BtRowC(x.l,i)))}
         </Card>
       );

@@ -2289,7 +2289,8 @@ function btMessage(kind,name,address){
   const fn=(String(name||"").trim().split(/\s+/)[0])||"there";
   if(kind==="followup")return `Hi ${fn}, Eli from Goldstone Properties following up about ${address} — still interested? I'm the owner, so I can answer anything directly or set up another look whenever works for you.`;
   if(kind==="sweeten")return `Hi ${fn}, Eli again from Goldstone Properties — anything we can do to sweeten the deal and put you in the house? Happy to talk it through.`;
-  return `Hi ${fn}, my name is Eli from Goldstone Properties. I saw you inquired about ${address}. I'm the owner of the property — just wanted to reach out personally and see if there's anything I can do to help. Happy to answer questions or set up a time to see it.`;
+  const zillow=`https://www.zillow.com/homes/${encodeURIComponent(String(address||"").replace(/,/g,""))}_rb/`;
+  return `Hi ${fn}, my name is Eli from Goldstone Properties. I saw you inquired about ${address}. I'm the owner of the property — just wanted to reach out personally and see if there's anything I can do to help. I attached the Zillow link so you can take another look: ${zillow} Happy to answer questions or set up a time to see it.`;
 }
 // The one template list used by every texting entry point (property showings,
 // showings page, calendar) so the options are identical everywhere.

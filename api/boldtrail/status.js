@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   const r = await fetchContacts();
   if (!r.configured) { res.status(200).json({ configured: false, hint: "Set BOLDTRAIL_API_TOKEN in Vercel, then redeploy." }); return; }
-  if (!r.ok) { res.status(200).json({ configured: true, ok: false, tried: r.tried }); return; }
+  if (!r.ok) { res.status(200).json({ configured: true, ok: false, tokenLength: r.tokenLength, tokenLooksJwt: r.tokenLooksJwt, tried: r.tried }); return; }
   const normalized = r.contacts.map(normalizeContact);
   res.status(200).json({
     configured: true, ok: true, endpoint: r.path,

@@ -2295,7 +2295,7 @@ const showingSms=(phone,body)=>{
 };
 // Lead disposition for a showing agent, ranked hottest → coldest (unset sorts last).
 const SHOWING_LEADS=[
-  {key:"buyer",label:"⭐ Selected buyer",short:"Selected buyer",color:"#8A6D1F",bg:"#F7EDD3"},
+  {key:"buyer",label:"⭐ Selected buyer",short:"Selected buyer",color:"#0F766E",bg:"#CCFBF1"},
   {key:"received",label:"✅ Offer received",short:"Offer received",color:"#15803D",bg:"#EDFBF1"},
   {key:"offer",label:"🔥 Expecting an offer",short:"Expecting offer",color:"#C2410C",bg:"#FFEDD5"},
   {key:"interest",label:"Expressed interest",short:"Interested",color:"#B45309",bg:"#FEF3C7"},

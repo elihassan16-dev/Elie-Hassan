@@ -2785,7 +2785,11 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     {/* Approved layout: tab switcher \u2014 \ud83c\udfe0 agents (+ your hand-added leads) | \ud83d\udd25 BoldTrail buyers */}
     {(()=>{
       const handPhones=new Set(customLeads.flatMap(l=>parseShowingPhones(l.phone)).map(x=>x.replace(/\D/g,"")));
-      const btShown=btAllLeads.filter(l=>btMatchesProperty(l,property))
+      // BoldTrail buyers only matter while the property is actively selling —
+      // sold/old deals keep their Agents history but never grow a Buyers tab.
+      const btActive=property.status==="On Market"||property.status==="In Closing";
+      const tab=btActive?leadTab:"agents";
+      const btShown=(btActive?btAllLeads:[]).filter(l=>btMatchesProperty(l,property))
         .filter(l=>{const d=String(l.phone||"").replace(/\D/g,"");return !d||!handPhones.has(d);})
         .filter(l=>notNot(leadMap["bt-"+l.id])&&(!aq||[l.name,l.phone,l.email].filter(Boolean).join(" ").toLowerCase().includes(aq)))
         .map(l=>({l,k:leadMap["bt-"+l.id]||"",ts:l.createdAt?new Date(l.createdAt).getTime():0}))
@@ -2801,12 +2805,12 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       return(
         <Card>
           <div style={{display:"flex",alignItems:"center",gap:7,padding:"10px 14px",flexWrap:"wrap"}}>
-            <button onClick={()=>setLeadTab("agents")} style={pill(leadTab==="agents",T.gold)}>🏠 Agents · {agentItems.length}{newAg?` (${newAg} new)`:""}</button>
-            <button onClick={()=>setLeadTab("buyers")} style={pill(leadTab==="buyers","#DB2777")}>🔥 Buyers · {btShown.length}{newBt?` (${newBt} new)`:""}</button>
+            <button onClick={()=>setLeadTab("agents")} style={pill(tab==="agents",T.gold)}>🏠 Agents · {agentItems.length}{newAg?` (${newAg} new)`:""}</button>
+            {btActive&&<button onClick={()=>setLeadTab("buyers")} style={pill(tab==="buyers","#DB2777")}>🔥 Buyers · {btShown.length}{newBt?` (${newBt} new)`:""}</button>}
             <div style={{flex:1}}/>
-            {leadTab==="agents"&&!showAdd&&<button onClick={()=>setShowAdd(true)} style={{padding:"5px 12px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add lead</button>}
+            {tab==="agents"&&!showAdd&&<button onClick={()=>setShowAdd(true)} style={{padding:"5px 12px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add lead</button>}
           </div>
-          {showAdd&&leadTab==="agents"&&(
+          {showAdd&&tab==="agents"&&(
             <div style={{padding:"6px 16px 12px",display:"flex",flexDirection:"column",gap:8,borderTop:`1px solid ${T.border}`}}>
               <input autoFocus value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} placeholder="Name (agent or buyer)" style={inpS}/>
               <input value={draft.phone} onChange={e=>setDraft(d=>({...d,phone:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addLead()} placeholder="Phone number" inputMode="tel" style={inpS}/>
@@ -2816,7 +2820,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
               </div>
             </div>
           )}
-          {leadTab==="agents"
+          {tab==="agents"
             ?(agentItems.length===0&&!showAdd
               ?<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>No showings matched this property's address yet. Add a lead to call or text someone who isn't in your ShowingTime feed.</div>
               :agentItems.map((x,i)=>x.t==="s"?ShowRow(x.item,i):LeadRowC(x.item,i)))

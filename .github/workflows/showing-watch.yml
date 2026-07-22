@@ -16,3 +16,5 @@ jobs:
         run: curl -fsS -m 30 "https://gpflips.com/api/showings/watch" || true
       - name: Ping the BoldTrail lead sync
         run: curl -fsS -m 30 "https://gpflips.com/api/boldtrail/sync" || true
+      - name: BoldTrail status (diagnostics in the log)
+        run: curl -sS -m 30 "https://gpflips.com/api/boldtrail/status" || true

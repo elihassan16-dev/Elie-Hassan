@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   try {
     const r = await syncBoldtrail();
-    res.status(200).json({ ok: !!r.ok, configured: r.configured !== false, leads: r.leads ?? 0, fresh: r.fresh ?? 0 });
+    res.status(200).json({ ok: !!r.ok, configured: r.configured !== false, buyers: r.buyers ?? 0, checked: r.checked ?? 0, fresh: r.fresh ?? 0 });
   } catch (e) {
     console.error("[boldtrail/sync]", e.message);
     res.status(200).json({ ok: false });

@@ -12,5 +12,7 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping the watcher
+      - name: Ping the showing watcher
         run: curl -fsS -m 30 "https://gpflips.com/api/showings/watch" || true
+      - name: Ping the BoldTrail lead sync
+        run: curl -fsS -m 30 "https://gpflips.com/api/boldtrail/sync" || true

@@ -19,6 +19,7 @@ import { MediaGallery, collectMedia } from "./MediaGallery";
 import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
+import { useBtLeads, btMatchesProperty } from "./btLeads";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES, openScopePdf } from "./contractors/ContractorPortal";
 import { sowPdfFile } from "./contractors/sowPdf";
 import { jvPdfFile } from "./jvPdf";
@@ -2280,6 +2281,13 @@ function showingMessage(kind,agentName,address){
     return `Hey ${fn}, Eli again — just following up to see your client's interest and whether we can expect an offer. Thanks!`;
   return `Hi ${fn}, Eli from Goldstone Properties. I believe you showed your client ${address}. I'm actually the owner of the property — Esther is my full-time employee. Just wanted to touch base and see how the showing went.`;
 }
+// Templates for BoldTrail BUYER leads (people interested in the property) —
+// different voice than the agent templates above.
+function btMessage(kind,name,address){
+  const fn=(String(name||"").trim().split(/\s+/)[0])||"there";
+  if(kind==="followup")return `Hi ${fn}, Eli from Goldstone Properties following up on ${address} \u2014 still interested? Happy to set up a time for you to see it.`;
+  return `Hi ${fn}, this is Eli from Goldstone Properties. I saw you were interested in ${address} \u2014 are you still looking? Happy to answer any questions or set up a showing.`;
+}
 const showingSms=(phone,body)=>{
   const clean=(phone||"").replace(/[^\d+]/g,"");
   const sep=(typeof navigator!=="undefined"&&/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent))?"&":"?"; // iOS wants &body=
@@ -2386,7 +2394,10 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   // Business texting (Quo): when connected, Text/template buttons open a real
   // in-app conversation sent from the company line; otherwise sms: links as before.
   const {connected:smsOn,threadFor,unreadFor}=useSmsTexting();
-  const[smsPop,setSmsPop]=useState(null); // {phone,name,rowKey,kind}
+  const[smsPop,setSmsPop]=useState(null); // {phone,name,rowKey,kind,bt}
+  // BoldTrail buyers who inquired about THIS property (matched by pb-hashtag),
+  // minus anyone already added by hand (same phone).
+  const btAllLeads=useBtLeads();
   const all=showings||[];
   const address=`${property.address}${property.city?`, ${property.city}`:""}`;
   const leadMap=property.showingLeads||{};
@@ -2588,7 +2599,8 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       </button>
     );
   };
-  const phoneActions=(ph,name,rowKey,msgMeta)=>{
+  const phoneActions=(ph,name,rowKey,msgMeta,bt)=>{
+    const tmplText=(kind)=>(bt?btMessage:showingMessage)(kind,name,address);
     if(!smsOn)return(
       <div style={{marginTop:8}}>
         <div style={{fontSize:12,color:T.textSub,marginBottom:5,display:"flex",alignItems:"center",gap:7}}>{ph} <SmsBadge phone={ph}/></div>
@@ -2609,10 +2621,10 @@ function PropertyShowings({property,showings,onUpdate,flush}){
           {outreachLine(ph,rowKey)}
         </div>
         <CallA phone={ph} title="Call" style={icoS}>📞</CallA>
-        <TextA phone={ph} title="Text — conversation & templates" onInApp={()=>setSmsPop({phone:ph,name,rowKey})}
+        <TextA phone={ph} title="Text — conversation & templates" onInApp={()=>setSmsPop({phone:ph,name,rowKey,bt})}
           templates={[
-            {kind:"initial",label:"Initial intro",text:showingMessage("initial",name,address)},
-            {kind:"followup",label:"Follow-up",text:showingMessage("followup",name,address)},
+            {kind:"initial",label:"Initial intro",text:tmplText("initial")},
+            {kind:"followup",label:"Follow-up",text:tmplText("followup")},
           ]}
           onTemplate={(kind)=>markText(rowKey,kind)}
           style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
@@ -2667,6 +2679,31 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         {addNumberUI("lead-"+l.id,()=>addLeadPhone(l))}
       </div>
       <button onClick={()=>removeLead(l.id)} title="Remove lead" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+    </div>
+    );
+  };
+  // A buyer who inquired through BoldTrail — auto-imported, tagged, same
+  // texting/status treatment as any lead (rowKey "bt-<id>" for stamps/status).
+  const BtRow=(l)=>{
+    const k="bt-"+l.id;
+    const lead=SHOWING_LEADS.find(x=>x.key===(leadMap[k]||""));
+    const phones=parseShowingPhones(l.phone);
+    return(
+    <div key={l.id} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}`,background:lead?lead.bg+"66":"transparent"}}>
+      <div style={{width:7,height:7,borderRadius:4,background:"#DB2777",flexShrink:0,marginTop:5}}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+          <span style={{fontSize:14,fontWeight:600,color:T.text}}>{l.name||"(no name)"}</span>
+          <span title="Came in through BoldTrail — a buyer who expressed interest in this property" style={{fontSize:9,fontWeight:800,color:"#DB2777",background:"#FCE7F3",borderRadius:10,padding:"2px 7px"}}>BoldTrail buyer</span>
+        </div>
+        {l.email&&<div><a href={`mailto:${l.email}`} style={{fontSize:12,color:T.textSub,textDecoration:"none"}}>{l.email}</a></div>}
+        <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          {leadSelect(leadMap[k]||"",e=>{const next={...leadMap};if(e.target.value)next[k]=e.target.value;else delete next[k];onUpdate(property.id,"showingLeads",next);saveNow();},lead)}
+          {(!smsOn||phones.length===0)&&msgBtn(k,`Lead — ${l.name||"buyer"}`,{agent:l.name||"",phone:l.phone||"",start:l.createdAt||""})}
+        </div>
+        {phones.map((ph,i)=><div key={i}>{phoneActions(ph,l.name,k,{key:k,label:`Lead — ${l.name||"buyer"}`,snap:{agent:l.name||"",phone:l.phone||"",start:l.createdAt||""}},true)}</div>)}
+        {phones.length===0&&<div style={{fontSize:12,color:T.textTert,marginTop:6}}>No phone number.</div>}
+      </div>
     </div>
     );
   };
@@ -2729,18 +2766,23 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         </div>
       )}
       {(()=>{
+        const handPhones=new Set(customLeads.flatMap(l=>parseShowingPhones(l.phone)).map(x=>x.replace(/\D/g,"")));
+        const btShown=btAllLeads.filter(l=>btMatchesProperty(l,property))
+          .filter(l=>{const d=String(l.phone||"").replace(/\D/g,"");return !d||!handPhones.has(d);})
+          .filter(l=>notNot(leadMap["bt-"+l.id])&&(!aq||[l.name,l.phone,l.email].filter(Boolean).join(" ").toLowerCase().includes(aq)));
         const combined=[
           ...pastShown.slice(0,40).map(s=>({t:"s",item:s,k:leadMap[showingKey(s)]||"",ts:s.ts})),
           ...leadsShown.map(l=>({t:"l",item:l,k:l.lead||"",ts:l.at?new Date(l.at).getTime():0})),
+          ...btShown.map(l=>({t:"b",item:l,k:leadMap["bt-"+l.id]||"",ts:l.createdAt?new Date(l.createdAt).getTime():0})),
         ].sort((a,b)=>{const ra=showingLeadRank(a.k),rb=showingLeadRank(b.k);return ra!==rb?ra-rb:b.ts-a.ts;});
         if(combined.length===0&&!showAdd) return <div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>{mine.length===0?"No showings matched this property's address yet. Add a lead to call or text a buyer/agent who isn't in your ShowingTime feed.":"Add a lead to call or text a buyer/agent who isn't in your ShowingTime feed."}</div>;
-        return combined.map(x=>x.t==="s"?Row(x.item):LeadRow(x.item));
+        return combined.map(x=>x.t==="s"?Row(x.item):x.t==="b"?BtRow(x.item):LeadRow(x.item));
       })()}
     </Card>
-    {smsPop&&<SmsThreadPopup phone={smsPop.phone} name={smsPop.name||"Agent"} initialKind={smsPop.kind||null}
+    {smsPop&&<SmsThreadPopup phone={smsPop.phone} name={smsPop.name||(smsPop.bt?"Buyer":"Agent")} initialKind={smsPop.kind||null}
       templates={[
-        {kind:"initial",label:"Initial intro",text:showingMessage("initial",smsPop.name,address)},
-        {kind:"followup",label:"Follow-up",text:showingMessage("followup",smsPop.name,address)},
+        {kind:"initial",label:"Initial intro",text:(smsPop.bt?btMessage:showingMessage)("initial",smsPop.name,address)},
+        {kind:"followup",label:"Follow-up",text:(smsPop.bt?btMessage:showingMessage)("followup",smsPop.name,address)},
       ]}
       sentStamps={showingTexts[smsPop.rowKey]||{}}
       onClearStamp={(kind)=>smsPop.rowKey&&clearText(smsPop.rowKey,kind)}

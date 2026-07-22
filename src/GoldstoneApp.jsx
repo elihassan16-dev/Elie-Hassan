@@ -5822,6 +5822,21 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
 
 // ─── New Leads Page ───────────────────────────────────────────────────────────
 const LEAD_STATUS={"New Leads":{color:"#FF3B30",bg:"#FFF0EF"}};
+// One-box address entry: split a pasted "123 Main St, Willingboro, NJ 08046"
+// (Zillow/Google/MLS style) into street / city / state / zip. Zip = trailing
+// 5 digits; state = the 2-letter token before it (or a comma-separated
+// 2-letter tail); the rest splits on commas into street + city. A plain
+// street with no commas stays entirely in the street field.
+const parseFullAddress=(raw)=>{
+  let s=String(raw||"").replace(/\s+/g," ").replace(/,\s*(USA|United States)\.?$/i,"").trim();
+  let zip="",state="";
+  const zm=s.match(/(\d{5})(?:-\d{4})?$/);
+  if(zm){zip=zm[1];s=s.slice(0,zm.index).replace(/[\s,]+$/,"");}
+  const sm=zip?s.match(/[,\s]([A-Za-z]{2})\.?$/):s.match(/,\s*([A-Za-z]{2})\.?$/);
+  if(sm){state=sm[1].toUpperCase();s=s.slice(0,sm.index).replace(/[\s,]+$/,"");}
+  const parts=s.split(",").map(x=>x.trim()).filter(Boolean);
+  return {address:parts[0]||"",city:parts.slice(1).join(", "),state,zip};
+};
 // mkLead and INIT_LEADS now live in src/seed.js (mkLead is imported above).
 // Leads are loaded from Supabase via useData().
 
@@ -6092,7 +6107,12 @@ function NewLeadsPage(){
     setLeads(remaining);setConverted(lead.address);setSelId(remaining.length>0?remaining[0].id:null);
     setTimeout(()=>setConverted(null),3000);
   }
-  function addLead(){if(!form.addr.trim())return;const l=mkLead({address:form.addr,city:form.city,state:form.state,zip:form.zip});setLeads(prev=>[...prev,l]);setSelId(l.id);setShowAdd(false);setForm({addr:"",city:"",state:"NJ",zip:""});}
+  function addLead(){
+    const p=parseFullAddress(form.addr);
+    if(!p.address)return;
+    const l=mkLead({address:p.address,city:p.city,state:p.state||"NJ",zip:p.zip});
+    setLeads(prev=>[...prev,l]);setSelId(l.id);setShowAdd(false);setForm({addr:"",city:"",state:"NJ",zip:""});
+  }
   const gateModal=gateLead&&<StatusGateModal from="New Leads" to="Under Contract" reqs={gateLead.reqs} property={gateLead.lead}
     onCancel={()=>setGateLead(null)}
     onConfirm={(answers,note,fieldValues)=>{convertLead(gateLead.lead,answers,note,fieldValues);setGateLead(null);}}/>;
@@ -6139,13 +6159,17 @@ function NewLeadsPage(){
           <div style={{background:T.card,borderRadius:20,padding:28,width:460,boxShadow:T.shadowMd}}>
             <div style={{fontWeight:700,fontSize:18,marginBottom:6,color:T.text}}>Add New Lead</div>
             <div style={{fontSize:13,color:T.textSub,marginBottom:20}}>Properties you haven't purchased yet.</div>
-            <div style={{display:"flex",flexDirection:"column",gap:14}}>
-              <div><div style={{fontSize:12,color:T.textSub,marginBottom:5,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>Street Address</div><input style={iS} value={form.addr} onChange={e=>setForm(f=>({...f,addr:e.target.value}))} placeholder="123 Main St" autoFocus/></div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 70px 90px",gap:10}}>
-                <div><div style={{fontSize:12,color:T.textSub,marginBottom:5,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>City</div><input style={iS} value={form.city} onChange={e=>setForm(f=>({...f,city:e.target.value}))}/></div>
-                <div><div style={{fontSize:12,color:T.textSub,marginBottom:5,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>State</div><input style={iS} value={form.state} onChange={e=>setForm(f=>({...f,state:e.target.value}))}/></div>
-                <div><div style={{fontSize:12,color:T.textSub,marginBottom:5,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>Zip</div><input style={iS} value={form.zip} onChange={e=>setForm(f=>({...f,zip:e.target.value}))}/></div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <div>
+                <div style={{fontSize:12,color:T.textSub,marginBottom:5,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>Property address</div>
+                <input style={iS} value={form.addr} onChange={e=>setForm(f=>({...f,addr:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addLead()} placeholder="123 Main St, Willingboro, NJ 08046" autoFocus/>
+                <div style={{fontSize:11,color:T.textTert,marginTop:5}}>Paste the whole thing — street, town, state and zip get split automatically.</div>
               </div>
+              {form.addr.trim()&&(()=>{const p=parseFullAddress(form.addr);return(
+                <div style={{fontSize:12,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"7px 10px"}}>
+                  <b style={{color:T.text}}>{p.address||"—"}</b>{p.city?<> · {p.city}</>:null} · {p.state||"NJ"}{p.zip?<> · {p.zip}</>:null}
+                </div>
+              );})()}
             </div>
             <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
               <button onClick={()=>setShowAdd(false)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>

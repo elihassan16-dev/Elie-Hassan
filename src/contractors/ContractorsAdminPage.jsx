@@ -181,12 +181,16 @@ function ManageLoginModal({ login, onDone, onClose }) {
   // saved instantly on tap, same controls the team roster has.
   const [chan, setChan] = useState(() => { const c = login.notify_channels || {}; return { push: c.push !== false, email: c.email !== false, sms: c.sms !== false }; });
   const [muted, setMuted] = useState(!!login.notify_muted);
+  const [chanSaved, setChanSaved] = useState(false);
+  const savedT = useRef(null);
   const saveChan = async (next, nextMuted) => {
     setChan(next); setMuted(nextMuted);
     const allOn = next.push && next.email && next.sms;
     const { error } = await supabase.from("users").update({ notify_channels: allOn ? null : next, notify_muted: nextMuted }).eq("id", login.id);
-    if (error) setE2(error.message);
-    else onDone();
+    if (error) { setE2(error.message); return; }
+    onDone();
+    setChanSaved(true);
+    clearTimeout(savedT.current); savedT.current = setTimeout(() => setChanSaved(false), 2000);
   };
   const chip = (k, icon, label) => {
     const on = chan[k];
@@ -208,7 +212,9 @@ function ManageLoginModal({ login, onDone, onClose }) {
   const ok = (changed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) || password.trim().length >= 8;
   return (
     <Modal title={`Login — ${login.name}`} onClose={onClose}
-      footer={<><button onClick={onClose} style={ghostBtn}>Cancel</button><button onClick={() => call({ ...(changed ? { email: email.trim() } : {}), ...(password.trim() ? { password: password.trim() } : {}) })} disabled={!ok || busy} style={goldBtn(ok && !busy)}>{busy ? "Saving…" : "Save changes"}</button></>}>
+      footer={(changed || password.trim())
+        ? <><button onClick={onClose} style={ghostBtn}>Cancel</button><button onClick={() => call({ ...(changed ? { email: email.trim() } : {}), ...(password.trim() ? { password: password.trim() } : {}) })} disabled={!ok || busy} style={goldBtn(ok && !busy)}>{busy ? "Saving…" : "Save changes"}</button></>
+        : <button onClick={onClose} style={goldBtn(true)}>Done</button>}>
       <div><label style={lbl}>Login email</label><input value={email} onChange={(e) => setEmail(e.target.value)} type="email" style={inp} /><div style={{ fontSize: 11, color: T.textTert, marginTop: 4 }}>Changing this changes what they type to SIGN IN — takes effect immediately.</div></div>
       <div><label style={lbl}>New password (optional)</label>
         <div style={{ display: "flex", gap: 8 }}>
@@ -217,8 +223,8 @@ function ManageLoginModal({ login, onDone, onClose }) {
         </div>
       </div>
       <div>
-        <label style={lbl}>Notifications</label>
-        <div style={{ fontSize: 11.5, color: T.textSub, marginBottom: 8, lineHeight: 1.45 }}>How {String(login.name || "").split(" ")[0] || "they"} gets notified about jobs, tasks and messages. Changes save instantly.</div>
+        <label style={lbl}>Notifications {chanSaved && <span style={{ color: "#15803D", fontWeight: 800, textTransform: "none", letterSpacing: 0 }}>✓ Saved</span>}</label>
+        <div style={{ fontSize: 11.5, color: T.textSub, marginBottom: 8, lineHeight: 1.45 }}>How {String(login.name || "").split(" ")[0] || "they"} gets notified about jobs, tasks and messages. These save the moment you tap them — no Save button needed.</div>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
           {chip("push", "🔔", "Push")}
           {chip("email", "✉️", "Email")}

@@ -2648,10 +2648,10 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       .filter(Boolean).sort((a,b)=>new Date(b.at)-new Date(a.at))[0];
     if(!ev)return <span style={{color:T.textTert}}>No outreach yet</span>;
     return(<>
-      <span title="Your last outreach">\u2197 {ev.label} {fmtD(ev.at)}</span>
+      <span title="Your last outreach">↗ {ev.label} {fmtD(ev.at)}</span>
       {lastIn&&(unreadFor(ph)>0
-        ?<b style={{color:T.red}}> \u00b7 \u2199 replied \u2014 unread</b>
-        :<span> \u00b7 \u2199 replied {fmtD(lastIn.at)}</span>)}
+        ?<b style={{color:T.red}}> · ↙ replied — unread</b>
+        :<span> · ↙ replied {fmtD(lastIn.at)}</span>)}
     </>);
   };
   // The full action set for one number, icon-sized: call / text / email / team
@@ -2801,8 +2801,8 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       return(
         <Card>
           <div style={{display:"flex",alignItems:"center",gap:7,padding:"10px 14px",flexWrap:"wrap"}}>
-            <button onClick={()=>setLeadTab("agents")} style={pill(leadTab==="agents",T.gold)}>\ud83c\udfe0 Agents \u00b7 {agentItems.length}{newAg?` (${newAg} new)`:""}</button>
-            <button onClick={()=>setLeadTab("buyers")} style={pill(leadTab==="buyers","#DB2777")}>\ud83d\udd25 Buyers \u00b7 {btShown.length}{newBt?` (${newBt} new)`:""}</button>
+            <button onClick={()=>setLeadTab("agents")} style={pill(leadTab==="agents",T.gold)}>🏠 Agents · {agentItems.length}{newAg?` (${newAg} new)`:""}</button>
+            <button onClick={()=>setLeadTab("buyers")} style={pill(leadTab==="buyers","#DB2777")}>🔥 Buyers · {btShown.length}{newBt?` (${newBt} new)`:""}</button>
             <div style={{flex:1}}/>
             {leadTab==="agents"&&!showAdd&&<button onClick={()=>setShowAdd(true)} style={{padding:"5px 12px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add lead</button>}
           </div>
@@ -3256,10 +3256,13 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
   // including the sent-mark on the two templates (stored on the matched property).
   const actBtn={display:"inline-flex",alignItems:"center",gap:4,padding:"0 10px",height:28,boxSizing:"border-box",lineHeight:1,borderRadius:16,fontSize:11.5,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap",fontFamily:"inherit"};
   const showingActions=(s,address,prop)=>{
-    const phones=parseShowingPhones(s.phone);
+    const k=showingKey(s);
+    // Feed phones plus any numbers hand-added on the property's Showings row —
+    // ShowingTime doesn't always pull one, so the manual add must follow the
+    // showing here too.
+    const phones=[...parseShowingPhones(s.phone),...(((prop&&prop.showingPhones)||{})[k]||[])];
     if(!phones.length)return null;
     const name=s.agent||"";
-    const k=showingKey(s);
     const texts=(prop&&prop.showingTexts)||{};
     const mark=(kind)=>{if(!prop)return;upd(prop.id,"showingTexts",{...texts,[k]:{...(texts[k]||{}),[kind]:new Date().toISOString()}});};
     const fmtSent=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};

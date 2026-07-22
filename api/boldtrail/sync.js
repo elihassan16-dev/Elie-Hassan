@@ -3,6 +3,9 @@
 // and without BOLDTRAIL_API_TOKEN configured it does nothing at all.
 import { syncBoldtrail } from "../../lib/boldtrail.js";
 
+// Pagination + per-contact tag lookups take real time — allow the full minute.
+export const maxDuration = 60;
+
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   try {

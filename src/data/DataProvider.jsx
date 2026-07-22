@@ -187,6 +187,14 @@ export function DataProvider({ children }) {
     return null;
   }, [loadTeam]);
 
+  // Admin-only: which channels a user gets — {push,email,sms}, missing = on.
+  const setUserChannels = useCallback(async (userId, channels) => {
+    const { error } = await supabase.from("users").update({ notify_channels: channels || null }).eq("id", userId);
+    if (error) return error;
+    await loadTeam();
+    return null;
+  }, [loadTeam]);
+
   const seedIfEmpty = useCallback(async () => {
     if (!isAdmin || seededRef.current) return;
     seededRef.current = true;
@@ -304,6 +312,7 @@ export function DataProvider({ children }) {
     teamMembers,
     setUserMuted,
     setUserSms,
+    setUserChannels,
     currentUser: displayName,
     saveError,
     clearSaveError: () => setSaveError(null),

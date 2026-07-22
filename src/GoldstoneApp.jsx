@@ -10329,7 +10329,7 @@ const SMS_GATEWAYS=[
   ["txt.att.net","AT&T"],
   ["msg.fi.google.com","Google Fi"],
 ];
-function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,setUserSms,onEditName,onEditEmail,onAddTeammate,onSignOut,onClose}){
+function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,setUserSms,setUserChannels,onEditName,onEditEmail,onAddTeammate,onSignOut,onClose}){
   const initials=initialsOf(displayName)||"?";
   const others=(teamMembers||[]).filter(Boolean);
   const rows=(team&&team.length)?team:null; // full user rows (for the admin mute switch)
@@ -10348,6 +10348,22 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,set
     if(digits.length!==10){alert("Enter a 10-digit US cell number.");return;}
     await setUserSms(u.id,`${digits}@${smsCarrier}`);
     setSmsFor(null);
+  };
+  // Per-user channel panel: which of push / email / text this person gets.
+  const[chanFor,setChanFor]=useState(null);
+  const chanOn=(u,k)=>{const c=u.notify_channels;return !c||c[k]!==false;};
+  const toggleChan=(u,k)=>{
+    const next={push:chanOn(u,"push"),email:chanOn(u,"email"),sms:chanOn(u,"sms")};
+    next[k]=!next[k];
+    setUserChannels&&setUserChannels(u.id,(next.push&&next.email&&next.sms)?null:next);
+  };
+  const chanChip=(u,k,icon,label)=>{
+    const on=chanOn(u,k);
+    return(
+      <button onClick={()=>toggleChan(u,k)} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:16,border:`1px solid ${on?T.green:T.border}`,background:on?"#EDFBF1":T.bg,color:on?"#15803D":T.textTert,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+        {icon} {label} {on?"✓":"✕"}
+      </button>
+    );
   };
   const rowBtn={display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 20px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:14,color:T.text,textAlign:"left"};
   return(
@@ -10377,11 +10393,27 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,set
                       style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:16,border:`1px solid ${hasSms?T.blue:T.border}`,background:hasSms?"#EBF4FF":T.bg,color:hasSms?T.blue:T.textTert,fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
                       📱 {hasSms?"SMS ✓":"SMS"}
                     </button>
-                    <button onClick={()=>setUserMuted&&setUserMuted(u.id,!muted)} title={muted?"Notifications muted — tap to allow":"Notifications on — tap to mute"}
-                      style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:16,border:`1px solid ${muted?T.border:T.green}`,background:muted?T.bg:"#EDFBF1",color:muted?T.textTert:"#15803D",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
-                      {muted?"🔕 Muted":"🔔 On"}
+                    {(()=>{const custom=!muted&&!!u.notify_channels&&["push","email","sms"].some(k=>u.notify_channels[k]===false);return(
+                    <button onClick={()=>setChanFor(chanFor===u.id?null:u.id)} title="Choose which notifications they get — push, email, text"
+                      style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:16,border:`1px solid ${muted?T.border:custom?T.gold:T.green}`,background:muted?T.bg:custom?T.goldLight:"#EDFBF1",color:muted?T.textTert:custom?"#8a6d1f":"#15803D",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
+                      {muted?"🔕 Muted":custom?"🔔 Custom":"🔔 On"}
                     </button>
+                    );})()}
                   </div>
+                  {chanFor===u.id&&(
+                    <div style={{margin:"2px 0 8px 38px",padding:"10px 12px",background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,display:"flex",flexDirection:"column",gap:9}}>
+                      <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.45}}>How should <b>{nm.split(" ")[0]}</b> get notified? Applies to everything the app sends them.</div>
+                      <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                        {chanChip(u,"push","🔔","Push")}
+                        {chanChip(u,"email","✉️","Email")}
+                        {chanChip(u,"sms","📱","Text")}
+                      </div>
+                      <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:muted?T.red:T.textSub,fontWeight:600,cursor:"pointer"}}>
+                        <input type="checkbox" checked={muted} onChange={()=>setUserMuted&&setUserMuted(u.id,!muted)} style={{width:15,height:15,cursor:"pointer",accentColor:T.red}}/>
+                        Mute everything for {nm.split(" ")[0]}
+                      </label>
+                    </div>
+                  )}
                   {smsFor===u.id&&(
                     <div style={{margin:"2px 0 8px 38px",padding:"10px 12px",background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,display:"flex",flexDirection:"column",gap:8}}>
                       <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.45}}>Notifications also go to their phone as a free text (via the carrier's email gateway). Pick their carrier — prepaid brands use their host network (Visible→Verizon, Mint→T-Mobile, Cricket→AT&T).</div>
@@ -14044,7 +14076,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
 }
 
 export function GoldstoneShell(){
-  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks } = useData();
+  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, setUserChannels, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks } = useData();
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
   const isMobile = useIsMobile();
 
@@ -14294,7 +14326,7 @@ export function GoldstoneShell(){
       {showAiAssistant&&<GlobalAiChat onClose={()=>setShowAiAssistant(false)}/>}
       {showNavMenu&&<NavMenu items={navItems} active={active} isPinned={isPinned} onNavigate={(k)=>{setActive(k);setShowNavMenu(false);}} onTogglePin={togglePin} onClose={()=>setShowNavMenu(false)}/>}
       {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}/>}
-      {showProfileMenu&&<ProfileMenu displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted} setUserSms={setUserSms}
+      {showProfileMenu&&<ProfileMenu displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted} setUserSms={setUserSms} setUserChannels={setUserChannels}
         onEditName={()=>{setShowProfileMenu(false);setShowProfile(true);}}
         onEditEmail={()=>{setShowProfileMenu(false);setShowEmail(true);}}
         onAddTeammate={()=>{setShowProfileMenu(false);setShowAddTeammate(true);}}

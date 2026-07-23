@@ -41,7 +41,10 @@ export function useBtLeads() {
 // prefix match either way (the hashtag truncates long street names; the app may
 // abbreviate). Requires a house number plus a few street characters to match.
 export const btMatchesProperty = (lead, p) => {
-  const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  // Normalize, then drop a directional right after the house number — BoldTrail
+  // says "415 S 1st Ave" where the app says "415 1st Ave"; both become 4151stave.
+  const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+    .replace(/^(\d+)(south|north|east|west|s|n|e|w)(?=\d)/, "$1");
   const tag = (lead.tags || []).map(String).find((x) => /^pb./i.test(x.trim()));
   if (!tag) return false;
   const a = norm(tag.trim().replace(/^pb/i, ""));

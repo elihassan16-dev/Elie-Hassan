@@ -2537,7 +2537,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   });
   const[showAdd,setShowAdd]=useState(false);
   const[draft,setDraft]=useState({name:"",phone:""});
-  const addLead=()=>{const name=draft.name.trim(),phone=draft.phone.trim();if(!name&&!phone)return;onUpdate(property.id,"customLeads",[...customLeads,{id:Date.now(),name,phone,at:new Date().toISOString(),lead:""}]);setDraft({name:"",phone:""});setShowAdd(false);saveNow();};
+  const addLead=(isBuyer)=>{const name=draft.name.trim(),phone=draft.phone.trim();if(!name&&!phone)return;onUpdate(property.id,"customLeads",[...customLeads,{id:Date.now(),name,phone,at:new Date().toISOString(),lead:"",buyer:!!isBuyer}]);setDraft({name:"",phone:""});setShowAdd(false);saveNow();};
   const removeLead=(id)=>{onUpdate(property.id,"customLeads",customLeads.filter(l=>l.id!==id));saveNow();};
   const setCustomStatus=(id,val)=>{onUpdate(property.id,"customLeads",customLeads.map(l=>l.id===id?{...l,lead:val}:l));saveNow();};
   // Fixed height + 1.0 line-height so emoji glyphs (which iOS draws taller than
@@ -2741,7 +2741,8 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       addUI={addNumberUI(k,()=>addShowingPhone(s))}/>;
   };
   const LeadRowC=(l,idx)=>(
-    <CompactRow key={l.id} idx={idx} dot={T.gold} name={l.name||"(no name)"}
+    <CompactRow key={l.id} idx={idx} dot={l.buyer?"#DB2777":T.gold} name={l.name||"(no name)"}
+      nameTitle={l.buyer?`${l.name||"(no name)"} · buyer you added`:undefined} bt={!!l.buyer}
       meta={l.at?`added ${fmtD(l.at)}`:"added by you"} phones={parseShowingPhones(l.phone)} rowKey={"lead-"+l.id}
       leadVal={l.lead||""} onLead={e=>setCustomStatus(l.id,e.target.value)}
       email={null} msgMeta={{key:"lead-"+l.id,label:`Lead \u2014 ${l.name||"lead"}`,snap:{agent:l.name||"",phone:l.phone||"",start:l.at||""}}}
@@ -2809,27 +2810,32 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         .sort((a,b)=>{const ra=showingLeadRank(a.k),rb=showingLeadRank(b.k);return ra!==rb?ra-rb:b.ts-a.ts;});
       const agentItems=[
         ...pastShown.slice(0,40).map(x=>({t:"s",item:x,k:leadMap[showingKey(x)]||"",ts:x.ts})),
-        ...leadsShown.map(l=>({t:"l",item:l,k:l.lead||"",ts:l.at?new Date(l.at).getTime():0})),
+        ...leadsShown.filter(l=>!l.buyer).map(l=>({t:"l",item:l,k:l.lead||"",ts:l.at?new Date(l.at).getTime():0})),
+      ].sort((a,b)=>{const ra=showingLeadRank(a.k),rb=showingLeadRank(b.k);return ra!==rb?ra-rb:b.ts-a.ts;});
+      // Buyers tab = BoldTrail imports + buyers added by hand, one ranked list.
+      const buyerItems=[
+        ...leadsShown.filter(l=>l.buyer).map(l=>({t:"l",l,k:l.lead||"",ts:l.at?new Date(l.at).getTime():0})),
+        ...btShown.map(x=>({t:"b",...x})),
       ].sort((a,b)=>{const ra=showingLeadRank(a.k),rb=showingLeadRank(b.k);return ra!==rb?ra-rb:b.ts-a.ts;});
       const phonesOf=(x)=>x.t==="s"?[...parseShowingPhones(x.item.phone),...extraPhones(x.item)]:parseShowingPhones(x.item.phone);
       const newAg=smsOn?agentItems.filter(x=>phonesOf(x).some(ph=>unreadFor(ph)>0)).length:0;
-      const newBt=smsOn?btShown.filter(x=>parseShowingPhones(x.l.phone).some(ph=>unreadFor(ph)>0)).length:0;
+      const newBt=smsOn?buyerItems.filter(x=>parseShowingPhones(x.l.phone).some(ph=>unreadFor(ph)>0)).length:0;
       const pill=(on,color)=>({padding:"6px 13px",borderRadius:16,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${on?color:T.border}`,background:on?color:"#fff",color:on?"#fff":T.textSub});
       return(
         <Card>
           <div style={{display:"flex",alignItems:"center",gap:7,padding:"10px 14px",flexWrap:"wrap"}}>
             <button onClick={()=>setLeadTab("agents")} style={pill(tab==="agents",T.gold)}>🏠 Agents · {agentItems.length}{newAg?` (${newAg} new)`:""}</button>
-            {btActive&&<button onClick={()=>setLeadTab("buyers")} style={pill(tab==="buyers","#DB2777")}>🔥 Buyers · {btShown.length}{newBt?` (${newBt} new)`:""}</button>}
+            {btActive&&<button onClick={()=>setLeadTab("buyers")} style={pill(tab==="buyers","#DB2777")}>🔥 Buyers · {buyerItems.length}{newBt?` (${newBt} new)`:""}</button>}
             <div style={{flex:1}}/>
-            {tab==="agents"&&!showAdd&&<button onClick={()=>setShowAdd(true)} style={{padding:"5px 12px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add lead</button>}
+            {!showAdd&&<button onClick={()=>setShowAdd(true)} style={{padding:"5px 12px",borderRadius:20,background:tab==="buyers"?"#DB2777":T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add {tab==="buyers"?"buyer":"lead"}</button>}
           </div>
-          {showAdd&&tab==="agents"&&(
+          {showAdd&&(
             <div style={{padding:"6px 16px 12px",display:"flex",flexDirection:"column",gap:8,borderTop:`1px solid ${T.border}`}}>
-              <input autoFocus value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} placeholder="Name (agent or buyer)" style={inpS}/>
-              <input value={draft.phone} onChange={e=>setDraft(d=>({...d,phone:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addLead()} placeholder="Phone number" inputMode="tel" style={inpS}/>
+              <input autoFocus value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} placeholder={tab==="buyers"?"Buyer's name":"Name (agent or buyer)"} style={inpS}/>
+              <input value={draft.phone} onChange={e=>setDraft(d=>({...d,phone:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addLead(tab==="buyers")} placeholder="Phone number" inputMode="tel" style={inpS}/>
               <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                 <button onClick={()=>{setShowAdd(false);setDraft({name:"",phone:""});}} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Cancel</button>
-                <button onClick={addLead} disabled={!draft.name.trim()&&!draft.phone.trim()} style={{padding:"8px 18px",borderRadius:T.radiusSm,background:(draft.name.trim()||draft.phone.trim())?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Add lead</button>
+                <button onClick={()=>addLead(tab==="buyers")} disabled={!draft.name.trim()&&!draft.phone.trim()} style={{padding:"8px 18px",borderRadius:T.radiusSm,background:(draft.name.trim()||draft.phone.trim())?(tab==="buyers"?"#DB2777":T.gold):T.border,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Add {tab==="buyers"?"buyer":"lead"}</button>
               </div>
             </div>
           )}
@@ -2837,9 +2843,9 @@ function PropertyShowings({property,showings,onUpdate,flush}){
             ?(agentItems.length===0&&!showAdd
               ?<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>No showings matched this property's address yet. Add a lead to call or text someone who isn't in your ShowingTime feed.</div>
               :agentItems.map((x,i)=>x.t==="s"?ShowRow(x.item,i):LeadRowC(x.item,i)))
-            :(btShown.length===0
-              ?<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>No BoldTrail buyers for this property yet — they land here automatically when someone inquires about it.</div>
-              :btShown.map((x,i)=>BtRowC(x.l,i)))}
+            :(buyerItems.length===0&&!showAdd
+              ?<div style={{padding:"6px 16px 16px",fontSize:12.5,color:T.textTert}}>No buyers for this property yet — BoldTrail inquiries land here automatically, or add one by hand with + Add buyer.</div>
+              :buyerItems.map((x,i)=>x.t==="l"?LeadRowC(x.l,i):BtRowC(x.l,i)))}
         </Card>
       );
     })()}

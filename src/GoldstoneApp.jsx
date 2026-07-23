@@ -2289,8 +2289,14 @@ function btMessage(kind,name,address){
   const fn=(String(name||"").trim().split(/\s+/)[0])||"there";
   if(kind==="followup")return `Hi ${fn}, Eli from Goldstone Properties following up about ${address} — still interested? I'm the owner, so I can answer anything directly or set up another look whenever works for you.`;
   if(kind==="sweeten")return `Hi ${fn}, Eli again from Goldstone Properties — anything we can do to sweeten the deal and put you in the house? Happy to talk it through.`;
-  const zillow=`https://www.zillow.com/homes/${encodeURIComponent(String(address||"").replace(/,/g,""))}_rb/`;
-  return `Hi ${fn}, my name is Eli from Goldstone Properties. I saw you inquired about ${address}. I'm the owner of the property — just wanted to reach out personally and see if there's anything I can do to help. I attached the Zillow link so you can take another look: ${zillow} Happy to answer questions or set up a time to see it.`;
+  // Dash-slug keeps the URL short and readable (no %20 soup), and putting it
+  // alone at the end lets iMessage render it as a link preview card.
+  const slug=String(address||"").replace(/[^A-Za-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
+  const zillow=`https://www.zillow.com/homes/${slug}_rb/`;
+  return `Hi ${fn}, my name is Eli from Goldstone Properties. I saw you inquired about ${address}. I'm the owner of the property — just wanted to reach out personally and see if there's anything I can do to help. Happy to answer questions or set up a time to see it.
+
+I attached the Zillow link for your reference:
+${zillow}`;
 }
 // The one template list used by every texting entry point (property showings,
 // showings page, calendar) so the options are identical everywhere.

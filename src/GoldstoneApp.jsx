@@ -2416,7 +2416,11 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const {connected:smsOn,threadFor,unreadFor}=useSmsTexting();
   const[smsPop,setSmsPop]=useState(null); // {phone,name,rowKey,kind,bt}
   const isMobile=useIsMobile();
-  const[leadTab,setLeadTab]=useState("agents"); // approved: tab switcher — agents | BoldTrail buyers
+  const[leadTab,setLeadTab]=useState(()=>{ // approved: tab switcher — agents | BoldTrail buyers
+    // A tapped buyer alert deep-links to this property — open on the Buyers tab.
+    try{const t=window.__showingsTarget;if(t&&String(t.propId)===String(property.id)){delete window.__showingsTarget;return t.tab||"buyers";}}catch{/* no window */}
+    return "agents";
+  });
   // BoldTrail buyers who inquired about THIS property (matched by pb-hashtag),
   // minus anyone already added by hand (same phone).
   const btAllLeads=useBtLeads();
@@ -2955,7 +2959,10 @@ function ShowingsPage(){
   const[error,setError]=useState("");
   const[urlInput,setUrlInput]=useState("");
   const[saving,setSaving]=useState(false);
-  const[selId,setSelId]=useState(null);
+  const[selId,setSelId]=useState(()=>{
+    try{const t=window.__showingsTarget;if(t&&t.propId!=null)return isNaN(Number(t.propId))?t.propId:Number(t.propId);}catch{/* no window */}
+    return null;
+  });
   const[search,setSearch]=useState("");
   const[showConn,setShowConn]=useState(false);
   const[copied,setCopied]=useState(false);
@@ -14336,7 +14343,7 @@ export function GoldstoneShell(){
     const i=pendingGoto.indexOf(":");
     const kind=i<0?pendingGoto:pendingGoto.slice(0,i),id=i<0?"":pendingGoto.slice(i+1);
     if(kind==="tasks"){setActive("tasks");setPendingGoto(null);return;}
-    if(kind==="showings"){setActive("showings");setPendingGoto(null);return;}
+    if(kind==="showings"){if(id){try{window.__showingsTarget={propId:id,tab:"buyers"};}catch{/* no window */}}setActive("showings");setPendingGoto(null);return;}
     if(kind==="chat"&&id==="__office__"){setActive("messages");setNavChatId("__office__");setPendingGoto(null);return;}
     if(kind==="chat"||kind==="prop"){
       const p=(sharedProps||[]).find(x=>String(x.id)===String(id));

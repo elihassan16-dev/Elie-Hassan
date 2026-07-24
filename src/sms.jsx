@@ -9,6 +9,28 @@ import { qbAuthFetch } from "./net";
 import { T } from "./theme";
 import { SmsChatIcon } from "./icons";
 
+// Turn bare URLs inside message text into tappable links. Returns a mixed
+// array of strings and <a> elements; plain text passes through untouched.
+const URL_RX = /(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/gi;
+export function linkifyText(text, mine) {
+  const s = String(text ?? "");
+  const parts = s.split(URL_RX);
+  if (parts.length < 2) return text;
+  return parts.map((part, i) => {
+    if (i % 2 === 0 || !part) return part;
+    let url = part, trail = "";
+    const m = url.match(/[.,!?;:)\]]+$/);
+    if (m) { trail = m[0]; url = url.slice(0, url.length - trail.length); }
+    const href = /^https?:/i.test(url) ? url : `https://${url}`;
+    return (
+      <span key={i}>
+        <a href={href} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+          style={{ color: mine ? "#fff" : "#2563EB", textDecoration: "underline", wordBreak: "break-all" }}>{url}</a>{trail}
+      </span>
+    );
+  });
+}
+
 const e164 = (n) => {
   const d = String(n || "").replace(/[^\d+]/g, "");
   if (d.startsWith("+")) return d;
@@ -264,7 +286,7 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
             const mine = m.direction !== "in";
             return (
               <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "82%" }}>
-                <div style={{ background: mine ? T.gold : "#fff", color: mine ? "#fff" : T.text, border: mine ? "none" : `1px solid ${T.border}`, borderRadius: 14, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.text}</div>
+                <div style={{ background: mine ? T.gold : "#fff", color: mine ? "#fff" : T.text, border: mine ? "none" : `1px solid ${T.border}`, borderRadius: 14, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{linkifyText(m.text, mine)}</div>
                 <div style={{ fontSize: 9.5, color: T.textTert, marginTop: 2, textAlign: mine ? "right" : "left" }}>
                   {mine ? `${(m.by || "").split(" ")[0] || "You"} · ` : ""}{fmt(m.at)}{mine ? (m.status === "delivered" ? " · ✓✓" : " · ✓") : ""}
                 </div>

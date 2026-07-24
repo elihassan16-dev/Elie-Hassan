@@ -16,7 +16,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA } from "./sms";
+import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA, linkifyText } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -7065,7 +7065,7 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
               <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
                 {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.55)":T.gold}`,paddingLeft:8,marginBottom:5,opacity:0.9,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}><b>{m.replyTo.author?m.replyTo.author.split(" ")[0]:"—"}:</b> {m.replyTo.text}</div>}
                 {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
-                {m.text}
+                {linkifyText(m.text,mine)}
                 {m.attachment&&<MessageAttachment att={m.attachment} mine={mine} saveFolder={saveFolder}/>}
               </div>
               {mine&&<div style={{textAlign:"right"}}><ReadReceipt readBy={m.readBy} author={m.author}/></div>}
@@ -7589,7 +7589,7 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
               <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
               <div style={{background:mine?(ext?T.gold:T.blue):"#F2F2F7",color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
                 {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:3,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
-                {m.text}
+                {linkifyText(m.text,mine)}
                 {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
               </div>
             </div>
@@ -10085,7 +10085,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                     );})()}
                     {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                     {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
-                    {m.text}
+                    {linkifyText(m.text,mine)}
                     {m.attachment&&<MessageAttachment att={m.attachment} mine={mine} saveFolder={property.filesFolder||null}/>}
                     {coReq
                       ?<div style={{fontSize:10.5,fontWeight:800,marginTop:5,color:mine?"rgba(255,255,255,0.92)":"#b8912e"}}>🧾 {coReq.status==="pending"&&amAdmin?"Tap to approve or deny":"Tap to view the change order"}</div>

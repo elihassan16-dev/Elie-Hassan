@@ -14353,6 +14353,15 @@ export function GoldstoneShell(){
     }
     setPendingGoto(null); // unknown kind (e.g. a contractor link) — ignore
   },[pendingGoto,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Opening (or returning to) the app nudges the showing watcher immediately —
+  // scheduled checks cover the idle hours, this covers "I'm looking right now".
+  useEffect(()=>{
+    const ping=()=>{try{fetch("/api/showings/watch").catch(()=>{});}catch{/* offline */}};
+    ping();
+    const onVis=()=>{if(document.visibilityState==="visible")ping();};
+    document.addEventListener("visibilitychange",onVis);
+    return ()=>document.removeEventListener("visibilitychange",onVis);
+  },[]);
   const[showSettings,setShowSettings]=useState(false);
   const[showProfile,setShowProfile]=useState(false);
   const[showEmail,setShowEmail]=useState(false);

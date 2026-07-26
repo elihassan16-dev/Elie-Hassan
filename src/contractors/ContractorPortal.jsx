@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { T } from "../theme";
+import { linkifyText } from "../sms";
 import { notify, uploadAttachment, qbAuthFetch, STREAM_VIDEO_CAP } from "../net";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "../push";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble, resumeVideoUploads } from "../videoUpload";
@@ -969,7 +970,7 @@ export function ContractorPortal() {
                                     </div>
                                     <div style={{ background: mine ? T.gold : T.bg, color: mine ? "#fff" : T.text, borderRadius: 14, padding: "9px 13px", fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", border: mine ? "none" : `1px solid ${T.border}` }}>
                                       {m.replyTo && <div style={{ fontSize: 11.5, marginBottom: 5, padding: "5px 9px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 6, background: mine ? "rgba(255,255,255,0.15)" : "#fff", color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
-                                      {m.text}
+                                      {linkifyText(m.text, mine)}
                                       <Att att={m.attachment} />
                                     </div>
                                     <button onClick={() => setReplyTo(m)} style={{ background: "none", border: "none", color: replyTo && replyTo.id === m.id ? T.gold : T.textTert, cursor: "pointer", fontSize: 11, fontFamily: "inherit", padding: "3px 2px 0", fontWeight: 600 }}>↩ Reply</button>

@@ -2743,10 +2743,21 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     const k=showingKey(s);
     const snap={uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""};
     const when=(()=>{try{return new Date(s.start).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}})();
-    const kindTag=s.kind==="inspection"?"🔍 Inspection":s.kind==="appraisal"?"📋 Appraisal":s.kind==="walkthrough"?"🚶 Walk-through":"";
-    return <CompactRow key={s.uid||s.ts+s.summary} idx={idx} dot={/cancel|declin/i.test(s.status)?T.red:s.kind&&s.kind!=="showing"?"#B45309":T.green}
+    // ShowingTime sometimes books inspections as plain showings — the stored
+    // override (showingKinds, keyed like leads) wins over the feed's wording.
+    const eff=((property.showingKinds||{})[k])||s.kind||"showing";
+    const kindTag=eff==="inspection"?"🔍 Inspection":eff==="appraisal"?"📋 Appraisal":eff==="walkthrough"?"🚶 Walk-through":"";
+    const cycleKind=()=>{
+      const order=["showing","inspection","appraisal","walkthrough"];
+      const next=order[(order.indexOf(eff)+1)%order.length];
+      const map={...(property.showingKinds||{})};
+      if(next===(s.kind||"showing"))delete map[k];else map[k]=next;
+      onUpdate(property.id,"showingKinds",map);saveNow();
+    };
+    const metaEl=<span onClick={e=>{e.stopPropagation();cycleKind();}} title="Tap to change the appointment type — showing / inspection / appraisal / walk-through" style={{cursor:"pointer"}}>{kindTag?`${kindTag} · ${when}`:when}</span>;
+    return <CompactRow key={s.uid||s.ts+s.summary} idx={idx} dot={/cancel|declin/i.test(s.status)?T.red:eff!=="showing"?"#B45309":T.green}
       name={s.agent||s.summary||"(agent)"} nameTitle={[kindTag,s.agent,s.broker,s.email,s.status].filter(Boolean).join(" \u00b7 ")}
-      meta={kindTag?`${kindTag} · ${when}`:when} phones={phones} rowKey={k}
+      meta={metaEl} phones={phones} rowKey={k}
       leadVal={leadMap[k]||""} onLead={e=>setLead(s,e.target.value)}
       email={s.email||null} msgMeta={{key:k,label:`Showing \u2014 ${s.agent||"agent"}`,snap}}
       addUI={addNumberUI(k,()=>addShowingPhone(s))}/>;
@@ -3366,7 +3377,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
   const dayIndex=useMemo(()=>{
     const idx={};
     events.forEach(x=>{(idx[x.date]=idx[x.date]||[]).push({kind:"date",color:x.e.color,icon:x.e.icon,label:x.e.label,p:x.p});});
-    (showings||[]).forEach(s=>{const iso=String(s.start||"").slice(0,10);if(!iso)return;const insp=s.kind&&s.kind!=="showing";(idx[iso]=idx[iso]||[]).push({kind:"showing",color:insp?"#B45309":T.gold,icon:insp?"🔍":"👥",label:insp?(s.kind==="inspection"?"Inspection":s.kind==="appraisal"?"Appraisal":"Walk-through"):"Showing",s});});
+    (showings||[]).forEach(s=>{const iso=String(s.start||"").slice(0,10);if(!iso)return;const pr=active.find(p=>showingMatchesProperty(s.location||s.summary||"",p));const ek=((pr&&pr.showingKinds)||{})[showingKey(s)]||s.kind;const insp=ek&&ek!=="showing";(idx[iso]=idx[iso]||[]).push({kind:"showing",color:insp?"#B45309":T.gold,icon:insp?"🔍":"👥",label:insp?(ek==="inspection"?"Inspection":ek==="appraisal"?"Appraisal":"Walk-through"):"Showing",s});});
     return idx;
   },[events,showings]);
   const monthName=new Date(y,m,1).toLocaleDateString(undefined,{month:"long",year:"numeric"});
@@ -3468,7 +3479,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
                           <div style={{fontSize:14,fontWeight:800,color:T.gold}}>{time}</div>
                         </div>
                         <div style={{flex:1,minWidth:0}} onClick={()=>prop&&onNavigate&&onNavigate(prop.id)}>
-                          <div style={{fontSize:14,fontWeight:600,color:prop?T.blue:T.text,cursor:prop?"pointer":"default",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prop?addr(prop):(s.location||"Unmatched property")}{s.kind&&s.kind!=="showing"&&<span style={{marginLeft:6,fontSize:9.5,fontWeight:800,color:"#B45309",background:"#FFEDD5",borderRadius:10,padding:"2px 7px",verticalAlign:"middle"}}>{s.kind==="inspection"?"🔍 INSPECTION":s.kind==="appraisal"?"📋 APPRAISAL":"🚶 WALK-THROUGH"}</span>}</div>
+                          <div style={{fontSize:14,fontWeight:600,color:prop?T.blue:T.text,cursor:prop?"pointer":"default",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prop?addr(prop):(s.location||"Unmatched property")}{(()=>{const ek=((prop&&prop.showingKinds)||{})[showingKey(s)]||s.kind;return ek&&ek!=="showing"&&<span style={{marginLeft:6,fontSize:9.5,fontWeight:800,color:"#B45309",background:"#FFEDD5",borderRadius:10,padding:"2px 7px",verticalAlign:"middle"}}>{ek==="inspection"?"🔍 INSPECTION":ek==="appraisal"?"📋 APPRAISAL":"🚶 WALK-THROUGH"}</span>;})()}</div>
                           {s.agent&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👤 {s.agent}</div>}
                         </div>
                       </div>
@@ -14373,12 +14384,13 @@ export function GoldstoneShell(){
     fetchShowingsShared().then(d=>{
       if(gone||!d||!Array.isArray(d.showings))return;
       const now=Date.now();
-      d.showings.filter(x=>x.kind==="inspection"&&x.start).forEach(x=>{
+      d.showings.filter(x=>x.start).forEach(x=>{
         const iso=/[zZ]$|[+\-]\d{2}:?\d{2}$/.test(x.start)||/^\d{4}-\d{2}-\d{2}$/.test(x.start)?x.start:x.start+"Z";
         const t=new Date(iso).getTime();
         if(isNaN(t)||now<t+2*86400000||now>t+21*86400000)return;
         const prop=sharedProps.find(pp=>!pp.archived&&showingMatchesProperty(x.location||x.summary||"",pp));
         if(!prop)return;
+        if((((prop.showingKinds||{})[showingKey(x)])||x.kind||"showing")!=="inspection")return;
         const autoKey=`insp-fup:${String(x.start).slice(0,16)}:${prop.id}`;
         if((prop.tasks||[]).some(tk=>tk.autoId===autoKey))return;
         const moshe=(teamMembers||[]).find(n=>/^moshe/i.test(String(n)))||CURRENT_USER;

@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { T } from "../theme";
-import { linkifyText } from "../sms";
+import { linkifyText, rescuePastedLink } from "../sms";
 import { notify, uploadAttachment, qbAuthFetch, STREAM_VIDEO_CAP } from "../net";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "../push";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble, resumeVideoUploads } from "../videoUpload";
@@ -1050,7 +1050,7 @@ export function ContractorPortal() {
                     <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
                       <input ref={attRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
                       <button onClick={() => setMoreOpen((v) => !v)} disabled={busy} title="Attach, voice note, tag & more" style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${moreOpen || msgTags.length ? T.gold : T.border}`, background: moreOpen || msgTags.length ? T.goldLight : T.bg, fontSize: 20, fontWeight: 600, color: moreOpen || msgTags.length ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit", lineHeight: 1 }}>{moreOpen ? "×" : "＋"}</button>
-                      <textarea ref={draftRef} rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} placeholder={busy ? "Uploading…" : msgTarget ? "Reply about this task…" : "Message Goldstone…"} disabled={busy}
+                      <textarea ref={draftRef} rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} onPaste={(e) => { const fixed = rescuePastedLink(e); if (fixed != null) { e.preventDefault(); const el = e.target, st = el.selectionStart ?? draft.length, en = el.selectionEnd ?? draft.length; setDraft(draft.slice(0, st) + fixed + draft.slice(en)); } }} placeholder={busy ? "Uploading…" : msgTarget ? "Reply about this task…" : "Message Goldstone…"} disabled={busy}
                         style={{ flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 18, border: `1px solid ${msgTarget ? T.gold : T.border}`, background: T.bg, fontSize: 15, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 120, overflowY: "auto", boxSizing: "border-box" }} />
                       <button onClick={startRec} disabled={busy} title="Record a voice note" style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><MicIcon size={21} /></button>
                       <button onClick={sendMsg} disabled={(!draft.trim() && !pending) || busy} style={{ width: 38, height: 38, borderRadius: "50%", background: (draft.trim() || pending) && !busy ? T.gold : T.border, border: "none", color: "#fff", fontWeight: 800, fontSize: 16, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>➤</button>

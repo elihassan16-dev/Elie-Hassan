@@ -31,6 +31,27 @@ export function linkifyText(text, mine) {
   });
 }
 
+// Some apps' share sheets (Amazon among them) put the real URL on the
+// clipboard as a URL/HTML flavor while the plain-text flavor is only the
+// product title. WhatsApp reads those flavors; a plain textarea doesn't — so
+// fish the URL out and return the text that SHOULD have been pasted, or null
+// when the default paste already carries a link (or there's none to find).
+export function rescuePastedLink(e) {
+  try {
+    const dt = e.clipboardData;
+    if (!dt) return null;
+    const plain = dt.getData("text/plain") || "";
+    if (/https?:\/\/|www\./i.test(plain)) return null;
+    let url = (dt.getData("text/uri-list") || "").split("\n").find((l) => l && !l.startsWith("#")) || "";
+    if (!url) {
+      const m = (dt.getData("text/html") || "").match(/href\s*=\s*["'](https?:[^"']+)["']/i);
+      if (m) url = m[1];
+    }
+    if (!url) return null;
+    return plain.trim() ? `${plain.trim()} ${url}` : url;
+  } catch { return null; }
+}
+
 const e164 = (n) => {
   const d = String(n || "").replace(/[^\d+]/g, "");
   if (d.startsWith("+")) return d;
@@ -317,6 +338,7 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
           )}
           <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
             <textarea rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Write a text…"
+              onPaste={(e) => { const fixed = rescuePastedLink(e); if (fixed != null) { e.preventDefault(); const el = e.target, st = el.selectionStart ?? draft.length, en = el.selectionEnd ?? draft.length; setDraft(draft.slice(0, st) + fixed + draft.slice(en)); } }}
               style={{ flex: 1, minWidth: 0, padding: "9px 12px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg, fontSize: 13.5, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, boxSizing: "border-box" }} />
             <button onClick={doSend} disabled={!draft.trim() || busy} style={{ padding: "10px 16px", borderRadius: 12, border: "none", background: draft.trim() && !busy ? T.gold : T.border, color: "#fff", fontWeight: 800, fontSize: 13, cursor: draft.trim() && !busy ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>{busy ? "Sending…" : "Send"}</button>
           </div>

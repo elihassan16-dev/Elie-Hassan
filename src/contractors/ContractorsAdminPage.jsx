@@ -9,6 +9,7 @@ import { supabase } from "../supabaseClient";
 import { useAuth } from "../auth/AuthProvider";
 import { useData } from "../data/DataProvider";
 import { T } from "../theme";
+import { linkifyText } from "../sms";
 import { notify, qbAuthFetch, uploadAttachment, STREAM_VIDEO_CAP } from "../net";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble } from "../videoUpload";
 import { usePersistentDraft } from "../useDraft";
@@ -862,7 +863,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
               <div style={{ background: mine ? T.gold : T.bg, color: mine ? "#fff" : T.text, borderRadius: 13, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                 {m.replyTo && <div style={{ fontSize: 11, marginBottom: 4, padding: "4px 8px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 5, background: mine ? "rgba(255,255,255,0.15)" : "#fff", color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
                 {m.taskRefText && <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 3, color: mine ? "rgba(255,255,255,0.9)" : "#8a6d1f" }}>↳ Task: {m.taskRefText}</div>}
-                {m.text}
+                {linkifyText(m.text, mine)}
                 {m.attachment && (m.attachment.kind === "contact" && m.attachment.contact
                   ? <ContactCardBubble c={m.attachment.contact} mine={mine} />
                   : m.attachment.kind === "video" && (m.attachment.pending || m.attachment.failed)

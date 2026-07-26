@@ -2743,9 +2743,10 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     const k=showingKey(s);
     const snap={uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""};
     const when=(()=>{try{return new Date(s.start).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}})();
-    return <CompactRow key={s.uid||s.ts+s.summary} idx={idx} dot={/cancel|declin/i.test(s.status)?T.red:T.green}
-      name={s.agent||s.summary||"(agent)"} nameTitle={[s.agent,s.broker,s.email,s.status].filter(Boolean).join(" \u00b7 ")}
-      meta={when} phones={phones} rowKey={k}
+    const kindTag=s.kind==="inspection"?"🔍 Inspection":s.kind==="appraisal"?"📋 Appraisal":s.kind==="walkthrough"?"🚶 Walk-through":"";
+    return <CompactRow key={s.uid||s.ts+s.summary} idx={idx} dot={/cancel|declin/i.test(s.status)?T.red:s.kind&&s.kind!=="showing"?"#B45309":T.green}
+      name={s.agent||s.summary||"(agent)"} nameTitle={[kindTag,s.agent,s.broker,s.email,s.status].filter(Boolean).join(" \u00b7 ")}
+      meta={kindTag?`${kindTag} · ${when}`:when} phones={phones} rowKey={k}
       leadVal={leadMap[k]||""} onLead={e=>setLead(s,e.target.value)}
       email={s.email||null} msgMeta={{key:k,label:`Showing \u2014 ${s.agent||"agent"}`,snap}}
       addUI={addNumberUI(k,()=>addShowingPhone(s))}/>;
@@ -3365,7 +3366,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
   const dayIndex=useMemo(()=>{
     const idx={};
     events.forEach(x=>{(idx[x.date]=idx[x.date]||[]).push({kind:"date",color:x.e.color,icon:x.e.icon,label:x.e.label,p:x.p});});
-    (showings||[]).forEach(s=>{const iso=String(s.start||"").slice(0,10);if(!iso)return;(idx[iso]=idx[iso]||[]).push({kind:"showing",color:T.gold,icon:"👥",label:"Showing",s});});
+    (showings||[]).forEach(s=>{const iso=String(s.start||"").slice(0,10);if(!iso)return;const insp=s.kind&&s.kind!=="showing";(idx[iso]=idx[iso]||[]).push({kind:"showing",color:insp?"#B45309":T.gold,icon:insp?"🔍":"👥",label:insp?(s.kind==="inspection"?"Inspection":s.kind==="appraisal"?"Appraisal":"Walk-through"):"Showing",s});});
     return idx;
   },[events,showings]);
   const monthName=new Date(y,m,1).toLocaleDateString(undefined,{month:"long",year:"numeric"});
@@ -3467,7 +3468,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
                           <div style={{fontSize:14,fontWeight:800,color:T.gold}}>{time}</div>
                         </div>
                         <div style={{flex:1,minWidth:0}} onClick={()=>prop&&onNavigate&&onNavigate(prop.id)}>
-                          <div style={{fontSize:14,fontWeight:600,color:prop?T.blue:T.text,cursor:prop?"pointer":"default",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prop?addr(prop):(s.location||"Unmatched property")}</div>
+                          <div style={{fontSize:14,fontWeight:600,color:prop?T.blue:T.text,cursor:prop?"pointer":"default",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prop?addr(prop):(s.location||"Unmatched property")}{s.kind&&s.kind!=="showing"&&<span style={{marginLeft:6,fontSize:9.5,fontWeight:800,color:"#B45309",background:"#FFEDD5",borderRadius:10,padding:"2px 7px",verticalAlign:"middle"}}>{s.kind==="inspection"?"🔍 INSPECTION":s.kind==="appraisal"?"📋 APPRAISAL":"🚶 WALK-THROUGH"}</span>}</div>
                           {s.agent&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👤 {s.agent}</div>}
                         </div>
                       </div>
@@ -14306,7 +14307,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
 }
 
 export function GoldstoneShell(){
-  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, setUserChannels, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks } = useData();
+  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, setUserChannels, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks, currentUser: CURRENT_USER } = useData();
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
   const isMobile = useIsMobile();
 
@@ -14362,6 +14363,32 @@ export function GoldstoneShell(){
     document.addEventListener("visibilitychange",onVis);
     return ()=>document.removeEventListener("visibilitychange",onVis);
   },[]);
+  // Inspection follow-ups: two days after an inspection on the ShowingTime
+  // calendar, a task appears on that property assigned to Moshe (falls back to
+  // whoever's signed in if no Moshe on the team). Keyed by autoId so it's
+  // created exactly once, and only recent inspections qualify — no backfill.
+  useEffect(()=>{
+    if(!sharedProps||!sharedProps.length)return;
+    let gone=false;
+    fetchShowingsShared().then(d=>{
+      if(gone||!d||!Array.isArray(d.showings))return;
+      const now=Date.now();
+      d.showings.filter(x=>x.kind==="inspection"&&x.start).forEach(x=>{
+        const iso=/[zZ]$|[+\-]\d{2}:?\d{2}$/.test(x.start)||/^\d{4}-\d{2}-\d{2}$/.test(x.start)?x.start:x.start+"Z";
+        const t=new Date(iso).getTime();
+        if(isNaN(t)||now<t+2*86400000||now>t+21*86400000)return;
+        const prop=sharedProps.find(pp=>!pp.archived&&showingMatchesProperty(x.location||x.summary||"",pp));
+        if(!prop)return;
+        const autoKey=`insp-fup:${String(x.start).slice(0,16)}:${prop.id}`;
+        if((prop.tasks||[]).some(tk=>tk.autoId===autoKey))return;
+        const moshe=(teamMembers||[]).find(n=>/^moshe/i.test(String(n)))||CURRENT_USER;
+        const when=(()=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}})();
+        const task={id:Date.now()+Math.floor(Math.random()*9999),text:`Follow up on the inspection at ${prop.address}${when?` (inspected ${when})`:""} — get the report / talk to the buyer's side`,cat:"Inspections",status:"Not Started",assignee:moshe,delegate:"",autoId:autoKey,assignedAt:Date.now(),assignedBy:CURRENT_USER};
+        setSharedProps(prev=>prev.map(pp=>pp.id===prop.id?{...pp,tasks:[...(pp.tasks||[]),task]}:pp));
+      });
+    }).catch(()=>{/* feed down — try next open */});
+    return ()=>{gone=true;};
+  },[sharedProps&&sharedProps.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const[showSettings,setShowSettings]=useState(false);
   const[showProfile,setShowProfile]=useState(false);
   const[showEmail,setShowEmail]=useState(false);

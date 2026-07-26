@@ -16,7 +16,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA, linkifyText } from "./sms";
+import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA, linkifyText, rescuePastedLink } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -9665,7 +9665,17 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     let file=null;
     for(const it of items){if(it.kind==="file"){const f=it.getAsFile();if(f){file=f;break;}}}
     if(!file&&e.clipboardData?.files?.length)file=e.clipboardData.files[0];
-    if(!file)return; // plain text/HTML paste — leave it to the input
+    if(!file){
+      // Not a file — but the clipboard may hide the URL in a non-text flavor
+      // (Amazon's share sheet does this); splice it in where the cursor is.
+      const fixed=rescuePastedLink(e);
+      if(fixed!=null){
+        e.preventDefault();
+        const el=e.target,st=el.selectionStart??text.length,en=el.selectionEnd??text.length;
+        setText(text.slice(0,st)+fixed+text.slice(en));
+      }
+      return;
+    }
     e.preventDefault();
     uploadStaged(file);
   };

@@ -9,7 +9,7 @@ import { supabase } from "../supabaseClient";
 import { useAuth } from "../auth/AuthProvider";
 import { useData } from "../data/DataProvider";
 import { T } from "../theme";
-import { linkifyText } from "../sms";
+import { linkifyText, rescuePastedLink } from "../sms";
 import { notify, qbAuthFetch, uploadAttachment, STREAM_VIDEO_CAP } from "../net";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble } from "../videoUpload";
 import { usePersistentDraft } from "../useDraft";
@@ -886,7 +886,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
         {isRemoved ? <div style={{ fontSize: 12.5, color: T.textTert, textAlign: "center", padding: "8px 0" }}>Contractor removed — the thread is kept as a record. Restore them to message again.</div> : <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
           <input ref={attRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
           <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 15, cursor: "pointer" }}>📎</button>
-          <textarea rows={1} value={msgDraft} onChange={(e) => setMsgDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} placeholder={`Message ${org?.name}…`} disabled={busy}
+          <textarea rows={1} value={msgDraft} onChange={(e) => setMsgDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} onPaste={(e) => { const fixed = rescuePastedLink(e); if (fixed != null) { e.preventDefault(); const el = e.target, st = el.selectionStart ?? msgDraft.length, en = el.selectionEnd ?? msgDraft.length; setMsgDraft(msgDraft.slice(0, st) + fixed + msgDraft.slice(en)); } }} placeholder={`Message ${org?.name}…`} disabled={busy}
             style={{ flex: 1, minWidth: 0, padding: "10px 13px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, fontSize: 14, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 110, boxSizing: "border-box" }} />
           <button onClick={sendMsg} disabled={(!msgDraft.trim() && !pending) || busy} style={goldBtn(!!(msgDraft.trim() || pending) && !busy)}>Send</button>
         </div>}

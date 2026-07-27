@@ -3048,7 +3048,7 @@ function ShowingsPage(){
   // each property, so it works even while the ShowingTime feed is still loading.
   const hotRows=(()=>{
     const out=[];
-    sharedProps.filter(p=>!p.archived).forEach(p=>{
+    sharedProps.filter(p=>!p.archived&&p.status!=="Sold").forEach(p=>{
       const snaps=p.showingSnapshots||{};
       Object.entries(p.showingLeads||{}).forEach(([k,lead])=>{
         if(!lead||lead==="not")return;
@@ -14384,6 +14384,22 @@ export function GoldstoneShell(){
     document.addEventListener("visibilitychange",onVis);
     return ()=>document.removeEventListener("visibilitychange",onVis);
   },[]);
+  // Back-on-market rule: when a sale falls through and the property returns to
+  // "On Market", the dead deal's dates (scheduled closing, inspection due,
+  // mortgage commitment) are wiped automatically so the calendar stops nagging
+  // about a contract that no longer exists.
+  useEffect(()=>{
+    if(!sharedProps)return;
+    const DEAL_KEYS=["closingDateScheduled","inspectionDue","mortgageCommitment"];
+    if(!sharedProps.some(p=>p.status==="On Market"&&DEAL_KEYS.some(k=>(p.propertyInfo||{})[k])))return;
+    setSharedProps(prev=>prev.map(p=>{
+      if(p.status!=="On Market")return p;
+      const pi=p.propertyInfo||{};
+      if(!DEAL_KEYS.some(k=>pi[k]))return p;
+      const next={...pi};DEAL_KEYS.forEach(k=>delete next[k]);
+      return {...p,propertyInfo:next};
+    }));
+  },[sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
   // Inspection follow-ups: two days after an inspection on the ShowingTime
   // calendar, a task appears on that property assigned to Moshe (falls back to
   // whoever's signed in if no Moshe on the team). Keyed by autoId so it's

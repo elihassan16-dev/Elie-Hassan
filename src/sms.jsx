@@ -72,7 +72,10 @@ async function loadMsgs() {
   const { data, error } = await supabase.from("sms_messages").select("id,phone,data").order("updated_at", { ascending: true });
   if (!error) { store = { ...store, msgs: (data || []).map((r) => ({ ...(r.data || {}), id: r.id, phone: r.phone || (r.data || {}).phone || "" })) }; emit(); }
 }
-const scheduleLoad = () => { clearTimeout(loadT); loadT = setTimeout(loadMsgs, 250); };
+const scheduleLoad = () => {
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return; // visibilitychange below reloads on return
+  clearTimeout(loadT); loadT = setTimeout(loadMsgs, 600);
+};
 
 function start() {
   if (started) return;

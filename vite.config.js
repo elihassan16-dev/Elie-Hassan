@@ -18,6 +18,8 @@ export default defineConfig({
           // Only ever imported on demand (PDF generation / huge-video uploads) —
           // keep them out of the launch-critical bundles.
           if (id.includes("jspdf") || id.includes("fflate")) return "jspdf";
+          if (id.includes("heic2any")) return "heic";
+          if (id.includes("mediabunny")) return "media";
           if (id.includes("pdfjs-dist")) return "pdfjs";
           if (id.includes("tus-js-client")) return "tus";
           return "vendor";

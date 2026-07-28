@@ -9507,7 +9507,7 @@ function MessageAttachment({att,mine,saveFolder}){
       <div style={{display:"flex",flexWrap:"wrap",gap:4,maxWidth:236}}>
         {att.items.map((it,i)=>(
           <a key={i} href={it.url} target="_blank" rel="noreferrer" style={{display:"block"}}>
-            <img src={it.url} alt={it.name||`photo ${i+1}`} loading="lazy" style={{width:att.items.length===2?114:76,height:att.items.length===2?114:76,borderRadius:8,objectFit:"cover",display:"block"}}/>
+            <img src={it.url} alt={it.name||`photo ${i+1}`} loading="lazy" decoding="async" style={{width:att.items.length===2?114:76,height:att.items.length===2?114:76,borderRadius:8,objectFit:"cover",display:"block",background:"#eee"}}/>
           </a>
         ))}
       </div>
@@ -9517,7 +9517,7 @@ function MessageAttachment({att,mine,saveFolder}){
   if(att.kind==="image")return(
     <div style={{marginTop:6}}>
       <a href={att.url} target="_blank" rel="noreferrer" style={{display:"block"}}>
-        <img src={att.url} alt={att.name||"photo"} style={{maxWidth:220,maxHeight:260,width:"auto",borderRadius:10,display:"block",objectFit:"cover"}}/>
+        <img src={att.url} alt={att.name||"photo"} loading="lazy" decoding="async" style={{width:220,height:240,borderRadius:10,display:"block",objectFit:"cover",background:"#eee"}}/>
       </a>
       {saveBtn}
     </div>
@@ -10035,8 +10035,21 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
   const[coPopup,setCoPopup]=useState(null); // {jobId, reqId}
   const scrollRef=useRef(null);
   const[showInfo,setShowInfo]=useState(null); // showingKey whose agent-info popup is open
-  // Jump to the newest message when a chat opens or a message arrives.
-  useEffect(()=>{const el=scrollRef.current;if(!el)return;requestAnimationFrame(()=>{el.scrollTop=el.scrollHeight;});},[property.id,messages.length]);
+  // Jump to the newest message when a chat opens or a message arrives — and
+  // KEEP pinning briefly while images size in (their late layout used to leave
+  // the view mid-thread and visibly judder). Once the reader scrolls up more
+  // than a screen's worth, the pin backs off.
+  useEffect(()=>{
+    const el=scrollRef.current;if(!el)return;
+    el.scrollTop=el.scrollHeight;
+    let n=0;
+    const iv=setInterval(()=>{
+      const near=el.scrollHeight-el.scrollTop-el.clientHeight<el.clientHeight;
+      if(near)el.scrollTop=el.scrollHeight;
+      if(++n>=12)clearInterval(iv);
+    },150);
+    return ()=>clearInterval(iv);
+  },[property.id,messages.length]);
   const[reply,setReply]=useState(null); // message being replied to
   const[selMode,setSelMode]=useState(false); // select-to-delete mode
   const[selIds,setSelIds]=useState(new Set());

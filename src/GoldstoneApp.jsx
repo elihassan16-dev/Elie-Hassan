@@ -7154,6 +7154,8 @@ function TaskEmailModal({to,name,propAddr,linkedPin,propPins=[],mail,onClose}){
   const[resolving,setResolving]=useState(false);
   const[err,setErr]=useState("");
   const[lastId,setLastId]=useState(null);
+  const[threadMsgs,setThreadMsgs]=useState([]); // the chain itself, so you can reread it before replying
+  const[openMsg,setOpenMsg]=useState(null);
   const[done,setDone]=useState("");
   const first=String(name||"").split(" ")[0]||"contact";
   const iS={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
@@ -7169,6 +7171,8 @@ function TaskEmailModal({to,name,propAddr,linkedPin,propPins=[],mail,onClose}){
       const msgs=await mail.getConversation(convId);
       if(!msgs.length)throw new Error("Couldn't open the chain in your mailbox.");
       setLastId(msgs[msgs.length-1].id);
+      setThreadMsgs(msgs);
+      setOpenMsg(msgs[msgs.length-1].id); // latest message starts open
     }catch(e){setErr(e.message||"Couldn't open the chain.");}
     setResolving(false);
   };
@@ -7185,7 +7189,7 @@ function TaskEmailModal({to,name,propAddr,linkedPin,propPins=[],mail,onClose}){
   };
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:560,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(440px,96vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.28)",overflow:"hidden"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(560px,96vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.28)",overflow:"hidden"}}>
         <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,background:T.goldLight,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{fontSize:15,fontWeight:800,color:T.text}}>Email {first}</div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
@@ -7236,6 +7240,23 @@ function TaskEmailModal({to,name,propAddr,linkedPin,propPins=[],mail,onClose}){
                   : err
                   ? <div style={{fontSize:12.5,color:"#8a6d1f",lineHeight:1.5,background:"#FFF8E6",border:`1px solid ${T.border}`,borderRadius:T.radiusSm,padding:12}}>{err}<div style={{marginTop:8}}><button onClick={()=>setMode("new")} style={{padding:"7px 12px",borderRadius:8,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Send a new email instead</button></div></div>
                   : <>
+                      {threadMsgs.length>0&&(
+                        <div style={{border:`1px solid ${T.border}`,borderRadius:T.radiusSm,maxHeight:280,overflowY:"auto",background:T.bg}}>
+                          {threadMsgs.map((m,i)=>{
+                            const open=openMsg===m.id;
+                            return(
+                              <div key={m.id} style={{borderTop:i?`1px solid ${T.border}`:"none"}}>
+                                <div onClick={()=>setOpenMsg(open?null:m.id)} title={open?"Collapse":"Read this message"} style={{padding:"8px 12px",cursor:"pointer",display:"flex",gap:8,alignItems:"baseline"}}>
+                                  <b style={{fontSize:12,color:T.text,whiteSpace:"nowrap",maxWidth:140,overflow:"hidden",textOverflow:"ellipsis"}}>{mailAddr(m.from)}</b>
+                                  <span style={{fontSize:11,color:T.textTert,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{open?"":(m.bodyPreview||"")}</span>
+                                  <span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0}}>{m.date||m.receivedDateTime?mailWhen(m.receivedDateTime||m.sentDateTime||m.date):""} {open?"▾":"▸"}</span>
+                                </div>
+                                {open&&<div style={{background:"#fff",borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail} trimQuote/></div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                       <textarea autoFocus value={body} onChange={e=>setBody(e.target.value)} placeholder="Write your reply…" style={{...iS,minHeight:120,resize:"vertical",lineHeight:1.5}}/>
                       <AiDraftBox current={body} onDraft={setBody} placeholder={`Tell AI what to reply to ${first}…`}
                         context={[`Replying to: ${name||to||"a contact"}`,activePin?.subject?`Email chain subject: ${activePin.subject}`:"",propAddr?`Property: ${propAddr}`:""].filter(Boolean).join("\n")}/>

@@ -15,7 +15,13 @@ async function load() {
     listeners.forEach((fn) => { try { fn(); } catch { /* consumer gone */ } });
   }
 }
-const sched = () => { clearTimeout(t); t = setTimeout(load, 300); };
+let dirty = false;
+const sched = () => {
+  // The server sync touches many rows per pass — batch the reloads hard, and
+  // if the app is backgrounded just remember, then reload once on return.
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") { dirty = true; return; }
+  clearTimeout(t); t = setTimeout(load, 1500);
+};
 
 function start() {
   if (started) return;
@@ -24,6 +30,9 @@ function start() {
   const ch = supabase.channel("bt-leads");
   ch.on("postgres_changes", { event: "*", schema: "public", table: "bt_leads" }, sched);
   ch.subscribe();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && dirty) { dirty = false; load(); }
+  });
 }
 
 export function useBtLeads() {

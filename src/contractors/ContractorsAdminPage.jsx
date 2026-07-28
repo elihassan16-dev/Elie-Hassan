@@ -871,7 +871,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
                   : m.attachment.kind === "images" && Array.isArray(m.attachment.items)
                   ? <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxWidth: 216, marginTop: 6 }}>{m.attachment.items.map((it, i) => <a key={i} href={it.url} target="_blank" rel="noreferrer" style={{ display: "block" }}><img src={it.url} alt="" loading="lazy" style={{ width: m.attachment.items.length === 2 ? 104 : 68, height: m.attachment.items.length === 2 ? 104 : 68, borderRadius: 8, objectFit: "cover", display: "block" }} /></a>)}</div>
                   : m.attachment.kind === "image"
-                  ? <a href={m.attachment.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={m.attachment.url} alt="" style={{ maxWidth: 200, maxHeight: 220, borderRadius: 9, display: "block", objectFit: "cover" }} /></a>
+                  ? <a href={m.attachment.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={m.attachment.url} alt="" loading="lazy" decoding="async" style={{ width: 200, height: 210, borderRadius: 9, display: "block", objectFit: "cover", background: "#eee" }} /></a>
                   : m.attachment.kind === "video" && m.attachment.stream
                   ? <iframe src={m.attachment.url} title={m.attachment.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ marginTop: 6, width: "min(300px,70vw)", aspectRatio: "16/9", border: "none", borderRadius: 9, display: "block", background: "#000" }} />
                   : m.attachment.kind === "video"

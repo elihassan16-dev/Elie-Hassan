@@ -12921,7 +12921,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const renderDetail=(sel)=>{const c=calc(sel);
     const gauge=(parts)=>(<div style={{height:6,borderRadius:3,background:"#ECECEF",overflow:"hidden",display:"flex",marginTop:8}}>{parts.map((x,i)=><span key={i} style={{display:"block",height:"100%",width:`${Math.max(0,Math.min(100,x.w))}%`,background:x.c}}/>)}</div>);
     const cardS={background:"#fff",border:"1px solid #E9E9EE",borderRadius:14,padding:"15px 17px",position:"relative",textAlign:"left",cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(0,0,0,0.03)"};
-    const lbS={fontSize:11,fontWeight:700,color:"#8A8F98"};
+    const lbS={fontSize:11,fontWeight:700,color:"#8A8F98",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0};
     const vS2=(col)=>({fontSize:25,fontWeight:800,margin:"6px 0 8px",letterSpacing:"-0.5px",color:col});
     const dS={fontSize:11,color:"#8A8F98",marginTop:7,lineHeight:1.5};
     const hdS={display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8};
@@ -13113,7 +13113,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         </div>
         {selP&&(
           <div style={{flex:1,overflowY:"auto",background:T.bg}}>
-            <div style={{maxWidth:660,margin:"0 auto",padding:isMobile?"10px 10px 40px":"16px 18px 40px",boxSizing:"border-box"}}>
+            <div style={{maxWidth:980,margin:"0 auto",padding:isMobile?"10px 10px 40px":"16px 18px 40px",boxSizing:"border-box"}}>
               {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:"2px 0 8px"}}>‹ All properties</button>}
               <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:16,boxShadow:T.shadow,overflow:"hidden"}}>
                 <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`,fontSize:15,fontWeight:800,color:T.text}}>{selP.address} — Balance Sheet</div>
@@ -13132,7 +13132,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const sel=selId!=null?bsProps.find(p=>p.id===selId):null;
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:430,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(680px,97vw)",maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.3)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:sel?"min(940px,97vw)":"min(680px,97vw)",maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.3)"}}>
         <div style={{padding:"14px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           {sel&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>‹ Back</button>}
           <div style={{flex:1,minWidth:0}}>

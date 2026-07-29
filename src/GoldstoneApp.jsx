@@ -12696,31 +12696,59 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 {pinsOpen&&(()=>{
                   const arr=sel[pinsOpen.field]||[];
                   const autoField=pinsOpen.field==="dmConstrSpentTxns"&&sel.dmRehabAuto;
+                  const CUSTOM={qbFloatTxns:"qbFloatCustom",qbDrawTxns:"dmDrawCustom",dmConstrSpentTxns:"dmConstrSpentCustom"}[pinsOpen.field];
+                  const customs=CUSTOM?(sel[CUSTOM]||[]):[];
+                  const popTotal=(pinsOpen.field==="qbDrawTxns"?Math.abs(bsSum(arr)):bsSum(arr))+bsSum(customs);
+                  const pinTarget=pinsOpen.field==="qbFloatTxns"?(sel.qbProjectId?{kind:"float",src:sel.qbProjectId}:null)
+                    :pinsOpen.field==="dmConstrSpentTxns"?(sel.qbProjectId?{kind:"cspent",src:sel.qbProjectId}:null)
+                    :(()=>{if(c.upfront)return sel.qbProjectId?{kind:"fund",src:sel.qbProjectId}:null;const b=c.entries.find(e=>!e.custom&&jobOf(sel,e.key)==="bank");return b?{kind:"draw",src:b.key}:null;})();
                   return(
                   <div onClick={()=>setPinsOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:460,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
                     <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(440px,96vw)",maxHeight:"78vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
-                      <div style={{padding:"13px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8}}>
-                        <div style={{flex:1,fontSize:14.5,fontWeight:800,color:T.text}}>{pinsOpen.title}</div>
+                      <div style={{padding:"14px 18px 10px",display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{flex:1,fontSize:16,fontWeight:800,color:T.text}}>{pinsOpen.title}</div>
                         <button onClick={()=>setPinsOpen(null)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
                       </div>
+                      {canEdit&&pinTarget&&<div style={{padding:"0 18px 10px"}}>
+                        <button onClick={()=>setTxPick({propId:sel.id,...pinTarget})} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:20,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🔍 Pin transactions</button>
+                      </div>}
                       <div style={{overflowY:"auto",flex:1}}>
                         {arr.map(t=>(
-                          <div key={txKey(t)} title={[t.vendor,t.memo].filter(Boolean).join(" · ")} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"9px 16px",borderBottom:`1px solid ${T.border}`}}>
-                            <span style={{minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.date||"pinned"}{t.vendor?` · ${t.vendor}`:t.memo?` · ${String(t.memo).slice(0,30)}`:""}</span>
+                          <div key={txKey(t)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 18px",borderTop:`1px solid ${T.border}`}}>
+                            <div style={{minWidth:0,flex:1}}>
+                              <div style={{fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.account||t.memo||"Transaction"}</div>
+                              <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account&&t.account!==t.vendor?t.account:null,t.memo&&t.memo!==t.vendor?String(t.memo).slice(0,40):null].filter(Boolean).join(" · ")}</div>
+                            </div>
                             <span style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
-                            <b style={{fontSize:12.5,color:(Number(t.amount)||0)<0?T.red:T.text}}>{(Number(t.amount)||0)<0?`−${money(Math.abs(Number(t.amount)||0)).slice(1)}`:money(Number(t.amount)||0)}</b>
+                            <b style={{fontSize:13,color:(Number(t.amount)||0)<0?T.red:T.text}}>{(Number(t.amount)||0)<0?`−${money(Math.abs(Number(t.amount)||0)).slice(1)}`:money(Number(t.amount)||0)}</b>
                             {canEdit&&pinsOpen.field==="qbFloatTxns"&&<button onClick={()=>updateProp(sel.id,pinsOpen.field,arr.map(x=>txKey(x)===txKey(t)?{...x,amount:-(Number(x.amount)||0)}:x))} title="Flip direction — add vs subtract" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:11,fontWeight:800,lineHeight:1,padding:"2px 6px",fontFamily:"inherit"}}>±</button>}
                             {canEdit&&(autoField
                               ?<button onClick={()=>updateProp(sel.id,"dmRehabExcluded",[...(sel.dmRehabExcluded||[]),txKey(t)])} title="Exclude — auto will skip it" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>⊘</button>
                               :<button onClick={()=>updateProp(sel.id,pinsOpen.field,arr.filter(x=>txKey(x)!==txKey(t)))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:0}}>×</button>)}</span>
                           </div>
                         ))}
-                        {arr.length===0&&<div style={{padding:20,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing pinned.</div>}
+                        {customs.map(l=>(
+                          <div key={"c"+l.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 18px",borderTop:`1px solid ${T.border}`}}>
+                            <div style={{minWidth:0,flex:1}}>
+                              <div style={{fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>✎ {l.label||l.name||"Manual line"}</div>
+                              <div style={{fontSize:11,color:T.textTert}}>manual entry</div>
+                            </div>
+                            <span style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+                            <b style={{fontSize:13,color:T.text}}>{money(Math.abs(Number(l.amount)||0))}</b>
+                            {canEdit&&<button onClick={()=>updateProp(sel.id,CUSTOM,customs.filter(x=>x.id!==l.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:0}}>×</button>}</span>
+                          </div>
+                        ))}
+                        {arr.length===0&&customs.length===0&&<div style={{padding:20,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing pinned.</div>}
+                        {canEdit&&CUSTOM&&(manualFor==="pop"
+                          ?<div style={{padding:"8px 18px",borderTop:`1px solid ${T.border}`}}>{manualForm((nm,amt)=>updateProp(sel.id,CUSTOM,[...customs,{id:Date.now(),label:nm||"Manual",amount:amt}]))}</div>
+                          :<button onClick={()=>setManualFor("pop")} style={{width:"100%",textAlign:"left",padding:"10px 18px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>+ Add manual line</button>)}
                       </div>
-                      <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{padding:"12px 18px",borderTop:`2px solid ${T.gold}`,background:T.goldLight+"44",display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:13.5,fontWeight:800,color:"#B8953F"}}>Total</span>
                         {autoField&&(sel.dmRehabExcluded||[]).length>0&&<span style={{fontSize:10.5,color:T.textTert}}>⊘ {(sel.dmRehabExcluded||[]).length} excluded · <button onClick={()=>updateProp(sel.id,"dmRehabExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring back</button></span>}
+                        {canEdit&&!autoField&&arr.length>1&&<button onClick={()=>{if(window.confirm(`Unpin all ${arr.length} transactions?`)){updateProp(sel.id,pinsOpen.field,[]);setPinsOpen(null);}}} style={{padding:"4px 11px",borderRadius:10,border:`1px solid ${T.red}66`,background:"#fff",color:T.red,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Clear all</button>}
                         <span style={{flex:1}}/>
-                        {canEdit&&!autoField&&arr.length>1&&<button onClick={()=>{if(window.confirm(`Unpin all ${arr.length} transactions?`)){updateProp(sel.id,pinsOpen.field,[]);setPinsOpen(null);}}} style={{padding:"7px 14px",borderRadius:10,border:`1px solid ${T.red}`,background:"#fff",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Clear all</button>}
+                        <span style={{fontSize:15,fontWeight:800,color:T.text}}>{money(popTotal)}</span>
                       </div>
                     </div>
                   </div>

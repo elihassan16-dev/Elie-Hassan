@@ -12953,7 +12953,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           </div>
           {canEdit&&<button onClick={()=>setSetupOpen(true)} style={{flexShrink:0,fontSize:12,fontWeight:700,color:"#5A6472",background:"#fff",border:"1px solid #E2E2E8",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"inherit"}}>⚙ Deal setup</button>}
         </div>
-        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fit,minmax(190px,1fr))",gap:14}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:14}}>
           {c.upfront?(
             <button onClick={()=>setDetailPop("constr")} style={cardS}>
               <div style={hdS}><span style={lbS}>💼 FUNDS LEFT</span>{openTag}</div>

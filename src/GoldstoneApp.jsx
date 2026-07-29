@@ -12547,7 +12547,19 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const p=selForAuto;
     if(!p||!p.dmDrawAuto||!Array.isArray(drawAcctTxns))return;
     const ex=new Set(p.dmDrawExcluded||[]);
-    const auto=drawAcctTxns.filter(t=>(Number(t.amount)||0)>0)
+    // The loan's original recording is a credit too — per account, drop the
+    // earliest credit when it's also the largest (that's the mortgage itself,
+    // not a draw), so auto never counts the principal as draw money.
+    const credits=drawAcctTxns.filter(t=>(Number(t.amount)||0)>0);
+    const byAcct={};
+    credits.forEach(t=>{const k=String(t.account||"");(byAcct[k]=byAcct[k]||[]).push(t);});
+    const orig=new Set();
+    Object.values(byAcct).forEach(list=>{
+      const first=[...list].sort((x,y)=>String(x.date||"").localeCompare(String(y.date||"")))[0];
+      const max=Math.max(...list.map(t=>Number(t.amount)||0));
+      if(first&&(Number(first.amount)||0)>=max)orig.add(txKey(first));
+    });
+    const auto=credits.filter(t=>!orig.has(txKey(t)))
       .map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount}))
       .filter(t=>!ex.has(txKey(t)));
     const cur=p.qbDrawTxns||[];
@@ -12698,16 +12710,16 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       {k:4,t:c.upfront?"Construction money in":"Automation",sub:autoSub},
       {k:5,t:"Where the money sits",sub:sitsSub},
     ];
-    const stepRow=(n,st)=>(
-      <button key={st.k} onClick={()=>setSetupStep(st.k)} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:11,padding:"12px 18px",background:"none",border:"none",borderTop:`1px solid ${T.border}55`,cursor:"pointer",fontFamily:"inherit"}}>
-        <span style={{width:22,height:22,borderRadius:"50%",background:"#F3EBD4",color:"#8a6d1f",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{n}</span>
+    const stepRow=(n,st)=>{const open=setupStep===st.k;return(
+      <button onClick={()=>setSetupStep(open?null:st.k)} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:11,padding:"12px 18px",background:open?"#FDFBF5":"none",border:"none",borderTop:`1px solid ${T.border}55`,borderLeft:open?`3px solid ${T.gold}`:"3px solid transparent",cursor:"pointer",fontFamily:"inherit"}}>
+        <span style={{width:22,height:22,borderRadius:"50%",background:open?T.gold:"#F3EBD4",color:open?"#fff":"#8a6d1f",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{n}</span>
         <span style={{flex:1,minWidth:0}}>
           <span style={{display:"block",fontSize:12.5,fontWeight:700,color:T.text}}>{st.t}</span>
-          <span style={{display:"block",fontSize:11,color:T.textTert,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st.sub}</span>
+          {!open&&<span style={{display:"block",fontSize:11,color:T.textTert,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st.sub}</span>}
         </span>
-        <span style={{color:T.gold,fontWeight:800,fontSize:15,flexShrink:0}}>›</span>
+        <span style={{color:T.gold,fontWeight:800,fontSize:12,flexShrink:0}}>{open?"▴":"▾"}</span>
       </button>
-    );
+    );};
     const secBox={padding:"2px 18px 14px"};
     const removeChip=(fn,title)=><button onClick={fn} title={title||"Remove"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>;
     return(
@@ -12718,14 +12730,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                   <button key={k} onClick={canEdit?()=>updateProp(sel.id,"dmFinType",k):undefined} style={{padding:"5px 12px",borderRadius:14,fontSize:11,fontWeight:800,cursor:canEdit?"pointer":"default",fontFamily:"inherit",border:"none",background:on?T.gold:"#F3F3F5",color:on?"#fff":"#888"}}>{label}</button>
                 );})}
               </div>
-              {setupStep==null?(<>
-                {steps.map((st,i)=>stepRow(i+1,st))}
-                <div style={{margin:"10px 18px 16px",background:T.goldLight+"55",border:`1px solid ${T.gold}`,borderRadius:12,padding:"9px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12.5}}>
-                  <span style={{fontWeight:700,color:"#8a6d1f"}}>🎯 True personal equity</span>
-                  <b style={{fontSize:14,color:c.equity==null?T.textTert:c.equity>=0?"#15803D":T.red}}>{c.equity==null?"— link the QB project":money(c.equity)}</b>
-                </div>
-              </>):(<>
-              <button onClick={()=>setSetupStep(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",padding:"8px 18px 6px",textAlign:"left"}}>‹ All setup steps</button>
+              {steps.map((st,i)=>(<Fragment key={st.k}>
+                {stepRow(i+1,st)}
+                {setupStep===st.k&&(<div style={{background:"#FDFBF5",borderLeft:`3px solid ${T.gold}`}}>
               {setupStep===1&&(<div style={secBox}>
                 <div style={h}>🏦 Loan accounts — tap a tag: BANK ↔ LINE OF CREDIT</div>
                 {c.entries.map(e=>(
@@ -12850,7 +12857,12 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 </div>}
                 <div style={{fontSize:10.5,color:T.textTert,marginTop:8,lineHeight:1.5}}>Each bank pick becomes its own line item in Bank Recon, so the account's expected balance always shows what belongs to which deal.</div>
               </div>)}
-              </>)}
+                </div>)}
+              </Fragment>))}
+                <div style={{margin:"10px 18px 16px",background:T.goldLight+"55",border:`1px solid ${T.gold}`,borderRadius:12,padding:"9px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12.5}}>
+                  <span style={{fontWeight:700,color:"#8a6d1f"}}>🎯 True personal equity</span>
+                  <b style={{fontSize:14,color:c.equity==null?T.textTert:c.equity>=0?"#15803D":T.red}}>{c.equity==null?"— link the QB project":money(c.equity)}</b>
+                </div>
               {pinsOpen&&(()=>{
                   const arr=sel[pinsOpen.field]||[];
                   const autoField=(pinsOpen.field==="dmConstrSpentTxns"&&sel.dmRehabAuto)?"dmRehabExcluded":(pinsOpen.field==="qbDrawTxns"&&sel.dmDrawAuto)?"dmDrawExcluded":(pinsOpen.field==="qbDebtTxns"&&sel.qbDebtAuto)?"qbDebtExcluded":null;
@@ -13070,6 +13082,11 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           <span>Budget {money(c.est)} · holdback {c.hb==null?"—":money(c.hb)} + LOC {money(c.constrTotalEff)}</span>
           <b style={{color:c.funding==null?T.textTert:c.funding>=0?"#0F9D58":T.red,whiteSpace:"nowrap"}}>{c.funding==null?"—":c.funding>=0?"✓ covered":`short ${money(-c.funding).slice(1)}`}</b>
         </div>
+        {(c.constrFromPot>0||c.constrBal>0)&&(<>
+          <div style={{padding:"8px 18px 2px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>FROM YOUR LINE OF CREDIT</div>
+          {c.constrFromPot>0&&<div style={pr}><span style={{color:T.textSub}}>Kept from the pot (after the reserve)</span><b style={{color:"#0F9D58"}}>+{money(c.constrFromPot).slice(1)}</b></div>}
+          {c.entries.filter(e=>jobOf(sel,e.key)==="constr").map(e=>(<div key={e.key} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.name.split(":").pop().trim()}</span><b style={{color:"#0F9D58"}}>+{money(e.bal).slice(1)}</b></div>))}
+        </>)}
         <div style={{padding:"8px 18px 2px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>DRAWS RECEIVED
           {canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawAuto",!sel.dmDrawAuto)} title="Every credit that raises the mortgage counts as a draw automatically" style={chip(!!sel.dmDrawAuto)}>{sel.dmDrawAuto?"✓ Auto":"Auto?"}</button>}
           {canEdit&&!sel.dmDrawAuto&&c.entries.filter(e=>!e.custom&&jobOf(sel,e.key)==="bank").map(e=>(

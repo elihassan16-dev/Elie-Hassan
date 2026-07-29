@@ -12474,6 +12474,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const[manualFor,setManualFor]=useState(null); // "loan" | "float" | "debt"
   const[mName,setMName]=useState("");const[mAmt,setMAmt]=useState("");
   const[txPick,setTxPick]=useState(null); // {propId,kind:"float"|"debt"}
+  const[pinsOpen,setPinsOpen]=useState(false); // deployed pins list popup
   const[pickTxns,setPickTxns]=useState(null);
   // Auto debt-service (old qbDebtAuto): with the toggle on, every transaction
   // hitting a debt-bucket account in the property's ledger is pinned monthly,
@@ -12643,19 +12644,35 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               <div style={sec}>
                 <div style={secH}><span>Deployed — down payment, deposit</span></div>
                 <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
+                  {(sel.qbFloatTxns||[]).length>0&&<button onClick={()=>setPinsOpen(true)} title="See every pinned transaction" style={chip(true)}>✓ {(sel.qbFloatTxns||[]).length} pinned · {money(sumT(sel.qbFloatTxns))} ›</button>}
                   {canEdit&&(sel.qbProjectId
                     ?<button onClick={()=>setTxPick({propId:sel.id,kind:"float",src:sel.qbProjectId})} style={chip(false)}>📌 Pin transactions</button>
                     :<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin transactions</span>)}
                   {canEdit&&<button onClick={()=>{setManualFor(manualFor==="float"?null:"float");}} style={chip(false)}>＋ Manual entry</button>}
-                  {canEdit&&(sel.qbFloatTxns||[]).length>1&&<button onClick={()=>{if(window.confirm(`Unpin all ${(sel.qbFloatTxns||[]).length} deployed transactions?`))updateProp(sel.id,"qbFloatTxns",[]);}} style={{...chip(false),color:T.red,borderColor:T.red+"66"}}>Clear all</button>}
                 </div>
-                {(sel.qbFloatTxns||[]).map(t=>(
-                  <div key={txKey(t)} title={[t.vendor,t.memo].filter(Boolean).join(" · ")} style={{...rowS,paddingLeft:14,flexWrap:"nowrap"}}>
-                    <span style={{...lS,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📌 {t.date||"pinned"}{t.vendor?` · ${String(t.vendor).slice(0,24)}`:""}</span>
-                    <span style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}><span style={vS}>{money(Math.abs(Number(t.amount)||0))}</span>
-                    {canEdit&&<button onClick={()=>updateProp(sel.id,"qbFloatTxns",(sel.qbFloatTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span>
+                {pinsOpen&&(
+                  <div onClick={()=>setPinsOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:460,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+                    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(440px,96vw)",maxHeight:"78vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+                      <div style={{padding:"13px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{flex:1,fontSize:14.5,fontWeight:800,color:T.text}}>Deployed — pinned transactions</div>
+                        <button onClick={()=>setPinsOpen(false)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+                      </div>
+                      <div style={{overflowY:"auto",flex:1}}>
+                        {(sel.qbFloatTxns||[]).map(t=>(
+                          <div key={txKey(t)} title={[t.vendor,t.memo].filter(Boolean).join(" · ")} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"9px 16px",borderBottom:`1px solid ${T.border}`}}>
+                            <span style={{minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.date||"pinned"}{t.vendor?` · ${t.vendor}`:t.memo?` · ${String(t.memo).slice(0,30)}`:""}</span>
+                            <span style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}><b style={{fontSize:12.5}}>{money(Math.abs(Number(t.amount)||0))}</b>
+                            {canEdit&&<button onClick={()=>updateProp(sel.id,"qbFloatTxns",(sel.qbFloatTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:0}}>×</button>}</span>
+                          </div>
+                        ))}
+                        {(sel.qbFloatTxns||[]).length===0&&<div style={{padding:20,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing pinned.</div>}
+                      </div>
+                      {canEdit&&(sel.qbFloatTxns||[]).length>1&&<div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,textAlign:"right"}}>
+                        <button onClick={()=>{if(window.confirm(`Unpin all ${(sel.qbFloatTxns||[]).length} transactions?`)){updateProp(sel.id,"qbFloatTxns",[]);setPinsOpen(false);}}} style={{padding:"7px 14px",borderRadius:10,border:`1px solid ${T.red}`,background:"#fff",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Clear all</button>
+                      </div>}
+                    </div>
                   </div>
-                ))}
+                )}
                 {(sel.qbFloatCustom||[]).map(l=>(
                   <div key={l.id} style={rowS}><span style={lS}>✎ {l.label||l.name||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"qbFloatCustom",(sel.qbFloatCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
                 ))}

@@ -12001,121 +12001,17 @@ function useQB(){
 }
 
 function FinPropertyBS({sharedProps,onNavigate,initialSelId,isMobile,canEdit=true}){
-  const { setSharedProps, flushProps, bankAccounts }=useData();
-  const onUpdate=(id,key,val)=>{if(!canEdit)return;setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
+  // The Property Balance Sheet IS the Deal Money view now (per Elie): bank
+  // loan + holdback vs budget, credit accounts with their typed splits,
+  // interest reserve runway, true equity — live from QuickBooks.
+  const { setSharedProps, flushProps }=useData();
+  const updateProp=(id,key,val)=>{if(!canEdit)return;setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
   const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status))
     .sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")),[sharedProps]);
-  const {connected,accounts,spend,refreshing,requestSpend,refresh}=useQB();
-  const[selId,setSelId]=useState(initialSelId||null);
-  const[search,setSearch]=useState("");
+  const {connected,accounts,spend,requestSpend}=useQB();
   const projKey=props.map(p=>p.qbProjectId).filter(Boolean).join(",");
   useEffect(()=>{if(connected)requestSpend(props.map(p=>p.qbProjectId));},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const refreshAll=useCallback(()=>refresh(props.map(p=>p.qbProjectId)),[refresh,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Cover columns: Construction Float (= personal equity − interest reserve) and the
-  // Interest Reserve. All figures come from the SHARED bsMetrics — no local math, so
-  // this page can never disagree with Bank Recon / the Report Center.
-  const acctBal=(id)=>bsAcctBal(accounts,id);
-  const sumAmt=bsSum;
-  const potOf=(p)=>bsMetrics(p,accounts,spend).pot;
-  const floatOf=(p)=>bsMetrics(p,accounts,spend).deployed;
-  const debtOf=(p)=>bsMetrics(p,accounts,spend).debt;
-  const totalLoansOf=(p)=>bsMetrics(p,accounts,spend).totalLoans;
-  const allInOf=(p)=>bsMetrics(p,accounts,spend).allIn;
-  const equityOf=(p)=>{const a=allInOf(p);return a==null?null:a-totalLoansOf(p)+sumAmt(p.qbBsCustom);};
-  const rows=props.map(p=>{
-    const setUp=(p.qbLoanAccounts||[]).length||(p.qbLoanCustom||[]).length||(p.qbLocPotIds||[]).length||(p.qbFloatTxns||[]).length||(p.qbFloatCustom||[]).length||(p.qbDebtTxns||[]).length||(p.qbDebtCustom||[]).length;
-    const ir=Math.max(0,potOf(p)-floatOf(p)-debtOf(p)); // interest reserve left (can't go below zero)
-    const eq=equityOf(p);                            // personal equity (needs all-in cost)
-    const cf=eq==null?null:Math.max(0,eq-ir);        // construction float = equity − reserve (own money for construction, can't be < 0)
-    return {p,cf,ir,setUp};
-  });
-  const tot=rows.reduce((a,r)=>r.setUp?{cf:a.cf+(r.cf||0),ir:a.ir+r.ir}:a,{cf:0,ir:0});
-  const sel=(selId&&props.find(p=>p.id===selId))||(!isMobile?props[0]:null)||null;
-  const cols="1fr 104px 104px";
-
-  return(
-    <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-      {/* Left: property list with Construction Float + Interest Reserve columns */}
-      <div style={{width:isMobile?"100%":460,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
-        <div style={{padding:"12px 16px 10px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:14,fontWeight:800,color:T.text}}>Property Balance Sheet</div>
-            <div style={{fontSize:11.5,color:T.textTert,marginTop:1}}>{rows.length} owned {rows.length===1?"property":"properties"} · live from QuickBooks</div>
-          </div>
-          {connected&&<button onClick={refreshAll} title="Refresh balances from QuickBooks" style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>{refreshing?"↻ …":"↻ Refresh"}</button>}
-        </div>
-        {rows.length>0&&(
-          <div style={{padding:"10px 14px 8px",borderBottom:`1px solid ${T.border}`,position:"relative"}}>
-            <span style={{position:"absolute",left:23,top:"50%",transform:"translateY(-50%)",fontSize:13,color:T.textTert,pointerEvents:"none"}}>🔍</span>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search a property…" style={{width:"100%",padding:"8px 12px 8px 32px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
-          </div>
-        )}
-        {connected===false&&<div style={{padding:"10px 14px",fontSize:11.5,color:"#8a6d1f",background:T.goldLight,borderBottom:`1px solid ${T.gold}`,lineHeight:1.45}}>Connect QuickBooks (any property&rsquo;s QuickBooks tab) to populate account balances.</div>}
-        {rows.length>0&&(
-          <div style={{display:"grid",gridTemplateColumns:cols,gap:8,padding:"8px 16px",background:"#FAFAFA",borderBottom:`1px solid ${T.border}`,fontSize:9.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em"}}>
-            <span>Property</span><span style={{textAlign:"right"}}>Construction Float</span><span style={{textAlign:"right"}}>Interest Reserve</span>
-          </div>
-        )}
-        <div style={{flex:1,overflowY:"auto"}}>
-          {rows.length===0&&<div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No purchased, under-construction, on-market, or in-closing properties yet.</div>}
-          {(()=>{const q=search.trim().toLowerCase();const shown=q?rows.filter(({p})=>`${p.address} ${p.city||""}`.toLowerCase().includes(q)):rows;
-            if(rows.length>0&&shown.length===0)return <div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No properties match your search.</div>;
-            return shown.map(({p,cf,ir,setUp})=>{
-            const sc=SC[p.status]||{};
-            const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
-            const active=sel&&sel.id===p.id;
-            return(
-              <div key={p.id} onClick={()=>setSelId(p.id)} style={{display:"grid",gridTemplateColumns:cols,gap:8,alignItems:"center",padding:"11px 16px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:active?T.goldLight:"transparent",borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent"}}>
-                <div style={{minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:active?700:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
-                  <span style={{display:"inline-block",marginTop:3,fontSize:9,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 7px",borderRadius:20}}>{p.status}</span>
-                </div>
-                <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:(setUp&&cf!=null)?T.text:T.textTert,whiteSpace:"nowrap"}}>{setUp&&cf!=null?fmtD(cf):"—"}</span>
-                <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:!setUp?T.textTert:(ir>=0?T.text:T.red),whiteSpace:"nowrap"}}>{setUp?fmtD(ir):"—"}</span>
-              </div>
-            );
-          });})()}
-        </div>
-        {rows.some(r=>r.setUp)&&(
-          <div style={{display:"grid",gridTemplateColumns:cols,gap:8,alignItems:"center",padding:"12px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14",flexShrink:0}}>
-            <span style={{fontSize:12.5,fontWeight:800,color:T.gold}}>Portfolio</span>
-            <span style={{textAlign:"right",fontSize:12.5,fontWeight:800,color:T.text}}>{fmtD(tot.cf)}</span>
-            <span style={{textAlign:"right",fontSize:12.5,fontWeight:800,color:tot.ir>=0?T.text:T.red}}>{fmtD(tot.ir)}</span>
-          </div>
-        )}
-      </div>
-      {/* Right: detail — pin accounts here */}
-      <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
-        {sel?(()=>{
-          const sc=SC[sel.status]||{};
-          const addr=`${sel.address}${sel.city?`, ${sel.city}`:""}`;
-          const sp=sel.qbProjectId?spend[sel.qbProjectId]:null;
-          return(
-            <>
-              <div style={{padding:"12px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-                {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",padding:"2px 4px",flexShrink:0}}>‹</button>}
-                <div style={{minWidth:0,flex:1}}>
-                  <div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
-                  {sel.status&&<span style={{fontSize:9.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{sel.status}</span>}
-                </div>
-                {onNavigate&&<button onClick={()=>onNavigate(sel.id)} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Open →</button>}
-              </div>
-              <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
-                <PropertyBSDetail key={sel.id} property={sel} accounts={accounts} allIn={sp&&sp.allIn!=null?sp.allIn:null} allInLoading={!!sp?.loading} pnl={sp?.pnl||null} bankAccounts={bankAccounts} onUpdate={onUpdate} canEdit={canEdit}/>
-              </div>
-            </>
-          );
-        })():(
-          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:T.textSub,padding:24,textAlign:"center"}}>
-            <div style={{width:60,height:60,borderRadius:16,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>📊</div>
-            <div style={{fontSize:16,fontWeight:700}}>Select a property</div>
-            <div style={{fontSize:13,color:T.textTert,maxWidth:320}}>Pick a property to pin its loan accounts and see the breakdown.</div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return <FinDealMoney inline bsProps={props} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={dmHoldbackOf} initialSelId={initialSelId}/>;
 }
 function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   const { bankAccounts, setBankAccounts:rawSetBankAccounts, flushBank }=useData();
@@ -12535,14 +12431,15 @@ function FinDocCreator({sharedProps,isMobile}){
   );
 }
 
+const dmHoldbackOf=(p)=>{const raw=p.constrHoldback;const pins=bsSum(p.qbHoldbackTxns);const hasManual=raw!=null&&raw!=="";const hasPins=(p.qbHoldbackTxns||[]).length>0;return (hasPins||hasManual)?pins+(hasManual?Number(raw):0):null;};
 // ─── Deal Money — per-property financing picture (PREVIEW) ────────────────────
 // One card per deal: the bank's mortgage + holdback vs budget, every credit
 // account pinned with its typed allocation split (down payment / interest
 // reserve / construction), the reserve runway, and the true-equity bottom line
 // with credit counted exactly once. Balances live from QuickBooks; the splits
 // are Elie's intent, typed once per deal.
-function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onClose}){
-  const[selId,setSelId]=useState(null);
+function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onClose,inline=false,initialSelId=null}){
+  const[selId,setSelId]=useState(initialSelId);
   const[pickCredit,setPickCredit]=useState(false);
   const[pickMort,setPickMort]=useState(false);
   const[q,setQ]=useState("");
@@ -12587,18 +12484,19 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       </div>
     );
   };
-  return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:430,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(680px,97vw)",maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.3)"}}>
+  const shell=(
+      <div onClick={e=>e.stopPropagation()} style={inline
+        ?{background:"#fff",borderRadius:18,border:`1px solid ${T.border}`,boxShadow:T.shadow,display:"flex",flexDirection:"column",overflow:"hidden",maxWidth:720,margin:"0 auto",width:"100%",boxSizing:"border-box"}
+        :{background:"#fff",borderRadius:18,width:"min(680px,97vw)",maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.3)"}}>
         <div style={{padding:"14px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           {sel&&<button onClick={()=>{setSelId(null);setPickCredit(false);setPickMort(false);}} style={{background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>‹ Back</button>}
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:16,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🧮 {sel?`${sel.address} — Deal Money`:"Deal Money — by Property"}</div>
             {!sel&&<div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>Live from QuickBooks · tap a property to pin accounts and set the splits</div>}
           </div>
-          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+          {!inline&&<button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>}
         </div>
-        <div style={{overflowY:"auto",flex:1}}>
+        <div style={{overflowY:inline?"visible":"auto",flex:1}}>
           {!sel?(
             <div>
               <div style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 90px 90px 90px 90px",gap:6,padding:"10px 16px 6px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>
@@ -12676,7 +12574,10 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           );})()}
         </div>
       </div>
-    </div>
+  );
+  if(inline)return <div style={{flex:1,overflowY:"auto",background:T.bg,padding:"16px 14px 40px",boxSizing:"border-box"}}>{shell}</div>;
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:430,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>{shell}</div>
   );
 }
 
@@ -13023,14 +12924,13 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const cards=[
     {id:"loc",icon:"📄",title:"Outstanding LOC by Deal",desc:"Who you owe line-of-credit to, by property — oldest funding first."},
     {id:"future",icon:"📈",title:"Available Future Funds",desc:"LOC capital freeing up from your upcoming closings."},
-    {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Loans, all-in cost, reserves and equity — spreadsheet style."},
+    {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Bank loan, credit lines with their splits, interest reserve and true equity — live from QuickBooks."},
     {id:"hold",icon:"🏗️",title:"Construction Holdback vs Actuals",desc:"Bank's construction holdback vs your underwriting estimate, per property."},
-    {id:"dm",icon:"🧮",title:"Deal Money — by Property",desc:"Bank loan, credit lines with their splits, interest reserve runway and true equity — live from QuickBooks."},
     {id:"draw",icon:"🏦",title:"Construction Draw Report",desc:"Holdback vs draws pinned from each property's mortgage account, and what's left."},
     {id:"closings",icon:"📅",title:"Upcoming Closings — Capital Flow",desc:"In-closing sales returning LOC capital vs under-contract buys needing equity, with a running balance."},
     {id:"cashflow",icon:"💰",title:"Monthly Cash Flow — Closings",desc:"Net cash landing each month as your in-closing deals settle — sale minus costs, payoffs and unpaid interest."},
   ];
-  const rep=(open&&open!=="dm")?REPORTS[open]:null;
+  const rep=(open&&open!=="bs")?REPORTS[open]:null;
 
   return(
     <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?"14px":"18px 24px"}}>
@@ -13047,7 +12947,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
         ))}
       </div>
 
-      {open==="dm"&&<FinDealMoney bsProps={bsProps} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={holdbackOf} onClose={()=>setOpen(null)}/>}
+      {open==="bs"&&<FinDealMoney bsProps={bsProps} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={holdbackOf} onClose={()=>setOpen(null)}/>}
       {rep&&(
         <div onClick={()=>setOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:900,maxWidth:"100%",maxHeight:isMobile?"92vh":"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>

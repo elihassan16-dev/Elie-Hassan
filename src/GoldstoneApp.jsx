@@ -12500,7 +12500,10 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   useEffect(()=>{
     if(!txPick){setPickTxns(null);return;}
     let alive=true;setPickTxns(null);
-    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(txPick.src)}`).then(d=>{if(alive)setPickTxns(d.items||[]);}).catch(()=>{if(alive)setPickTxns([]);});
+    const url=txPick.kind==="draw"
+      ?`/api/quickbooks/account-txns?account=${encodeURIComponent(txPick.src)}`
+      :`/api/quickbooks/transactions?customerId=${encodeURIComponent(txPick.src)}`;
+    qbAuthFetch(url).then(d=>{if(alive)setPickTxns(d.items||[]);}).catch(()=>{if(alive)setPickTxns([]);});
     return ()=>{alive=false;};
   },[txPick]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
@@ -12602,7 +12605,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   };
   const slimT=(t)=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey});
   const toggleTxn=(p,t)=>{
-    const field=txPick.kind==="float"?"qbFloatTxns":txPick.kind==="cspent"?"dmConstrSpentTxns":"qbDebtTxns";
+    const field=txPick.kind==="float"?"qbFloatTxns":txPick.kind==="cspent"?"dmConstrSpentTxns":txPick.kind==="draw"?"qbDrawTxns":"qbDebtTxns";
     const cur=p[field]||[];const k=txKey(t);const has=cur.some(x=>txKey(x)===k);
     updateProp(p.id,field,has?cur.filter(x=>txKey(x)!==k):[...cur,slimT(t)]);
   };
@@ -12723,9 +12726,20 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                   <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"8px 12px",marginTop:8}}>
                     <div style={rowS}><span style={lS}>+ Your construction money (tags & pot)</span><span style={{...vS,color:"#15803D"}}>+{money(c.constrTotal).slice(1)}</span></div>
                     <div style={rowS}><span style={lS}>+ Draws received from the bank
+                      {canEdit&&c.entries.filter(e=>!e.custom&&jobOf(sel,e.key)==="bank").map(e=>(
+                        <button key={e.key} onClick={()=>setTxPick({propId:sel.id,kind:"draw",src:e.key})} title={`Pin draws from ${e.name} — credits that raised the loan`} style={chip(false)}>📌 Pin draws{c.entries.filter(x=>!x.custom&&jobOf(sel,x.key)==="bank").length>1?` (${e.name.split(":").pop().trim().slice(0,14)}…)`:""}</button>
+                      ))}
                       {canEdit&&<button onClick={()=>{setManualFor(manualFor==="draw"?null:"draw");}} style={chip(false)}>＋ Manual</button>}
-                      <span style={{fontSize:10,color:T.textTert}}>pins live in the Draw Report</span></span>
+                      <span style={{fontSize:10,color:T.textTert}}>shared with the Draw Report</span></span>
                       <span style={{...vS,color:"#15803D"}}>+{money(c.draws).slice(1)}</span></div>
+                    {(sel.qbDrawTxns||[]).slice(-4).map(t=>(
+                      <div key={txKey(t)} style={{...rowS,paddingLeft:14}}>
+                        <span style={lS}>📌 {t.date||""} · {t.memo||t.type||"draw"}</span>
+                        <span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(t.amount)||0))}</span>
+                        {canEdit&&<button onClick={()=>updateProp(sel.id,"qbDrawTxns",(sel.qbDrawTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span>
+                      </div>
+                    ))}
+                    {(sel.qbDrawTxns||[]).length>4&&<div style={{fontSize:10,color:T.textTert,paddingLeft:14}}>…and {(sel.qbDrawTxns||[]).length-4} more pinned</div>}
                     {(sel.dmDrawCustom||[]).map(l=>(
                       <div key={l.id} style={{...rowS,paddingLeft:14}}><span style={lS}>✎ {l.label||"Manual draw"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
                     ))}
@@ -12772,7 +12786,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
             </div>
   );};
   const pickerTarget=txPick?bsProps.find(p=>p.id===txPick.propId):null;
-  const pickerPinned=txPick&&pickerTarget?new Set(((txPick.kind==="float"?pickerTarget.qbFloatTxns:txPick.kind==="cspent"?pickerTarget.dmConstrSpentTxns:pickerTarget.qbDebtTxns)||[]).map(txKey)):new Set();
+  const pickerPinned=txPick&&pickerTarget?new Set(((txPick.kind==="float"?pickerTarget.qbFloatTxns:txPick.kind==="cspent"?pickerTarget.dmConstrSpentTxns:txPick.kind==="draw"?pickerTarget.qbDrawTxns:pickerTarget.qbDebtTxns)||[]).map(txKey)):new Set();
   const txPicker=txPick&&pickerTarget&&<QbTxnsPickerModal txns={pickTxns} loading={pickTxns===null} pinnedKeys={pickerPinned} onToggle={t=>toggleTxn(pickerTarget,t)} onClose={()=>setTxPick(null)}/>;
   // ── Inline (Property Balance Sheet page): mail-style two panes ─────────────
   if(inline){

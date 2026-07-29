@@ -11512,7 +11512,7 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
   };
   const inS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:480,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 12px"}}>
           <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>Pin transactions</div><div style={{fontSize:12,color:T.textTert}}>A journal entry shows as one row — open it to pin only the lines you want</div></div>
@@ -12702,7 +12702,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                     :pinsOpen.field==="dmConstrSpentTxns"?(sel.qbProjectId?{kind:"cspent",src:sel.qbProjectId}:null)
                     :(()=>{if(c.upfront)return sel.qbProjectId?{kind:"fund",src:sel.qbProjectId}:null;const b=c.entries.find(e=>!e.custom&&jobOf(sel,e.key)==="bank");return b?{kind:"draw",src:b.key}:null;})();
                   return(
-                  <div onClick={()=>setPinsOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:460,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+                  <div onClick={()=>setPinsOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:474,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
                     <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(440px,96vw)",maxHeight:"78vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
                       <div style={{padding:"14px 18px 10px",display:"flex",alignItems:"center",gap:8}}>
                         <div style={{flex:1,fontSize:16,fontWeight:800,color:T.text}}>{pinsOpen.title}</div>
@@ -12825,7 +12825,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 {c.constrFromPot>0&&<div style={rowS}><span style={lS}>+ From the pot (what's left after the reserve)</span><span style={vS}>{money(c.constrFromPot)}</span></div>}
                 <div style={rowS}><span style={lS}>− Rehab budget (your underwriting)</span><span style={vS}>{money(c.est)}</span></div>
                 <div style={totRow}><span>Covered or short</span><span style={{color:c.funding==null?T.textTert:c.funding>=0?"#15803D":T.red}}>{c.funding==null?"—":c.funding>=0?`✓ covered (+${money(c.funding).slice(1)})`:`${money(c.funding)} short`}</span></div>
-                {(c.constrTotal>0||c.draws>0||c.constrSpent>0)&&(<>
+                {(c.constrTotal>0||c.draws>0||c.constrSpent>0||(c.hb||0)>0||c.upfront)&&(<>
                   <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"8px 12px",marginTop:8}}>
                     <div style={rowS}><span style={lS}>+ Your construction money (tags & pot)</span><span style={{...vS,color:"#15803D"}}>+{money(c.constrTotalEff).slice(1)}</span></div>
                     <div style={rowS}><span style={lS}>{c.upfront?"+ Construction money in":"+ Draws received from the bank"}
@@ -12998,7 +12998,14 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         <div style={pr}><span style={{color:T.textSub}}>Bank holdback (from the lender)</span><b>{c.hb==null?"—":money(c.hb)}</b></div>
         {c.constrBal>0&&<div style={pr}><span style={{color:T.textSub}}>+ Your accounts tagged 🔨</span><b>{money(c.constrBal)}</b></div>}
         {c.constrFromPot>0&&<div style={pr}><span style={{color:T.textSub}}>+ Kept from your pot</span><b>{money(c.constrFromPot)}</b></div>}
-        <div style={pr}><span style={{color:T.textSub}}>+ Draws received</span><b>{money(c.draws)}</b></div>
+        <div style={pr}><span style={{color:T.textSub,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>+ Draws received
+          {canEdit&&c.entries.filter(e=>!e.custom&&jobOf(sel,e.key)==="bank").map(e=>(
+            <button key={e.key} onClick={()=>setTxPick({propId:sel.id,kind:"draw",src:e.key})} title={`Pin draws from ${e.name} — credits that raised the loan`} style={chip(false)}>📌 Pin draws{c.entries.filter(x=>!x.custom&&jobOf(sel,x.key)==="bank").length>1?` (${e.name.split(":").pop().trim().slice(0,14)}…)`:""}</button>
+          ))}
+        </span><b>{money(c.draws)}</b></div>
+        {canEdit&&c.entries.filter(e=>!e.custom&&jobOf(sel,e.key)==="bank").length===0&&<div style={{padding:"0 18px 6px",fontSize:10.5,color:T.textTert}}>To pin draws, add the mortgage account under 🏦 Total loans in ⚙ Deal setup (leave its job as BANK).</div>}
+        {(sel.qbDrawTxns||[]).map(t=>(<div key={txKey(t)} style={{...pr,borderTop:"none",paddingTop:0,paddingLeft:30,fontSize:11.5}}><span style={{color:T.textTert,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(t.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>updateProp(sel.id,"qbDrawTxns",(sel.qbDrawTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>×</button>}</b></div>))}
+        {(sel.dmDrawCustom||[]).map(l=>(<div key={l.id} style={{...pr,borderTop:"none",paddingTop:0,paddingLeft:30,fontSize:11.5}}><span style={{color:T.textTert}}>✎ {l.label||"Manual draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(l.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>×</button>}</b></div>))}
         <div style={pr}><span style={{color:T.textSub}}>− Rehab budget</span><b>{money(c.est)}</b></div>
         <div style={pr}><span style={{color:T.textSub,fontWeight:700}}>{c.funding==null?"—":c.funding>=0?"✓ Covered":"Still short"}</span><b style={{color:c.funding==null?T.textTert:c.funding>=0?"#0F9D58":T.red}}>{c.funding==null?"—":money(c.funding)}</b></div>
         <div style={{padding:"10px 18px 4px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>REHAB PAID OUT{sel.dmRehabAuto?" — AUTO-PINNED":""}</div>

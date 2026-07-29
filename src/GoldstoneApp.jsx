@@ -12890,7 +12890,8 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const lbS={fontSize:10.5,fontWeight:800,color:T.textTert,letterSpacing:"0.04em"};
     const vS2=(col)=>({fontSize:24,fontWeight:800,margin:"6px 0 0",letterSpacing:"-0.5px",color:col});
     const dS={fontSize:11,color:T.textSub,marginTop:7,lineHeight:1.5};
-    const openTag=<span style={{position:"absolute",top:12,right:14,fontSize:10.5,color:T.gold,fontWeight:800}}>details ›</span>;
+    const hdS={display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8};
+    const openTag=<span style={{fontSize:10.5,color:T.gold,fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>details ›</span>;
     const resPct=c.reserve>0?Math.round(100*Math.max(0,c.left)/c.reserve):0;
     const holder=bankName(sel.bsBankAccount);
     const feed=[
@@ -12914,32 +12915,32 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           </div>
           {canEdit&&<button onClick={()=>setSetupOpen(true)} style={{flexShrink:0,fontSize:12,fontWeight:700,color:T.textSub,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"inherit"}}>⚙ Deal setup</button>}
         </div>
-        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:10}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fit,minmax(190px,1fr))",gap:10}}>
           {c.upfront?(
-            <button onClick={()=>setDetailPop("constr")} style={cardS}>{openTag}
-              <div style={lbS}>💼 FUNDS LEFT</div>
+            <button onClick={()=>setDetailPop("constr")} style={cardS}>
+              <div style={hdS}><span style={lbS}>💼 FUNDS LEFT</span>{openTag}</div>
               <div style={vS2(c.leftover==null?T.textTert:c.leftover>=0?"#0F9D58":T.red)}>{c.leftover==null?"—":money(c.leftover)}</div>
               {gauge([{w:c.totalLoans>0?100*Math.max(0,c.leftover||0)/c.totalLoans:0,c:"#0F9D58"}])}
               <div style={dS}>loan {money(c.totalLoans)} − actuals {c.allIn==null?"—":money(c.allIn)}</div>
             </button>
           ):(
-            <button onClick={()=>setDetailPop("reserve")} style={cardS}>{openTag}
-              <div style={lbS}>⏳ INTEREST RESERVE</div>
+            <button onClick={()=>setDetailPop("reserve")} style={cardS}>
+              <div style={hdS}><span style={lbS}>⏳ INTEREST RESERVE</span>{openTag}</div>
               <div style={vS2(c.left>=0?"#0F9D58":T.red)}>{money(c.left)}</div>
               {gauge([{w:resPct,c:"#0F9D58"}])}
               <div style={dS}>set aside {money(c.reserve)} · paid {money(c.paid)}</div>
             </button>
           )}
           {!c.upfront&&(
-            <button onClick={()=>setDetailPop("constr")} style={cardS}>{openTag}
-              <div style={lbS}>🔨 CONSTRUCTION</div>
+            <button onClick={()=>setDetailPop("constr")} style={cardS}>
+              <div style={hdS}><span style={lbS}>🔨 CONSTRUCTION</span>{openTag}</div>
               <div style={vS2(c.constrLeft>=0?"#B8953F":T.red)}>{money(c.constrLeft)}</div>
               {gauge([{w:c.est>0?100*(c.hb||0)/c.est:0,c:"#C9A227"},{w:c.est>0?100*(c.constrTotalEff+c.inFlow-(c.hb||0))/c.est:0,c:"#EAD9A9"}])}
               <div style={dS}>funding {money((c.hb||0)+c.constrTotalEff+(c.upfront?0:0))} vs budget {money(c.est)}{c.funding==null?"":c.funding>=0?" · ✓ covered":<span style={{color:T.red}}> · short {money(-c.funding)}</span>}</div>
             </button>
           )}
-          <button onClick={()=>setDetailPop("equity")} style={cardS}>{openTag}
-            <div style={lbS}>🎯 MY EQUITY</div>
+          <button onClick={()=>setDetailPop("equity")} style={cardS}>
+            <div style={hdS}><span style={lbS}>🎯 MY EQUITY</span>{openTag}</div>
             <div style={vS2(c.equity==null?T.textTert:c.equity>=0?"#0F9D58":T.red)}>{c.equity==null?"—":money(c.equity)}</div>
             {gauge([{w:c.allIn&&c.totalLoans?Math.min(100,100*c.totalLoans/Math.max(c.allIn,c.totalLoans)):0,c:"#5A6472"}])}
             <div style={dS}>all-in {c.allIn==null?"—":money(c.allIn)} · loans {money(c.totalLoans)}</div>

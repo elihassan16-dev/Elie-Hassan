@@ -12929,10 +12929,11 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const openTag=<span style={{fontSize:11,color:"#B8953F",fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>details ›</span>;
     const resPct=c.reserve>0?Math.round(100*Math.max(0,c.left)/c.reserve):0;
     const holder=bankName(sel.bsBankAccount);
-    // Reserve runway: average month's debt service so far → how long what's left lasts.
+    // Reserve runway — same math as the popup: the rate on the full loan;
+    // actual payment pace only as a fallback when no rate is set.
     const payMonths=new Set((sel.qbDebtTxns||[]).map(t=>String(t.date||"").slice(0,7)).filter(Boolean)).size;
-    const pace=payMonths>0?c.paid/payMonths:0;
-    const monthsLeft=pace>0?Math.max(0,c.left)/pace:null;
+    const monthlyPace=c.monthlyInt>0?c.monthlyInt:(payMonths>0?c.paid/payMonths:0);
+    const monthsLeft=monthlyPace>0?Math.max(0,c.left)/monthlyPace:null;
     const feed=[
       ...(sel.qbDebtTxns||[]).map(t=>({t,kind:"reserve",sign:-1})),
       ...(sel.dmConstrSpentTxns||[]).map(t=>({t,kind:"rehab",sign:-1})),
@@ -12967,7 +12968,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               <div style={hdS}><span style={lbS}>⏳ INTEREST RESERVE</span>{openTag}</div>
               <div style={vS2(c.left>=0?"#0F9D58":T.red)}>{money(c.left)}</div>
               {gauge([{w:resPct,c:"#0F9D58"}])}
-              <div style={dS}>set aside {money(c.reserve)} · paid {money(c.paid)}<br/>{monthsLeft!=null?(c.left>0?`≈ ${monthsLeft.toFixed(1)} months at current pace`:"reserve used up"):"pace shows after the first payment"}</div>
+              <div style={dS}>set aside {money(c.reserve)} · paid {money(c.paid)}<br/>{monthsLeft!=null?(c.left>0?`≈ ${monthsLeft.toFixed(1)} months at ${money(Math.round(monthlyPace))}/mo`:"reserve used up"):"pace shows after the first payment"}</div>
             </button>
           )}
           {!c.upfront&&(

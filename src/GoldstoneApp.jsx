@@ -12041,12 +12041,12 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   const delAdj=(id,adjId)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:(b.adjustments||[]).filter(a=>a.id!==adjId)}:b));save();};
   // Money physically held in the bank for a property — always ≥ 0. In equity mode it's
   // the surplus financing (loans − all-in = −equity) you're holding to finish the job.
-  const heldOf=(p)=>{if((p.bsCalcMode||"reserve")==="equity"){const m=bsMetrics(p,accounts,spend);return m.equity==null?0:Math.max(0,-m.equity);}return dmPotMath(p,accounts).reserveLeft;};
-  const constrOf=(p)=>dmPotMath(p,accounts).constrHeld;
+  const heldOf=(p)=>{if((p.dmFinType||"draws")!=="upfront"&&(p.bsCalcMode||"reserve")==="equity"){const m=bsMetrics(p,accounts,spend);return m.equity==null?0:Math.max(0,-m.equity);}return dmPotMath(p,accounts,spend).reserveLeft;};
+  const constrOf=(p)=>dmPotMath(p,accounts,spend).constrHeld;
   // Two kinds of holdings per property, each with its own bank account and its
   // own line item: interest reserve (bsBankAccount) and construction (dmConstrBank).
   const itemsOf=(id)=>[
-    ...props.filter(p=>String(p.bsBankAccount||"")===String(id)).map(p=>({p,kind:(p.bsCalcMode||"reserve")==="equity"?"Personal equity":"⏳ Interest reserve",amt:heldOf(p)})),
+    ...props.filter(p=>String(p.bsBankAccount||"")===String(id)).map(p=>({p,kind:(p.dmFinType||"draws")==="upfront"?"💼 Funds left (loan − actuals)":(p.bsCalcMode||"reserve")==="equity"?"Personal equity":"⏳ Interest reserve",amt:heldOf(p)})),
     ...props.filter(p=>String(p.dmConstrBank||"")===String(id)&&p.dmConstrBank!=="loc"&&constrOf(p)>0).map(p=>({p,kind:"🔨 Construction",amt:constrOf(p)})),
   ];
   const expectedOf=(b)=>itemsOf(b.id).reduce((t,x)=>t+x.amt,0)+(b.adjustments||[]).reduce((t,a)=>t+(Number(a.amount)||0),0);
@@ -12437,7 +12437,7 @@ function FinDocCreator({sharedProps,isMobile}){
   );
 }
 
-function dmPotMath(p,accounts){
+function dmPotMath(p,accounts,spend){
   const bal=(id)=>{const a=(accounts||[]).find(x=>String(x.id)===String(id));return a?Math.abs(Number(a.balance)||0):0;};
   const potIds=(p.qbLocPotIds||[]).map(String),conIds=(p.qbConstrIds||[]).map(String);
   const keys=[...(p.qbLoanAccounts||[]).map(id=>({key:String(id),bal:bal(id)})),...(p.qbLoanCustom||[]).map(l=>({key:"c"+l.id,bal:Math.abs(Number(l.amount)||0)}))];
@@ -12453,9 +12453,16 @@ function dmPotMath(p,accounts){
   const constrSpent=bsSum(p.dmConstrSpentTxns)+bsSum(p.dmConstrSpentCustom);
   const draws=Math.abs(bsSum(p.qbDrawTxns))+Math.abs(bsSum(p.dmDrawCustom));
   const upfront=(p.dmFinType||"draws")==="upfront";
-  const fundAuto=upfront&&!!p.dmFundAuto;
-  const inFlow=upfront?(fundAuto?Math.max(0,leftPot-reserve):draws):draws;
-  const constrEff=constrBal+(fundAuto?0:fromPot);
+  if(upfront){
+    // Funded up front: one formula — the loan minus actual spend to date is
+    // what's physically left in the holding account. Nothing else to track.
+    const totalLoans=keys.reduce((t,e)=>t+e.bal,0);
+    const allIn=bsMetrics(p,accounts,spend||{}).allIn;
+    return {reserveLeft:allIn==null?0:Math.max(0,totalLoans-allIn),constrHeld:0,upfront:true};
+  }
+  const fundAuto=false;
+  const inFlow=draws;
+  const constrEff=constrBal+fromPot;
   return {reserveLeft:Math.max(0,reserve-paid),constrHeld:Math.max(0,constrEff+inFlow-constrSpent)};
 }
 const dmHoldbackOf=(p)=>{const raw=p.constrHoldback;const pins=bsSum(p.qbHoldbackTxns);const hasManual=raw!=null&&raw!=="";const hasPins=(p.qbHoldbackTxns||[]).length>0;return (hasPins||hasManual)?pins+(hasManual?Number(raw):0):null;};
@@ -12568,8 +12575,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const constrLeft=constrTotalEff+inFlow-constrSpent;
     const m=bsMetrics(p,accounts,spend);
     const equity=m.allIn==null?null:m.allIn-totalLoans+bsSum(p.qbBsCustom);
+    const leftover=m.allIn==null?null:totalLoans-m.allIn;
     const reserveHolders=entries.filter(e=>jobOf(p,e.key)==="pot").map(e=>e.name.split(":").pop().trim());
-    return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,constrSpent,constrLeft,draws,inFlow,fundAuto,autoFund,constrTotalEff,upfront,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
+    return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,constrSpent,constrLeft,draws,inFlow,fundAuto,autoFund,constrTotalEff,upfront,leftover,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
   };
   const secH={fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8};
   const secAmt={fontSize:13.5,fontWeight:800,color:T.text,textTransform:"none",letterSpacing:0,whiteSpace:"nowrap"};
@@ -12661,6 +12669,18 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 {manualFor==="loan"&&manualForm((nm,amt)=>updateProp(sel.id,"qbLoanCustom",[...(sel.qbLoanCustom||[]),{id:Date.now(),name:nm||"Manual entry",amount:amt}]))}
                 <div style={totRow}><span>Total loans</span><span style={{color:"#B8953F"}}>{money(c.totalLoans)}</span></div>
               </div>
+              {c.upfront?(
+                <div style={sec}>
+                  <div style={secH}><span>Loan vs actuals</span></div>
+                  <div style={rowS}><span style={lS}>Funded up front (total loans)</span><span style={vS}>{money(c.totalLoans)}</span></div>
+                  <div style={rowS}><span style={lS}>Actual spend to date (live from QuickBooks)</span><span style={vS}>{c.allIn==null?"— (link the QB project)":money(c.allIn)}</span></div>
+                  <div style={totRow}><span>Left in the account</span><span style={{color:c.leftover==null?T.textTert:c.leftover>=0?"#15803D":T.red}}>{c.leftover==null?"—":money(c.leftover)}</span></div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginTop:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>Held in bank:</span>{bankSelect(sel,"bsBankAccount")}
+                    <span style={{fontSize:10,color:T.textTert}}>shows in Bank Recon as "💼 Funds left"</span>
+                  </div>
+                </div>
+              ):(<>
               <div style={{...sec,padding:"8px 0"}}>
                 <div style={secH} title="The accounts tagged ✓ LOC POT above — your borrowed pot for down payment + interest reserve."><span>LOC pot</span><span style={secAmt}>{money(c.potBal)}</span></div>
               </div>
@@ -12823,6 +12843,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                   </div>
                 </>)}
               </div>
+              </>)}
               <div style={{background:T.goldLight+"55",border:`1px solid ${T.gold}`,borderRadius:12,padding:"10px 14px",marginTop:11}}>
                 <div style={secH}><span>Bottom line</span></div>
                 <div style={rowS}><span style={lS}>All-in cost (live from QuickBooks)</span><span style={vS}>{c.allIn==null?"— (link the QB project)":money(c.allIn)}</span></div>
@@ -12853,7 +12874,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 <button onClick={()=>setSelId(p.id)} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:8,padding:"11px 14px",background:active?T.goldLight:"transparent",border:"none",borderBottom:`1px solid ${T.border}`,borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent",cursor:"pointer",fontFamily:"inherit"}}>
                   <span style={{flex:1,minWidth:0}}>
                     <span style={{display:"block",fontSize:13,fontWeight:active?800:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</span>
-                    <span style={{display:"block",fontSize:10.5,color:T.textSub,marginTop:2}}>reserve {money(c.left)} · loans {money(c.totalLoans)}</span>
+                    <span style={{display:"block",fontSize:10.5,color:T.textSub,marginTop:2}}>{c.upfront?`left ${money(c.leftover==null?0:c.leftover)}`:`reserve ${money(c.left)}`} · loans {money(c.totalLoans)}</span>
                   </span>
                   <span style={{flexShrink:0,fontSize:12,fontWeight:800,color:c.equity==null?T.textTert:c.equity>=0?"#15803D":T.red}}>{c.equity==null?"—":money(c.equity)}</span>
                 </button>

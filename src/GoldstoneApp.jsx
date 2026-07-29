@@ -12479,6 +12479,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   // New: qbConstrIds (accounts tagged 🔨 construction), dmReserveMode
   // ("all" | "custom") + dmReserveAmt for the left-in-the-pot choice.
   const[selId,setSelId]=useState(initialSelId);
+  const[listQ,setListQ]=useState(""); // property search in the left list
   const {bankAccounts}=useData()||{};
   const[pickLoan,setPickLoan]=useState(false);
   const[q,setQ]=useState("");
@@ -13090,17 +13091,17 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           <div style={{padding:"13px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
             <div style={{fontWeight:800,fontSize:15,color:T.text}}>Property Balance Sheet</div>
             <div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>Live from QuickBooks — tap a deal</div>
+            <input value={listQ} onChange={e=>setListQ(e.target.value)} placeholder="🔍 Search properties…" style={{width:"100%",marginTop:9,padding:"7px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
           </div>
           <div style={{flex:1,overflowY:"auto"}}>
-            {(()=>{let last=null;return bsProps.map(p=>{
+            {(()=>{let last=null;const term=listQ.trim().toLowerCase();return bsProps.filter(p=>!term||String(p.address||"").toLowerCase().includes(term)).map(p=>{
               const c=calc(p);const active=selP&&selP.id===p.id;
               const hdr=p.status!==last?p.status:null;last=p.status;
               return(<Fragment key={p.id}>
                 {hdr&&<div style={{padding:"9px 14px 5px",fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",background:T.bg}}>{hdr}</div>}
-                <button onClick={()=>setSelId(p.id)} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:8,padding:"11px 14px",background:active?T.goldLight:"transparent",border:"none",borderBottom:`1px solid ${T.border}`,borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent",cursor:"pointer",fontFamily:"inherit"}}>
+                <button onClick={()=>setSelId(p.id)} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:8,padding:"12px 14px",background:active?T.goldLight:"transparent",border:"none",borderBottom:`1px solid ${T.border}`,borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent",cursor:"pointer",fontFamily:"inherit"}}>
                   <span style={{flex:1,minWidth:0}}>
                     <span style={{display:"block",fontSize:13,fontWeight:active?800:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</span>
-                    <span style={{display:"block",fontSize:10.5,color:T.textSub,marginTop:2}}>all-in {c.allIn==null?"—":money(c.allIn)} · loans {money(c.totalLoans)} · equity {c.equity==null?"—":money(c.equity)}</span>
                   </span>
                   <span style={{flexShrink:0,textAlign:"right"}}>
                     <span style={{display:"block",fontSize:8.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>{c.upfront?"Funds left":"Int. reserve"}</span>

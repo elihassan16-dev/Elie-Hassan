@@ -11387,7 +11387,7 @@ function QbBucketTxnsModal({label,txns,allTxns,loading,onClose}){
   const total=list.reduce((s,t)=>s+t.amount,0);
   const inS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:260,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:482,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 10px"}}>
           <div style={{minWidth:0}}><div style={{fontWeight:700,fontSize:17,color:T.text}}>{term?`Paid to “${q.trim()}”`:label}</div><div style={{fontSize:12,color:T.textTert}}>{loading?"loading…":`${list.length} transaction${list.length!==1?"s":""}${term?" · across all sections":""}`}</div></div>
@@ -11437,7 +11437,7 @@ function QbAllInBreakdownModal({pnl,total,projectId,onClose}){
   },[projectId]);
   const bucketTx=(k)=>(txns||[]).filter(t=>qbBucket(t.account)===k);
   return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:480,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 10px"}}>
           <div><div style={{fontWeight:700,fontSize:17,color:T.text}}>All-in cost breakdown</div><div style={{fontSize:12,color:T.textTert}}>Tap a line to see its transactions</div></div>
@@ -12928,6 +12928,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   );};
   const[setupOpen,setSetupOpen]=useState(false);
   const[detailPop,setDetailPop]=useState(null); // "reserve" | "constr" | "equity"
+  const[allInBreak,setAllInBreak]=useState(false); // all-in cost breakdown over the equity popup
   const bankName=(id)=>{const b=(bankAccounts||[]).find(x=>String(x.id)===String(id));return b?b.name:null;};
   const fmtDay=(d)=>{try{return new Date(d+"T12:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return d||"";}};
   // ── Option 1 face: read-only balance cards + activity feed; edits live in ⚙ ──
@@ -12941,11 +12942,6 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const openTag=<span style={{fontSize:11,color:"#B8953F",fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>details ›</span>;
     const resPct=c.reserve>0?Math.round(100*Math.max(0,c.left)/c.reserve):0;
     const holder=bankName(sel.bsBankAccount);
-    // Reserve runway — same math as the popup: the rate on the full loan;
-    // actual payment pace only as a fallback when no rate is set.
-    const payMonths=new Set((sel.qbDebtTxns||[]).map(t=>String(t.date||"").slice(0,7)).filter(Boolean)).size;
-    const monthlyPace=c.monthlyInt>0?c.monthlyInt:(payMonths>0?c.paid/payMonths:0);
-    const monthsLeft=monthlyPace>0?Math.max(0,c.left)/monthlyPace:null;
     const feed=[
       ...(sel.qbDebtTxns||[]).map(t=>({t,kind:"reserve",sign:-1})),
       ...(sel.dmConstrSpentTxns||[]).map(t=>({t,kind:"rehab",sign:-1})),
@@ -12973,14 +12969,12 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               <div style={hdS}><span style={lbS}>💼 FUNDS LEFT</span>{openTag}</div>
               <div style={vS2(c.leftover==null?T.textTert:c.leftover>=0?"#0F9D58":T.red)}>{c.leftover==null?"—":money(c.leftover)}</div>
               {gauge([{w:c.totalLoans>0?100*Math.max(0,c.leftover||0)/c.totalLoans:0,c:"#0F9D58"}])}
-              <div style={dS}>loan {money(c.totalLoans)} − actuals {c.allIn==null?"—":money(c.allIn)}</div>
             </button>
           ):(
             <button onClick={()=>setDetailPop("reserve")} style={cardS}>
               <div style={hdS}><span style={lbS}>⏳ INTEREST RESERVE</span>{openTag}</div>
               <div style={vS2(c.left>=0?"#0F9D58":T.red)}>{money(c.left)}</div>
               {gauge([{w:resPct,c:"#0F9D58"}])}
-              <div style={dS}>set aside {money(c.reserve)} · paid {money(c.paid)}<br/>{monthsLeft!=null?(c.left>0?`≈ ${monthsLeft.toFixed(1)} months at ${money(Math.round(monthlyPace))}/mo`:"reserve used up"):"pace shows after the first payment"}</div>
             </button>
           )}
           {!c.upfront&&(
@@ -12988,14 +12982,13 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               <div style={hdS}><span style={lbS}>🔨 CONSTRUCTION EQUITY</span>{openTag}</div>
               <div style={vS2(c.constrEquity>=0?"#B8953F":T.red)}>{money(c.constrEquity)}</div>
               {gauge([{w:(c.constrTotalEff+c.inFlow)>0?100*Math.max(0,c.spentReal)/(c.constrTotalEff+c.inFlow):0,c:"#C9A227"},{w:(c.constrTotalEff+c.inFlow)>0?100*Math.max(0,c.constrEquity)/(c.constrTotalEff+c.inFlow):0,c:"#EAD9A9"}])}
-              <div style={dS}>draws {money(c.constrTotalEff+c.inFlow)} vs spent {money(c.spentReal)}{c.rehabLive!=null?" (live)":""}<br/>holdback {c.hb==null?"—":money(c.hb)} + LOC {money(c.constrTotalEff)} vs budget {money(c.est)}{c.funding==null?"":c.funding>=0?<span style={{color:"#0F9D58"}}> · ✓ covered</span>:<span style={{color:T.red}}> · short {money(-c.funding)}</span>}</div>
+              <div style={{fontSize:11,fontWeight:700,marginTop:7,color:c.funding==null?T.textTert:c.funding>=0?"#0F9D58":T.red}}>{c.funding==null?" ":c.funding>=0?"✓ budget covered":`budget short ${money(-c.funding).slice(1)}`}</div>
             </button>
           )}
-          <button onClick={()=>setDetailPop("equity")} style={cardS}>
+          <button onClick={()=>{setAllInBreak(false);setDetailPop("equity");}} style={cardS}>
             <div style={hdS}><span style={lbS}>🎯 MY EQUITY</span>{openTag}</div>
             <div style={vS2(c.equity==null?T.textTert:c.equity>=0?"#0F9D58":T.red)}>{c.equity==null?"—":money(c.equity)}</div>
             {gauge([{w:c.allIn&&c.totalLoans?Math.min(100,100*c.totalLoans/Math.max(c.allIn,c.totalLoans)):0,c:"#5A6472"}])}
-            <div style={dS}>all-in {c.allIn==null?"—":money(c.allIn)} · loans {money(c.totalLoans)}</div>
           </button>
         </div>
         <div style={{background:"#fff",border:"1px solid #E9E9EE",borderRadius:14,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.03)"}}>
@@ -13105,11 +13098,18 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         </>)}
       </>),goldFoot("Your construction equity — left",money(c.constrEquity),c.constrEquity>=0?"#0F9D58":T.red));
     }
-    if(detailPop==="equity")return shell("🎯 My equity — details",(<>
-      <div style={pr}><span style={{color:T.textSub}}>All-in cost (live from QuickBooks)</span><b>{c.allIn==null?"—":money(c.allIn)}</b></div>
+    if(detailPop==="equity"){
+      const pnl=sel.qbProjectId&&spend&&spend[sel.qbProjectId]&&spend[sel.qbProjectId].pnl;
+      return(<>
+      {shell("🎯 My equity — details",(<>
+      <div onClick={()=>{if(pnl)setAllInBreak(true);}} style={{...pr,cursor:pnl?"pointer":"default"}}><span style={{color:T.textSub}}>All-in cost (live from QuickBooks)</span><b style={{color:pnl?T.blue:T.text}}>{c.allIn==null?"—":money(c.allIn)}{pnl?" ›":""}</b></div>
+      {pnl&&<div style={{padding:"0 18px 6px",fontSize:10.5,color:T.textTert}}>tap the all-in cost for the full breakdown — purchase, rehab, holding… and every transaction</div>}
       <div style={pr}><span style={{color:T.textSub}}>− Total loans</span><b>{money(c.totalLoans)}</b></div>
       {bsSum(sel.qbBsCustom)!==0&&<div style={pr}><span style={{color:T.textSub}}>± Adjustments</span><b>{money(bsSum(sel.qbBsCustom))}</b></div>}
-    </>),goldFoot("True personal equity",c.equity==null?"—":money(c.equity),c.equity==null?T.textTert:c.equity>=0?"#0F9D58":T.red));
+    </>),goldFoot("True personal equity",c.equity==null?"—":money(c.equity),c.equity==null?T.textTert:c.equity>=0?"#0F9D58":T.red))}
+      {allInBreak&&pnl&&<QbAllInBreakdownModal pnl={pnl} total={c.allIn} projectId={sel.qbProjectId} onClose={()=>setAllInBreak(false)}/>}
+      </>);
+    }
     return null;
   };
   const setupSheet=(sel)=>setupOpen&&sel&&(

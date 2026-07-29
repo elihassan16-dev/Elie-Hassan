@@ -12641,7 +12641,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     updateProp(p.id,"qbLocPotIds",(p.qbLocPotIds||[]).map(String).filter(x=>x!==e.key));
     updateProp(p.id,"qbConstrIds",(p.qbConstrIds||[]).map(String).filter(x=>x!==e.key));
   };
-  const renderDetail=(sel)=>{const c=calc(sel);return(
+  const renderSetup=(sel)=>{const c=calc(sel);return(
             <div style={{padding:"4px 18px 14px",display:"flex",flexDirection:"column"}}>
               {accounts==null&&<div style={{margin:"10px 0 0",fontSize:12,color:"#8a6d1f",background:T.goldLight+"66",border:`1px solid ${T.gold}`,borderRadius:10,padding:"8px 12px"}}>⏳ Loading your QuickBooks balances — figures fill in as soon as they arrive.</div>}
               <div style={{display:"flex",gap:6,alignItems:"center",padding:"12px 0 2px",flexWrap:"wrap"}}>
@@ -12879,6 +12879,153 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               </div>
             </div>
   );};
+  const[setupOpen,setSetupOpen]=useState(false);
+  const[detailPop,setDetailPop]=useState(null); // "reserve" | "constr" | "equity"
+  const bankName=(id)=>{const b=(bankAccounts||[]).find(x=>String(x.id)===String(id));return b?b.name:null;};
+  const fmtDay=(d)=>{try{return new Date(d+"T12:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return d||"";}};
+  // ── Option 1 face: read-only balance cards + activity feed; edits live in ⚙ ──
+  const renderDetail=(sel)=>{const c=calc(sel);
+    const gauge=(parts)=>(<div style={{height:6,borderRadius:3,background:"#ECECEF",overflow:"hidden",display:"flex",marginTop:8}}>{parts.map((x,i)=><span key={i} style={{display:"block",height:"100%",width:`${Math.max(0,Math.min(100,x.w))}%`,background:x.c}}/>)}</div>);
+    const cardS={background:"#fff",border:`1px solid ${T.border}`,borderRadius:14,padding:"14px 16px",position:"relative",textAlign:"left",cursor:"pointer",fontFamily:"inherit"};
+    const lbS={fontSize:10.5,fontWeight:800,color:T.textTert,letterSpacing:"0.04em"};
+    const vS2=(col)=>({fontSize:24,fontWeight:800,margin:"6px 0 0",letterSpacing:"-0.5px",color:col});
+    const dS={fontSize:11,color:T.textSub,marginTop:7,lineHeight:1.5};
+    const openTag=<span style={{position:"absolute",top:12,right:14,fontSize:10.5,color:T.gold,fontWeight:800}}>details ›</span>;
+    const resPct=c.reserve>0?Math.round(100*Math.max(0,c.left)/c.reserve):0;
+    const holder=bankName(sel.bsBankAccount);
+    const feed=[
+      ...(sel.qbDebtTxns||[]).map(t=>({t,kind:"reserve",sign:-1})),
+      ...(sel.dmConstrSpentTxns||[]).map(t=>({t,kind:"rehab",sign:-1})),
+      ...(sel.qbDrawTxns||[]).map(t=>({t,kind:"draw",sign:1})),
+    ].sort((a,b)=>String(b.t.date||"").localeCompare(String(a.t.date||""))).slice(0,10);
+    const tagC={reserve:{bg:"#FDE9C8",fg:"#B45309",label:"reserve"},rehab:{bg:"#FFEDD5",fg:"#C2410C",label:"rehab"},draw:{bg:"#EDFBF1",fg:"#0F9D58",label:"draw"}};
+    const exclFeed=(x)=>{
+      if(!canEdit)return;
+      if(x.kind==="draw"){updateProp(sel.id,"qbDrawTxns",(sel.qbDrawTxns||[]).filter(y=>txKey(y)!==txKey(x.t)));return;}
+      if(x.kind==="rehab"){if(sel.dmRehabAuto)updateProp(sel.id,"dmRehabExcluded",[...(sel.dmRehabExcluded||[]),txKey(x.t)]);else updateProp(sel.id,"dmConstrSpentTxns",(sel.dmConstrSpentTxns||[]).filter(y=>txKey(y)!==txKey(x.t)));return;}
+      if(sel.qbDebtAuto)updateProp(sel.id,"qbDebtExcluded",[...(sel.qbDebtExcluded||[]),txKey(x.t)]);else updateProp(sel.id,"qbDebtTxns",(sel.qbDebtTxns||[]).filter(y=>txKey(y)!==txKey(x.t)));
+    };
+    return(
+      <div style={{padding:"14px 16px 18px",display:"flex",flexDirection:"column",gap:12}}>
+        {accounts==null&&<div style={{fontSize:12,color:"#8a6d1f",background:T.goldLight+"66",border:`1px solid ${T.gold}`,borderRadius:10,padding:"8px 12px"}}>⏳ Loading your QuickBooks balances…</div>}
+        <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+          <div style={{flex:1,minWidth:0,fontSize:11.5,color:T.textSub,lineHeight:1.5}}>
+            {c.upfront?"💼 Funded up front (full LOC)":"🏦 Draws as you build"} · loans {money(c.totalLoans)}{!c.upfront&&c.potBal>0?` · pot ${money(c.potBal)}`:""}{holder?` · held in ${holder}`:""}
+          </div>
+          {canEdit&&<button onClick={()=>setSetupOpen(true)} style={{flexShrink:0,fontSize:12,fontWeight:700,color:T.textSub,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"inherit"}}>⚙ Deal setup</button>}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:10}}>
+          {c.upfront?(
+            <button onClick={()=>setDetailPop("constr")} style={cardS}>{openTag}
+              <div style={lbS}>💼 FUNDS LEFT</div>
+              <div style={vS2(c.leftover==null?T.textTert:c.leftover>=0?"#0F9D58":T.red)}>{c.leftover==null?"—":money(c.leftover)}</div>
+              {gauge([{w:c.totalLoans>0?100*Math.max(0,c.leftover||0)/c.totalLoans:0,c:"#0F9D58"}])}
+              <div style={dS}>loan {money(c.totalLoans)} − actuals {c.allIn==null?"—":money(c.allIn)}</div>
+            </button>
+          ):(
+            <button onClick={()=>setDetailPop("reserve")} style={cardS}>{openTag}
+              <div style={lbS}>⏳ INTEREST RESERVE</div>
+              <div style={vS2(c.left>=0?"#0F9D58":T.red)}>{money(c.left)}</div>
+              {gauge([{w:resPct,c:"#0F9D58"}])}
+              <div style={dS}>set aside {money(c.reserve)} · paid {money(c.paid)}</div>
+            </button>
+          )}
+          {!c.upfront&&(
+            <button onClick={()=>setDetailPop("constr")} style={cardS}>{openTag}
+              <div style={lbS}>🔨 CONSTRUCTION</div>
+              <div style={vS2(c.constrLeft>=0?"#B8953F":T.red)}>{money(c.constrLeft)}</div>
+              {gauge([{w:c.est>0?100*(c.hb||0)/c.est:0,c:"#C9A227"},{w:c.est>0?100*(c.constrTotalEff+c.inFlow-(c.hb||0))/c.est:0,c:"#EAD9A9"}])}
+              <div style={dS}>funding {money((c.hb||0)+c.constrTotalEff+(c.upfront?0:0))} vs budget {money(c.est)}{c.funding==null?"":c.funding>=0?" · ✓ covered":<span style={{color:T.red}}> · short {money(-c.funding)}</span>}</div>
+            </button>
+          )}
+          <button onClick={()=>setDetailPop("equity")} style={cardS}>{openTag}
+            <div style={lbS}>🎯 MY EQUITY</div>
+            <div style={vS2(c.equity==null?T.textTert:c.equity>=0?"#0F9D58":T.red)}>{c.equity==null?"—":money(c.equity)}</div>
+            {gauge([{w:c.allIn&&c.totalLoans?Math.min(100,100*c.totalLoans/Math.max(c.allIn,c.totalLoans)):0,c:"#5A6472"}])}
+            <div style={dS}>all-in {c.allIn==null?"—":money(c.allIn)} · loans {money(c.totalLoans)}</div>
+          </button>
+        </div>
+        <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden"}}>
+          <div style={{padding:"10px 16px",fontSize:11,fontWeight:800,color:T.textSub,borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between"}}><span>ACTIVITY — auto from QuickBooks</span><span style={{color:T.textTert,fontWeight:600}}>{feed.length?"newest first":""}</span></div>
+          {feed.length===0&&<div style={{padding:"18px 16px",fontSize:12,color:T.textTert,textAlign:"center"}}>{c.upfront?"Tracked through the live all-in actuals — no per-payment pins needed.":"No tracked payments yet — turn on Auto in ⚙ Deal setup and they'll appear as they happen."}</div>}
+          {feed.map((x,i)=>{const tg=tagC[x.kind];return(
+            <div key={txKey(x.t)+x.kind} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"9px 16px",borderBottom:i<feed.length-1?`1px solid ${T.border}44`:"none"}}>
+              <div style={{minWidth:0,flex:1}}>
+                <div style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.t.vendor||x.t.memo||(x.kind==="draw"?"Draw received":x.kind==="reserve"?"Mortgage payment":"Payment")}</div>
+                <div style={{fontSize:10.5,color:T.textTert}}>{fmtDay(x.t.date)}{x.t.account?` · ${String(x.t.account).split(":").pop().trim().slice(0,26)}`:""}</div>
+              </div>
+              <span style={{display:"flex",gap:7,alignItems:"center",flexShrink:0}}>
+                <b style={{fontSize:12.5,color:x.sign>0?"#0F9D58":T.red}}>{x.sign>0?"+":"−"}{money(Math.abs(Number(x.t.amount)||0)).slice(1)}</b>
+                <span style={{fontSize:9,fontWeight:800,background:tg.bg,color:tg.fg,borderRadius:8,padding:"2px 7px"}}>{tg.label}</span>
+                {canEdit&&<button onClick={()=>exclFeed(x)} title={x.kind!=="draw"&&((x.kind==="rehab"&&sel.dmRehabAuto)||(x.kind==="reserve"&&sel.qbDebtAuto))?"Exclude — auto will skip it":"Remove"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>⊘</button>}
+              </span>
+            </div>
+          );})}
+        </div>
+      </div>
+    );
+  };
+  // The three detail popups + the setup sheet.
+  const dealPopups=(sel)=>{if(!sel)return null;const c=calc(sel);
+    const pr={display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"8px 18px",borderTop:`1px solid ${T.border}55`,fontSize:12.5};
+    const shell=(title,body,foot)=>(
+      <div onClick={()=>setDetailPop(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:470,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(420px,96vw)",maxHeight:"82vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.22)"}}>
+          <div style={{padding:"14px 18px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><b style={{fontSize:15}}>{title}</b><button onClick={()=>setDetailPop(null)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button></div>
+          <div style={{overflowY:"auto",flex:1}}>{body}</div>
+          {foot}
+        </div>
+      </div>
+    );
+    const goldFoot=(label,val,col)=>(<div style={{padding:"11px 18px",borderTop:`2px solid ${T.gold}`,background:T.goldLight+"44",display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:13.5}}><span style={{color:"#B8953F"}}>{label}</span><span style={{color:col}}>{val}</span></div>);
+    if(detailPop==="reserve")return shell("⏳ Interest reserve — details",(<>
+      <div style={pr}><span style={{color:T.textSub}}>LOC pot (tagged accounts)</span><b>{money(c.potBal)}</b></div>
+      <div style={pr}><span style={{color:T.textSub}}>− Down payment & deposits</span><b>{money(c.deployed)}</b></div>
+      {c.constrFromPot>0&&<div style={pr}><span style={{color:T.textSub}}>− Kept for construction</span><b>{money(c.constrFromPot)}</b></div>}
+      <div style={pr}><span style={{color:T.textSub}}>= Set aside for interest</span><b>{money(c.reserve)}</b></div>
+      <div style={{padding:"10px 18px 4px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>PAYMENTS MADE{sel.qbDebtAuto?" — AUTO-PINNED":""}</div>
+      {(sel.qbDebtTxns||[]).map(t=>(<div key={txKey(t)} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"payment"}</span><b>{money(Math.abs(Number(t.amount)||0))}{canEdit&&<button onClick={()=>sel.qbDebtAuto?updateProp(sel.id,"qbDebtExcluded",[...(sel.qbDebtExcluded||[]),txKey(t)]):updateProp(sel.id,"qbDebtTxns",(sel.qbDebtTxns||[]).filter(x=>txKey(x)!==txKey(t)))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button>}</b></div>))}
+      {(sel.qbDebtTxns||[]).length===0&&<div style={{padding:"6px 18px 12px",fontSize:11.5,color:T.textTert}}>None yet.</div>}
+    </>),goldFoot(`Left${bankName(sel.bsBankAccount)?` · ${bankName(sel.bsBankAccount)}`:""}`,money(c.left),c.left>=0?"#0F9D58":T.red));
+    if(detailPop==="constr"){
+      if(c.upfront)return shell("💼 Funds left — details",(<>
+        <div style={pr}><span style={{color:T.textSub}}>Loan funded up front</span><b>{money(c.totalLoans)}</b></div>
+        <div style={pr}><span style={{color:T.textSub}}>− Actual spend to date (live)</span><b>{c.allIn==null?"—":money(c.allIn)}</b></div>
+        <div style={{padding:"8px 18px 12px",fontSize:11,color:T.textTert,lineHeight:1.5}}>Every dollar the project spends comes out of the up-front funding automatically — no pinning needed.</div>
+      </>),goldFoot(`Left${bankName(sel.bsBankAccount)?` · ${bankName(sel.bsBankAccount)}`:""}`,c.leftover==null?"—":money(c.leftover),(c.leftover||0)>=0?"#0F9D58":T.red));
+      return shell("🔨 Construction — details",(<>
+        <div style={pr}><span style={{color:T.textSub}}>Bank holdback (from the lender)</span><b>{c.hb==null?"—":money(c.hb)}</b></div>
+        {c.constrBal>0&&<div style={pr}><span style={{color:T.textSub}}>+ Your accounts tagged 🔨</span><b>{money(c.constrBal)}</b></div>}
+        {c.constrFromPot>0&&<div style={pr}><span style={{color:T.textSub}}>+ Kept from your pot</span><b>{money(c.constrFromPot)}</b></div>}
+        <div style={pr}><span style={{color:T.textSub}}>+ Draws received</span><b>{money(c.draws)}</b></div>
+        <div style={pr}><span style={{color:T.textSub}}>− Rehab budget</span><b>{money(c.est)}</b></div>
+        <div style={pr}><span style={{color:T.textSub,fontWeight:700}}>{c.funding==null?"—":c.funding>=0?"✓ Covered":"Still short"}</span><b style={{color:c.funding==null?T.textTert:c.funding>=0?"#0F9D58":T.red}}>{c.funding==null?"—":money(c.funding)}</b></div>
+        <div style={{padding:"10px 18px 4px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>REHAB PAID OUT{sel.dmRehabAuto?" — AUTO-PINNED":""}</div>
+        {(sel.dmConstrSpentTxns||[]).map(t=>(<div key={txKey(t)} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"payment"}</span><b>{money(Math.abs(Number(t.amount)||0))}{canEdit&&<button onClick={()=>sel.dmRehabAuto?updateProp(sel.id,"dmRehabExcluded",[...(sel.dmRehabExcluded||[]),txKey(t)]):updateProp(sel.id,"dmConstrSpentTxns",(sel.dmConstrSpentTxns||[]).filter(x=>txKey(x)!==txKey(t)))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button>}</b></div>))}
+        {(sel.dmConstrSpentTxns||[]).length===0&&<div style={{padding:"6px 18px 12px",fontSize:11.5,color:T.textTert}}>None yet.</div>}
+      </>),goldFoot("Position — what you have left",money(c.constrLeft),c.constrLeft>=0?"#0F9D58":T.red));
+    }
+    if(detailPop==="equity")return shell("🎯 My equity — details",(<>
+      <div style={pr}><span style={{color:T.textSub}}>All-in cost (live from QuickBooks)</span><b>{c.allIn==null?"—":money(c.allIn)}</b></div>
+      <div style={pr}><span style={{color:T.textSub}}>− Total loans</span><b>{money(c.totalLoans)}</b></div>
+      {bsSum(sel.qbBsCustom)!==0&&<div style={pr}><span style={{color:T.textSub}}>± Adjustments</span><b>{money(bsSum(sel.qbBsCustom))}</b></div>}
+    </>),goldFoot("True personal equity",c.equity==null?"—":money(c.equity),c.equity==null?T.textTert:c.equity>=0?"#0F9D58":T.red));
+    return null;
+  };
+  const setupSheet=(sel)=>setupOpen&&sel&&(
+    <div onClick={()=>setSetupOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:465,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(600px,97vw)",maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
+        <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+          <b style={{flex:1,fontSize:15}}>⚙ Deal setup — {sel.address}</b>
+          <button onClick={()=>setSetupOpen(false)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{overflowY:"auto",flex:1,padding:"0 0 6px"}}>{renderSetup(sel)}</div>
+        <div style={{padding:"10px 18px",borderTop:`1px solid ${T.border}`,textAlign:"right",flexShrink:0}}>
+          <button onClick={()=>setSetupOpen(false)} style={{padding:"9px 20px",borderRadius:10,border:"none",background:T.gold,color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
   const pickerTarget=txPick?bsProps.find(p=>p.id===txPick.propId):null;
   const pickerPinned=txPick&&pickerTarget?new Set(((txPick.kind==="float"?pickerTarget.qbFloatTxns:txPick.kind==="cspent"?pickerTarget.dmConstrSpentTxns:(txPick.kind==="draw"||txPick.kind==="fund")?pickerTarget.qbDrawTxns:pickerTarget.qbDebtTxns)||[]).map(txKey)):new Set();
   const txPicker=txPick&&pickerTarget&&<QbTxnsPickerModal txns={pickTxns} loading={pickTxns===null} pinnedKeys={pickerPinned} onToggle={t=>toggleTxn(pickerTarget,t)} onClose={()=>setTxPick(null)}/>;
@@ -12924,6 +13071,8 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           </div>
         )}
         {txPicker}
+        {selP&&dealPopups(selP)}
+        {selP&&setupSheet(selP)}
       </div>
     );
   }
@@ -12960,6 +13109,8 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         </div>
       </div>
       {txPicker}
+      {sel&&dealPopups(sel)}
+      {sel&&setupSheet(sel)}
     </div>
   );
 }

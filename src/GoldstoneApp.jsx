@@ -12451,7 +12451,8 @@ function dmPotMath(p,accounts){
   const fromPot=(mode==="custom"&&p.dmRestToConstr)?Math.max(0,leftPot-reserve):0;
   const paid=Math.abs(bsSum(p.qbDebtTxns))+Math.abs(bsSum(p.qbDebtCustom));
   const constrSpent=Math.abs(bsSum(p.dmConstrSpentTxns))+Math.abs(bsSum(p.dmConstrSpentCustom));
-  return {reserveLeft:Math.max(0,reserve-paid),constrHeld:Math.max(0,constrBal+fromPot-constrSpent)};
+  const draws=Math.abs(bsSum(p.qbDrawTxns))+Math.abs(bsSum(p.dmDrawCustom));
+  return {reserveLeft:Math.max(0,reserve-paid),constrHeld:Math.max(0,constrBal+fromPot+draws-constrSpent)};
 }
 const dmHoldbackOf=(p)=>{const raw=p.constrHoldback;const pins=bsSum(p.qbHoldbackTxns);const hasManual=raw!=null&&raw!=="";const hasPins=(p.qbHoldbackTxns||[]).length>0;return (hasPins||hasManual)?pins+(hasManual?Number(raw):0):null;};
 // ─── Deal Money — per-property financing picture (PREVIEW) ────────────────────
@@ -12481,11 +12482,11 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const selForAuto=selId!=null?bsProps.find(p=>p.id===selId):null;
   useEffect(()=>{
     const p=selForAuto;
-    if(!p||!p.qbDebtAuto||!p.qbProjectId){setAutoTxns(null);return;}
+    if(!p||(!p.qbDebtAuto&&!p.dmRehabAuto)||!p.qbProjectId){setAutoTxns(null);return;}
     let alive=true;setAutoTxns(null);
     qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(p.qbProjectId)}`).then(d=>{if(alive)setAutoTxns(d.items||[]);}).catch(()=>{if(alive)setAutoTxns([]);});
     return ()=>{alive=false;};
-  },[selId,selForAuto&&selForAuto.qbDebtAuto]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[selId,selForAuto&&selForAuto.qbDebtAuto,selForAuto&&selForAuto.dmRehabAuto]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
     const p=selForAuto;
     if(!p||!p.qbDebtAuto||!Array.isArray(autoTxns))return;
@@ -12502,6 +12503,16 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(txPick.src)}`).then(d=>{if(alive)setPickTxns(d.items||[]);}).catch(()=>{if(alive)setPickTxns([]);});
     return ()=>{alive=false;};
   },[txPick]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{
+    const p=selForAuto;
+    if(!p||!p.dmRehabAuto||!Array.isArray(autoTxns))return;
+    const ex=new Set(p.dmRehabExcluded||[]);
+    const auto=autoTxns.filter(t=>qbBucket(t.account)==="rehab"&&!ex.has(txKey(t))).map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
+    const cur=p.dmConstrSpentTxns||[];
+    const ck=new Set(cur.map(txKey)),nk=new Set(auto.map(txKey));
+    const same=ck.size===nk.size&&[...nk].every(k=>ck.has(k));
+    if(!same)updateProp(p.id,"dmConstrSpentTxns",auto);
+  },[autoTxns,selForAuto&&selForAuto.dmRehabExcluded,selForAuto&&selForAuto.dmRehabAuto]); // eslint-disable-line react-hooks/exhaustive-deps
   const money=(v)=>v==null?"—":`$${Math.round(v).toLocaleString()}`;
   const nn=(v)=>{const x=parseFloat(String(v??"").replace(/[^0-9.\-]/g,""));return isNaN(x)?0:x;};
   const sumT=(arr)=>Math.abs(bsSum(arr));
@@ -12537,12 +12548,13 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const est=n((p.financials||{}).rehabCosts)||n((p.financials||{}).actualRehabCosts)||0;
     const constrTotal=constrBal+constrFromPot;
     const constrSpent=sumT(p.dmConstrSpentTxns)+sumT(p.dmConstrSpentCustom);
-    const constrLeft=constrTotal-constrSpent;
+    const draws=sumT(p.qbDrawTxns)+sumT(p.dmDrawCustom);
+    const constrLeft=constrTotal+draws-constrSpent;
     const funding=(hb==null&&constrTotal===0)?null:(hb||0)+constrTotal-est;
     const m=bsMetrics(p,accounts,spend);
     const equity=m.allIn==null?null:m.allIn-totalLoans+bsSum(p.qbBsCustom);
     const reserveHolders=entries.filter(e=>jobOf(p,e.key)==="pot").map(e=>e.name.split(":").pop().trim());
-    return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,constrSpent,constrLeft,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
+    return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,constrSpent,constrLeft,draws,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
   };
   const secH={fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8};
   const secAmt={fontSize:13.5,fontWeight:800,color:T.text,textTransform:"none",letterSpacing:0,whiteSpace:"nowrap"};
@@ -12707,20 +12719,39 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 {c.constrBal>0&&<div style={rowS}><span style={lS}>+ Borrowed for construction (tagged 🔨)</span><span style={vS}>{money(c.constrBal)}</span></div>}
                 {c.constrFromPot>0&&<div style={rowS}><span style={lS}>+ From the pot (rest after reserve)</span><span style={vS}>{money(c.constrFromPot)}</span></div>}
                 <div style={rowS}><span style={lS}>Rehab budget</span><span style={vS}>{money(c.est)}</span></div>
-                {c.constrTotal>0&&(<>
-                  <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap",alignItems:"center"}}>
-                    <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>Spent from your construction money:</span>
-                    {((sel.dmConstrSpentTxns||[]).length>0||(sel.dmConstrSpentCustom||[]).length>0)&&<span style={chip(true)}>✓ {(sel.dmConstrSpentTxns||[]).length+(sel.dmConstrSpentCustom||[]).length} pinned · {money(c.constrSpent)}</span>}
-                    {canEdit&&(sel.qbProjectId
-                      ?<button onClick={()=>setTxPick({propId:sel.id,kind:"cspent",src:sel.qbProjectId})} style={chip(false)}>📌 Pin transactions</button>
-                      :<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin</span>)}
-                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="cspent"?null:"cspent");}} style={chip(false)}>＋ Manual entry</button>}
+                {(c.constrTotal>0||c.draws>0||c.constrSpent>0)&&(<>
+                  <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"8px 12px",marginTop:8}}>
+                    <div style={rowS}><span style={lS}>+ Your construction money (tags & pot)</span><span style={{...vS,color:"#15803D"}}>+{money(c.constrTotal).slice(1)}</span></div>
+                    <div style={rowS}><span style={lS}>+ Draws received from the bank
+                      {canEdit&&<button onClick={()=>{setManualFor(manualFor==="draw"?null:"draw");}} style={chip(false)}>＋ Manual</button>}
+                      <span style={{fontSize:10,color:T.textTert}}>pins live in the Draw Report</span></span>
+                      <span style={{...vS,color:"#15803D"}}>+{money(c.draws).slice(1)}</span></div>
+                    {(sel.dmDrawCustom||[]).map(l=>(
+                      <div key={l.id} style={{...rowS,paddingLeft:14}}><span style={lS}>✎ {l.label||"Manual draw"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
+                    ))}
+                    {manualFor==="draw"&&manualForm((nm,amt)=>updateProp(sel.id,"dmDrawCustom",[...(sel.dmDrawCustom||[]),{id:Date.now(),label:nm||"Manual draw",amount:amt}]))}
+                    <div style={rowS}><span style={lS}>− Rehab paid out
+                      {canEdit&&sel.qbProjectId&&<button onClick={()=>updateProp(sel.id,"dmRehabAuto",!sel.dmRehabAuto)} style={chip(!!sel.dmRehabAuto)}>{sel.dmRehabAuto?"✓ Auto":"Auto?"}</button>}
+                      {canEdit&&(sel.qbProjectId
+                        ?<button onClick={()=>setTxPick({propId:sel.id,kind:"cspent",src:sel.qbProjectId})} style={chip(false)}>📌 Pin</button>
+                        :<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin</span>)}
+                      {canEdit&&<button onClick={()=>{setManualFor(manualFor==="cspent"?null:"cspent");}} style={chip(false)}>＋ Manual</button>}</span>
+                      <span style={{...vS,color:T.red}}>−{money(c.constrSpent).slice(1)}</span></div>
+                    {sel.dmRehabAuto&&(sel.dmConstrSpentTxns||[]).slice(-4).map(t=>(
+                      <div key={txKey(t)} style={{...rowS,paddingLeft:14}}>
+                        <span style={lS}>📌 {t.date||""} · {t.vendor||t.memo||"rehab"}</span>
+                        <span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(t.amount)||0))}</span>
+                        {canEdit&&<button onClick={()=>updateProp(sel.id,"dmRehabExcluded",[...(sel.dmRehabExcluded||[]),txKey(t)])} title="Exclude — auto will skip it" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>⊘</button>}</span>
+                      </div>
+                    ))}
+                    {sel.dmRehabAuto&&(sel.dmConstrSpentTxns||[]).length>4&&<div style={{fontSize:10,color:T.textTert,paddingLeft:14}}>…and {(sel.dmConstrSpentTxns||[]).length-4} more auto-pinned</div>}
+                    {sel.dmRehabAuto&&(sel.dmRehabExcluded||[]).length>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:2}}>⊘ {(sel.dmRehabExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"dmRehabExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>}
+                    {(sel.dmConstrSpentCustom||[]).map(l=>(
+                      <div key={l.id} style={{...rowS,paddingLeft:14}}><span style={lS}>✎ {l.label||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmConstrSpentCustom",(sel.dmConstrSpentCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
+                    ))}
+                    {manualFor==="cspent"&&manualForm((nm,amt)=>updateProp(sel.id,"dmConstrSpentCustom",[...(sel.dmConstrSpentCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
+                    <div style={totRow}><span>Construction position — what you have left</span><span style={{color:c.constrLeft<0?T.red:"#15803D"}}>{money(c.constrLeft)}</span></div>
                   </div>
-                  {(sel.dmConstrSpentCustom||[]).map(l=>(
-                    <div key={l.id} style={rowS}><span style={lS}>✎ {l.label||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmConstrSpentCustom",(sel.dmConstrSpentCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
-                  ))}
-                  {manualFor==="cspent"&&manualForm((nm,amt)=>updateProp(sel.id,"dmConstrSpentCustom",[...(sel.dmConstrSpentCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
-                  <div style={totRow}><span>Construction money left</span><span style={{color:c.constrLeft<0?T.red:"#15803D"}}>{money(c.constrLeft)}</span></div>
                   <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
                     <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>Where it sits:</span>
                     <select value={sel.dmConstrBank||""} disabled={!canEdit} onChange={e=>updateProp(sel.id,"dmConstrBank",e.target.value)} style={{padding:"4px 9px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text,outline:"none",maxWidth:220}}>

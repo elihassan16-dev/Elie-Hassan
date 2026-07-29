@@ -12572,7 +12572,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     if(job==="pot")pot.push(key);if(job==="constr")con.push(key);
     updateProp(p.id,"qbLocPotIds",pot);updateProp(p.id,"qbConstrIds",con);
   };
-  const JOB_NEXT={bank:"pot",pot:"constr",constr:"bank"};
+  const JOB_NEXT={bank:"pot",pot:"bank",constr:"bank"};
   const calc=(p)=>{
     const entries=entriesOf(p);
     const totalLoans=entries.reduce((t,e)=>t+e.bal,0);
@@ -12606,11 +12606,20 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const rehabLive=pnlRows?pnlRows.filter(r=>r.section!=="Income"&&qbBucket(r.name)==="rehab").reduce((t,r)=>t+(Number(r.amount)||0),0):null;
     const spentReal=rehabLive!=null?rehabLive:(n((p.financials||{}).actualRehabCosts)||constrSpent);
     const constrEquity=constrTotalEff+inFlow-spentReal;
+    // Interest math on the FULL loan — undrawn holdback counts too (hard money
+    // charges interest on the committed draw money even before it's taken).
+    const fin2=(p.financials||{});
+    const rate=n(fin2.acHmRate!==undefined&&fin2.acHmRate!==""?fin2.acHmRate:fin2.hmRate)||9;
+    const bankBal=entries.filter(e=>jobOf(p,e.key)==="bank").reduce((t,e)=>t+e.bal,0);
+    const fullLoan=bankBal+Math.max(0,(hb||0)-draws);
+    const monthlyInt=fullLoan>0?fullLoan*(rate/100)/12:0;
+    const holdMonths=n(fin2.holdPeriod)||6;
+    const suggReserve=Math.round(monthlyInt*holdMonths);
     const m=bsMetrics(p,accounts,spend);
     const equity=m.allIn==null?null:m.allIn-totalLoans+bsSum(p.qbBsCustom);
     const leftover=m.allIn==null?null:totalLoans-m.allIn;
     const reserveHolders=entries.filter(e=>jobOf(p,e.key)==="pot").map(e=>e.name.split(":").pop().trim());
-    return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,constrSpent,constrLeft,rehabLive,spentReal,constrEquity,draws,inFlow,fundAuto,autoFund,constrTotalEff,upfront,leftover,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
+    return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,constrSpent,constrLeft,rehabLive,spentReal,constrEquity,rate,bankBal,fullLoan,monthlyInt,holdMonths,suggReserve,draws,inFlow,fundAuto,autoFund,constrTotalEff,upfront,leftover,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
   };
   const secH={fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,background:T.bg,margin:"0 -18px",padding:"7px 18px 6px",borderBottom:`1px solid ${T.border}`};
   const secAmt={fontSize:13.5,fontWeight:800,color:T.text,textTransform:"none",letterSpacing:0,whiteSpace:"nowrap"};
@@ -12622,8 +12631,8 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const jobTag=(p,key)=>{
     const j=jobOf(p,key);
     const st=j==="constr"?{background:"#FFEDD5",color:"#C2410C"}:j==="pot"?{background:"#F3E8FF",color:"#9333EA"}:{background:"#DBEAFE",color:T.blue};
-    const label=j==="constr"?"🔨 CONSTRUCTION":j==="pot"?"✓ LOC POT":"BANK";
-    return <button onClick={canEdit?()=>setJob(bsProps.find(x=>x.id===p.id)||p,key,JOB_NEXT[j]):undefined} title="Tap to change this account's job — bank · LOC pot · construction" style={{...st,fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",border:"none",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{label}</button>;
+    const label=j==="constr"?"🔨 CONSTRUCTION":j==="pot"?"LINE OF CREDIT":"BANK";
+    return <button onClick={canEdit?()=>setJob(bsProps.find(x=>x.id===p.id)||p,key,JOB_NEXT[j]):undefined} title="Tap to switch — BANK ↔ LINE OF CREDIT" style={{...st,fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",border:"none",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{label}</button>;
   };
   const sec={padding:"0 0 7px"};
   const totRow={display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:800,color:T.text,padding:"7px 0 0",marginTop:6,borderTop:`1px dashed ${T.border}`};
@@ -12674,65 +12683,183 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     updateProp(p.id,"qbLocPotIds",(p.qbLocPotIds||[]).map(String).filter(x=>x!==e.key));
     updateProp(p.id,"qbConstrIds",(p.qbConstrIds||[]).map(String).filter(x=>x!==e.key));
   };
-  const renderSetup=(sel)=>{const c=calc(sel);return(
-            <div style={{padding:"4px 18px 14px",display:"flex",flexDirection:"column"}}>
-              {accounts==null&&<div style={{margin:"10px 0 0",fontSize:12,color:"#8a6d1f",background:T.goldLight+"66",border:`1px solid ${T.gold}`,borderRadius:10,padding:"8px 12px"}}>⏳ Loading your QuickBooks balances — figures fill in as soon as they arrive.</div>}
-              <div style={{display:"flex",gap:6,alignItems:"center",padding:"12px 0 2px",flexWrap:"wrap"}}>
-                <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>Financing style:</span>
+  const[setupStep,setSetupStep]=useState(null); // null = the 5-step overview
+  const renderSetup=(sel)=>{const c=calc(sel);
+    const bankEntries=c.entries.filter(e=>!e.custom&&jobOf(sel,e.key)==="bank");
+    const h={fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",padding:"8px 0 4px"};
+    const jobsSub=c.entries.length?c.entries.map(e=>`${e.name.split(":").pop().trim().slice(0,18)} ${money(e.bal)}`).join(" · "):"none yet — tap to add the mortgage + LOCs";
+    const splitSub=(sel.dmReserveMode||"all")==="all"?`everything left → interest reserve (${money(c.reserve)})`:`reserve ${money(c.reserve)}${sel.dmRestToConstr?` · rest → construction (${money(c.restAfterReserve)})`:""}`;
+    const autoSub=c.upfront?(sel.dmFundAuto?"automatic — loan − deployed":"pin the wires in by hand"):`debt service ${sel.qbDebtAuto?"✓":"–"} · rehab ${sel.dmRehabAuto?"✓":"–"} · draws ${sel.dmDrawAuto?"✓":"–"}`;
+    const sitsSub=`${c.upfront?"funds":"reserve"} → ${bankName(sel.bsBankAccount)||"pick a bank"}${c.upfront?"":` · construction → ${sel.dmConstrBank==="loc"?"on the LOC":bankName(sel.dmConstrBank)||"pick"}`}`;
+    const steps=[
+      {k:1,t:"Loan accounts",sub:jobsSub},
+      {k:2,t:"Down payment & deposits",sub:(sel.qbFloatTxns||[]).length||(sel.qbFloatCustom||[]).length?`${money(c.deployed)} deployed`:"nothing pinned yet"},
+      ...(!c.upfront?[{k:3,t:"Split what's left in the pot",sub:splitSub}]:[]),
+      {k:4,t:c.upfront?"Construction money in":"Automation",sub:autoSub},
+      {k:5,t:"Where the money sits",sub:sitsSub},
+    ];
+    const stepRow=(n,st)=>(
+      <button key={st.k} onClick={()=>setSetupStep(st.k)} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:11,padding:"12px 18px",background:"none",border:"none",borderTop:`1px solid ${T.border}55`,cursor:"pointer",fontFamily:"inherit"}}>
+        <span style={{width:22,height:22,borderRadius:"50%",background:"#F3EBD4",color:"#8a6d1f",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{n}</span>
+        <span style={{flex:1,minWidth:0}}>
+          <span style={{display:"block",fontSize:12.5,fontWeight:700,color:T.text}}>{st.t}</span>
+          <span style={{display:"block",fontSize:11,color:T.textTert,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st.sub}</span>
+        </span>
+        <span style={{color:T.gold,fontWeight:800,fontSize:15,flexShrink:0}}>›</span>
+      </button>
+    );
+    const secBox={padding:"2px 18px 14px"};
+    const removeChip=(fn,title)=><button onClick={fn} title={title||"Remove"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>;
+    return(
+            <div style={{display:"flex",flexDirection:"column"}}>
+              {accounts==null&&<div style={{margin:"12px 18px 0",fontSize:12,color:"#8a6d1f",background:T.goldLight+"66",border:`1px solid ${T.gold}`,borderRadius:10,padding:"8px 12px"}}>⏳ Loading your QuickBooks balances — figures fill in as soon as they arrive.</div>}
+              <div style={{display:"flex",gap:6,alignItems:"center",padding:"12px 18px 10px",flexWrap:"wrap"}}>
                 {[["draws","🏦 Draws as you build"],["upfront","💼 Funded up front (full LOC)"]].map(([k,label])=>{const on=(sel.dmFinType||"draws")===k;return(
-                  <button key={k} onClick={canEdit?()=>updateProp(sel.id,"dmFinType",k):undefined} style={{padding:"4px 11px",borderRadius:14,fontSize:11,fontWeight:700,cursor:canEdit?"pointer":"default",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub}}>{label}</button>
+                  <button key={k} onClick={canEdit?()=>updateProp(sel.id,"dmFinType",k):undefined} style={{padding:"5px 12px",borderRadius:14,fontSize:11,fontWeight:800,cursor:canEdit?"pointer":"default",fontFamily:"inherit",border:"none",background:on?T.gold:"#F3F3F5",color:on?"#fff":"#888"}}>{label}</button>
                 );})}
               </div>
-              <div style={sec}>
-                <div style={secH}><span>🏦 Total loans</span>
-                  {canEdit&&<span style={{display:"flex",gap:5}} title="Tap an account's tag to change its job — bank · LOC pot · construction">
-                    <button onClick={()=>{setPickLoan(v=>!v);setManualFor(null);setQ("");}} style={chip(false)}>📌 Pin</button>
-                    <button onClick={()=>{setManualFor(manualFor==="loan"?null:"loan");setPickLoan(false);}} style={chip(false)}>＋ Manual</button>
-                  </span>}
+              {setupStep==null?(<>
+                {steps.map((st,i)=>stepRow(i+1,st))}
+                <div style={{margin:"10px 18px 16px",background:T.goldLight+"55",border:`1px solid ${T.gold}`,borderRadius:12,padding:"9px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12.5}}>
+                  <span style={{fontWeight:700,color:"#8a6d1f"}}>🎯 True personal equity</span>
+                  <b style={{fontSize:14,color:c.equity==null?T.textTert:c.equity>=0?"#15803D":T.red}}>{c.equity==null?"— link the QB project":money(c.equity)}</b>
                 </div>
+              </>):(<>
+              <button onClick={()=>setSetupStep(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",padding:"8px 18px 6px",textAlign:"left"}}>‹ All setup steps</button>
+              {setupStep===1&&(<div style={secBox}>
+                <div style={h}>🏦 Loan accounts — tap a tag: BANK ↔ LINE OF CREDIT</div>
                 {c.entries.map(e=>(
                   <div key={e.key} style={rowS}>
                     <span style={lS}><span style={pinTag}>{e.custom?"✎":"📌"} {e.name}</span>{jobTag(sel,e.key)}</span>
                     <span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(e.bal)}</span>
-                      {canEdit&&<button onClick={()=>removeEntry(sel,e)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}
+                      {canEdit&&removeChip(()=>removeEntry(sel,e))}
                     </span>
                   </div>
                 ))}
+                {canEdit&&<div style={{display:"flex",gap:6,marginTop:7}}>
+                  <button onClick={()=>{setPickLoan(v=>!v);setManualFor(null);setQ("");}} style={chip(false)}>📌 Pin from QuickBooks</button>
+                  <button onClick={()=>{setManualFor(manualFor==="loan"?null:"loan");setPickLoan(false);}} style={chip(false)}>＋ Manual</button>
+                </div>}
                 {pickLoan&&acctPicker(c.entries.filter(e=>!e.custom).map(e=>e.key),a=>{updateProp(sel.id,"qbLoanAccounts",[...(sel.qbLoanAccounts||[]),String(a.id)]);setPickLoan(false);})}
                 {manualFor==="loan"&&manualForm((nm,amt)=>updateProp(sel.id,"qbLoanCustom",[...(sel.qbLoanCustom||[]),{id:Date.now(),name:nm||"Manual entry",amount:amt}]))}
                 <div style={totRow}><span>Total loans</span><span style={{color:"#B8953F"}}>{money(c.totalLoans)}</span></div>
-              </div>
-              {c.upfront?(
-                <div style={sec}>
-                  <div style={secH}><span>💼 Loan vs actuals</span></div>
-                  <div style={rowS}><span style={lS}>Funded up front (total loans)</span><span style={vS}>{money(c.totalLoans)}</span></div>
-                  <div style={rowS}><span style={lS}>Actual spend to date (live from QuickBooks)</span><span style={vS}>{c.allIn==null?"— (link the QB project)":money(c.allIn)}</span></div>
-                  <div style={totRow}><span>Left in the account</span><span style={{color:c.leftover==null?T.textTert:c.leftover>=0?"#15803D":T.red}}>{c.leftover==null?"—":money(c.leftover)}</span></div>
-                  <div style={{display:"flex",gap:8,alignItems:"center",marginTop:8,flexWrap:"wrap"}}>
-                    <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>Held in bank:</span>{bankSelect(sel,"bsBankAccount")}
-                    <span style={{fontSize:10,color:T.textTert}}>shows in Bank Recon as "💼 Funds left"</span>
-                  </div>
+                <div style={{fontSize:10.5,color:T.textTert,marginTop:6,lineHeight:1.5}}>BANK = the lender financing this deal (draws come from here). LINE OF CREDIT = your borrowed pot for down payment, reserve and construction.</div>
+              </div>)}
+              {setupStep===2&&(<div style={secBox}>
+                <div style={h}>🚀 Down payment & deposits — wires out of the pot</div>
+                {(sel.qbFloatTxns||[]).length>0&&<div style={{...rowS,marginTop:2}}><button onClick={()=>setPinsOpen({field:"qbFloatTxns",title:"Deployed — pinned transactions"})} style={chip(true)}>✓ {(sel.qbFloatTxns||[]).length} pinned · {money(bsSum(sel.qbFloatTxns))} ›</button></div>}
+                {(sel.qbFloatCustom||[]).map(l=>(
+                  <div key={l.id} style={rowS}><span style={lS}>✎ {l.label||l.name||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&removeChip(()=>updateProp(sel.id,"qbFloatCustom",(sel.qbFloatCustom||[]).filter(x=>x.id!==l.id)))}</span></div>
+                ))}
+                {canEdit&&<div style={{display:"flex",gap:6,marginTop:7}}>
+                  {sel.qbProjectId?<button onClick={()=>setTxPick({propId:sel.id,kind:"float",src:sel.qbProjectId})} style={chip(false)}>📌 Pin from QuickBooks</button>:<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin</span>}
+                  <button onClick={()=>{setManualFor(manualFor==="float"?null:"float");}} style={chip(false)}>＋ Manual</button>
+                </div>}
+                {manualFor==="float"&&manualForm((nm,amt)=>updateProp(sel.id,"qbFloatCustom",[...(sel.qbFloatCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
+                <div style={totRow}><span>Total deployed</span><span style={{color:"#B8953F"}}>{money(c.deployed)}</span></div>
+              </div>)}
+              {setupStep===3&&!c.upfront&&(<div style={secBox}>
+                <div style={h}>🪙 Split what's left in the pot</div>
+                <div style={{fontSize:12,color:T.textSub,margin:"2px 0 7px"}}>LOC pot {money(c.potBal)} − deployed {money(c.deployed)} = <b style={{color:c.leftPot<0?T.red:T.text}}>{money(c.leftPot)}</b> left</div>
+                <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"5px 10px",fontSize:12}}>
+                  <label style={{display:"flex",gap:8,alignItems:"center",padding:"3px 0",cursor:canEdit?"pointer":"default"}}>
+                    <input type="radio" checked={(sel.dmReserveMode||"all")==="all"} onChange={()=>canEdit&&updateProp(sel.id,"dmReserveMode","all")} style={{accentColor:T.gold}}/>
+                    <b>All of it → interest reserve</b><span style={{fontSize:10.5,color:T.textTert}}>auto — re-checks itself as balances move</span>
+                  </label>
+                  <label style={{display:"flex",gap:8,alignItems:"center",padding:"3px 0",cursor:canEdit?"pointer":"default",flexWrap:"wrap"}}>
+                    <input type="radio" checked={(sel.dmReserveMode||"all")==="custom"} onChange={()=>canEdit&&updateProp(sel.id,"dmReserveMode","custom")} style={{accentColor:T.gold}}/>
+                    A set amount for interest:
+                    <span style={{display:"inline-flex",alignItems:"center",gap:0,border:`1px solid ${T.border}`,borderRadius:8,background:"#fff",padding:"0 0 0 7px"}}>
+                      <span style={{fontSize:12,fontWeight:700,color:T.textSub}}>$</span>
+                      <input value={sel.dmReserveAmt||""} onChange={e=>{updateProp(sel.id,"dmReserveAmt",e.target.value);if((sel.dmReserveMode||"all")!=="custom")updateProp(sel.id,"dmReserveMode","custom");}} placeholder="0" inputMode="decimal" disabled={!canEdit} style={{width:82,padding:"4px 7px 4px 3px",border:"none",fontSize:12,outline:"none",fontFamily:"inherit",textAlign:"right",background:"transparent"}}/>
+                    </span>
+                  </label>
+                  {(sel.dmReserveMode||"all")==="custom"&&c.monthlyInt>0&&(
+                    <div style={{margin:"4px 0 4px 24px",background:"#FBF7EC",border:`1px solid ${T.gold}66`,borderRadius:10,padding:"8px 11px",fontSize:11.5,color:"#6b5c33",lineHeight:1.65}}>
+                      💡 Suggested: <b>{money(c.suggReserve)}</b> — {c.holdMonths} months × {money(Math.round(c.monthlyInt))}/mo at {c.rate}% on the full {money(c.fullLoan)} loan{c.fullLoan>c.bankBal?" (undrawn draw money charged too)":""}. Paid so far {money(c.paid)} → {money(Math.max(0,c.suggReserve-c.paid))} still ahead of you.
+                      {canEdit&&<button onClick={()=>updateProp(sel.id,"dmReserveAmt",String(c.suggReserve))} style={{...chip(false),marginLeft:6}}>Use {money(c.suggReserve)}</button>}
+                    </div>
+                  )}
+                  {(sel.dmReserveMode||"all")==="custom"&&(
+                    <label style={{display:"flex",gap:8,alignItems:"center",padding:"3px 0 3px 24px",cursor:canEdit?"pointer":"default",flexWrap:"wrap"}}>
+                      <input type="checkbox" checked={!!sel.dmRestToConstr} onChange={e=>canEdit&&updateProp(sel.id,"dmRestToConstr",e.target.checked)} style={{accentColor:T.gold,width:15,height:15}}/>
+                      <span>Put the rest toward <b>construction</b> ({money(c.restAfterReserve)})</span>
+                      {!sel.dmRestToConstr&&<span style={{fontSize:10.5,color:T.textTert}}>otherwise it stays unallocated</span>}
+                    </label>
+                  )}
                 </div>
-              ):(<>
-              <div style={{...sec,padding:"8px 0"}}>
-                <div style={secH} title="The accounts tagged ✓ LOC POT above — your borrowed pot for down payment + interest reserve."><span>🪙 LOC pot</span><span style={secAmt}>{money(c.potBal)}</span></div>
-              </div>
-              <div style={sec}>
-                <div style={secH}><span>🚀 Deployed — down payment, deposit</span>
-                  <span style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                    {(sel.qbFloatTxns||[]).length>0&&<button onClick={()=>setPinsOpen({field:"qbFloatTxns",title:"Deployed — pinned transactions"})} title="See every pinned transaction" style={chip(true)}>✓ {(sel.qbFloatTxns||[]).length} · {money(bsSum(sel.qbFloatTxns))} ›</button>}
-                    {canEdit&&sel.qbProjectId&&<button onClick={()=>setTxPick({propId:sel.id,kind:"float",src:sel.qbProjectId})} style={chip(false)}>📌 Pin</button>}
-                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="float"?null:"float");}} style={chip(false)}>＋</button>}
-                  </span>
+              </div>)}
+              {setupStep===4&&(<div style={secBox}>
+                <div style={h}>{c.upfront?"💼 Construction money in":"⚡ Automation — QuickBooks keeps these current"}</div>
+                {c.upfront?(<>
+                  <div style={rowS}><span style={lS}>The wires you got for construction
+                    {canEdit&&<button onClick={()=>updateProp(sel.id,"dmFundAuto",!sel.dmFundAuto)} title="The whole loan hit your account — construction money = loan − deployed − reserve, automatic" style={chip(!!sel.dmFundAuto)}>{sel.dmFundAuto?"✓ Auto: loan − deployed":"Auto: loan − deployed?"}</button>}
+                    {canEdit&&!c.fundAuto&&sel.qbProjectId&&<button onClick={()=>setTxPick({propId:sel.id,kind:"fund",src:sel.qbProjectId})} style={chip(false)}>📌 Pin the money in</button>}
+                    {canEdit&&!c.fundAuto&&<button onClick={()=>{setManualFor(manualFor==="draw"?null:"draw");}} style={chip(false)}>＋ Manual</button>}</span>
+                    <span style={{...vS,color:"#15803D"}}>+{money(c.inFlow).slice(1)}</span></div>
+                  {!c.fundAuto&&(sel.qbDrawTxns||[]).length>0&&<div style={{...rowS,paddingLeft:14}}><button onClick={()=>setPinsOpen({field:"qbDrawTxns",title:"Construction money in — pinned"})} style={chip(true)}>✓ {(sel.qbDrawTxns||[]).length} pinned · {money(Math.abs(bsSum(sel.qbDrawTxns)))} ›</button></div>}
+                  {(sel.dmDrawCustom||[]).map(l=>(
+                    <div key={l.id} style={{...rowS,paddingLeft:14}}><span style={lS}>✎ {l.label||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&removeChip(()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id)))}</span></div>
+                  ))}
+                  {manualFor==="draw"&&manualForm((nm,amt)=>updateProp(sel.id,"dmDrawCustom",[...(sel.dmDrawCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
+                </>):(<>
+                  <div style={rowS}><span style={lS}><b>🧾 Debt service</b> — interest payments
+                    {canEdit&&(sel.qbProjectId?<button onClick={()=>updateProp(sel.id,"qbDebtAuto",!sel.qbDebtAuto)} title="Pins this property's debt service automatically every month" style={chip(!!sel.qbDebtAuto)}>{sel.qbDebtAuto?"✓ Auto":"Auto?"}</button>:<span style={{fontSize:10.5,color:T.textTert}}>link the QB project for auto</span>)}
+                    {canEdit&&!sel.qbDebtAuto&&sel.qbProjectId&&<button onClick={()=>setTxPick({propId:sel.id,kind:"debt",src:sel.qbProjectId})} style={chip(false)}>📌 Pin</button>}
+                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="debt"?null:"debt");}} style={chip(false)}>＋</button>}</span>
+                    <span style={{display:"flex",gap:6,alignItems:"center"}}>
+                      {((sel.qbDebtTxns||[]).length>0||(sel.qbDebtCustom||[]).length>0)&&<button onClick={()=>setPinsOpen({field:"qbDebtTxns",title:"Debt service — payments"})} style={chip(true)}>✓ {money(c.paid)} ›</button>}
+                    </span></div>
+                  {sel.qbDebtAuto&&(sel.qbDebtExcluded||[]).length>0&&<div style={{fontSize:10.5,color:T.textTert,margin:"2px 0 0 14px"}}>⊘ {(sel.qbDebtExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"qbDebtExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>}
+                  {manualFor==="debt"&&manualForm((nm,amt)=>updateProp(sel.id,"qbDebtCustom",[...(sel.qbDebtCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
+                  <div style={rowS}><span style={lS}><b>🔨 Rehab paid out</b>
+                    {canEdit&&(sel.qbProjectId?<button onClick={()=>updateProp(sel.id,"dmRehabAuto",!sel.dmRehabAuto)} style={chip(!!sel.dmRehabAuto)}>{sel.dmRehabAuto?"✓ Auto":"Auto?"}</button>:<span style={{fontSize:10.5,color:T.textTert}}>link the QB project for auto</span>)}
+                    {canEdit&&!sel.dmRehabAuto&&sel.qbProjectId&&<button onClick={()=>setTxPick({propId:sel.id,kind:"cspent",src:sel.qbProjectId})} style={chip(false)}>📌 Pin</button>}
+                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="cspent"?null:"cspent");}} style={chip(false)}>＋</button>}</span>
+                    <span style={{display:"flex",gap:6,alignItems:"center"}}>
+                      {((sel.dmConstrSpentTxns||[]).length>0||(sel.dmConstrSpentCustom||[]).length>0)&&<button onClick={()=>setPinsOpen({field:"dmConstrSpentTxns",title:"Rehab paid out — pinned"})} style={chip(true)}>✓ {money(c.constrSpent)} ›</button>}
+                    </span></div>
+                  {sel.dmRehabAuto&&(sel.dmRehabExcluded||[]).length>0&&<div style={{fontSize:10.5,color:T.textTert,margin:"2px 0 0 14px"}}>⊘ {(sel.dmRehabExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"dmRehabExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>}
+                  {manualFor==="cspent"&&manualForm((nm,amt)=>updateProp(sel.id,"dmConstrSpentCustom",[...(sel.dmConstrSpentCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
+                  <div style={rowS}><span style={lS}><b>🏦 Draws</b> — credits that raise the mortgage
+                    {canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawAuto",!sel.dmDrawAuto)} title="Every credit that raises the mortgage counts as a draw automatically" style={chip(!!sel.dmDrawAuto)}>{sel.dmDrawAuto?"✓ Auto":"Auto?"}</button>}
+                    {canEdit&&!sel.dmDrawAuto&&bankEntries.map(e=>(
+                      <button key={e.key} onClick={()=>setTxPick({propId:sel.id,kind:"draw",src:e.key})} title={`Pin draws from ${e.name}`} style={chip(false)}>📌 Pin{bankEntries.length>1?` (${e.name.split(":").pop().trim().slice(0,12)}…)`:""}</button>
+                    ))}
+                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="draw"?null:"draw");}} style={chip(false)}>＋</button>}</span>
+                    <span style={{display:"flex",gap:6,alignItems:"center"}}>
+                      {((sel.qbDrawTxns||[]).length>0||(sel.dmDrawCustom||[]).length>0)&&<button onClick={()=>setPinsOpen({field:"qbDrawTxns",title:"Draws received — pinned"})} style={chip(true)}>✓ {money(c.draws)} ›</button>}
+                    </span></div>
+                  {sel.dmDrawAuto&&(sel.dmDrawExcluded||[]).length>0&&<div style={{fontSize:10.5,color:T.textTert,margin:"2px 0 0 14px"}}>⊘ {(sel.dmDrawExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"dmDrawExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>}
+                  {manualFor==="draw"&&manualForm((nm,amt)=>updateProp(sel.id,"dmDrawCustom",[...(sel.dmDrawCustom||[]),{id:Date.now(),label:nm||"Manual draw",amount:amt}]))}
+                  <div style={{fontSize:10.5,color:T.textTert,marginTop:8,lineHeight:1.5}}>With ✓ Auto on, QuickBooks keeps each list current by itself — tap ⊘ on any transaction (in the popups or the activity feed) to exclude it.</div>
+                </>)}
+              </div>)}
+              {setupStep===5&&(<div style={secBox}>
+                <div style={h}>🏛 Where the money sits — for Bank Recon</div>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4,flexWrap:"wrap"}}>
+                  <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>{c.upfront?"Funds left held in:":"Interest reserve held in:"}</span>{bankSelect(sel,"bsBankAccount")}
                 </div>
-                {pinsOpen&&(()=>{
+                {!c.upfront&&<div style={{display:"flex",gap:8,alignItems:"center",marginTop:9,flexWrap:"wrap"}}>
+                  <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>Construction money sits:</span>
+                  <select value={sel.dmConstrBank||""} disabled={!canEdit} onChange={e=>updateProp(sel.id,"dmConstrBank",e.target.value)} style={{padding:"4px 9px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text,outline:"none",maxWidth:220}}>
+                    <option value="">— pick where —</option>
+                    <option value="loc">Still on the LOC — not in a bank account</option>
+                    {(bankAccounts||[]).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>}
+                <div style={{fontSize:10.5,color:T.textTert,marginTop:8,lineHeight:1.5}}>Each bank pick becomes its own line item in Bank Recon, so the account's expected balance always shows what belongs to which deal.</div>
+              </div>)}
+              </>)}
+              {pinsOpen&&(()=>{
                   const arr=sel[pinsOpen.field]||[];
-                  const autoField=(pinsOpen.field==="dmConstrSpentTxns"&&sel.dmRehabAuto)?"dmRehabExcluded":(pinsOpen.field==="qbDrawTxns"&&sel.dmDrawAuto)?"dmDrawExcluded":null;
-                  const CUSTOM={qbFloatTxns:"qbFloatCustom",qbDrawTxns:"dmDrawCustom",dmConstrSpentTxns:"dmConstrSpentCustom"}[pinsOpen.field];
+                  const autoField=(pinsOpen.field==="dmConstrSpentTxns"&&sel.dmRehabAuto)?"dmRehabExcluded":(pinsOpen.field==="qbDrawTxns"&&sel.dmDrawAuto)?"dmDrawExcluded":(pinsOpen.field==="qbDebtTxns"&&sel.qbDebtAuto)?"qbDebtExcluded":null;
+                  const CUSTOM={qbFloatTxns:"qbFloatCustom",qbDrawTxns:"dmDrawCustom",dmConstrSpentTxns:"dmConstrSpentCustom",qbDebtTxns:"qbDebtCustom"}[pinsOpen.field];
                   const customs=CUSTOM?(sel[CUSTOM]||[]):[];
                   const popTotal=(pinsOpen.field==="qbDrawTxns"?Math.abs(bsSum(arr)):bsSum(arr))+bsSum(customs);
                   const pinTarget=pinsOpen.field==="qbFloatTxns"?(sel.qbProjectId?{kind:"float",src:sel.qbProjectId}:null)
                     :pinsOpen.field==="dmConstrSpentTxns"?(sel.qbProjectId?{kind:"cspent",src:sel.qbProjectId}:null)
+                    :pinsOpen.field==="qbDebtTxns"?(sel.qbProjectId?{kind:"debt",src:sel.qbProjectId}:null)
                     :(()=>{if(c.upfront)return sel.qbProjectId?{kind:"fund",src:sel.qbProjectId}:null;const b=c.entries.find(e=>!e.custom&&jobOf(sel,e.key)==="bank");return b?{kind:"draw",src:b.key}:null;})();
                   return(
                   <div onClick={()=>setPinsOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:474,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
@@ -12741,7 +12868,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                         <div style={{flex:1,fontSize:16,fontWeight:800,color:T.text}}>{pinsOpen.title}</div>
                         <button onClick={()=>setPinsOpen(null)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
                       </div>
-                      {canEdit&&pinTarget&&<div style={{padding:"0 18px 10px"}}>
+                      {canEdit&&pinTarget&&!autoField&&<div style={{padding:"0 18px 10px"}}>
                         <button onClick={()=>setTxPick({propId:sel.id,...pinTarget})} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:20,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🔍 Pin transactions</button>
                       </div>}
                       <div style={{overflowY:"auto",flex:1}}>
@@ -12777,7 +12904,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                       </div>
                       <div style={{padding:"12px 18px",borderTop:`2px solid ${T.gold}`,background:T.goldLight+"44",display:"flex",alignItems:"center",gap:8}}>
                         <span style={{fontSize:13.5,fontWeight:800,color:"#B8953F"}}>Total</span>
-                        {autoField&&(sel.dmRehabExcluded||[]).length>0&&<span style={{fontSize:10.5,color:T.textTert}}>⊘ {(sel.dmRehabExcluded||[]).length} excluded · <button onClick={()=>updateProp(sel.id,"dmRehabExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring back</button></span>}
+                        {autoField&&(sel[autoField]||[]).length>0&&<span style={{fontSize:10.5,color:T.textTert}}>⊘ {(sel[autoField]||[]).length} excluded · <button onClick={()=>updateProp(sel.id,autoField,[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring back</button></span>}
                         {canEdit&&!autoField&&arr.length>1&&<button onClick={()=>{if(window.confirm(`Unpin all ${arr.length} transactions?`)){updateProp(sel.id,pinsOpen.field,[]);setPinsOpen(null);}}} style={{padding:"4px 11px",borderRadius:10,border:`1px solid ${T.red}66`,background:"#fff",color:T.red,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Clear all</button>}
                         <span style={{flex:1}}/>
                         <span style={{fontSize:15,fontWeight:800,color:T.text}}>{money(popTotal)}</span>
@@ -12785,133 +12912,6 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                     </div>
                   </div>
                 );})()}
-                {(sel.qbFloatCustom||[]).map(l=>(
-                  <div key={l.id} style={rowS}><span style={lS}>✎ {l.label||l.name||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"qbFloatCustom",(sel.qbFloatCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
-                ))}
-                {manualFor==="float"&&manualForm((nm,amt)=>updateProp(sel.id,"qbFloatCustom",[...(sel.qbFloatCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
-                <div style={totRow}><span>Total deployed</span><span style={{color:"#B8953F"}}>{money(c.deployed)}</span></div>
-              </div>
-              <div style={sec}>
-                <div style={secH}><span>🪙 Left in the pot</span><span style={{...secAmt,color:c.leftPot<0?T.red:T.text}}>{money(c.leftPot)}</span></div>
-                <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"5px 10px",marginTop:5,fontSize:12}}>
-                  <label style={{display:"flex",gap:8,alignItems:"center",padding:"3px 0",cursor:canEdit?"pointer":"default"}}>
-                    <input type="radio" checked={(sel.dmReserveMode||"all")==="all"} onChange={()=>canEdit&&updateProp(sel.id,"dmReserveMode","all")} style={{accentColor:T.gold}}/>
-                    <b>All of it → interest reserve</b><span style={{fontSize:10.5,color:T.textTert}}>auto — re-checks itself as balances move</span>
-                  </label>
-                  <label style={{display:"flex",gap:8,alignItems:"center",padding:"3px 0",cursor:canEdit?"pointer":"default",flexWrap:"wrap"}}>
-                    <input type="radio" checked={(sel.dmReserveMode||"all")==="custom"} onChange={()=>canEdit&&updateProp(sel.id,"dmReserveMode","custom")} style={{accentColor:T.gold}}/>
-                    Some and some: reserve
-                    <span style={{display:"inline-flex",alignItems:"center",gap:0,border:`1px solid ${T.border}`,borderRadius:8,background:"#fff",padding:"0 0 0 7px"}}>
-                      <span style={{fontSize:12,fontWeight:700,color:T.textSub}}>$</span>
-                      <input value={sel.dmReserveAmt||""} onChange={e=>{updateProp(sel.id,"dmReserveAmt",e.target.value);if((sel.dmReserveMode||"all")!=="custom")updateProp(sel.id,"dmReserveMode","custom");}} placeholder="0" inputMode="decimal" disabled={!canEdit} style={{width:82,padding:"4px 7px 4px 3px",border:"none",fontSize:12,outline:"none",fontFamily:"inherit",textAlign:"right",background:"transparent"}}/>
-                    </span>
-                  </label>
-                  {(sel.dmReserveMode||"all")==="custom"&&(
-                    <label style={{display:"flex",gap:8,alignItems:"center",padding:"3px 0 3px 24px",cursor:canEdit?"pointer":"default",flexWrap:"wrap"}}>
-                      <input type="checkbox" checked={!!sel.dmRestToConstr} onChange={e=>canEdit&&updateProp(sel.id,"dmRestToConstr",e.target.checked)} style={{accentColor:T.gold,width:15,height:15}}/>
-                      <span>Put the rest toward <b>construction</b> ({money(c.restAfterReserve)})</span>
-                      {!sel.dmRestToConstr&&<span style={{fontSize:10.5,color:T.textTert}}>otherwise it stays unallocated</span>}
-                    </label>
-                  )}
-                </div>
-              </div>
-              <div style={sec}>
-                <div style={secH}><span>🧾 Debt service paid</span>
-                  <span style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                    {canEdit&&sel.qbProjectId&&<button onClick={()=>updateProp(sel.id,"qbDebtAuto",!sel.qbDebtAuto)} title="Pins this property's debt service automatically every month" style={chip(!!sel.qbDebtAuto)}>{sel.qbDebtAuto?"✓ Auto":"Auto?"}</button>}
-                    {canEdit&&sel.qbProjectId&&<button onClick={()=>setTxPick({propId:sel.id,kind:"debt",src:sel.qbProjectId})} style={chip(false)}>📌 Pin</button>}
-                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="debt"?null:"debt");}} style={chip(false)}>＋</button>}
-                  </span>
-                </div>
-                {(sel.qbDebtTxns||[]).map(t=>(
-                  <div key={txKey(t)} style={rowS}>
-                    <span style={lS}>📌 {t.date||""} · {t.vendor||t.memo||t.type||"payment"}</span>
-                    <span style={{display:"flex",gap:6,alignItems:"center"}}>
-                      <span style={vS}>{money(Math.abs(Number(t.amount)||0))}</span>
-                      {canEdit&&(sel.qbDebtAuto
-                        ?<button onClick={()=>updateProp(sel.id,"qbDebtExcluded",[...(sel.qbDebtExcluded||[]),txKey(t)])} title="Exclude — auto will skip this one" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>⊘</button>
-                        :<button onClick={()=>updateProp(sel.id,"qbDebtTxns",(sel.qbDebtTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>)}
-                    </span>
-                  </div>
-                ))}
-                {sel.qbDebtAuto&&(sel.qbDebtExcluded||[]).length>0&&(
-                  <div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>⊘ {(sel.qbDebtExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"qbDebtExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>
-                )}
-                {(sel.qbDebtCustom||[]).map(l=>(
-                  <div key={l.id} style={rowS}><span style={lS}>✎ {l.label||l.name||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"qbDebtCustom",(sel.qbDebtCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
-                ))}
-                {manualFor==="debt"&&manualForm((nm,amt)=>updateProp(sel.id,"qbDebtCustom",[...(sel.qbDebtCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
-                <div style={totRow}><span>Total debt service</span><span style={{color:"#B8953F"}}>{money(c.paid)}</span></div>
-              </div>
-              <div style={sec}>
-                <div style={secH}><span>⏳ Interest reserve left</span><span style={{...secAmt,color:c.left<0?T.red:"#15803D"}}>{money(c.left)}</span></div>
-                <div style={{fontSize:10.5,color:T.textTert,marginTop:3}}>Set aside {money(c.reserve)} − paid {money(c.paid)}</div>
-                <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
-                  <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>Held in bank:</span>{bankSelect(sel,"bsBankAccount")}
-                  <span style={{fontSize:10,color:T.textTert}}>shows as a line item in Bank Recon</span>
-                </div>
-              </div>
-              <div style={sec}>
-                <div style={secH}><span>{c.upfront?"🔨 Construction money":"🔨 Construction vs holdback"}</span><span style={{...secAmt,color:c.funding==null?T.textTert:c.funding>=0?"#15803D":T.red}}>{c.funding==null?"—":c.funding>=0?`✓ covered (+${money(c.funding).slice(1)})`:`${money(c.funding)} still short`}</span></div>
-                {!c.upfront&&<div style={rowS}><span style={lS}>Bank construction holdback (from the lender)</span><span style={vS}>{c.hb==null?"— (set in the Holdback report)":money(c.hb)}</span></div>}
-                {c.constrBal>0&&<div style={rowS}><span style={lS}>+ Your accounts tagged 🔨 construction</span><span style={vS}>{money(c.constrBal)}</span></div>}
-                {c.constrFromPot>0&&<div style={rowS}><span style={lS}>+ From the pot (what's left after the reserve)</span><span style={vS}>{money(c.constrFromPot)}</span></div>}
-                <div style={rowS}><span style={lS}>− Rehab budget (your underwriting)</span><span style={vS}>{money(c.est)}</span></div>
-                <div style={totRow}><span>Covered or short</span><span style={{color:c.funding==null?T.textTert:c.funding>=0?"#15803D":T.red}}>{c.funding==null?"—":c.funding>=0?`✓ covered (+${money(c.funding).slice(1)})`:`${money(c.funding)} short`}</span></div>
-                {(c.constrTotal>0||c.draws>0||c.constrSpent>0||(c.hb||0)>0||c.upfront)&&(<>
-                  <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"8px 12px",marginTop:8}}>
-                    <div style={rowS}><span style={lS}>+ Your construction money (tags & pot)</span><span style={{...vS,color:"#15803D"}}>+{money(c.constrTotalEff).slice(1)}</span></div>
-                    <div style={rowS}><span style={lS}>{c.upfront?"+ Construction money in":"+ Draws received from the bank"}
-                      {canEdit&&c.upfront&&<button onClick={()=>updateProp(sel.id,"dmFundAuto",!sel.dmFundAuto)} title="The whole loan hit your account — construction money = loan − deployed − reserve, automatic" style={chip(!!sel.dmFundAuto)}>{sel.dmFundAuto?"✓ Auto: loan − deployed":"Auto: loan − deployed?"}</button>}
-                      {canEdit&&!c.upfront&&<button onClick={()=>updateProp(sel.id,"dmDrawAuto",!sel.dmDrawAuto)} title="Every credit that raises the mortgage counts as a draw automatically" style={chip(!!sel.dmDrawAuto)}>{sel.dmDrawAuto?"✓ Auto draws":"Auto draws?"}</button>}
-                      {canEdit&&!c.upfront&&!sel.dmDrawAuto&&c.entries.filter(e=>!e.custom&&jobOf(sel,e.key)==="bank").map(e=>(
-                        <button key={e.key} onClick={()=>setTxPick({propId:sel.id,kind:"draw",src:e.key})} title={`Pin draws from ${e.name} — credits that raised the loan`} style={chip(false)}>📌 Pin draws{c.entries.filter(x=>!x.custom&&jobOf(sel,x.key)==="bank").length>1?` (${e.name.split(":").pop().trim().slice(0,14)}…)`:""}</button>
-                      ))}
-                      {canEdit&&c.upfront&&!c.fundAuto&&(sel.qbProjectId
-                        ?<button onClick={()=>setTxPick({propId:sel.id,kind:"fund",src:sel.qbProjectId})} title="Pin the wire(s) the attorney/lender sent you for construction" style={chip(false)}>📌 Pin the money in</button>
-                        :null)}
-                      {canEdit&&!c.fundAuto&&<button onClick={()=>{setManualFor(manualFor==="draw"?null:"draw");}} style={chip(false)}>＋ Manual</button>}
-                      {!c.upfront&&<span style={{fontSize:10,color:T.textTert}}>shared with the Draw Report</span>}
-                      {c.fundAuto&&<span style={{fontSize:10,color:T.textTert}}>loan {money(c.potBal)} − deployed {money(c.deployed)}{c.reserve>0?` − reserve ${money(c.reserve)}`:""}</span>}</span>
-                      <span style={{...vS,color:"#15803D"}}>+{money(c.inFlow).slice(1)}</span></div>
-                    {!c.fundAuto&&(sel.qbDrawTxns||[]).length>0&&<div style={{...rowS,paddingLeft:14}}><button onClick={()=>setPinsOpen({field:"qbDrawTxns",title:c.upfront?"Construction money in — pinned":"Draws received — pinned"})} style={chip(true)}>✓ {(sel.qbDrawTxns||[]).length} pinned · {money(Math.abs(bsSum(sel.qbDrawTxns)))} ›</button></div>}
-                    {(sel.dmDrawCustom||[]).map(l=>(
-                      <div key={l.id} style={{...rowS,paddingLeft:14}}><span style={lS}>✎ {l.label||"Manual draw"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
-                    ))}
-                    {manualFor==="draw"&&manualForm((nm,amt)=>updateProp(sel.id,"dmDrawCustom",[...(sel.dmDrawCustom||[]),{id:Date.now(),label:nm||"Manual draw",amount:amt}]))}
-                    {sel.dmDrawAuto&&(sel.dmDrawExcluded||[]).length>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4,paddingLeft:14}}>⊘ {(sel.dmDrawExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"dmDrawExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>}
-                    <div style={rowS}><span style={lS}>− Rehab paid out
-                      {canEdit&&sel.qbProjectId&&<button onClick={()=>updateProp(sel.id,"dmRehabAuto",!sel.dmRehabAuto)} style={chip(!!sel.dmRehabAuto)}>{sel.dmRehabAuto?"✓ Auto":"Auto?"}</button>}
-                      {canEdit&&(sel.qbProjectId
-                        ?<button onClick={()=>setTxPick({propId:sel.id,kind:"cspent",src:sel.qbProjectId})} style={chip(false)}>📌 Pin</button>
-                        :<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin</span>)}
-                      {canEdit&&<button onClick={()=>{setManualFor(manualFor==="cspent"?null:"cspent");}} style={chip(false)}>＋ Manual</button>}</span>
-                      <span style={{...vS,color:T.red}}>−{money(c.constrSpent).slice(1)}</span></div>
-                    {(sel.dmConstrSpentTxns||[]).length>0&&<div style={{...rowS,paddingLeft:14}}><button onClick={()=>setPinsOpen({field:"dmConstrSpentTxns",title:"Rehab paid out — pinned"})} style={chip(true)}>✓ {(sel.dmConstrSpentTxns||[]).length} pinned · {money(bsSum(sel.dmConstrSpentTxns))} ›</button></div>}
-                    {(sel.dmConstrSpentCustom||[]).map(l=>(
-                      <div key={l.id} style={{...rowS,paddingLeft:14}}><span style={lS}>✎ {l.label||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmConstrSpentCustom",(sel.dmConstrSpentCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
-                    ))}
-                    {manualFor==="cspent"&&manualForm((nm,amt)=>updateProp(sel.id,"dmConstrSpentCustom",[...(sel.dmConstrSpentCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
-                    <div style={totRow}><span>Construction position — what you have left</span><span style={{color:c.constrLeft<0?T.red:"#15803D"}}>{money(c.constrLeft)}</span></div>
-                  </div>
-                  <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
-                    <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>Where it sits:</span>
-                    <select value={sel.dmConstrBank||""} disabled={!canEdit} onChange={e=>updateProp(sel.id,"dmConstrBank",e.target.value)} style={{padding:"4px 9px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text,outline:"none",maxWidth:220}}>
-                      <option value="">— pick where —</option>
-                      <option value="loc">Still on the LOC — not in a bank account</option>
-                      {(bankAccounts||[]).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
-                    <span style={{fontSize:10,color:T.textTert}}>{sel.dmConstrBank==="loc"?"available to draw — stays out of Bank Recon":"bank pick = its own Bank Recon line item"}</span>
-                  </div>
-                </>)}
-              </div>
-              </>)}
-              <div style={{background:T.goldLight+"55",border:`1px solid ${T.gold}`,borderRadius:12,padding:"10px 14px",marginTop:11}}>
-                <div style={secH}><span>🎯 Bottom line</span></div>
-                <div style={rowS}><span style={lS}>All-in cost (live from QuickBooks)</span><span style={vS}>{c.allIn==null?"— (link the QB project)":money(c.allIn)}</span></div>
-                <div style={rowS}><span style={lS}>Total loans</span><span style={vS}>{money(c.totalLoans)}</span></div>
-                <div style={{...rowS,fontSize:14}}><span style={{...lS,fontWeight:700}}>True personal equity</span><span style={{...vS,fontSize:14.5,color:c.equity==null?T.textTert:c.equity>=0?"#15803D":T.red}}>{c.equity==null?"—":money(c.equity)}</span></div>
-              </div>
             </div>
   );};
   const[setupOpen,setSetupOpen]=useState(false);
@@ -12952,7 +12952,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           <div style={{flex:1,minWidth:0,fontSize:12,color:"#8A8F98",lineHeight:1.5}}>
             {c.upfront?"💼 Funded up front (full LOC)":"🏦 Draws as you build"} · loans {money(c.totalLoans)}{!c.upfront&&c.potBal>0?` · pot ${money(c.potBal)}`:""}{holder?` · reserve held in ${holder}`:""}
           </div>
-          {canEdit&&<button onClick={()=>setSetupOpen(true)} style={{flexShrink:0,fontSize:12,fontWeight:700,color:"#5A6472",background:"#fff",border:"1px solid #E2E2E8",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"inherit"}}>⚙ Deal setup</button>}
+          {canEdit&&<button onClick={()=>{setSetupOpen(true);setSetupStep(null);}} style={{flexShrink:0,fontSize:12,fontWeight:700,color:"#5A6472",background:"#fff",border:"1px solid #E2E2E8",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"inherit"}}>⚙ Deal setup</button>}
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:14}}>
           {c.upfront?(
@@ -13018,43 +13018,72 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       </div>
     );
     const goldFoot=(label,val,col)=>(<div style={{padding:"11px 18px",borderTop:`2px solid ${T.gold}`,background:T.goldLight+"44",display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:13.5}}><span style={{color:"#B8953F"}}>{label}</span><span style={{color:col}}>{val}</span></div>);
-    if(detailPop==="reserve")return shell("⏳ Interest reserve — details",(<>
-      <div style={pr}><span style={{color:T.textSub}}>LOC pot (tagged accounts)</span><b>{money(c.potBal)}</b></div>
-      <div style={pr}><span style={{color:T.textSub}}>− Down payment & deposits</span><b>{money(c.deployed)}</b></div>
-      {c.constrFromPot>0&&<div style={pr}><span style={{color:T.textSub}}>− Kept for construction</span><b>{money(c.constrFromPot)}</b></div>}
-      <div style={pr}><span style={{color:T.textSub}}>= Set aside for interest</span><b>{money(c.reserve)}</b></div>
-      <div style={{padding:"10px 18px 4px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>PAYMENTS MADE{sel.qbDebtAuto?" — AUTO-PINNED":""}</div>
-      {(sel.qbDebtTxns||[]).map(t=>(<div key={txKey(t)} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"payment"}</span><b>{money(Math.abs(Number(t.amount)||0))}{canEdit&&<button onClick={()=>sel.qbDebtAuto?updateProp(sel.id,"qbDebtExcluded",[...(sel.qbDebtExcluded||[]),txKey(t)]):updateProp(sel.id,"qbDebtTxns",(sel.qbDebtTxns||[]).filter(x=>txKey(x)!==txKey(t)))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button>}</b></div>))}
-      {(sel.qbDebtTxns||[]).length===0&&<div style={{padding:"6px 18px 12px",fontSize:11.5,color:T.textTert}}>None yet.</div>}
-    </>),goldFoot(`Left${bankName(sel.bsBankAccount)?` · ${bankName(sel.bsBankAccount)}`:""}`,money(c.left),c.left>=0?"#0F9D58":T.red));
+    if(detailPop==="reserve"){
+      const exKeys=new Set(sel.qbDebtExcluded||[]);
+      const exRows=(autoTxns||[]).filter(t=>qbBucket(t.account)==="debt"&&exKeys.has(txKey(t)));
+      const payRows=[...(sel.qbDebtTxns||[]).map(t=>({t,ex:false})),...exRows.map(t=>({t,ex:true}))].sort((x,y)=>String(y.t.date||"").localeCompare(String(x.t.date||"")));
+      const monthsCover=c.monthlyInt>0?Math.max(0,(c.paid>0?c.left:c.reserve))/c.monthlyInt:null;
+      return shell("⏳ Interest reserve — details",(<>
+        <div style={{padding:"16px 18px 10px",textAlign:"center"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#8A8F98",letterSpacing:"0.03em"}}>SET ASIDE FOR INTEREST</div>
+          <div style={{fontSize:30,fontWeight:800,letterSpacing:"-0.5px",margin:"4px 0 2px",color:T.text}}>{money(c.reserve)}</div>
+          {monthsCover!=null
+            ?<div style={{fontSize:11.5,color:"#8A8F98",lineHeight:1.55}}>{c.paid>0?<>what's left lasts <b style={{color:T.text}}>≈ {monthsCover.toFixed(1)} months</b></>:<>covers <b style={{color:T.text}}>≈ {monthsCover.toFixed(1)} months</b></>} — about <b style={{color:T.text}}>{money(Math.round(c.monthlyInt))}/mo</b><br/>{c.rate}% on the {money(c.fullLoan)} loan{c.fullLoan>c.bankBal?" — undrawn draw money counted":""}</div>
+            :<div style={{fontSize:11.5,color:"#8A8F98"}}>add the bank loan (and its rate in the financing popup) for the months estimate</div>}
+        </div>
+        <div style={{padding:"4px 18px 4px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>PAYMENTS MADE{sel.qbDebtAuto?" — AUTO-PINNED":""}</div>
+        {payRows.map(({t,ex})=>(
+          <div key={txKey(t)+(ex?"x":"")} style={{...pr,...(ex?{opacity:.55}:{})}}>
+            <span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:ex?"line-through":"none"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"payment"}</span>
+            {ex
+              ?<button onClick={()=>canEdit&&updateProp(sel.id,"qbDebtExcluded",(sel.qbDebtExcluded||[]).filter(k=>k!==txKey(t)))} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:9.5,fontWeight:800,padding:"3px 8px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button>
+              :<b>−{money(Math.abs(Number(t.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>sel.qbDebtAuto?updateProp(sel.id,"qbDebtExcluded",[...(sel.qbDebtExcluded||[]),txKey(t)]):updateProp(sel.id,"qbDebtTxns",(sel.qbDebtTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title={sel.qbDebtAuto?"Exclude — auto will skip it":"Unpin"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button>}</b>}
+          </div>
+        ))}
+        {(sel.qbDebtCustom||[]).map(l=>(<div key={l.id} style={pr}><span style={{color:T.textSub}}>✎ {l.label||l.name||"Manual"}</span><b>−{money(Math.abs(Number(l.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>updateProp(sel.id,"qbDebtCustom",(sel.qbDebtCustom||[]).filter(x=>x.id!==l.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>×</button>}</b></div>))}
+        {payRows.length===0&&(sel.qbDebtCustom||[]).length===0&&<div style={{padding:"6px 18px 12px",fontSize:11.5,color:T.textTert}}>None yet — turn on Auto in ⚙ Deal setup and every month's payment lands here by itself.</div>}
+      </>),goldFoot(`Left${bankName(sel.bsBankAccount)?` · ${bankName(sel.bsBankAccount)}`:""}`,money(c.left),c.left>=0?"#0F9D58":T.red));
+    }
     if(detailPop==="constr"){
       if(c.upfront)return shell("💼 Funds left — details",(<>
         <div style={pr}><span style={{color:T.textSub}}>Loan funded up front</span><b>{money(c.totalLoans)}</b></div>
         <div style={pr}><span style={{color:T.textSub}}>− Actual spend to date (live)</span><b>{c.allIn==null?"—":money(c.allIn)}</b></div>
         <div style={{padding:"8px 18px 12px",fontSize:11,color:T.textTert,lineHeight:1.5}}>Every dollar the project spends comes out of the up-front funding automatically — no pinning needed.</div>
       </>),goldFoot(`Left${bankName(sel.bsBankAccount)?` · ${bankName(sel.bsBankAccount)}`:""}`,c.leftover==null?"—":money(c.leftover),(c.leftover||0)>=0?"#0F9D58":T.red));
-      return shell("🔨 Construction equity — details",(<>
-        {c.constrBal>0&&<div style={pr}><span style={{color:T.textSub}}>Your accounts tagged 🔨</span><b>{money(c.constrBal)}</b></div>}
-        {c.constrFromPot>0&&<div style={pr}><span style={{color:T.textSub}}>+ Kept from your pot</span><b>{money(c.constrFromPot)}</b></div>}
-        {c.constrTotalEff===0&&<div style={pr}><span style={{color:T.textSub}}>Your money allocated</span><b>{money(0)}</b></div>}
-        <div style={pr}><span style={{color:T.textSub,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>+ Draws received
+      const dExKeys=new Set(sel.dmDrawExcluded||[]);
+      const dExRows=(drawAcctTxns||[]).filter(t=>(Number(t.amount)||0)>0&&dExKeys.has(txKey(t)));
+      return shell("🔨 Construction — details",(<>
+        <div style={{display:"flex",gap:10,padding:"12px 16px 2px"}}>
+          <div style={{flex:1,borderRadius:12,padding:"11px 13px",background:"#EDFBF1",border:"1px solid #BFE8CD"}}>
+            <div style={{fontSize:10,fontWeight:800,color:"#0F9D58",letterSpacing:"0.04em"}}>MONEY IN</div>
+            <div style={{fontSize:20,fontWeight:800,marginTop:3,color:"#0F9D58"}}>{money(c.constrTotalEff+c.inFlow)}</div>
+            <div style={{fontSize:10.5,color:"#7A8089",marginTop:3,lineHeight:1.5}}>draws {money(c.inFlow)}<br/>your money {money(c.constrTotalEff)}</div>
+          </div>
+          <div style={{flex:1,borderRadius:12,padding:"11px 13px",background:"#FDEEEC",border:"1px solid #F3CFC9"}}>
+            <div style={{fontSize:10,fontWeight:800,color:T.red,letterSpacing:"0.04em"}}>SPENT ON REHAB</div>
+            <div style={{fontSize:20,fontWeight:800,marginTop:3,color:T.red}}>{money(c.spentReal)}</div>
+            <div style={{fontSize:10.5,color:"#7A8089",marginTop:3,lineHeight:1.5}}>{c.rehabLive!=null?<>live from QuickBooks<br/>updates itself</>:"from your pinned payments"}</div>
+          </div>
+        </div>
+        <div style={{margin:"10px 16px 4px",background:"#F7F7F9",border:"1px solid #ECECEF",borderRadius:10,padding:"8px 12px",fontSize:11,color:"#5A6472",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span>Budget {money(c.est)} · holdback {c.hb==null?"—":money(c.hb)} + LOC {money(c.constrTotalEff)}</span>
+          <b style={{color:c.funding==null?T.textTert:c.funding>=0?"#0F9D58":T.red,whiteSpace:"nowrap"}}>{c.funding==null?"—":c.funding>=0?"✓ covered":`short ${money(-c.funding).slice(1)}`}</b>
+        </div>
+        <div style={{padding:"8px 18px 2px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>DRAWS RECEIVED
           {canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawAuto",!sel.dmDrawAuto)} title="Every credit that raises the mortgage counts as a draw automatically" style={chip(!!sel.dmDrawAuto)}>{sel.dmDrawAuto?"✓ Auto":"Auto?"}</button>}
           {canEdit&&!sel.dmDrawAuto&&c.entries.filter(e=>!e.custom&&jobOf(sel,e.key)==="bank").map(e=>(
-            <button key={e.key} onClick={()=>setTxPick({propId:sel.id,kind:"draw",src:e.key})} title={`Pin draws from ${e.name} — credits that raised the loan`} style={chip(false)}>📌 Pin{c.entries.filter(x=>!x.custom&&jobOf(sel,x.key)==="bank").length>1?` (${e.name.split(":").pop().trim().slice(0,14)}…)`:""}</button>
+            <button key={e.key} onClick={()=>setTxPick({propId:sel.id,kind:"draw",src:e.key})} title={`Pin draws from ${e.name} — credits that raised the loan`} style={chip(false)}>📌 Pin{c.entries.filter(x=>!x.custom&&jobOf(sel,x.key)==="bank").length>1?` (${e.name.split(":").pop().trim().slice(0,12)}…)`:""}</button>
           ))}
-        </span><b>{money(c.draws)}</b></div>
-        {canEdit&&c.entries.filter(e=>!e.custom&&jobOf(sel,e.key)==="bank").length===0&&<div style={{padding:"0 18px 6px",fontSize:10.5,color:T.textTert}}>To pull draws, add the mortgage account under 🏦 Total loans in ⚙ Deal setup (leave its job as BANK).</div>}
-        {(sel.qbDrawTxns||[]).map(t=>(<div key={txKey(t)} style={{...pr,borderTop:"none",paddingTop:0,paddingLeft:30,fontSize:11.5}}><span style={{color:T.textTert,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(t.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>sel.dmDrawAuto?updateProp(sel.id,"dmDrawExcluded",[...(sel.dmDrawExcluded||[]),txKey(t)]):updateProp(sel.id,"qbDrawTxns",(sel.qbDrawTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title={sel.dmDrawAuto?"Exclude — auto will skip it":"Unpin"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>{sel.dmDrawAuto?"⊘":"×"}</button>}</b></div>))}
-        {(sel.dmDrawCustom||[]).map(l=>(<div key={l.id} style={{...pr,borderTop:"none",paddingTop:0,paddingLeft:30,fontSize:11.5}}><span style={{color:T.textTert}}>✎ {l.label||"Manual draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(l.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>×</button>}</b></div>))}
-        <div style={pr}><span style={{color:T.textSub}}>− Rehab spent to date{c.rehabLive!=null?" (live from QuickBooks)":""}</span><b style={{color:T.red}}>{money(c.spentReal)}</b></div>
-        <div style={{padding:"10px 18px 4px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>BUDGET CHECK</div>
-        <div style={pr}><span style={{color:T.textSub}}>Rehab budget (your underwriting)</span><b>{money(c.est)}</b></div>
-        <div style={pr}><span style={{color:T.textSub}}>Bank holdback (from the lender)</span><b>{c.hb==null?"—":money(c.hb)}</b></div>
-        <div style={pr}><span style={{color:T.textSub,fontWeight:700}}>{c.funding==null?"—":c.funding>=0?"✓ Budget covered":"Budget still short"}</span><b style={{color:c.funding==null?T.textTert:c.funding>=0?"#0F9D58":T.red}}>{c.funding==null?"—":money(c.funding)}</b></div>
+        </div>
+        {canEdit&&c.entries.filter(e=>!e.custom&&jobOf(sel,e.key)==="bank").length===0&&<div style={{padding:"2px 18px 6px",fontSize:10.5,color:T.textTert}}>To pull draws, add the mortgage account under Loan accounts in ⚙ Deal setup (leave its tag as BANK).</div>}
+        {(sel.qbDrawTxns||[]).map(t=>(<div key={txKey(t)} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(t.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>sel.dmDrawAuto?updateProp(sel.id,"dmDrawExcluded",[...(sel.dmDrawExcluded||[]),txKey(t)]):updateProp(sel.id,"qbDrawTxns",(sel.qbDrawTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title={sel.dmDrawAuto?"Exclude — auto will skip it":"Unpin"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button>}</b></div>))}
+        {(sel.dmDrawCustom||[]).map(l=>(<div key={l.id} style={pr}><span style={{color:T.textSub}}>✎ {l.label||"Manual draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(l.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>×</button>}</b></div>))}
+        {dExRows.map(t=>(<div key={"x"+txKey(t)} style={{...pr,opacity:.55}}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"line-through"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><button onClick={()=>canEdit&&updateProp(sel.id,"dmDrawExcluded",(sel.dmDrawExcluded||[]).filter(k=>k!==txKey(t)))} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:9.5,fontWeight:800,padding:"3px 8px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button></div>))}
+        {(sel.qbDrawTxns||[]).length===0&&(sel.dmDrawCustom||[]).length===0&&dExRows.length===0&&<div style={{padding:"4px 18px 10px",fontSize:11.5,color:T.textTert}}>None yet.</div>}
         {c.rehabLive==null&&(<>
-          <div style={{padding:"10px 18px 4px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>REHAB PAID OUT{sel.dmRehabAuto?" — AUTO-PINNED":""}</div>
+          <div style={{padding:"8px 18px 2px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>REHAB PAID OUT{sel.dmRehabAuto?" — AUTO-PINNED":""}</div>
           {(sel.dmConstrSpentTxns||[]).map(t=>(<div key={txKey(t)} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"payment"}</span><b>{money(Math.abs(Number(t.amount)||0))}{canEdit&&<button onClick={()=>sel.dmRehabAuto?updateProp(sel.id,"dmRehabExcluded",[...(sel.dmRehabExcluded||[]),txKey(t)]):updateProp(sel.id,"dmConstrSpentTxns",(sel.dmConstrSpentTxns||[]).filter(x=>txKey(x)!==txKey(t)))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button>}</b></div>))}
-          {(sel.dmConstrSpentTxns||[]).length===0&&<div style={{padding:"6px 18px 12px",fontSize:11.5,color:T.textTert}}>None pinned — link the QB project and the live rehab actuals take over automatically.</div>}
+          {(sel.dmConstrSpentTxns||[]).length===0&&<div style={{padding:"4px 18px 10px",fontSize:11.5,color:T.textTert}}>None pinned — link the QB project and the live rehab actuals take over automatically.</div>}
         </>)}
       </>),goldFoot("Your construction equity — left",money(c.constrEquity),c.constrEquity>=0?"#0F9D58":T.red));
     }

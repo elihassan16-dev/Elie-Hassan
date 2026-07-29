@@ -12474,7 +12474,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const[manualFor,setManualFor]=useState(null); // "loan" | "float" | "debt"
   const[mName,setMName]=useState("");const[mAmt,setMAmt]=useState("");
   const[txPick,setTxPick]=useState(null); // {propId,kind:"float"|"debt"}
-  const[pinsOpen,setPinsOpen]=useState(false); // deployed pins list popup
+  const[pinsOpen,setPinsOpen]=useState(null); // {field,title} — pinned-transactions popup
   const[pickTxns,setPickTxns]=useState(null);
   // Auto debt-service (old qbDebtAuto): with the toggle on, every transaction
   // hitting a debt-bucket account in the property's ledger is pinned monthly,
@@ -12650,37 +12650,44 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               <div style={sec}>
                 <div style={secH}><span>Deployed — down payment, deposit</span></div>
                 <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
-                  {(sel.qbFloatTxns||[]).length>0&&<button onClick={()=>setPinsOpen(true)} title="See every pinned transaction" style={chip(true)}>✓ {(sel.qbFloatTxns||[]).length} pinned · {money(bsSum(sel.qbFloatTxns))} ›</button>}
+                  {(sel.qbFloatTxns||[]).length>0&&<button onClick={()=>setPinsOpen({field:"qbFloatTxns",title:"Deployed — pinned transactions"})} title="See every pinned transaction" style={chip(true)}>✓ {(sel.qbFloatTxns||[]).length} pinned · {money(bsSum(sel.qbFloatTxns))} ›</button>}
                   {canEdit&&(sel.qbProjectId
                     ?<button onClick={()=>setTxPick({propId:sel.id,kind:"float",src:sel.qbProjectId})} style={chip(false)}>📌 Pin transactions</button>
                     :<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin transactions</span>)}
                   {canEdit&&<button onClick={()=>{setManualFor(manualFor==="float"?null:"float");}} style={chip(false)}>＋ Manual entry</button>}
                 </div>
-                {pinsOpen&&(
-                  <div onClick={()=>setPinsOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:460,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+                {pinsOpen&&(()=>{
+                  const arr=sel[pinsOpen.field]||[];
+                  const autoField=pinsOpen.field==="dmConstrSpentTxns"&&sel.dmRehabAuto;
+                  return(
+                  <div onClick={()=>setPinsOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:460,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
                     <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(440px,96vw)",maxHeight:"78vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
                       <div style={{padding:"13px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8}}>
-                        <div style={{flex:1,fontSize:14.5,fontWeight:800,color:T.text}}>Deployed — pinned transactions</div>
-                        <button onClick={()=>setPinsOpen(false)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+                        <div style={{flex:1,fontSize:14.5,fontWeight:800,color:T.text}}>{pinsOpen.title}</div>
+                        <button onClick={()=>setPinsOpen(null)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
                       </div>
                       <div style={{overflowY:"auto",flex:1}}>
-                        {(sel.qbFloatTxns||[]).map(t=>(
+                        {arr.map(t=>(
                           <div key={txKey(t)} title={[t.vendor,t.memo].filter(Boolean).join(" · ")} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"9px 16px",borderBottom:`1px solid ${T.border}`}}>
                             <span style={{minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.date||"pinned"}{t.vendor?` · ${t.vendor}`:t.memo?` · ${String(t.memo).slice(0,30)}`:""}</span>
                             <span style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
                             <b style={{fontSize:12.5,color:(Number(t.amount)||0)<0?T.red:T.text}}>{(Number(t.amount)||0)<0?`−${money(Math.abs(Number(t.amount)||0)).slice(1)}`:money(Number(t.amount)||0)}</b>
-                            {canEdit&&<button onClick={()=>updateProp(sel.id,"qbFloatTxns",(sel.qbFloatTxns||[]).map(x=>txKey(x)===txKey(t)?{...x,amount:-(Number(x.amount)||0)}:x))} title="Flip direction — add vs subtract" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:11,fontWeight:800,lineHeight:1,padding:"2px 6px",fontFamily:"inherit"}}>±</button>}
-                            {canEdit&&<button onClick={()=>updateProp(sel.id,"qbFloatTxns",(sel.qbFloatTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:0}}>×</button>}</span>
+                            {canEdit&&pinsOpen.field==="qbFloatTxns"&&<button onClick={()=>updateProp(sel.id,pinsOpen.field,arr.map(x=>txKey(x)===txKey(t)?{...x,amount:-(Number(x.amount)||0)}:x))} title="Flip direction — add vs subtract" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:11,fontWeight:800,lineHeight:1,padding:"2px 6px",fontFamily:"inherit"}}>±</button>}
+                            {canEdit&&(autoField
+                              ?<button onClick={()=>updateProp(sel.id,"dmRehabExcluded",[...(sel.dmRehabExcluded||[]),txKey(t)])} title="Exclude — auto will skip it" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>⊘</button>
+                              :<button onClick={()=>updateProp(sel.id,pinsOpen.field,arr.filter(x=>txKey(x)!==txKey(t)))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:0}}>×</button>)}</span>
                           </div>
                         ))}
-                        {(sel.qbFloatTxns||[]).length===0&&<div style={{padding:20,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing pinned.</div>}
+                        {arr.length===0&&<div style={{padding:20,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing pinned.</div>}
                       </div>
-                      {canEdit&&(sel.qbFloatTxns||[]).length>1&&<div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,textAlign:"right"}}>
-                        <button onClick={()=>{if(window.confirm(`Unpin all ${(sel.qbFloatTxns||[]).length} transactions?`)){updateProp(sel.id,"qbFloatTxns",[]);setPinsOpen(false);}}} style={{padding:"7px 14px",borderRadius:10,border:`1px solid ${T.red}`,background:"#fff",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Clear all</button>
-                      </div>}
+                      <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8}}>
+                        {autoField&&(sel.dmRehabExcluded||[]).length>0&&<span style={{fontSize:10.5,color:T.textTert}}>⊘ {(sel.dmRehabExcluded||[]).length} excluded · <button onClick={()=>updateProp(sel.id,"dmRehabExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring back</button></span>}
+                        <span style={{flex:1}}/>
+                        {canEdit&&!autoField&&arr.length>1&&<button onClick={()=>{if(window.confirm(`Unpin all ${arr.length} transactions?`)){updateProp(sel.id,pinsOpen.field,[]);setPinsOpen(null);}}} style={{padding:"7px 14px",borderRadius:10,border:`1px solid ${T.red}`,background:"#fff",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Clear all</button>}
+                      </div>
                     </div>
                   </div>
-                )}
+                );})()}
                 {(sel.qbFloatCustom||[]).map(l=>(
                   <div key={l.id} style={rowS}><span style={lS}>✎ {l.label||l.name||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"qbFloatCustom",(sel.qbFloatCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
                 ))}
@@ -12764,14 +12771,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                       {canEdit&&<button onClick={()=>{setManualFor(manualFor==="draw"?null:"draw");}} style={chip(false)}>＋ Manual</button>}
                       <span style={{fontSize:10,color:T.textTert}}>shared with the Draw Report</span></span>
                       <span style={{...vS,color:"#15803D"}}>+{money(c.draws).slice(1)}</span></div>
-                    {(sel.qbDrawTxns||[]).slice(-4).map(t=>(
-                      <div key={txKey(t)} title={t.memo||""} style={{...rowS,paddingLeft:14,flexWrap:"nowrap"}}>
-                        <span style={{...lS,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📌 {t.date||"draw"}</span>
-                        <span style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}><span style={vS}>{money(Math.abs(Number(t.amount)||0))}</span>
-                        {canEdit&&<button onClick={()=>updateProp(sel.id,"qbDrawTxns",(sel.qbDrawTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span>
-                      </div>
-                    ))}
-                    {(sel.qbDrawTxns||[]).length>4&&<div style={{fontSize:10,color:T.textTert,paddingLeft:14}}>…and {(sel.qbDrawTxns||[]).length-4} more pinned</div>}
+                    {(sel.qbDrawTxns||[]).length>0&&<div style={{...rowS,paddingLeft:14}}><button onClick={()=>setPinsOpen({field:"qbDrawTxns",title:"Draws received — pinned"})} style={chip(true)}>✓ {(sel.qbDrawTxns||[]).length} pinned · {money(Math.abs(bsSum(sel.qbDrawTxns)))} ›</button></div>}
                     {(sel.dmDrawCustom||[]).map(l=>(
                       <div key={l.id} style={{...rowS,paddingLeft:14}}><span style={lS}>✎ {l.label||"Manual draw"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
                     ))}
@@ -12783,15 +12783,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                         :<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin</span>)}
                       {canEdit&&<button onClick={()=>{setManualFor(manualFor==="cspent"?null:"cspent");}} style={chip(false)}>＋ Manual</button>}</span>
                       <span style={{...vS,color:T.red}}>−{money(c.constrSpent).slice(1)}</span></div>
-                    {sel.dmRehabAuto&&(sel.dmConstrSpentTxns||[]).slice(-4).map(t=>(
-                      <div key={txKey(t)} style={{...rowS,paddingLeft:14}}>
-                        <span style={lS}>📌 {t.date||""} · {t.vendor||t.memo||"rehab"}</span>
-                        <span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(t.amount)||0))}</span>
-                        {canEdit&&<button onClick={()=>updateProp(sel.id,"dmRehabExcluded",[...(sel.dmRehabExcluded||[]),txKey(t)])} title="Exclude — auto will skip it" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>⊘</button>}</span>
-                      </div>
-                    ))}
-                    {sel.dmRehabAuto&&(sel.dmConstrSpentTxns||[]).length>4&&<div style={{fontSize:10,color:T.textTert,paddingLeft:14}}>…and {(sel.dmConstrSpentTxns||[]).length-4} more auto-pinned</div>}
-                    {sel.dmRehabAuto&&(sel.dmRehabExcluded||[]).length>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:2}}>⊘ {(sel.dmRehabExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"dmRehabExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>}
+                    {(sel.dmConstrSpentTxns||[]).length>0&&<div style={{...rowS,paddingLeft:14}}><button onClick={()=>setPinsOpen({field:"dmConstrSpentTxns",title:"Rehab paid out — pinned"})} style={chip(true)}>✓ {(sel.dmConstrSpentTxns||[]).length} pinned · {money(bsSum(sel.dmConstrSpentTxns))} ›</button></div>}
                     {(sel.dmConstrSpentCustom||[]).map(l=>(
                       <div key={l.id} style={{...rowS,paddingLeft:14}}><span style={lS}>✎ {l.label||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmConstrSpentCustom",(sel.dmConstrSpentCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
                     ))}

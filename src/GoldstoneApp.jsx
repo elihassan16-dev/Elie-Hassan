@@ -12447,7 +12447,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const nn=(v)=>{const x=parseFloat(String(v??"").replace(/[^0-9.\-]/g,""));return isNaN(x)?0:x;};
   const acct=(id)=>(accounts||[]).find(x=>String(x.id)===String(id))||null;
   const bal=(id)=>{const a=acct(id);return a?Math.abs(Number(a.balance)||0):0;};
-  const nameOf=(id)=>{const a=acct(id);return a?a.name:"(account not found)";};
+  const nameOf=(id)=>{const a=acct(id);return a?a.name:accounts==null?"loading QuickBooks…":"(account not found in QuickBooks)";};
   // Effective deal setup: the new dm* fields when they exist, otherwise DERIVED
   // from the old balance-sheet pins so nothing Elie already entered shows as
   // zero — pot accounts become the credit lines, "Deployed" (down payment /
@@ -12516,6 +12516,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   };
   const renderDetail=(sel)=>{const c=calc(sel);return(
             <div style={{padding:"14px 18px",display:"flex",flexDirection:"column",gap:14}}>
+              {accounts==null&&<div style={{fontSize:12,color:"#8a6d1f",background:T.goldLight+"66",border:`1px solid ${T.gold}`,borderRadius:10,padding:"8px 12px"}}>⏳ Loading your QuickBooks balances — the dollar figures fill in as soon as they arrive. If this never goes away, QuickBooks may need reconnecting in Settings.</div>}
               <div>
                 <div style={secH}>🏦 Bank loan {c.e.mortgageId&&<span style={pinTag}>📌 {nameOf(c.e.mortgageId)}</span>}
                   {canEdit&&<button onClick={()=>{setPickMort(v=>!v);setPickCredit(false);setQ("");}} style={{marginLeft:"auto",background:"none",border:`1px dashed ${T.border}`,borderRadius:14,color:T.blue,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit",padding:"3px 10px"}}>{c.e.mortgageId?"Change":"📌 Pin mortgage account"}</button>}

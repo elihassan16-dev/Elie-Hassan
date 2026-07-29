@@ -12554,9 +12554,35 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       </div>
     );
   };
-  const renderDetail=(sel)=>{const c=calc(sel);return(
+  const shortName=(id)=>{const nm=nameOf(id);return nm.split(":").pop().trim()||nm;};
+  const renderDetail=(sel)=>{const c=calc(sel);
+    const constrTotal=(c.hb||0)+c.cf;
+    const reserveHolders=c.e.credits.filter(cr=>creditMath(cr).rv>0).map(cr=>shortName(cr.acctId));
+    const tile={border:`1px solid ${T.border}`,borderRadius:12,padding:"10px 12px",background:T.bg,minWidth:0};
+    const tileH={fontSize:10,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4};
+    const tileV={fontSize:16,fontWeight:800,lineHeight:1.2};
+    const tileS={fontSize:10.5,color:T.textSub,marginTop:3,lineHeight:1.4};
+    return(
             <div style={{padding:"14px 18px",display:"flex",flexDirection:"column",gap:14}}>
               {accounts==null&&<div style={{fontSize:12,color:"#8a6d1f",background:T.goldLight+"66",border:`1px solid ${T.gold}`,borderRadius:10,padding:"8px 12px"}}>⏳ Loading your QuickBooks balances — the dollar figures fill in as soon as they arrive. If this never goes away, QuickBooks may need reconnecting in Settings.</div>}
+              {/* The three questions, answered up top: construction covered? reserve left & where? down payment? */}
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:8}}>
+                <div style={tile}>
+                  <div style={tileH}>🔨 Construction money</div>
+                  <div style={{...tileV,color:c.funding==null?T.textTert:c.funding>=0?"#15803D":T.red}}>{money(constrTotal)} <span style={{fontSize:11.5,fontWeight:700,color:T.textSub}}>of {money(c.est)}</span></div>
+                  <div style={tileS}>bank {money(c.hb||0)} + borrowed {money(c.cf)}{c.funding==null?"":c.funding>=0?" · ✓ covered":` · short ${money(-c.funding)}`}</div>
+                </div>
+                <div style={tile}>
+                  <div style={tileH}>⏳ Interest reserve left</div>
+                  <div style={{...tileV,color:c.left<0?T.red:"#15803D"}}>{money(c.left)}</div>
+                  <div style={tileS}>started {money(c.rv)} · paid {money(c.paid)}{reserveHolders.length?` · held on ${reserveHolders.join(" + ")}`:""}</div>
+                </div>
+                <div style={tile}>
+                  <div style={tileH}>🏠 Down payment borrowed</div>
+                  <div style={{...tileV,color:T.text}}>{money(c.dp)}</div>
+                  <div style={tileS}>deposit money wired out of your credit</div>
+                </div>
+              </div>
               <div>
                 <div style={secH}>🏦 Bank loan {c.e.mortgageId&&<span style={pinTag}>📌 {nameOf(c.e.mortgageId)}</span>}
                   {canEdit&&<button onClick={()=>{setPickMort(v=>!v);setPickCredit(false);setQ("");}} style={{marginLeft:"auto",background:"none",border:`1px dashed ${T.border}`,borderRadius:14,color:T.blue,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit",padding:"3px 10px"}}>{c.e.mortgageId?"Change":"📌 Pin mortgage account"}</button>}
@@ -12591,13 +12617,13 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                         {(cr.dpTxns||[]).length>0&&<span style={chip(true)}>✓ {(cr.dpTxns||[]).length} pinned · {money(sumT(cr.dpTxns))}</span>}
                         {canEdit&&<button onClick={()=>setTxPick({propId:sel.id,kind:"dp",idx:i,src:cr.acctId})} style={chip(false)}>📌 Pin transactions</button>}
                       </span></div>
-                      <div style={rowS}><span style={lS}>Construction — draws you floated</span><span style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      <div style={rowS}><span style={lS}>Construction money from this account</span><span style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                         {(cr.constrTxns||[]).length>0&&<span style={chip(true)}>✓ {(cr.constrTxns||[]).length} pinned · {money(sumT(cr.constrTxns))}</span>}
                         {canEdit&&<button onClick={()=>setTxPick({propId:sel.id,kind:"constr",idx:i,src:cr.acctId})} style={chip(false)}>📌 Pin transactions</button>}
                       </span></div>
                       <div style={rowS}><span style={lS}>Interest reserve</span>
                         <button onClick={canEdit?()=>write(sel,"dmCredits",c.e.credits.map((x,j)=>j===i?{...x,restToReserve:!x.restToReserve}:x)):undefined} style={chip(!!cr.restToReserve)}>
-                          {cr.restToReserve?`✓ Rest of this account → reserve · ${money(m.rv)} (auto)`:"Rest of this account → reserve?"}
+                          {cr.restToReserve?`✓ What's left here is interest reserve · ${money(m.rv)}`:"Mark the rest as interest reserve"}
                         </button>
                       </div>
                     </>)}

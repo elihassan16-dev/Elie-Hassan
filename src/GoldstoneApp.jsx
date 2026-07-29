@@ -12579,9 +12579,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const reserveHolders=entries.filter(e=>jobOf(p,e.key)==="pot").map(e=>e.name.split(":").pop().trim());
     return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,constrSpent,constrLeft,draws,inFlow,fundAuto,autoFund,constrTotalEff,upfront,leftover,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
   };
-  const secH={fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8};
+  const secH={fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,background:T.bg,margin:"0 -18px",padding:"7px 18px 6px",borderBottom:`1px solid ${T.border}`};
   const secAmt={fontSize:13.5,fontWeight:800,color:T.text,textTransform:"none",letterSpacing:0,whiteSpace:"nowrap"};
-  const rowS={display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12.5,padding:"6px 0",gap:8,flexWrap:"wrap"};
+  const rowS={display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"4px 0",gap:8,flexWrap:"wrap"};
   const lS={color:T.textSub,display:"flex",gap:6,alignItems:"center",minWidth:0,flexWrap:"wrap"};
   const vS={fontWeight:700,color:T.text,whiteSpace:"nowrap"};
   const pinTag={fontSize:10.5,fontWeight:700,color:T.blue,maxWidth:250,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"};
@@ -12592,7 +12592,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const label=j==="constr"?"🔨 CONSTRUCTION":j==="pot"?"✓ LOC POT":"BANK";
     return <button onClick={canEdit?()=>setJob(bsProps.find(x=>x.id===p.id)||p,key,JOB_NEXT[j]):undefined} title="Tap to change this account's job — bank · LOC pot · construction" style={{...st,fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",border:"none",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{label}</button>;
   };
-  const sec={padding:"14px 0",borderBottom:`1px solid ${T.border}`};
+  const sec={padding:"0 0 10px"};
   const totRow={display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:800,color:T.text,padding:"7px 0 0",marginTop:6,borderTop:`1px dashed ${T.border}`};
   const bankSelect=(sel,field)=>(
     <select value={sel[field]||""} disabled={!canEdit} onChange={e=>updateProp(sel.id,field,e.target.value)} style={{padding:"4px 9px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text,outline:"none",maxWidth:190}}>
@@ -12651,7 +12651,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 );})}
               </div>
               <div style={sec}>
-                <div style={secH}><span>Total loans</span></div>
+                <div style={secH}><span>🏦 Total loans</span></div>
                 {c.entries.map(e=>(
                   <div key={e.key} style={rowS}>
                     <span style={lS}><span style={pinTag}>{e.custom?"✎":"📌"} {e.name}</span>{jobTag(sel,e.key)}</span>
@@ -12671,7 +12671,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               </div>
               {c.upfront?(
                 <div style={sec}>
-                  <div style={secH}><span>Loan vs actuals</span></div>
+                  <div style={secH}><span>💼 Loan vs actuals</span></div>
                   <div style={rowS}><span style={lS}>Funded up front (total loans)</span><span style={vS}>{money(c.totalLoans)}</span></div>
                   <div style={rowS}><span style={lS}>Actual spend to date (live from QuickBooks)</span><span style={vS}>{c.allIn==null?"— (link the QB project)":money(c.allIn)}</span></div>
                   <div style={totRow}><span>Left in the account</span><span style={{color:c.leftover==null?T.textTert:c.leftover>=0?"#15803D":T.red}}>{c.leftover==null?"—":money(c.leftover)}</span></div>
@@ -12682,10 +12682,10 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 </div>
               ):(<>
               <div style={{...sec,padding:"8px 0"}}>
-                <div style={secH} title="The accounts tagged ✓ LOC POT above — your borrowed pot for down payment + interest reserve."><span>LOC pot</span><span style={secAmt}>{money(c.potBal)}</span></div>
+                <div style={secH} title="The accounts tagged ✓ LOC POT above — your borrowed pot for down payment + interest reserve."><span>🪙 LOC pot</span><span style={secAmt}>{money(c.potBal)}</span></div>
               </div>
               <div style={sec}>
-                <div style={secH}><span>Deployed — down payment, deposit</span></div>
+                <div style={secH}><span>🚀 Deployed — down payment, deposit</span></div>
                 <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
                   {(sel.qbFloatTxns||[]).length>0&&<button onClick={()=>setPinsOpen({field:"qbFloatTxns",title:"Deployed — pinned transactions"})} title="See every pinned transaction" style={chip(true)}>✓ {(sel.qbFloatTxns||[]).length} pinned · {money(bsSum(sel.qbFloatTxns))} ›</button>}
                   {canEdit&&(sel.qbProjectId
@@ -12760,7 +12760,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 <div style={totRow}><span>Total deployed</span><span style={{color:"#B8953F"}}>{money(c.deployed)}</span></div>
               </div>
               <div style={sec}>
-                <div style={secH}><span>Left in the pot</span><span style={{...secAmt,color:c.leftPot<0?T.red:T.text}}>{money(c.leftPot)}</span></div>
+                <div style={secH}><span>🪙 Left in the pot</span><span style={{...secAmt,color:c.leftPot<0?T.red:T.text}}>{money(c.leftPot)}</span></div>
                 <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"8px 12px",marginTop:6,fontSize:12.5}}>
                   <label style={{display:"flex",gap:8,alignItems:"center",padding:"3px 0",cursor:canEdit?"pointer":"default"}}>
                     <input type="radio" checked={(sel.dmReserveMode||"all")==="all"} onChange={()=>canEdit&&updateProp(sel.id,"dmReserveMode","all")} style={{accentColor:T.gold}}/>
@@ -12784,7 +12784,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 </div>
               </div>
               <div style={sec}>
-                <div style={secH}><span>Debt service paid</span></div>
+                <div style={secH}><span>🧾 Debt service paid</span></div>
                 <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
                   {canEdit&&sel.qbProjectId&&<button onClick={()=>updateProp(sel.id,"qbDebtAuto",!sel.qbDebtAuto)} style={chip(!!sel.qbDebtAuto)}>{sel.qbDebtAuto?"✓ Auto — pins this property's debt service every month":"Auto-pin debt service monthly?"}</button>}
                   {canEdit&&(sel.qbProjectId
@@ -12813,7 +12813,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 <div style={totRow}><span>Total debt service</span><span style={{color:"#B8953F"}}>{money(c.paid)}</span></div>
               </div>
               <div style={sec}>
-                <div style={secH}><span>Interest reserve left</span><span style={{...secAmt,color:c.left<0?T.red:"#15803D"}}>{money(c.left)}</span></div>
+                <div style={secH}><span>⏳ Interest reserve left</span><span style={{...secAmt,color:c.left<0?T.red:"#15803D"}}>{money(c.left)}</span></div>
                 <div style={{fontSize:10.5,color:T.textTert,marginTop:3}}>Set aside {money(c.reserve)} − paid {money(c.paid)}</div>
                 <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
                   <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>Held in bank:</span>{bankSelect(sel,"bsBankAccount")}
@@ -12821,11 +12821,12 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 </div>
               </div>
               <div style={sec}>
-                <div style={secH}><span>{c.upfront?"Construction money":"Construction vs holdback"}</span><span style={{...secAmt,color:c.funding==null?T.textTert:c.funding>=0?"#15803D":T.red}}>{c.funding==null?"—":c.funding>=0?`✓ covered (+${money(c.funding).slice(1)})`:`${money(c.funding)} still short`}</span></div>
-                {!c.upfront&&<div style={rowS}><span style={lS}>Bank holdback</span><span style={vS}>{c.hb==null?"— (set in the Holdback report)":money(c.hb)}</span></div>}
-                {c.constrBal>0&&<div style={rowS}><span style={lS}>+ Borrowed for construction (tagged 🔨)</span><span style={vS}>{money(c.constrBal)}</span></div>}
-                {c.constrFromPot>0&&<div style={rowS}><span style={lS}>+ From the pot (rest after reserve)</span><span style={vS}>{money(c.constrFromPot)}</span></div>}
-                <div style={rowS}><span style={lS}>Rehab budget</span><span style={vS}>{money(c.est)}</span></div>
+                <div style={secH}><span>{c.upfront?"🔨 Construction money":"🔨 Construction vs holdback"}</span><span style={{...secAmt,color:c.funding==null?T.textTert:c.funding>=0?"#15803D":T.red}}>{c.funding==null?"—":c.funding>=0?`✓ covered (+${money(c.funding).slice(1)})`:`${money(c.funding)} still short`}</span></div>
+                {!c.upfront&&<div style={rowS}><span style={lS}>Bank construction holdback (from the lender)</span><span style={vS}>{c.hb==null?"— (set in the Holdback report)":money(c.hb)}</span></div>}
+                {c.constrBal>0&&<div style={rowS}><span style={lS}>+ Your accounts tagged 🔨 construction</span><span style={vS}>{money(c.constrBal)}</span></div>}
+                {c.constrFromPot>0&&<div style={rowS}><span style={lS}>+ From the pot (what's left after the reserve)</span><span style={vS}>{money(c.constrFromPot)}</span></div>}
+                <div style={rowS}><span style={lS}>− Rehab budget (your underwriting)</span><span style={vS}>{money(c.est)}</span></div>
+                <div style={totRow}><span>Covered or short</span><span style={{color:c.funding==null?T.textTert:c.funding>=0?"#15803D":T.red}}>{c.funding==null?"—":c.funding>=0?`✓ covered (+${money(c.funding).slice(1)})`:`${money(c.funding)} short`}</span></div>
                 {(c.constrTotal>0||c.draws>0||c.constrSpent>0)&&(<>
                   <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"8px 12px",marginTop:8}}>
                     <div style={rowS}><span style={lS}>+ Your construction money (tags & pot)</span><span style={{...vS,color:"#15803D"}}>+{money(c.constrTotalEff).slice(1)}</span></div>
@@ -12873,7 +12874,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               </div>
               </>)}
               <div style={{background:T.goldLight+"55",border:`1px solid ${T.gold}`,borderRadius:12,padding:"10px 14px",marginTop:11}}>
-                <div style={secH}><span>Bottom line</span></div>
+                <div style={secH}><span>🎯 Bottom line</span></div>
                 <div style={rowS}><span style={lS}>All-in cost (live from QuickBooks)</span><span style={vS}>{c.allIn==null?"— (link the QB project)":money(c.allIn)}</span></div>
                 <div style={rowS}><span style={lS}>Total loans</span><span style={vS}>{money(c.totalLoans)}</span></div>
                 <div style={{...rowS,fontSize:14}}><span style={{...lS,fontWeight:700}}>True personal equity</span><span style={{...vS,fontSize:14.5,color:c.equity==null?T.textTert:c.equity>=0?"#15803D":T.red}}>{c.equity==null?"—":money(c.equity)}</span></div>

@@ -12047,10 +12047,10 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   // own line item: interest reserve (bsBankAccount) and construction (dmConstrBank).
   const itemsOf=(id)=>[
     ...props.filter(p=>String(p.bsBankAccount||"")===String(id)).map(p=>({p,kind:(p.bsCalcMode||"reserve")==="equity"?"Personal equity":"⏳ Interest reserve",amt:heldOf(p)})),
-    ...props.filter(p=>String(p.dmConstrBank||"")===String(id)&&constrOf(p)>0).map(p=>({p,kind:"🔨 Construction",amt:constrOf(p)})),
+    ...props.filter(p=>String(p.dmConstrBank||"")===String(id)&&p.dmConstrBank!=="loc"&&constrOf(p)>0).map(p=>({p,kind:"🔨 Construction",amt:constrOf(p)})),
   ];
   const expectedOf=(b)=>itemsOf(b.id).reduce((t,x)=>t+x.amt,0)+(b.adjustments||[]).reduce((t,a)=>t+(Number(a.amount)||0),0);
-  const unassigned=props.filter(p=>!p.bsBankAccount||(constrOf(p)>0&&!p.dmConstrBank));
+  const unassigned=props.filter(p=>!p.bsBankAccount||(constrOf(p)>0&&!p.dmConstrBank&&p.dmConstrBank!=="loc"));
   const inS={padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text};
 
   return(
@@ -12450,7 +12450,8 @@ function dmPotMath(p,accounts){
   const reserve=mode==="all"?Math.max(0,leftPot):(isNaN(amt)?0:amt);
   const fromPot=(mode==="custom"&&p.dmRestToConstr)?Math.max(0,leftPot-reserve):0;
   const paid=Math.abs(bsSum(p.qbDebtTxns))+Math.abs(bsSum(p.qbDebtCustom));
-  return {reserveLeft:Math.max(0,reserve-paid),constrHeld:constrBal+fromPot};
+  const constrSpent=Math.abs(bsSum(p.dmConstrSpentTxns))+Math.abs(bsSum(p.dmConstrSpentCustom));
+  return {reserveLeft:Math.max(0,reserve-paid),constrHeld:Math.max(0,constrBal+fromPot-constrSpent)};
 }
 const dmHoldbackOf=(p)=>{const raw=p.constrHoldback;const pins=bsSum(p.qbHoldbackTxns);const hasManual=raw!=null&&raw!=="";const hasPins=(p.qbHoldbackTxns||[]).length>0;return (hasPins||hasManual)?pins+(hasManual?Number(raw):0):null;};
 // ─── Deal Money — per-property financing picture (PREVIEW) ────────────────────
@@ -12535,11 +12536,13 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const hb=holdbackOf(p);
     const est=n((p.financials||{}).rehabCosts)||n((p.financials||{}).actualRehabCosts)||0;
     const constrTotal=constrBal+constrFromPot;
+    const constrSpent=sumT(p.dmConstrSpentTxns)+sumT(p.dmConstrSpentCustom);
+    const constrLeft=constrTotal-constrSpent;
     const funding=(hb==null&&constrTotal===0)?null:(hb||0)+constrTotal-est;
     const m=bsMetrics(p,accounts,spend);
     const equity=m.allIn==null?null:m.allIn-totalLoans+bsSum(p.qbBsCustom);
     const reserveHolders=entries.filter(e=>jobOf(p,e.key)==="pot").map(e=>e.name.split(":").pop().trim());
-    return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
+    return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,constrSpent,constrLeft,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
   };
   const secH={fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8};
   const secAmt={fontSize:13.5,fontWeight:800,color:T.text,textTransform:"none",letterSpacing:0,whiteSpace:"nowrap"};
@@ -12587,7 +12590,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   };
   const slimT=(t)=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey});
   const toggleTxn=(p,t)=>{
-    const field=txPick.kind==="float"?"qbFloatTxns":"qbDebtTxns";
+    const field=txPick.kind==="float"?"qbFloatTxns":txPick.kind==="cspent"?"dmConstrSpentTxns":"qbDebtTxns";
     const cur=p[field]||[];const k=txKey(t);const has=cur.some(x=>txKey(x)===k);
     updateProp(p.id,field,has?cur.filter(x=>txKey(x)!==k):[...cur,slimT(t)]);
   };
@@ -12704,10 +12707,30 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 {c.constrBal>0&&<div style={rowS}><span style={lS}>+ Borrowed for construction (tagged 🔨)</span><span style={vS}>{money(c.constrBal)}</span></div>}
                 {c.constrFromPot>0&&<div style={rowS}><span style={lS}>+ From the pot (rest after reserve)</span><span style={vS}>{money(c.constrFromPot)}</span></div>}
                 <div style={rowS}><span style={lS}>Rehab budget</span><span style={vS}>{money(c.est)}</span></div>
-                {(c.constrBal+c.constrFromPot)>0&&<div style={{display:"flex",gap:8,alignItems:"center",marginTop:4,flexWrap:"wrap"}}>
-                  <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>Construction money held in bank:</span>{bankSelect(sel,"dmConstrBank")}
-                  <span style={{fontSize:10,color:T.textTert}}>its own line item in Bank Recon</span>
-                </div>}
+                {c.constrTotal>0&&(<>
+                  <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap",alignItems:"center"}}>
+                    <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>Spent from your construction money:</span>
+                    {((sel.dmConstrSpentTxns||[]).length>0||(sel.dmConstrSpentCustom||[]).length>0)&&<span style={chip(true)}>✓ {(sel.dmConstrSpentTxns||[]).length+(sel.dmConstrSpentCustom||[]).length} pinned · {money(c.constrSpent)}</span>}
+                    {canEdit&&(sel.qbProjectId
+                      ?<button onClick={()=>setTxPick({propId:sel.id,kind:"cspent",src:sel.qbProjectId})} style={chip(false)}>📌 Pin transactions</button>
+                      :<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin</span>)}
+                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="cspent"?null:"cspent");}} style={chip(false)}>＋ Manual entry</button>}
+                  </div>
+                  {(sel.dmConstrSpentCustom||[]).map(l=>(
+                    <div key={l.id} style={rowS}><span style={lS}>✎ {l.label||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmConstrSpentCustom",(sel.dmConstrSpentCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
+                  ))}
+                  {manualFor==="cspent"&&manualForm((nm,amt)=>updateProp(sel.id,"dmConstrSpentCustom",[...(sel.dmConstrSpentCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
+                  <div style={totRow}><span>Construction money left</span><span style={{color:c.constrLeft<0?T.red:"#15803D"}}>{money(c.constrLeft)}</span></div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
+                    <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>Where it sits:</span>
+                    <select value={sel.dmConstrBank||""} disabled={!canEdit} onChange={e=>updateProp(sel.id,"dmConstrBank",e.target.value)} style={{padding:"4px 9px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text,outline:"none",maxWidth:220}}>
+                      <option value="">— pick where —</option>
+                      <option value="loc">Still on the LOC — not in a bank account</option>
+                      {(bankAccounts||[]).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                    <span style={{fontSize:10,color:T.textTert}}>{sel.dmConstrBank==="loc"?"available to draw — stays out of Bank Recon":"bank pick = its own Bank Recon line item"}</span>
+                  </div>
+                </>)}
               </div>
               <div style={{background:T.goldLight+"55",border:`1px solid ${T.gold}`,borderRadius:12,padding:"10px 14px",marginTop:11}}>
                 <div style={secH}><span>Bottom line</span></div>
@@ -12718,7 +12741,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
             </div>
   );};
   const pickerTarget=txPick?bsProps.find(p=>p.id===txPick.propId):null;
-  const pickerPinned=txPick&&pickerTarget?new Set(((txPick.kind==="float"?pickerTarget.qbFloatTxns:pickerTarget.qbDebtTxns)||[]).map(txKey)):new Set();
+  const pickerPinned=txPick&&pickerTarget?new Set(((txPick.kind==="float"?pickerTarget.qbFloatTxns:txPick.kind==="cspent"?pickerTarget.dmConstrSpentTxns:pickerTarget.qbDebtTxns)||[]).map(txKey)):new Set();
   const txPicker=txPick&&pickerTarget&&<QbTxnsPickerModal txns={pickTxns} loading={pickTxns===null} pinnedKeys={pickerPinned} onToggle={t=>toggleTxn(pickerTarget,t)} onClose={()=>setTxPick(null)}/>;
   // ── Inline (Property Balance Sheet page): mail-style two panes ─────────────
   if(inline){

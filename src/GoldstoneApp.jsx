@@ -12733,9 +12733,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                       <span style={{fontSize:10,color:T.textTert}}>shared with the Draw Report</span></span>
                       <span style={{...vS,color:"#15803D"}}>+{money(c.draws).slice(1)}</span></div>
                     {(sel.qbDrawTxns||[]).slice(-4).map(t=>(
-                      <div key={txKey(t)} style={{...rowS,paddingLeft:14}}>
-                        <span style={lS}>📌 {t.date||""} · {t.memo||t.type||"draw"}</span>
-                        <span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(t.amount)||0))}</span>
+                      <div key={txKey(t)} title={t.memo||""} style={{...rowS,paddingLeft:14,flexWrap:"nowrap"}}>
+                        <span style={{...lS,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📌 {t.date||"draw"}</span>
+                        <span style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}><span style={vS}>{money(Math.abs(Number(t.amount)||0))}</span>
                         {canEdit&&<button onClick={()=>updateProp(sel.id,"qbDrawTxns",(sel.qbDrawTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span>
                       </div>
                     ))}

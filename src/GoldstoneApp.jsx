@@ -12534,6 +12534,152 @@ function FinDocCreator({sharedProps,isMobile}){
     </div>
   );
 }
+
+// ─── Deal Money — per-property financing picture (PREVIEW) ────────────────────
+// One card per deal: the bank's mortgage + holdback vs budget, every credit
+// account pinned with its typed allocation split (down payment / interest
+// reserve / construction), the reserve runway, and the true-equity bottom line
+// with credit counted exactly once. Balances live from QuickBooks; the splits
+// are Elie's intent, typed once per deal.
+function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onClose}){
+  const[selId,setSelId]=useState(null);
+  const[pickCredit,setPickCredit]=useState(false);
+  const[pickMort,setPickMort]=useState(false);
+  const[q,setQ]=useState("");
+  const money=(v)=>v==null?"—":`$${Math.round(v).toLocaleString()}`;
+  const nn=(v)=>{const x=parseFloat(String(v??"").replace(/[^0-9.\-]/g,""));return isNaN(x)?0:x;};
+  const acct=(id)=>(accounts||[]).find(x=>String(x.id)===String(id))||null;
+  const bal=(id)=>{const a=acct(id);return a?Math.abs(Number(a.balance)||0):0;};
+  const nameOf=(id)=>{const a=acct(id);return a?a.name:"(account not found)";};
+  const calc=(p)=>{
+    const est=n((p.financials||{}).rehabCosts)||n((p.financials||{}).actualRehabCosts)||0;
+    const hb=holdbackOf(p);
+    const credits=p.dmCredits||[];
+    const cb=credits.reduce((t,c)=>t+bal(c.acctId),0);
+    const dp=credits.reduce((t,c)=>t+nn(c.dp),0);
+    const rv=credits.reduce((t,c)=>t+nn(c.reserve),0);
+    const cf=credits.reduce((t,c)=>t+nn(c.constr),0);
+    const mort=p.dmMortgageId?bal(p.dmMortgageId):null;
+    const paid=nn(p.dmInterestPaid);
+    const m=bsMetrics(p,accounts,spend);
+    const totalDebt=(mort||0)+cb;
+    return {est,hb,short:hb==null?null:hb-est,credits,cb,dp,rv,cf,un:cb-dp-rv-cf,mort,paid,left:rv-paid,allIn:m.allIn,totalDebt,equity:m.allIn==null?null:m.allIn-totalDebt};
+  };
+  const sel=selId!=null?bsProps.find(p=>p.id===selId):null;
+  const secH={fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"};
+  const rowS={display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,padding:"3px 0",gap:10};
+  const lS={color:T.textSub};const vS={fontWeight:700,color:T.text,whiteSpace:"nowrap"};
+  const pinTag={fontSize:10,fontWeight:700,color:T.blue,background:"#EBF4FF",borderRadius:10,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"};
+  const allocIn={width:86,padding:"5px 7px",borderRadius:8,border:`1px solid ${T.border}`,background:"#fff",fontSize:12.5,outline:"none",boxSizing:"border-box",fontFamily:"inherit",textAlign:"right"};
+  const setCredit=(p,idx,key,val)=>{const arr=(p.dmCredits||[]).map((c,i)=>i===idx?{...c,[key]:val}:c);updateProp(p.id,"dmCredits",arr);};
+  const acctPicker=(exclude,onPick)=>{
+    const list=(accounts||[]).filter(a=>!exclude.includes(String(a.id))&&(!q.trim()||a.name.toLowerCase().includes(q.trim().toLowerCase())));
+    return(
+      <div style={{border:`1px solid ${T.border}`,borderRadius:10,marginTop:8,maxHeight:220,overflowY:"auto",background:"#fff"}}>
+        <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search your QuickBooks accounts…" style={{width:"100%",padding:"9px 12px",border:"none",borderBottom:`1px solid ${T.border}`,fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+        {list.length===0&&<div style={{padding:14,fontSize:12.5,color:T.textTert,textAlign:"center"}}>No matching liability accounts.</div>}
+        {list.map(a=>(
+          <button key={a.id} onClick={()=>{onPick(a);setQ("");}} style={{width:"100%",textAlign:"left",display:"flex",justifyContent:"space-between",gap:10,padding:"9px 12px",background:"transparent",border:"none",borderTop:`1px solid ${T.border}`,cursor:"pointer",fontFamily:"inherit",fontSize:12.5}}>
+            <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:T.text,fontWeight:600}}>{a.name}</span>
+            <span style={{color:T.textSub,whiteSpace:"nowrap"}}>{money(Math.abs(Number(a.balance)||0))}</span>
+          </button>
+        ))}
+      </div>
+    );
+  };
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:430,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(680px,97vw)",maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.3)"}}>
+        <div style={{padding:"14px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          {sel&&<button onClick={()=>{setSelId(null);setPickCredit(false);setPickMort(false);}} style={{background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>‹ Back</button>}
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:16,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🧮 {sel?`${sel.address} — Deal Money`:"Deal Money — by Property"}</div>
+            {!sel&&<div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>Live from QuickBooks · tap a property to pin accounts and set the splits</div>}
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+        <div style={{overflowY:"auto",flex:1}}>
+          {!sel?(
+            <div>
+              <div style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 90px 90px 90px 90px",gap:6,padding:"10px 16px 6px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>
+                <span>Property</span><span style={{textAlign:"right"}}>Bank short</span><span style={{textAlign:"right"}}>Credit used</span><span style={{textAlign:"right"}}>Reserve left</span><span style={{textAlign:"right"}}>Equity</span>
+              </div>
+              {bsProps.map((p,i)=>{const c=calc(p);const setUp=p.dmMortgageId||(p.dmCredits||[]).length;return(
+                <button key={p.id} onClick={()=>setSelId(p.id)} style={{width:"100%",textAlign:"left",display:"grid",gridTemplateColumns:"minmax(120px,1fr) 90px 90px 90px 90px",gap:6,alignItems:"center",padding:"10px 16px",background:i%2?T.goldLight+"40":"transparent",border:"none",borderTop:`1px solid ${T.border}`,cursor:"pointer",fontFamily:"inherit"}}>
+                  <span style={{minWidth:0,fontSize:13,fontWeight:700,color:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</span>
+                  {setUp?(<>
+                    <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:c.short==null?T.textTert:c.short<0?T.red:"#15803D"}}>{c.short==null?"—":money(c.short)}</span>
+                    <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:T.text}}>{money(c.cb)}</span>
+                    <span style={{textAlign:"right",fontSize:12.5,fontWeight:700,color:c.left<0?T.red:"#15803D"}}>{money(c.left)}</span>
+                    <span style={{textAlign:"right",fontSize:12.5,fontWeight:800,color:c.equity==null?T.textTert:c.equity>=0?"#15803D":T.red}}>{c.equity==null?"—":money(c.equity)}</span>
+                  </>):(
+                    <span style={{gridColumn:"2 / span 4",textAlign:"right",fontSize:11.5,color:T.textTert}}>Tap to set up →</span>
+                  )}
+                </button>
+              );})}
+            </div>
+          ):(()=>{const c=calc(sel);return(
+            <div style={{padding:"14px 18px",display:"flex",flexDirection:"column",gap:14}}>
+              <div>
+                <div style={secH}>🏦 Bank loan {sel.dmMortgageId&&<span style={pinTag}>📌 {nameOf(sel.dmMortgageId)}</span>}
+                  {canEdit&&<button onClick={()=>{setPickMort(v=>!v);setPickCredit(false);setQ("");}} style={{marginLeft:"auto",background:"none",border:`1px dashed ${T.border}`,borderRadius:14,color:T.blue,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit",padding:"3px 10px"}}>{sel.dmMortgageId?"Change":"📌 Pin mortgage account"}</button>}
+                </div>
+                {pickMort&&acctPicker([],a=>{updateProp(sel.id,"dmMortgageId",String(a.id));setPickMort(false);})}
+                <div style={rowS}><span style={lS}>Drawn so far (loan balance)</span><span style={vS}>{sel.dmMortgageId?money(c.mort):"—"}</span></div>
+                <div style={rowS}><span style={lS}>Construction holdback committed</span><span style={vS}>{c.hb==null?"— (set in the Holdback report)":money(c.hb)}</span></div>
+                <div style={rowS}><span style={lS}>Rehab budget (your underwriting)</span><span style={vS}>{money(c.est)}</span></div>
+                <div style={rowS}><span style={lS}>{c.short!=null&&c.short<0?"Bank is short — you float":"Holdback vs budget"}</span><span style={{...vS,color:c.short==null?T.textTert:c.short<0?T.red:"#15803D"}}>{c.short==null?"—":money(c.short)}</span></div>
+              </div>
+              <div style={{borderTop:`1px solid ${T.border}`,paddingTop:12}}>
+                <div style={secH}>💳 Your credit
+                  {canEdit&&<button onClick={()=>{setPickCredit(v=>!v);setPickMort(false);setQ("");}} style={{marginLeft:"auto",background:"none",border:`1px dashed ${T.border}`,borderRadius:14,color:T.blue,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit",padding:"3px 10px"}}>📌 Pin a credit account</button>}
+                </div>
+                {pickCredit&&acctPicker((sel.dmCredits||[]).map(x=>String(x.acctId)),a=>{updateProp(sel.id,"dmCredits",[...(sel.dmCredits||[]),{acctId:String(a.id),dp:"",reserve:"",constr:""}]);setPickCredit(false);})}
+                {(sel.dmCredits||[]).length===0&&!pickCredit&&<div style={{fontSize:12,color:T.textTert,padding:"4px 0"}}>No credit accounts pinned yet — LOCs, third mortgages, anything that helped fund this deal.</div>}
+                {(sel.dmCredits||[]).map((cr,i)=>{const b=bal(cr.acctId);const un=b-nn(cr.dp)-nn(cr.reserve)-nn(cr.constr);return(
+                  <div key={cr.acctId} style={{border:`1px solid ${T.border}`,borderRadius:10,padding:"9px 12px",marginBottom:8,background:T.bg}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+                      <span style={{...pinTag,maxWidth:"none",flex:1,minWidth:0}}>📌 {nameOf(cr.acctId)}</span>
+                      <span style={{fontSize:12.5,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{money(b)} borrowed</span>
+                      {canEdit&&<button onClick={()=>updateProp(sel.id,"dmCredits",(sel.dmCredits||[]).filter((_,j)=>j!==i))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:0}}>×</button>}
+                    </div>
+                    <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                      {[["dp","Down payment"],["reserve","Interest reserve"],["constr","Construction"]].map(([k,label])=>(
+                        <label key={k} style={{display:"flex",flexDirection:"column",gap:3,fontSize:10,fontWeight:700,color:T.textSub}}>
+                          {label}
+                          <input value={cr[k]||""} onChange={e=>setCredit(sel,i,k,e.target.value)} placeholder="$0" inputMode="decimal" disabled={!canEdit} style={allocIn}/>
+                        </label>
+                      ))}
+                      <span style={{fontSize:11,color:un<0?T.red:T.textTert,marginLeft:"auto",whiteSpace:"nowrap"}}>{un<0?`over-allocated ${money(-un)}`:`unallocated ${money(un)}`}</span>
+                    </div>
+                  </div>
+                );})}
+                {(sel.dmCredits||[]).length>0&&(
+                  <div style={rowS}><span style={lS}>Borrowed total → DP {money(c.dp)} · reserve {money(c.rv)} · construction {money(c.cf)}</span><span style={vS}>{money(c.cb)}</span></div>
+                )}
+              </div>
+              <div style={{borderTop:`1px solid ${T.border}`,paddingTop:12}}>
+                <div style={secH}>⏳ Interest reserve</div>
+                <div style={rowS}><span style={lS}>Set aside (sum of the reserve boxes)</span><span style={vS}>{money(c.rv)}</span></div>
+                <div style={rowS}><span style={lS}>Interest paid to date</span>
+                  <input value={sel.dmInterestPaid||""} onChange={e=>updateProp(sel.id,"dmInterestPaid",e.target.value)} placeholder="$0" inputMode="decimal" disabled={!canEdit} style={allocIn}/></div>
+                <div style={rowS}><span style={lS}>Left in reserve</span><span style={{...vS,color:c.left<0?T.red:"#15803D"}}>{money(c.left)}</span></div>
+              </div>
+              <div style={{border:`1px solid ${T.gold}`,background:T.goldLight+"55",borderRadius:12,padding:"11px 14px"}}>
+                <div style={secH}>🎯 Bottom line</div>
+                <div style={rowS}><span style={lS}>Total all-in cost (live from QuickBooks)</span><span style={vS}>{c.allIn==null?"— (link the QB project on the property)":money(c.allIn)}</span></div>
+                <div style={rowS}><span style={lS}>Total debt (bank {money(c.mort||0)} + credit {money(c.cb)})</span><span style={vS}>{money(c.totalDebt)}</span></div>
+                <div style={{...rowS,fontSize:14.5}}><span style={{...lS,fontWeight:700}}>True personal equity in this deal</span><span style={{...vS,fontSize:15,color:c.equity==null?T.textTert:c.equity>=0?"#15803D":T.red}}>{c.equity==null?"—":money(c.equity)}</span></div>
+                <div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>Credit is counted once — the borrowed balances, never the pot AND its uses.</div>
+              </div>
+            </div>
+          );})()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const { draws, setDraws, flushDraws, setSharedProps, flushProps }=useData();
   const setPlan=(drawId,plan)=>{if(!canEdit)return;setDraws(prev=>prev.map(d=>d.id===drawId?{...d,futureFundsPlan:plan}:d));if(flushDraws)setTimeout(flushDraws,0);};
@@ -12879,11 +13025,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     {id:"future",icon:"📈",title:"Available Future Funds",desc:"LOC capital freeing up from your upcoming closings."},
     {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Loans, all-in cost, reserves and equity — spreadsheet style."},
     {id:"hold",icon:"🏗️",title:"Construction Holdback vs Actuals",desc:"Bank's construction holdback vs your underwriting estimate, per property."},
+    {id:"dm",icon:"🧮",title:"Deal Money — by Property",desc:"Bank loan, credit lines with their splits, interest reserve runway and true equity — live from QuickBooks."},
     {id:"draw",icon:"🏦",title:"Construction Draw Report",desc:"Holdback vs draws pinned from each property's mortgage account, and what's left."},
     {id:"closings",icon:"📅",title:"Upcoming Closings — Capital Flow",desc:"In-closing sales returning LOC capital vs under-contract buys needing equity, with a running balance."},
     {id:"cashflow",icon:"💰",title:"Monthly Cash Flow — Closings",desc:"Net cash landing each month as your in-closing deals settle — sale minus costs, payoffs and unpaid interest."},
   ];
-  const rep=open?REPORTS[open]:null;
+  const rep=(open&&open!=="dm")?REPORTS[open]:null;
 
   return(
     <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?"14px":"18px 24px"}}>
@@ -12900,6 +13047,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
         ))}
       </div>
 
+      {open==="dm"&&<FinDealMoney bsProps={bsProps} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={holdbackOf} onClose={()=>setOpen(null)}/>}
       {rep&&(
         <div onClick={()=>setOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:900,maxWidth:"100%",maxHeight:isMobile?"92vh":"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>

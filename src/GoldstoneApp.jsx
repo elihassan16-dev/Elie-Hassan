@@ -12643,12 +12643,19 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               <div style={sec}>
                 <div style={secH}><span>Deployed — down payment, deposit</span></div>
                 <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
-                  {((sel.qbFloatTxns||[]).length>0||(sel.qbFloatCustom||[]).length>0)&&<span style={chip(true)}>✓ {(sel.qbFloatTxns||[]).length+(sel.qbFloatCustom||[]).length} pinned · {money(c.deployed)}</span>}
                   {canEdit&&(sel.qbProjectId
                     ?<button onClick={()=>setTxPick({propId:sel.id,kind:"float",src:sel.qbProjectId})} style={chip(false)}>📌 Pin transactions</button>
                     :<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin transactions</span>)}
                   {canEdit&&<button onClick={()=>{setManualFor(manualFor==="float"?null:"float");}} style={chip(false)}>＋ Manual entry</button>}
+                  {canEdit&&(sel.qbFloatTxns||[]).length>1&&<button onClick={()=>{if(window.confirm(`Unpin all ${(sel.qbFloatTxns||[]).length} deployed transactions?`))updateProp(sel.id,"qbFloatTxns",[]);}} style={{...chip(false),color:T.red,borderColor:T.red+"66"}}>Clear all</button>}
                 </div>
+                {(sel.qbFloatTxns||[]).map(t=>(
+                  <div key={txKey(t)} title={[t.vendor,t.memo].filter(Boolean).join(" · ")} style={{...rowS,paddingLeft:14,flexWrap:"nowrap"}}>
+                    <span style={{...lS,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📌 {t.date||"pinned"}{t.vendor?` · ${String(t.vendor).slice(0,24)}`:""}</span>
+                    <span style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}><span style={vS}>{money(Math.abs(Number(t.amount)||0))}</span>
+                    {canEdit&&<button onClick={()=>updateProp(sel.id,"qbFloatTxns",(sel.qbFloatTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span>
+                  </div>
+                ))}
                 {(sel.qbFloatCustom||[]).map(l=>(
                   <div key={l.id} style={rowS}><span style={lS}>✎ {l.label||l.name||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"qbFloatCustom",(sel.qbFloatCustom||[]).filter(x=>x.id!==l.id))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}</span></div>
                 ))}

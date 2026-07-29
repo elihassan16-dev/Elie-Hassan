@@ -12443,14 +12443,14 @@ function dmPotMath(p,accounts){
   const keys=[...(p.qbLoanAccounts||[]).map(id=>({key:String(id),bal:bal(id)})),...(p.qbLoanCustom||[]).map(l=>({key:"c"+l.id,bal:Math.abs(Number(l.amount)||0)}))];
   const potBal=keys.filter(e=>potIds.includes(e.key)).reduce((t,e)=>t+e.bal,0);
   const constrBal=keys.filter(e=>conIds.includes(e.key)).reduce((t,e)=>t+e.bal,0);
-  const deployed=Math.abs(bsSum(p.qbFloatTxns))+Math.abs(bsSum(p.qbFloatCustom));
+  const deployed=bsSum(p.qbFloatTxns)+bsSum(p.qbFloatCustom);
   const leftPot=potBal-deployed;
   const mode=p.dmReserveMode||"all";
   const amt=parseFloat(String(p.dmReserveAmt??"").replace(/[^0-9.\-]/g,""));
   const reserve=mode==="all"?Math.max(0,leftPot):(isNaN(amt)?0:amt);
   const fromPot=(mode==="custom"&&p.dmRestToConstr)?Math.max(0,leftPot-reserve):0;
-  const paid=Math.abs(bsSum(p.qbDebtTxns))+Math.abs(bsSum(p.qbDebtCustom));
-  const constrSpent=Math.abs(bsSum(p.dmConstrSpentTxns))+Math.abs(bsSum(p.dmConstrSpentCustom));
+  const paid=bsSum(p.qbDebtTxns)+bsSum(p.qbDebtCustom);
+  const constrSpent=bsSum(p.dmConstrSpentTxns)+bsSum(p.dmConstrSpentCustom);
   const draws=Math.abs(bsSum(p.qbDrawTxns))+Math.abs(bsSum(p.dmDrawCustom));
   return {reserveLeft:Math.max(0,reserve-paid),constrHeld:Math.max(0,constrBal+fromPot+draws-constrSpent)};
 }
@@ -12540,18 +12540,18 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const totalLoans=entries.reduce((t,e)=>t+e.bal,0);
     const potBal=entries.filter(e=>jobOf(p,e.key)==="pot").reduce((t,e)=>t+e.bal,0);
     const constrBal=entries.filter(e=>jobOf(p,e.key)==="constr").reduce((t,e)=>t+e.bal,0);
-    const deployed=sumT(p.qbFloatTxns)+sumT(p.qbFloatCustom);
+    const deployed=bsSum(p.qbFloatTxns)+bsSum(p.qbFloatCustom);
     const leftPot=potBal-deployed;
     const mode=p.dmReserveMode||"all";
     const reserve=mode==="all"?Math.max(0,leftPot):nn(p.dmReserveAmt);
     const restAfterReserve=Math.max(0,leftPot-reserve);
     const constrFromPot=(mode==="custom"&&p.dmRestToConstr)?restAfterReserve:0;
-    const paid=sumT(p.qbDebtTxns)+sumT(p.qbDebtCustom);
+    const paid=bsSum(p.qbDebtTxns)+bsSum(p.qbDebtCustom);
     const left=reserve-paid;
     const hb=holdbackOf(p);
     const est=n((p.financials||{}).rehabCosts)||n((p.financials||{}).actualRehabCosts)||0;
     const constrTotal=constrBal+constrFromPot;
-    const constrSpent=sumT(p.dmConstrSpentTxns)+sumT(p.dmConstrSpentCustom);
+    const constrSpent=bsSum(p.dmConstrSpentTxns)+bsSum(p.dmConstrSpentCustom);
     const draws=sumT(p.qbDrawTxns)+sumT(p.dmDrawCustom);
     const constrLeft=constrTotal+draws-constrSpent;
     const funding=(hb==null&&constrTotal===0)?null:(hb||0)+constrTotal-est;
@@ -12604,7 +12604,13 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       </div>
     );
   };
-  const slimT=(t)=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey});
+  const slimT=(t)=>{
+    // A journal-entry line arrives positive with a Debit/Credit label — keep
+    // the direction in the stored amount (Credit = money toward the deal = −).
+    const raw=Number(t.amount)||0;
+    const amt=t.postingType==="Credit"?-Math.abs(raw):t.postingType==="Debit"?Math.abs(raw):raw;
+    return {date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:amt,lineKey:t.lineKey};
+  };
   const toggleTxn=(p,t)=>{
     const field=txPick.kind==="float"?"qbFloatTxns":txPick.kind==="cspent"?"dmConstrSpentTxns":txPick.kind==="draw"?"qbDrawTxns":"qbDebtTxns";
     const cur=p[field]||[];const k=txKey(t);const has=cur.some(x=>txKey(x)===k);
@@ -12644,7 +12650,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               <div style={sec}>
                 <div style={secH}><span>Deployed — down payment, deposit</span></div>
                 <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
-                  {(sel.qbFloatTxns||[]).length>0&&<button onClick={()=>setPinsOpen(true)} title="See every pinned transaction" style={chip(true)}>✓ {(sel.qbFloatTxns||[]).length} pinned · {money(sumT(sel.qbFloatTxns))} ›</button>}
+                  {(sel.qbFloatTxns||[]).length>0&&<button onClick={()=>setPinsOpen(true)} title="See every pinned transaction" style={chip(true)}>✓ {(sel.qbFloatTxns||[]).length} pinned · {money(bsSum(sel.qbFloatTxns))} ›</button>}
                   {canEdit&&(sel.qbProjectId
                     ?<button onClick={()=>setTxPick({propId:sel.id,kind:"float",src:sel.qbProjectId})} style={chip(false)}>📌 Pin transactions</button>
                     :<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin transactions</span>)}
@@ -12661,7 +12667,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                         {(sel.qbFloatTxns||[]).map(t=>(
                           <div key={txKey(t)} title={[t.vendor,t.memo].filter(Boolean).join(" · ")} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"9px 16px",borderBottom:`1px solid ${T.border}`}}>
                             <span style={{minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.date||"pinned"}{t.vendor?` · ${t.vendor}`:t.memo?` · ${String(t.memo).slice(0,30)}`:""}</span>
-                            <span style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}><b style={{fontSize:12.5}}>{money(Math.abs(Number(t.amount)||0))}</b>
+                            <span style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+                            <b style={{fontSize:12.5,color:(Number(t.amount)||0)<0?T.red:T.text}}>{(Number(t.amount)||0)<0?`−${money(Math.abs(Number(t.amount)||0)).slice(1)}`:money(Number(t.amount)||0)}</b>
+                            {canEdit&&<button onClick={()=>updateProp(sel.id,"qbFloatTxns",(sel.qbFloatTxns||[]).map(x=>txKey(x)===txKey(t)?{...x,amount:-(Number(x.amount)||0)}:x))} title="Flip direction — add vs subtract" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:11,fontWeight:800,lineHeight:1,padding:"2px 6px",fontFamily:"inherit"}}>±</button>}
                             {canEdit&&<button onClick={()=>updateProp(sel.id,"qbFloatTxns",(sel.qbFloatTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:0}}>×</button>}</span>
                           </div>
                         ))}

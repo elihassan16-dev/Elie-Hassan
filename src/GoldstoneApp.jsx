@@ -12901,9 +12901,12 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 <button onClick={()=>setSelId(p.id)} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:8,padding:"11px 14px",background:active?T.goldLight:"transparent",border:"none",borderBottom:`1px solid ${T.border}`,borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent",cursor:"pointer",fontFamily:"inherit"}}>
                   <span style={{flex:1,minWidth:0}}>
                     <span style={{display:"block",fontSize:13,fontWeight:active?800:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</span>
-                    <span style={{display:"block",fontSize:10.5,color:T.textSub,marginTop:2}}>{c.upfront?`left ${money(c.leftover==null?0:c.leftover)}`:`reserve ${money(c.left)}`} · loans {money(c.totalLoans)}</span>
+                    <span style={{display:"block",fontSize:10.5,color:T.textSub,marginTop:2}}>all-in {c.allIn==null?"—":money(c.allIn)} · loans {money(c.totalLoans)} · equity {c.equity==null?"—":money(c.equity)}</span>
                   </span>
-                  <span style={{flexShrink:0,fontSize:12,fontWeight:800,color:c.equity==null?T.textTert:c.equity>=0?"#15803D":T.red}}>{c.equity==null?"—":money(c.equity)}</span>
+                  <span style={{flexShrink:0,textAlign:"right"}}>
+                    <span style={{display:"block",fontSize:8.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>{c.upfront?"Funds left":"Int. reserve"}</span>
+                    <span style={{display:"block",fontSize:12.5,fontWeight:800,color:(c.upfront?(c.leftover||0):c.left)>=0?"#15803D":T.red}}>{c.upfront?money(c.leftover==null?0:c.leftover):money(c.left)}</span>
+                  </span>
                 </button>
               </Fragment>);
             });})()}

@@ -12581,18 +12581,18 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   };
   const secH={fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,background:T.bg,margin:"0 -18px",padding:"7px 18px 6px",borderBottom:`1px solid ${T.border}`};
   const secAmt={fontSize:13.5,fontWeight:800,color:T.text,textTransform:"none",letterSpacing:0,whiteSpace:"nowrap"};
-  const rowS={display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"4px 0",gap:8,flexWrap:"wrap"};
+  const rowS={display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"3px 0",gap:8,flexWrap:"wrap"};
   const lS={color:T.textSub,display:"flex",gap:6,alignItems:"center",minWidth:0,flexWrap:"wrap"};
   const vS={fontWeight:700,color:T.text,whiteSpace:"nowrap"};
   const pinTag={fontSize:10.5,fontWeight:700,color:T.blue,maxWidth:250,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"};
-  const chip=(on)=>({display:"inline-flex",alignItems:"center",gap:5,fontSize:10.5,fontWeight:700,borderRadius:13,padding:"3px 9px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",border:on?"1px solid #16A34A":`1px dashed ${T.border}`,color:on?"#15803D":T.blue,background:on?"#EDFBF1":"#fff"});
+  const chip=(on)=>({display:"inline-flex",alignItems:"center",gap:5,fontSize:10.5,fontWeight:700,borderRadius:13,padding:"3px 9px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",border:on?"1px solid #16A34A":`1px dashed ${T.border}`,color:on?"#15803D":T.blue,background:on?"#EDFBF1":"#fff",textTransform:"none",letterSpacing:0});
   const jobTag=(p,key)=>{
     const j=jobOf(p,key);
     const st=j==="constr"?{background:"#FFEDD5",color:"#C2410C"}:j==="pot"?{background:"#F3E8FF",color:"#9333EA"}:{background:"#DBEAFE",color:T.blue};
     const label=j==="constr"?"🔨 CONSTRUCTION":j==="pot"?"✓ LOC POT":"BANK";
     return <button onClick={canEdit?()=>setJob(bsProps.find(x=>x.id===p.id)||p,key,JOB_NEXT[j]):undefined} title="Tap to change this account's job — bank · LOC pot · construction" style={{...st,fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",border:"none",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{label}</button>;
   };
-  const sec={padding:"0 0 10px"};
+  const sec={padding:"0 0 7px"};
   const totRow={display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:800,color:T.text,padding:"7px 0 0",marginTop:6,borderTop:`1px dashed ${T.border}`};
   const bankSelect=(sel,field)=>(
     <select value={sel[field]||""} disabled={!canEdit} onChange={e=>updateProp(sel.id,field,e.target.value)} style={{padding:"4px 9px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text,outline:"none",maxWidth:190}}>
@@ -12651,7 +12651,12 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 );})}
               </div>
               <div style={sec}>
-                <div style={secH}><span>🏦 Total loans</span></div>
+                <div style={secH}><span>🏦 Total loans</span>
+                  {canEdit&&<span style={{display:"flex",gap:5}} title="Tap an account's tag to change its job — bank · LOC pot · construction">
+                    <button onClick={()=>{setPickLoan(v=>!v);setManualFor(null);setQ("");}} style={chip(false)}>📌 Pin</button>
+                    <button onClick={()=>{setManualFor(manualFor==="loan"?null:"loan");setPickLoan(false);}} style={chip(false)}>＋ Manual</button>
+                  </span>}
+                </div>
                 {c.entries.map(e=>(
                   <div key={e.key} style={rowS}>
                     <span style={lS}><span style={pinTag}>{e.custom?"✎":"📌"} {e.name}</span>{jobTag(sel,e.key)}</span>
@@ -12660,11 +12665,6 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                     </span>
                   </div>
                 ))}
-                {canEdit&&<div style={{display:"flex",gap:6,marginTop:5,flexWrap:"wrap",alignItems:"center"}}>
-                  <button onClick={()=>{setPickLoan(v=>!v);setManualFor(null);setQ("");}} style={chip(false)}>📌 Pin from QuickBooks</button>
-                  <button onClick={()=>{setManualFor(manualFor==="loan"?null:"loan");setPickLoan(false);}} style={chip(false)}>＋ Manual entry</button>
-                  <span style={{fontSize:10,color:T.textTert}}>tap a tag to change an account's job</span>
-                </div>}
                 {pickLoan&&acctPicker(c.entries.filter(e=>!e.custom).map(e=>e.key),a=>{updateProp(sel.id,"qbLoanAccounts",[...(sel.qbLoanAccounts||[]),String(a.id)]);setPickLoan(false);})}
                 {manualFor==="loan"&&manualForm((nm,amt)=>updateProp(sel.id,"qbLoanCustom",[...(sel.qbLoanCustom||[]),{id:Date.now(),name:nm||"Manual entry",amount:amt}]))}
                 <div style={totRow}><span>Total loans</span><span style={{color:"#B8953F"}}>{money(c.totalLoans)}</span></div>
@@ -12685,13 +12685,12 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 <div style={secH} title="The accounts tagged ✓ LOC POT above — your borrowed pot for down payment + interest reserve."><span>🪙 LOC pot</span><span style={secAmt}>{money(c.potBal)}</span></div>
               </div>
               <div style={sec}>
-                <div style={secH}><span>🚀 Deployed — down payment, deposit</span></div>
-                <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
-                  {(sel.qbFloatTxns||[]).length>0&&<button onClick={()=>setPinsOpen({field:"qbFloatTxns",title:"Deployed — pinned transactions"})} title="See every pinned transaction" style={chip(true)}>✓ {(sel.qbFloatTxns||[]).length} pinned · {money(bsSum(sel.qbFloatTxns))} ›</button>}
-                  {canEdit&&(sel.qbProjectId
-                    ?<button onClick={()=>setTxPick({propId:sel.id,kind:"float",src:sel.qbProjectId})} style={chip(false)}>📌 Pin transactions</button>
-                    :<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin transactions</span>)}
-                  {canEdit&&<button onClick={()=>{setManualFor(manualFor==="float"?null:"float");}} style={chip(false)}>＋ Manual entry</button>}
+                <div style={secH}><span>🚀 Deployed — down payment, deposit</span>
+                  <span style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                    {(sel.qbFloatTxns||[]).length>0&&<button onClick={()=>setPinsOpen({field:"qbFloatTxns",title:"Deployed — pinned transactions"})} title="See every pinned transaction" style={chip(true)}>✓ {(sel.qbFloatTxns||[]).length} · {money(bsSum(sel.qbFloatTxns))} ›</button>}
+                    {canEdit&&sel.qbProjectId&&<button onClick={()=>setTxPick({propId:sel.id,kind:"float",src:sel.qbProjectId})} style={chip(false)}>📌 Pin</button>}
+                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="float"?null:"float");}} style={chip(false)}>＋</button>}
+                  </span>
                 </div>
                 {pinsOpen&&(()=>{
                   const arr=sel[pinsOpen.field]||[];
@@ -12761,7 +12760,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               </div>
               <div style={sec}>
                 <div style={secH}><span>🪙 Left in the pot</span><span style={{...secAmt,color:c.leftPot<0?T.red:T.text}}>{money(c.leftPot)}</span></div>
-                <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"8px 12px",marginTop:6,fontSize:12.5}}>
+                <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"5px 10px",marginTop:5,fontSize:12}}>
                   <label style={{display:"flex",gap:8,alignItems:"center",padding:"3px 0",cursor:canEdit?"pointer":"default"}}>
                     <input type="radio" checked={(sel.dmReserveMode||"all")==="all"} onChange={()=>canEdit&&updateProp(sel.id,"dmReserveMode","all")} style={{accentColor:T.gold}}/>
                     <b>All of it → interest reserve</b><span style={{fontSize:10.5,color:T.textTert}}>auto — re-checks itself as balances move</span>
@@ -12784,13 +12783,12 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 </div>
               </div>
               <div style={sec}>
-                <div style={secH}><span>🧾 Debt service paid</span></div>
-                <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
-                  {canEdit&&sel.qbProjectId&&<button onClick={()=>updateProp(sel.id,"qbDebtAuto",!sel.qbDebtAuto)} style={chip(!!sel.qbDebtAuto)}>{sel.qbDebtAuto?"✓ Auto — pins this property's debt service every month":"Auto-pin debt service monthly?"}</button>}
-                  {canEdit&&(sel.qbProjectId
-                    ?<button onClick={()=>setTxPick({propId:sel.id,kind:"debt",src:sel.qbProjectId})} style={chip(false)}>📌 Pin payments</button>
-                    :<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin payments</span>)}
-                  {canEdit&&<button onClick={()=>{setManualFor(manualFor==="debt"?null:"debt");}} style={chip(false)}>＋ Manual entry</button>}
+                <div style={secH}><span>🧾 Debt service paid</span>
+                  <span style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                    {canEdit&&sel.qbProjectId&&<button onClick={()=>updateProp(sel.id,"qbDebtAuto",!sel.qbDebtAuto)} title="Pins this property's debt service automatically every month" style={chip(!!sel.qbDebtAuto)}>{sel.qbDebtAuto?"✓ Auto":"Auto?"}</button>}
+                    {canEdit&&sel.qbProjectId&&<button onClick={()=>setTxPick({propId:sel.id,kind:"debt",src:sel.qbProjectId})} style={chip(false)}>📌 Pin</button>}
+                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="debt"?null:"debt");}} style={chip(false)}>＋</button>}
+                  </span>
                 </div>
                 {(sel.qbDebtTxns||[]).map(t=>(
                   <div key={txKey(t)} style={rowS}>

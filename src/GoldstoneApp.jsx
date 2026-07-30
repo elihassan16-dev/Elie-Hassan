@@ -12698,7 +12698,8 @@ function dmPotMath(p,accounts,spend,bankAccounts){
   const rehabManual=parseFloat(String((p.financials||{}).actualRehabCosts??"").replace(/[^0-9.\-]/g,""));
   const constrSpentPinned=bsSum(p.dmConstrSpentTxns)+bsSum(p.dmConstrSpentCustom);
   const constrSpent=rehabLive!=null?rehabLive:(!isNaN(rehabManual)&&rehabManual>0?rehabManual:constrSpentPinned);
-  const draws=Math.abs(bsSum(p.qbDrawTxns))+Math.abs(bsSum(p.dmDrawCustom))+adjDraws;
+  const pendDraws=(p.dmPendingDraws||[]).reduce((t,x)=>t+Math.abs(Number(x.amount)||0),0);
+  const draws=Math.abs(bsSum(p.qbDrawTxns))+Math.abs(bsSum(p.dmDrawCustom))+adjDraws+pendDraws;
   const upfront=(p.dmFinType||"draws")==="upfront";
   if(upfront){
     // Funded up front: one formula — the loan minus actual spend to date is
@@ -12815,6 +12816,22 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const same=ck.size===nk.size&&[...nk].every(k=>ck.has(k));
     if(!same)updateProp(p.id,"qbDrawTxns",auto);
   },[drawAcctTxns,selForAuto&&selForAuto.dmDrawExcluded,selForAuto&&selForAuto.dmDrawAuto]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A pending "bank sent a draw" entry clears itself once QuickBooks records
+  // the real credit: same amount (within a dollar), dated no more than a few
+  // days before the pending entry.
+  useEffect(()=>{
+    const p=selForAuto;if(!p)return;
+    const pend=p.dmPendingDraws||[];if(!pend.length)return;
+    const qb=p.qbDrawTxns||[];
+    const used=new Set();
+    const keep=pend.filter(pd=>{
+      const cut=new Date(new Date((pd.date||"1970-01-01")+"T00:00:00Z").getTime()-5*86400000).toISOString().slice(0,10);
+      const hit=qb.find(t=>!used.has(txKey(t))&&Math.abs(Math.abs(Number(t.amount)||0)-Math.abs(Number(pd.amount)||0))<=1&&String(t.date||"")>=cut);
+      if(hit){used.add(txKey(hit));return false;}
+      return true;
+    });
+    if(keep.length!==pend.length)updateProp(p.id,"dmPendingDraws",keep);
+  },[selForAuto&&JSON.stringify(selForAuto.qbDrawTxns||[]),selForAuto&&JSON.stringify(selForAuto.dmPendingDraws||[])]); // eslint-disable-line react-hooks/exhaustive-deps
   const money=(v)=>v==null?"—":`$${Math.round(v).toLocaleString()}`;
   const nn=(v)=>{const x=parseFloat(String(v??"").replace(/[^0-9.\-]/g,""));return isNaN(x)?0:x;};
   const sumT=(arr)=>Math.abs(bsSum(arr));
@@ -12857,7 +12874,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     // from an account straight into the build.
     const adjDraws=(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind==="draw").map(a=>({...a,bankName:b.name})));
     const adjDrawSum=adjDraws.reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
-    const draws=sumT(p.qbDrawTxns)+sumT(p.dmDrawCustom)+adjDrawSum;
+    const pending=p.dmPendingDraws||[];
+    const pendSum=pending.reduce((t,x)=>t+Math.abs(Number(x.amount)||0),0);
+    const draws=sumT(p.qbDrawTxns)+sumT(p.dmDrawCustom)+adjDrawSum+pendSum;
     const upfront=(p.dmFinType||"draws")==="upfront";
     const fundAuto=upfront&&!!p.dmFundAuto;
     const autoFund=Math.max(0,leftPot-reserve);
@@ -12886,7 +12905,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const equity=m.allIn==null?null:m.allIn-totalLoans+bsSum(p.qbBsCustom);
     const leftover=m.allIn==null?null:totalLoans-m.allIn;
     const reserveHolders=entries.filter(e=>jobOf(p,e.key)==="pot").map(e=>e.name.split(":").pop().trim());
-    return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,constrSpent,constrLeft,rehabLive,spentReal,constrEquity,rate,bankBal,fullLoan,monthlyInt,holdMonths,suggReserve,adjDraws,draws,inFlow,fundAuto,autoFund,constrTotalEff,upfront,leftover,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
+    return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,constrSpent,constrLeft,rehabLive,spentReal,constrEquity,rate,bankBal,fullLoan,monthlyInt,holdMonths,suggReserve,adjDraws,pending,pendSum,draws,inFlow,fundAuto,autoFund,constrTotalEff,upfront,leftover,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
   };
   const secH={fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,background:T.bg,margin:"0 -18px",padding:"7px 18px 6px",borderBottom:`1px solid ${T.border}`};
   const secAmt={fontSize:13.5,fontWeight:800,color:T.text,textTransform:"none",letterSpacing:0,whiteSpace:"nowrap"};
@@ -13182,6 +13201,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
             </div>
   );};
   const[setupOpen,setSetupOpen]=useState(false);
+  const[drawIn,setDrawIn]=useState(null); // {propId,amt} — 💸 bank sent a draw
   const[detailPop,setDetailPop]=useState(null); // "reserve" | "constr" | "equity"
   const[allInBreak,setAllInBreak]=useState(false); // all-in cost breakdown over the equity popup
   const bankName=(id)=>{const b=(bankAccounts||[]).find(x=>String(x.id)===String(id));return b?b.name:null;};
@@ -13216,6 +13236,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           <div style={{flex:1,minWidth:0,fontSize:12,color:"#8A8F98",lineHeight:1.5}}>
             {c.upfront?"💼 Funded up front (full LOC)":"🏦 Draws as you build"} · loans {money(c.totalLoans)}{!c.upfront&&c.potBal>0?` · pot ${money(c.potBal)}`:""}{holder?` · reserve held in ${holder}`:""}
           </div>
+          {canEdit&&!c.upfront&&<button onClick={()=>setDrawIn({propId:sel.id,amt:""})} style={{flexShrink:0,fontSize:12,fontWeight:700,color:"#8a6d1f",background:"#FBF7EC",border:"1.5px dashed #C9A227",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"inherit"}}>💸 Bank sent a draw</button>}
           {canEdit&&<button onClick={()=>{setSetupOpen(true);setSetupStep(null);}} style={{flexShrink:0,fontSize:12,fontWeight:700,color:"#5A6472",background:"#fff",border:"1px solid #E2E2E8",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"inherit"}}>⚙ Deal setup</button>}
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:14}}>
@@ -13345,6 +13366,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         {(sel.qbDrawTxns||[]).map(t=>(<div key={txKey(t)} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(t.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>sel.dmDrawAuto?updateProp(sel.id,"dmDrawExcluded",[...(sel.dmDrawExcluded||[]),txKey(t)]):updateProp(sel.id,"qbDrawTxns",(sel.qbDrawTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title={sel.dmDrawAuto?"Exclude — auto will skip it":"Unpin"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button>}</b></div>))}
         {(sel.dmDrawCustom||[]).map(l=>(<div key={l.id} style={pr}><span style={{color:T.textSub}}>✎ {l.label||"Manual draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(l.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>×</button>}</b></div>))}
         {(c.adjDraws||[]).map(a=>(<div key={"adj"+a.id} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title="Linked from a Bank Recon adjustment — unlink it there">🏦 {a.label||"Borrowed"} — from {a.bankName}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(a.amount)||0)).slice(1)}</b></div>))}
+        {(c.pending||[]).map(x=>(<div key={"pd"+x.id} style={{...pr,background:"#FBF7EC"}}><span style={{color:"#8a6d1f",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>⏳ {fmtDay(x.date)} · Bank draw — waiting on QuickBooks</span><span style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(x.amount)||0)).slice(1)}</b><span style={{fontSize:8.5,fontWeight:800,background:"#FDE9C8",color:"#B45309",borderRadius:8,padding:"2px 7px"}}>PENDING</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmPendingDraws",(sel.dmPendingDraws||[]).filter(y=>y.id!==x.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>×</button>}</span></div>))}
         {dExRows.map(t=>(<div key={"x"+txKey(t)} style={{...pr,opacity:.55}}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"line-through"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><button onClick={()=>canEdit&&updateProp(sel.id,"dmDrawExcluded",(sel.dmDrawExcluded||[]).filter(k=>k!==txKey(t)))} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:9.5,fontWeight:800,padding:"3px 8px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button></div>))}
         {(sel.qbDrawTxns||[]).length===0&&(sel.dmDrawCustom||[]).length===0&&dExRows.length===0&&<div style={{padding:"4px 18px 10px",fontSize:11.5,color:T.textTert}}>None yet.</div>}
         {c.rehabLive==null&&(<>
@@ -13382,6 +13404,57 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       </div>
     </div>
   );
+  // 💸 Bank sent a draw — shows the transfer split on the spot, saves a
+  // PENDING draw that counts everywhere now and clears itself once QuickBooks
+  // records the real credit.
+  const drawInPop=drawIn&&(()=>{
+    const prop=bsProps.find(p=>String(p.id)===String(drawIn.propId))||bsProps[0];
+    if(!prop)return null;
+    const amt=nn(drawIn.amt);
+    const c2=calc(prop);
+    const posNow=c2.constrEquity||0;
+    const floatAmt=Math.max(0,-posNow);
+    const payback=Math.min(amt,floatAmt);
+    const park=Math.max(0,amt-payback);
+    const holderId=prop.dmConstrBank;
+    const holderName=holderId&&holderId!=="loc"?bankName(holderId):null;
+    const afterThis=Math.max(0,posNow+amt);
+    const othersSum=holderName?bsProps.filter(p2=>String(p2.dmConstrBank||"")===String(holderId)&&String(p2.id)!==String(prop.id)).reduce((t,p2)=>t+dmPotMath(p2,accounts,spend,bankAccounts).constrHeld,0):0;
+    const mr={display:"flex",justifyContent:"space-between",gap:8,padding:"8px 13px",fontSize:12.5,borderTop:"1px solid #EFEFF2"};
+    const lb2={display:"block",fontSize:10,fontWeight:800,color:"#98A0AA",letterSpacing:"0.04em",marginBottom:4};
+    return(
+      <div onClick={()=>setDrawIn(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:472,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(400px,96vw)",maxHeight:"88vh",overflowY:"auto",boxShadow:"0 14px 44px rgba(0,0,0,0.22)"}}>
+          <div style={{padding:"14px 18px 6px"}}>
+            <b style={{fontSize:15}}>💸 Bank sent a draw</b>
+            <div style={{fontSize:11,color:T.textTert,marginTop:2,lineHeight:1.5}}>Counts everywhere right away — clears itself when QuickBooks records the real transaction.</div>
+          </div>
+          <div style={{padding:"6px 18px"}}>
+            <span style={lb2}>PROPERTY</span>
+            <select value={String(prop.id)} onChange={e=>setDrawIn(d=>({...d,propId:e.target.value}))} style={{width:"100%",padding:"9px 11px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:"#fff",color:T.text,outline:"none"}}>
+              {bsProps.filter(p2=>(p2.dmFinType||"draws")!=="upfront").map(p2=><option key={p2.id} value={String(p2.id)}>{p2.address}</option>)}
+            </select>
+          </div>
+          <div style={{padding:"6px 18px"}}>
+            <span style={lb2}>AMOUNT THE BANK SENT</span>
+            <input autoFocus value={drawIn.amt} onChange={e=>setDrawIn(d=>({...d,amt:e.target.value}))} placeholder="$ amount" inputMode="decimal" style={{width:"100%",padding:"9px 11px",borderRadius:10,border:`1px solid ${T.gold}`,fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+          </div>
+          {amt>0&&(
+            <div style={{margin:"10px 18px 4px",background:"#F7F7F9",border:"1px solid #ECECEF",borderRadius:12,overflow:"hidden"}}>
+              <div style={{...mr,borderTop:"none"}}><span style={{color:T.textSub}}>You floated (spent past your draws)</span><b style={{color:posNow<0?T.red:"#0F9D58"}}>{posNow<0?money(floatAmt):"$0 — nothing to pay back"}</b></div>
+              {payback>0&&<div style={mr}><span style={{color:T.textSub}}>Keep — you're reimbursing yourself</span><b>{money(payback)}</b></div>}
+              <div style={{...mr,background:"#EDFBF1",borderTop:"2px solid #0F9D58"}}><span style={{fontWeight:800,color:"#0F9D58"}}>→ Transfer into {holderName||"the holding account"} — held for future work</span><b style={{fontSize:14,color:"#0F9D58"}}>{money(park)}</b></div>
+            </div>
+          )}
+          {!holderName&&<div style={{padding:"6px 18px",fontSize:10.5,color:T.textTert,lineHeight:1.5}}>{holderId==="loc"?"This deal's construction money is marked as still on the LOC — the draw counts, it just won't show as a bank line item.":"Pick where construction money sits (⚙ Deal setup → Where the money sits) and Bank Recon gets the line item too."}</div>}
+          <div style={{padding:"12px 18px 14px",display:"flex",justifyContent:"flex-end",gap:8}}>
+            <button onClick={()=>setDrawIn(null)} style={{padding:"9px 16px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+            <button onClick={()=>{if(!amt)return;updateProp(prop.id,"dmPendingDraws",[...(prop.dmPendingDraws||[]),{id:Date.now(),amount:amt,date:new Date().toISOString().slice(0,10)}]);setDrawIn(null);}} disabled={!amt} style={{padding:"9px 20px",borderRadius:10,border:"none",background:amt?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:13,cursor:amt?"pointer":"default",fontFamily:"inherit"}}>Save draw</button>
+          </div>
+        </div>
+      </div>
+    );
+  })();
   const pickerTarget=txPick?bsProps.find(p=>p.id===txPick.propId):null;
   const pickerPinned=txPick&&pickerTarget?new Set(((txPick.kind==="float"?pickerTarget.qbFloatTxns:txPick.kind==="cspent"?pickerTarget.dmConstrSpentTxns:(txPick.kind==="draw"||txPick.kind==="fund")?pickerTarget.qbDrawTxns:pickerTarget.qbDebtTxns)||[]).map(txKey)):new Set();
   const txPicker=txPick&&pickerTarget&&<QbTxnsPickerModal txns={pickTxns} loading={pickTxns===null} pinnedKeys={pickerPinned} onToggle={t=>toggleTxn(pickerTarget,t)} onClose={()=>setTxPick(null)}/>;
@@ -13429,6 +13502,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           </div>
         )}
         {txPicker}
+        {drawInPop}
         {selP&&dealPopups(selP)}
         {selP&&setupSheet(selP)}
         {bulkOpen&&(
@@ -13507,6 +13581,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         </div>
       </div>
       {txPicker}
+      {drawInPop}
       {sel&&dealPopups(sel)}
       {sel&&setupSheet(sel)}
     </div>

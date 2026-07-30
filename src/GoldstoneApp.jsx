@@ -12253,11 +12253,10 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   // ⏳ interest line immediately followed by its 🔨 construction line.
   const buyDate=(p)=>String((p.financials||{}).purchaseDate||"9999-12-31");
   const itemsOf=(id)=>{
+    const sorted=props.slice().sort((a,b)=>buyDate(a).localeCompare(buyDate(b))||String(a.address||"").localeCompare(String(b.address||"")));
     const rows=[];
-    props.slice().sort((a,b)=>buyDate(a).localeCompare(buyDate(b))||String(a.address||"").localeCompare(String(b.address||""))).forEach(p=>{
-      if(String(p.bsBankAccount||"")===String(id))rows.push({p,kind:(p.dmFinType||"draws")==="upfront"?"💼 Funds left (loan − actuals)":(p.bsCalcMode||"reserve")==="equity"?"Personal equity":"⏳ Interest reserve",amt:heldOf(p)});
-      if(String(p.dmConstrBank||"")===String(id)&&p.dmConstrBank!=="loc")rows.push({p,kind:"🔨 Construction",amt:constrOf(p)});
-    });
+    sorted.forEach(p=>{if(String(p.bsBankAccount||"")===String(id))rows.push({p,kind:(p.dmFinType||"draws")==="upfront"?"💼 Funds left (loan − actuals)":(p.bsCalcMode||"reserve")==="equity"?"Personal equity":"⏳ Interest reserve",amt:heldOf(p)});});
+    sorted.forEach(p=>{if(String(p.dmConstrBank||"")===String(id)&&p.dmConstrBank!=="loc")rows.push({p,kind:"🔨 Construction",amt:constrOf(p)});});
     return rows;
   };
   const expectedOf=(b)=>itemsOf(b.id).reduce((t,x)=>t+x.amt,0)+(b.adjustments||[]).reduce((t,a)=>t+(Number(a.amount)||0),0);
@@ -12302,15 +12301,18 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
               <span style={{color:T.gold,fontSize:16,flexShrink:0}}>›</span>
             </div>
             {!isCol&&<>
-            {list.map((x,i)=>(
-              <div key={x.p.id+"|"+x.kind} onClick={()=>onOpenProperty&&onOpenProperty(x.p.id)} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 16px",borderTop:i===0?`1px solid ${T.border}`:"none",cursor:onOpenProperty?"pointer":"default",background:i%2?T.goldLight+"55":"transparent"}}>
+            {list.map((x,i)=>(<Fragment key={x.p.id+"|"+x.kind}>
+              {i===0&&x.kind!=="🔨 Construction"&&<div style={{padding:"7px 16px 4px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",background:T.bg,borderTop:`1px solid ${T.border}`}}>⏳ Interest reserve / funds</div>}
+              {x.kind==="🔨 Construction"&&(i===0||list[i-1].kind!=="🔨 Construction")&&<div style={{padding:"7px 16px 4px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",background:T.bg,borderTop:`1px solid ${T.border}`}}>🔨 Construction</div>}
+              <div onClick={()=>onOpenProperty&&onOpenProperty(x.p.id)} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 16px",cursor:onOpenProperty?"pointer":"default",background:i%2?T.goldLight+"55":"transparent"}}>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:12.5,color:onOpenProperty?T.blue:T.text,fontWeight:onOpenProperty?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.p.address}</div>
                   <div style={{fontSize:10.5,color:T.textTert}}>{x.kind}</div>
                 </div>
                 <span style={{textAlign:"right",fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap",flexShrink:0,paddingRight:canEdit?24:0}}>{fmtD(x.amt)}</span>
               </div>
-            ))}
+            </Fragment>))}
+            {adjustments.length>0&&<div style={{padding:"7px 16px 4px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",background:T.bg,borderTop:`1px solid ${T.border}`}}>✎ Loans & floats — adjustments</div>}
             {adjustments.map((a,ai)=>(
               <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:ai===0?`1px solid ${T.border}`:"none",background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
                 <span onClick={canEdit?()=>{setAdjDraft({label:a.label,amount:String(a.amount)});setEditAdjId(a.id);setAddAdjFor(b.id);}:undefined} title={canEdit?"Tap to edit":undefined} style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>{a.label}{canEdit&&<span style={{fontSize:10,color:T.textTert}}> · tap to edit</span>}</span>

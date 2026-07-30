@@ -13441,10 +13441,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           </div>
           {amt>0&&(
             <div style={{margin:"10px 18px 4px",background:"#F7F7F9",border:"1px solid #ECECEF",borderRadius:12,overflow:"hidden"}}>
-              <div style={{...mr,borderTop:"none"}}><span style={{color:T.textSub}}>Construction position right now</span><b style={{color:posNow<0?T.red:"#0F9D58"}}>{posNow<0?`−${money(floatAmt).slice(1)} floated`:money(posNow)}</b></div>
-              {payback>0&&<div style={mr}><span style={{color:T.textSub}}>Pays back what you floated</span><b>{money(payback)}</b></div>}
-              <div style={{...mr,background:"#EDFBF1",borderTop:"2px solid #0F9D58"}}><span style={{fontWeight:800,color:"#0F9D58"}}>→ Park in {holderName||"the holding account"}</span><b style={{fontSize:14,color:"#0F9D58"}}>{money(park)}</b></div>
-              {holderName&&<div style={mr}><span style={{color:T.textSub}}>{holderName} — all deals’ construction after<span style={{display:"block",fontSize:10,color:T.textTert}}>other deals {money(othersSum)} + this deal {money(afterThis)}</span></span><b>{money(othersSum+afterThis)}</b></div>}
+              <div style={{...mr,borderTop:"none"}}><span style={{color:T.textSub}}>You floated (spent past your draws)</span><b style={{color:posNow<0?T.red:"#0F9D58"}}>{posNow<0?money(floatAmt):"$0 — nothing to pay back"}</b></div>
+              {payback>0&&<div style={mr}><span style={{color:T.textSub}}>Keep — you're reimbursing yourself</span><b>{money(payback)}</b></div>}
+              <div style={{...mr,background:"#EDFBF1",borderTop:"2px solid #0F9D58"}}><span style={{fontWeight:800,color:"#0F9D58"}}>→ Transfer into {holderName||"the holding account"} — held for future work</span><b style={{fontSize:14,color:"#0F9D58"}}>{money(park)}</b></div>
             </div>
           )}
           {!holderName&&<div style={{padding:"6px 18px",fontSize:10.5,color:T.textTert,lineHeight:1.5}}>{holderId==="loc"?"This deal's construction money is marked as still on the LOC — the draw counts, it just won't show as a bank line item.":"Pick where construction money sits (⚙ Deal setup → Where the money sits) and Bank Recon gets the line item too."}</div>}

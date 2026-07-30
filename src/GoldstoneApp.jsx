@@ -5651,6 +5651,19 @@ function PropertyContractorsCard({property}){
     });
   },[pTxns,pJobs]); // eslint-disable-line react-hooks/exhaustive-deps
   const[bidEntryFor,setBidEntryFor]=useState(null);const[bidEntryAmt,setBidEntryAmt]=useState("");
+  // ＋ Add a job directly — for contractors who worked a property before the
+  // portal existed: no bid request, Elie sets the price, auto-match pulls the
+  // old QuickBooks payments in on its own.
+  const[addJobOpen,setAddJobOpen]=useState(false);
+  const[addOrgId,setAddOrgId]=useState("");const[addTitle,setAddTitle]=useState("");const[addPrice,setAddPrice]=useState("");
+  const addJob=async()=>{
+    if(!addOrgId)return;
+    const amt=parseFloat(String(addPrice).replace(/[^0-9.]/g,""))||0;
+    const job={id:Date.now(),orgId:addOrgId,propertyId:property.id,propertyAddress:`${property.address||""}${property.city?`, ${property.city}`:""}`,title:addTitle.trim()||"Job",status:"active",price:amt,changeOrders:[],payments:[],createdAt:new Date().toISOString(),startDate:new Date().toISOString().slice(0,10),addedBy:currentUser};
+    await ctrSave("contractor_jobs",job);
+    notify(null,{toOrg:addOrgId,title:"Your job is in the portal",body:`${job.propertyAddress}${job.title!=="Job"?` — ${job.title}`:""} — the history, payments and messages for it live here now.`,url:`/?goto=job:${job.id}`});
+    setAddJobOpen(false);setAddOrgId("");setAddTitle("");setAddPrice("");
+  };
   const enterBid=async(j)=>{
     const amt=parseFloat(String(bidEntryAmt).replace(/[^0-9.]/g,""));
     if(!amt)return;
@@ -5671,6 +5684,7 @@ function PropertyContractorsCard({property}){
           <span style={{fontSize:12,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em"}}>👷 Contractors on this property</span>
           <span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
           <span style={{flex:1}}/>
+          {isAdmin&&allOrgs.length>0&&<button onClick={()=>setAddJobOpen(true)} style={{padding:"6px 13px",borderRadius:16,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>＋ Add a job</button>}
           {isAdmin&&allOrgs.length>0&&<button onClick={()=>setBidOpen(true)} style={{padding:"6px 13px",borderRadius:16,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🧾 Request a bid</button>}
         </div>
         {pJobs.length===0&&<div style={{padding:"14px 16px",fontSize:12.5,color:T.textTert,background:"#FFF9EC"}}>No jobs or bids on this property yet — request a bid to get a price from one of your contractors.</div>}
@@ -5743,6 +5757,28 @@ function PropertyContractorsCard({property}){
         })}
       </Card>
       {bidOpen&&<BidRequestModal property={property} orgs={allOrgs} onCreate={createBid} onClose={()=>setBidOpen(false)}/>}
+      {addJobOpen&&(
+        <div onClick={()=>setAddJobOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:390,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(400px,96vw)",boxShadow:"0 14px 44px rgba(0,0,0,0.22)",overflow:"hidden"}}>
+            <div style={{padding:"14px 18px 6px"}}>
+              <b style={{fontSize:15}}>＋ Add a job — {property.address}</b>
+              <div style={{fontSize:11.5,color:T.textTert,marginTop:3,lineHeight:1.5}}>For work that happened before the portal — no bid request. You set the price; their payments auto-match from QuickBooks; messaging opens right up.</div>
+            </div>
+            <div style={{padding:"8px 18px 4px",display:"flex",flexDirection:"column",gap:8}}>
+              <select value={addOrgId} onChange={e=>setAddOrgId(e.target.value)} style={{padding:"9px 11px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:"#fff",color:T.text,outline:"none"}}>
+                <option value="">— which contractor? —</option>
+                {allOrgs.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+              <input value={addTitle} onChange={e=>setAddTitle(e.target.value)} placeholder="What was the job? e.g. Full renovation" style={{padding:"9px 11px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+              <input value={addPrice} onChange={e=>setAddPrice(e.target.value)} inputMode="decimal" placeholder="$ contract price (can set later)" style={{padding:"9px 11px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+            </div>
+            <div style={{padding:"12px 18px 14px",display:"flex",justifyContent:"flex-end",gap:8}}>
+              <button onClick={()=>setAddJobOpen(false)} style={{padding:"9px 16px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+              <button onClick={addJob} disabled={!addOrgId} style={{padding:"9px 20px",borderRadius:10,border:"none",background:addOrgId?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:13,cursor:addOrgId?"pointer":"default",fontFamily:"inherit"}}>Add the job</button>
+            </div>
+          </div>
+        </div>
+      )}
       {openJob&&<CtrJobDetail j={openJob} org={orgOf(openJob.orgId)} isAdmin={isAdmin} qbProjectId={property.qbProjectId||null} tasks={ctrTasks} messages={ctrMessages} docs={ctrDocs} save={ctrSave} remove={ctrRemove} displayName={currentUser} onClose={()=>setOpenJobId(null)}/>}
       {payJob&&(()=>{const j=payJob;const m=jobMoney(j);
         const prS={display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"8px 18px",borderTop:`1px solid ${T.border}55`,fontSize:12.5};

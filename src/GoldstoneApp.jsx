@@ -13236,7 +13236,6 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           <div style={{flex:1,minWidth:0,fontSize:12,color:"#8A8F98",lineHeight:1.5}}>
             {c.upfront?"💼 Funded up front (full LOC)":"🏦 Draws as you build"} · loans {money(c.totalLoans)}{!c.upfront&&c.potBal>0?` · pot ${money(c.potBal)}`:""}{holder?` · reserve held in ${holder}`:""}
           </div>
-          {canEdit&&!c.upfront&&<button onClick={()=>setDrawIn({propId:sel.id,amt:""})} style={{flexShrink:0,fontSize:12,fontWeight:700,color:"#8a6d1f",background:"#FBF7EC",border:"1.5px dashed #C9A227",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"inherit"}}>💸 Bank sent a draw</button>}
           {canEdit&&<button onClick={()=>{setSetupOpen(true);setSetupStep(null);}} style={{flexShrink:0,fontSize:12,fontWeight:700,color:"#5A6472",background:"#fff",border:"1px solid #E2E2E8",borderRadius:10,padding:"7px 13px",cursor:"pointer",fontFamily:"inherit"}}>⚙ Deal setup</button>}
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:14}}>
@@ -13465,10 +13464,13 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
         <div style={{width:isMobile?"100%":330,flexShrink:0,display:isMobile&&selP?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
           <div style={{padding:"13px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
-            <div style={{fontWeight:800,fontSize:15,color:T.text}}>Property Balance Sheet</div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <div style={{fontWeight:800,fontSize:15,color:T.text,flex:1,minWidth:0}}>Property Balance Sheet</div>
+              {canEdit&&<button onClick={()=>setDrawIn({propId:(selP&&selP.id)||"",amt:""})} title="💸 Bank sent a draw — the reimburse/transfer split" style={{width:30,height:30,borderRadius:"50%",background:"#FBF7EC",border:"1.5px dashed #C9A227",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>💸</button>}
+              {canEdit&&<button onClick={()=>setBulkOpen(true)} title="⚙ Bank accounts — every property at once" style={{width:30,height:30,borderRadius:"50%",background:"#fff",border:"1.5px dashed #C9A227",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>⚙</button>}
+            </div>
             <div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>Live from QuickBooks — tap a deal</div>
             <input value={listQ} onChange={e=>setListQ(e.target.value)} placeholder="🔍 Search properties…" style={{width:"100%",marginTop:9,padding:"7px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
-            {canEdit&&<button onClick={()=>setBulkOpen(true)} style={{width:"100%",marginTop:7,padding:"7px 11px",borderRadius:9,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>⚙ Bank accounts — all properties</button>}
           </div>
           <div style={{flex:1,overflowY:"auto"}}>
             {(()=>{let last=null;const term=listQ.trim().toLowerCase();return bsProps.filter(p=>!term||String(p.address||"").toLowerCase().includes(term)).map(p=>{

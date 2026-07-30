@@ -308,7 +308,7 @@ function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
 // Lists the property's QB project transactions (expense side), searchable —
 // prefiltered to the contractor's name — and pins the picked ones onto the job
 // as payments. Already-pinned transactions are marked and can't double-apply.
-function QBPayPicker({ qbProjectId, orgName, existingQbIds, onAdd, onClose }) {
+export function QBPayPicker({ qbProjectId, orgName, existingQbIds, onAdd, onClose }) {
   const [items, setItems] = useState(null);
   const [err, setErr] = useState("");
   const [q, setQ] = useState(orgName || "");

@@ -12098,13 +12098,16 @@ const BS_STATUSES=["Purchased","Under Construction","On Market","In Closing"];
 // QuickBooks account balances + all-in spend). Used by the BS report and Bank Recon.
 const bsAcctBal=(accounts,id)=>{const a=(accounts||[]).find(x=>x.id===id);return a?-(a.balance||0):0;};
 const bsSum=(arr)=>(arr||[]).reduce((s,l)=>s+(Number(l.amount)||0),0);
-function bsMetrics(p,accounts,spend){
+function bsMetrics(p,accounts,spend,bankAccounts){
   const potIds=p.qbLocPotIds||[];
   const pot=(p.qbLoanAccounts||[]).filter(id=>potIds.includes(id)).reduce((s,id)=>s+bsAcctBal(accounts,id),0)+(p.qbLoanCustom||[]).filter(l=>potIds.includes("c"+l.id)).reduce((s,l)=>s+(Number(l.amount)||0),0);
   const deployed=bsSum(p.qbFloatTxns)+bsSum(p.qbFloatCustom);
   const debt=bsSum(p.qbDebtTxns)+bsSum(p.qbDebtCustom);
   const reserve=Math.max(0,pot-deployed-debt);
-  const totalLoans=(p.qbLoanAccounts||[]).reduce((s,id)=>s+bsAcctBal(accounts,id),0)+bsSum(p.qbLoanCustom);
+  // Borrowed money linked from Bank Recon adjustments counts as a loan here
+  // too (both kinds — plain loans and construction draws are debt either way).
+  const adjLoans=(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id))).reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
+  const totalLoans=(p.qbLoanAccounts||[]).reduce((s,id)=>s+bsAcctBal(accounts,id),0)+bsSum(p.qbLoanCustom)+adjLoans;
   const m=p.qbAllInCost;
   const allIn=(m!==undefined&&m!==null&&m!=="")?Number(m):(p.qbProjectId&&spend&&spend[p.qbProjectId]&&spend[p.qbProjectId].allIn!=null?spend[p.qbProjectId].allIn:null);
   const equity=allIn==null?null:allIn-totalLoans+bsSum(p.qbBsCustom);
@@ -12242,7 +12245,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   const linkKindAdj=(id,adjId,kind)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:(b.adjustments||[]).map(a=>a.id===adjId?{...a,linkKind:kind}:a)}:b));save();};
   // Money physically held in the bank for a property — always ≥ 0. In equity mode it's
   // the surplus financing (loans − all-in = −equity) you're holding to finish the job.
-  const heldOf=(p)=>{if((p.dmFinType||"draws")!=="upfront"&&(p.bsCalcMode||"reserve")==="equity"){const m=bsMetrics(p,accounts,spend);return m.equity==null?0:Math.max(0,-m.equity);}return dmPotMath(p,accounts,spend,bankAccounts).reserveLeft;};
+  const heldOf=(p)=>{if((p.dmFinType||"draws")!=="upfront"&&(p.bsCalcMode||"reserve")==="equity"){const m=bsMetrics(p,accounts,spend,bankAccounts);return m.equity==null?0:Math.max(0,-m.equity);}return dmPotMath(p,accounts,spend,bankAccounts).reserveLeft;};
   const constrOf=(p)=>dmPotMath(p,accounts,spend,bankAccounts).constrHeld;
   // Two kinds of holdings per property, each with its own bank account and its
   // own line item: interest reserve (bsBankAccount) and construction (dmConstrBank).
@@ -12395,14 +12398,14 @@ function cfSellingOf(sp,items,flat){
 // money mortgage + any LOC recorded as a mortgage), and the accrued (unpaid)
 // LOC / hard-money interest that settles at closing. Equity already sunk into
 // purchase/rehab is money coming BACK, so it is deliberately NOT subtracted.
-function cashFlowNet(p,accounts,spend,intPaid){
+function cashFlowNet(p,accounts,spend,intPaid,bankAccounts){
   const f=(p&&p.financials)||{};
   const useActual=n(f.actualSalePrice)>0;                 // prefer the contract price once set
   const sale=useActual?n(f.actualSalePrice):n(f.salePrice);
   const sellItems=(useActual?f.actualSellingCostItems:f.sellingCostItems)||[];
   const sellFlat=useActual?f.actualSellingCosts:f.sellingCosts;
   const sellingCosts=cfSellingOf(sale,sellItems,sellFlat);
-  const m=bsMetrics(p,accounts,spend);
+  const m=bsMetrics(p,accounts,spend,bankAccounts);
   const loans=m.totalLoans;                               // active loans — same figure as the BS report
   const locInt=n(f.locInterest);                          // LOC is a balloon → full amount settles at closing
   // Hard-money interest is paid MONTHLY, so only the part not yet paid comes out
@@ -13492,7 +13495,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   );
 }
 function FinReportCenter({sharedProps,isMobile,canEdit=true}){
-  const { draws, setDraws, flushDraws, setSharedProps, flushProps }=useData();
+  const { draws, setDraws, flushDraws, setSharedProps, flushProps, bankAccounts }=useData();
   const setPlan=(drawId,plan)=>{if(!canEdit)return;setDraws(prev=>prev.map(d=>d.id===drawId?{...d,futureFundsPlan:plan}:d));if(flushDraws)setTimeout(flushDraws,0);};
   // Three-way lender plan: reinvest principal only → reinvest principal AND the
   // accrued interest → take everything back. Tapping the pill cycles through.
@@ -13582,7 +13585,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   // Report 3 — property balance sheet, spreadsheet style (same figures as the BS report).
   const rptBS=useMemo(()=>{
     const rows=[...bsProps].sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")).map(p=>{
-      const m=bsMetrics(p,accounts,spend);const cf=m.equity==null?null:Math.max(0,m.equity-m.reserve);
+      const m=bsMetrics(p,accounts,spend,bankAccounts);const cf=m.equity==null?null:Math.max(0,m.equity-m.reserve);
       return {address:p.address,totalLoans:m.totalLoans,allIn:m.allIn,cf,ir:m.reserve,equity:m.equity};
     });
     const total={totalLoans:0,allIn:0,cf:0,ir:0,equity:0,anyAllIn:false};
@@ -13689,7 +13692,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     groups.sort((a,b)=>a.key==="unscheduled"?-1:b.key==="unscheduled"?1:a.key.localeCompare(b.key));
     groups.forEach(g=>{
       g.items.sort((a,b)=>String(cfDate(a)).localeCompare(String(cfDate(b))));
-      g.rows=g.items.map(p=>{const cf=cashFlowNet(p,accounts,spend,intPaid);return {p,cf,debt:cf.loans+cf.locInt+cf.hmIntGross-cf.hmPaid};});
+      g.rows=g.items.map(p=>{const cf=cashFlowNet(p,accounts,spend,intPaid,bankAccounts);return {p,cf,debt:cf.loans+cf.locInt+cf.hmIntGross-cf.hmPaid};});
       g.total=g.rows.reduce((s,r)=>s+r.cf.net,0);
     });
     const grand=groups.reduce((s,g)=>s+g.total,0);

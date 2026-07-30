@@ -12246,10 +12246,17 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   const constrOf=(p)=>dmPotMath(p,accounts,spend,bankAccounts).constrHeld;
   // Two kinds of holdings per property, each with its own bank account and its
   // own line item: interest reserve (bsBankAccount) and construction (dmConstrBank).
-  const itemsOf=(id)=>[
-    ...props.filter(p=>String(p.bsBankAccount||"")===String(id)).map(p=>({p,kind:(p.dmFinType||"draws")==="upfront"?"💼 Funds left (loan − actuals)":(p.bsCalcMode||"reserve")==="equity"?"Personal equity":"⏳ Interest reserve",amt:heldOf(p)})),
-    ...props.filter(p=>String(p.dmConstrBank||"")===String(id)&&p.dmConstrBank!=="loc").map(p=>({p,kind:"🔨 Construction",amt:constrOf(p)})),
-  ];
+  // Line items grouped by property — oldest purchase first — with each deal's
+  // ⏳ interest line immediately followed by its 🔨 construction line.
+  const buyDate=(p)=>String((p.financials||{}).purchaseDate||"9999-12-31");
+  const itemsOf=(id)=>{
+    const rows=[];
+    props.slice().sort((a,b)=>buyDate(a).localeCompare(buyDate(b))||String(a.address||"").localeCompare(String(b.address||""))).forEach(p=>{
+      if(String(p.bsBankAccount||"")===String(id))rows.push({p,kind:(p.dmFinType||"draws")==="upfront"?"💼 Funds left (loan − actuals)":(p.bsCalcMode||"reserve")==="equity"?"Personal equity":"⏳ Interest reserve",amt:heldOf(p)});
+      if(String(p.dmConstrBank||"")===String(id)&&p.dmConstrBank!=="loc")rows.push({p,kind:"🔨 Construction",amt:constrOf(p)});
+    });
+    return rows;
+  };
   const expectedOf=(b)=>itemsOf(b.id).reduce((t,x)=>t+x.amt,0)+(b.adjustments||[]).reduce((t,a)=>t+(Number(a.amount)||0),0);
   const unassigned=props.filter(p=>!p.bsBankAccount||(constrOf(p)>0&&!p.dmConstrBank&&p.dmConstrBank!=="loc"));
   const inS={padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text};
@@ -12699,6 +12706,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   // ("all" | "custom") + dmReserveAmt for the left-in-the-pot choice.
   const[selId,setSelId]=useState(initialSelId);
   const[listQ,setListQ]=useState(""); // property search in the left list
+  const[bulkOpen,setBulkOpen]=useState(false); // ⚙ bank accounts for every property at once
   const {bankAccounts}=useData()||{};
   const[pickLoan,setPickLoan]=useState(false);
   const[q,setQ]=useState("");
@@ -13366,6 +13374,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
             <div style={{fontWeight:800,fontSize:15,color:T.text}}>Property Balance Sheet</div>
             <div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>Live from QuickBooks — tap a deal</div>
             <input value={listQ} onChange={e=>setListQ(e.target.value)} placeholder="🔍 Search properties…" style={{width:"100%",marginTop:9,padding:"7px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
+            {canEdit&&<button onClick={()=>setBulkOpen(true)} style={{width:"100%",marginTop:7,padding:"7px 11px",borderRadius:9,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>⚙ Bank accounts — all properties</button>}
           </div>
           <div style={{flex:1,overflowY:"auto"}}>
             {(()=>{let last=null;const term=listQ.trim().toLowerCase();return bsProps.filter(p=>!term||String(p.address||"").toLowerCase().includes(term)).map(p=>{
@@ -13401,6 +13410,46 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         {txPicker}
         {selP&&dealPopups(selP)}
         {selP&&setupSheet(selP)}
+        {bulkOpen&&(
+          <div onClick={()=>setBulkOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:460,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(680px,97vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
+              <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <b style={{fontSize:15}}>⚙ Where the money sits — every property</b>
+                  <div style={{fontSize:11,color:T.textTert,marginTop:2}}>Each pick becomes its own line item in Bank Recon.</div>
+                </div>
+                <button onClick={()=>setBulkOpen(false)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+              </div>
+              <div style={{overflowY:"auto",flex:1}}>
+                <div style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 175px 175px",gap:8,padding:"10px 18px 6px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>
+                  <span>Property</span><span>⏳ Reserve / 💼 funds held in</span><span>🔨 Construction sits</span>
+                </div>
+                {bsProps.map((p,i)=>{const up=(p.dmFinType||"draws")==="upfront";return(
+                  <div key={p.id} style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 175px 175px",gap:8,alignItems:"center",padding:"8px 18px",borderTop:`1px solid ${T.border}55`,background:i%2?T.goldLight+"33":"transparent"}}>
+                    <span style={{minWidth:0}}>
+                      <span style={{display:"block",fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</span>
+                      <span style={{display:"block",fontSize:10,color:T.textTert}}>{up?"💼 funded up front":"🏦 draws as you build"}</span>
+                    </span>
+                    <select value={p.bsBankAccount||""} onChange={e=>updateProp(p.id,"bsBankAccount",e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:8,border:`1px solid ${p.bsBankAccount?T.border:T.gold}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text,outline:"none"}}>
+                      <option value="">— pick a bank —</option>
+                      {(bankAccounts||[]).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                    {up?<span style={{fontSize:11,color:T.textTert}}>— (covered by funds left)</span>:(
+                      <select value={p.dmConstrBank||""} onChange={e=>updateProp(p.id,"dmConstrBank",e.target.value)} style={{width:"100%",padding:"5px 8px",borderRadius:8,border:`1px solid ${p.dmConstrBank?T.border:T.gold}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text,outline:"none"}}>
+                        <option value="">— pick where —</option>
+                        <option value="loc">Still on the LOC — not in a bank</option>
+                        {(bankAccounts||[]).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                    )}
+                  </div>
+                );})}
+              </div>
+              <div style={{padding:"10px 18px",borderTop:`1px solid ${T.border}`,textAlign:"right",flexShrink:0}}>
+                <button onClick={()=>setBulkOpen(false)} style={{padding:"9px 20px",borderRadius:10,border:"none",background:T.gold,color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Done</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

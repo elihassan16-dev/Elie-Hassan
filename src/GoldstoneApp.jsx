@@ -12934,7 +12934,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   // ── Option 1 face: read-only balance cards + activity feed; edits live in ⚙ ──
   const renderDetail=(sel)=>{const c=calc(sel);
     const gauge=(parts)=>(<div style={{height:6,borderRadius:3,background:"#ECECEF",overflow:"hidden",display:"flex",marginTop:8}}>{parts.map((x,i)=><span key={i} style={{display:"block",height:"100%",width:`${Math.max(0,Math.min(100,x.w))}%`,background:x.c}}/>)}</div>);
-    const cardS={background:"#fff",border:"1px solid #E9E9EE",borderRadius:14,padding:"15px 17px",position:"relative",textAlign:"left",cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(0,0,0,0.03)"};
+    const cardS={background:"#fff",border:"1px solid #E9E9EE",borderRadius:14,padding:"15px 17px",position:"relative",textAlign:"left",cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(0,0,0,0.03)",display:"flex",flexDirection:"column",alignItems:"stretch",justifyContent:"flex-start"};
     const lbS={fontSize:11,fontWeight:700,color:"#8A8F98",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0};
     const vS2=(col)=>({fontSize:25,fontWeight:800,margin:"6px 0 8px",letterSpacing:"-0.5px",color:col});
     const dS={fontSize:11,color:"#8A8F98",marginTop:7,lineHeight:1.5};
@@ -13153,6 +13153,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                   <span style={{flexShrink:0,textAlign:"right"}}>
                     <span style={{display:"block",fontSize:8.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>{c.upfront?"Funds left":"Int. reserve"}</span>
                     <span style={{display:"block",fontSize:12.5,fontWeight:800,color:(c.upfront?(c.leftover||0):c.left)>=0?"#15803D":T.red}}>{c.upfront?money(c.leftover==null?0:c.leftover):money(c.left)}</span>
+                    {!c.upfront&&c.monthlyInt>0&&<span style={{display:"block",fontSize:9.5,color:T.textTert}}>(≈ {(Math.max(0,c.left)/c.monthlyInt).toFixed(1)} mo)</span>}
                   </span>
                 </button>
               </Fragment>);

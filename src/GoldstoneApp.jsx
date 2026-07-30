@@ -5561,7 +5561,6 @@ function PropertyContractorsCard({property}){
   const[bidOpen,setBidOpen]=useState(false);
   const pJobs=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(property.id)).sort((a,b)=>(a.status==="complete")-(b.status==="complete")||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
   const allOrgs=(ctrOrgs||[]).slice().sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
-  if(!pJobs.length&&!allOrgs.length)return null;
   const orgOf=(oid)=>(ctrOrgs||[]).find(o=>String(o.id)===String(oid))||null;
   const $=(n)=>`$${Number(n||0).toLocaleString()}`;
   const openJob=pJobs.find(j=>String(j.id)===String(openJobId))||null;
@@ -5677,6 +5676,9 @@ function PropertyContractorsCard({property}){
     }
     setBidEntryFor(null);setBidEntryAmt("");
   };
+  // All hooks live above this line — the empty-state exit must come after them
+  // (an earlier position crashed React with error #310 once data loaded in).
+  if(!pJobs.length&&!allOrgs.length)return null;
   return(
     <>
       <Card style={{marginBottom:16,border:`1.5px solid ${T.gold}`}}>

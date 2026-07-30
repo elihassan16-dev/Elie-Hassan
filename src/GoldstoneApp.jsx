@@ -12235,6 +12235,10 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
     setBankAccounts(prev=>prev.map(b=>b.id!==id?b:{...b,adjustments:editAdjId!=null?(b.adjustments||[]).map(a=>a.id===editAdjId?{...a,label:label||"Adjustment",amount}:a):[...(b.adjustments||[]),{id:Date.now(),label:label||"Adjustment",amount}]}));
     setAdjDraft({label:"",amount:""});setAddAdjFor("");setEditAdjId(null);save();};
   const delAdj=(id,adjId)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:(b.adjustments||[]).filter(a=>a.id!==adjId)}:b));save();};
+  // Link a borrowed-money adjustment to a deal — it then shows on that
+  // property's balance sheet as a loan line (Total loans / equity move; the
+  // account's expected balance here does NOT change).
+  const linkAdj=(id,adjId,pid)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:(b.adjustments||[]).map(a=>a.id===adjId?{...a,propertyId:pid||null}:a)}:b));save();};
   // Money physically held in the bank for a property — always ≥ 0. In equity mode it's
   // the surplus financing (loans − all-in = −equity) you're holding to finish the job.
   const heldOf=(p)=>{if((p.dmFinType||"draws")!=="upfront"&&(p.bsCalcMode||"reserve")==="equity"){const m=bsMetrics(p,accounts,spend);return m.equity==null?0:Math.max(0,-m.equity);}return dmPotMath(p,accounts,spend).reserveLeft;};
@@ -12299,6 +12303,11 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
             {adjustments.map(a=>(
               <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:`1px solid ${T.border}`}}>
                 <span onClick={canEdit?()=>{setAdjDraft({label:a.label,amount:String(a.amount)});setEditAdjId(a.id);setAddAdjFor(b.id);}:undefined} title={canEdit?"Tap to edit":undefined} style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>{a.label}{canEdit&&<span style={{fontSize:10,color:T.textTert}}> · tap to edit</span>}</span>
+                {canEdit&&(Number(a.amount)||0)<0&&<select value={a.propertyId||""} onChange={e=>linkAdj(b.id,a.id,e.target.value)} title="Link to a deal — shows in that property's loans" style={{maxWidth:130,padding:"3px 6px",borderRadius:8,border:`1px solid ${a.propertyId?T.gold:T.border}`,fontSize:10.5,fontFamily:"inherit",background:a.propertyId?"#FBF7EC":"#fff",color:a.propertyId?"#8a6d1f":T.textTert,outline:"none",flexShrink:0}}>
+                  <option value="">→ link to a deal…</option>
+                  {props.map(pp=><option key={pp.id} value={pp.id}>{pp.address}</option>)}
+                </select>}
+                {!canEdit&&a.propertyId&&<span style={{fontSize:10,color:"#8a6d1f",flexShrink:0}}>→ {(props.find(pp=>String(pp.id)===String(a.propertyId))||{}).address||"linked"}</span>}
                 <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(Number(a.amount)||0)}</span>
                 {canEdit&&<button onClick={()=>delAdj(b.id,a.id)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>}
               </div>
@@ -12772,6 +12781,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const entriesOf=(p)=>[
     ...(p.qbLoanAccounts||[]).map(id=>({key:String(id),custom:false,bal:bal(id),name:nameOf(id)})),
     ...(p.qbLoanCustom||[]).map(l=>({key:"c"+l.id,custom:true,bal:Math.abs(Number(l.amount)||0),name:l.name||"Manual entry",raw:l})),
+    // Borrowed money linked from Bank Recon adjustments — counts as a loan on
+    // this deal (job fixed to BANK; unlink it back in Bank Recon).
+    ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)).map(a=>({key:`adj${b.id}_${a.id}`,custom:true,adj:true,bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — from ${b.name}`}))),
   ];
   const jobOf=(p,key)=>((p.qbConstrIds||[]).map(String).includes(key)?"constr":(p.qbLocPotIds||[]).map(String).includes(key)?"pot":"bank");
   const setJob=(p,key,job)=>{
@@ -12933,9 +12945,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 <div style={h}>🏦 Loan accounts — tap a tag: BANK ↔ LINE OF CREDIT</div>
                 {c.entries.map(e=>(
                   <div key={e.key} style={rowS}>
-                    <span style={lS}><span style={pinTag}>{e.custom?"✎":"📌"} {e.name}</span>{jobTag(sel,e.key)}</span>
+                    <span style={lS}><span style={pinTag}>{e.adj?"🏦":e.custom?"✎":"📌"} {e.name}</span>{e.adj?<span title="Linked from a Bank Recon adjustment — unlink it there" style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",background:"#FBF7EC",color:"#8a6d1f",flexShrink:0}}>BANK RECON</span>:jobTag(sel,e.key)}</span>
                     <span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(e.bal)}</span>
-                      {canEdit&&removeChip(()=>removeEntry(sel,e))}
+                      {canEdit&&!e.adj&&removeChip(()=>removeEntry(sel,e))}
                     </span>
                   </div>
                 ))}

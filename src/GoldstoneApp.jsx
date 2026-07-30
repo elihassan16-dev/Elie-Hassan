@@ -5635,32 +5635,31 @@ function PropertyContractorsCard({property}){
     if(add.length)await ctrSave("contractor_jobs",{...j,payments:[...(j.payments||[]),...add]});
     setQbPickFor(null);
   };
+  // Mirror: matched QuickBooks payments SAVE onto the job itself, so the
+  // contractor's portal shows the exact same paid numbers — quietly, deduped
+  // by qbId, and never re-adding anything Elie excluded.
+  useEffect(()=>{
+    if(!isAdmin||!Array.isArray(pTxns)||!pTxns.length)return;
+    pJobs.forEach(j=>{
+      if(j.status==="bid")return;
+      const org=orgOf(j.orgId);if(!org)return;
+      const have=new Set((j.payments||[]).map(x=>x.qbId).filter(Boolean));
+      const ex=new Set(j.qbPayExcluded||[]);
+      const add=pTxns.filter(t=>nameMatch(t.vendor,org.name)&&!have.has(pkey(t))&&!ex.has(pkey(t)))
+        .map((t,i)=>({id:Date.now()+i,amount:Math.abs(Number(t.amount)||0),date:t.date||new Date().toISOString().slice(0,10),note:[t.vendor,t.memo].filter(Boolean).join(" — ")||"QuickBooks",qbId:pkey(t)}));
+      if(add.length)ctrSave("contractor_jobs",{...j,payments:[...(j.payments||[]),...add]}).catch(()=>{});
+    });
+  },[pTxns,pJobs]); // eslint-disable-line react-hooks/exhaustive-deps
+  const[bidEntryFor,setBidEntryFor]=useState(null);const[bidEntryAmt,setBidEntryAmt]=useState("");
+  const enterBid=async(j)=>{
+    const amt=parseFloat(String(bidEntryAmt).replace(/[^0-9.]/g,""));
+    if(!amt)return;
+    await ctrSave("contractor_jobs",{...j,bidAmount:amt,bidBy:`${currentUser} (Goldstone)`,bidAt:new Date().toISOString(),bidEnteredByAdmin:true});
+    notify(null,{toOrg:j.orgId,title:"Goldstone recorded your bid",body:`${j.propertyAddress}${j.title?` — ${j.title}`:""} — ${$(amt)}. Reply in the job chat if that's not right.`,url:`/?goto=job:${j.id}`});
+    setBidEntryFor(null);setBidEntryAmt("");
+  };
   return(
     <>
-      {isAdmin&&moneyJobs.length>0&&(
-        <Card style={{marginBottom:16}}>
-          <div style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,borderBottom:`1px solid ${T.border}`,flexWrap:"wrap"}}>
-            <b style={{fontSize:13.5,color:T.text}}>💰 Contractor money — bids vs paid</b>
-            <span style={{fontSize:11.5,color:T.textTert}}>{moneyJobs.length} contractor{moneyJobs.length!==1?"s":""} · bids {fm(moneyJobs.reduce((t,j)=>t+jobMoney(j).bid,0))} · paid {fm(moneyJobs.reduce((t,j)=>t+jobMoney(j).paid,0))}</span>
-          </div>
-          {moneyJobs.map(j=>{const m=jobMoney(j);const over=m.bid>0&&m.paid>m.bid;const pct=m.bid>0?Math.min(100,100*m.paid/m.bid):(m.paid>0?100:0);return(
-            <div key={j.id} onClick={()=>setPayFor(j.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}55`,cursor:"pointer",flexWrap:"wrap"}}>
-              <span style={{flex:1,minWidth:150}}>
-                <span style={{display:"block",fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.org?.name||"Contractor"}</span>
-                <span style={{display:"block",fontSize:10.5,color:over?T.red:T.textTert,marginTop:1}}>{j.title||"Job"}{over?" · ⚠ paid more than the bid":m.auto.length?` · ✓ auto-matched ${m.auto.length} payment${m.auto.length!==1?"s":""}`:pTxns===null&&property.qbProjectId?" · matching…":""}</span>
-              </span>
-              <span style={{width:110,height:6,borderRadius:3,background:"#ECECEF",overflow:"hidden",display:"flex",flexShrink:0}}><span style={{display:"block",height:"100%",width:`${pct}%`,background:over?T.red:"#C9A227"}}/></span>
-              <span style={{display:"flex",gap:16,flexShrink:0,alignItems:"center"}}>
-                <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:T.textTert,letterSpacing:"0.04em"}}>BID</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:T.text}}>{fm(m.bid)}</span></span>
-                <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:T.textTert,letterSpacing:"0.04em"}}>PAID</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:"#0F9D58"}}>{fm(m.paid)}</span></span>
-                <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:T.textTert,letterSpacing:"0.04em"}}>LEFT</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:m.left<0?T.red:"#B8953F"}}>{fm(m.left)}</span></span>
-                <span style={{color:T.gold,fontWeight:800,fontSize:14}}>›</span>
-              </span>
-            </div>
-          );})}
-          {!property.qbProjectId&&<div style={{padding:"8px 16px 12px",fontSize:10.5,color:T.textTert}}>Link this property to its QuickBooks project (QuickBooks tab) and payments match automatically by contractor name.</div>}
-        </Card>
-      )}
       <Card style={{marginBottom:16,border:`1.5px solid ${T.gold}`}}>
         <div style={{padding:"12px 16px 10px",display:"flex",alignItems:"center",gap:8,background:"#FFF9EC",flexWrap:"wrap"}}>
           <span style={{fontSize:12,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em"}}>👷 Contractors on this property</span>
@@ -5671,30 +5670,67 @@ function PropertyContractorsCard({property}){
         {pJobs.length===0&&<div style={{padding:"14px 16px",fontSize:12.5,color:T.textTert,background:"#FFF9EC"}}>No jobs or bids on this property yet — request a bid to get a price from one of your contractors.</div>}
         {pJobs.map(j=>{
           const org=orgOf(j.orgId);
-          const total=ctrJobTotal(j),paid=ctrJobPaid(j);
+          const m=jobMoney(j);
           const pend=(j.coRequests||[]).filter(r=>r.status==="pending").length;
           const openT=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id)&&t.status!=="Completed"&&t.status!=="N/A").length;
+          const unread=(ctrMessages||[]).filter(x=>String(x.jobId)===String(j.id)&&x.side!=="team"&&!(x.readBy||[]).includes(currentUser)).length;
           const isBid=j.status==="bid";
+          const over=m.bid>0&&m.paid>m.bid;
+          const pct=m.bid>0?Math.min(100,100*m.paid/m.bid):(m.paid>0?100:0);
+          const ic=(emoji,badge,title,onClick)=>(
+            <button onClick={e=>{e.stopPropagation();onClick();}} title={title} style={{position:"relative",width:32,height:32,borderRadius:"50%",background:"#fff",border:"1px solid #E5D9B0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0,padding:0}}>
+              {emoji}{badge>0&&<span style={{position:"absolute",top:-4,right:-4,background:T.red,color:"#fff",fontSize:8.5,fontWeight:800,borderRadius:9,padding:"1px 5px",lineHeight:1.3}}>{badge}</span>}
+            </button>
+          );
           return(
-            <div key={j.id} onClick={()=>setOpenJobId(j.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderTop:"1px solid rgba(184,149,63,0.25)",cursor:"pointer",background:"#FFF9EC",opacity:j.status==="complete"?0.6:1,flexWrap:"wrap"}}>
+            <div key={j.id} onClick={()=>setOpenJobId(j.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",borderTop:"1px solid rgba(184,149,63,0.25)",cursor:"pointer",background:"#FFF9EC",opacity:j.status==="complete"?0.6:1,flexWrap:"wrap"}}>
               <div style={{flex:1,minWidth:170}}>
                 <div style={{fontSize:14.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org?.name||"Contractor"}{j.title?` — ${j.title}`:""}</div>
-                <div style={{fontSize:12,color:"#8a6d1f",marginTop:2}}>
+                <div style={{fontSize:12,color:over?T.red:"#8a6d1f",marginTop:2}}>
                   {isBid
-                    ?(j.bidAmount?`🧾 Bid received: ${$(j.bidAmount)}${j.bidBy?` from ${j.bidBy.split(" ")[0]}`:""}`:"🧾 Bid requested — waiting on their price")
-                    :`${j.status==="complete"?"Job complete":`${$(paid)} paid of ${$(total)} · ${$(total-paid)} left`}${openT?` · ${openT} open task${openT!==1?"s":""}`:""}`}
+                    ?(j.bidAmount?`🧾 Bid: ${$(j.bidAmount)}${j.bidEnteredByAdmin?" · entered by you":j.bidBy?` from ${j.bidBy.split(" ")[0]}`:""}`:"🧾 Bid requested — waiting on their price")
+                    :j.status==="complete"?"Job complete"
+                    :over?"⚠ paid more than the bid"
+                    :m.auto.length||( j.payments||[]).some(x=>x.qbId)?`✓ payments auto-matched from QuickBooks${openT?` · ${openT} open task${openT!==1?"s":""}`:""}`
+                    :`${openT?`${openT} open task${openT!==1?"s":""}`:"tap to manage"}`}
                 </div>
                 {isBid&&(j.bidItems||[]).length>0&&<div style={{marginTop:5,fontSize:11.5,color:T.textSub,lineHeight:1.7,maxWidth:420}}>
                   {j.bidItems.map((r,i)=><div key={i} style={{display:"flex",gap:10}}><span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.label}</span><b style={{flexShrink:0,color:T.text}}>{$(r.amount)}</b></div>)}
                 </div>}
               </div>
+              {!isBid&&(
+                <span style={{display:"flex",gap:7,flexShrink:0,alignItems:"center"}}>
+                  {ic("💬",unread,"Messages",()=>setOpenJobId(j.id))}
+                  {ic("🧾",pend,"Change orders",()=>setOpenJobId(j.id))}
+                  {ic("💰",0,"Payments — bid vs paid",()=>setPayFor(j.id))}
+                  {ic("☑",openT,"Tasks",()=>setOpenJobId(j.id))}
+                </span>
+              )}
+              {(m.bid>0||m.paid>0)&&(
+                <span style={{display:"flex",gap:14,flexShrink:0,alignItems:"center"}} onClick={e=>{e.stopPropagation();setPayFor(j.id);}}>
+                  <span style={{width:90,height:6,borderRadius:3,background:"#ECE5D2",overflow:"hidden",display:"flex"}}><span style={{display:"block",height:"100%",width:`${pct}%`,background:over?T.red:"#C9A227"}}/></span>
+                  <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>BID</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:T.text}}>{fm(m.bid)}</span></span>
+                  <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>PAID</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:"#0F9D58"}}>{fm(m.paid)}</span></span>
+                  <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>LEFT</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:m.left<0?T.red:"#B8953F"}}>{fm(m.left)}</span></span>
+                </span>
+              )}
+              {isBid&&isAdmin&&!j.bidAmount&&(
+                <span style={{display:"flex",gap:6,flexShrink:0,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+                  {String(bidEntryFor)===String(j.id)?(<>
+                    <input autoFocus value={bidEntryAmt} onChange={e=>setBidEntryAmt(e.target.value)} onKeyDown={e=>e.key==="Enter"&&enterBid(j)} inputMode="decimal" placeholder="$ their price" style={{width:110,padding:"7px 10px",borderRadius:9,border:`1px solid ${T.gold}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                    <button onClick={()=>enterBid(j)} style={{padding:"6px 13px",borderRadius:16,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+                    <button onClick={()=>{setBidEntryFor(null);setBidEntryAmt("");}} style={{background:"none",border:"none",color:T.textTert,fontSize:16,cursor:"pointer",lineHeight:1}}>×</button>
+                  </>):(
+                    <button onClick={()=>{setBidEntryFor(j.id);setBidEntryAmt("");}} style={{padding:"6px 13px",borderRadius:16,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✎ Enter their bid</button>
+                  )}
+                </span>
+              )}
               {isBid&&j.bidAmount&&isAdmin&&(
                 <div style={{display:"flex",gap:6,flexShrink:0}} onClick={e=>e.stopPropagation()}>
                   <button onClick={()=>acceptBid(j)} style={{padding:"6px 13px",borderRadius:16,border:"none",background:T.green,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✓ Accept {$(j.bidAmount)}</button>
                   <button onClick={()=>declineBid(j)} style={{padding:"6px 13px",borderRadius:16,border:`1px solid ${T.red}`,background:"#fff",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Decline</button>
                 </div>
               )}
-              {!isBid&&pend>0&&<span title="Pending change-order requests" style={{fontSize:10.5,fontWeight:800,color:"#fff",background:T.red,borderRadius:12,padding:"3px 9px",flexShrink:0}}>🧾 {pend}</span>}
               <span style={{fontSize:12,fontWeight:700,color:"#8a6d1f",flexShrink:0}}>{isBid?"Open ›":"Manage ›"}</span>
             </div>
           );
@@ -5737,7 +5773,7 @@ function PropertyContractorsCard({property}){
               {(j.payments||[]).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))).map(pm=>(
                 <div key={pm.id} style={prS}>
                   <span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pm.qbId?"📌":"✎"} {pm.date||""} · {pm.note||"Payment"}</span>
-                  <b style={{whiteSpace:"nowrap"}}>{fm(Number(pm.amount)||0)}<button onClick={()=>ctrSave("contractor_jobs",{...j,payments:(j.payments||[]).filter(x=>x.id!==pm.id)})} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,marginLeft:6,padding:0}}>×</button></b>
+                  <b style={{whiteSpace:"nowrap"}}>{fm(Number(pm.amount)||0)}<button onClick={()=>ctrSave("contractor_jobs",{...j,payments:(j.payments||[]).filter(x=>x.id!==pm.id),...(pm.qbId?{qbPayExcluded:[...(j.qbPayExcluded||[]),pm.qbId]}:{})})} title={pm.qbId?"Exclude — auto won't re-add it":"Remove"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,marginLeft:6,padding:0}}>{pm.qbId?"⊘":"×"}</button></b>
                 </div>
               ))}
               {manFor

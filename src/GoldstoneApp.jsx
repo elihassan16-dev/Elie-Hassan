@@ -11,7 +11,7 @@ import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, STREAM_VIDEO_CAP } from "./net";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { usePersistentDraft } from "./useDraft";
-import { ContractorsAdminPage, JobDetail as CtrJobDetail } from "./contractors/ContractorsAdminPage";
+import { ContractorsAdminPage, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
@@ -5597,8 +5597,70 @@ function PropertyContractorsCard({property}){
     await ctrRemove("contractor_jobs",j.id).catch(()=>{});
     notify(null,{toOrg:j.orgId,title:"Bid declined",body:`${j.propertyAddress}${j.title?` — ${j.title}`:""}`});
   };
+  // ── 💰 Contractor money: bid vs paid, payments auto-matched from QuickBooks
+  // by the contractor's name; ⊘ excludes one, 📌 pins one the match missed. ──
+  const[payFor,setPayFor]=useState(null);       // job id → payments popup
+  const[pTxns,setPTxns]=useState(null);         // this property's QB expense lines
+  const[qbPickFor,setQbPickFor]=useState(null); // job id → Pin-more picker
+  const[manFor,setManFor]=useState(false);const[manLbl,setManLbl]=useState("");const[manAmt,setManAmt]=useState("");
+  useEffect(()=>{
+    if(!isAdmin||!property.qbProjectId){setPTxns(null);return;}
+    let alive=true;
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(property.qbProjectId)}`)
+      .then(d=>{if(alive)setPTxns((d.items||[]).filter(t=>(t.section||"").toLowerCase()!=="income"&&Math.abs(Number(t.amount)||0)>0));})
+      .catch(()=>{if(alive)setPTxns([]);});
+    return()=>{alive=false;};
+  },[isAdmin,property.qbProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pkey=(t)=>t.id||`${t.date}|${t.vendor}|${t.amount}`;
+  const nrmCo=(x)=>String(x||"").toLowerCase().replace(/\b(llc|inc|corp|co|ltd|llp|company|the)\b/g," ").replace(/[^a-z0-9]/g,"");
+  const nameMatch=(vendor,orgName)=>{const a=nrmCo(vendor),b=nrmCo(orgName);return a.length>=3&&b.length>=3&&(a.includes(b)||b.includes(a));};
+  const fm=(n)=>`${n<0?"−":""}$${Math.abs(Math.round(n)).toLocaleString()}`;
+  const jobMoney=(j)=>{
+    const org=orgOf(j.orgId);
+    const bid=j.status==="bid"?(Number(j.bidAmount)||0):ctrJobTotal(j);
+    const inPay=new Set((j.payments||[]).map(x=>x.qbId).filter(Boolean));
+    const ex=new Set(j.qbPayExcluded||[]);
+    const matched=org?(pTxns||[]).filter(t=>nameMatch(t.vendor,org.name)&&!inPay.has(pkey(t))):[];
+    const auto=matched.filter(t=>!ex.has(pkey(t)));
+    const excluded=matched.filter(t=>ex.has(pkey(t)));
+    const autoSum=auto.reduce((t2,t)=>t2+Math.abs(Number(t.amount)||0),0);
+    const paid=autoSum+ctrJobPaid(j);
+    return {org,bid,auto,excluded,autoSum,paid,left:bid-paid};
+  };
+  const moneyJobs=isAdmin?pJobs.filter(j=>{const m=jobMoney(j);return m.bid>0||m.paid>0;}):[];
+  const payJob=payFor!=null?pJobs.find(j=>String(j.id)===String(payFor))||null:null;
+  const applyQbRows=async(j,rows)=>{
+    const have=new Set((j.payments||[]).map(x=>x.qbId).filter(Boolean));
+    const add=rows.filter(t=>!have.has(pkey(t))).map((t,i)=>({id:Date.now()+i,amount:Math.abs(Number(t.amount)||0),date:t.date||new Date().toISOString().slice(0,10),note:[t.vendor,t.memo].filter(Boolean).join(" — ")||"QuickBooks",qbId:pkey(t)}));
+    if(add.length)await ctrSave("contractor_jobs",{...j,payments:[...(j.payments||[]),...add]});
+    setQbPickFor(null);
+  };
   return(
     <>
+      {isAdmin&&moneyJobs.length>0&&(
+        <Card style={{marginBottom:16}}>
+          <div style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,borderBottom:`1px solid ${T.border}`,flexWrap:"wrap"}}>
+            <b style={{fontSize:13.5,color:T.text}}>💰 Contractor money — bids vs paid</b>
+            <span style={{fontSize:11.5,color:T.textTert}}>{moneyJobs.length} contractor{moneyJobs.length!==1?"s":""} · bids {fm(moneyJobs.reduce((t,j)=>t+jobMoney(j).bid,0))} · paid {fm(moneyJobs.reduce((t,j)=>t+jobMoney(j).paid,0))}</span>
+          </div>
+          {moneyJobs.map(j=>{const m=jobMoney(j);const over=m.bid>0&&m.paid>m.bid;const pct=m.bid>0?Math.min(100,100*m.paid/m.bid):(m.paid>0?100:0);return(
+            <div key={j.id} onClick={()=>setPayFor(j.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 16px",borderTop:`1px solid ${T.border}55`,cursor:"pointer",flexWrap:"wrap"}}>
+              <span style={{flex:1,minWidth:150}}>
+                <span style={{display:"block",fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.org?.name||"Contractor"}</span>
+                <span style={{display:"block",fontSize:10.5,color:over?T.red:T.textTert,marginTop:1}}>{j.title||"Job"}{over?" · ⚠ paid more than the bid":m.auto.length?` · ✓ auto-matched ${m.auto.length} payment${m.auto.length!==1?"s":""}`:pTxns===null&&property.qbProjectId?" · matching…":""}</span>
+              </span>
+              <span style={{width:110,height:6,borderRadius:3,background:"#ECECEF",overflow:"hidden",display:"flex",flexShrink:0}}><span style={{display:"block",height:"100%",width:`${pct}%`,background:over?T.red:"#C9A227"}}/></span>
+              <span style={{display:"flex",gap:16,flexShrink:0,alignItems:"center"}}>
+                <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:T.textTert,letterSpacing:"0.04em"}}>BID</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:T.text}}>{fm(m.bid)}</span></span>
+                <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:T.textTert,letterSpacing:"0.04em"}}>PAID</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:"#0F9D58"}}>{fm(m.paid)}</span></span>
+                <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:T.textTert,letterSpacing:"0.04em"}}>LEFT</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:m.left<0?T.red:"#B8953F"}}>{fm(m.left)}</span></span>
+                <span style={{color:T.gold,fontWeight:800,fontSize:14}}>›</span>
+              </span>
+            </div>
+          );})}
+          {!property.qbProjectId&&<div style={{padding:"8px 16px 12px",fontSize:10.5,color:T.textTert}}>Link this property to its QuickBooks project (QuickBooks tab) and payments match automatically by contractor name.</div>}
+        </Card>
+      )}
       <Card style={{marginBottom:16,border:`1.5px solid ${T.gold}`}}>
         <div style={{padding:"12px 16px 10px",display:"flex",alignItems:"center",gap:8,background:"#FFF9EC",flexWrap:"wrap"}}>
           <span style={{fontSize:12,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em"}}>👷 Contractors on this property</span>
@@ -5640,6 +5702,62 @@ function PropertyContractorsCard({property}){
       </Card>
       {bidOpen&&<BidRequestModal property={property} orgs={allOrgs} onCreate={createBid} onClose={()=>setBidOpen(false)}/>}
       {openJob&&<CtrJobDetail j={openJob} org={orgOf(openJob.orgId)} isAdmin={isAdmin} qbProjectId={property.qbProjectId||null} tasks={ctrTasks} messages={ctrMessages} docs={ctrDocs} save={ctrSave} remove={ctrRemove} displayName={currentUser} onClose={()=>setOpenJobId(null)}/>}
+      {payJob&&(()=>{const j=payJob;const m=jobMoney(j);
+        const prS={display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"8px 18px",borderTop:`1px solid ${T.border}55`,fontSize:12.5};
+        return(
+        <div onClick={()=>{setPayFor(null);setManFor(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:390,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(430px,96vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.22)"}}>
+            <div style={{padding:"14px 18px 4px",display:"flex",alignItems:"flex-start",gap:8}}>
+              <div style={{flex:1,minWidth:0}}>
+                <b style={{fontSize:15}}>🔨 {m.org?.name||"Contractor"} — payments</b>
+                <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{property.address} · matched from QuickBooks by name</div>
+              </div>
+              <button onClick={()=>{setPayFor(null);setManFor(false);}} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+            <div style={{overflowY:"auto",flex:1}}>
+              <div style={{padding:"10px 18px 4px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>PAYMENTS FOUND
+                <span style={{display:"inline-flex",gap:4,fontSize:10,fontWeight:700,borderRadius:12,padding:"2px 8px",border:"1px solid #0F9D58",color:"#0F9D58",background:"#EDFBF1"}}>✓ Auto-match: {m.org?.name?`"${m.org.name.split(" ")[0]}"`:"name"}</span>
+                {property.qbProjectId&&<button onClick={()=>setQbPickFor(j.id)} style={{display:"inline-flex",gap:4,fontSize:10,fontWeight:700,borderRadius:12,padding:"2px 8px",border:"1px dashed #CCD",color:T.blue,background:"#fff",cursor:"pointer",fontFamily:"inherit"}}>📌 Pin more</button>}
+              </div>
+              {pTxns===null&&property.qbProjectId&&<div style={{padding:"8px 18px",fontSize:11.5,color:T.textTert}}>⏳ Loading QuickBooks…</div>}
+              {m.auto.map(t=>(
+                <div key={pkey(t)} style={prS}>
+                  <span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.date} · {t.vendor||t.type||"payment"}{t.num?` · ${t.num}`:""}</span>
+                  <b style={{color:"#0F9D58",whiteSpace:"nowrap"}}>{fm(Math.abs(Number(t.amount)||0))}<button onClick={()=>ctrSave("contractor_jobs",{...j,qbPayExcluded:[...(j.qbPayExcluded||[]),pkey(t)]})} title="Exclude — auto will skip it" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button></b>
+                </div>
+              ))}
+              {m.excluded.map(t=>(
+                <div key={"x"+pkey(t)} style={{...prS,opacity:.55}}>
+                  <span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"line-through"}}>{t.date} · {t.vendor||t.type||"payment"}</span>
+                  <button onClick={()=>ctrSave("contractor_jobs",{...j,qbPayExcluded:(j.qbPayExcluded||[]).filter(k=>k!==pkey(t))})} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:9.5,fontWeight:800,padding:"3px 8px",cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button>
+                </div>
+              ))}
+              {m.auto.length===0&&m.excluded.length===0&&pTxns!==null&&<div style={{padding:"6px 18px 10px",fontSize:11.5,color:T.textTert}}>{property.qbProjectId?"No QuickBooks payments match this contractor's name yet — 📌 Pin one if it was paid under a different payee.":"Link the property to its QuickBooks project to auto-match payments."}</div>}
+              {(j.payments||[]).length>0&&<div style={{padding:"10px 18px 4px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>LOGGED ON THE JOB</div>}
+              {(j.payments||[]).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))).map(pm=>(
+                <div key={pm.id} style={prS}>
+                  <span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pm.qbId?"📌":"✎"} {pm.date||""} · {pm.note||"Payment"}</span>
+                  <b style={{whiteSpace:"nowrap"}}>{fm(Number(pm.amount)||0)}<button onClick={()=>ctrSave("contractor_jobs",{...j,payments:(j.payments||[]).filter(x=>x.id!==pm.id)})} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,marginLeft:6,padding:0}}>×</button></b>
+                </div>
+              ))}
+              {manFor
+                ?<div style={{display:"flex",gap:6,padding:"8px 18px",flexWrap:"wrap"}}>
+                  <input autoFocus value={manLbl} onChange={e=>setManLbl(e.target.value)} placeholder="Note (check #, cash…)" style={{flex:1,minWidth:110,padding:"7px 9px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  <input value={manAmt} onChange={e=>setManAmt(e.target.value)} placeholder="$ amount" inputMode="decimal" style={{width:95,padding:"7px 9px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",textAlign:"right"}}/>
+                  <button onClick={()=>{const amt=parseFloat(String(manAmt).replace(/[^0-9.]/g,""));if(!amt)return;ctrSave("contractor_jobs",{...j,payments:[...(j.payments||[]),{id:Date.now(),amount:amt,date:new Date().toISOString().slice(0,10),note:manLbl.trim()||"Manual payment"}]});setManLbl("");setManAmt("");setManFor(false);}} style={{padding:"7px 13px",borderRadius:8,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Add</button>
+                  <button onClick={()=>{setManFor(false);setManLbl("");setManAmt("");}} style={{background:"none",border:"none",color:T.textTert,fontSize:16,cursor:"pointer",lineHeight:1}}>×</button>
+                </div>
+                :<button onClick={()=>setManFor(true)} style={{width:"100%",textAlign:"left",padding:"9px 18px",borderTop:`1px solid ${T.border}55`,background:"none",border:"none",color:T.blue,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>＋ Add a manual payment</button>}
+            </div>
+            <div style={{padding:"11px 18px",borderTop:`2px solid ${T.gold}`,background:"#FBF7EC",display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:13}}>
+              <span style={{color:"#B8953F"}}>Paid {fm(m.paid)} of the {fm(m.bid)} bid</span>
+              <span style={{color:m.left<0?T.red:"#0F9D58"}}>{m.left<0?`over by ${fm(-m.left)}`:`${fm(m.left)} left`}</span>
+            </div>
+          </div>
+        </div>
+      );})()}
+      {qbPickFor&&(()=>{const j=pJobs.find(x=>String(x.id)===String(qbPickFor));if(!j)return null;const m=jobMoney(j);
+        return <QBPayPicker qbProjectId={property.qbProjectId} orgName={m.org?.name||""} existingQbIds={[...((j.payments||[]).map(x=>x.qbId).filter(Boolean)),...m.auto.map(pkey),...m.excluded.map(pkey)]} onAdd={rows=>applyQbRows(j,rows)} onClose={()=>setQbPickFor(null)}/>;})()}
     </>
   );
 }

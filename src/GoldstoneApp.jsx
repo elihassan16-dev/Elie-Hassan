@@ -12303,7 +12303,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
             </div>
             {!isCol&&<>
             {list.map((x,i)=>(
-              <div key={x.p.id+"|"+x.kind} onClick={()=>onOpenProperty&&onOpenProperty(x.p.id)} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 16px",borderTop:i===0?`1px solid ${T.border}`:"none",cursor:onOpenProperty?"pointer":"default"}}>
+              <div key={x.p.id+"|"+x.kind} onClick={()=>onOpenProperty&&onOpenProperty(x.p.id)} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 16px",borderTop:i===0?`1px solid ${T.border}`:"none",cursor:onOpenProperty?"pointer":"default",background:i%2?T.goldLight+"55":"transparent"}}>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:12.5,color:onOpenProperty?T.blue:T.text,fontWeight:onOpenProperty?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.p.address}</div>
                   <div style={{fontSize:10.5,color:T.textTert}}>{x.kind}</div>
@@ -12311,8 +12311,8 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
                 <span style={{textAlign:"right",fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap",flexShrink:0,paddingRight:canEdit?24:0}}>{fmtD(x.amt)}</span>
               </div>
             ))}
-            {adjustments.map(a=>(
-              <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:`1px solid ${T.border}`}}>
+            {adjustments.map((a,ai)=>(
+              <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:ai===0?`1px solid ${T.border}`:"none",background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
                 <span onClick={canEdit?()=>{setAdjDraft({label:a.label,amount:String(a.amount)});setEditAdjId(a.id);setAddAdjFor(b.id);}:undefined} title={canEdit?"Tap to edit":undefined} style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>{a.label}{canEdit&&<span style={{fontSize:10,color:T.textTert}}> · tap to edit</span>}</span>
                 {canEdit
                   ?<span style={{width:148,flexShrink:0}}>{(Number(a.amount)||0)<0&&<select value={a.propertyId||""} onChange={e=>linkAdj(b.id,a.id,e.target.value)} title="Link to a deal — shows in that property's numbers" style={{width:"100%",padding:"3px 6px",borderRadius:8,border:`1px solid ${a.propertyId?T.gold:T.border}`,fontSize:10.5,fontFamily:"inherit",background:a.propertyId?"#FBF7EC":"#fff",color:a.propertyId?"#8a6d1f":T.textTert,outline:"none"}}>

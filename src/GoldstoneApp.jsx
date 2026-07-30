@@ -5654,8 +5654,14 @@ function PropertyContractorsCard({property}){
   const enterBid=async(j)=>{
     const amt=parseFloat(String(bidEntryAmt).replace(/[^0-9.]/g,""));
     if(!amt)return;
-    await ctrSave("contractor_jobs",{...j,bidAmount:amt,bidBy:`${currentUser} (Goldstone)`,bidAt:new Date().toISOString(),bidEnteredByAdmin:true});
-    notify(null,{toOrg:j.orgId,title:"Goldstone recorded your bid",body:`${j.propertyAddress}${j.title?` — ${j.title}`:""} — ${$(amt)}. Reply in the job chat if that's not right.`,url:`/?goto=job:${j.id}`});
+    if(j.status==="bid"){
+      await ctrSave("contractor_jobs",{...j,bidAmount:amt,bidBy:`${currentUser} (Goldstone)`,bidAt:new Date().toISOString(),bidEnteredByAdmin:true});
+      notify(null,{toOrg:j.orgId,title:"Goldstone recorded your bid",body:`${j.propertyAddress}${j.title?` — ${j.title}`:""} — ${$(amt)}. Reply in the job chat if that's not right.`,url:`/?goto=job:${j.id}`});
+    }else{
+      // Active job that never got a price — set the contract price directly.
+      await ctrSave("contractor_jobs",{...j,price:amt});
+      notify(null,{toOrg:j.orgId,title:"Contract price set",body:`${j.propertyAddress}${j.title?` — ${j.title}`:""} — ${$(amt)}. Reply in the job chat if that's not right.`,url:`/?goto=job:${j.id}`});
+    }
     setBidEntryFor(null);setBidEntryAmt("");
   };
   return(
@@ -5714,14 +5720,14 @@ function PropertyContractorsCard({property}){
                   <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>LEFT</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:m.left<0?T.red:"#B8953F"}}>{fm(m.left)}</span></span>
                 </span>
               )}
-              {isBid&&isAdmin&&!j.bidAmount&&(
+              {isAdmin&&(isBid?!j.bidAmount:!(Number(j.price)>0)&&j.status!=="complete")&&(
                 <span style={{display:"flex",gap:6,flexShrink:0,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
                   {String(bidEntryFor)===String(j.id)?(<>
                     <input autoFocus value={bidEntryAmt} onChange={e=>setBidEntryAmt(e.target.value)} onKeyDown={e=>e.key==="Enter"&&enterBid(j)} inputMode="decimal" placeholder="$ their price" style={{width:110,padding:"7px 10px",borderRadius:9,border:`1px solid ${T.gold}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
                     <button onClick={()=>enterBid(j)} style={{padding:"6px 13px",borderRadius:16,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
                     <button onClick={()=>{setBidEntryFor(null);setBidEntryAmt("");}} style={{background:"none",border:"none",color:T.textTert,fontSize:16,cursor:"pointer",lineHeight:1}}>×</button>
                   </>):(
-                    <button onClick={()=>{setBidEntryFor(j.id);setBidEntryAmt("");}} style={{padding:"6px 13px",borderRadius:16,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✎ Enter their bid</button>
+                    <button onClick={()=>{setBidEntryFor(j.id);setBidEntryAmt("");}} style={{padding:"6px 13px",borderRadius:16,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{isBid?"✎ Enter their bid":"✎ Set the price"}</button>
                   )}
                 </span>
               )}

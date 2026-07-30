@@ -12242,8 +12242,8 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   const linkKindAdj=(id,adjId,kind)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:(b.adjustments||[]).map(a=>a.id===adjId?{...a,linkKind:kind}:a)}:b));save();};
   // Money physically held in the bank for a property — always ≥ 0. In equity mode it's
   // the surplus financing (loans − all-in = −equity) you're holding to finish the job.
-  const heldOf=(p)=>{if((p.dmFinType||"draws")!=="upfront"&&(p.bsCalcMode||"reserve")==="equity"){const m=bsMetrics(p,accounts,spend);return m.equity==null?0:Math.max(0,-m.equity);}return dmPotMath(p,accounts,spend).reserveLeft;};
-  const constrOf=(p)=>dmPotMath(p,accounts,spend).constrHeld;
+  const heldOf=(p)=>{if((p.dmFinType||"draws")!=="upfront"&&(p.bsCalcMode||"reserve")==="equity"){const m=bsMetrics(p,accounts,spend);return m.equity==null?0:Math.max(0,-m.equity);}return dmPotMath(p,accounts,spend,bankAccounts).reserveLeft;};
+  const constrOf=(p)=>dmPotMath(p,accounts,spend,bankAccounts).constrHeld;
   // Two kinds of holdings per property, each with its own bank account and its
   // own line item: interest reserve (bsBankAccount) and construction (dmConstrBank).
   const itemsOf=(id)=>[
@@ -12648,7 +12648,7 @@ function FinDocCreator({sharedProps,isMobile}){
   );
 }
 
-function dmPotMath(p,accounts,spend){
+function dmPotMath(p,accounts,spend,bankAccounts){
   const bal=(id)=>{const a=(accounts||[]).find(x=>String(x.id)===String(id));return a?Math.abs(Number(a.balance)||0):0;};
   const potIds=(p.qbLocPotIds||[]).map(String),conIds=(p.qbConstrIds||[]).map(String);
   const keys=[...(p.qbLoanAccounts||[]).map(id=>({key:String(id),bal:bal(id)})),...(p.qbLoanCustom||[]).map(l=>({key:"c"+l.id,bal:Math.abs(Number(l.amount)||0)}))];
@@ -12661,8 +12661,16 @@ function dmPotMath(p,accounts,spend){
   const reserve=mode==="all"?Math.max(0,leftPot):(isNaN(amt)?0:amt);
   const fromPot=(mode==="custom"&&p.dmRestToConstr)?Math.max(0,leftPot-reserve):0;
   const paid=bsSum(p.qbDebtTxns)+bsSum(p.qbDebtCustom);
-  const constrSpent=bsSum(p.dmConstrSpentTxns)+bsSum(p.dmConstrSpentCustom);
-  const draws=Math.abs(bsSum(p.qbDrawTxns))+Math.abs(bsSum(p.dmDrawCustom));
+  // Same money math as the Construction card: draws include Bank-Recon
+  // adjustments linked as draws, and spend prefers the live rehab actuals
+  // from the QB project over hand-pinned payments.
+  const adjDraws=(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind==="draw")).reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
+  const pnlRows=(p.qbProjectId&&spend&&spend[p.qbProjectId]&&spend[p.qbProjectId].pnl&&spend[p.qbProjectId].pnl.rows)||null;
+  const rehabLive=pnlRows?pnlRows.filter(r=>r.section!=="Income"&&qbBucket(r.name)==="rehab").reduce((t,r)=>t+(Number(r.amount)||0),0):null;
+  const rehabManual=parseFloat(String((p.financials||{}).actualRehabCosts??"").replace(/[^0-9.\-]/g,""));
+  const constrSpentPinned=bsSum(p.dmConstrSpentTxns)+bsSum(p.dmConstrSpentCustom);
+  const constrSpent=rehabLive!=null?rehabLive:(!isNaN(rehabManual)&&rehabManual>0?rehabManual:constrSpentPinned);
+  const draws=Math.abs(bsSum(p.qbDrawTxns))+Math.abs(bsSum(p.dmDrawCustom))+adjDraws;
   const upfront=(p.dmFinType||"draws")==="upfront";
   if(upfront){
     // Funded up front: one formula — the loan minus actual spend to date is

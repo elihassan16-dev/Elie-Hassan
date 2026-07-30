@@ -12313,23 +12313,37 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
               </div>
             </Fragment>))}
             {adjustments.length>0&&<div style={{padding:"7px 16px 4px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",background:T.bg,borderTop:`1px solid ${T.border}`}}>✎ Loans & floats — adjustments</div>}
-            {adjustments.map((a,ai)=>(
-              <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:ai===0?`1px solid ${T.border}`:"none",background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
-                <span onClick={canEdit?()=>{setAdjDraft({label:a.label,amount:String(a.amount)});setEditAdjId(a.id);setAddAdjFor(b.id);}:undefined} title={canEdit?"Tap to edit":undefined} style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>{a.label}{canEdit&&<span style={{fontSize:10,color:T.textTert}}> · tap to edit</span>}</span>
-                {canEdit
-                  ?<span style={{width:148,flexShrink:0}}>{(Number(a.amount)||0)<0&&<select value={a.propertyId||""} onChange={e=>linkAdj(b.id,a.id,e.target.value)} title="Link to a deal — shows in that property's numbers" style={{width:"100%",padding:"3px 6px",borderRadius:8,border:`1px solid ${a.propertyId?T.gold:T.border}`,fontSize:10.5,fontFamily:"inherit",background:a.propertyId?"#FBF7EC":"#fff",color:a.propertyId?"#8a6d1f":T.textTert,outline:"none"}}>
+            {adjustments.map((a,ai)=>{
+              const neg=(Number(a.amount)||0)<0;
+              const editLbl=<span onClick={canEdit?()=>{setAdjDraft({label:a.label,amount:String(a.amount)});setEditAdjId(a.id);setAddAdjFor(b.id);}:undefined} title={canEdit?"Tap to edit":undefined} style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>{a.label}{canEdit&&!isMobile&&<span style={{fontSize:10,color:T.textTert}}> · tap to edit</span>}</span>;
+              const dealSel=canEdit&&neg&&<select value={a.propertyId||""} onChange={e=>linkAdj(b.id,a.id,e.target.value)} title="Link to a deal — shows in that property's numbers" style={{width:"100%",padding:isMobile?"5px 6px":"3px 6px",borderRadius:8,border:`1px solid ${a.propertyId?T.gold:T.border}`,fontSize:10.5,fontFamily:"inherit",background:a.propertyId?"#FBF7EC":"#fff",color:a.propertyId?"#8a6d1f":T.textTert,outline:"none"}}>
                     <option value="">→ link to a deal…</option>
                     {props.map(pp=><option key={pp.id} value={pp.id}>{pp.address}</option>)}
-                  </select>}</span>
-                  :<span style={{width:148,flexShrink:0,fontSize:10,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.propertyId?`→ ${(props.find(pp=>String(pp.id)===String(a.propertyId))||{}).address||"linked"}`:""}</span>}
-                {canEdit&&<span style={{width:150,flexShrink:0}}>{(Number(a.amount)||0)<0&&a.propertyId&&<select value={a.linkKind||"loan"} onChange={e=>linkKindAdj(b.id,a.id,e.target.value)} title="What this money counts as on the deal" style={{width:"100%",padding:"3px 6px",borderRadius:8,border:`1px solid ${T.gold}`,fontSize:10.5,fontFamily:"inherit",background:"#FBF7EC",color:"#8a6d1f",outline:"none"}}>
+                  </select>;
+              const kindSel=canEdit&&neg&&a.propertyId&&<select value={a.linkKind||"loan"} onChange={e=>linkKindAdj(b.id,a.id,e.target.value)} title="What this money counts as on the deal" style={{width:"100%",padding:isMobile?"5px 6px":"3px 6px",borderRadius:8,border:`1px solid ${T.gold}`,fontSize:10.5,fontFamily:"inherit",background:"#FBF7EC",color:"#8a6d1f",outline:"none"}}>
                   <option value="loan">loan on the deal</option>
                   <option value="draw">🔨 construction draw</option>
-                </select>}</span>}
-                <span style={{width:92,textAlign:"right",fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap",flexShrink:0}}>{fmtD(Number(a.amount)||0)}</span>
-                {canEdit&&<span style={{width:16,flexShrink:0,textAlign:"center"}}><button onClick={()=>delAdj(b.id,a.id)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,padding:0}}>×</button></span>}
+                </select>;
+              const amt=<span style={{textAlign:"right",fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap",flexShrink:0,...(isMobile?{}:{width:92})}}>{fmtD(Number(a.amount)||0)}</span>;
+              const del=canEdit&&<span style={{width:16,flexShrink:0,textAlign:"center"}}><button onClick={()=>delAdj(b.id,a.id)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,padding:0}}>×</button></span>;
+              const linkedTxt=!canEdit&&a.propertyId&&<span style={{fontSize:10,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {(props.find(pp=>String(pp.id)===String(a.propertyId))||{}).address||"linked"}</span>;
+              return isMobile?(
+              <div key={a.id} style={{padding:"9px 14px",borderTop:ai===0?`1px solid ${T.border}`:"none",background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>{editLbl}{amt}{del}</div>
+                {(dealSel||kindSel||linkedTxt)&&<div style={{display:"flex",gap:6,marginTop:6}}>{dealSel&&<span style={{flex:1,minWidth:0}}>{dealSel}</span>}{kindSel&&<span style={{flex:1,minWidth:0}}>{kindSel}</span>}{linkedTxt}</div>}
               </div>
-            ))}
+              ):(
+              <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:ai===0?`1px solid ${T.border}`:"none",background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
+                {editLbl}
+                {canEdit
+                  ?<span style={{width:148,flexShrink:0}}>{dealSel}</span>
+                  :<span style={{width:148,flexShrink:0,fontSize:10,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.propertyId?`→ ${(props.find(pp=>String(pp.id)===String(a.propertyId))||{}).address||"linked"}`:""}</span>}
+                {canEdit&&<span style={{width:150,flexShrink:0}}>{kindSel}</span>}
+                {amt}
+                {del}
+              </div>
+              );
+            })}
             {!canEdit?null:addAdjFor===b.id
               ?<div style={{display:"flex",gap:6,padding:"10px 16px",borderTop:`1px solid ${T.border}`,alignItems:"center",flexWrap:"wrap"}}>
                  <input autoFocus value={adjDraft.label} onChange={e=>setAdjDraft(d=>({...d,label:e.target.value}))} placeholder="Adjustment (e.g. small loan)" style={{...inS,flex:1,minWidth:120}}/>
@@ -12975,11 +12989,11 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               {setupStep===1&&(<div style={secBox}>
                 <div style={h}>🏦 Loan accounts — tap a tag: BANK ↔ LINE OF CREDIT</div>
                 {c.entries.map(e=>(
-                  <div key={e.key} style={rowS}>
-                    <span style={lS}><span style={pinTag}>{e.adj?"🏦":e.custom?"✎":"📌"} {e.name}</span>{e.adj?<span title="Linked from a Bank Recon adjustment — unlink it there" style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",background:"#FBF7EC",color:"#8a6d1f",flexShrink:0}}>BANK RECON</span>:jobTag(sel,e.key)}</span>
-                    <span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(e.bal)}</span>
-                      {canEdit&&!e.adj&&removeChip(()=>removeEntry(sel,e))}
-                    </span>
+                  <div key={e.key} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",fontSize:12}}>
+                    <span style={{...pinTag,maxWidth:"none",flex:1,minWidth:0}}>{e.adj?"🏦":e.custom?"✎":"📌"} {e.name}</span>
+                    {e.adj?<span title="Linked from a Bank Recon adjustment — unlink it there" style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",background:"#FBF7EC",color:"#8a6d1f",flexShrink:0}}>BANK RECON</span>:jobTag(sel,e.key)}
+                    <span style={vS}>{money(e.bal)}</span>
+                    {canEdit&&!e.adj&&removeChip(()=>removeEntry(sel,e))}
                   </div>
                 ))}
                 {canEdit&&<div style={{display:"flex",gap:6,marginTop:7}}>

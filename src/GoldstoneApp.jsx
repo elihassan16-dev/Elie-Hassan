@@ -12248,7 +12248,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   // own line item: interest reserve (bsBankAccount) and construction (dmConstrBank).
   const itemsOf=(id)=>[
     ...props.filter(p=>String(p.bsBankAccount||"")===String(id)).map(p=>({p,kind:(p.dmFinType||"draws")==="upfront"?"💼 Funds left (loan − actuals)":(p.bsCalcMode||"reserve")==="equity"?"Personal equity":"⏳ Interest reserve",amt:heldOf(p)})),
-    ...props.filter(p=>String(p.dmConstrBank||"")===String(id)&&p.dmConstrBank!=="loc"&&constrOf(p)>0).map(p=>({p,kind:"🔨 Construction",amt:constrOf(p)})),
+    ...props.filter(p=>String(p.dmConstrBank||"")===String(id)&&p.dmConstrBank!=="loc").map(p=>({p,kind:"🔨 Construction",amt:constrOf(p)})),
   ];
   const expectedOf=(b)=>itemsOf(b.id).reduce((t,x)=>t+x.amt,0)+(b.adjustments||[]).reduce((t,a)=>t+(Number(a.amount)||0),0);
   const unassigned=props.filter(p=>!p.bsBankAccount||(constrOf(p)>0&&!p.dmConstrBank&&p.dmConstrBank!=="loc"));
@@ -12797,7 +12797,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     ...(p.qbLoanCustom||[]).map(l=>({key:"c"+l.id,custom:true,bal:Math.abs(Number(l.amount)||0),name:l.name||"Manual entry",raw:l})),
     // Borrowed money linked from Bank Recon adjustments — counts as a loan on
     // this deal (job fixed to BANK; unlink it back in Bank Recon).
-    ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&(a.linkKind||"loan")==="loan").map(a=>({key:`adj${b.id}_${a.id}`,custom:true,adj:true,bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — from ${b.name}`}))),
+    ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)).map(a=>({key:`adj${b.id}_${a.id}`,custom:true,adj:true,bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — from ${b.name}${a.linkKind==="draw"?" · 🔨 construction draw":""}`}))),
   ];
   const jobOf=(p,key)=>((p.qbConstrIds||[]).map(String).includes(key)?"constr":(p.qbLocPotIds||[]).map(String).includes(key)?"pot":"bank");
   const setJob=(p,key,job)=>{

@@ -13401,7 +13401,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               const hdr=p.status!==last?p.status:null;last=p.status;
               return(<Fragment key={p.id}>
                 {hdr&&<div style={{padding:"9px 14px 5px",fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",background:T.bg}}>{hdr}</div>}
-                <button onClick={()=>setSelId(p.id)} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:8,padding:"12px 14px",background:active?T.goldLight:"transparent",border:"none",borderBottom:`1px solid ${T.border}`,borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent",cursor:"pointer",fontFamily:"inherit"}}>
+                <button onClick={()=>{if(String(p.id)!==String(selId))navPush(((prev)=>()=>setSelId(prev))(selId));setSelId(p.id);}} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:8,padding:"12px 14px",background:active?T.goldLight:"transparent",border:"none",borderBottom:`1px solid ${T.border}`,borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent",cursor:"pointer",fontFamily:"inherit"}}>
                   <span style={{flex:1,minWidth:0}}>
                     <span style={{display:"block",fontSize:13,fontWeight:active?800:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</span>
                   </span>
@@ -14041,6 +14041,14 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   );
 }
 
+// ── App-wide back stack ──────────────────────────────────────────────────────
+// Screens push a restore-closure BEFORE navigating away; "‹ Back" (or the
+// phone's back gesture — each push also adds a history entry) pops one.
+const gsNav={stack:[]};
+const navPush=(restore)=>{gsNav.stack.push(restore);if(gsNav.stack.length>80)gsNav.stack.shift();try{window.history.pushState({gs:1},"");}catch{/* SSR */}};
+const navBack=()=>{if(!gsNav.stack.length)return;try{window.history.back();}catch{const f=gsNav.stack.pop();f&&f();}};
+const navCanBack=()=>gsNav.stack.length>0;
+
 function FinancialSectionPage({onNavigate,canEdit=true}){
   const { funders, setFunders:rawSetFunders, flushFunders, draws, setDraws:rawSetDraws, flushDraws, sharedProps } = useData();
   // View-only members: block every write path (setters become no-ops).
@@ -14285,10 +14293,14 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
             <button onClick={()=>setDrawModal({})} style={{...finBtn(true),padding:"8px 14px"}}>+ Draw</button>
           </div>}
         </div>
-        <div style={{display:"flex",gap:4,marginTop:12,overflowX:"auto"}}>
+        <div style={{display:"flex",gap:4,marginTop:12,overflowX:"auto",alignItems:"center"}}>
           {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["reports","Report Center"],["docs","Document Creator"]].map(([k,l])=>(
-            <button key={k} onClick={()=>{setSubTab(k);setBsSel(null);}} style={{padding:"9px 14px",border:"none",borderBottom:subTab===k?`2.5px solid ${T.gold}`:"2.5px solid transparent",background:"none",color:subTab===k?T.gold:T.textSub,fontWeight:subTab===k?800:600,fontSize:isMobile?12.5:13.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
+            <button key={k} onClick={()=>{if(k!==subTab)navPush(((st,bp)=>()=>{setSubTab(st);setBsSel(bp);})(subTab,bsSel));setSubTab(k);setBsSel(null);}} style={{padding:"9px 14px",border:"none",borderBottom:subTab===k?`2.5px solid ${T.gold}`:"2.5px solid transparent",background:"none",color:subTab===k?T.gold:T.textSub,fontWeight:subTab===k?800:600,fontSize:isMobile?12.5:13.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
           ))}
+          <span style={{marginLeft:"auto",display:"flex",gap:6,flexShrink:0,paddingLeft:8}}>
+            <button onClick={()=>navBack()} title="Back — the screen you were on before" style={{padding:"6px 12px",borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>‹ Back</button>
+            <button onClick={()=>{setBsSel(null);setSelId(null);setSubTab("loc");}} title="Start — the front of the Financial Section" style={{padding:"6px 12px",borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>⌂</button>
+          </span>
         </div>
       </div>
 
@@ -15514,16 +15526,24 @@ export function GoldstoneShell(){
 
   function navigateToProperty(propId){
     setNavPropId(propId);
-    setActive("properties");
+    pushPage("properties");
   }
   function navigateToChat(propId){
     setNavChatId(propId);
-    setActive("messages");
+    pushPage("messages");
   }
 
   // Register the push service worker, and keep this device's subscription fresh
   // (only if the user already opted in — never prompts on its own).
   useEffect(()=>{ registerServiceWorker(); if(displayName) refreshSubscription(displayName); },[displayName]);
+
+  // The phone's back gesture / Android back button pops the app-wide nav stack.
+  useEffect(()=>{
+    const onPop=()=>{const f=gsNav.stack.pop();if(f)f();};
+    window.addEventListener("popstate",onPop);
+    return ()=>window.removeEventListener("popstate",onPop);
+  },[]);
+  const pushPage=(k)=>{if(k!==active)navPush(((prev)=>()=>setActive(prev))(active));setActive(k);};
 
   // When a background video upload finishes, swap its placeholder attachment for
   // the real one wherever the message landed — property chat, a task thread, or
@@ -15600,7 +15620,7 @@ export function GoldstoneShell(){
           </div>
         </div>
         <nav style={{flex:1,minHeight:0,overflowY:"auto",padding:"12px 10px"}}>
-          {navItems.map(({key,label,icon})=>{const isActive=active===key;return <button key={key} onClick={()=>setActive(key)} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:"none",background:isActive?T.goldLight:"transparent",color:isActive?T.gold:T.textSub,fontWeight:isActive?600:400,fontSize:14,cursor:"pointer",marginBottom:2,transition:"all 0.15s",textAlign:"left",fontFamily:"inherit"}}><span style={{color:isActive?T.gold:T.textTert}}>{icon}</span>{label}{key==="messages"&&<UnreadBadge count={unreadTotal} style={{marginLeft:"auto"}}/>}{key==="tasks"&&<UnreadBadge count={newTaskCount} style={{marginLeft:"auto"}}/>}</button>;})}
+          {navItems.map(({key,label,icon})=>{const isActive=active===key;return <button key={key} onClick={()=>pushPage(key)} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:"none",background:isActive?T.goldLight:"transparent",color:isActive?T.gold:T.textSub,fontWeight:isActive?600:400,fontSize:14,cursor:"pointer",marginBottom:2,transition:"all 0.15s",textAlign:"left",fontFamily:"inherit"}}><span style={{color:isActive?T.gold:T.textTert}}>{icon}</span>{label}{key==="messages"&&<UnreadBadge count={unreadTotal} style={{marginLeft:"auto"}}/>}{key==="tasks"&&<UnreadBadge count={newTaskCount} style={{marginLeft:"auto"}}/>}</button>;})}
         </nav>
         <div style={{padding:"14px 16px",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
           <button onClick={()=>setShowProfileMenu(true)} title="Profile & team" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:34,height:34,minWidth:34,maxWidth:34,flex:"0 0 34px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:"#fff",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>{initials}</button>
@@ -15629,7 +15649,7 @@ export function GoldstoneShell(){
       {isMobile&&(
         <nav className="gs-tabbar" style={{display:"flex",background:T.card,borderTop:`1px solid ${T.border}`,flexShrink:0,paddingTop:4}}>
           {bottomItems.map(({key,label,short,icon})=>{const isActive=active===key;return(
-            <button key={key} onClick={()=>setActive(key)} style={{flex:1,minWidth:0,minHeight:52,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,border:"none",background:"transparent",color:isActive?T.gold:T.textTert,cursor:"pointer",fontFamily:"inherit",padding:"4px 2px",overflow:"hidden"}}>
+            <button key={key} onClick={()=>pushPage(key)} style={{flex:1,minWidth:0,minHeight:52,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,border:"none",background:"transparent",color:isActive?T.gold:T.textTert,cursor:"pointer",fontFamily:"inherit",padding:"4px 2px",overflow:"hidden"}}>
               <span style={{color:isActive?T.gold:T.textTert,position:"relative",display:"inline-flex"}}>{icon}{key==="messages"&&unreadTotal>0&&<UnreadBadge count={unreadTotal} style={{position:"absolute",top:-6,left:12,minWidth:16,height:16,fontSize:10}}/>}{key==="tasks"&&newTaskCount>0&&<UnreadBadge count={newTaskCount} style={{position:"absolute",top:-6,left:12,minWidth:16,height:16,fontSize:10}}/>}</span>
               <span style={{fontSize:10,fontWeight:isActive?700:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{short||label}</span>
             </button>);})}
@@ -15640,7 +15660,7 @@ export function GoldstoneShell(){
         </nav>
       )}
       {showAiAssistant&&<GlobalAiChat onClose={()=>setShowAiAssistant(false)}/>}
-      {showNavMenu&&<NavMenu items={navItems} active={active} isPinned={isPinned} onNavigate={(k)=>{setActive(k);setShowNavMenu(false);}} onTogglePin={togglePin} onClose={()=>setShowNavMenu(false)}/>}
+      {showNavMenu&&<NavMenu items={navItems} active={active} isPinned={isPinned} onNavigate={(k)=>{pushPage(k);setShowNavMenu(false);}} onTogglePin={togglePin} onClose={()=>setShowNavMenu(false)}/>}
       {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}/>}
       {showProfileMenu&&<ProfileMenu displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted} setUserSms={setUserSms} setUserChannels={setUserChannels}
         onEditName={()=>{setShowProfileMenu(false);setShowProfile(true);}}

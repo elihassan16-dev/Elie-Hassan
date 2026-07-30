@@ -12239,6 +12239,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   // property's balance sheet as a loan line (Total loans / equity move; the
   // account's expected balance here does NOT change).
   const linkAdj=(id,adjId,pid)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:(b.adjustments||[]).map(a=>a.id===adjId?{...a,propertyId:pid||null}:a)}:b));save();};
+  const linkKindAdj=(id,adjId,kind)=>{setBankAccounts(prev=>prev.map(b=>b.id===id?{...b,adjustments:(b.adjustments||[]).map(a=>a.id===adjId?{...a,linkKind:kind}:a)}:b));save();};
   // Money physically held in the bank for a property — always ≥ 0. In equity mode it's
   // the surplus financing (loans − all-in = −equity) you're holding to finish the job.
   const heldOf=(p)=>{if((p.dmFinType||"draws")!=="upfront"&&(p.bsCalcMode||"reserve")==="equity"){const m=bsMetrics(p,accounts,spend);return m.equity==null?0:Math.max(0,-m.equity);}return dmPotMath(p,accounts,spend).reserveLeft;};
@@ -12303,9 +12304,13 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
             {adjustments.map(a=>(
               <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:`1px solid ${T.border}`}}>
                 <span onClick={canEdit?()=>{setAdjDraft({label:a.label,amount:String(a.amount)});setEditAdjId(a.id);setAddAdjFor(b.id);}:undefined} title={canEdit?"Tap to edit":undefined} style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>{a.label}{canEdit&&<span style={{fontSize:10,color:T.textTert}}> · tap to edit</span>}</span>
-                {canEdit&&(Number(a.amount)||0)<0&&<select value={a.propertyId||""} onChange={e=>linkAdj(b.id,a.id,e.target.value)} title="Link to a deal — shows in that property's loans" style={{maxWidth:130,padding:"3px 6px",borderRadius:8,border:`1px solid ${a.propertyId?T.gold:T.border}`,fontSize:10.5,fontFamily:"inherit",background:a.propertyId?"#FBF7EC":"#fff",color:a.propertyId?"#8a6d1f":T.textTert,outline:"none",flexShrink:0}}>
+                {canEdit&&(Number(a.amount)||0)<0&&<select value={a.propertyId||""} onChange={e=>linkAdj(b.id,a.id,e.target.value)} title="Link to a deal — shows in that property's numbers" style={{maxWidth:130,padding:"3px 6px",borderRadius:8,border:`1px solid ${a.propertyId?T.gold:T.border}`,fontSize:10.5,fontFamily:"inherit",background:a.propertyId?"#FBF7EC":"#fff",color:a.propertyId?"#8a6d1f":T.textTert,outline:"none",flexShrink:0}}>
                   <option value="">→ link to a deal…</option>
                   {props.map(pp=><option key={pp.id} value={pp.id}>{pp.address}</option>)}
+                </select>}
+                {canEdit&&(Number(a.amount)||0)<0&&a.propertyId&&<select value={a.linkKind||"loan"} onChange={e=>linkKindAdj(b.id,a.id,e.target.value)} title="What this money counts as on the deal" style={{maxWidth:150,padding:"3px 6px",borderRadius:8,border:`1px solid ${T.gold}`,fontSize:10.5,fontFamily:"inherit",background:"#FBF7EC",color:"#8a6d1f",outline:"none",flexShrink:0}}>
+                  <option value="loan">counts as: loan</option>
+                  <option value="draw">counts as: 🔨 construction draw</option>
                 </select>}
                 {!canEdit&&a.propertyId&&<span style={{fontSize:10,color:"#8a6d1f",flexShrink:0}}>→ {(props.find(pp=>String(pp.id)===String(a.propertyId))||{}).address||"linked"}</span>}
                 <span style={{fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap"}}>{fmtD(Number(a.amount)||0)}</span>
@@ -12783,7 +12788,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     ...(p.qbLoanCustom||[]).map(l=>({key:"c"+l.id,custom:true,bal:Math.abs(Number(l.amount)||0),name:l.name||"Manual entry",raw:l})),
     // Borrowed money linked from Bank Recon adjustments — counts as a loan on
     // this deal (job fixed to BANK; unlink it back in Bank Recon).
-    ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)).map(a=>({key:`adj${b.id}_${a.id}`,custom:true,adj:true,bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — from ${b.name}`}))),
+    ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&(a.linkKind||"loan")==="loan").map(a=>({key:`adj${b.id}_${a.id}`,custom:true,adj:true,bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — from ${b.name}`}))),
   ];
   const jobOf=(p,key)=>((p.qbConstrIds||[]).map(String).includes(key)?"constr":(p.qbLocPotIds||[]).map(String).includes(key)?"pot":"bank");
   const setJob=(p,key,job)=>{
@@ -12810,7 +12815,11 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const est=n((p.financials||{}).rehabCosts)||n((p.financials||{}).actualRehabCosts)||0;
     const constrTotal=constrBal+constrFromPot;
     const constrSpent=bsSum(p.dmConstrSpentTxns)+bsSum(p.dmConstrSpentCustom);
-    const draws=sumT(p.qbDrawTxns)+sumT(p.dmDrawCustom);
+    // Bank Recon adjustments linked here as construction draws — money lent
+    // from an account straight into the build.
+    const adjDraws=(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind==="draw").map(a=>({...a,bankName:b.name})));
+    const adjDrawSum=adjDraws.reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
+    const draws=sumT(p.qbDrawTxns)+sumT(p.dmDrawCustom)+adjDrawSum;
     const upfront=(p.dmFinType||"draws")==="upfront";
     const fundAuto=upfront&&!!p.dmFundAuto;
     const autoFund=Math.max(0,leftPot-reserve);
@@ -12839,7 +12848,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const equity=m.allIn==null?null:m.allIn-totalLoans+bsSum(p.qbBsCustom);
     const leftover=m.allIn==null?null:totalLoans-m.allIn;
     const reserveHolders=entries.filter(e=>jobOf(p,e.key)==="pot").map(e=>e.name.split(":").pop().trim());
-    return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,constrSpent,constrLeft,rehabLive,spentReal,constrEquity,rate,bankBal,fullLoan,monthlyInt,holdMonths,suggReserve,draws,inFlow,fundAuto,autoFund,constrTotalEff,upfront,leftover,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
+    return {entries,totalLoans,potBal,constrBal,constrFromPot,constrTotal,constrSpent,constrLeft,rehabLive,spentReal,constrEquity,rate,bankBal,fullLoan,monthlyInt,holdMonths,suggReserve,adjDraws,draws,inFlow,fundAuto,autoFund,constrTotalEff,upfront,leftover,restAfterReserve,deployed,leftPot,mode,reserve,paid,left,hb,est,funding,allIn:m.allIn,equity,cb:potBal+constrBal,totalDebt:totalLoans,reserveHolders};
   };
   const secH={fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,background:T.bg,margin:"0 -18px",padding:"7px 18px 6px",borderBottom:`1px solid ${T.border}`};
   const secAmt={fontSize:13.5,fontWeight:800,color:T.text,textTransform:"none",letterSpacing:0,whiteSpace:"nowrap"};
@@ -13297,6 +13306,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         {canEdit&&c.entries.filter(e=>!e.custom&&jobOf(sel,e.key)==="bank").length===0&&<div style={{padding:"2px 18px 6px",fontSize:10.5,color:T.textTert}}>To pull draws, add the mortgage account under Loan accounts in ⚙ Deal setup (leave its tag as BANK).</div>}
         {(sel.qbDrawTxns||[]).map(t=>(<div key={txKey(t)} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(t.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>sel.dmDrawAuto?updateProp(sel.id,"dmDrawExcluded",[...(sel.dmDrawExcluded||[]),txKey(t)]):updateProp(sel.id,"qbDrawTxns",(sel.qbDrawTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title={sel.dmDrawAuto?"Exclude — auto will skip it":"Unpin"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button>}</b></div>))}
         {(sel.dmDrawCustom||[]).map(l=>(<div key={l.id} style={pr}><span style={{color:T.textSub}}>✎ {l.label||"Manual draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(l.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>×</button>}</b></div>))}
+        {(c.adjDraws||[]).map(a=>(<div key={"adj"+a.id} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title="Linked from a Bank Recon adjustment — unlink it there">🏦 {a.label||"Borrowed"} — from {a.bankName}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(a.amount)||0)).slice(1)}</b></div>))}
         {dExRows.map(t=>(<div key={"x"+txKey(t)} style={{...pr,opacity:.55}}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"line-through"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><button onClick={()=>canEdit&&updateProp(sel.id,"dmDrawExcluded",(sel.dmDrawExcluded||[]).filter(k=>k!==txKey(t)))} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:9.5,fontWeight:800,padding:"3px 8px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button></div>))}
         {(sel.qbDrawTxns||[]).length===0&&(sel.dmDrawCustom||[]).length===0&&dExRows.length===0&&<div style={{padding:"4px 18px 10px",fontSize:11.5,color:T.textTert}}>None yet.</div>}
         {c.rehabLive==null&&(<>

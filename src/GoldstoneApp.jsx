@@ -3319,9 +3319,13 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
     const phones=[...parseShowingPhones(s.phone),...(((prop&&prop.showingPhones)||{})[k]||[])];
     if(!phones.length)return null;
     const name=s.agent||"";
+    // Inspections / appraisals / walk-throughs are NOT sales conversations —
+    // no outreach templates for the inspector, just plain call & text.
+    const ek=(((prop&&prop.showingKinds)||{})[k])||s.kind||"showing";
+    const isSales=ek==="showing";
     const texts=(prop&&prop.showingTexts)||{};
     const t=texts[k]||{};
-    const anySent=!!(t.initial||t.followup||t.sweeten);
+    const anySent=isSales&&!!(t.initial||t.followup||t.sweeten);
     const fmtSent=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
     const tmpl=(ph,kind,label,idle)=>{
       const sent=t[kind];
@@ -3335,8 +3339,8 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
           <div key={i} style={{display:"flex",alignItems:"center",gap:6}}>
             <div style={{flex:1,minWidth:0,fontSize:12,fontWeight:600,color:T.text,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>{ph} <SmsBadge phone={ph}/></div>
             <CallA phone={ph} title="Call" style={calIco}><PhoneIcon size={14} color={T.text}/></CallA>
-            <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setCalSmsPop({phone:ph,name,propId:prop.id,k,address,kind:kind||null})}
-              templates={showingTemplates(false,name,address)}
+            <TextA phone={ph} title={isSales?"Text — conversation & templates":"Text"} onInApp={(kind)=>setCalSmsPop({phone:ph,name,propId:prop.id,k,address,kind:kind||null})}
+              templates={isSales?showingTemplates(false,name,address):[]}
               onTemplate={(kind)=>markShowingText(prop.id,k,kind)}
               style={{...calIco,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
               <SmsChatIcon size={14} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:8,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
@@ -3355,9 +3359,9 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               <CallA phone={ph} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}><span style={{fontSize:11.5,lineHeight:1}}>📞</span> Call</CallA>
               <TextA phone={ph} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>
-              {tmpl(ph,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
-              {tmpl(ph,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
-              {tmpl(ph,"sweeten","Sweeten",{background:"#F0FDFA",border:"1px solid #0F766E",color:"#0F766E"})}
+              {isSales&&tmpl(ph,"initial","Initial",{background:T.goldLight,border:`1px solid ${T.gold}`,color:"#b8912e"})}
+              {isSales&&tmpl(ph,"followup","Follow-up",{background:"#EBF4FF",border:`1px solid ${T.blue}`,color:T.blue})}
+              {isSales&&tmpl(ph,"sweeten","Sweeten",{background:"#F0FDFA",border:"1px solid #0F766E",color:"#0F766E"})}
             </div>
           </div>
         ))}

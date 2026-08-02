@@ -489,13 +489,14 @@ const NAV=[
   {key:"rentals",label:"Rental Portfolio",short:"Rentals",icon:ICONS.rentals},
   {key:"calendar",label:"Calendar",short:"Calendar",icon:ICONS.calendar},
   {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
+  {key:"crm",label:"Showings CRM",short:"CRM",icon:ICONS.leads},
   {key:"contacts",label:"Contacts",short:"Contacts",icon:ICONS.contacts},
   {key:"email",label:"Email",short:"Email",icon:ICONS.email},
   {key:"financials",label:"Financial Section",short:"Financials",icon:ICONS.financials},
   {key:"contractors",label:"Contractors",short:"Contractors",icon:ICONS.contacts},
 ];
 // Sections only the admin (Elie) can see. Everyone else never gets these nav items.
-const ADMIN_ONLY_KEYS=new Set(["financials","contractors"]);
+const ADMIN_ONLY_KEYS=new Set(["financials","contractors","crm"]);
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
 function Card({children,style={}}){return <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",...style}}>{children}</div>;}
@@ -14845,6 +14846,106 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   );
 }
 
+// ─── 📞 Showings CRM (v1) — everyone from the showings feed with where the
+// conversation stands, powered by ShowingTime + the current texting line.
+// Call history, per-person numbers, and AI tags arrive with the Jivetel hookup.
+function CrmPage({sharedProps}){
+  const isMobile=useIsMobile();
+  const {connected,threadFor,unreadFor}=useSmsTexting();
+  const[showings,setShowings]=useState(null);
+  const[err,setErr]=useState("");
+  useEffect(()=>{fetchShowingsShared().then(d=>setShowings(d.showings||[])).catch(e=>setErr(e.message||"Couldn't load showings."));},[]);
+  const[filter,setFilter]=useState("all");
+  const[q,setQ]=useState("");
+  const[open,setOpen]=useState(null); // {phone,name,address}
+  const digits=(x)=>{const d=String(x||"").replace(/\D/g,"");return d.length===11&&d.startsWith("1")?d.slice(1):d;};
+  const fmtPh=(p)=>{const n=digits(p);return n.length===10?`(${n.slice(0,3)}) ${n.slice(3,6)}-${n.slice(6)}`:String(p||"");};
+  const contacts=useMemo(()=>{
+    const activeProps=(sharedProps||[]).filter(p=>!p.archived);
+    const by={};
+    (showings||[]).forEach(s=>{
+      const pr=activeProps.find(p=>showingMatchesProperty(s.location||s.summary||"",p));
+      const k=showingKey(s);
+      const phones=[...parseShowingPhones(s.phone),...(((pr&&pr.showingPhones)||{})[k]||[])];
+      phones.forEach(ph=>{
+        const key=digits(ph);if(!key)return;
+        const c=by[key]||(by[key]={phone:ph,name:s.agent||"",addrs:[],lastShow:"",insp:false});
+        if(s.agent&&(!c.name||c.name.length<s.agent.length))c.name=s.agent;
+        const addr=String((pr&&pr.address)||s.location||s.summary||"").split(",")[0];
+        if(addr&&!c.addrs.includes(addr))c.addrs.push(addr);
+        const ek=(((pr&&pr.showingKinds)||{})[k])||s.kind||"showing";
+        if(ek!=="showing")c.insp=true;
+        if(String(s.start||"")>c.lastShow)c.lastShow=String(s.start||"");
+      });
+    });
+    return Object.values(by).map(c=>{
+      const t=connected?threadFor(c.phone):[];
+      const last=t[t.length-1]||null;
+      const lastAt=last?String(last.at||""):"";
+      const unread=connected?unreadFor(c.phone):0;
+      const noRespDays=last&&last.direction==="out"?Math.max(0,Math.floor((Date.now()-new Date(last.at).getTime())/86400000)):null;
+      return {...c,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,act:lastAt>c.lastShow?lastAt:c.lastShow};
+    }).sort((a,b)=>String(b.act).localeCompare(String(a.act)));
+  },[showings,sharedProps,connected,open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const term=q.trim().toLowerCase();
+  const shown=contacts.filter(c=>{
+    if(term&&![c.name,c.phone,...c.addrs].join(" ").toLowerCase().includes(term))return false;
+    if(filter==="replied")return c.replied;
+    if(filter==="noresp")return c.noRespDays!=null;
+    if(filter==="new")return c.unread>0;
+    return true;
+  });
+  const counts={all:contacts.length,new:contacts.filter(c=>c.unread>0).length,replied:contacts.filter(c=>c.replied).length,noresp:contacts.filter(c=>c.noRespDays!=null).length};
+  const chip=(bg,fg,txt)=><span style={{fontSize:8.5,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
+  const fmtT=(iso)=>{if(!iso)return"";try{const d=new Date(iso.length===10?iso+"T12:00:00":iso);return new Date().toDateString()===d.toDateString()?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return"";}};
+  const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
+  const icoS={width:30,height:30,borderRadius:15,display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none",padding:0,boxSizing:"border-box",cursor:"pointer",fontFamily:"inherit",flexShrink:0};
+  return(
+    <div style={{maxWidth:760,margin:"0 auto",padding:isMobile?"10px 10px 70px":"18px 18px 70px"}}>
+      <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:16,overflow:"hidden",boxShadow:T.shadow}}>
+        <div style={{padding:"13px 16px 10px",borderBottom:`1px solid ${T.border}`}}>
+          <div style={{fontWeight:800,fontSize:15,color:T.text}}>📞 Showings CRM</div>
+          <div style={{fontSize:11,color:T.textTert,marginTop:1,lineHeight:1.5}}>Everyone from your showings and where the conversation stands. Call history, per-person numbers and AI tags come with the Jivetel hookup.</div>
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 Search name, number, property…" style={{width:"100%",marginTop:9,padding:"7px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
+          <div style={{display:"flex",gap:5,marginTop:8,flexWrap:"wrap"}}>
+            {[["all",`All · ${counts.all}`],["new",`New replies · ${counts.new}`],["replied",`Replied · ${counts.replied}`],["noresp",`No response · ${counts.noresp}`]].map(([k,l])=>(
+              <button key={k} onClick={()=>setFilter(k)} style={{fontSize:10.5,fontWeight:800,borderRadius:12,padding:"4px 10px",border:"none",cursor:"pointer",fontFamily:"inherit",background:filter===k?T.gold:"#F3F3F5",color:filter===k?"#fff":"#888"}}>{l}</button>
+            ))}
+          </div>
+        </div>
+        {showings===null&&!err&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>⏳ Loading your showings…</div>}
+        {err&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.red}}>{err}</div>}
+        {showings!==null&&!err&&shown.length===0&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing here{term?" for that search":""}.</div>}
+        {shown.map((c,i)=>(
+          <div key={digits(c.phone)} onClick={()=>setOpen({phone:c.phone,name:c.name,address:c.addrs[0]||""})} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"10px 16px",borderTop:`1px solid ${T.border}55`,cursor:"pointer",background:i%2?T.goldLight+"22":"transparent"}}>
+            <span style={{width:34,height:34,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(c.name)}</span>
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{display:"flex",gap:6,alignItems:"center"}}>
+                <b style={{fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{c.name||fmtPh(c.phone)}</b>
+                {c.insp&&<span title="Inspection / appraisal / walk-through" style={{flexShrink:0,fontSize:10}}>🔍</span>}
+                <span style={{marginLeft:"auto",fontSize:9.5,color:T.textTert,flexShrink:0}}>{fmtT(c.act)}</span>
+              </span>
+              <span style={{display:"block",fontSize:10.5,color:T.textSub,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.addrs.slice(0,2).join(" · ")||fmtPh(c.phone)}</span>
+              {c.last&&<span style={{display:"block",fontSize:10.5,color:T.textTert,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.last.direction==="in"?"":"You: "}{String(c.last.text||"").slice(0,64)}</span>}
+              <span style={{display:"flex",gap:4,marginTop:4,flexWrap:"wrap"}}>
+                {c.unread>0&&chip(T.red,"#fff",`NEW REPLY · ${c.unread}`)}
+                {c.replied&&!c.unread&&chip("#EDFBF1","#0F9D58","REPLIED")}
+                {c.noRespDays!=null&&chip("#F3F3F5","#98A0AA",`NO RESPONSE${c.noRespDays>0?` · ${c.noRespDays}d`:""}`)}
+                {!c.last&&connected&&chip("#FBF7EC","#8a6d1f","NOT CONTACTED")}
+              </span>
+            </span>
+            <span style={{display:"flex",gap:6,flexShrink:0,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+              <CallA phone={c.phone} title="Call" style={{...icoS,border:`1px solid ${T.border}`,background:"#fff"}}><PhoneIcon size={13} color={T.text}/></CallA>
+              <button onClick={()=>setOpen({phone:c.phone,name:c.name,address:c.addrs[0]||""})} title="Conversation & templates" style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}><SmsChatIcon size={13} color="#15803D"/></button>
+            </span>
+          </div>
+        ))}
+      </div>
+      {open&&<SmsThreadPopup phone={open.phone} name={open.name||"Agent"} templates={showingTemplates(false,open.name,open.address)} onClose={()=>setOpen(null)}/>}
+    </div>
+  );
+}
+
 // ── App-wide back stack ──────────────────────────────────────────────────────
 // Screens push a restore-closure BEFORE navigating away; "‹ Back" (or the
 // phone's back gesture — each push also adds a history entry) pops one.
@@ -16459,6 +16560,7 @@ export function GoldstoneShell(){
     : active==="leads" ? <NewLeadsPage/>
     : active==="messages" ? <MessagingCenter sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navChatId} onNavConsumed={()=>setNavChatId(null)}/>
     : active==="showings" ? <ShowingsPage/>
+    : active==="crm" ? <CrmPage sharedProps={sharedProps}/>
     : active==="rentals" ? <RentalPortfolioPage/>
     : active==="calendar" ? <CalendarPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>

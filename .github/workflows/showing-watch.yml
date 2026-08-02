@@ -18,6 +18,8 @@ jobs:
         run: curl -fsS -m 55 "https://gpflips.com/api/boldtrail/sync" || true
       - name: BoldTrail status (diagnostics in the log)
         run: curl -sS -m 30 "https://gpflips.com/api/boldtrail/status" || true
+      - name: Jivetel webhook status (shape-only diagnostics in the log)
+        run: curl -sS -m 30 "https://gpflips.com/api/jivetel/webhook" || true
       - name: Watch for new showings (once a minute for ~9 minutes)
         run: |
           for i in 1 2 3 4 5 6 7 8 9; do

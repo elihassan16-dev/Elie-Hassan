@@ -35,10 +35,48 @@ export default async function handler(req, res) {
     if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
     const secret = process.env.JIVETEL_WEBHOOK_SECRET;
     if (!secret || String(req.query.key || "") !== secret) return res.status(401).json({ error: "bad key" });
-    const row = (await db().from("app_settings").select("data").eq("id", "jivetel_events").maybeSingle()).data;
-    const ev = ((row && row.data && row.data.events) || []).slice(-99); // keep the last 100
+    const client = db();
+    const row = (await client.from("app_settings").select("data").eq("id", "jivetel_events").maybeSingle()).data;
+    const ev = ((row && row.data && row.data.events) || []).slice(-99); // keep the last 100 raw
     ev.push({ at: new Date().toISOString(), ct: req.headers["content-type"] || "", body: req.body ?? null });
-    await db().from("app_settings").upsert({ id: "jivetel_events", data: { events: ev }, updated_at: new Date().toISOString() });
+    await client.from("app_settings").upsert({ id: "jivetel_events", data: { events: ev }, updated_at: new Date().toISOString() });
+
+    // Parse the Textable message shape into the app's Jivetel message log —
+    // {eventType, timestamp, data:{FromNumber,ToNumber,MessageBody,
+    //  MessageDirection, MessageID, ConversationID, ContactName, …}}.
+    const d = (req.body && req.body.data) || null;
+    if (d && d.MessageID && d.MessageBody != null) {
+      const dir = /out/i.test(String(d.MessageDirection || "")) ? "out" : "in";
+      const msg = {
+        id: String(d.MessageID),
+        at: req.body.timestamp ? new Date(Number(req.body.timestamp)).toISOString() : new Date().toISOString(),
+        dir,
+        from: String(d.FromNumber || ""),
+        to: String(d.ToNumber || ""),
+        text: String(d.MessageBody || ""),
+        name: String(d.ContactName || ""),
+        convId: String(d.ConversationID || ""),
+        userId: String(d.TextableUserID || ""),
+      };
+      const mrow = (await client.from("app_settings").select("data").eq("id", "jivetel_msgs").maybeSingle()).data;
+      const msgs = ((mrow && mrow.data && mrow.data.msgs) || []);
+      if (!msgs.some((m) => m.id === msg.id)) {
+        msgs.push(msg);
+        await client.from("app_settings").upsert({ id: "jivetel_msgs", data: { msgs: msgs.slice(-2000) }, updated_at: new Date().toISOString() });
+        // Ping the team the moment a text comes IN on the Jivetel line.
+        if (dir === "in") {
+          const { notifyFanout } = await import("../../lib/notify.js");
+          const preview = msg.text.length > 90 ? msg.text.slice(0, 90) + "…" : msg.text;
+          await notifyFanout(client, null, {
+            toAdmins: true,
+            title: `💬 New text — ${msg.name || msg.from}`,
+            body: preview || "(no text)",
+            tag: `jvmsg-${msg.id}`.slice(0, 64),
+            url: "/",
+          }).catch(() => {});
+        }
+      }
+    }
     return res.status(200).json({ ok: true });
   } catch (e) {
     // Always 200 on our own hiccups so Jivetel doesn't disable the relay.

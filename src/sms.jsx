@@ -174,15 +174,18 @@ const smsHref = (phone, body) => {
 // own portal creds (contractors, teammates not set up yet) simply don't get
 // the Jivetel option — their buttons behave exactly as before.
 let jvCapPromise = null;
-let jvCap = { enabled: false, from: "" };
+let jvCap = { enabled: false, from: "", why: "" };
 export function useJivetelCall() {
   const [st, setSt] = useState(jvCap);
   useEffect(() => {
     if (!jvCapPromise) {
       jvCapPromise = qbAuthFetch("/api/jivetel/call?cap=1")
-        .then((r) => (r && r.ok ? r.json() : null))
-        .then((d) => { jvCap = { enabled: !!(d && d.enabled), from: (d && d.from) || "" }; })
-        .catch(() => { /* stays disabled */ });
+        .then(async (r) => {
+          const d = r ? await r.json().catch(() => null) : null;
+          if (r && r.ok && d) jvCap = { enabled: !!d.enabled, from: d.from || "", why: d.why || "" };
+          else jvCap = { enabled: false, from: "", why: `check failed${r ? ` (${r.status})` : ""}` };
+        })
+        .catch(() => { jvCap = { enabled: false, from: "", why: "network error" }; });
     }
     let live = true;
     jvCapPromise.then(() => { if (live) setSt(jvCap); });
@@ -224,6 +227,9 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
           </div>
         ) : step === "main" ? (<>
           <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px", display: "flex", alignItems: "center", gap: 6 }}>{mode === "call" ? "📞 Call" : <><SmsChatIcon size={13} color="#15803D" /> Text</>} {fmtPhone(phone)} using…</div>
+          {mode === "call" && !jivetel?.enabled && jivetel?.why && (
+            <div style={{ fontSize: 10.5, color: T.textTert, padding: "2px 8px", lineHeight: 1.5 }}>☎️ Jivetel calling unavailable — {jivetel.why}</div>
+          )}
           {mode === "call" && jivetel?.enabled && (
             <button style={{ ...opt, border: `1.5px solid ${T.gold}`, background: "#FDF9EE" }} onClick={placeJivetelCall}>
               <span style={{ fontSize: 22, flexShrink: 0 }}>☎️</span>

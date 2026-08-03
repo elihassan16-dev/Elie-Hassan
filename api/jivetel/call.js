@@ -1,16 +1,51 @@
 // Place a call through Jivetel's Click2Call: rings the caller's own Jivetel
-// phone first, then dials the destination and bridges. Uses portal login
-// credentials (separate from the texting tokens):
-//   JIVETEL_CALL_HOST   e.g. "https://portal.jivetel.com" (from the API docs)
-//   JIVETEL_CALL_USER / JIVETEL_CALL_PASS   portal login
-//   JIVETEL_CALL_EXT    extension in "{extension}@{domain}" form
-// Ani (the caller ID shown) defaults to the caller's own line from
-// JIVETEL_NUMBERS. Inert until the env vars are set.
+// phone first, then dials the destination and bridges. Portal credentials are
+// per person (each person's calls ring THEIR extension):
+//   JIVETEL_CALL_HOST                    e.g. "https://online.jivetel.com"
+//   JIVETEL_CALL_USER_ELIE / _PASS_ELIE / _EXT_ELIE   (and _MOSHE, _ESTI …)
+//   JIVETEL_CALL_USER / _PASS / _EXT     un-suffixed = Elie's (legacy names)
+// Extension format is "{extension}@{domain}", e.g. "101@GOLDSTONEPROPE".
+// The caller ID (Ani) comes from the person's own line in JIVETEL_NUMBERS.
+// GET ?cap=1 (signed-in) answers "is calling set up for me?" for the UI.
 import { requireAppUser } from "../../lib/showings.js";
 
+const first = (s) => String(s || "").trim().toLowerCase().split(/[\s@]+/)[0];
+
+// Who is calling, their portal creds, and the caller ID to show.
+function resolvePerson(user, fromName) {
+  let numbers = {};
+  try { numbers = JSON.parse(process.env.JIVETEL_NUMBERS || "{}"); } catch { /* default only */ }
+  const cands = [fromName, user?.user_metadata?.name, user?.email].filter(Boolean);
+  let person = null;
+  for (const c of cands) {
+    const k = numbers[c] != null ? c : Object.keys(numbers).find((x) => first(x) && first(x) === first(c));
+    if (k) { person = k; break; }
+  }
+  if (!person && cands.length) person = cands.find((c) => !String(c).includes("@")) || cands[0];
+  const sfx = first(person || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const legacy = sfx === "ELIE"; // Elie's creds may live in the un-suffixed vars
+  const creds = {
+    username: process.env["JIVETEL_CALL_USER_" + sfx] || (legacy ? process.env.JIVETEL_CALL_USER : null),
+    password: process.env["JIVETEL_CALL_PASS_" + sfx] || (legacy ? process.env.JIVETEL_CALL_PASS : null),
+    ext: process.env["JIVETEL_CALL_EXT_" + sfx] || (legacy ? process.env.JIVETEL_CALL_EXT : null),
+  };
+  const ani = (person && numbers[person]) || process.env.JIVETEL_FROM_DEFAULT || "";
+  return { person, creds, ani };
+}
+
 export default async function handler(req, res) {
+  const host = String(process.env.JIVETEL_CALL_HOST || "").replace(/\/+$/, "");
+  // Signed-in capability check for the app UI — no key needed, tells the
+  // caller whether THEIR line is wired up (drives showing/hiding the option).
+  if (req.method === "GET" && req.query.cap) {
+    const user = await requireAppUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first." });
+    const { creds, ani } = resolvePerson(user, null);
+    const enabled = !!(host && creds.username && creds.password && creds.ext);
+    return res.status(200).json({ enabled, from: enabled ? ani : "" });
+  }
   // Browser test door, gated like the webhook:
-  // GET /api/jivetel/call?key=SECRET&to=7325551234
+  // GET /api/jivetel/call?key=SECRET&to=7325551234[&ext=101@DOMAIN]
   const isTest = req.method === "GET";
   if (isTest) {
     const secret = process.env.JIVETEL_WEBHOOK_SECRET;
@@ -23,29 +58,17 @@ export default async function handler(req, res) {
   try {
     const { to, fromName } = isTest ? { to: req.query.to, fromName: req.query.fromName } : req.body || {};
     if (!to) return res.status(400).json({ error: "to is required." });
-    const host = String(process.env.JIVETEL_CALL_HOST || "").replace(/\/+$/, "");
-    const username = process.env.JIVETEL_CALL_USER;
-    const password = process.env.JIVETEL_CALL_PASS;
+    const { person, creds, ani } = resolvePerson(user, fromName);
     // In test mode ?ext= tries a different extension@domain without a
     // Vercel round-trip — for pinning down the right domain with support.
-    const ext = (isTest && String(req.query.ext || "").trim()) || process.env.JIVETEL_CALL_EXT;
-    if (!host || !username || !password || !ext) {
-      const missing = [!host && "JIVETEL_CALL_HOST", !username && "JIVETEL_CALL_USER", !password && "JIVETEL_CALL_PASS", !ext && "JIVETEL_CALL_EXT"].filter(Boolean).join(", ");
-      return res.status(503).json({ error: `Calling isn't connected yet (${missing} missing).` });
-    }
-    let numbers = {};
-    try { numbers = JSON.parse(process.env.JIVETEL_NUMBERS || "{}"); } catch { /* default only */ }
-    const first = (s) => String(s || "").trim().toLowerCase().split(/[\s@]+/)[0];
-    const cands = [fromName, user.user_metadata?.name, user.email].filter(Boolean);
-    let ani = process.env.JIVETEL_FROM_DEFAULT || Object.values(numbers)[0] || "";
-    for (const c of cands) {
-      const k = numbers[c] != null ? c : Object.keys(numbers).find((x) => first(x) && first(x) === first(c));
-      if (k) { ani = numbers[k]; break; }
+    const ext = (isTest && String(req.query.ext || "").trim()) || creds.ext;
+    if (!host || !creds.username || !creds.password || !ext) {
+      return res.status(503).json({ error: `Calling isn't set up for ${person || "you"} yet.` });
     }
     const digits = (p) => { const d = String(p || "").replace(/\D/g, ""); return d.length === 11 && d.startsWith("1") ? d.slice(1) : d; };
     const body = {
-      Username: username,
-      Password: password,
+      Username: creds.username,
+      Password: creds.password,
       Extension: ext,
       Destination: digits(to),
       Ani: digits(ani),

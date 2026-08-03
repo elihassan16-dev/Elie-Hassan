@@ -169,38 +169,92 @@ const smsHref = (phone, body) => {
   return `sms:${clean}${sep}body=${encodeURIComponent(body)}`;
 };
 
-function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClose }) {
+// ─── Jivetel click-to-call: is calling wired up for the signed-in user? ─────
+// Asked once per session; everyone shares the answer. People without their
+// own portal creds (contractors, teammates not set up yet) simply don't get
+// the Jivetel option — their buttons behave exactly as before.
+let jvCapPromise = null;
+let jvCap = { enabled: false, from: "" };
+export function useJivetelCall() {
+  const [st, setSt] = useState(jvCap);
+  useEffect(() => {
+    if (!jvCapPromise) {
+      jvCapPromise = qbAuthFetch("/api/jivetel/call?cap=1")
+        .then((r) => (r && r.ok ? r.json() : null))
+        .then((d) => { jvCap = { enabled: !!(d && d.enabled), from: (d && d.from) || "" }; })
+        .catch(() => { /* stays disabled */ });
+    }
+    let live = true;
+    jvCapPromise.then(() => { if (live) setSt(jvCap); });
+    return () => { live = false; };
+  }, []);
+  return st;
+}
+
+function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClose, jivetel }) {
   const { from } = useSmsTexting();
   const digits = String(phone || "").replace(/[^\d+]/g, "");
   // For texting with templates on offer, "My phone" opens a second step:
   // blank text or one of the templates, prefilled into the Messages app.
   const [step, setStep] = useState("main");
+  // "" | "busy" | "ringing" | "err:<message>" — Jivetel call progress.
+  const [calling, setCalling] = useState("");
   const go = (href) => { onClose(); window.location.href = href; };
+  const placeJivetelCall = async () => {
+    setCalling("busy");
+    try {
+      const r = await qbAuthFetch("/api/jivetel/call", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: phone }) });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) throw new Error((d && d.error) || "Couldn't place the call.");
+      setCalling("ringing");
+      setTimeout(onClose, 3200);
+    } catch (e) {
+      setCalling("err:" + (e.message || "Couldn't place the call."));
+    }
+  };
   const opt = { display: "flex", alignItems: "center", gap: 13, width: "100%", padding: "13px 15px", borderRadius: 14, border: `1px solid ${T.border}`, background: "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left", boxSizing: "border-box" };
   return (
     <div onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 470, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 14, boxSizing: "border-box", backdropFilter: "blur(4px)" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: T.bg, borderRadius: 20, width: "min(420px,96vw)", padding: 12, boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 8, marginBottom: "env(safe-area-inset-bottom)", boxShadow: "0 12px 48px rgba(0,0,0,0.3)" }}>
-        {step === "main" ? (<>
+        {calling ? (
+          <div style={{ padding: "22px 12px", textAlign: "center", fontSize: 13.5, lineHeight: 1.6 }}>
+            {calling === "busy" ? <b>☎️ Placing the call…</b>
+              : calling === "ringing" ? <><b>☎️ Your phone is ringing</b><div style={{ fontSize: 12, color: T.textSub, marginTop: 4 }}>Pick up, and we'll connect you to {fmtPhone(phone)}.</div></>
+              : <><span style={{ color: T.red, fontWeight: 700 }}>{calling.slice(4)}</span><div><button onClick={() => setCalling("")} style={{ marginTop: 10, padding: "8px 18px", borderRadius: 10, border: `1px solid ${T.border}`, background: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, fontWeight: 700 }}>‹ Back</button></div></>}
+          </div>
+        ) : step === "main" ? (<>
           <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px", display: "flex", alignItems: "center", gap: 6 }}>{mode === "call" ? "📞 Call" : <><SmsChatIcon size={13} color="#15803D" /> Text</>} {fmtPhone(phone)} using…</div>
-          <button style={opt} onClick={() => {
-            if (mode === "call") go(`openphone://dial?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}&action=call`);
-            else if (onInApp && templates.length) setStep("business");
-            else if (onInApp) { onClose(); onInApp(); }
-            else go(`openphone://message?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}`);
-          }}>
-            <span style={{ fontSize: 22, flexShrink: 0 }}>💼</span>
-            <span style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Business line{from ? ` · ${fmtPhone(from)}` : ""}</div>
-              <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Opens the Quo app — they see the company number" : onInApp ? "Right here in the app — conversation, templates or custom text" : "Opens the Quo app — sends from the company number"}</div>
-            </span>
-          </button>
-          <button style={opt} onClick={() => { if (mode === "text" && templates.length) setStep("personal"); else go(mode === "call" ? `tel:${digits}` : `sms:${digits}`); }}>
-            <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
-            <span style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My phone</div>
-              <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Regular call from this phone's own number" : `Messages app — from this phone's own number${templates.length ? ", blank or a template" : ""}`}</div>
-            </span>
-          </button>
+          {mode === "call" && jivetel?.enabled && (
+            <button style={{ ...opt, border: `1.5px solid ${T.gold}`, background: "#FDF9EE" }} onClick={placeJivetelCall}>
+              <span style={{ fontSize: 22, flexShrink: 0 }}>☎️</span>
+              <span style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My Jivetel line{jivetel.from ? ` · ${fmtPhone(jivetel.from)}` : ""}</div>
+                <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>Your Jivetel phone rings first — answer, and we connect them. They see your business number.</div>
+              </span>
+            </button>
+          )}
+          {mode === "text" && (
+            <button style={opt} onClick={() => {
+              if (onInApp && templates.length) setStep("business");
+              else if (onInApp) { onClose(); onInApp(); }
+              else go(`openphone://message?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}`);
+            }}>
+              <span style={{ fontSize: 22, flexShrink: 0 }}>💼</span>
+              <span style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Business line{from ? ` · ${fmtPhone(from)}` : ""}</div>
+                <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{onInApp ? "Right here in the app — conversation, templates or custom text" : "Opens the Quo app — sends from the company number"}</div>
+              </span>
+            </button>
+          )}
+          {(mode === "text" || IS_PHONE) && (
+            <button style={opt} onClick={() => { if (mode === "text" && templates.length) setStep("personal"); else go(mode === "call" ? `tel:${digits}` : `sms:${digits}`); }}>
+              <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
+              <span style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My phone</div>
+                <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Regular call from this phone's own number" : `Messages app — from this phone's own number${templates.length ? ", blank or a template" : ""}`}</div>
+              </span>
+            </button>
+          )}
         </>) : step === "business" ? (<>
           <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px" }}>💼 Business line — start with…</div>
           <button style={opt} onClick={() => { onClose(); onInApp(null); }}>
@@ -248,11 +302,15 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
 // (and stays the direct desktop behavior, as before).
 export function CallA({ phone, style, title, children }) {
   const { connected } = useSmsTexting();
+  const jv = useJivetelCall();
   const [choose, setChoose] = useState(false);
   const digits = String(phone || "").replace(/[^\d+]/g, "");
+  // With Jivetel wired up the chooser works everywhere — including desktop,
+  // where a bare tel: link was a dead end.
+  const intercept = jv.enabled || (connected && IS_PHONE);
   return (<>
-    <a href={`tel:${digits}`} title={title} onClick={connected && IS_PHONE ? (e) => { e.preventDefault(); e.stopPropagation(); setChoose(true); } : undefined} style={style}>{children}</a>
-    {choose && <PhoneChooser phone={phone} mode="call" onClose={() => setChoose(false)} />}
+    <a href={`tel:${digits}`} title={title} onClick={intercept ? (e) => { e.preventDefault(); e.stopPropagation(); setChoose(true); } : undefined} style={style}>{children}</a>
+    {choose && <PhoneChooser phone={phone} mode="call" jivetel={jv} onClose={() => setChoose(false)} />}
   </>);
 }
 

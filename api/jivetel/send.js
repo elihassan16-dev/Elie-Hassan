@@ -8,11 +8,21 @@
 import { requireAppUser } from "../../lib/showings.js";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  const user = await requireAppUser(req);
+  // Browser-friendly test door, gated by the same server secret as the
+  // webhook: GET /api/jivetel/send?key=SECRET&to=7325551234[&fromName=Moshe]
+  const isTest = req.method === "GET";
+  if (isTest) {
+    const secret = process.env.JIVETEL_WEBHOOK_SECRET;
+    if (!secret || String(req.query.key || "") !== secret) return res.status(401).json({ error: "bad key" });
+  } else if (req.method !== "POST") {
+    return res.status(405).json({ error: "POST only" });
+  }
+  const user = isTest ? { user_metadata: { name: String(req.query.fromName || "Elie") } } : await requireAppUser(req);
   if (!user) return res.status(401).json({ error: "Sign in first." });
   try {
-    const { to, message, media, fromName } = req.body || {};
+    const { to, message, media, fromName } = isTest
+      ? { to: req.query.to, message: String(req.query.msg || "Test text from the Goldstone app 🎉"), fromName: req.query.fromName }
+      : req.body || {};
     if (!to || !message) return res.status(400).json({ error: "to and message are required." });
     let numbers = {};
     try { numbers = JSON.parse(process.env.JIVETEL_NUMBERS || "{}"); } catch { /* bad JSON → default only */ }

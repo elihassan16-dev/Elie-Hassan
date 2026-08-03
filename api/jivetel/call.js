@@ -8,14 +8,30 @@
 // The caller ID (Ani) comes from the person's own line in JIVETEL_NUMBERS.
 // GET ?cap=1 (signed-in) answers "is calling set up for me?" for the UI.
 import { requireAppUser } from "../../lib/showings.js";
+import { createClient } from "@supabase/supabase-js";
+
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://wtmsukjnuqsprtvfytin.supabase.co";
+const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// The auth login often has no display name stored — the app's own users
+// table always does. Also tells us the role, so contractors never get
+// calling no matter what their name matches.
+async function profileOf(userId) {
+  try {
+    if (!SERVICE || !userId) return null;
+    const db = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } });
+    const { data } = await db.from("users").select("name,role").eq("id", userId).maybeSingle();
+    return data || null;
+  } catch { return null; }
+}
 
 const first = (s) => String(s || "").trim().toLowerCase().split(/[\s@]+/)[0];
 
 // Who is calling, their portal creds, and the caller ID to show.
-function resolvePerson(user, fromName) {
+function resolvePerson(user, fromName, profileName) {
   let numbers = {};
   try { numbers = JSON.parse(process.env.JIVETEL_NUMBERS || "{}"); } catch { /* default only */ }
-  const cands = [fromName, user?.user_metadata?.name, user?.email].filter(Boolean);
+  const cands = [fromName, user?.user_metadata?.name, profileName, user?.email].filter(Boolean);
   let person = null;
   for (const c of cands) {
     const k = numbers[c] != null ? c : Object.keys(numbers).find((x) => first(x) && first(x) === first(c));
@@ -40,7 +56,9 @@ export default async function handler(req, res) {
   if (req.method === "GET" && req.query.cap) {
     const user = await requireAppUser(req);
     if (!user) return res.status(401).json({ error: "Sign in first." });
-    const { creds, ani } = resolvePerson(user, null);
+    const prof = await profileOf(user.id);
+    if (prof?.role === "contractor") return res.status(200).json({ enabled: false, from: "" });
+    const { creds, ani } = resolvePerson(user, null, prof?.name);
     const enabled = !!(host && creds.username && creds.password && creds.ext);
     return res.status(200).json({ enabled, from: enabled ? ani : "" });
   }
@@ -58,7 +76,9 @@ export default async function handler(req, res) {
   try {
     const { to, fromName } = isTest ? { to: req.query.to, fromName: req.query.fromName } : req.body || {};
     if (!to) return res.status(400).json({ error: "to is required." });
-    const { person, creds, ani } = resolvePerson(user, fromName);
+    const prof = isTest ? null : await profileOf(user.id);
+    if (prof?.role === "contractor") return res.status(403).json({ error: "Calling isn't available on contractor accounts." });
+    const { person, creds, ani } = resolvePerson(user, fromName, prof?.name);
     // In test mode ?ext= tries a different extension@domain without a
     // Vercel round-trip — for pinning down the right domain with support.
     const ext = (isTest && String(req.query.ext || "").trim()) || creds.ext;

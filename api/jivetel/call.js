@@ -26,7 +26,9 @@ export default async function handler(req, res) {
     const host = String(process.env.JIVETEL_CALL_HOST || "").replace(/\/+$/, "");
     const username = process.env.JIVETEL_CALL_USER;
     const password = process.env.JIVETEL_CALL_PASS;
-    const ext = process.env.JIVETEL_CALL_EXT;
+    // In test mode ?ext= tries a different extension@domain without a
+    // Vercel round-trip — for pinning down the right domain with support.
+    const ext = (isTest && String(req.query.ext || "").trim()) || process.env.JIVETEL_CALL_EXT;
     if (!host || !username || !password || !ext) {
       const missing = [!host && "JIVETEL_CALL_HOST", !username && "JIVETEL_CALL_USER", !password && "JIVETEL_CALL_PASS", !ext && "JIVETEL_CALL_EXT"].filter(Boolean).join(", ");
       return res.status(503).json({ error: `Calling isn't connected yet (${missing} missing).` });

@@ -59,6 +59,9 @@ export default async function handler(req, res) {
     const text = await r.text();
     if (!r.ok) return res.status(502).json({ error: `Click2Call failed (${r.status})`, detail: text.slice(0, 300) });
     let data = null; try { data = JSON.parse(text); } catch { /* non-JSON OK */ }
+    // Jivetel can return HTTP 200 with {result:false, msg:"..."} — surface
+    // that as the failure it is instead of a confusing ok:true.
+    if (data && data.result === false) return res.status(502).json({ ok: false, error: data.msg || "Click2Call rejected the call.", detail: data });
     return res.status(200).json({ ok: true, ringing: ext, thenDialing: body.Destination, callerId: body.Ani, result: data ?? text.slice(0, 200) });
   } catch (e) {
     return res.status(500).json({ error: e.message });

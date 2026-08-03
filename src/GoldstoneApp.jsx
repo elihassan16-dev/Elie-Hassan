@@ -5630,7 +5630,6 @@ function PropertyContractorsCard({property}){
     const paid=autoSum+ctrJobPaid(j);
     return {org,bid,auto,excluded,autoSum,paid,left:bid-paid};
   };
-  const moneyJobs=isAdmin?pJobs.filter(j=>{const m=jobMoney(j);return m.bid>0||m.paid>0;}):[];
   const payJob=payFor!=null?pJobs.find(j=>String(j.id)===String(payFor))||null:null;
   const applyQbRows=async(j,rows)=>{
     const have=new Set((j.payments||[]).map(x=>x.qbId).filter(Boolean));
@@ -14128,8 +14127,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
 // Screens push a restore-closure BEFORE navigating away; "‹ Back" (or the
 // phone's back gesture — each push also adds a history entry) pops one.
 const gsNav={stack:[]};
-const navPush=(restore)=>{gsNav.stack.push(restore);if(gsNav.stack.length>80)gsNav.stack.shift();try{window.history.pushState({gs:1},"");}catch{/* SSR */}};
-const navBack=()=>{if(!gsNav.stack.length)return;try{window.history.back();}catch{const f=gsNav.stack.pop();f&&f();}};
+const navPush=(restore)=>{gsNav.stack.push(restore);if(gsNav.stack.length>80)gsNav.stack.shift();};
+const navBack=()=>{const f=gsNav.stack.pop();if(f)f();};
 const navCanBack=()=>gsNav.stack.length>0;
 
 function FinancialSectionPage({onNavigate,canEdit=true}){
@@ -15620,12 +15619,6 @@ export function GoldstoneShell(){
   // (only if the user already opted in — never prompts on its own).
   useEffect(()=>{ registerServiceWorker(); if(displayName) refreshSubscription(displayName); },[displayName]);
 
-  // The phone's back gesture / Android back button pops the app-wide nav stack.
-  useEffect(()=>{
-    const onPop=()=>{const f=gsNav.stack.pop();if(f)f();};
-    window.addEventListener("popstate",onPop);
-    return ()=>window.removeEventListener("popstate",onPop);
-  },[]);
   const pushPage=(k)=>{if(k!==active)navPush(((prev)=>()=>setActive(prev))(active));setActive(k);};
 
   // When a background video upload finishes, swap its placeholder attachment for

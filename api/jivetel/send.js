@@ -16,8 +16,16 @@ export default async function handler(req, res) {
     if (!to || !message) return res.status(400).json({ error: "to and message are required." });
     let numbers = {};
     try { numbers = JSON.parse(process.env.JIVETEL_NUMBERS || "{}"); } catch { /* bad JSON → default only */ }
-    const name = String(fromName || user.user_metadata?.name || "").trim();
-    const from = numbers[name] || process.env.JIVETEL_FROM_DEFAULT || Object.values(numbers)[0];
+    // Forgiving lookup: "Elie" in JIVETEL_NUMBERS matches a login named
+    // "Elie Hassan" (first name, case-insensitive), else email prefix.
+    const first = (s) => String(s || "").trim().toLowerCase().split(/[\s@]+/)[0];
+    const cands = [fromName, user.user_metadata?.name, user.email].filter(Boolean);
+    let from = null;
+    for (const c of cands) {
+      const hit = numbers[c] || numbers[Object.keys(numbers).find((k) => first(k) && first(k) === first(c)) || ""];
+      if (hit) { from = hit; break; }
+    }
+    from = from || process.env.JIVETEL_FROM_DEFAULT || Object.values(numbers)[0];
     if (!from) return res.status(503).json({ error: "No from-number configured (JIVETEL_NUMBERS / JIVETEL_FROM_DEFAULT)." });
     const e164 = (p) => { const d = String(p || "").replace(/\D/g, ""); return d.length === 10 ? "+1" + d : d.length === 11 && d.startsWith("1") ? "+" + d : String(p || ""); };
     const body = { to: e164(to), from: e164(from), message: String(message) };

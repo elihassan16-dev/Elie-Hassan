@@ -57,10 +57,13 @@ export default async function handler(req, res) {
     const user = await requireAppUser(req);
     if (!user) return res.status(401).json({ error: "Sign in first." });
     const prof = await profileOf(user.id);
-    if (prof?.role === "contractor") return res.status(200).json({ enabled: false, from: "" });
-    const { creds, ani } = resolvePerson(user, null, prof?.name);
-    const enabled = !!(host && creds.username && creds.password && creds.ext);
-    return res.status(200).json({ enabled, from: enabled ? ani : "" });
+    if (prof?.role === "contractor") return res.status(200).json({ enabled: false, from: "", why: "contractor account" });
+    const { person, creds, ani } = resolvePerson(user, null, prof?.name);
+    const missing = [!host && "server address", !creds.username && "username", !creds.password && "password", !creds.ext && "extension"].filter(Boolean);
+    const enabled = !missing.length;
+    // "why" names the person the server matched and what's missing — shows in
+    // the call popup so a hidden Jivetel option explains itself in one look.
+    return res.status(200).json({ enabled, from: enabled ? ani : "", why: enabled ? "" : `missing ${missing.join(" + ")} for "${person || prof?.name || user.email || "this login"}"` });
   }
   // Browser test door, gated like the webhook:
   // GET /api/jivetel/call?key=SECRET&to=7325551234[&ext=101@DOMAIN]

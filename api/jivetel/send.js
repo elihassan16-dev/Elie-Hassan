@@ -1,16 +1,16 @@
-// Send an SMS/MMS through Jivetel's texting platform. Inert until
-// JIVETEL_API_TOKEN is set in Vercel. The "from" number resolves from the
-// JIVETEL_NUMBERS env JSON ({"Elie":"+1732...","Moshe":"+1..."}) by the
-// caller's name, else JIVETEL_FROM_DEFAULT — one token, everyone texts
-// from their own line.
+// Send an SMS/MMS through Jivetel's texting platform. Jivetel issues a
+// separate API token per number, so each person has their own pair:
+//   JIVETEL_NUMBERS      {"Elie":"+1732...","Moshe":"+1...","Esti":"+1..."}
+//   JIVETEL_TOKEN_ELIE / JIVETEL_TOKEN_MOSHE / JIVETEL_TOKEN_ESTI
+// The person resolves from the signed-in user's first name (or an explicit
+// fromName), so everyone texts from their own line with their own key.
+// JIVETEL_API_TOKEN remains as a shared fallback. Inert until keys are set.
 import { requireAppUser } from "../../lib/showings.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
   const user = await requireAppUser(req);
   if (!user) return res.status(401).json({ error: "Sign in first." });
-  const token = process.env.JIVETEL_API_TOKEN;
-  if (!token) return res.status(503).json({ error: "Jivetel isn't connected yet (JIVETEL_API_TOKEN missing)." });
   try {
     const { to, message, media, fromName } = req.body || {};
     if (!to || !message) return res.status(400).json({ error: "to and message are required." });
@@ -20,13 +20,16 @@ export default async function handler(req, res) {
     // "Elie Hassan" (first name, case-insensitive), else email prefix.
     const first = (s) => String(s || "").trim().toLowerCase().split(/[\s@]+/)[0];
     const cands = [fromName, user.user_metadata?.name, user.email].filter(Boolean);
-    let from = null;
+    let person = null;
     for (const c of cands) {
-      const hit = numbers[c] || numbers[Object.keys(numbers).find((k) => first(k) && first(k) === first(c)) || ""];
-      if (hit) { from = hit; break; }
+      const hit = numbers[c] != null ? c : Object.keys(numbers).find((k) => first(k) && first(k) === first(c));
+      if (hit) { person = hit; break; }
     }
-    from = from || process.env.JIVETEL_FROM_DEFAULT || Object.values(numbers)[0];
+    if (!person) person = Object.keys(numbers).find((k) => numbers[k] === process.env.JIVETEL_FROM_DEFAULT) || Object.keys(numbers)[0] || null;
+    const from = (person && numbers[person]) || process.env.JIVETEL_FROM_DEFAULT;
     if (!from) return res.status(503).json({ error: "No from-number configured (JIVETEL_NUMBERS / JIVETEL_FROM_DEFAULT)." });
+    const token = (person && process.env["JIVETEL_TOKEN_" + first(person).toUpperCase()]) || process.env.JIVETEL_API_TOKEN;
+    if (!token) return res.status(503).json({ error: `Jivetel isn't connected yet — no API key for ${person || "this line"} (JIVETEL_TOKEN_${first(person || "name").toUpperCase()}).` });
     const e164 = (p) => { const d = String(p || "").replace(/\D/g, ""); return d.length === 10 ? "+1" + d : d.length === 11 && d.startsWith("1") ? "+" + d : String(p || ""); };
     const body = { to: e164(to), from: e164(from), message: String(message) };
     if (Array.isArray(media) && media.length) body.media = media;

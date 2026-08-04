@@ -16,7 +16,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA, CallTextCards, linkifyText, rescuePastedLink } from "./sms";
+import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -7552,6 +7552,7 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
   const[confirmC,setConfirmC]=useState(null); // built contact awaiting the save-to-directory decision
   const[compose,setCompose]=useState(null); // {channel,target,name} — template chooser open for a number/email
   const[custom,setCustom]=useState("");
+  const[handoff,setHandoff]=useState(""); // "" | "sent" | "err:…" — 📲 push-to-phone state
   const ql=q.trim().toLowerCase();
   // Attach a freshly-created contact to the task; optionally also save it to the directory.
   const assignNew=(c,saveToDir)=>{
@@ -7710,13 +7711,23 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
                 <button onClick={()=>setCompose(null)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
               </div>
               <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:8}}>
-                {outTemplates(compose.name).map((t,i)=>(
+                {outTemplates(compose.name).map((t,i)=>{
+                  // On desktop a bare sms: link goes nowhere — hand the
+                  // template to the phone instead (notification → Messages).
+                  const desk=compose.channel==="text"&&!(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent||""));
+                  const inner=<><div style={{fontSize:12,fontWeight:700,color:T.gold,marginBottom:2}}>{t.label}{desk?" · 📲 sends to your phone":""}</div>
+                    <div style={{fontSize:13,color:T.text,lineHeight:1.4}}>{t.text}</div></>;
+                  return desk?(
+                    <button key={i} onClick={async()=>{
+                      try{await sendToMyPhone({phone:compose.target,message:t.text});setHandoff("sent");setTimeout(()=>{setHandoff("");setCompose(null);},3200);}
+                      catch(e){setHandoff("err:"+(e.message||"Couldn't reach your phone."));}
+                    }} style={{display:"block",width:"100%",textAlign:"left",padding:"11px 13px",borderRadius:12,border:`1px solid ${T.border}`,background:T.bg,cursor:"pointer",fontFamily:"inherit"}}>{inner}</button>
+                  ):(
                   <a key={i} href={linkFor(compose.channel,compose.target,t.text)} target={compose.channel==="whatsapp"?"_blank":undefined} rel="noreferrer" onClick={()=>setCompose(null)}
                     style={{display:"block",padding:"11px 13px",borderRadius:12,border:`1px solid ${T.border}`,background:T.bg,textDecoration:"none"}}>
-                    <div style={{fontSize:12,fontWeight:700,color:T.gold,marginBottom:2}}>{t.label}</div>
-                    <div style={{fontSize:13,color:T.text,lineHeight:1.4}}>{t.text}</div>
+                    {inner}
                   </a>
-                ))}
+                );})}
                 <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",marginTop:4}}>Custom message</div>
                 <textarea value={custom} onChange={e=>setCustom(e.target.value)} placeholder={`Write your own message to ${first}…`} rows={3}
                   style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:12,border:`1px solid ${T.border}`,fontSize:14,fontFamily:"inherit",resize:"vertical",outline:"none",lineHeight:1.4}}/>
@@ -7726,6 +7737,15 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
                   target={compose.channel==="whatsapp"?"_blank":undefined} rel="noreferrer"
                   onClick={(e)=>{if(!customBody){e.preventDefault();return;}setCompose(null);}}
                   style={{display:"block",textAlign:"center",padding:"11px",borderRadius:12,border:"none",background:customBody?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",cursor:customBody?"pointer":"default"}}>Open in {chLabel}</a>
+                {compose.channel==="text"&&!(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent||""))&&(
+                  <button onClick={async()=>{
+                    if(handoff==="sent")return;
+                    try{await sendToMyPhone({phone:compose.target,message:customBody});setHandoff("sent");setTimeout(()=>{setHandoff("");setCompose(null);},3200);}
+                    catch(e){setHandoff("err:"+(e.message||"Couldn't reach your phone."));}
+                  }} style={{display:"block",width:"100%",textAlign:"center",padding:"11px",borderRadius:12,border:"1.5px solid #2563EB",background:handoff==="sent"?"#2563EB":"#EFF6FF",color:handoff==="sent"?"#fff":"#2563EB",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>
+                    {handoff==="sent"?"📲 Sent — tap the notification on your phone":handoff.startsWith("err:")?handoff.slice(4):"📲 Send to my phone"}
+                  </button>
+                )}
               </div>
             </div>
           </div>

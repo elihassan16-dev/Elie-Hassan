@@ -5878,6 +5878,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const[showInfo,setShowInfo]=useState(false); // Property Info popup
   const[aiChat,setAiChat]=useState(false); // ✨ ask-AI-about-this-property popup
   const[statusBoard,setStatusBoard]=useState(false); // 🏗 utilities + permits board
+  const[editAddr,setEditAddr]=useState(false);       // ✎ fix a typo'd address
   // Showings tab only shows while the property is actively On Market / In Closing.
   const showShowings=property.status==="On Market"||property.status==="In Closing";
   // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.
@@ -5918,7 +5919,9 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
             {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}><TeamChatIcon size={13}/></button>}
             <button onClick={()=>setAiChat(true)} title="Ask AI about this property" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✨</button>
             <button onClick={()=>setStatusBoard(true)} title="Property status — utilities & permits (contractors see this too)" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>🏗</button>
+            <button onClick={()=>setEditAddr(true)} title="Edit the address" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✎</button>
           </div>
+          {editAddr&&<AddressEditPopup rec={property} onSave={(v)=>{onUpdate(property.id,"address",v.address);onUpdate(property.id,"city",v.city);onUpdate(property.id,"state",v.state);onUpdate(property.id,"zip",v.zip);}} onClose={()=>setEditAddr(false)}/>}
           {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
         </div>
@@ -6270,10 +6273,40 @@ const parseFullAddress=(raw)=>{
 // mkLead and INIT_LEADS now live in src/seed.js (mkLead is imported above).
 // Leads are loaded from Supabase via useData().
 
+// Fix a typo'd address anywhere — leads and properties share this popup.
+function AddressEditPopup({rec,onSave,onClose}){
+  const[a,setA]=useState(rec.address||"");
+  const[c,setC]=useState(rec.city||"");
+  const[s,setS]=useState(rec.state||"");
+  const[z,setZ]=useState(rec.zip||"");
+  const iS={width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit",background:T.bg,color:T.text};
+  const save=()=>{if(!a.trim())return;onSave({address:a.trim(),city:c.trim(),state:s.trim(),zip:z.trim()});onClose();};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:480,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(420px,94vw)",padding:20,boxSizing:"border-box",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+        <div style={{fontSize:15,fontWeight:800,color:T.text,marginBottom:12}}>✎ Edit address</div>
+        <div style={{display:"flex",flexDirection:"column",gap:9}}>
+          <input value={a} onChange={e=>setA(e.target.value)} onKeyDown={e=>e.key==="Enter"&&save()} placeholder="Street address" style={iS} autoFocus/>
+          <input value={c} onChange={e=>setC(e.target.value)} onKeyDown={e=>e.key==="Enter"&&save()} placeholder="City" style={iS}/>
+          <div style={{display:"flex",gap:9}}>
+            <input value={s} onChange={e=>setS(e.target.value)} onKeyDown={e=>e.key==="Enter"&&save()} placeholder="State" style={{...iS,flex:1}}/>
+            <input value={z} onChange={e=>setZ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&save()} placeholder="ZIP" style={{...iS,flex:1}}/>
+          </div>
+        </div>
+        <div style={{fontSize:11,color:T.textTert,marginTop:10,lineHeight:1.5}}>The fixed address is used everywhere — lists, search, showings and folder matching.</div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
+          <button onClick={onClose} style={{padding:"9px 16px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+          <button onClick={save} disabled={!a.trim()} style={{padding:"9px 20px",borderRadius:10,border:"none",background:a.trim()?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:13,cursor:a.trim()?"pointer":"default",fontFamily:"inherit"}}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 function LeadDetail({lead,onUpdate}){
   const { contacts: CONTACTS } = useData();
   const[tab,setTab]=useState("Financial Overview");
   const[showInfo,setShowInfo]=useState(false); // Property Info popup
+  const[editAddr,setEditAddr]=useState(false);
   const f=lead.financials;
   const up=(k,v)=>onUpdate(lead.id,"financials",{...f,[k]:v});
   const upMany=(ch)=>onUpdate(lead.id,"financials",{...f,...ch});
@@ -6344,7 +6377,9 @@ function LeadDetail({lead,onUpdate}){
         <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:6,minWidth:0}}>
           <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis"}}>{full}</div>
           <button onClick={()=>setShowInfo(true)} title="Property info" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,cursor:"pointer",fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>i</button>
+          <button onClick={()=>setEditAddr(true)} title="Edit the address" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✎</button>
         </div>
+        {editAddr&&<AddressEditPopup rec={lead} onSave={(v)=>{onUpdate(lead.id,"address",v.address);onUpdate(lead.id,"city",v.city);onUpdate(lead.id,"state",v.state);onUpdate(lead.id,"zip",v.zip);}} onClose={()=>setEditAddr(false)}/>}
         <div style={{fontSize:13,color:T.textSub,marginBottom:10}}>Lead added {lead.dateAdded||"—"}</div>
         <div style={{marginBottom:14}}>
           <span style={{padding:"6px 14px",borderRadius:20,background:"#FFF0EF",color:T.red,border:"1.5px solid #FF3B3033",fontWeight:700,fontSize:12}}>New Leads</span>

@@ -117,7 +117,8 @@ export function useSmsTexting() {
   const msgs = store.msgs || [];
   const threadFor = (ph) => { const p = e164(ph); return p ? msgs.filter((m) => e164(m.phone) === p) : []; };
   const statusFor = (ph) => {
-    const t = threadFor(ph);
+    // Call rows live in the same thread but don't drive replied/awaiting.
+    const t = threadFor(ph).filter((m) => m.kind !== "call");
     if (!t.length) return "";
     return t[t.length - 1].direction === "in" ? "replied" : "awaiting";
   };
@@ -375,6 +376,14 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "14px 14px", display: "flex", flexDirection: "column", gap: 8, background: T.bg }}>
           {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 12.5, padding: "30px 10px" }}>No texts with this number yet. Pick a template below or write your own — it sends from the company line, and their replies show up right here.</div>}
           {thread.map((m) => {
+            if (m.kind === "call") {
+              return (
+                <div key={m.id} style={{ alignSelf: "center", textAlign: "center" }}>
+                  <span style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: m.missed ? "#C2410C" : T.textSub, background: m.missed ? "#FFF1EA" : "#EFEFF3", border: `1px solid ${m.missed ? "#F6C9B2" : T.border}`, borderRadius: 12, padding: "4px 11px" }}>{m.text}</span>
+                  <div style={{ fontSize: 9.5, color: T.textTert, marginTop: 2 }}>{fmt(m.at)}</div>
+                </div>
+              );
+            }
             const mine = m.direction !== "in";
             return (
               <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "82%" }}>

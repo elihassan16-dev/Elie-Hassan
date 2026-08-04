@@ -28,7 +28,14 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const c of all) {
-      if ("focus" in c) { try { await c.navigate(url); } catch { /* ignore */ } return c.focus(); }
+      if ("focus" in c) {
+        // iOS often refuses client.navigate() on an already-open PWA — tell
+        // the running app directly what the tap wants (it handles ?handoff=
+        // bounces itself), then still try the navigation for the rest.
+        try { c.postMessage({ type: "notification-url", url }); } catch { /* ignore */ }
+        try { await c.navigate(url); } catch { /* ignore */ }
+        return c.focus();
+      }
     }
     if (self.clients.openWindow) return self.clients.openWindow(url);
   })());

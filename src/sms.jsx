@@ -337,17 +337,33 @@ export async function sendToMyPhone({ phone, message = "", mode = "text" }) {
 }
 // Run once at app boot: a ?handoff=sms:…/tel:… in the URL (arrived via the
 // push above) bounces the phone into Messages or the dialer, then cleans up.
+// ALSO listens for the service worker's notification-tap message — on iOS an
+// already-open PWA often can't be navigated by the tap, so the SW tells the
+// running app instead and we bounce from here.
 export function useHandoffRedirect() {
   useEffect(() => {
     try {
       const q = new URLSearchParams(window.location.search);
       const h = q.get("handoff");
-      if (!h) return;
-      q.delete("handoff");
-      const rest = q.toString();
-      window.history.replaceState({}, "", window.location.pathname + (rest ? "?" + rest : ""));
-      if (/^(sms:|tel:)/i.test(h)) setTimeout(() => { window.location.href = h; }, 400);
+      if (h) {
+        q.delete("handoff");
+        const rest = q.toString();
+        window.history.replaceState({}, "", window.location.pathname + (rest ? "?" + rest : ""));
+        if (/^(sms:|tel:)/i.test(h)) setTimeout(() => { window.location.href = h; }, 400);
+      }
     } catch { /* no query support — ignore */ }
+    if (!("serviceWorker" in navigator)) return;
+    const onMsg = (e) => {
+      const d = e.data || {};
+      if (d.type !== "notification-url" || !d.url) return;
+      try {
+        const u = new URL(d.url, window.location.origin);
+        const h2 = u.searchParams.get("handoff");
+        if (h2 && /^(sms:|tel:)/i.test(h2)) window.location.href = h2;
+      } catch { /* malformed — ignore */ }
+    };
+    navigator.serviceWorker.addEventListener("message", onMsg);
+    return () => navigator.serviceWorker.removeEventListener("message", onMsg);
   }, []);
 }
 

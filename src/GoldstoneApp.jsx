@@ -7719,7 +7719,7 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
                     <div style={{fontSize:13,color:T.text,lineHeight:1.4}}>{t.text}</div></>;
                   return desk?(
                     <button key={i} onClick={async()=>{
-                      try{await sendToMyPhone({phone:compose.target,message:t.text});setHandoff("sent");setTimeout(()=>{setHandoff("");setCompose(null);},3200);}
+                      try{await sendToMyPhone({phone:compose.target,message:t.text});setHandoff("sent");}
                       catch(e){setHandoff("err:"+(e.message||"Couldn't reach your phone."));}
                     }} style={{display:"block",width:"100%",textAlign:"left",padding:"11px 13px",borderRadius:12,border:`1px solid ${T.border}`,background:T.bg,cursor:"pointer",fontFamily:"inherit"}}>{inner}</button>
                   ):(
@@ -7737,13 +7737,12 @@ function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
                   target={compose.channel==="whatsapp"?"_blank":undefined} rel="noreferrer"
                   onClick={(e)=>{if(!customBody){e.preventDefault();return;}setCompose(null);}}
                   style={{display:"block",textAlign:"center",padding:"11px",borderRadius:12,border:"none",background:customBody?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",cursor:customBody?"pointer":"default"}}>Open in {chLabel}</a>
-                {compose.channel==="text"&&!(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent||""))&&(
+                {(compose.channel==="text"||compose.channel==="whatsapp")&&!(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent||""))&&(
                   <button onClick={async()=>{
-                    if(handoff==="sent")return;
-                    try{await sendToMyPhone({phone:compose.target,message:customBody});setHandoff("sent");setTimeout(()=>{setHandoff("");setCompose(null);},3200);}
+                    try{await sendToMyPhone({phone:compose.target,message:customBody,mode:compose.channel==="whatsapp"?"whatsapp":"text"});setHandoff("sent");}
                     catch(e){setHandoff("err:"+(e.message||"Couldn't reach your phone."));}
                   }} style={{display:"block",width:"100%",textAlign:"center",padding:"11px",borderRadius:12,border:"1.5px solid #2563EB",background:handoff==="sent"?"#2563EB":"#EFF6FF",color:handoff==="sent"?"#fff":"#2563EB",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>
-                    {handoff==="sent"?"📲 Sent — tap the notification on your phone":handoff.startsWith("err:")?handoff.slice(4):"📲 Send to my phone"}
+                    {handoff==="sent"?"📲 Sent — tap it there, or ↻ tap here to resend":handoff.startsWith("err:")?handoff.slice(4):"📲 Send to my phone"}
                   </button>
                 )}
               </div>

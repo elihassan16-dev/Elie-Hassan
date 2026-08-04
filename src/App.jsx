@@ -3,7 +3,7 @@ import Login from "./auth/Login";
 import { DataProvider } from "./data/DataProvider";
 import { GoldstoneShell } from "./GoldstoneApp";
 import { ContractorPortal } from "./contractors/ContractorPortal";
-import { useHandoffRedirect } from "./sms";
+import { HandoffCatcher } from "./sms";
 
 function Splash() {
   return (
@@ -27,18 +27,20 @@ function Splash() {
 }
 
 export default function Root() {
-  // A ?handoff=sms:…/tel:… in the URL (from the 📲 desktop→phone push)
-  // bounces straight into Messages or the dialer, then cleans the URL.
-  useHandoffRedirect();
   const { loading, session, isContractor } = useAuth();
-  if (loading) return <Splash />;
-  if (!session) return <Login />;
+  // The 📲 desktop→phone handoff bar — catches the push tap (URL param or
+  // service-worker message) and offers the real tap iOS requires to jump
+  // into Messages or the dialer. Rendered on every branch.
+  const catcher = <HandoffCatcher />;
+  if (loading) return <><Splash />{catcher}</>;
+  if (!session) return <><Login />{catcher}</>;
   // Contractor logins get the simple portal — NOT the team app (and not the
   // DataProvider: database rules block them from team tables anyway).
-  if (isContractor) return <ContractorPortal />;
+  if (isContractor) return <><ContractorPortal />{catcher}</>;
   return (
     <DataProvider>
       <GoldstoneShell />
+      {catcher}
     </DataProvider>
   );
 }

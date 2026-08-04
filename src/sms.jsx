@@ -204,6 +204,8 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
   // Business-line texting without a caller-supplied thread opener: show the
   // in-app conversation right here.
   const [inThread, setInThread] = useState(false);
+  // Desktop → cell handoff: the message typed here rides along in the ping.
+  const [cellDraft, setCellDraft] = useState("");
   const go = (href) => { onClose(); window.location.href = href; };
   const placeJivetelCall = async () => {
     setCalling("busy");
@@ -267,15 +269,11 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
             </button>
           )}
           {mode === "text" && !IS_PHONE && (
-            <button style={opt} onClick={async () => {
-              setCalling("busyT");
-              try { await sendToMyPhone({ phone }); setCalling("sentT"); setTimeout(onClose, 4000); }
-              catch (e) { setCalling("err:" + (e.message || "Couldn't reach your phone.")); }
-            }}>
+            <button style={opt} onClick={() => setStep("cell")}>
               <span style={{ fontSize: 22, flexShrink: 0 }}>📲</span>
               <span style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My cell phone</div>
-                <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>We ping your phone — one tap there and Messages opens to them. (Want to type it here first? Use the business-line conversation and hit its 📲.)</div>
+                <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>Type it here — we ping your phone, and Messages opens with it ready to send</div>
               </span>
             </button>
           )}
@@ -292,6 +290,24 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
               </span>
             </button>
           )}
+        </>) : step === "cell" ? (<>
+          <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px" }}>📲 Text {fmtPhone(phone)} from your cell — write it here</div>
+          <textarea autoFocus rows={3} value={cellDraft} onChange={(e) => setCellDraft(e.target.value)} placeholder="Type the message… (or send blank and type on your phone)"
+            style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 12, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13.5, fontFamily: "inherit", resize: "vertical", outline: "none", lineHeight: 1.4 }} />
+          {templates.length > 0 && (
+            <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
+              {templates.map((t) => (
+                <button key={t.kind} onClick={() => setCellDraft(t.text)} style={{ whiteSpace: "nowrap", fontSize: 11, fontWeight: 700, padding: "5px 11px", borderRadius: 14, border: `1px solid ${T.border}`, background: "#fff", color: T.textSub, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>{t.label}</button>
+              ))}
+            </div>
+          )}
+          <button onClick={async () => {
+            setCalling("busyT");
+            try { await sendToMyPhone({ phone, message: cellDraft.trim() }); setCalling("sentT"); setTimeout(onClose, 4000); }
+            catch (e) { setCalling("err:" + (e.message || "Couldn't reach your phone.")); }
+          }} style={{ ...opt, justifyContent: "center", background: "#EFF6FF", border: "1.5px solid #2563EB", color: "#2563EB", fontWeight: 800, fontSize: 13.5 }}>
+            📲 Send to my phone{cellDraft.trim() ? "" : " (blank text)"}
+          </button>
         </>) : step === "business" ? (<>
           <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px" }}>💼 Business line — start with…</div>
           <button style={opt} onClick={() => { onClose(); onInApp(null); }}>

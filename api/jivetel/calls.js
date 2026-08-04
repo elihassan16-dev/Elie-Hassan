@@ -67,11 +67,23 @@ export default async function handler(req, res) {
     const calls = log.calls || [];   // structured completed-call log (for the CRM)
     const rung = log.rung || [];     // orig_callids we already ring-notified
     let dirty = false;
-    const notify = async (payload) => {
+    // Whose line is an extension? JIVETEL_CALL_EXT_ELIE="101@DOMAIN" etc. map
+    // it — so the ring/missed alert goes ONLY to that person. Unknown
+    // extension → the whole team (better than nobody).
+    const extOwner = (ext) => {
+      const e = String(ext || "").split("@")[0];
+      if (!e) return null;
+      for (const [k, v] of Object.entries(process.env)) {
+        const m = /^JIVETEL_CALL_EXT_([A-Z0-9]+)$/.exec(k);
+        if (m && String(v || "").split("@")[0] === e) return m[1].toLowerCase();
+      }
+      return null;
+    };
+    const notify = async (ext, payload) => {
       const { notifyFanout } = await import("../../lib/notify.js");
-      // The whole team gets call alerts (Moshe and Esti too, not just admins);
+      const owner = extOwner(ext);
       // pushOnly: useful as a banner, pure noise as email/SMS.
-      await notifyFanout(client, null, { toTeam: true, url: "/", pushOnly: true, ...payload }).catch(() => {});
+      await notifyFanout(client, null, { ...(owner ? { recipientsFirst: [owner] } : { toTeam: true }), url: "/", pushOnly: true, ...payload }).catch(() => {});
     };
 
     for (const e of entries) {
@@ -109,7 +121,7 @@ export default async function handler(req, res) {
           dirty = true;
         }
         if (missed) {
-          await notify({
+          await notify(ext, {
             title: `📞 Missed call — ${name || pretty(other)}`,
             body: `${pretty(other)} · rang ext ${ext}`,
             tag: `jvcall-${e.cdr_id}`.slice(0, 64),
@@ -124,7 +136,7 @@ export default async function handler(req, res) {
         rung.push(e.orig_callid);
         dirty = true;
         const from = uriNum(e.orig_from_uri);
-        await notify({
+        await notify(e.term_user, {
           title: `📞 Incoming call — ${e.orig_from_name || pretty(from)}`,
           body: `${pretty(from)} · ringing ext ${e.term_user || "?"}`,
           tag: `jvring-${e.orig_callid}`.slice(0, 64),

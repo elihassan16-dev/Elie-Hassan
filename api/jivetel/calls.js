@@ -50,6 +50,11 @@ export default async function handler(req, res) {
     if (req.method === "GET") {
       const { data } = await db().from("app_settings").select("data").eq("id", "jivetel_call_events").maybeSingle();
       const ev = (data && data.data && data.data.events) || [];
+      // Key-gated raw peek (same secret as POST) — for wiring the parser to
+      // the real payload. Without the key, GET stays shape-only.
+      if (req.query.raw && process.env.JIVETEL_WEBHOOK_SECRET && String(req.query.key || "") === process.env.JIVETEL_WEBHOOK_SECRET) {
+        return res.status(200).json({ count: ev.length, latest: ev.slice(-3) });
+      }
       const shapes = new Set();
       ev.forEach((e) => shapeOf(e.body, "", shapes));
       return res.status(200).json({

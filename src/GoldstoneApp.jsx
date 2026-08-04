@@ -12181,8 +12181,9 @@ function bsMetrics(p,accounts,spend,bankAccounts){
   const debt=bsSum(p.qbDebtTxns)+bsSum(p.qbDebtCustom);
   const reserve=Math.max(0,pot-deployed-debt);
   // Borrowed money linked from Bank Recon adjustments counts as a loan here
-  // too (both kinds — plain loans and construction draws are debt either way).
-  const adjLoans=(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id))).reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
+  // too (loans AND construction draws are debt either way) — except entries
+  // explicitly marked "not a loan" (linkKind "none": tracked only).
+  const adjLoans=(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind!=="none")).reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
   const totalLoans=(p.qbLoanAccounts||[]).reduce((s,id)=>s+bsAcctBal(accounts,id),0)+bsSum(p.qbLoanCustom)+adjLoans;
   const m=p.qbAllInCost;
   const allIn=(m!==undefined&&m!==null&&m!=="")?Number(m):(p.qbProjectId&&spend&&spend[p.qbProjectId]&&spend[p.qbProjectId].allIn!=null?spend[p.qbProjectId].allIn:null);
@@ -12399,18 +12400,21 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
               const kindSel=canEdit&&neg&&a.propertyId&&<select value={a.linkKind||"loan"} onChange={e=>linkKindAdj(b.id,a.id,e.target.value)} title="What this money counts as on the deal" style={{width:"100%",padding:isMobile?"5px 6px":"3px 6px",borderRadius:8,border:`1px solid ${T.gold}`,fontSize:10.5,fontFamily:"inherit",background:"#FBF7EC",color:"#8a6d1f",outline:"none"}}>
                   <option value="loan">loan on the deal</option>
                   <option value="draw">🔨 construction draw</option>
+                  <option value="none">not a loan — just tracked</option>
                 </select>;
+              const tagChip=a.tag&&<span style={{fontSize:8.5,fontWeight:800,borderRadius:8,padding:"2px 7px",background:a.tag==="Debt service"?"#EDE9FE":"#DBEAFE",color:a.tag==="Debt service"?"#6D28D9":"#2563EB",whiteSpace:"nowrap",flexShrink:0}}>{a.tag==="Debt service"?"🏦":"🏗"} {a.tag.toUpperCase()}</span>;
               const amt=<span style={{textAlign:"right",fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap",flexShrink:0,...(isMobile?{}:{width:92})}}>{fmtD(Number(a.amount)||0)}</span>;
               const del=canEdit&&<span style={{width:16,flexShrink:0,textAlign:"center"}}><button onClick={()=>delAdj(b.id,a.id)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,padding:0}}>×</button></span>;
               const linkedTxt=!canEdit&&a.propertyId&&<span style={{fontSize:10,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {(props.find(pp=>String(pp.id)===String(a.propertyId))||{}).address||"linked"}</span>;
               return isMobile?(
               <div key={a.id} style={{padding:"9px 14px",borderTop:ai===0?`1px solid ${T.border}`:"none",background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>{editLbl}{amt}{del}</div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>{editLbl}{tagChip}{amt}{del}</div>
                 {(dealSel||kindSel||linkedTxt)&&<div style={{display:"flex",gap:6,marginTop:6}}>{dealSel&&<span style={{flex:1,minWidth:0}}>{dealSel}</span>}{kindSel&&<span style={{flex:1,minWidth:0}}>{kindSel}</span>}{linkedTxt}</div>}
               </div>
               ):(
               <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:ai===0?`1px solid ${T.border}`:"none",background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
                 {editLbl}
+                {tagChip}
                 {canEdit
                   ?<span style={{width:148,flexShrink:0}}>{dealSel}</span>
                   :<span style={{width:148,flexShrink:0,fontSize:10,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.propertyId?`→ ${(props.find(pp=>String(pp.id)===String(a.propertyId))||{}).address||"linked"}`:""}</span>}
@@ -12785,7 +12789,7 @@ function dmPotMath(p,accounts,spend,bankAccounts){
   const fundAuto=false;
   const inFlow=draws;
   const constrEff=constrBal+fromPot;
-  return {reserveLeft:Math.max(0,reserve-paid),constrHeld:Math.max(0,constrEff+inFlow-constrSpent)};
+  return {reserveLeft:Math.max(0,reserve-paid),constrHeld:Math.max(0,constrEff+inFlow-constrSpent),reserve,paid};
 }
 const dmHoldbackOf=(p)=>{const raw=p.constrHoldback;const pins=bsSum(p.qbHoldbackTxns);const hasManual=raw!=null&&raw!=="";const hasPins=(p.qbHoldbackTxns||[]).length>0;return (hasPins||hasManual)?pins+(hasManual?Number(raw):0):null;};
 // ─── Deal Money — per-property financing picture (PREVIEW) ────────────────────
@@ -12803,7 +12807,10 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const[selId,setSelId]=useState(initialSelId);
   const[listQ,setListQ]=useState(""); // property search in the left list
   const[bulkOpen,setBulkOpen]=useState(false); // ⚙ bank accounts for every property at once
-  const {bankAccounts}=useData()||{};
+  const[dsOpen,setDsOpen]=useState(false);  // 🏦 debt service — covered / short / borrow
+  const[dsBorrow,setDsBorrow]=useState(null); // {p,amt,bankId,tag,countLoan,other}
+  const[dsHist,setDsHist]=useState(null);   // property id whose borrow history is open
+  const {bankAccounts,setBankAccounts,flushBank}=useData()||{};
   const[pickLoan,setPickLoan]=useState(false);
   const[q,setQ]=useState("");
   const[manualFor,setManualFor]=useState(null); // "loan" | "float" | "debt"
@@ -12917,7 +12924,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     ...(p.qbLoanCustom||[]).map(l=>({key:"c"+l.id,custom:true,bal:Math.abs(Number(l.amount)||0),name:l.name||"Manual entry",raw:l})),
     // Borrowed money linked from Bank Recon adjustments — counts as a loan on
     // this deal (job fixed to BANK; unlink it back in Bank Recon).
-    ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)).map(a=>({key:`adj${b.id}_${a.id}`,custom:true,adj:true,bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — from ${b.name}${a.linkKind==="draw"?" · 🔨 construction draw":""}`}))),
+    ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind!=="none").map(a=>({key:`adj${b.id}_${a.id}`,custom:true,adj:true,bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — from ${b.name}${a.linkKind==="draw"?" · 🔨 construction draw":a.tag?` · ${a.tag}`:""}`}))),
   ];
   const jobOf=(p,key)=>((p.qbConstrIds||[]).map(String).includes(key)?"constr":(p.qbLocPotIds||[]).map(String).includes(key)?"pot":"bank");
   const setJob=(p,key,job)=>{
@@ -13528,6 +13535,137 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       </div>
     );
   })();
+  // ── 🏦 Debt service — covered or short per property, one-tap borrow ────────
+  // Shortfall is cumulative (all payments vs the set-aside) minus what's
+  // already been borrowed for debt service, so the suggestion is always
+  // "what's still uncovered." Borrows land as tagged Bank-Recon adjustments —
+  // NEVER construction draws.
+  const DS_TAG="Debt service";
+  const dsRows=(()=>{
+    const mIso=new Date().toISOString().slice(0,7);
+    const rows=(bsProps||[]).map(p=>{
+      const m=dmPotMath(p,accounts,spend,bankAccounts);
+      if(m.upfront)return null;
+      const paidMonth=(p.qbDebtTxns||[]).filter(t=>String(t.date||"").startsWith(mIso)).reduce((t,x)=>t+Math.abs(Number(x.amount)||0),0);
+      const adjs=(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&(a.tag||"")===DS_TAG).map(a=>({...a,bankName:b.name})));
+      const borrowed=adjs.reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
+      const short=Math.max(0,(m.paid||0)-(m.reserve||0));
+      const suggest=Math.max(0,short-borrowed);
+      const history=adjs.flatMap(a=>(a.borrows||[]).map(x=>({...x,bankName:a.bankName}))).sort((x,y)=>String(x.at||"").localeCompare(String(y.at||"")));
+      return {p,m,paidMonth,short,borrowed,suggest,history};
+    }).filter(Boolean);
+    rows.sort((a,b)=>(b.suggest-a.suggest)||(b.short-a.short)||(b.paidMonth-a.paidMonth));
+    return rows;
+  })();
+  const dsShortCount=dsRows.filter(r=>r.suggest>0).length;
+  const dsRecord=()=>{
+    const d=dsBorrow;if(!d)return;
+    const x=Math.abs(parseFloat(String(d.amt).replace(/[^0-9.]/g,"")))||0;
+    const tag=d.tag==="other"?(String(d.other||"").trim()||"Other"):d.tag;
+    if(!x||!d.bankId||!setBankAccounts)return;
+    const at=new Date().toISOString();
+    setBankAccounts(prev=>(prev||[]).map(b=>{
+      if(String(b.id)!==String(d.bankId))return b;
+      const adjs=[...(b.adjustments||[])];
+      const i=adjs.findIndex(a=>String(a.propertyId||"")===String(d.p.id)&&(a.tag||"")===tag);
+      if(i>=0){const a=adjs[i];adjs[i]={...a,amount:-(Math.abs(Number(a.amount)||0)+x),linkKind:d.countLoan?(a.linkKind==="draw"?"draw":"loan"):"none",borrows:[...(a.borrows||[]),{amount:x,at}]};}
+      else adjs.push({id:Date.now(),label:`${d.p.address} — ${tag===DS_TAG?"mortgage payments":"borrowed"}`,amount:-x,propertyId:d.p.id,linkKind:d.countLoan?"loan":"none",tag,borrows:[{amount:x,at}]});
+      return {...b,adjustments:adjs};
+    }));
+    if(flushBank)setTimeout(flushBank,0);
+    setDsBorrow(null);
+  };
+  const dsPop=dsOpen&&(()=>{
+    const mName=new Date().toLocaleDateString(undefined,{month:"long"});
+    const chip=(bg,fg,txt,bd)=><span style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2.5px 8px",background:bg,color:fg,border:bd?`1px solid ${bd}`:"none",whiteSpace:"nowrap",flexShrink:0}}>{txt}</span>;
+    const bkList=[...(bankAccounts||[])].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+    const hMonth=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",year:"2-digit"});}catch{return"";}};
+    const b=dsBorrow;
+    return(
+      <div onClick={()=>{setDsOpen(false);setDsBorrow(null);setDsHist(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:472,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(460px,97vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.22)"}}>
+          <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`,flexShrink:0,display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:17}}>🏦</span>
+            <div style={{flex:1,minWidth:0}}>
+              <b style={{fontSize:15}}>{b?`Borrow for ${b.p.address}`:`Debt service — ${mName}`}</b>
+              <div style={{fontSize:10.5,color:T.textTert,marginTop:1}}>{b?"where's the money coming from?":"paid from QuickBooks vs. what's left in each reserve"}</div>
+            </div>
+            <button onClick={()=>{if(b)setDsBorrow(null);else{setDsOpen(false);setDsHist(null);}}} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>{b?"‹":"×"}</button>
+          </div>
+          {!b&&<div style={{flex:1,overflowY:"auto"}}>
+            {dsRows.length===0&&<div style={{padding:"22px 16px",textAlign:"center",fontSize:12.5,color:T.textTert}}>No draw-financed properties to check.</div>}
+            {dsRows.map(r=>(
+              <div key={r.p.id} style={{padding:"10px 16px",borderBottom:`1px solid ${T.border}`}}>
+                <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                  <b style={{flex:1,minWidth:0,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.p.address}</b>
+                  {r.suggest>0?chip("#FFF0EF",T.red,(r.m.reserve||0)<=0?"NOTHING LEFT":`SHORT ${money(r.suggest)}`):r.borrowed>0?chip("#FDE9C8","#B45309","COVERED · BORROWED"):chip("#EDFBF1","#0F9D58","✓ COVERED")}
+                </div>
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:10.5,color:T.textSub,marginTop:3}}>
+                  <span>paid this month <b style={{color:T.text}}>{money(r.paidMonth)}</b></span>
+                  <span>reserve left <b style={{color:(r.m.reserveLeft||0)>0?"#0F9D58":T.red}}>{money(r.m.reserveLeft||0)}</b></span>
+                  {r.suggest>0&&<span style={{color:T.red,fontWeight:700}}>uncovered {money(r.suggest)}</span>}
+                </div>
+                {r.borrowed>0&&(
+                  <div onClick={()=>setDsHist(dsHist===r.p.id?null:r.p.id)} style={{marginTop:5,cursor:"pointer"}}>{chip("#FDE9C8","#B45309",`🧾 BORROWED SO FAR · ${money(r.borrowed)} · tap for history`,"#EAD9A9")}</div>
+                )}
+                {dsHist===r.p.id&&r.history.length>0&&(
+                  <div style={{marginTop:6,background:"#F7F7F9",border:"1px solid #ECECEF",borderRadius:10,overflow:"hidden"}}>
+                    {r.history.map((h,i)=>(
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 11px",borderTop:i?"1px solid #ECECEF":"none",fontSize:11}}>
+                        <span style={{color:T.textSub}}>{hMonth(h.at)} · from {h.bankName}</span><b>{money(Math.abs(Number(h.amount)||0))}</b>
+                      </div>
+                    ))}
+                    <div style={{display:"flex",justifyContent:"space-between",padding:"7px 11px",fontSize:11.5,fontWeight:800,background:"#FBF7EC"}}><span>Borrowed — {DS_TAG.toLowerCase()}</span><span style={{color:T.red}}>{money(r.borrowed)}</span></div>
+                  </div>
+                )}
+                {canEdit&&r.suggest>0&&(
+                  <button onClick={()=>setDsBorrow({p:r.p,amt:String(Math.round(r.suggest)),bankId:"",tag:DS_TAG,other:"",countLoan:true})} style={{marginTop:7,padding:"7px 13px",borderRadius:10,border:"none",background:T.gold,color:"#fff",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>💰 Borrow the {money(r.suggest)}…</button>
+                )}
+              </div>
+            ))}
+          </div>}
+          {b&&<div style={{flex:1,overflowY:"auto"}}>
+            <div style={{padding:"10px 16px",borderBottom:`1px solid ${T.border}`}}>
+              <div style={{fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",marginBottom:6}}>AMOUNT</div>
+              <input value={b.amt} onChange={e=>setDsBorrow(d=>({...d,amt:e.target.value}))} inputMode="decimal" style={{width:"100%",padding:"9px 11px",borderRadius:10,border:`1px solid ${T.gold}`,fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+            </div>
+            <div style={{padding:"10px 16px",borderBottom:`1px solid ${T.border}`}}>
+              <div style={{fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",marginBottom:6}}>FROM WHICH ACCOUNT</div>
+              {bkList.length===0&&<div style={{fontSize:11.5,color:T.textTert}}>No bank accounts yet — add them in Bank Recon first.</div>}
+              {bkList.map(bk=>(
+                <button key={bk.id} onClick={()=>setDsBorrow(d=>({...d,bankId:bk.id}))} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"9px 11px",marginBottom:6,borderRadius:12,border:String(b.bankId)===String(bk.id)?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:String(b.bankId)===String(bk.id)?"#FDF9EE":"#fff",fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left",color:T.text}}>
+                  🏦 {bk.name}{String(b.bankId)===String(bk.id)&&<span style={{marginLeft:"auto",color:T.gold}}>✓</span>}
+                </button>
+              ))}
+            </div>
+            <div style={{padding:"10px 16px",borderBottom:`1px solid ${T.border}`}}>
+              <div style={{fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",marginBottom:6}}>WHAT WAS IT FOR — JUST A TAG, DOESN'T TOUCH ANY MATH</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {[["Debt service","🏦 Debt service"],["Construction","🏗 Construction"],["other","✏️ Other…"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>setDsBorrow(d=>({...d,tag:k}))} style={{fontSize:11,fontWeight:800,borderRadius:14,padding:"6px 13px",border:b.tag===k?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:b.tag===k?"#FDF9EE":"#fff",color:b.tag===k?"#8a6d1f":T.textSub,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                ))}
+              </div>
+              {b.tag==="other"&&<input value={b.other} onChange={e=>setDsBorrow(d=>({...d,other:e.target.value}))} placeholder="What was it for?" style={{width:"100%",marginTop:7,padding:"8px 11px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:12.5,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>}
+            </div>
+            <div style={{padding:"10px 16px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{flex:1,minWidth:0,fontSize:12.5,fontWeight:700}}>Count as a loan on this property?<span style={{display:"block",fontSize:10.5,color:T.textSub,fontWeight:400,marginTop:1,lineHeight:1.5}}>Yes → it's in the total loans &amp; payoff. That's the ONLY thing this changes — never a draw, never construction money.</span></span>
+                <span style={{display:"flex",border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden",flexShrink:0}}>
+                  {[true,false].map(v=>(
+                    <button key={String(v)} onClick={()=>setDsBorrow(d=>({...d,countLoan:v}))} style={{width:44,padding:"7px 0",border:"none",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit",background:b.countLoan===v?T.gold:"#fff",color:b.countLoan===v?"#fff":"#98A0AA"}}>{v?"Yes":"No"}</button>
+                  ))}
+                </span>
+              </div>
+            </div>
+            <div style={{padding:"4px 16px 14px"}}>
+              <button onClick={dsRecord} disabled={!b.bankId||!parseFloat(String(b.amt).replace(/[^0-9.]/g,""))} style={{width:"100%",padding:"11px 0",borderRadius:12,border:"none",background:b.bankId&&parseFloat(String(b.amt).replace(/[^0-9.]/g,""))?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:13.5,cursor:b.bankId?"pointer":"default",fontFamily:"inherit"}}>✓ Record the borrow</button>
+              <div style={{fontSize:10,color:T.textTert,marginTop:7,lineHeight:1.55,textAlign:"center"}}>Adds a tagged “borrowed” line on the account in Bank Recon — next month's borrow just grows the same number.</div>
+            </div>
+          </div>}
+        </div>
+      </div>
+    );
+  })();
   const pickerTarget=txPick?bsProps.find(p=>p.id===txPick.propId):null;
   const pickerPinned=txPick&&pickerTarget?new Set(((txPick.kind==="float"?pickerTarget.qbFloatTxns:txPick.kind==="cspent"?pickerTarget.dmConstrSpentTxns:(txPick.kind==="draw"||txPick.kind==="fund")?pickerTarget.qbDrawTxns:pickerTarget.qbDebtTxns)||[]).map(txKey)):new Set();
   const txPicker=txPick&&pickerTarget&&<QbTxnsPickerModal txns={pickTxns} loading={pickTxns===null} pinnedKeys={pickerPinned} onToggle={t=>toggleTxn(pickerTarget,t)} onClose={()=>setTxPick(null)}/>;
@@ -13540,6 +13678,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           <div style={{padding:"13px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <div style={{fontWeight:800,fontSize:15,color:T.text,flex:1,minWidth:0}}>Property Balance Sheet</div>
+              {canEdit&&<button onClick={()=>setDsOpen(true)} title="🏦 Debt service — covered or short, borrow in one tap" style={{position:"relative",width:30,height:30,borderRadius:"50%",background:"#fff",border:"1.5px dashed #C9A227",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>🏦{dsShortCount>0&&<span style={{position:"absolute",top:-5,right:-5,minWidth:16,height:16,borderRadius:8,background:T.red,color:"#fff",fontSize:9.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px",boxSizing:"border-box"}}>{dsShortCount}</span>}</button>}
               {canEdit&&<button onClick={()=>setDrawIn({propId:(selP&&selP.id)||"",amt:""})} title="💸 Bank sent a draw — the reimburse/transfer split" style={{width:30,height:30,borderRadius:"50%",background:"#FBF7EC",border:"1.5px dashed #C9A227",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>💸</button>}
               {canEdit&&<button onClick={()=>setBulkOpen(true)} title="⚙ Bank accounts — every property at once" style={{width:30,height:30,borderRadius:"50%",background:"#fff",border:"1.5px dashed #C9A227",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>⚙</button>}
             </div>
@@ -13579,6 +13718,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         )}
         {txPicker}
         {drawInPop}
+        {dsPop}
         {selP&&dealPopups(selP)}
         {selP&&setupSheet(selP)}
         {bulkOpen&&(
@@ -13658,6 +13798,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       </div>
       {txPicker}
       {drawInPop}
+      {dsPop}
       {sel&&dealPopups(sel)}
       {sel&&setupSheet(sel)}
     </div>

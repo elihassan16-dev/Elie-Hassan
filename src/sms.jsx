@@ -225,6 +225,7 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
           <div style={{ padding: "22px 12px", textAlign: "center", fontSize: 13.5, lineHeight: 1.6 }}>
             {calling === "busy" ? <b>☎️ Placing the call…</b>
               : calling === "ringing" ? <><b>☎️ Your phone is ringing</b><div style={{ fontSize: 12, color: T.textSub, marginTop: 4 }}>Pick up, and we'll connect you to {fmtPhone(phone)}.</div></>
+              : calling === "sent" ? <><b>📲 Check your phone</b><div style={{ fontSize: 12, color: T.textSub, marginTop: 4 }}>Tap the notification and the dialer opens with {fmtPhone(phone)}.</div></>
               : <><span style={{ color: T.red, fontWeight: 700 }}>{calling.slice(4)}</span><div><button onClick={() => setCalling("")} style={{ marginTop: 10, padding: "8px 18px", borderRadius: 10, border: `1px solid ${T.border}`, background: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, fontWeight: 700 }}>‹ Back</button></div></>}
           </div>
         ) : step === "main" ? (<>
@@ -260,6 +261,19 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
               <span style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My phone</div>
                 <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Regular call from this phone's own number" : `Messages app — from this phone's own number${templates.length ? ", blank or a template" : ""}`}</div>
+              </span>
+            </button>
+          )}
+          {mode === "call" && !IS_PHONE && (
+            <button style={opt} onClick={async () => {
+              setCalling("busy");
+              try { await sendToMyPhone({ phone, mode: "call" }); setCalling("sent"); setTimeout(onClose, 3800); }
+              catch (e) { setCalling("err:" + (e.message || "Couldn't reach your phone.")); }
+            }}>
+              <span style={{ fontSize: 22, flexShrink: 0 }}>📲</span>
+              <span style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My cell phone</div>
+                <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>We ping your phone — one tap there and the dialer opens with their number</div>
               </span>
             </button>
           )}
@@ -301,6 +315,40 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
       </div>
     </div>
   );
+}
+
+// ─── 📲 Desktop → phone handoff ─────────────────────────────────────────────
+// Pushes a notification to YOUR OWN phone; tapping it opens the app for a
+// beat, which bounces straight into Messages (prefilled) or the dialer.
+// Nothing sends without the final tap on the phone.
+export async function sendToMyPhone({ phone, message = "", mode = "text" }) {
+  const digits = e164(phone);
+  const target = mode === "call" ? `tel:${digits}` : `sms:${digits}${message ? `&body=${encodeURIComponent(message)}` : ""}`;
+  await qbAuthFetch("/api/notify/send", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      toSelf: true, pushOnly: true,
+      title: `📲 ${mode === "call" ? "Call" : "Text"} ${fmtPhone(phone)} from your cell`,
+      body: message ? `“${message.slice(0, 120)}” — tap to open Messages ready to send.` : (mode === "call" ? "Tap to open the dialer." : "Tap to open Messages."),
+      url: `/?handoff=${encodeURIComponent(target)}`,
+      tag: `handoff-${Date.now()}`,
+    }),
+  });
+}
+// Run once at app boot: a ?handoff=sms:…/tel:… in the URL (arrived via the
+// push above) bounces the phone into Messages or the dialer, then cleans up.
+export function useHandoffRedirect() {
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const h = q.get("handoff");
+      if (!h) return;
+      q.delete("handoff");
+      const rest = q.toString();
+      window.history.replaceState({}, "", window.location.pathname + (rest ? "?" + rest : ""));
+      if (/^(sms:|tel:)/i.test(h)) setTimeout(() => { window.location.href = h; }, 400);
+    } catch { /* no query support — ignore */ }
+  }, []);
 }
 
 // ─── 📞 Missed calls + 💬 New texts — Tasks-page cards ──────────────────────
@@ -463,6 +511,7 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
   const [kind, setKind] = useState(init ? init.kind : null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [note, setNote] = useState(""); // 📲 handoff confirmation
   const thread = threadFor(phone);
   const scrollRef = useRef(null);
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length]);
@@ -515,6 +564,7 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
         </div>
         <div style={{ padding: "10px 12px max(10px,env(safe-area-inset-bottom))", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
           {err && <div style={{ fontSize: 11.5, color: T.red, fontWeight: 600, marginBottom: 6 }}>{err}</div>}
+          {note && <div style={{ fontSize: 11.5, color: "#15803D", fontWeight: 700, marginBottom: 6 }}>{note}</div>}
           {templates.length > 0 && (
             <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 8, paddingBottom: 2 }}>
               {templates.map((t) => {
@@ -538,6 +588,10 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
             <textarea rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Write a text…"
               onPaste={(e) => { const fixed = rescuePastedLink(e); if (fixed != null) { e.preventDefault(); const el = e.target, st = el.selectionStart ?? draft.length, en = el.selectionEnd ?? draft.length; setDraft(draft.slice(0, st) + fixed + draft.slice(en)); } }}
               style={{ flex: 1, minWidth: 0, padding: "9px 12px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg, fontSize: 13.5, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, boxSizing: "border-box" }} />
+            {!IS_PHONE && <button onClick={async () => {
+              try { await sendToMyPhone({ phone, message: draft.trim() }); setNote("📲 Sent to your phone — tap the notification there, Messages opens ready to send."); setTimeout(() => setNote(""), 8000); }
+              catch (ex) { setErr(ex.message || "Couldn't reach your phone."); }
+            }} title="Send this text from your cell instead — your phone gets a notification that opens Messages prefilled" style={{ padding: "10px 12px", borderRadius: 12, border: "1.5px solid #2563EB", background: "#EFF6FF", color: "#2563EB", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>📲</button>}
             <button onClick={doSend} disabled={!draft.trim() || busy} style={{ padding: "10px 16px", borderRadius: 12, border: "none", background: draft.trim() && !busy ? T.gold : T.border, color: "#fff", fontWeight: 800, fontSize: 13, cursor: draft.trim() && !busy ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>{busy ? "Sending…" : "Send"}</button>
           </div>
         </div>

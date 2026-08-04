@@ -3,6 +3,7 @@ import Login from "./auth/Login";
 import { DataProvider } from "./data/DataProvider";
 import { GoldstoneShell } from "./GoldstoneApp";
 import { ContractorPortal } from "./contractors/ContractorPortal";
+import { useHandoffRedirect } from "./sms";
 
 function Splash() {
   return (
@@ -26,6 +27,9 @@ function Splash() {
 }
 
 export default function Root() {
+  // A ?handoff=sms:…/tel:… in the URL (from the 📲 desktop→phone push)
+  // bounces straight into Messages or the dialer, then cleans the URL.
+  useHandoffRedirect();
   const { loading, session, isContractor } = useAuth();
   if (loading) return <Splash />;
   if (!session) return <Login />;

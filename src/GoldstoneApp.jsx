@@ -4535,6 +4535,7 @@ function fileIcon(name="",mime=""){
 }
 function FilesTab({property,onUpdate}){
   const od=useOneDrive();
+  const { prefs }=useAuth();                     // filesBaseLink = the Flips folder from Settings
   const folder=property.filesFolder||null;      // {driveId,id,name} — picked in-app
   const link=property.filesShareLink||"";        // legacy pasted share link
   const connected=!!((folder&&folder.driveId&&folder.id)||link);
@@ -4664,6 +4665,24 @@ function FilesTab({property,onUpdate}){
   };
 
   // ── Picker actions ──
+  // One tap straight into the Flips folder saved in Settings → Property Files,
+  // so fixing a property's folder is: Change folder → Flips → ✓ Use.
+  const openFlips=async()=>{
+    setPLoading(true);setError("");
+    try{
+      const root=await od.resolveShareLink(prefs.filesBaseLink);
+      if(!root.driveId)throw new Error("Couldn't open the saved Flips link — re-save it in Settings → Property Files.");
+      setPStack([{driveId:root.driveId,id:root.id,name:root.name||"Flips"}]);
+      setPItems(root.children&&root.children.length?root.children:await od.listChildren(root.driveId,root.id));
+    }catch(e){setError(e.message||"Couldn't open the Flips folder.");}
+    setPLoading(false);
+  };
+  const pickFolderNow=(it)=>{
+    const driveId=it.driveId||(pStack[pStack.length-1]||{}).driveId;
+    if(!driveId||!it.id)return;
+    onUpdate(property.id,"filesFolder",{driveId,id:it.id,name:it.name});
+    onUpdate(property.id,"filesShareLink","");
+  };
   const openMyOneDrive=async()=>{setPLoading(true);setError("");try{const r=await od.myDriveRoot();setPStack([{driveId:r.driveId,id:r.rootId,name:"My OneDrive"}]);setPItems(r.items);}catch(e){setError(e.message);}setPLoading(false);};
   const openShared=async()=>{setPLoading(true);setError("");try{const rows=await od.sharedWithMe();setPStack([{name:"Shared with me",virtual:true}]);setPItems(rows);}catch(e){setError(e.message);}setPLoading(false);};
   const pTop=pStack[pStack.length-1];
@@ -4720,7 +4739,12 @@ function FilesTab({property,onUpdate}){
         </div>
       ):pStack.length===0?(
         <Card>
-          <div onClick={openMyOneDrive} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer"}}>
+          {!!prefs.filesBaseLink&&(
+            <div onClick={openFlips} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",background:T.goldLight}}>
+              <span style={{fontSize:22}}>📂</span><div style={{fontSize:15,fontWeight:700,color:"#8a6d1f"}}>Your Flips folder <span style={{fontSize:12,fontWeight:400,color:T.textSub}}>(all the property folders)</span></div>
+            </div>
+          )}
+          <div onClick={openMyOneDrive} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",borderTop:prefs.filesBaseLink?`1px solid ${T.border}`:"none"}}>
             <span style={{fontSize:22}}>📁</span><div style={{fontSize:15,fontWeight:600,color:T.text}}>My OneDrive</div>
           </div>
           <div onClick={openShared} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",cursor:"pointer",borderTop:`1px solid ${T.border}`}}>
@@ -4743,6 +4767,7 @@ function FilesTab({property,onUpdate}){
             <div key={it.id} onClick={()=>pEnter(it)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",cursor:"pointer",borderTop:i===0?"none":`1px solid ${T.border}`}}>
               <span style={{fontSize:20}}>📁</span>
               <div style={{flex:1,minWidth:0,fontSize:14,fontWeight:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>
+              <button onClick={e=>{e.stopPropagation();pickFolderNow(it);}} title="Connect this property to this folder" style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${T.gold}`,background:"#fff",color:T.gold,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>✓ Use</button>
               <span style={{fontSize:16,color:T.textTert}}>›</span>
             </div>
           ))}
@@ -9536,12 +9561,17 @@ function PropertyFilesPanel(){
   const[error,setError]=useState("");
   const[result,setResult]=useState(null);
   const[applied,setApplied]=useState(0);
+  // Wrong guesses: tap a matched row to skip it — skipped rows aren't applied
+  // (and keep whatever folder the property already has).
+  const[skipped,setSkipped]=useState(()=>new Set());
+  const toggleSkip=(id)=>setSkipped(prev=>{const n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n;});
   const scan=async()=>{
     const url=link.trim();
     if(!url){setError("Paste the link to your Flips folder first.");return;}
     setScanning(true);setError("");setResult(null);setApplied(0);
     try{
       await savePrefs({filesBaseLink:url});
+      setSkipped(new Set());
       const root=await od.resolveShareLink(url);
       if(!root.driveId){setError("Couldn't open that link. Use a SharePoint/OneDrive 'Copy link' URL to the Flips folder.");setScanning(false);return;}
       const folders=[];
@@ -9558,10 +9588,12 @@ function PropertyFilesPanel(){
   };
   const apply=()=>{
     if(!result)return;
-    const map=new Map(result.matched.map(m=>[m.p.id,m.folder]));
+    const rows=result.matched.filter(m=>!skipped.has(m.p.id));
+    const map=new Map(rows.map(m=>[m.p.id,m.folder]));
     setSharedProps(prev=>prev.map(p=>{const f=map.get(p.id);return f?{...p,filesFolder:{driveId:f.driveId,id:f.id,name:f.name},filesShareLink:""}:p;}));
-    setApplied(result.matched.length);
+    setApplied(rows.length);
   };
+  const applyCount=result?result.matched.filter(m=>!skipped.has(m.p.id)).length:0;
   const inp={width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   const goldBtn=(txt,onClick,disabled)=><button onClick={onClick} disabled={disabled} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:disabled?T.border:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:disabled?"default":"pointer",fontFamily:"inherit"}}>{txt}</button>;
   if(!od.ready)return <div style={{fontSize:13,color:T.textSub}}>Connecting to Microsoft…</div>;
@@ -9584,20 +9616,21 @@ function PropertyFilesPanel(){
       {result&&(
         <div>
           <div style={{fontSize:13,color:T.text,fontWeight:600,marginBottom:4}}>Matched {result.matched.length} of {props.length} properties <span style={{color:T.textTert,fontWeight:400}}>· scanned {result.folderCount} folders</span></div>
+          <div style={{fontSize:11.5,color:T.textSub,marginBottom:6}}>Wrong match? <strong>Tap the row</strong> to skip it — skipped rows aren't applied, and you can pick the right folder later in that property's Files tab.</div>
           {applied>0
             ? <div style={{margin:"10px 0",padding:"10px 12px",background:"#EDFBF1",border:`1px solid ${T.green}`,borderRadius:T.radiusSm,color:"#15803D",fontSize:13,fontWeight:600}}>✓ Applied to {applied} propert{applied===1?"y":"ies"} — their Files tabs now open the matched folder.</div>
-            : <div style={{margin:"10px 0"}}>{goldBtn(`Apply to ${result.matched.length} propert${result.matched.length===1?"y":"ies"}`,apply,result.matched.length===0)}</div>}
+            : <div style={{margin:"10px 0"}}>{goldBtn(`Apply to ${applyCount} propert${applyCount===1?"y":"ies"}`,apply,applyCount===0)}</div>}
           <div style={{maxHeight:260,overflowY:"auto",border:`1px solid ${T.border}`,borderRadius:12}}>
-            {result.matched.map(({p,folder})=>(
-              <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:`1px solid ${T.border}`}}>
+            {result.matched.map(({p,folder})=>{const off=skipped.has(p.id);return(
+              <div key={p.id} onClick={()=>toggleSkip(p.id)} title={off?"Tap to include this match again":"Tap to skip this match"} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",opacity:off?0.45:1,background:off?T.bg:"transparent"}}>
                 <span style={{fontSize:14}}>📁</span>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}{p.city?`, ${p.city}`:""}</div>
+                  <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:off?"line-through":"none"}}>{p.address}{p.city?`, ${p.city}`:""}</div>
                   <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {folder.name}</div>
                 </div>
-                <span style={{fontSize:12,color:T.green,fontWeight:700}}>✓</span>
+                {off?<span style={{fontSize:11,color:T.textTert,fontWeight:700}}>✕ skipped</span>:<span style={{fontSize:12,color:T.green,fontWeight:700}}>✓</span>}
               </div>
-            ))}
+            );})}
             {result.unmatched.map(p=>(
               <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:`1px solid ${T.border}`,opacity:0.7}}>
                 <span style={{fontSize:14}}>❓</span>

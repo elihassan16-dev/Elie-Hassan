@@ -133,7 +133,7 @@ export function useSmsTexting() {
     await qbAuthFetch("/api/jivetel/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, message: text }) });
     setTimeout(loadMsgs, 500);
   };
-  return { connected: store.connected, from: store.from, threadFor, statusFor, unreadFor, send };
+  return { connected: store.connected, from: store.from, msgs, threadFor, statusFor, unreadFor, send };
 }
 
 // Tiny thread-status badge for lists: ⏳ we texted, no reply yet · replied
@@ -301,6 +301,124 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
       </div>
     </div>
   );
+}
+
+// ─── 📞 Missed calls + 💬 New texts — Tasks-page cards ──────────────────────
+// Two rail cards: missed calls awaiting a callback, and unread texts with a
+// one-tap reply. A missed call clears itself once ANY outbound text or call
+// to that number happens after it (the CDR/webhook writes make that visible),
+// or via the × (per-user, saved in account prefs). Empty cards render nothing.
+export function CallTextCards({ prefs = {}, savePrefs }) {
+  const { connected, msgs, threadFor, unreadFor } = useSmsTexting();
+  const jv = useJivetelCall();
+  const [open, setOpen] = useState(null);      // {phone,name} → thread popup
+  const [ringing, setRinging] = useState("");  // phone being called back
+  const now = Date.now();
+  const rel = (iso) => {
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return "";
+    const m = Math.floor(Math.max(0, now - t) / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m} min ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    if (d === 1) return "yesterday";
+    if (d < 7) return `${d}d ago`;
+    try { return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }); } catch { return ""; }
+  };
+  const dism = prefs.callDismiss || {};
+  // Latest outbound touch per number — anything after a missed call clears it.
+  const lastOut = {};
+  msgs.forEach((m) => {
+    if (m.direction === "out" || m.direction === "call-out") {
+      const p = e164(m.phone);
+      if (p && (!lastOut[p] || String(m.at) > lastOut[p])) lastOut[p] = String(m.at);
+    }
+  });
+  const byPhone = {};
+  msgs.forEach((m) => {
+    if (m.kind !== "call" || !m.missed || m.direction !== "call-in") return;
+    const p = e164(m.phone);
+    if (p && (!byPhone[p] || String(m.at) > String(byPhone[p].at))) byPhone[p] = m;
+  });
+  const missed = Object.values(byPhone).filter((m) => {
+    if (dism[m.id]) return false;
+    const p = e164(m.phone);
+    if (lastOut[p] && lastOut[p] > String(m.at)) return false;
+    const t = new Date(m.at).getTime();
+    return !isNaN(t) && now - t < 7 * 86400000;
+  }).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 8);
+  const texts = [...new Set(msgs.filter((m) => m.kind !== "call").map((m) => e164(m.phone)).filter(Boolean))]
+    .map((p) => {
+      if (!unreadFor(p)) return null;
+      const t = threadFor(p).filter((m) => m.kind !== "call");
+      const lastIn = [...t].reverse().find((m) => m.direction === "in");
+      return lastIn ? { phone: p, name: lastIn.by || "", text: lastIn.text || "", at: lastIn.at } : null;
+    })
+    .filter(Boolean).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 8);
+  if (!connected || (missed.length === 0 && texts.length === 0)) return open ? <SmsThreadPopup phone={open.phone} name={open.name} onClose={() => setOpen(null)} /> : null;
+  const dismiss = (id) => {
+    if (!savePrefs) return;
+    const next = { ...dism, [id]: new Date().toISOString() };
+    Object.keys(next).forEach((k) => { const t = new Date(next[k]).getTime(); if (!isNaN(t) && now - t > 14 * 86400000) delete next[k]; });
+    Promise.resolve(savePrefs({ callDismiss: next })).catch(() => {});
+  };
+  const callBack = async (phone) => {
+    setRinging(phone);
+    try {
+      await qbAuthFetch("/api/jivetel/call", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: phone }) });
+      setTimeout(() => setRinging(""), 4000);
+    } catch (e) { setRinging(""); window.alert(e.message || "Couldn't place the call."); }
+  };
+  const card = { background: "#fff", borderRadius: T.radius, boxShadow: T.shadow, overflow: "hidden" };
+  const hd = (icon, label, n, bg, fg, bd) => (
+    <div style={{ padding: "11px 14px 9px", borderBottom: `1px solid ${T.border}`, fontSize: 12, fontWeight: 800, color: T.text, display: "flex", alignItems: "center", gap: 6 }}>
+      {icon} {label}
+      <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, background: bg, color: fg, border: `1px solid ${bd}`, borderRadius: 10, padding: "2px 8px" }}>{n}</span>
+    </div>
+  );
+  const initials = (n) => String(n || "").trim().split(/\s+/).slice(0, 2).map((x) => x[0] || "").join("").toUpperCase() || "?";
+  const ico = { width: 27, height: 27, borderRadius: "50%", border: `1px solid ${T.border}`, background: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, cursor: "pointer", flexShrink: 0, padding: 0, fontFamily: "inherit" };
+  const row = { display: "flex", gap: 8, alignItems: "center", padding: "9px 12px", borderBottom: `1px solid ${T.border}55` };
+  return (<>
+    {missed.length > 0 && (
+      <div style={card}>
+        {hd("📞", "Missed calls", missed.length, "#FFF1EA", "#C2410C", "#F6C9B2")}
+        {missed.map((m) => (
+          <div key={m.id} style={row}>
+            <span style={{ width: 32, height: 32, borderRadius: "50%", background: "#FFE4D6", color: "#C2410C", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initials(m.by)}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <b style={{ display: "block", fontSize: 12.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.by || fmtPhone(m.phone)}</b>
+              <span style={{ display: "block", fontSize: 10, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {ringing === m.phone ? "☎️ Your phone is ringing — pick up to connect" : `${m.by ? fmtPhone(m.phone) + " · " : ""}${rel(m.at)}${m.ext ? ` · rang ext ${m.ext}` : ""}`}
+              </span>
+            </span>
+            {jv.enabled && <button onClick={() => callBack(m.phone)} title="Call back on your Jivetel line" style={{ ...ico, background: T.gold, border: "none", color: "#fff" }}>📞</button>}
+            <button onClick={() => setOpen({ phone: m.phone, name: m.by || fmtPhone(m.phone) })} title="Open the conversation" style={ico}>💬</button>
+            <button onClick={() => dismiss(m.id)} title="Dismiss" style={{ ...ico, border: "none", fontSize: 15, color: T.textTert }}>×</button>
+          </div>
+        ))}
+        <div style={{ padding: "7px 14px", fontSize: 9.5, color: T.textTert, textAlign: "center" }}>clears itself once you call or text them back</div>
+      </div>
+    )}
+    {texts.length > 0 && (
+      <div style={card}>
+        {hd("💬", "New texts", texts.length, "#FDE9C8", "#B45309", "#EAD9A9")}
+        {texts.map((t) => (
+          <div key={t.phone} onClick={() => setOpen({ phone: t.phone, name: t.name || fmtPhone(t.phone) })} style={{ ...row, cursor: "pointer" }}>
+            <span style={{ width: 32, height: 32, borderRadius: "50%", background: "#EEE7D4", color: "#8a6d1f", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initials(t.name)}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <b style={{ display: "block", fontSize: 12.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name || fmtPhone(t.phone)}</b>
+              <span style={{ display: "block", fontSize: 10, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>“{String(t.text).slice(0, 60)}” · {rel(t.at)}</span>
+            </span>
+            <button onClick={(e) => { e.stopPropagation(); setOpen({ phone: t.phone, name: t.name || fmtPhone(t.phone) }); }} title="Reply" style={{ ...ico, background: "#0F9D58", border: "none", color: "#fff" }}>↩</button>
+          </div>
+        ))}
+      </div>
+    )}
+    {open && <SmsThreadPopup phone={open.phone} name={open.name} onClose={() => setOpen(null)} />}
+  </>);
 }
 
 // Drop-in replacements for <a href="tel:…"> / <a href="sms:…"> links. When

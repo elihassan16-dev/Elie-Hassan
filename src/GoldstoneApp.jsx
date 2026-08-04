@@ -16,7 +16,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA, linkifyText, rescuePastedLink } from "./sms";
+import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA, CallTextCards, linkifyText, rescuePastedLink } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -8662,6 +8662,8 @@ function TasksPage({onNavigate}){
       </div>
 
       <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
+      {/* Mobile: missed calls + new texts up top, before the task lists */}
+      {isMobile&&!showAutomations&&<div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14}}><CallTextCards prefs={prefs} savePrefs={savePrefs}/></div>}
       <div style={{display:isMobile?"block":"flex",gap:22,alignItems:"flex-start"}}>
       <div style={{flex:"0 1 840px",minWidth:0}}>
 
@@ -9018,6 +9020,7 @@ function TasksPage({onNavigate}){
                 </div>
               ))}
             </div>
+            <CallTextCards prefs={prefs} savePrefs={savePrefs}/>
             <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
               {hdr("⏳","Waiting on you","#B45309")}
               {pendingCoReqs.length===0&&bidsIn.length===0&&askedOfMe.length===0&&<div style={{padding:"16px 14px",fontSize:12.5,color:T.textTert}}>You're all caught up. ✓</div>}

@@ -78,12 +78,20 @@ export default async function handler(req, res) {
           at: msg.at,
           status: "",
         }).catch(() => {});
-        // Ping the team the moment a text comes IN on the Jivetel line.
+        // Ping whoever OWNS the line the text came in on (their number in
+        // JIVETEL_NUMBERS); unknown line → the whole team.
         if (dir === "in") {
           const { notifyFanout } = await import("../../lib/notify.js");
           const preview = msg.text.length > 90 ? msg.text.slice(0, 90) + "…" : msg.text;
+          let owner = null;
+          try {
+            const nums = JSON.parse(process.env.JIVETEL_NUMBERS || "{}");
+            const d10 = (x) => { const d = String(x || "").replace(/\D/g, ""); return d.length === 11 && d.startsWith("1") ? d.slice(1) : d; };
+            const hit = Object.entries(nums).find(([, v]) => d10(v) && d10(v) === d10(msg.to));
+            if (hit) owner = hit[0];
+          } catch { /* bad JSON → team-wide */ }
           await notifyFanout(client, null, {
-            toTeam: true,
+            ...(owner ? { recipientsFirst: [owner] } : { toTeam: true }),
             title: `💬 New text — ${msg.name || msg.from}`,
             body: preview || "(no text)",
             tag: `jvmsg-${msg.id}`.slice(0, 64),

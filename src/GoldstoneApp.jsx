@@ -2411,8 +2411,8 @@ function ShowingInfoPopup({property,skey,onUpdate,onClose}){
 // the per-property Showings tab and the top-level Showings page.
 function PropertyShowings({property,showings,onUpdate,flush}){
   const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS }=useData();
-  // Business texting (Quo): when connected, Text/template buttons open a real
-  // in-app conversation sent from the company line; otherwise sms: links as before.
+  // Business texting (Jivetel): when connected, Text/template buttons open a
+  // real in-app conversation sent from your own line; otherwise sms: links as before.
   const {connected:smsOn,threadFor,unreadFor}=useSmsTexting();
   const[smsPop,setSmsPop]=useState(null); // {phone,name,rowKey,kind,bt}
   const isMobile=useIsMobile();

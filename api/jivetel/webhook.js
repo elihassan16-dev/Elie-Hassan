@@ -3,6 +3,7 @@
 // ?key= to match JIVETEL_WEBHOOK_SECRET (set in Vercel). GET is open but
 // returns only counts and redacted key-shapes — never message content.
 import { createClient } from "@supabase/supabase-js";
+import { storeSms, e164 } from "../../lib/jivetel.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://wtmsukjnuqsprtvfytin.supabase.co";
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -63,6 +64,20 @@ export default async function handler(req, res) {
       if (!msgs.some((m) => m.id === msg.id)) {
         msgs.push(msg);
         await client.from("app_settings").upsert({ id: "jivetel_msgs", data: { msgs: msgs.slice(-2000) }, updated_at: new Date().toISOString() });
+        // Into the app's conversation store too — the thread popups, badges
+        // and realtime updates all read sms_messages. The other party's
+        // number keys the thread; upsert by id dedupes messages the send
+        // endpoint already logged.
+        await storeSms({
+          id: msg.id,
+          phone: e164(dir === "in" ? msg.from : msg.to),
+          direction: dir,
+          text: msg.text,
+          by: dir === "in" ? msg.name : "",
+          from: dir === "in" ? e164(msg.to) : e164(msg.from),
+          at: msg.at,
+          status: "",
+        }).catch(() => {});
         // Ping the team the moment a text comes IN on the Jivetel line.
         if (dir === "in") {
           const { notifyFanout } = await import("../../lib/notify.js");

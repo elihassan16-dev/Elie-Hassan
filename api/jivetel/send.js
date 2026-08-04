@@ -4,43 +4,53 @@
 //   JIVETEL_TOKEN_ELIE / JIVETEL_TOKEN_MOSHE / JIVETEL_TOKEN_ESTI
 // The person resolves from the signed-in user's first name (or an explicit
 // fromName), so everyone texts from their own line with their own key.
-// JIVETEL_API_TOKEN remains as a shared fallback. Inert until keys are set.
+// JIVETEL_API_TOKEN remains as a shared fallback.
+// GET ?cap=1 (signed-in) answers "is texting set up for me?" for the app.
+// Sent messages are logged to the shared sms_messages conversation store.
 import { requireAppUser } from "../../lib/showings.js";
+import { storeSms, e164, profileOf } from "../../lib/jivetel.js";
+
+const first = (s) => String(s || "").trim().toLowerCase().split(/[\s@]+/)[0];
+
+// Who is texting: their JIVETEL_NUMBERS key, from-number, and API token.
+function resolveSender(user, fromName, profileName) {
+  let numbers = {};
+  try { numbers = JSON.parse(process.env.JIVETEL_NUMBERS || "{}"); } catch { /* default only */ }
+  const cands = [fromName, user?.user_metadata?.name, profileName, user?.email].filter(Boolean);
+  let person = null;
+  for (const c of cands) {
+    const k = numbers[c] != null ? c : Object.keys(numbers).find((x) => first(x) && first(x) === first(c));
+    if (k) { person = k; break; }
+  }
+  const from = (person && numbers[person]) || process.env.JIVETEL_FROM_DEFAULT || Object.values(numbers)[0] || "";
+  const sfx = first(person || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const token = (sfx && process.env["JIVETEL_TOKEN_" + sfx]) || process.env.JIVETEL_API_TOKEN || "";
+  return { person, from, token };
+}
 
 export default async function handler(req, res) {
-  // Browser-friendly test door, gated by the same server secret as the
-  // webhook: GET /api/jivetel/send?key=SECRET&to=7325551234[&fromName=Moshe]
-  const isTest = req.method === "GET";
-  if (isTest) {
-    const secret = process.env.JIVETEL_WEBHOOK_SECRET;
-    if (!secret || String(req.query.key || "") !== secret) return res.status(401).json({ error: "bad key" });
-  } else if (req.method !== "POST") {
-    return res.status(405).json({ error: "POST only" });
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  // Signed-in capability check for the app UI: is texting wired up for ME?
+  if (req.method === "GET" && req.query.cap) {
+    const user = await requireAppUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first." });
+    const prof = await profileOf(user.id);
+    if (prof?.role === "contractor") return res.status(200).json({ connected: false, from: "" });
+    const { from, token } = resolveSender(user, null, prof?.name);
+    const connected = !!(from && token);
+    return res.status(200).json({ connected, from: connected ? from : "" });
   }
-  const user = isTest ? { user_metadata: { name: String(req.query.fromName || "Elie") } } : await requireAppUser(req);
+  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+  const user = await requireAppUser(req);
   if (!user) return res.status(401).json({ error: "Sign in first." });
   try {
-    const { to, message, media, fromName } = isTest
-      ? { to: req.query.to, message: String(req.query.msg || "Test text from the Goldstone app 🎉"), fromName: req.query.fromName }
-      : req.body || {};
-    if (!to || !message) return res.status(400).json({ error: "to and message are required." });
-    let numbers = {};
-    try { numbers = JSON.parse(process.env.JIVETEL_NUMBERS || "{}"); } catch { /* bad JSON → default only */ }
-    // Forgiving lookup: "Elie" in JIVETEL_NUMBERS matches a login named
-    // "Elie Hassan" (first name, case-insensitive), else email prefix.
-    const first = (s) => String(s || "").trim().toLowerCase().split(/[\s@]+/)[0];
-    const cands = [fromName, user.user_metadata?.name, user.email].filter(Boolean);
-    let person = null;
-    for (const c of cands) {
-      const hit = numbers[c] != null ? c : Object.keys(numbers).find((k) => first(k) && first(k) === first(c));
-      if (hit) { person = hit; break; }
-    }
-    if (!person) person = Object.keys(numbers).find((k) => numbers[k] === process.env.JIVETEL_FROM_DEFAULT) || Object.keys(numbers)[0] || null;
-    const from = (person && numbers[person]) || process.env.JIVETEL_FROM_DEFAULT;
+    const { to, message, media, fromName } = req.body || {};
+    if (!to || !String(message || "").trim()) return res.status(400).json({ error: "to and message are required." });
+    const prof = await profileOf(user.id);
+    if (prof?.role === "contractor") return res.status(403).json({ error: "The business texting line isn't available on contractor accounts." });
+    const { person, from, token } = resolveSender(user, fromName, prof?.name);
     if (!from) return res.status(503).json({ error: "No from-number configured (JIVETEL_NUMBERS / JIVETEL_FROM_DEFAULT)." });
-    const token = (person && process.env["JIVETEL_TOKEN_" + first(person).toUpperCase()]) || process.env.JIVETEL_API_TOKEN;
-    if (!token) return res.status(503).json({ error: `Jivetel isn't connected yet — no API key for ${person || "this line"} (JIVETEL_TOKEN_${first(person || "name").toUpperCase()}).` });
-    const e164 = (p) => { const d = String(p || "").replace(/\D/g, ""); return d.length === 10 ? "+1" + d : d.length === 11 && d.startsWith("1") ? "+" + d : String(p || ""); };
+    if (!token) return res.status(503).json({ error: `Texting isn't connected for ${person || "you"} yet.` });
     const body = { to: e164(to), from: e164(from), message: String(message) };
     if (Array.isArray(media) && media.length) body.media = media;
     const r = await fetch("https://jivetel-txt.jivetel.com/api/send", {
@@ -51,6 +61,19 @@ export default async function handler(req, res) {
     const text = await r.text();
     if (!r.ok) return res.status(502).json({ error: `Jivetel send failed (${r.status})`, detail: text.slice(0, 300) });
     let data = null; try { data = JSON.parse(text); } catch { /* non-JSON OK */ }
+    if (data && data.status === false) return res.status(502).json({ error: data.msg || "Jivetel rejected the message.", detail: data });
+    // Log it so the conversation thread shows it right away. The inbound
+    // webhook may also relay this message later — same id, so it dedupes.
+    await storeSms({
+      id: String(data?.id || `out-${Date.now()}`),
+      phone: body.to,
+      direction: "out",
+      text: String(message),
+      by: prof?.name || user.user_metadata?.name || "",
+      from: body.from,
+      at: new Date().toISOString(),
+      status: "sent",
+    }).catch(() => {});
     return res.status(200).json({ ok: true, from: body.from, result: data });
   } catch (e) {
     return res.status(500).json({ error: e.message });

@@ -335,13 +335,19 @@ export async function sendToMyPhone({ phone, message = "", mode = "text" }) {
     }),
   });
 }
-// Run once at app boot: a ?handoff=sms:…/tel:… in the URL (arrived via the
-// push above) bounces the phone into Messages or the dialer, then cleans up.
-// ALSO listens for the service worker's notification-tap message — on iOS an
-// already-open PWA often can't be navigated by the tap, so the SW tells the
-// running app instead and we bounce from here.
-export function useHandoffRedirect() {
+// Catches an arriving handoff — a ?handoff=sms:…/tel:… in the URL, or the
+// service worker's notification-tap message when the PWA was already open —
+// and shows a bar with a REAL button. iOS only honors a jump into Messages /
+// the dialer from a genuine in-app tap, so the auto-attempt is best-effort
+// and the button is the guarantee.
+export function HandoffCatcher() {
+  const [pend, setPend] = useState(null); // "sms:…" | "tel:…"
   useEffect(() => {
+    const accept = (h) => {
+      if (!h || !/^(sms:|tel:)/i.test(h)) return;
+      setPend(h);
+      setTimeout(() => { try { window.location.href = h; } catch { /* blocked — the button remains */ } }, 350);
+    };
     try {
       const q = new URLSearchParams(window.location.search);
       const h = q.get("handoff");
@@ -349,22 +355,28 @@ export function useHandoffRedirect() {
         q.delete("handoff");
         const rest = q.toString();
         window.history.replaceState({}, "", window.location.pathname + (rest ? "?" + rest : ""));
-        if (/^(sms:|tel:)/i.test(h)) setTimeout(() => { window.location.href = h; }, 400);
+        accept(h);
       }
     } catch { /* no query support — ignore */ }
     if (!("serviceWorker" in navigator)) return;
     const onMsg = (e) => {
       const d = e.data || {};
       if (d.type !== "notification-url" || !d.url) return;
-      try {
-        const u = new URL(d.url, window.location.origin);
-        const h2 = u.searchParams.get("handoff");
-        if (h2 && /^(sms:|tel:)/i.test(h2)) window.location.href = h2;
-      } catch { /* malformed — ignore */ }
+      try { accept(new URL(d.url, window.location.origin).searchParams.get("handoff")); } catch { /* malformed */ }
     };
     navigator.serviceWorker.addEventListener("message", onMsg);
     return () => navigator.serviceWorker.removeEventListener("message", onMsg);
   }, []);
+  if (!pend) return null;
+  const isCall = /^tel:/i.test(pend);
+  const digits = pend.replace(/^(sms:|tel:)/i, "").split(/[?&]/)[0];
+  return (
+    <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 9999, padding: "12px 14px calc(14px + env(safe-area-inset-bottom))", background: "rgba(27,31,39,0.95)", backdropFilter: "blur(6px)", display: "flex", gap: 10, alignItems: "center" }}>
+      <span style={{ flex: 1, minWidth: 0, color: "#fff", fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📲 {isCall ? "Ready to call" : "Text ready for"} {fmtPhone(digits)}</span>
+      <a href={pend} onClick={() => setTimeout(() => setPend(null), 900)} style={{ padding: "10px 16px", borderRadius: 12, background: T.gold, color: "#fff", fontWeight: 800, fontSize: 13, textDecoration: "none", flexShrink: 0 }}>{isCall ? "Open dialer" : "Open Messages"}</a>
+      <button onClick={() => setPend(null)} style={{ background: "none", border: "none", color: "#98A0AA", fontSize: 19, cursor: "pointer", lineHeight: 1, flexShrink: 0, padding: "0 2px" }}>×</button>
+    </div>
+  );
 }
 
 // ─── 📞 Missed calls + 💬 New texts — Tasks-page cards ──────────────────────

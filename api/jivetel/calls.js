@@ -69,8 +69,9 @@ export default async function handler(req, res) {
     let dirty = false;
     const notify = async (payload) => {
       const { notifyFanout } = await import("../../lib/notify.js");
-      // pushOnly: call alerts are useful as a banner, pure noise as email/SMS.
-      await notifyFanout(client, null, { toAdmins: true, url: "/", pushOnly: true, ...payload }).catch(() => {});
+      // The whole team gets call alerts (Moshe and Esti too, not just admins);
+      // pushOnly: useful as a banner, pure noise as email/SMS.
+      await notifyFanout(client, null, { toTeam: true, url: "/", pushOnly: true, ...payload }).catch(() => {});
     };
 
     for (const e of entries) {

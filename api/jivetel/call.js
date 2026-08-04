@@ -27,6 +27,10 @@ async function profileOf(userId) {
 
 const first = (s) => String(s || "").trim().toLowerCase().split(/[\s@]+/)[0];
 
+// Tolerant first-name match ("Esti" vs "Estie"): equal, or one is the
+// other's prefix at 3+ letters.
+const sameFirst = (a, b) => { a = first(a); b = first(b); if (!a || !b) return false; if (a === b) return true; return a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a)); };
+
 // Who is calling, their portal creds, and the caller ID to show.
 function resolvePerson(user, fromName, profileName) {
   let numbers = {};
@@ -34,7 +38,7 @@ function resolvePerson(user, fromName, profileName) {
   const cands = [fromName, user?.user_metadata?.name, profileName, user?.email].filter(Boolean);
   let person = null;
   for (const c of cands) {
-    const k = numbers[c] != null ? c : Object.keys(numbers).find((x) => first(x) && first(x) === first(c));
+    const k = numbers[c] != null ? c : Object.keys(numbers).find((x) => sameFirst(x, c));
     if (k) { person = k; break; }
   }
   if (!person && cands.length) person = cands.find((c) => !String(c).includes("@")) || cands[0];

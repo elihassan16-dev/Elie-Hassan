@@ -83,7 +83,7 @@ export default async function handler(req, res) {
           const { notifyFanout } = await import("../../lib/notify.js");
           const preview = msg.text.length > 90 ? msg.text.slice(0, 90) + "…" : msg.text;
           await notifyFanout(client, null, {
-            toAdmins: true,
+            toTeam: true,
             title: `💬 New text — ${msg.name || msg.from}`,
             body: preview || "(no text)",
             tag: `jvmsg-${msg.id}`.slice(0, 64),

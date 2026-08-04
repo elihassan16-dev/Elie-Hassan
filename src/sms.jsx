@@ -179,13 +179,11 @@ export function useJivetelCall() {
   const [st, setSt] = useState(jvCap);
   useEffect(() => {
     if (!jvCapPromise) {
+      // qbAuthFetch returns the parsed JSON (and throws with the server's
+      // error message on failure) — no Response unwrapping here.
       jvCapPromise = qbAuthFetch("/api/jivetel/call?cap=1")
-        .then(async (r) => {
-          const d = r ? await r.json().catch(() => null) : null;
-          if (r && r.ok && d) jvCap = { enabled: !!d.enabled, from: d.from || "", why: d.why || "" };
-          else jvCap = { enabled: false, from: "", why: `check failed${r ? ` (${r.status})` : ""}` };
-        })
-        .catch(() => { jvCap = { enabled: false, from: "", why: "network error" }; });
+        .then((d) => { jvCap = { enabled: !!(d && d.enabled), from: (d && d.from) || "", why: (d && d.why) || "" }; })
+        .catch((e) => { jvCap = { enabled: false, from: "", why: e?.message || "network error" }; });
     }
     let live = true;
     jvCapPromise.then(() => { if (live) setSt(jvCap); });
@@ -206,9 +204,8 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
   const placeJivetelCall = async () => {
     setCalling("busy");
     try {
-      const r = await qbAuthFetch("/api/jivetel/call", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: phone }) });
-      const d = await r.json().catch(() => null);
-      if (!r.ok) throw new Error((d && d.error) || "Couldn't place the call.");
+      // Parsed JSON on success; throws with the server's message on failure.
+      await qbAuthFetch("/api/jivetel/call", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: phone }) });
       setCalling("ringing");
       setTimeout(onClose, 3200);
     } catch (e) {

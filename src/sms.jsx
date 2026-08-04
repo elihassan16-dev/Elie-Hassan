@@ -1,7 +1,8 @@
-// Business texting (Quo) — the client side. One shared store for the whole
-// app: texting connection status, every SMS conversation (loaded once, kept
-// live via realtime), sending, and the little thread-status badges.
-// When texting isn't connected, every entry point falls back to the phone's
+// Business texting (Jivetel) — the client side. One shared store for the
+// whole app: texting connection status, every SMS conversation (loaded once,
+// kept live via realtime), sending, and the little thread-status badges.
+// Each signed-in person texts from their own Jivetel line. When texting
+// isn't connected for someone, their entry points fall back to the phone's
 // own sms: links exactly as before.
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
@@ -80,9 +81,9 @@ const scheduleLoad = () => {
 function start() {
   if (started) return;
   started = true;
-  // Authenticated: the server only reports connected:true to admins (the
-  // connected Quo number is the admin's own line for now).
-  qbAuthFetch("/api/texting/status").then((s) => {
+  // Authenticated: connected means THIS person's Jivetel line is wired up
+  // (their number + API token exist). Contractors always get false.
+  qbAuthFetch("/api/jivetel/send?cap=1").then((s) => {
     store = { ...store, connected: !!s.connected, from: s.from || "" };
     emit();
     if (s.connected) {
@@ -128,7 +129,7 @@ export function useSmsTexting() {
     return threadFor(p).filter((m) => m.direction === "in" && String(m.at || "") > since).length;
   };
   const send = async (to, text) => {
-    await qbAuthFetch("/api/texting/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, message: text }) });
+    await qbAuthFetch("/api/jivetel/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, message: text }) });
     setTimeout(loadMsgs, 500);
   };
   return { connected: store.connected, from: store.from, threadFor, statusFor, unreadFor, send };
@@ -150,10 +151,9 @@ export function SmsBadge({ phone }) {
 }
 
 // ─── "Which phone?" chooser ──────────────────────────────────────────────────
-// On a phone, tapping Call/Text asks: business line (the Quo app / in-app
-// thread) or this device's own number? Quo's deep links only work in its
-// mobile app, so desktop keeps the old behavior — tel: goes to whatever the
-// computer's default calling app is (Quo desktop once it's set as default).
+// Tapping Call/Text asks: your Jivetel business line (click-to-call / the
+// in-app conversation) or this device's own number? On desktop the business
+// line is the only choice that can do anything, so it leads.
 const IS_PHONE = typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "");
 
 const fmtPhone = (p) => {
@@ -200,6 +200,9 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
   const [step, setStep] = useState("main");
   // "" | "busy" | "ringing" | "err:<message>" — Jivetel call progress.
   const [calling, setCalling] = useState("");
+  // Business-line texting without a caller-supplied thread opener: show the
+  // in-app conversation right here.
+  const [inThread, setInThread] = useState(false);
   const go = (href) => { onClose(); window.location.href = href; };
   const placeJivetelCall = async () => {
     setCalling("busy");
@@ -213,6 +216,7 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
     }
   };
   const opt = { display: "flex", alignItems: "center", gap: 13, width: "100%", padding: "13px 15px", borderRadius: 14, border: `1px solid ${T.border}`, background: "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left", boxSizing: "border-box" };
+  if (inThread) return <SmsThreadPopup phone={phone} name={fmtPhone(phone)} onClose={onClose} />;
   return (
     <div onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 470, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 14, boxSizing: "border-box", backdropFilter: "blur(4px)" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: T.bg, borderRadius: 20, width: "min(420px,96vw)", padding: 12, boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 8, marginBottom: "env(safe-area-inset-bottom)", boxShadow: "0 12px 48px rgba(0,0,0,0.3)" }}>
@@ -240,12 +244,12 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
             <button style={opt} onClick={() => {
               if (onInApp && templates.length) setStep("business");
               else if (onInApp) { onClose(); onInApp(); }
-              else go(`openphone://message?number=${encodeURIComponent(e164(phone))}${from ? `&from=${encodeURIComponent(from)}` : ""}`);
+              else setInThread(true);
             }}>
               <span style={{ fontSize: 22, flexShrink: 0 }}>💼</span>
               <span style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Business line{from ? ` · ${fmtPhone(from)}` : ""}</div>
-                <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{onInApp ? "Right here in the app — conversation, templates or custom text" : "Opens the Quo app — sends from the company number"}</div>
+                <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>Right here in the app — the full conversation, from your business number</div>
               </span>
             </button>
           )}
@@ -321,9 +325,12 @@ export function TextA({ phone, style, title, onInApp, templates, onTemplate, chi
   const { connected } = useSmsTexting();
   const [choose, setChoose] = useState(false);
   const digits = String(phone || "").replace(/[^\d+]/g, "");
-  const intercept = connected && (IS_PHONE || !!onInApp);
+  // Connected texting works everywhere now — on desktop a Text button either
+  // jumps straight to the in-app thread (onInApp) or opens the chooser, whose
+  // business option shows the thread right there.
+  const intercept = connected;
   return (<>
-    <a href={`sms:${digits}`} title={title} onClick={intercept ? (e) => { e.preventDefault(); e.stopPropagation(); if (IS_PHONE) setChoose(true); else onInApp(); } : undefined} style={style}>{children}</a>
+    <a href={`sms:${digits}`} title={title} onClick={intercept ? (e) => { e.preventDefault(); e.stopPropagation(); if (!IS_PHONE && onInApp) onInApp(); else setChoose(true); } : undefined} style={style}>{children}</a>
     {choose && <PhoneChooser phone={phone} mode="text" onInApp={onInApp} templates={templates || []} onTemplate={onTemplate} onClose={() => setChoose(false)} />}
   </>);
 }

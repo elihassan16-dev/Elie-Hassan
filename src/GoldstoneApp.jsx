@@ -13742,20 +13742,25 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         {selP&&setupSheet(selP)}
         {bulkOpen&&(
           <div onClick={()=>setBulkOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:460,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
-            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(680px,97vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(860px,97vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
               <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
                 <div style={{flex:1,minWidth:0}}>
                   <b style={{fontSize:15}}>⚙ Where the money sits — every property</b>
-                  <div style={{fontSize:11,color:T.textTert,marginTop:2}}>Each pick becomes its own line item in Bank Recon.</div>
+                  <div style={{fontSize:11,color:T.textTert,marginTop:2}}>Each pick becomes its own line item in Bank Recon · ⚡ tap a chip to flip auto-pull — it refreshes each time that deal is opened.</div>
                 </div>
                 <button onClick={()=>setBulkOpen(false)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
               </div>
               <div style={{overflowY:"auto",flex:1}}>
-                <div style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 175px 175px",gap:8,padding:"10px 18px 6px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>
-                  <span>Property</span><span>⏳ Reserve / 💼 funds held in</span><span>🔨 Construction sits</span>
+                <div style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 165px 165px 185px",gap:8,padding:"10px 18px 6px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>
+                  <span>Property</span><span>⏳ Reserve / 💼 funds held in</span><span>🔨 Construction sits</span><span>⚡ Auto-pull from QuickBooks</span>
                 </div>
-                {bsProps.map((p,i)=>{const up=(p.dmFinType||"draws")==="upfront";return(
-                  <div key={p.id} style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 175px 175px",gap:8,alignItems:"center",padding:"8px 18px",borderTop:`1px solid ${T.border}55`,background:i%2?T.goldLight+"33":"transparent"}}>
+                {bsProps.map((p,i)=>{const up=(p.dmFinType||"draws")==="upfront";
+                  const aChip=(on,label,key,disabled,title)=>(
+                    <button key={label} onClick={()=>!disabled&&updateProp(p.id,key,!p[key])} disabled={disabled} title={title}
+                      style={{padding:"3px 7px",borderRadius:9,border:`1px solid ${on?T.gold:T.border}`,background:on?T.goldLight:"#fff",color:on?"#8a6d1f":T.textSub,fontWeight:800,fontSize:9.5,cursor:disabled?"default":"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:disabled?0.45:1}}>{label} {on?"✓":"–"}</button>
+                  );
+                  return(
+                  <div key={p.id} style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 165px 165px 185px",gap:8,alignItems:"center",padding:"8px 18px",borderTop:`1px solid ${T.border}55`,background:i%2?T.goldLight+"33":"transparent"}}>
                     <span style={{minWidth:0}}>
                       <span style={{display:"block",fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</span>
                       <span style={{display:"block",fontSize:10,color:T.textTert}}>{up?"💼 funded up front":"🏦 draws as you build"}</span>
@@ -13771,6 +13776,15 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                         {(bankAccounts||[]).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
                       </select>
                     )}
+                    <span style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                      {up
+                        ?aChip(!!p.dmFundAuto,"💼 funds","dmFundAuto",!canEdit,"Funds-left tracks itself: loan − actual spend")
+                        :<>
+                          {aChip(!!p.qbDebtAuto,"🏦 interest","qbDebtAuto",!canEdit||!p.qbProjectId,p.qbProjectId?"Interest / debt-service payments pull from QuickBooks automatically":"Link the QuickBooks project first (deal setup)")}
+                          {aChip(!!p.dmDrawAuto,"💸 draws","dmDrawAuto",!canEdit||!(p.qbLoanAccounts||[]).length,(p.qbLoanAccounts||[]).length?"Bank draws pull from the mortgage account automatically":"Pin the loan accounts first (deal setup)")}
+                          {aChip(!!p.dmRehabAuto,"🔨 rehab","dmRehabAuto",!canEdit||!p.qbProjectId,p.qbProjectId?"Rehab spending pulls from the QuickBooks project automatically":"Link the QuickBooks project first (deal setup)")}
+                        </>}
+                    </span>
                   </div>
                 );})}
               </div>

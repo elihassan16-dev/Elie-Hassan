@@ -47,12 +47,14 @@ export default async function handler(req, res) {
       // never tapped "Turn on notifications" on their phone.
       if (req.query.who && process.env.JIVETEL_WEBHOOK_SECRET && String(req.query.key || "") === process.env.JIVETEL_WEBHOOK_SECRET) {
         const client = db();
-        const { data: users } = await client.from("users").select("id,name,role,notify_muted");
+        const { data: users } = await client.from("users").select("id,name,role,notify_muted,notify_channels");
         const { data: subs } = await client.from("push_subscriptions").select("user_id");
+        const { data: arow } = await client.from("app_settings").select("data").eq("id", "jivetel_alerts").maybeSingle();
         const cnt = {};
         (subs || []).forEach((s) => { cnt[s.user_id] = (cnt[s.user_id] || 0) + 1; });
         return res.status(200).json({
-          team: (users || []).filter((u) => u.role !== "contractor").map((u) => ({ name: u.name, muted: !!u.notify_muted, devices: cnt[u.id] || 0 })),
+          team: (users || []).filter((u) => u.role !== "contractor").map((u) => ({ name: u.name, muted: !!u.notify_muted, pushOff: !!(u.notify_channels && u.notify_channels.push === false), devices: cnt[u.id] || 0 })),
+          recentAlerts: ((arow && arow.data && arow.data.log) || []).slice(-8).reverse(),
         });
       }
       const shapes = new Set();
@@ -96,7 +98,17 @@ export default async function handler(req, res) {
       const { notifyFanout } = await import("../../lib/notify.js");
       const owner = extOwner(ext);
       // pushOnly: useful as a banner, pure noise as email/SMS.
-      await notifyFanout(client, null, { ...(owner ? { recipientsFirst: [owner] } : { toTeam: true }), url: "/", pushOnly: true, ...payload }).catch(() => {});
+      let result = null, err = "";
+      try { result = await notifyFanout(client, null, { ...(owner ? { recipientsFirst: [owner] } : { toTeam: true }), url: "/", pushOnly: true, ...payload }); }
+      catch (e) { err = e.message || "failed"; }
+      // Diagnostics trail: the last 20 alert attempts — who was targeted and
+      // how many devices actually got pushed. Read via GET ?key&who=1.
+      try {
+        const arow = (await client.from("app_settings").select("data").eq("id", "jivetel_alerts").maybeSingle()).data;
+        const list = ((arow && arow.data && arow.data.log) || []).slice(-19);
+        list.push({ at: new Date().toISOString(), ext: String(ext || ""), owner: owner || "(team)", title: payload.title, pushed: result ? result.pushed : null, err });
+        await client.from("app_settings").upsert({ id: "jivetel_alerts", data: { log: list }, updated_at: new Date().toISOString() });
+      } catch { /* diagnostics only */ }
     };
 
     for (const e of entries) {

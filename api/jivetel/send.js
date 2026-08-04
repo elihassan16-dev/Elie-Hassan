@@ -8,9 +8,7 @@
 // GET ?cap=1 (signed-in) answers "is texting set up for me?" for the app.
 // Sent messages are logged to the shared sms_messages conversation store.
 import { requireAppUser } from "../../lib/showings.js";
-import { storeSms, e164, profileOf } from "../../lib/jivetel.js";
-
-const first = (s) => String(s || "").trim().toLowerCase().split(/[\s@]+/)[0];
+import { storeSms, e164, profileOf, firstName, sameFirst } from "../../lib/jivetel.js";
 
 // Who is texting: their JIVETEL_NUMBERS key, from-number, and API token.
 function resolveSender(user, fromName, profileName) {
@@ -19,11 +17,11 @@ function resolveSender(user, fromName, profileName) {
   const cands = [fromName, user?.user_metadata?.name, profileName, user?.email].filter(Boolean);
   let person = null;
   for (const c of cands) {
-    const k = numbers[c] != null ? c : Object.keys(numbers).find((x) => first(x) && first(x) === first(c));
+    const k = numbers[c] != null ? c : Object.keys(numbers).find((x) => sameFirst(x, c));
     if (k) { person = k; break; }
   }
   const from = (person && numbers[person]) || process.env.JIVETEL_FROM_DEFAULT || Object.values(numbers)[0] || "";
-  const sfx = first(person || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const sfx = firstName(person || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   const token = (sfx && process.env["JIVETEL_TOKEN_" + sfx]) || process.env.JIVETEL_API_TOKEN || "";
   return { person, from, token };
 }

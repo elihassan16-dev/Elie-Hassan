@@ -42,6 +42,19 @@ export default async function handler(req, res) {
       if (req.query.raw && process.env.JIVETEL_WEBHOOK_SECRET && String(req.query.key || "") === process.env.JIVETEL_WEBHOOK_SECRET) {
         return res.status(200).json({ count: ev.length, latest: ev.slice(-3) });
       }
+      // Key-gated "who can actually receive alerts": each team login with how
+      // many notification-ready devices they have. Zero devices = that person
+      // never tapped "Turn on notifications" on their phone.
+      if (req.query.who && process.env.JIVETEL_WEBHOOK_SECRET && String(req.query.key || "") === process.env.JIVETEL_WEBHOOK_SECRET) {
+        const client = db();
+        const { data: users } = await client.from("users").select("id,name,role,notify_muted");
+        const { data: subs } = await client.from("push_subscriptions").select("user_id");
+        const cnt = {};
+        (subs || []).forEach((s) => { cnt[s.user_id] = (cnt[s.user_id] || 0) + 1; });
+        return res.status(200).json({
+          team: (users || []).filter((u) => u.role !== "contractor").map((u) => ({ name: u.name, muted: !!u.notify_muted, devices: cnt[u.id] || 0 })),
+        });
+      }
       const shapes = new Set();
       ev.forEach((e) => shapeOf(e.body, "", shapes));
       return res.status(200).json({

@@ -224,8 +224,10 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
         {calling ? (
           <div style={{ padding: "22px 12px", textAlign: "center", fontSize: 13.5, lineHeight: 1.6 }}>
             {calling === "busy" ? <b>☎️ Placing the call…</b>
+              : calling === "busyT" ? <b>📲 Pinging your phone…</b>
               : calling === "ringing" ? <><b>☎️ Your phone is ringing</b><div style={{ fontSize: 12, color: T.textSub, marginTop: 4 }}>Pick up, and we'll connect you to {fmtPhone(phone)}.</div></>
               : calling === "sent" ? <><b>📲 Check your phone</b><div style={{ fontSize: 12, color: T.textSub, marginTop: 4 }}>Tap the notification and the dialer opens with {fmtPhone(phone)}.</div></>
+              : calling === "sentT" ? <><b>📲 Check your phone</b><div style={{ fontSize: 12, color: T.textSub, marginTop: 4 }}>Tap the notification (or just open the app there) and Messages opens to {fmtPhone(phone)}.</div></>
               : <><span style={{ color: T.red, fontWeight: 700 }}>{calling.slice(4)}</span><div><button onClick={() => setCalling("")} style={{ marginTop: 10, padding: "8px 18px", borderRadius: 10, border: `1px solid ${T.border}`, background: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, fontWeight: 700 }}>‹ Back</button></div></>}
           </div>
         ) : step === "main" ? (<>
@@ -255,12 +257,25 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
               </span>
             </button>
           )}
-          {(mode === "text" || IS_PHONE) && (
+          {IS_PHONE && (
             <button style={opt} onClick={() => { if (mode === "text" && templates.length) setStep("personal"); else go(mode === "call" ? `tel:${digits}` : `sms:${digits}`); }}>
               <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
               <span style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My phone</div>
                 <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{mode === "call" ? "Regular call from this phone's own number" : `Messages app — from this phone's own number${templates.length ? ", blank or a template" : ""}`}</div>
+              </span>
+            </button>
+          )}
+          {mode === "text" && !IS_PHONE && (
+            <button style={opt} onClick={async () => {
+              setCalling("busyT");
+              try { await sendToMyPhone({ phone }); setCalling("sentT"); setTimeout(onClose, 4000); }
+              catch (e) { setCalling("err:" + (e.message || "Couldn't reach your phone.")); }
+            }}>
+              <span style={{ fontSize: 22, flexShrink: 0 }}>📲</span>
+              <span style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My cell phone</div>
+                <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>We ping your phone — one tap there and Messages opens to them. (Want to type it here first? Use the business-line conversation and hit its 📲.)</div>
               </span>
             </button>
           )}

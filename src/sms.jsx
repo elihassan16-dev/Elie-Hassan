@@ -323,30 +323,44 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
 // Nothing sends without the final tap on the phone.
 export async function sendToMyPhone({ phone, message = "", mode = "text" }) {
   const digits = e164(phone);
-  const target = mode === "call" ? `tel:${digits}` : `sms:${digits}${message ? `&body=${encodeURIComponent(message)}` : ""}`;
+  const target = mode === "call" ? `tel:${digits}`
+    : mode === "whatsapp" ? `https://wa.me/${digits.replace(/\D/g, "")}${message ? `?text=${encodeURIComponent(message)}` : ""}`
+    : `sms:${digits}${message ? `&body=${encodeURIComponent(message)}` : ""}`;
+  const appName = mode === "call" ? "the dialer" : mode === "whatsapp" ? "WhatsApp" : "Messages";
   await qbAuthFetch("/api/notify/send", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       toSelf: true, pushOnly: true,
-      title: `📲 ${mode === "call" ? "Call" : "Text"} ${fmtPhone(phone)} from your cell`,
-      body: message ? `“${message.slice(0, 120)}” — tap to open Messages ready to send.` : (mode === "call" ? "Tap to open the dialer." : "Tap to open Messages."),
+      title: `📲 ${mode === "call" ? "Call" : mode === "whatsapp" ? "WhatsApp" : "Text"} ${fmtPhone(phone)} from your cell`,
+      body: message ? `“${message.slice(0, 120)}” — tap to open ${appName} ready to send.` : `Tap to open ${appName}.`,
       url: `/?handoff=${encodeURIComponent(target)}`,
       tag: `handoff-${Date.now()}`,
     }),
   });
+  // Park it in the account too: even if the notification gets cleared, the
+  // phone shows the handoff bar on next open until it's tapped or dismissed.
+  try { await supabase.auth.updateUser({ data: { pendingHandoff: { target, at: new Date().toISOString() } } }); } catch { /* best-effort */ }
 }
 // Catches an arriving handoff — a ?handoff=sms:…/tel:… in the URL, or the
 // service worker's notification-tap message when the PWA was already open —
 // and shows a bar with a REAL button. iOS only honors a jump into Messages /
 // the dialer from a genuine in-app tap, so the auto-attempt is best-effort
 // and the button is the guarantee.
+const isHandoffTarget = (h) => /^(sms:|tel:)/i.test(h || "") || /^https:\/\/wa\.me\//i.test(h || "");
 export function HandoffCatcher() {
-  const [pend, setPend] = useState(null); // "sms:…" | "tel:…"
+  const [pend, setPend] = useState(null); // "sms:…" | "tel:…" | "https://wa.me/…"
+  const clear = () => {
+    setPend(null);
+    supabase.auth.updateUser({ data: { pendingHandoff: null } }).catch(() => {});
+  };
   useEffect(() => {
-    const accept = (h) => {
-      if (!h || !/^(sms:|tel:)/i.test(h)) return;
+    const accept = (h, auto = true) => {
+      if (!isHandoffTarget(h)) return;
       setPend(h);
-      setTimeout(() => { try { window.location.href = h; } catch { /* blocked — the button remains */ } }, 350);
+      // Auto-bounce for sms:/tel: where the platform allows it. wa.me is a
+      // regular https link — auto-navigating would replace the app, so that
+      // one always waits for the button.
+      if (auto && /^(sms:|tel:)/i.test(h)) setTimeout(() => { try { window.location.href = h; } catch { /* blocked — the button remains */ } }, 350);
     };
     try {
       const q = new URLSearchParams(window.location.search);
@@ -358,23 +372,43 @@ export function HandoffCatcher() {
         accept(h);
       }
     } catch { /* no query support — ignore */ }
-    if (!("serviceWorker" in navigator)) return;
-    const onMsg = (e) => {
-      const d = e.data || {};
-      if (d.type !== "notification-url" || !d.url) return;
-      try { accept(new URL(d.url, window.location.origin).searchParams.get("handoff")); } catch { /* malformed */ }
+    // Parked handoff: survives a cleared notification. Shown on the phone
+    // whenever the app opens or comes back to the front, until dealt with.
+    let live = true;
+    const checkParked = async () => {
+      try {
+        if (!IS_PHONE) return;
+        const { data } = await supabase.auth.getUser();
+        const ph = data?.user?.user_metadata?.pendingHandoff;
+        if (!live || !ph || !isHandoffTarget(ph.target)) return;
+        if (Date.now() - new Date(ph.at || 0).getTime() > 24 * 3600000) return; // stale — ignore
+        setPend((p) => p || ph.target);
+      } catch { /* offline — try again next focus */ }
     };
-    navigator.serviceWorker.addEventListener("message", onMsg);
-    return () => navigator.serviceWorker.removeEventListener("message", onMsg);
+    checkParked();
+    const onVis = () => { if (document.visibilityState === "visible") checkParked(); };
+    document.addEventListener("visibilitychange", onVis);
+    let offMsg = () => {};
+    if ("serviceWorker" in navigator) {
+      const onMsg = (e) => {
+        const d = e.data || {};
+        if (d.type !== "notification-url" || !d.url) return;
+        try { accept(new URL(d.url, window.location.origin).searchParams.get("handoff")); } catch { /* malformed */ }
+      };
+      navigator.serviceWorker.addEventListener("message", onMsg);
+      offMsg = () => navigator.serviceWorker.removeEventListener("message", onMsg);
+    }
+    return () => { live = false; document.removeEventListener("visibilitychange", onVis); offMsg(); };
   }, []);
   if (!pend) return null;
   const isCall = /^tel:/i.test(pend);
-  const digits = pend.replace(/^(sms:|tel:)/i, "").split(/[?&]/)[0];
+  const isWa = /^https:\/\/wa\.me\//i.test(pend);
+  const digits = isWa ? pend.split("wa.me/")[1].split("?")[0] : pend.replace(/^(sms:|tel:)/i, "").split(/[?&]/)[0];
   return (
     <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 9999, padding: "12px 14px calc(14px + env(safe-area-inset-bottom))", background: "rgba(27,31,39,0.95)", backdropFilter: "blur(6px)", display: "flex", gap: 10, alignItems: "center" }}>
-      <span style={{ flex: 1, minWidth: 0, color: "#fff", fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📲 {isCall ? "Ready to call" : "Text ready for"} {fmtPhone(digits)}</span>
-      <a href={pend} onClick={() => setTimeout(() => setPend(null), 900)} style={{ padding: "10px 16px", borderRadius: 12, background: T.gold, color: "#fff", fontWeight: 800, fontSize: 13, textDecoration: "none", flexShrink: 0 }}>{isCall ? "Open dialer" : "Open Messages"}</a>
-      <button onClick={() => setPend(null)} style={{ background: "none", border: "none", color: "#98A0AA", fontSize: 19, cursor: "pointer", lineHeight: 1, flexShrink: 0, padding: "0 2px" }}>×</button>
+      <span style={{ flex: 1, minWidth: 0, color: "#fff", fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📲 {isCall ? "Ready to call" : isWa ? "WhatsApp ready for" : "Text ready for"} {fmtPhone(digits)}</span>
+      <a href={pend} target={isWa ? "_blank" : undefined} rel={isWa ? "noopener noreferrer" : undefined} onClick={() => setTimeout(clear, 900)} style={{ padding: "10px 16px", borderRadius: 12, background: isWa ? "#25D366" : T.gold, color: "#fff", fontWeight: 800, fontSize: 13, textDecoration: "none", flexShrink: 0 }}>{isCall ? "Open dialer" : isWa ? "Open WhatsApp" : "Open Messages"}</a>
+      <button onClick={clear} style={{ background: "none", border: "none", color: "#98A0AA", fontSize: 19, cursor: "pointer", lineHeight: 1, flexShrink: 0, padding: "0 2px" }}>×</button>
     </div>
   );
 }
@@ -592,7 +626,7 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
         </div>
         <div style={{ padding: "10px 12px max(10px,env(safe-area-inset-bottom))", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
           {err && <div style={{ fontSize: 11.5, color: T.red, fontWeight: 600, marginBottom: 6 }}>{err}</div>}
-          {note && <div style={{ fontSize: 11.5, color: "#15803D", fontWeight: 700, marginBottom: 6 }}>{note}</div>}
+          {note && <div style={{ fontSize: 11.5, color: "#15803D", fontWeight: 700, marginBottom: 6 }}>{note} <button onClick={async () => { try { await sendToMyPhone({ phone, message: draft.trim() }); setNote("📲 Re-sent — check your phone."); } catch { /* keep old note */ } }} style={{ marginLeft: 6, padding: "3px 10px", borderRadius: 9, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", fontWeight: 800, fontSize: 10.5, cursor: "pointer", fontFamily: "inherit" }}>↻ Resend</button></div>}
           {templates.length > 0 && (
             <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 8, paddingBottom: 2 }}>
               {templates.map((t) => {
@@ -617,7 +651,7 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
               onPaste={(e) => { const fixed = rescuePastedLink(e); if (fixed != null) { e.preventDefault(); const el = e.target, st = el.selectionStart ?? draft.length, en = el.selectionEnd ?? draft.length; setDraft(draft.slice(0, st) + fixed + draft.slice(en)); } }}
               style={{ flex: 1, minWidth: 0, padding: "9px 12px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg, fontSize: 13.5, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, boxSizing: "border-box" }} />
             {!IS_PHONE && <button onClick={async () => {
-              try { await sendToMyPhone({ phone, message: draft.trim() }); setNote("📲 Sent to your phone — tap the notification there, Messages opens ready to send."); setTimeout(() => setNote(""), 8000); }
+              try { await sendToMyPhone({ phone, message: draft.trim() }); setNote("📲 Sent to your phone — tap the notification (or just open the app there: the bar waits for you)."); }
               catch (ex) { setErr(ex.message || "Couldn't reach your phone."); }
             }} title="Send this text from your cell instead — your phone gets a notification that opens Messages prefilled" style={{ padding: "10px 12px", borderRadius: 12, border: "1.5px solid #2563EB", background: "#EFF6FF", color: "#2563EB", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>📲</button>}
             <button onClick={doSend} disabled={!draft.trim() || busy} style={{ padding: "10px 16px", borderRadius: 12, border: "none", background: draft.trim() && !busy ? T.gold : T.border, color: "#fff", fontWeight: 800, fontSize: 13, cursor: draft.trim() && !busy ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>{busy ? "Sending…" : "Send"}</button>

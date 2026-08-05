@@ -15697,7 +15697,16 @@ export function GoldstoneShell(){
   const taskSeen = Array.isArray(prefs.taskSeenIds)?prefs.taskSeenIds:null;
   const taskSeenSet = useMemo(()=>new Set(taskSeen||[]),[prefs.taskSeenIds]); // eslint-disable-line
   const newTaskCount = taskSeen===null?0:myTaskIds.filter(id=>!taskSeenSet.has(id)).length;
-  const[active,setActive]=useState(isAdmin?"properties":"tasks");
+  // Remember the last page (per browser) so a reload or remount lands back
+  // where you were instead of the default page.
+  const[active,setActive]=useState(()=>{
+    try{
+      const s=localStorage.getItem("gs_last_page");
+      if(s&&NAV.some(n=>n.key===s)&&(isAdmin||MEMBER_KEYS.has(s)||VIEW_ONLY_MEMBER_KEYS.has(s)))return s;
+    }catch{/* private mode */}
+    return isAdmin?"properties":"tasks";
+  });
+  useEffect(()=>{try{localStorage.setItem("gs_last_page",active);}catch{/* private mode */}},[active]);
   const[navPropId,setNavPropId]=useState(null);
   const[navChatId,setNavChatId]=useState(null);
   // 🔗 Notification deep links: tapping a push opens /?goto=chat:<propId> (that

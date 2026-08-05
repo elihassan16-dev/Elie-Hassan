@@ -52,11 +52,20 @@ export function AuthProvider({ children }) {
       }
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, sess) => {
+    // IMPORTANT: never await Supabase queries inside this callback — the auth
+    // client holds a lock while it runs, and a query here deadlocks token
+    // refreshes (worse with several tabs open), which surfaces as the app
+    // flashing/re-mounting. Defer any fetch, and only refetch the profile on
+    // real identity changes — token refreshes and preference saves
+    // (USER_UPDATED) fire constantly and don't change the users row's role.
+    const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
       setSession(sess);
       if (sess?.user?.id) ensureSnapOwner(sess.user.id); // fresh sign-in on a shared device wipes the previous account's snapshots
-      await loadProfile(sess);
-      setLoading(false);
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "INITIAL_SESSION") {
+        setTimeout(() => { loadProfile(sess).finally(() => setLoading(false)); }, 0);
+      } else {
+        setLoading(false);
+      }
     });
 
     return () => {

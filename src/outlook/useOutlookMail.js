@@ -49,7 +49,8 @@ export function useOutlookMail() {
   // Sign in (full-page redirect) requesting the mail scopes.
   const signIn = useCallback(async () => {
     await ensureMsalReady();
-    await msalInstance.loginRedirect({ scopes: MAIL_SCOPES, prompt: "select_account", redirectStartPage: window.location.href });
+    // msafed:"0" hides personal (live.com) twins of the work email from the picker.
+    await msalInstance.loginRedirect({ scopes: MAIL_SCOPES, prompt: "select_account", extraQueryParameters: { msafed: "0" }, redirectStartPage: window.location.href });
   }, []);
 
   const signOut = useCallback(async () => {

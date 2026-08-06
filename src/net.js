@@ -25,14 +25,14 @@ export async function qbAuthFetch(path, opts = {}) {
 // never blocks or throws into the UI. The sender is dropped server-side.
 // Extra targeting for the contractor portal: {toAdmins:true} notifies every
 // Goldstone admin; {toOrg:"<orgId>"} notifies a contractor company's logins.
-export async function notify(recipients, { title, body, tag, url, toAdmins, toOrg } = {}) {
+export async function notify(recipients, { title, body, tag, url, toAdmins, toTeam, toOrg } = {}) {
   const list = [...new Set((recipients || []).filter(Boolean))];
-  if (!list.length && !toAdmins && !toOrg) return;
+  if (!list.length && !toAdmins && !toTeam && !toOrg) return;
   try {
     await qbAuthFetch("/api/notify/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recipients: list, title, body, url: url || "/", tag, toAdmins: !!toAdmins, toOrg: toOrg || null }),
+      body: JSON.stringify({ recipients: list, title, body, url: url || "/", tag, toAdmins: !!toAdmins, toTeam: !!toTeam, toOrg: toOrg || null }),
     });
   } catch { /* notifications are best-effort */ }
 }

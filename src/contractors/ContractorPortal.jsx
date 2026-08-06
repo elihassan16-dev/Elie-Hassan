@@ -707,6 +707,7 @@ export function ContractorPortal() {
   const [replyTo, setReplyTo] = useState(null); // {id,author,text} → quote-reply to a message
   const [msgTags, setMsgTags] = useState([]); // Goldstone names to tag ([] = everyone)
   const [tagOpen, setTagOpen] = useState(false);
+  const [atQ, setAtQ] = useState(null); // live "@" query while typing (null = closed)
   const [contactShare, setContactShare] = useState(false); // 👤 share a contact card
   const [moreOpen, setMoreOpen] = useState(false); // the ＋ menu (attach/voice/tag/contact)
   const [mediaOpen, setMediaOpen] = useState(false); // 🖼 all photos & videos on this job
@@ -774,6 +775,25 @@ export function ContractorPortal() {
   const stopRec = () => { cancelRef.current = false; if (mrRef.current && mrRef.current.state !== "inactive") mrRef.current.stop(); };
   const cancelRec = () => { cancelRef.current = true; if (mrRef.current && mrRef.current.state !== "inactive") mrRef.current.stop(); };
   const fmtSecs = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  // WhatsApp-style "@" tagging: type @ in the box and pick a name — works for
+  // Goldstone people AND your own teammates (anyone who's written in this job).
+  const atOptions = [...new Set([...roster, ...thread.filter((m) => m.side === "contractor").map((m) => m.author)])].filter((n) => n && n !== displayName);
+  const detectAt = (val, caret) => {
+    const upto = val.slice(0, caret ?? val.length);
+    const m = /(^|\s)@([^\s@]{0,20})$/.exec(upto);
+    setAtQ(m ? m[2] : null);
+  };
+  const pickAt = (n) => {
+    const el = draftRef.current;
+    const caret = el ? (el.selectionStart ?? draft.length) : draft.length;
+    const upto = draft.slice(0, caret);
+    const m = /(^|\s)@([^\s@]{0,20})$/.exec(upto);
+    if (m) setDraft(draft.slice(0, m.index + m[1].length) + "@" + n + " " + draft.slice(caret));
+    else setDraft(draft + (draft && !draft.endsWith(" ") ? " " : "") + "@" + n + " ");
+    setMsgTags((p) => (p.includes(n) ? p : [...p, n]));
+    setAtQ(null);
+    setTimeout(() => el && el.focus(), 0);
+  };
   const sendMsg = async () => {
     const txt = draft.trim();
     if ((!txt && !pending) || !selJob || busy) return;
@@ -793,12 +813,14 @@ export function ContractorPortal() {
       return;
     }
     if (msg.attachment && msg.attachment.pending && msg.attachment.uploadId) bindCtrVideoMessage(msg.attachment.uploadId, msg.id);
-    // Tagged specific Goldstone people → alert just them; otherwise the admins.
+    // Everyone hears every message: the whole Goldstone team, plus your own
+    // crew on this job. Tagged people get an extra, louder @ ping on top.
     const title = `${org?.name || displayName} — ${msgTarget ? msgTarget.text : selJob.propertyAddress}`;
-    const body = txt || "(attachment)";
+    const body = `${(displayName || "").split(" ")[0]}: ${txt || "(attachment)"}`;
     const url = `/?goto=chat:${selJob.propertyId || ""}`;
-    if (msgTags.length) notify(msgTags, { title, body, url });
-    else notify(null, { toAdmins: true, title, body, url });
+    notify(null, { toTeam: true, title, body, url });
+    notify(null, { toOrg: contractorOrgId, title: `${displayName} — ${selJob.propertyAddress}`, body: txt || "(attachment)", url: `/?goto=job:${selJob.id}` });
+    if (msg.mentions && msg.mentions.length) notify(msg.mentions, { title: `📣 You were tagged — ${title}`, body, url });
   };
 
   // ── Layout ──────────────────────────────────────────────────────────────────
@@ -961,14 +983,18 @@ export function ContractorPortal() {
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                               {g.msgs.map((m) => {
-                                const mine = m.side === "contractor";
+                                // Only YOUR OWN messages sit right in gold — a
+                                // teammate's show on the left with their name
+                                // (light gold), Goldstone's on the left in gray.
+                                const sameCo = m.side === "contractor";
+                                const mine = sameCo && (m.author || "") === displayName;
                                 const readers = (m.readBy || []).filter((n) => n && n !== m.author).map((n) => String(n).split(" ")[0]);
                                 return (
                                   <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "88%", display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start" }}>
                                     <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2 }}>
-                                      {m.author || (mine ? "You" : "Goldstone")}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)}
+                                      {mine ? "You" : m.author || "Goldstone"}{sameCo && !mine ? " (your team)" : ""}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)}
                                     </div>
-                                    <div style={{ background: mine ? T.gold : T.bg, color: mine ? "#fff" : T.text, borderRadius: 14, padding: "9px 13px", fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", border: mine ? "none" : `1px solid ${T.border}` }}>
+                                    <div style={{ background: mine ? T.gold : sameCo ? "#FBF3DD" : T.bg, color: mine ? "#fff" : T.text, borderRadius: 14, padding: "9px 13px", fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", border: mine ? "none" : `1px solid ${sameCo ? "#EAD9A9" : T.border}` }}>
                                       {m.replyTo && <div style={{ fontSize: 11.5, marginBottom: 5, padding: "5px 9px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 6, background: mine ? "rgba(255,255,255,0.15)" : "#fff", color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
                                       {linkifyText(m.text, mine)}
                                       <Att att={m.attachment} />
@@ -1005,6 +1031,19 @@ export function ContractorPortal() {
                         ); })}
                       </div>
                     )}
+                    {atQ != null && (() => {
+                      const q = atQ.toLowerCase();
+                      const hits = atOptions.filter((n) => n.toLowerCase().includes(q)).slice(0, 8);
+                      if (!hits.length) return null;
+                      return (
+                        <div style={{ background: "#fff", border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: "0 6px 20px rgba(0,0,0,0.14)", overflow: "hidden", marginBottom: 8 }}>
+                          <div style={{ padding: "6px 12px 3px", fontSize: 10, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em" }}>Tag someone — they get pinged</div>
+                          {hits.map((n) => (
+                            <button key={n} onClick={() => pickAt(n)} style={{ display: "block", width: "100%", padding: "9px 12px", border: "none", borderTop: `1px solid ${T.bg}`, background: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 13.5, fontWeight: 600, color: T.text, textAlign: "left" }}><span style={{ color: T.gold, fontWeight: 800 }}>@</span> {n}{roster.includes(n) ? "" : " · your team"}</button>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     {replyTo && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderLeft: `3px solid ${T.gold}`, borderRadius: 8, marginBottom: 8 }}>
                         <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? "📎 attachment" : "")}</span>
@@ -1050,7 +1089,7 @@ export function ContractorPortal() {
                     <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
                       <input ref={attRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
                       <button onClick={() => setMoreOpen((v) => !v)} disabled={busy} title="Attach, voice note, tag & more" style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${moreOpen || msgTags.length ? T.gold : T.border}`, background: moreOpen || msgTags.length ? T.goldLight : T.bg, fontSize: 20, fontWeight: 600, color: moreOpen || msgTags.length ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit", lineHeight: 1 }}>{moreOpen ? "×" : "＋"}</button>
-                      <textarea ref={draftRef} rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} onPaste={(e) => { const fixed = rescuePastedLink(e); if (fixed != null) { e.preventDefault(); const el = e.target, st = el.selectionStart ?? draft.length, en = el.selectionEnd ?? draft.length; setDraft(draft.slice(0, st) + fixed + draft.slice(en)); } }} placeholder={busy ? "Uploading…" : msgTarget ? "Reply about this task…" : "Message Goldstone…"} disabled={busy}
+                      <textarea ref={draftRef} rows={1} value={draft} onChange={(e) => { setDraft(e.target.value); detectAt(e.target.value, e.target.selectionStart); }} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } if (e.key === "Escape") setAtQ(null); }} onPaste={(e) => { const fixed = rescuePastedLink(e); if (fixed != null) { e.preventDefault(); const el = e.target, st = el.selectionStart ?? draft.length, en = el.selectionEnd ?? draft.length; setDraft(draft.slice(0, st) + fixed + draft.slice(en)); } }} placeholder={busy ? "Uploading…" : msgTarget ? "Reply about this task…" : "Message… type @ to tag someone"} disabled={busy}
                         style={{ flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 18, border: `1px solid ${msgTarget ? T.gold : T.border}`, background: T.bg, fontSize: 15, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 120, overflowY: "auto", boxSizing: "border-box" }} />
                       <button onClick={startRec} disabled={busy} title="Record a voice note" style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><MicIcon size={21} /></button>
                       <button onClick={sendMsg} disabled={(!draft.trim() && !pending) || busy} style={{ width: 38, height: 38, borderRadius: "50%", background: (draft.trim() || pending) && !busy ? T.gold : T.border, border: "none", color: "#fff", fontWeight: 800, fontSize: 16, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>➤</button>

@@ -23,9 +23,9 @@ export default async function handler(req, res) {
   const user = await requireAppUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
 
-  const { recipients, title, body, url, tag, toAdmins, toOrg, toSelf, pushOnly } = await readBody(req);
-  if ((!Array.isArray(recipients) || recipients.length === 0) && !toAdmins && !toOrg && !toSelf) { res.status(200).json({ pushed: 0, mailed: 0 }); return; }
+  const { recipients, title, body, url, tag, toAdmins, toTeam, toOrg, toSelf, pushOnly } = await readBody(req);
+  if ((!Array.isArray(recipients) || recipients.length === 0) && !toAdmins && !toTeam && !toOrg && !toSelf) { res.status(200).json({ pushed: 0, mailed: 0 }); return; }
 
-  const out = await notifyFanout(admin(), user.id, { recipients, title, body, url, tag, toAdmins: !!toAdmins, toOrg: toOrg || null, toSelf: !!toSelf, pushOnly: !!pushOnly });
+  const out = await notifyFanout(admin(), user.id, { recipients, title, body, url, tag, toAdmins: !!toAdmins, toTeam: !!toTeam, toOrg: toOrg || null, toSelf: !!toSelf, pushOnly: !!pushOnly });
   res.status(200).json(out);
 }

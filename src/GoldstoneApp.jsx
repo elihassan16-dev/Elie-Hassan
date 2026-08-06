@@ -7897,10 +7897,15 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
         <div style={{padding:"6px 16px 0",fontSize:11,fontWeight:600,color:ext?"#B45309":T.blue,flexShrink:0}}>{ext?`This is the ${orgName} job thread — everything here reaches their whole team.`:"Contractors can NEVER read this — it also shows in the property chat as a 🔒 thread."}</div>
         <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"10px 16px",display:"flex",flexDirection:"column",gap:10,minHeight:140,background:ext?"#FFF9EC":"#fff"}}>
           {msgs.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"26px 0"}}>{ext?"No messages with them on this job yet.":"No internal notes on this task yet."}</div>}
-          {msgs.map(m=>{const mine=ext?m.side==="team":m.author===currentUser;return(
+          {msgs.map(m=>{
+            // Only your OWN messages sit right — a teammate's external message
+            // shows left with a light-gold tint, not as if you sent it.
+            const sameSide=ext&&m.side==="team";
+            const mine=ext?(sameSide&&m.author===currentUser):m.author===currentUser;
+            return(
             <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
-              <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
-              <div style={{background:mine?(ext?T.gold:T.blue):"#F2F2F7",color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+              <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"}{sameSide&&!mine?" (your team)":""} · {fmt(m.at)}</div>
+              <div style={{background:mine?(ext?T.gold:T.blue):sameSide?"#FBF3DD":"#F2F2F7",color:mine?"#fff":T.text,border:sameSide&&!mine?"1px solid #EAD9A9":"none",borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
                 {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:3,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
                 {linkifyText(m.text,mine)}
                 {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}

@@ -11619,8 +11619,14 @@ function FinPaybackModal({draw,onConfirm,onClose}){
   const[date,setDate]=useState(draw.paybackDate||new Date().toISOString().slice(0,10));
   const[principal,setPrincipal]=useState(draw.principalHandling||"keep");
   const[interest,setInterest]=useState(draw.interestHandling||"reinvest");
+  const[holdAcct,setHoldAcct]=useState(""); // optional: which bank account holds the money that stays
+  const {bankAccounts,setBankAccounts,flushBank}=useData()||{};
   const prev={amount:Number(draw.amount)||0,dateFunded:draw.dateFunded,paybackDate:date};
   const days=drawDays(prev), int=drawInterest(prev);
+  // Money that STAYS with the company (kept principal + reinvested interest)
+  // physically sits in one of the bank accounts — track which one so Bank
+  // Recon expects it there.
+  const heldSum=(principal==="keep"?prev.amount:0)+(interest==="reinvest"?int:0);
   const bad=new Date(date)<new Date(draw.dateFunded||date);
   const radio=(cur,set,opts,name)=>opts.map(([v,l])=>(
     <label key={v} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 4px",cursor:"pointer"}}>
@@ -11630,10 +11636,19 @@ function FinPaybackModal({draw,onConfirm,onClose}){
   ));
   return(
     <FinModal title={`Record payback — ${draw.propertyLabel||"draw"}`} onClose={onClose}
-      footer={<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button onClick={()=>{onConfirm({paybackDate:date,principalHandling:principal,interestHandling:interest});onClose();}} style={finBtn(true)}>Record payback</button></>}>
+      footer={<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button onClick={()=>{
+        // Optionally park the money that stays with us on a bank account —
+        // a positive "held" line so Bank Recon expects it there.
+        if(holdAcct&&heldSum>0&&setBankAccounts){
+          setBankAccounts(prev2=>(prev2||[]).map(b=>String(b.id)!==String(holdAcct)?b:{...b,adjustments:[...(b.adjustments||[]),{id:Date.now(),label:`Held — funder money (${draw.propertyLabel||"payback"})`,amount:Math.round(heldSum*100)/100}]}));
+          if(flushBank)setTimeout(flushBank,0);
+        }
+        onConfirm({paybackDate:date,principalHandling:principal,interestHandling:interest});onClose();
+      }} style={finBtn(true)}>Record payback</button></>}>
       <div><div style={finLabel}>Payback date</div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={finInput}/></div>
       <div style={{background:bad?"#FFF0EF":T.goldLight,border:`1px solid ${bad?T.red:T.gold}`,borderRadius:10,padding:"10px 12px",fontSize:13,color:bad?T.red:"#8a6d1f"}}>
         Principal <b>{fmtD(prev.amount)}</b> · <b>{days} day{days===1?"":"s"}</b> · interest <b>{fmtD(int)}</b> @ 15%/yr
+        <div style={{marginTop:5,paddingTop:5,borderTop:"1px solid rgba(184,149,63,0.35)",fontSize:13.5}}>Total — principal + interest: <b style={{fontSize:15}}>{fmtD(prev.amount+int)}</b></div>
         {bad&&<div style={{fontSize:11,fontWeight:600,marginTop:3}}>Payback date is before the funded date.</div>}
       </div>
       {/* Quick presets for the common combinations */}
@@ -11648,6 +11663,16 @@ function FinPaybackModal({draw,onConfirm,onClose}){
       <div><div style={finLabel}>The interest ({fmtD(int)})…</div>
         {radio(interest,setInterest,[["reinvest","Reinvested — added to his balance"],["distribute","Paid out to him (his profit)"],["leave","No interest entry"]],"pi")}
       </div>
+      {heldSum>0&&(bankAccounts||[]).length>0&&(
+        <div>
+          <div style={finLabel}>Where does the {fmtD(heldSum)} that stays sit? <span style={{textTransform:"none",fontWeight:400,color:T.textTert}}>(optional)</span></div>
+          <select value={holdAcct} onChange={e=>setHoldAcct(e.target.value)} style={finInput}>
+            <option value="">— don't track an account —</option>
+            {(bankAccounts||[]).map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+          <div style={{fontSize:11,color:T.textTert,marginTop:4,lineHeight:1.5}}>Adds a “Held — funder money” line on that account in Bank Recon, so its expected balance includes this money.</div>
+        </div>
+      )}
     </FinModal>
   );
 }

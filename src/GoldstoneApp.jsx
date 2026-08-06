@@ -7354,7 +7354,7 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
               );})}
             </div>
           )}
-          <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn)} people={teamMembers} currentUser={currentUser} placeholder="Write a message…" templates={templates} defaultMention={dm} aiContext={aiCtx}/>
+          <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn)} people={teamMembers} currentUser={currentUser} placeholder="Write a message…" templates={templates} defaultMention={dm} aiContext={aiCtx} filesFolder={saveFolder}/>
         </div>
       </div>
     </div>
@@ -7909,7 +7909,7 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
           );})}
         </div>
         <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:ext?"2px solid #E8A33D":`2px solid ${T.blue}`,background:ext?"#FFF9EC":"#fff",flexShrink:0}}>
-          <ChatComposer onSend={(txt,att,mn)=>send(txt,att,mn)} people={tagPeople} currentUser={currentUser}
+          <ChatComposer onSend={(txt,att,mn)=>send(txt,att,mn)} people={tagPeople} currentUser={currentUser} filesFolder={property&&property.filesFolder||null}
             placeholder={ext?`Message ${orgName} — their team sees this…`:"Internal note — team only…"}/>
         </div>
       </div>
@@ -9853,7 +9853,58 @@ function StagedVideoStatus({uploadId}){
 // Shared chat input: text + 📎 attach (photo/PDF) + 🎤 voice note (MediaRecorder)
 // + 👥 tag teammates. onSend(text, attachment|null, mentions[]) — mentions is the list
 // of tagged names (empty = everyone). attachment is an uploaded {url,name,mime,kind}.
-function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,templates=[],defaultMention=null,quickLinks=[],aiContext=""}){
+// Browse the property's SharePoint folder and pick ONE file to attach — the
+// file is pulled down and pushed through the normal attachment pipeline, so
+// contractors can open it too (no SharePoint login needed on their side).
+function SpFilePicker({folder,onPick,onClose}){
+  const od=useOneDrive();
+  const[stack,setStack]=useState([{driveId:folder.driveId,id:folder.id,name:folder.name||"Files"}]);
+  const[items,setItems]=useState(null);
+  const[err,setErr]=useState("");
+  const cur=stack[stack.length-1];
+  useEffect(()=>{
+    let live=true;setItems(null);setErr("");
+    od.listChildren(cur.driveId,cur.id).then(k=>{if(live)setItems(k);}).catch(e=>{if(live){setErr(e.message||"Couldn't load the folder.");setItems([]);}});
+    return()=>{live=false;};
+  },[cur.driveId,cur.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:620,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(440px,96vw)",maxHeight:"78vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 44px rgba(0,0,0,0.25)"}}>
+        <div style={{padding:"12px 15px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+          <span style={{fontSize:16}}>📁</span>
+          <b style={{flex:1,minWidth:0,fontSize:14}}>Attach from the property's files</b>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:19,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",padding:"8px 14px",fontSize:12,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+          {stack.map((s,i)=>(
+            <span key={i} style={{display:"flex",alignItems:"center",gap:4}}>
+              {i>0&&<span style={{color:T.textTert}}>/</span>}
+              <span onClick={()=>setStack(stack.slice(0,i+1))} style={{color:i===stack.length-1?T.text:T.blue,fontWeight:i===stack.length-1?700:400,cursor:"pointer",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
+            </span>
+          ))}
+        </div>
+        <div style={{flex:1,overflowY:"auto"}}>
+          {!od.isConnected&&<div style={{padding:"20px 15px",fontSize:12.5,color:T.textTert,textAlign:"center"}}>Connect Microsoft first — open this property's Files tab once.</div>}
+          {err&&<div style={{padding:"12px 15px",fontSize:12,color:T.red}}>{err}</div>}
+          {items===null&&!err&&<div style={{padding:"18px 15px",fontSize:12.5,color:T.textSub,textAlign:"center"}}>Loading…</div>}
+          {items!==null&&items.length===0&&!err&&<div style={{padding:"20px 15px",fontSize:12.5,color:T.textTert,textAlign:"center"}}>This folder is empty.</div>}
+          {(items||[]).map((it,i)=>(
+            <div key={it.id} onClick={()=>it.folder?setStack([...stack,{driveId:cur.driveId,id:it.id,name:it.name}]):onPick(it)}
+              style={{display:"flex",alignItems:"center",gap:10,padding:"10px 15px",cursor:"pointer",borderTop:i===0?"none":`1px solid ${T.border}55`}}>
+              <span style={{fontSize:18,flexShrink:0}}>{it.folder?"📁":fileIcon(it.name,it.file&&it.file.mimeType)}</span>
+              <span style={{flex:1,minWidth:0}}>
+                <span style={{display:"block",fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</span>
+                <span style={{display:"block",fontSize:10.5,color:T.textTert}}>{it.folder?`${(it.folder.childCount||0)} items`:fmtBytes(it.size)}</span>
+              </span>
+              <span style={{fontSize:14,color:T.textTert,flexShrink:0}}>{it.folder?"›":"📎"}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,templates=[],defaultMention=null,quickLinks=[],aiContext="",filesFolder=null}){
   const isMobile=useIsMobile();
   const[text,setText]=useState("");
   const[busy,setBusy]=useState(false);
@@ -9867,6 +9918,8 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
   const[showTag,setShowTag]=useState(false);
   const[pendingAtt,setPendingAtt]=useState(null); // attachment staged, not yet sent
   const[moreOpen,setMoreOpen]=useState(false); // phone: the ＋ menu (attach/voice/AI/contact/tag)
+  const[attMenu,setAttMenu]=useState(false);   // 📎 source menu (property files vs computer)
+  const[spPick,setSpPick]=useState(false);     // SharePoint file browser open
   const[atQuery,setAtQuery]=useState(null); // typing "@…" → live tag picker (null = not typing one)
   const{recOn:aiRecOn,busy:aiRecBusy,toggleRec:toggleAiRec}=useSpeechToText({value:aiPrompt,onText:setAiPrompt,onError:setErr});
   // 👤 share a contact — from the app's directory, the phone (where supported), or typed in.
@@ -9971,6 +10024,22 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     if(fileRef.current)fileRef.current.value="";
     if(files.length>1)await uploadStagedMany(files);
     else await uploadStaged(files[0]);
+  };
+  // Attach straight from the property's SharePoint folder: pull the file down
+  // and run it through the normal pipeline, so it behaves exactly like a
+  // computer upload (and contractors can open it without SharePoint access).
+  const attachSpItem=async(it)=>{
+    setSpPick(false);
+    const dl=it["@microsoft.graph.downloadUrl"];
+    if(!dl){setErr("That file can't be pulled directly — download it and attach it normally.");return;}
+    setErr("");setBusy(true);
+    try{
+      const r=await fetch(dl);
+      if(!r.ok)throw new Error();
+      const blob=await r.blob();
+      setBusy(false);
+      await uploadStaged(new File([blob],it.name||"file",{type:(it.file&&it.file.mimeType)||blob.type||"application/octet-stream"}));
+    }catch{ setBusy(false); setErr("Couldn't pull that file from the property folder — try attaching it from your computer."); }
   };
   const onPasteFiles=(e)=>{
     const items=e.clipboardData?.items||[];
@@ -10109,6 +10178,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
         return(
           <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"2px 2px"}}>
             <button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);fileRef.current&&fileRef.current.click();}}>📎 Photos & files</button>
+            {filesFolder&&filesFolder.driveId&&<button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);setSpPick(true);}}>📁 Property files</button>}
             <button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);setAiOpen(true);}}>✨ AI draft</button>
             <button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);setContactShare(true);}}>👤 Contact</button>
             {tagOptions.length>0&&<button style={chip} disabled={busy} onClick={()=>{setMoreOpen(false);setShowTag(true);}}>👥 Tag people</button>}
@@ -10168,11 +10238,21 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
         ):(
           <>
             <input ref={fileRef} type="file" multiple accept="image/*,video/*,application/pdf,.xls,.xlsx,.csv,.doc,.docx,.ppt,.pptx,.txt,.numbers,.pages,.key" onChange={onPickFile} style={{display:"none"}}/>
+            {spPick&&filesFolder&&<SpFilePicker folder={filesFolder} onPick={attachSpItem} onClose={()=>setSpPick(false)}/>}
             {isMobile?(
               /* Phone: ONE ＋ button opens the tool chips — the typing box gets the width. */
               <button onClick={()=>setMoreOpen(v=>!v)} disabled={busy} title="Attach, voice note, AI & more" style={{...ib,width:36,height:36,fontSize:20,fontWeight:600,color:T.textSub,...(moreOpen||mentions.length?{background:T.goldLight,borderColor:T.gold,color:"#8a6d1f"}:{})}}>{moreOpen?"×":"＋"}</button>
             ):(<>
-            <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={busy} title="Attach a photo, video, PDF, or spreadsheet" style={ib}>📎</button>
+            <span style={{position:"relative",flexShrink:0}}>
+              <button onClick={()=>{if(filesFolder&&filesFolder.driveId)setAttMenu(v=>!v);else fileRef.current&&fileRef.current.click();}} disabled={busy} title="Attach a photo, video, PDF, or spreadsheet" style={{...ib,...(attMenu?{background:T.goldLight,borderColor:T.gold}:{})}}>📎</button>
+              {attMenu&&(<>
+                <div onClick={()=>setAttMenu(false)} style={{position:"fixed",inset:0,zIndex:590}}/>
+                <div style={{position:"absolute",bottom:"calc(100% + 6px)",left:0,zIndex:600,background:"#fff",border:`1px solid ${T.border}`,borderRadius:12,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",padding:4,width:230}}>
+                  <button onClick={()=>{setAttMenu(false);setSpPick(true);}} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"9px 10px",borderRadius:8,border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600,color:T.text,textAlign:"left"}}>📁 This property's files</button>
+                  <button onClick={()=>{setAttMenu(false);fileRef.current&&fileRef.current.click();}} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"9px 10px",borderRadius:8,border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600,color:T.text,textAlign:"left"}}>💻 My computer</button>
+                </div>
+              </>)}
+            </span>
             <button onClick={startRec} disabled={busy} title="Record a voice note" style={{...ib,color:T.textSub}}><MicIcon size={19}/></button>
             <button onClick={()=>setAiOpen(v=>!v)} disabled={busy} title="Let AI draft this message" style={{...ib,...(aiOpen?{background:T.goldLight,borderColor:T.gold}:{})}}>✨</button>
             <button onClick={()=>setContactShare(true)} disabled={busy} title="Share a contact card" style={ib}>👤</button>
@@ -10520,7 +10600,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
         </div>
       )}
       {!selMode&&<div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:reply&&reply.ctrLabel?"none":target&&!reply?`2px solid ${T.gold}`:`1px solid ${T.border}`,background:reply&&reply.ctrLabel?"#FFF9EC":T.card,flexShrink:0}}>
-        <ChatComposer onSend={handleSend} people={(()=>{
+        <ChatComposer onSend={handleSend} filesFolder={property&&property.filesFolder||null} people={(()=>{
           // Replying externally → the contractor company's people lead the tag
           // list (they're who you're talking to), teammates still taggable after.
           if(!reply||!reply.ctrOrgId)return teamMembers;

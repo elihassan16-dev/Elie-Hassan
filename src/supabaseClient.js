@@ -24,6 +24,12 @@ export const supabase = createClient(url, anonKey, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    // iOS PWA fix: supabase-js guards token work with navigator.locks, and iOS
+    // can strand that lock when it freezes the app — every getSession() then
+    // hangs forever (endless gold-G splash until the app is force-killed).
+    // Run the guarded section directly instead: the worst case without the
+    // lock is a redundant token refresh, which Supabase handles fine.
+    lock: async (_name, _acquireTimeout, fn) => await fn(),
   },
   realtime: { params: { eventsPerSecond: 10 } },
 });

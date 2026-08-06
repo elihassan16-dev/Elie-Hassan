@@ -35,8 +35,10 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let active = true;
+    let settled = false;
     supabase.auth.getSession().then(async ({ data }) => {
       if (!active) return;
+      settled = true;
       setSession(data.session);
       if (data.session?.user?.id) ensureSnapOwner(data.session.user.id);
       // A returning user's profile is cached: render NOW with it and refresh in
@@ -51,6 +53,26 @@ export function AuthProvider({ children }) {
         setLoading(false);
       }
     });
+    // Watchdog: getSession() can hang forever on an iOS PWA whose auth lock
+    // got stranded mid-freeze (endless splash until a force-kill). After 4s,
+    // recover the session straight from the persisted copy and boot with the
+    // cached profile — the real answer overwrites whenever it finally lands.
+    const dog = setTimeout(() => {
+      if (!active || settled) return;
+      try {
+        const key = Object.keys(localStorage).find((k) => /^sb-.*-auth-token$/.test(k));
+        const raw = key ? JSON.parse(localStorage.getItem(key)) : null;
+        const sess = raw && (raw.currentSession || raw);
+        if (sess && sess.user) {
+          setSession(sess);
+          ensureSnapOwner(sess.user.id);
+          const cached = readSnap(`profile-${sess.user.id}`);
+          if (cached) setProfile(cached);
+          else setProfile({ id: sess.user.id, email: sess.user.email, name: sess.user.email, role: "member" });
+        }
+      } catch { /* nothing usable — fall through to the login screen */ }
+      setLoading(false);
+    }, 4000);
 
     // IMPORTANT: never await Supabase queries inside this callback — the auth
     // client holds a lock while it runs, and a query here deadlocks token
@@ -70,6 +92,7 @@ export function AuthProvider({ children }) {
 
     return () => {
       active = false;
+      clearTimeout(dog);
       sub.subscription.unsubscribe();
     };
   }, [loadProfile]);

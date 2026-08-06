@@ -11651,9 +11651,12 @@ function FinPaybackModal({draw,onConfirm,onClose}){
         <div style={{marginTop:5,paddingTop:5,borderTop:"1px solid rgba(184,149,63,0.35)",fontSize:13.5}}>Total — principal + interest: <b style={{fontSize:15}}>{fmtD(prev.amount+int)}</b></div>
         {bad&&<div style={{fontSize:11,fontWeight:600,marginTop:3}}>Payback date is before the funded date.</div>}
       </div>
-      {/* Quick presets for the common combinations */}
+      {/* Quick presets — Elie's four ways to settle a loan */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        {[["Both back to him",()=>{setPrincipal("withdraw");setInterest("distribute");}],["Interest paid, principal stays",()=>{setPrincipal("keep");setInterest("distribute");}],["All reinvested",()=>{setPrincipal("keep");setInterest("reinvest");}]].map(([l,fn])=>(
+        {[["💵 Pay back interest only",()=>{setPrincipal("keep");setInterest("distribute");}],
+          ["💵 Pay back principal only",()=>{setPrincipal("withdraw");setInterest("reinvest");}],
+          ["💵 Principal + interest back",()=>{setPrincipal("withdraw");setInterest("distribute");}],
+          ["🏦 Hold it all with us",()=>{setPrincipal("keep");setInterest("reinvest");}]].map(([l,fn])=>(
           <button key={l} onClick={fn} style={{padding:"5px 10px",borderRadius:20,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
         ))}
       </div>
@@ -11665,6 +11668,9 @@ function FinPaybackModal({draw,onConfirm,onClose}){
       </div>
       {heldSum>0&&(bankAccounts||[]).length>0&&(
         <div>
+          <div style={{background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:9,padding:"7px 11px",fontSize:12,color:"#8a6d1f",fontWeight:700,marginBottom:8}}>
+            🏦 You're holding {principal==="keep"&&interest==="reinvest"?"principal + interest":principal==="keep"?"the principal only":"the interest only"} — {fmtD(heldSum)}
+          </div>
           <div style={finLabel}>Where does the {fmtD(heldSum)} that stays sit? <span style={{textTransform:"none",fontWeight:400,color:T.textTert}}>(optional)</span></div>
           <select value={holdAcct} onChange={e=>setHoldAcct(e.target.value)} style={finInput}>
             <option value="">— don't track an account —</option>
@@ -14715,6 +14721,32 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           <span>= <b style={{color:s.interestOwed<0?T.red:T.gold}}>{fmtD(s.interestOwed)}</b>{s.interestOwed<0&&<span style={{color:T.red,fontWeight:600}}> (overpaid)</span>}</span>
         </div>
 
+        {/* Open loans — the live breakdown, always visible, one 💸 per loan */}
+        {s.open.length>0&&(
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:14,fontWeight:800,color:T.text,marginBottom:6}}>Open loans — pay back from here</div>
+            <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden"}}>
+              {s.open.map((d,i)=>{
+                const pr=drawBalance(d);
+                const it=drawInterest(d);
+                return(
+                  <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderTop:i?`1px solid ${T.border}`:"none",flexWrap:"wrap"}}>
+                    <span style={{flex:1,minWidth:140}}>
+                      <span style={{display:"block",fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.propertyLabel||"—"}</span>
+                      <span style={{display:"block",fontSize:10.5,color:T.textSub}}>funded {finFmtDate(d.dateFunded)}</span>
+                    </span>
+                    <span style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:12,color:T.textSub,alignItems:"baseline"}}>
+                      <span>principal <b style={{color:T.text}}>{fmtD(pr)}</b></span>
+                      <span>interest <b style={{color:T.gold}}>{fmtD(it)}</b></span>
+                      <span>total <b style={{color:T.text,fontSize:13.5}}>{fmtD(pr+it)}</b></span>
+                    </span>
+                    <button onClick={()=>setPaybackModal(d)} style={{...finBtn(true),padding:"7px 14px",fontSize:12,flexShrink:0}}>💸 Pay back</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {/* Toolbar */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8,flexWrap:"wrap"}}>
           <div style={{fontSize:14,fontWeight:800,color:T.text}}>Register</div>

@@ -12504,9 +12504,10 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
               const kindSel=canEdit&&neg&&a.propertyId&&<select value={a.linkKind||"loan"} onChange={e=>linkKindAdj(b.id,a.id,e.target.value)} title="What this money counts as on the deal" style={{width:"100%",padding:isMobile?"5px 6px":"3px 6px",borderRadius:8,border:`1px solid ${T.gold}`,fontSize:10.5,fontFamily:"inherit",background:"#FBF7EC",color:"#8a6d1f",outline:"none"}}>
                   <option value="loan">loan on the deal</option>
                   <option value="draw">🔨 construction draw</option>
+                  <option value="bridge">🌉 construction bridge — until the draw arrives</option>
                   <option value="none">not a loan — just tracked</option>
                 </select>;
-              const tagChip=a.tag&&<span style={{fontSize:8.5,fontWeight:800,borderRadius:8,padding:"2px 7px",background:a.tag==="Debt service"?"#EDE9FE":"#DBEAFE",color:a.tag==="Debt service"?"#6D28D9":"#2563EB",whiteSpace:"nowrap",flexShrink:0}}>{a.tag==="Debt service"?"🏦":"🏗"} {a.tag.toUpperCase()}</span>;
+              const tagChip=(a.tag||a.linkKind==="bridge")&&<span style={{fontSize:8.5,fontWeight:800,borderRadius:8,padding:"2px 7px",background:a.linkKind==="bridge"?"#FDF9EE":a.tag==="Debt service"?"#EDE9FE":"#DBEAFE",color:a.linkKind==="bridge"?"#8a6d1f":a.tag==="Debt service"?"#6D28D9":"#2563EB",border:a.linkKind==="bridge"?"1px solid #EAD9A9":"none",whiteSpace:"nowrap",flexShrink:0}}>{a.linkKind==="bridge"?"🌉 BRIDGE":`${a.tag==="Debt service"?"🏦":"🏗"} ${a.tag.toUpperCase()}`}</span>;
               const amt=<span style={{textAlign:"right",fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap",flexShrink:0,...(isMobile?{}:{width:92})}}>{fmtD(Number(a.amount)||0)}</span>;
               const del=canEdit&&<span style={{width:16,flexShrink:0,textAlign:"center"}}><button onClick={()=>delAdj(b.id,a.id)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,padding:0}}>×</button></span>;
               const linkedTxt=!canEdit&&a.propertyId&&<span style={{fontSize:10,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {(props.find(pp=>String(pp.id)===String(a.propertyId))||{}).address||"linked"}</span>;
@@ -13028,7 +13029,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     ...(p.qbLoanCustom||[]).map(l=>({key:"c"+l.id,custom:true,bal:Math.abs(Number(l.amount)||0),name:l.name||"Manual entry",raw:l})),
     // Borrowed money linked from Bank Recon adjustments — counts as a loan on
     // this deal (job fixed to BANK; unlink it back in Bank Recon).
-    ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind!=="none").map(a=>({key:`adj${b.id}_${a.id}`,custom:true,adj:true,bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — from ${b.name}${a.linkKind==="draw"?" · 🔨 construction draw":a.tag?` · ${a.tag}`:""}`}))),
+    ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind!=="none").map(a=>({key:`adj${b.id}_${a.id}`,custom:true,adj:true,bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — from ${b.name}${a.linkKind==="draw"?" · 🔨 construction draw":a.linkKind==="bridge"?" · 🌉 bridge (repaid by draws)":a.tag?` · ${a.tag}`:""}`}))),
   ];
   const jobOf=(p,key)=>((p.qbConstrIds||[]).map(String).includes(key)?"constr":(p.qbLocPotIds||[]).map(String).includes(key)?"pot":"bank");
   const setJob=(p,key,job)=>{
@@ -13437,14 +13438,23 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               {gauge([{w:resPct,c:"#0F9D58"}])}
             </button>
           )}
-          {!c.upfront&&(
+          {!c.upfront&&(()=>{
+            // Bridge money fills the construction hole visually — the card
+            // shows the position WITH the bridge, and says where it came from.
+            const brs=bridgesOf(sel);
+            const brSum=brs.reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
+            const shown=c.constrEquity+brSum;
+            const brBanks=[...new Set(brs.map(b=>b.bankName))].join(", ");
+            return(
             <button onClick={()=>setDetailPop("constr")} style={cardS}>
               <div style={hdS}><span style={lbS}>🔨 CONSTRUCTION EQUITY</span>{openTag}</div>
-              <div style={vS2(c.constrEquity>=0?"#B8953F":T.red)}>{money(c.constrEquity)}</div>
-              {gauge([{w:(c.constrTotalEff+c.inFlow)>0?100*Math.max(0,c.spentReal)/(c.constrTotalEff+c.inFlow):0,c:"#C9A227"},{w:(c.constrTotalEff+c.inFlow)>0?100*Math.max(0,c.constrEquity)/(c.constrTotalEff+c.inFlow):0,c:"#EAD9A9"}])}
-              <div style={{fontSize:11,fontWeight:700,marginTop:7,color:c.funding==null?T.textTert:c.funding>=0?"#0F9D58":T.red}}>{c.funding==null?" ":c.funding>=0?"✓ budget covered":`budget short ${money(-c.funding).slice(1)}`}</div>
+              <div style={vS2(shown>=0?"#B8953F":T.red)}>{money(shown)}</div>
+              {gauge([{w:(c.constrTotalEff+c.inFlow)>0?100*Math.max(0,c.spentReal)/(c.constrTotalEff+c.inFlow):0,c:"#C9A227"},{w:(c.constrTotalEff+c.inFlow)>0?100*Math.max(0,shown)/(c.constrTotalEff+c.inFlow):0,c:"#EAD9A9"}])}
+              {brSum>0
+                ?<div style={{fontSize:10.5,fontWeight:700,marginTop:7,color:"#8a6d1f",background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:9,padding:"5px 9px",lineHeight:1.45,textAlign:"left"}}>🌉 Floated {money(brSum)} — bridged from {brBanks}. The next draw pays it back first.</div>
+                :<div style={{fontSize:11,fontWeight:700,marginTop:7,color:c.funding==null?T.textTert:c.funding>=0?"#0F9D58":T.red}}>{c.funding==null?" ":c.funding>=0?"✓ budget covered":`budget short ${money(-c.funding).slice(1)}`}</div>}
             </button>
-          )}
+          );})()}
           <button onClick={()=>{setAllInBreak(false);setDetailPop("equity");}} style={cardS}>
             <div style={hdS}><span style={lbS}>🎯 MY EQUITY</span>{openTag}</div>
             <div style={vS2(c.equity==null?T.textTert:c.equity>=0?"#0F9D58":T.red)}>{c.equity==null?"—":money(c.equity)}</div>
@@ -13558,7 +13568,12 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           {(sel.dmConstrSpentTxns||[]).map(t=>(<div key={txKey(t)} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"payment"}</span><b>{money(Math.abs(Number(t.amount)||0))}{canEdit&&<button onClick={()=>sel.dmRehabAuto?updateProp(sel.id,"dmRehabExcluded",[...(sel.dmRehabExcluded||[]),txKey(t)]):updateProp(sel.id,"dmConstrSpentTxns",(sel.dmConstrSpentTxns||[]).filter(x=>txKey(x)!==txKey(t)))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button>}</b></div>))}
           {(sel.dmConstrSpentTxns||[]).length===0&&<div style={{padding:"4px 18px 10px",fontSize:11.5,color:T.textTert}}>None pinned — link the QB project and the live rehab actuals take over automatically.</div>}
         </>)}
-      </>),goldFoot("Your construction equity — left",money(c.constrEquity),c.constrEquity>=0?"#0F9D58":T.red));
+        {(()=>{const brs=bridgesOf(sel);if(!brs.length)return null;const brSum=brs.reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);return(
+          <div style={{margin:"8px 18px 4px",background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:10,padding:"8px 12px",fontSize:11.5,lineHeight:1.5,color:"#8a6d1f"}}>
+            🌉 <b>Bridged with borrowed money — {money(brSum)}</b> ({[...new Set(brs.map(b=>b.bankName))].join(", ")}). Not counted as a draw; the next 💸 bank draw pays it back first and shrinks it automatically.
+          </div>
+        );})()}
+      </>),(()=>{const brSum=bridgeSumOf(sel);return goldFoot("Your construction equity — left",money(c.constrEquity+brSum),(c.constrEquity+brSum)>=0?"#0F9D58":T.red);})());
     }
     if(detailPop==="equity"){
       const pnl=sel.qbProjectId&&spend&&spend[sel.qbProjectId]&&spend[sel.qbProjectId].pnl;
@@ -13599,6 +13614,13 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const posNow=c2.constrEquity||0;
     const floatAmt=Math.max(0,-posNow);
     const payback=Math.min(amt,floatAmt);
+    // 🌉 Bridged money gets paid back FIRST out of the reimbursement — the
+    // rest of the payback is you reimbursing your own float.
+    const bridges=bridgesOf(prop);
+    const bridgeSum=bridges.reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
+    const bridgePay=Math.min(payback,bridgeSum);
+    const selfPay=Math.max(0,payback-bridgePay);
+    const brBanks=[...new Set(bridges.map(b=>b.bankName))].join(", ");
     const park=Math.max(0,amt-payback);
     const holderId=prop.dmConstrBank;
     const holderName=holderId&&holderId!=="loc"?bankName(holderId):null;
@@ -13626,14 +13648,35 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           {amt>0&&(
             <div style={{margin:"10px 18px 4px",background:"#F7F7F9",border:"1px solid #ECECEF",borderRadius:12,overflow:"hidden"}}>
               <div style={{...mr,borderTop:"none"}}><span style={{color:T.textSub}}>You floated (spent past your draws)</span><b style={{color:posNow<0?T.red:"#0F9D58"}}>{posNow<0?money(floatAmt):"$0 — nothing to pay back"}</b></div>
-              {payback>0&&<div style={mr}><span style={{color:T.textSub}}>Keep — you're reimbursing yourself</span><b>{money(payback)}</b></div>}
+              {bridgeSum>0&&<div style={mr}><span style={{color:T.textSub}}>…of which bridged with borrowed money</span><b style={{color:T.red}}>{money(bridgeSum)}</b></div>}
+              {bridgePay>0&&<div style={{...mr,background:"#FDF9EE",borderTop:"2px solid #C9A227"}}><span style={{fontWeight:800,color:"#8a6d1f"}}>→ Pay back {brBanks||"the bridged account"}</span><b style={{fontSize:14,color:"#8a6d1f"}}>{money(bridgePay)}</b></div>}
+              {selfPay>0&&<div style={mr}><span style={{color:T.textSub}}>Keep — you're reimbursing yourself</span><b>{money(selfPay)}</b></div>}
               <div style={{...mr,background:"#EDFBF1",borderTop:"2px solid #0F9D58"}}><span style={{fontWeight:800,color:"#0F9D58"}}>→ Transfer into {holderName||"the holding account"} — held for future work</span><b style={{fontSize:14,color:"#0F9D58"}}>{money(park)}</b></div>
             </div>
           )}
           {!holderName&&<div style={{padding:"6px 18px",fontSize:10.5,color:T.textTert,lineHeight:1.5}}>{holderId==="loc"?"This deal's construction money is marked as still on the LOC — the draw counts, it just won't show as a bank line item.":"Pick where construction money sits (⚙ Deal setup → Where the money sits) and Bank Recon gets the line item too."}</div>}
           <div style={{padding:"12px 18px 14px",display:"flex",justifyContent:"flex-end",gap:8}}>
             <button onClick={()=>setDrawIn(null)} style={{padding:"9px 16px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
-            <button onClick={()=>{if(!amt)return;updateProp(prop.id,"dmPendingDraws",[...(prop.dmPendingDraws||[]),{id:Date.now(),amount:amt,date:new Date().toISOString().slice(0,10)}]);setDrawIn(null);}} disabled={!amt} style={{padding:"9px 20px",borderRadius:10,border:"none",background:amt?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:13,cursor:amt?"pointer":"default",fontFamily:"inherit"}}>Save draw</button>
+            <button onClick={()=>{
+              if(!amt)return;
+              updateProp(prop.id,"dmPendingDraws",[...(prop.dmPendingDraws||[]),{id:Date.now(),amount:amt,date:new Date().toISOString().slice(0,10)}]);
+              // Pay bridges back automatically — shrink each bridged line
+              // (oldest first) by its share of the payback, keeping a record.
+              if(bridgePay>0&&setBankAccounts){
+                let left=bridgePay;
+                const at=new Date().toISOString();
+                setBankAccounts(prev=>(prev||[]).map(b=>({...b,adjustments:(b.adjustments||[]).map(a=>{
+                  if(left<=0||String(a.propertyId||"")!==String(prop.id)||a.linkKind!=="bridge")return a;
+                  const cur=Math.abs(Number(a.amount)||0);
+                  if(cur<=0.5)return a;
+                  const take=Math.min(cur,left);
+                  left-=take;
+                  return {...a,amount:-(cur-take),borrows:[...(a.borrows||[]),{amount:-take,at,note:"repaid by bank draw"}]};
+                })})));
+                if(flushBank)setTimeout(flushBank,0);
+              }
+              setDrawIn(null);
+            }} disabled={!amt} style={{padding:"9px 20px",borderRadius:10,border:"none",background:amt?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:13,cursor:amt?"pointer":"default",fontFamily:"inherit"}}>Save draw</button>
           </div>
         </div>
       </div>
@@ -13645,6 +13688,11 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   // "what's still uncovered." Borrows land as tagged Bank-Recon adjustments —
   // NEVER construction draws.
   const DS_TAG="Debt service";
+  // 🌉 Construction bridges: borrowed money that covered construction until
+  // the bank's draw arrives. Counts as a loan, NEVER as a draw — and the
+  // 💸 draw flow pays it back first and shrinks it automatically.
+  const bridgesOf=(p)=>(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind==="bridge"&&Math.abs(Number(a.amount)||0)>0.5).map(a=>({...a,bankName:b.name,bankId:b.id})));
+  const bridgeSumOf=(p)=>bridgesOf(p).reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
   const dsRows=(()=>{
     const mIso=new Date().toISOString().slice(0,7);
     const rows=(bsProps||[]).map(p=>{

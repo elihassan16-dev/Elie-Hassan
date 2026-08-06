@@ -83,18 +83,32 @@ function start() {
   started = true;
   // Authenticated: connected means THIS person's Jivetel line is wired up
   // (their number + API token exist). Contractors always get false.
-  qbAuthFetch("/api/jivetel/send?cap=1").then((s) => {
-    store = { ...store, connected: !!s.connected, from: s.from || "" };
-    emit();
-    if (s.connected) {
-      loadMsgs();
-      supabase.auth.getUser().then(({ data }) => { readMap = (data?.user?.user_metadata?.smsRead) || {}; emit(); }).catch(() => {});
-      const ch = supabase.channel("sms-shared");
-      ch.on("postgres_changes", { event: "*", schema: "public", table: "sms_messages" }, scheduleLoad);
-      ch.subscribe();
-      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") scheduleLoad(); });
-    }
-  }).catch(() => { store = { ...store, connected: false }; emit(); });
+  // The check RETRIES and re-runs on app resume: a single failed call at a
+  // flaky boot must not strand the session on the no-texting fallback
+  // (plain sms: buttons, no business/personal chooser) until a force-restart.
+  let inited = false;
+  const init = () => {
+    if (inited) return;
+    inited = true;
+    loadMsgs();
+    supabase.auth.getUser().then(({ data }) => { readMap = (data?.user?.user_metadata?.smsRead) || {}; emit(); }).catch(() => {});
+    const ch = supabase.channel("sms-shared");
+    ch.on("postgres_changes", { event: "*", schema: "public", table: "sms_messages" }, scheduleLoad);
+    ch.subscribe();
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") scheduleLoad(); });
+  };
+  const check = (attempt = 0) => {
+    qbAuthFetch("/api/jivetel/send?cap=1").then((s) => {
+      store = { ...store, connected: !!s.connected, from: s.from || "" };
+      emit();
+      if (s.connected) init();
+    }).catch(() => {
+      if (store.connected == null) { store = { ...store, connected: false }; emit(); }
+      if (attempt < 6) setTimeout(() => check(attempt + 1), Math.min(30000, 1500 * 2 ** attempt));
+    });
+  };
+  check();
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && !store.connected) check(); });
 }
 
 // Opening a conversation marks it read (for this account, on every device).

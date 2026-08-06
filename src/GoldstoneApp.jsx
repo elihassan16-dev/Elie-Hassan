@@ -13702,6 +13702,12 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       </div>
     </div>
   );
+  // 🌉 Construction bridges: borrowed money that covered construction until
+  // the bank's draw arrives. Counts as a loan, NEVER as a draw — and the
+  // 💸 draw flow pays it back first and shrinks it automatically.
+  // (Declared before drawInPop, which runs immediately and uses them.)
+  const bridgesOf=(p)=>(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind==="bridge"&&Math.abs(Number(a.amount)||0)>0.5).map(a=>({...a,bankName:b.name,bankId:b.id})));
+  const bridgeSumOf=(p)=>bridgesOf(p).reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
   // 💸 Bank sent a draw — shows the transfer split on the spot, saves a
   // PENDING draw that counts everywhere now and clears itself once QuickBooks
   // records the real credit.
@@ -13787,11 +13793,6 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   // "what's still uncovered." Borrows land as tagged Bank-Recon adjustments —
   // NEVER construction draws.
   const DS_TAG="Debt service";
-  // 🌉 Construction bridges: borrowed money that covered construction until
-  // the bank's draw arrives. Counts as a loan, NEVER as a draw — and the
-  // 💸 draw flow pays it back first and shrinks it automatically.
-  const bridgesOf=(p)=>(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind==="bridge"&&Math.abs(Number(a.amount)||0)>0.5).map(a=>({...a,bankName:b.name,bankId:b.id})));
-  const bridgeSumOf=(p)=>bridgesOf(p).reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
   const dsRows=(()=>{
     const mIso=new Date().toISOString().slice(0,7);
     const rows=(bsProps||[]).map(p=>{

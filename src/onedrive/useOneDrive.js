@@ -34,7 +34,10 @@ export function useOneDrive() {
     // reusing a cached account. Without it, a personal Microsoft account that shares
     // your work email (…@goldstonepropertiesnj.com) gets reused and rejected by the
     // company tenant (AADSTS50020) — this lets you pick/add the work account.
-    await msalInstance.loginRedirect({ scopes: GRAPH_SCOPES, prompt: "select_account", redirectStartPage: window.location.href });
+    // msafed:"0" goes further: personal (live.com) accounts are HIDDEN from the
+    // picker entirely, so the identical-looking personal twin of a work email
+    // can't be tapped by mistake (the phone-only AADSTS50020 loop).
+    await msalInstance.loginRedirect({ scopes: GRAPH_SCOPES, prompt: "select_account", extraQueryParameters: { msafed: "0" }, redirectStartPage: window.location.href });
   }, []);
 
   // Disconnect locally (don't sign the user out of Microsoft entirely).

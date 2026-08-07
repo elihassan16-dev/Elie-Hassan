@@ -371,7 +371,10 @@ function finProfit(f,status){
   const liveHmDoc=n(f.hmDocFee||1000);
   const liveGapPrinc=Math.round(n(f.purchasePrice)*(1-n(f.hmLoanPct||90)/100))+Math.round(n(f.rehabCosts)*(1-n(f.rehabFinPct||100)/100))+buyingTotal+liveHmReserve+liveHmOrigFee+liveHmDoc;
   const liveGapBalloon=Math.round(liveGapPrinc*(n(f.gapRate||15)/100)/12*months);
-  const debtService=(n(f.hmInterest)||liveHmReserve)+(n(f.locInterest)||liveGapBalloon);
+  // Debt service = interest + the lender's fees (origination + doc), matching the
+  // Financing Breakdown popup and the Actual-financing math — fees are borrowing
+  // costs and belong in the total (and in net profit).
+  const debtService=(n(f.hmInterest)||liveHmReserve)+liveHmOrigFee+liveHmDoc+(n(f.locInterest)||liveGapBalloon);
   const netProfit=n(f.salePrice)-sellingTotal-debtService-totalCosts;
 
   // ── Actual ──
@@ -2077,10 +2080,12 @@ function FinOverview({property,onUpdate}){
   const totalCosts=n(f.purchasePrice)+buyingTotal+n(f.rehabCosts)+holdingTotal;
 
   const liveHmLoan    = Math.round(n(f.purchasePrice)*(n(f.hmLoanPct||90)/100));
-  const liveHmMonthly = Math.round(liveHmLoan*(n(f.hmRate||9)/100)/12);
-  const liveHmReserve = Math.round(liveHmMonthly*holdPeriodMonths);
   const liveRehabLoan = Math.round(n(f.rehabCosts)*(n(f.rehabFinPct||100)/100));
   const liveHmTotal   = liveHmLoan+liveRehabLoan;
+  // Interest on the FULL hard-money commitment (purchase + rehab financing) —
+  // matches the Financing Breakdown popup and finProfit.
+  const liveHmMonthly = Math.round(liveHmTotal*(n(f.hmRate||9)/100)/12);
+  const liveHmReserve = Math.round(liveHmMonthly*holdPeriodMonths);
   const liveHmOrigFee = Math.round(liveHmTotal*(n(f.hmOrigPct||0)/100));
   const liveHmDoc     = n(f.hmDocFee||1000);
   const liveGapPrinc  = Math.round(n(f.purchasePrice)*(1-n(f.hmLoanPct||90)/100))
@@ -2089,7 +2094,8 @@ function FinOverview({property,onUpdate}){
   const liveGapBalloon= Math.round(liveGapPrinc*(n(f.gapRate||15)/100)/12*holdPeriodMonths);
   const hmInterestFinal = n(f.hmInterest)||liveHmReserve;
   const locInterestFinal= n(f.locInterest)||liveGapBalloon;
-  const debtService=hmInterestFinal+locInterestFinal;
+  // Interest + lender fees (origination + doc) — same definition as the popup.
+  const debtService=hmInterestFinal+liveHmOrigFee+liveHmDoc+locInterestFinal;
   const equityRequired = n(f.locLoan)||liveGapPrinc;
   const _fp=finProfit(f);                 // single source of truth (matches Portfolio)
   const netProfit=_fp.netProfit;
@@ -6348,7 +6354,8 @@ function LeadDetail({lead,onUpdate}){
   const liveHmLoan   =Math.round(n(f.purchasePrice)*(n(f.hmLoanPct||90)/100));
   const liveRehabLoan=Math.round(n(f.rehabCosts)*(n(f.rehabFinPct||100)/100));
   const liveHmTotal  =liveHmLoan+liveRehabLoan;
-  const liveHmMonthly=Math.round(liveHmLoan*(n(f.hmRate||9)/100)/12);
+  // Interest on the FULL hard-money commitment — matches the popup and finProfit.
+  const liveHmMonthly=Math.round(liveHmTotal*(n(f.hmRate||9)/100)/12);
   const liveHmReserve=Math.round(liveHmMonthly*holdPeriodMonths);
   const liveHmOrigFee=Math.round(liveHmTotal*(n(f.hmOrigPct||0)/100));
   const liveHmDoc    =n(f.hmDocFee||1000);
@@ -6358,7 +6365,8 @@ function LeadDetail({lead,onUpdate}){
   const liveGapBalloon=Math.round(liveGapPrinc*(n(f.gapRate||15)/100)/12*holdPeriodMonths);
   const hmInterestFinal=n(f.hmInterest)||liveHmReserve;
   const locInterestFinal=n(f.locInterest)||liveGapBalloon;
-  const debtService=hmInterestFinal+locInterestFinal;
+  // Interest + lender fees (origination + doc) — same definition as the popup.
+  const debtService=hmInterestFinal+liveHmOrigFee+liveHmDoc+locInterestFinal;
   const equityRequired=n(f.locLoan)||liveGapPrinc;
   const netProfit=n(f.salePrice)-sellingTotal-debtService-totalCosts;
 

@@ -11279,8 +11279,10 @@ function NavMenu({items,active,isPinned,onNavigate,onTogglePin,onClose}){
 const LOC_RATE=0.15;
 // 📜 Per-loan terms: the loan's own custom rate wins, else the lender's default
 // (stamped on the draw as funderRate and re-stamped whenever the lender is edited),
-// else the app default 15%. Rates are stored as whole percents (15 = 15%/yr).
-const drawRate=(d)=>{const r=Number(d&&d.rate);if(r>0)return r/100;const fr=Number(d&&d.funderRate);if(fr>0)return fr/100;return LOC_RATE;};
+// else the app default 15%. Rates are stored as whole percents (15 = 15%/yr) and
+// 0 is a REAL rate — a 0% line of credit accrues no interest.
+const hasRate=(v)=>v!=null&&v!==""&&isFinite(Number(v))&&Number(v)>=0;
+const drawRate=(d)=>{if(hasRate(d&&d.rate))return Number(d.rate)/100;if(hasRate(d&&d.funderRate))return Number(d.funderRate)/100;return LOC_RATE;};
 const drawRatePct=(d)=>Math.round(drawRate(d)*10000)/100;
 // 🏦 Held funder money: a live Bank-Recon line per lender, tagged heldFunderId.
 // Legacy "Held — funder money (property)" lines are matched to their lender
@@ -11448,8 +11450,8 @@ function FinFunderModal({funder,onSave,onClose}){
   const[rate,setRate]=useState(funder&&funder.rate!=null?String(funder.rate):"");
   const save=()=>{
     const nm=name.trim();if(!nm)return;
-    const r=Number(String(rate).replace(/[^0-9.]/g,""));
-    const extra={address:address.trim(),phone:phone.trim(),email:email.trim(),rate:r>0?r:null};
+    const r=String(rate).trim()===""?null:Number(String(rate).replace(/[^0-9.]/g,""));
+    const extra={address:address.trim(),phone:phone.trim(),email:email.trim(),rate:hasRate(r)?r:null};
     if(editing){onSave({...funder,name:nm,notes:notes.trim(),...extra});}
     else{
       const ledger=[];const p=Number(numIn(principal));
@@ -11469,7 +11471,7 @@ function FinFunderModal({funder,onSave,onClose}){
       </div>
       <div><div style={finLabel}>His default interest rate (%/yr)</div>
         <input value={rate} onChange={e=>setRate(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" placeholder="15" style={finInput}/>
-        <div style={{fontSize:11,color:T.textTert,marginTop:4}}>Every loan of his uses this rate unless that one loan gets its own custom rate. Empty = the app default (15%).</div>
+        <div style={{fontSize:11,color:T.textTert,marginTop:4}}>Every loan of his uses this rate unless that one loan gets its own custom rate. 0 counts — a 0% line accrues no interest. Empty = the app default (15%).</div>
       </div>
       {!editing&&<div><div style={finLabel}>Initial principal (optional)</div><input value={principal} onChange={e=>setPrincipal(numIn(e.target.value))} inputMode="decimal" placeholder="e.g. 740000" style={finInput}/><div style={{fontSize:11,color:T.textTert,marginTop:4}}>Adds a first "Principal in" ledger entry. You can add more later.</div></div>}
       <div><div style={finLabel}>Notes</div><textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Terms, anything…" style={{...finInput,minHeight:60,resize:"vertical"}}/></div>
@@ -11508,11 +11510,11 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
   const[paybackDate,setPaybackDate]=useState(draw?.paybackDate||"");
   const[note,setNote]=useState(draw?.note||"");
   // 📜 Terms for this loan: the lender's default, or a custom rate for just this one.
-  const[customRate,setCustomRate]=useState(!!(draw&&Number(draw.rate)>0));
-  const[rate,setRate]=useState(draw&&Number(draw.rate)>0?String(draw.rate):"");
+  const[customRate,setCustomRate]=useState(!!(draw&&hasRate(draw.rate)));
+  const[rate,setRate]=useState(draw&&hasRate(draw.rate)?String(draw.rate):"");
   const {bankAccounts,draws:allDraws}=useData()||{};
   const selFunder=funders.find(x=>String(x.id)===String(funderId));
-  const defRate=selFunder&&Number(selFunder.rate)>0?Number(selFunder.rate):15;
+  const defRate=selFunder&&hasRate(selFunder.rate)?Number(selFunder.rate):15;
   // 🏦 What this lender has held with us — the funding takes from it first.
   const heldTotal=(bankAccounts||[]).reduce((t,b)=>t+(b.adjustments||[]).reduce((s,a)=>{
     if(!isHeldAdj(a))return s;
@@ -11530,8 +11532,8 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
       propertyId:match?match.id:(draw?.propertyId||null),
       propertyLabel:prop.trim(),
       funderId, funderName:f?.name||"",
-      rate:customRate&&Number(rate)>0?Number(rate):null,
-      funderRate:f&&Number(f.rate)>0?Number(f.rate):null,
+      rate:customRate&&hasRate(rate)?Number(rate):null,
+      funderRate:f&&hasRate(f.rate)?Number(f.rate):null,
       amount:a, dateFunded, paybackDate:paybackDate||null, note:note.trim(),
     });
     onClose();
@@ -11578,7 +11580,7 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
       </div>
       <div style={{fontSize:11,color:T.textTert,marginTop:-4}}>Leave payback empty while the loan is open — interest accrues to today.</div>
       {(()=>{
-        const a=Number(numIn(amount));const prev={amount:a,dateFunded,paybackDate:paybackDate||null,rate:customRate&&Number(rate)>0?Number(rate):null,funderRate:selFunder&&Number(selFunder.rate)>0?Number(selFunder.rate):null};
+        const a=Number(numIn(amount));const prev={amount:a,dateFunded,paybackDate:paybackDate||null,rate:customRate&&hasRate(rate)?Number(rate):null,funderRate:selFunder&&hasRate(selFunder.rate)?Number(selFunder.rate):null};
         const days=drawDays(prev);const int=drawInterest(prev);
         if(!a||!dateFunded)return null;
         const bad=(!!paybackDate&&new Date(paybackDate)<new Date(dateFunded));
@@ -11773,7 +11775,7 @@ function FinPaybackModal({draw,funder,onConfirm,onPartial,onClose}){
       }} style={{...finBtn(true),opacity:mode==="part"&&!partOk?0.5:1}}>{mode==="part"?"Record paydown":"Record payback"}</button></>}>
       <div><div style={finLabel}>{mode==="part"?"Paydown date":"Payback date"}</div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={finInput}/></div>
       <div style={{background:bad?"#FFF0EF":T.goldLight,border:`1px solid ${bad?T.red:T.gold}`,borderRadius:10,padding:"10px 12px",fontSize:13,color:bad?T.red:"#8a6d1f"}}>
-        Principal <b>{fmtD(pr)}</b> · <b>{days} day{days===1?"":"s"}</b> · interest <b>{fmtD(int)}</b> @ {drawRatePct(prev)}%/yr{Number(draw.rate)>0&&<span style={{fontSize:10.5,fontWeight:700}}> (custom for this loan)</span>}
+        Principal <b>{fmtD(pr)}</b> · <b>{days} day{days===1?"":"s"}</b> · interest <b>{fmtD(int)}</b> @ {drawRatePct(prev)}%/yr{hasRate(draw.rate)&&<span style={{fontSize:10.5,fontWeight:700}}> (custom for this loan)</span>}
         {paidSoFar>0&&<div style={{fontSize:11,marginTop:3}}>already paid down <b>{fmtD(paidSoFar)}</b> — original loan {fmtD(Number(draw.amount)||0)}; interest counted on each balance for its own days</div>}
         <div style={{marginTop:5,paddingTop:5,borderTop:"1px solid rgba(184,149,63,0.35)",fontSize:13.5}}>Total — principal + interest: <b style={{fontSize:15}}>{fmtD(pr+int)}</b></div>
         {bad&&<div style={{fontSize:11,fontWeight:600,marginTop:3}}>Payback date is before the funded date.</div>}
@@ -11887,7 +11889,7 @@ function FinPaybackPick({funder,draws,onPick,onClose}){
               <span style={{fontSize:13.5,fontWeight:800,color:T.text,flexShrink:0}}>{fmtD(pr+it)}</span>
             </div>
             <div style={{display:"flex",gap:"3px 12px",fontSize:11,color:T.textSub,marginTop:3,flexWrap:"wrap",alignItems:"center"}}>
-              <span style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",whiteSpace:"nowrap",...(Number(d.rate)>0?{background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9"}:{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0"})}}>{Number(d.rate)>0?`✎ ${drawRatePct(d)}% custom`:`${drawRatePct(d)}%`}</span>
+              <span style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",whiteSpace:"nowrap",...(hasRate(d.rate)?{background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9"}:{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0"})}}>{hasRate(d.rate)?`✎ ${drawRatePct(d)}% custom`:`${drawRatePct(d)}%`}</span>
               <span>principal <b style={{color:T.text}}>{fmtD(pr)}</b></span>
               <span>interest <b style={{color:T.gold}}>{fmtD(it)}</b></span>
               <span>{drawDays(d)} day{drawDays(d)===1?"":"s"}</span>
@@ -11925,7 +11927,7 @@ function FinPaybackAllPick({funders,draws,onPick,onClose}){
             </div>
             <div style={{display:"flex",gap:"3px 12px",fontSize:11,color:T.textSub,marginTop:3,flexWrap:"wrap",alignItems:"center"}}>
               <span style={{fontSize:10,fontWeight:800,background:T.goldLight,color:"#8a6d1f",borderRadius:9,padding:"2px 8px",whiteSpace:"nowrap"}}>{f.name}</span>
-              <span style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",whiteSpace:"nowrap",...(Number(d.rate)>0?{background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9"}:{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0"})}}>{Number(d.rate)>0?`✎ ${drawRatePct(d)}% custom`:`${drawRatePct(d)}%`}</span>
+              <span style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",whiteSpace:"nowrap",...(hasRate(d.rate)?{background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9"}:{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0"})}}>{hasRate(d.rate)?`✎ ${drawRatePct(d)}% custom`:`${drawRatePct(d)}%`}</span>
               <span>principal <b style={{color:T.text}}>{fmtD(pr)}</b></span>
               <span>interest <b style={{color:T.gold}}>{fmtD(it)}</b></span>
               <span>{drawDays(d)} day{drawDays(d)===1?"":"s"}</span>
@@ -14817,7 +14819,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   // a custom rate follow the new default (loans with their own rate keep it).
   const updateFunder=(f)=>{
     setFunders(prev=>prev.map(x=>String(x.id)===String(f.id)?f:x));
-    setDraws(prev=>prev.map(d=>(String(d.funderId)===String(f.id)||sameName(d.funderName,f.name))?{...d,funderName:f.name,funderRate:Number(f.rate)>0?Number(f.rate):null}:d));
+    setDraws(prev=>prev.map(d=>(String(d.funderId)===String(f.id)||sameName(d.funderName,f.name))?{...d,funderName:f.name,funderRate:hasRate(f.rate)?Number(f.rate):null}:d));
     save();
   };
   const deleteFunder=(id)=>{if(!window.confirm("Delete this lender and its ledger? (Their draws stay, tagged by name.)"))return;setFunders(prev=>prev.filter(x=>String(x.id)!==String(id)));save();setSelId(null);};
@@ -14911,7 +14913,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       <table><thead><tr><th>Property</th><th>Funded</th><th>Days</th><th class="r">Amount</th><th class="r">Interest</th></tr></thead><tbody>${openRows}</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="r">${fmtD(openAmt)}</td><td class="r gold">${fmtD(openInt)}</td></tr></tfoot></table>
       <h2>Sold / paid-back properties — interest paid</h2>
       <table><thead><tr><th>Property</th><th>Funded</th><th>Paid back</th><th class="r">Amount</th><th class="r">Interest</th></tr></thead><tbody>${paidRows}</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="r">${fmtD(paidAmt)}</td><td class="r gold">${fmtD(paidInt)}</td></tr></tfoot></table>
-      <div class="foot">Interest accrues day-counted at each loan's own rate (default ${Number(f.rate)>0?f.rate:15}% / yr). Private &amp; confidential.</div>
+      <div class="foot">Interest accrues day-counted at each loan's own rate (default ${hasRate(f.rate)?f.rate:15}% / yr). Private &amp; confidential.</div>
     </body></html>`;
     const w=window.open("","_blank");
     if(!w){alert("Please allow pop-ups for this site to generate the report.");return;}

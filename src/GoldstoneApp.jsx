@@ -15104,7 +15104,24 @@ function classifySug(txt){
 }
 function AgentsCrmView({sharedProps,showings,isMobile}){
   const {connected,threadFor,unreadFor,send:smsSend}=useSmsTexting();
-  const {setSharedProps,flushProps}=useData();
+  const {setSharedProps,flushProps,appSettings,setAppSettings,currentUser:CURRENT_USER}=useData();
+  // 📅 Follow-up calls: "call me Monday" → pick the date; it pins to the top of
+  // this list when due and pings your phone that morning (the 5-minute watcher).
+  const followups=((appSettings||[]).find(x=>x.id==="followups")||{}).items||[];
+  const saveFollowups=(items)=>setAppSettings([...(appSettings||[]).filter(x=>x.id!=="followups"),{id:"followups",items:items.slice(-300)}]);
+  const[fupFor,setFupFor]=useState(null); // contact getting a follow-up scheduled
+  const[fupDate,setFupDate]=useState("");
+  const[fupNote,setFupNote]=useState("");
+  const isoPlus=(d)=>{const x=new Date();x.setDate(x.getDate()+d);return x.toISOString().slice(0,10);};
+  const nextMonday=()=>{const x=new Date();x.setDate(x.getDate()+((8-x.getDay())%7||7));return x.toISOString().slice(0,10);};
+  const addFup=()=>{
+    if(!fupFor||!fupDate)return;
+    saveFollowups([...followups,{id:Date.now(),phone:fupFor.phone,name:fupFor.name||"",addr:fupFor.addrs[0]||"",due:fupDate,note:fupNote.trim(),by:CURRENT_USER||"",done:false}]);
+    setFupFor(null);setFupDate("");setFupNote("");
+  };
+  const todayIso=new Date().toISOString().slice(0,10);
+  const myDue=followups.filter(x=>!x.done&&x.due&&x.due<=todayIso&&(!x.by||x.by===CURRENT_USER));
+  const fmtDue=(d)=>{try{return new Date(d+"T12:00:00").toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});}catch{return d;}};
   // ☑ Mass text: pick people (or everyone in the current filter) and blast the
   // intro — buyers get the buyer voice, agents the agent voice, each
   // personalized. Sent one by one with a breather so the carrier stays happy.
@@ -15278,6 +15295,22 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           </div>
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
+          {/* 📅 Follow-up calls due — pinned on top until checked off */}
+          {myDue.length>0&&!selMode&&(
+            <div style={{borderBottom:`2px solid #7C3AED`,background:"#F5F3FF"}}>
+              <div style={{padding:"7px 13px 3px",fontSize:9.5,fontWeight:800,color:"#7C3AED",letterSpacing:"0.05em"}}>📅 FOLLOW-UP CALLS DUE</div>
+              {myDue.map(f=>(
+                <div key={f.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 13px"}}>
+                  <span style={{flex:1,minWidth:0}}>
+                    <b style={{fontSize:12.5,color:T.text,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name||f.phone}</b>
+                    <span style={{fontSize:10.5,color:T.textSub,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[f.addr,f.due<todayIso?`was due ${fmtDue(f.due)}`:"due today",f.note].filter(Boolean).join(" · ")}</span>
+                  </span>
+                  <CallA phone={f.phone} title="Call now" style={{...icoS,width:28,height:28,border:"1px solid #7C3AED",background:"#fff"}}><PhoneIcon size={12} color="#7C3AED"/></CallA>
+                  <button onClick={()=>saveFollowups(followups.map(x=>x.id===f.id?{...x,done:true}:x))} title="Done — clear it" style={{...icoS,width:28,height:28,border:`1px solid ${T.green}`,background:"#EDFBF1",fontSize:12,color:"#15803D"}}>✓</button>
+                </div>
+              ))}
+            </div>
+          )}
           {showings===null&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>⏳ Loading your showings…</div>}
           {showings!==null&&shown.length===0&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing here{term?" for that search":""}.</div>}
           {shown.map(c=>{
@@ -15367,6 +15400,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                 <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[sel.broker,fmtPh(sel.phone),`${sel.shows.length} showing${sel.shows.length===1?"":"s"} across ${sel.addrs.length} propert${sel.addrs.length===1?"y":"ies"}`].filter(Boolean).join(" · ")}</div>
               </div>
               <span style={{display:"flex",gap:6,flexShrink:0}}>
+                <button onClick={()=>{setFupFor(sel);setFupDate(isoPlus(1));setFupNote("");}} title="📅 Schedule a follow-up call — it pins here when due and pings your phone that morning" style={{...icoS,border:"1px solid #7C3AED",background:"#F5F3FF",fontSize:13}}>📅</button>
                 <CallA phone={sel.phone} title="Call" style={{...icoS,border:`1px solid ${T.border}`,background:"#fff"}}><PhoneIcon size={13} color={T.text}/></CallA>
                 {isMobile&&<button onClick={()=>setTextOpen({phone:sel.phone,name:sel.name,address:sel.addrs[0]||"",bt:!!sel.buyer&&!sel.shows.length})} title="Conversation & templates" style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}><SmsChatIcon size={13} color="#15803D"/></button>}
                 {sel.email&&<a href={`mailto:${sel.email}`} title={`Email ${sel.email}`} style={{...icoS,border:`1px solid ${T.blue}`,background:"#EBF4FF",fontSize:13}}>✉️</a>}
@@ -15411,6 +15445,30 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           </div>
         )}
       </div>
+      {/* 📅 Schedule the follow-up call */}
+      {fupFor&&(
+        <div onClick={()=>setFupFor(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:470,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(380px,96vw)",boxShadow:"0 14px 44px rgba(0,0,0,0.25)",overflow:"hidden"}}>
+            <div style={{padding:"13px 18px",borderBottom:"2px solid #7C3AED"}}>
+              <b style={{fontSize:15}}>📅 Follow-up call — {fupFor.name||fmtPh(fupFor.phone)}</b>
+              <div style={{fontSize:11,color:T.textTert,marginTop:2}}>Pins to the top of this list when due, and your phone gets a ping that morning.</div>
+            </div>
+            <div style={{padding:"12px 18px",display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {[["Tomorrow",isoPlus(1)],["Monday",nextMonday()],["Next week",isoPlus(7)]].map(([l,d])=>(
+                  <button key={l} onClick={()=>setFupDate(d)} style={{padding:"7px 12px",borderRadius:16,border:fupDate===d?"1.5px solid #7C3AED":`1px solid ${T.border}`,background:fupDate===d?"#F5F3FF":"#fff",color:fupDate===d?"#7C3AED":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                ))}
+              </div>
+              <input type="date" value={fupDate} onChange={e=>setFupDate(e.target.value)} style={{...finInput,minHeight:44}}/>
+              <input value={fupNote} onChange={e=>setFupNote(e.target.value)} placeholder="Note (optional) — e.g. talk numbers, mortgage broker" style={finInput}/>
+            </div>
+            <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              <button onClick={()=>setFupFor(null)} style={finBtn(false)}>Cancel</button>
+              <button onClick={addFup} disabled={!fupDate} style={{...finBtn(true),opacity:fupDate?1:0.5}}>Set follow-up</button>
+            </div>
+          </div>
+        </div>
+      )}
       {textOpen&&<SmsThreadPopup phone={textOpen.phone} name={textOpen.name||(textOpen.bt?"Buyer":"Agent")} templates={showingTemplates(!!textOpen.bt,textOpen.name,textOpen.address)} onClose={()=>setTextOpen(null)}/>}
     </div>
   );

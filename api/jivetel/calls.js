@@ -12,7 +12,7 @@
 // POST requires ?key= to match JIVETEL_WEBHOOK_SECRET. GET is open but
 // returns only counts and redacted key-shapes — never call content.
 import { createClient } from "@supabase/supabase-js";
-import { storeSms, e164 } from "../../lib/jivetel.js";
+import { storeSms, e164, identifyPhone, whoLabel } from "../../lib/jivetel.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://wtmsukjnuqsprtvfytin.supabase.co";
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -146,9 +146,10 @@ export default async function handler(req, res) {
           dirty = true;
         }
         if (missed) {
+          let who = null; try { who = await identifyPhone(other); } catch { /* number-only */ }
           await notify(ext, {
-            title: `📞 Missed call — ${name || pretty(other)}`,
-            body: `${pretty(other)} · rang ext ${ext}`,
+            title: `📞 Missed call — ${(who && who.name) || name || pretty(other)}`,
+            body: `${pretty(other)}${who ? ` · ${whoLabel(who)}` : ""} · rang ext ${ext}`,
             tag: `jvcall-${e.cdr_id}`.slice(0, 64),
           });
         }
@@ -161,9 +162,10 @@ export default async function handler(req, res) {
         rung.push(e.orig_callid);
         dirty = true;
         const from = uriNum(e.orig_from_uri);
+        let who = null; try { who = await identifyPhone(from); } catch { /* number-only */ }
         await notify(e.term_user, {
-          title: `📞 Incoming call — ${e.orig_from_name || pretty(from)}`,
-          body: `${pretty(from)} · ringing ext ${e.term_user || "?"}`,
+          title: `📞 Incoming call — ${(who && who.name) || e.orig_from_name || pretty(from)}`,
+          body: `${pretty(from)}${who ? ` · ${whoLabel(who)}` : ""} · ringing ext ${e.term_user || "?"}`,
           tag: `jvring-${e.orig_callid}`.slice(0, 64),
         });
       }

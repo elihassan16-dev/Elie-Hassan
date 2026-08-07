@@ -15341,19 +15341,21 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
     setCampOpen(false);
     setBlast({list:campList,mk,kind:camp.msg!=="custom"?camp.msg:null});
   };
+  const bgRef=useRef(false); // ⏬ keep sending while the popup is closed
   const runBlast=async(b)=>{
     const{list,mk,kind}=b;
+    bgRef.current=false;
     const errors=[];const sentOk=[];
     setBlast({sending:true,i:0,total:list.length,errors});
     for(let i=0;i<list.length;i++){
       const c=list[i];
-      setBlast({sending:true,i:i+1,total:list.length,errors:[...errors]});
+      if(!bgRef.current)setBlast({sending:true,i:i+1,total:list.length,errors:[...errors]});
       try{await smsSend(c.phone,mk(c));if(kind)sentOk.push(`${c.key}|${kind}`);}
       catch(e){errors.push(`${c.name||c.phone}: ${e.message||"failed"}`);}
       if(i<list.length-1)await new Promise(r=>setTimeout(r,1300)); // carrier-friendly pace
     }
     if(sentOk.length)setAppSettings([...(appSettings||[]).filter(x=>x.id!=="campaign_sent"),{id:"campaign_sent",keys:[...campSent,...sentOk].slice(-3000)}]);
-    setBlast({done:true,total:list.length,errors});
+    if(!bgRef.current)setBlast({done:true,total:list.length,errors});
     setPicks(new Set());setSelMode(false);
   };
   return(
@@ -15486,7 +15488,8 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
             {blast.sending&&(
               <div style={{padding:"22px 18px"}}>
                 <div style={{height:8,borderRadius:5,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.round((blast.i/Math.max(1,blast.total))*100)}%`,background:T.gold,transition:"width 0.3s"}}/></div>
-                <div style={{fontSize:11.5,color:T.textSub,marginTop:8,textAlign:"center"}}>Keep this open — texts go out one at a time with a short breather between them.</div>
+                <div style={{fontSize:11.5,color:T.textSub,marginTop:8,textAlign:"center"}}>Texts go out one at a time with a short breather between them.</div>
+                <button onClick={()=>{bgRef.current=true;setBlast(null);}} style={{display:"block",margin:"12px auto 0",padding:"8px 16px",borderRadius:12,border:`1px solid ${T.gold}`,background:"#fff",color:"#8a6d1f",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>⏬ Continue in background — keep using the app</button>
               </div>
             )}
             {blast.done&&(blast.errors||[]).length>0&&(

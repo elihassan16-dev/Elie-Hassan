@@ -2340,6 +2340,7 @@ const SHOWING_LEADS=[
   {key:"offer",label:"🔥 Expecting an offer",short:"Expecting offer",color:"#C2410C",bg:"#FFEDD5"},
   {key:"interest",label:"Expressed interest",short:"Interested",color:"#B45309",bg:"#FEF3C7"},
   {key:"not",label:"Not interested",short:"Not interested",color:"#B91C1C",bg:"#FEE2E2"},
+  {key:"badnum",label:"❌ Wrong number",short:"Wrong number",color:"#6B7280",bg:"#F3F4F6"},
 ];
 const showingLeadRank=(k)=>{const i=SHOWING_LEADS.findIndex(x=>x.key===k);return i<0?99:i;};
 // Stable identity of a showing: its date/time (to the minute) + agent name.
@@ -3097,14 +3098,14 @@ function ShowingsPage(){
     sharedProps.filter(p=>!p.archived&&p.status!=="Sold").forEach(p=>{
       const snaps=p.showingSnapshots||{};
       Object.entries(p.showingLeads||{}).forEach(([k,lead])=>{
-        if(!lead||lead==="not")return;
+        if(!lead||lead==="not"||lead==="badnum")return;
         const sn=snaps[k]||{};
         const nm=sn.agent||sn.summary;
         if(!nm)return; // no snapshot = a stale key with no person attached — junk
         out.push({p,skey:k,lead,name:nm,when:sn.start||"",ts:sn.start?new Date(sn.start).getTime():0});
       });
       (p.customLeads||[]).forEach(l=>{
-        if(!l.lead||l.lead==="not")return;
+        if(!l.lead||l.lead==="not"||l.lead==="badnum")return;
         out.push({p,skey:"lead-"+l.id,lead:l.lead,name:l.name||"(no name)",when:l.at||"",ts:l.at?new Date(l.at).getTime():0});
       });
     });
@@ -15094,6 +15095,7 @@ function CrmPage({sharedProps}){
 function classifySug(txt){
   const s=String(txt||"").toLowerCase();
   if(!s)return null;
+  if(/wrong (number|person)|bad number|not (my|his|her|their) number|don'?t have (that|this) number|no one (here )?by that name|you have the wrong/.test(s))return "badnum";
   if(/(not|no longer|isn'?t|aren'?t) interested|uninterested|pass(ing)? on|went with|going with|chose (another|a different)|out of (our|my|their) (price|budget|range)|too (high|much|small|far)|didn'?t (like|love|work)|we'?re (good|all set)|no,? thank/.test(s))return "not";
   if(/(making|submitting|sending|putting in|writing|expect) (an? )?offer|offer (coming|incoming|on the way)|make an offer/.test(s))return "offer";
   if(/(very|really|quite|still) interested|loved it|liked it|thinking (it over|about it)|considering|second (look|showing)|come back|schedule another/.test(s))return "interest";
@@ -15199,7 +15201,10 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
         const disKey=`${c.key}|${lastIn.id}`;
         if(key&&!sugDis.has(disKey)&&!c.statuses.some(st=>st.lead===key))sug={key,disKey,reply:String(lastIn.text||"").slice(0,120)};
       }
-      return {...c,thread:t,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,future,contacted,sug,act:lastAt>c.lastShow?lastAt:c.lastShow};
+      // ❌ Not interested / wrong number = off the list. Their statuses stay on
+      // the properties; a name/number search still finds them if ever needed.
+      const dead=c.statuses.some(st=>st.lead==="not"||st.lead==="badnum");
+      return {...c,thread:t,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,future,contacted,dead,sug,act:lastAt>c.lastShow?lastAt:c.lastShow};
     }).sort((a,b)=>((b.unread>0)-(a.unread>0))
       ||((b.contacted?1:0)-(a.contacted?1:0))                       // reached-out people before not-contacted
       ||String(b.lastShow).localeCompare(String(a.lastShow))        // then most recent showing first
@@ -15208,6 +15213,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   const term=q.trim().toLowerCase();
   const shown=contacts.filter(c=>{
     if(term&&![c.name,c.phone,...c.addrs].join(" ").toLowerCase().includes(term))return false;
+    if(c.dead)return !!term;               // removed from every pill — only an explicit search surfaces them
     if(filter==="upcoming")return c.future;
     if(c.future)return false;              // future stuff hides everywhere else
     if(filter==="replied")return c.replied;
@@ -15216,7 +15222,8 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
     if(filter==="buyers")return !!c.buyer;
     return true;
   });
-  const counts={all:contacts.filter(c=>!c.future).length,new:contacts.filter(c=>c.unread>0&&!c.future).length,replied:contacts.filter(c=>c.replied&&!c.future).length,noresp:contacts.filter(c=>c.noRespDays!=null&&!c.future).length,buyers:contacts.filter(c=>c.buyer&&!c.future).length,upcoming:contacts.filter(c=>c.future).length};
+  const live=(c)=>!c.future&&!c.dead;
+  const counts={all:contacts.filter(live).length,new:contacts.filter(c=>c.unread>0&&live(c)).length,replied:contacts.filter(c=>c.replied&&live(c)).length,noresp:contacts.filter(c=>c.noRespDays!=null&&live(c)).length,buyers:contacts.filter(c=>c.buyer&&live(c)).length,upcoming:contacts.filter(c=>c.future&&!c.dead).length};
   const sel=contacts.find(c=>c.key===selKey)||null;
   const chip=(bg,fg,txt)=><span style={{fontSize:8.5,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
   const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";

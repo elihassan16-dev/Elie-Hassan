@@ -15090,6 +15090,7 @@ function CrmPage({sharedProps}){
 // right — every showing, every text out, every reply, calls, status changes.
 function AgentsCrmView({sharedProps,showings,isMobile}){
   const {connected,threadFor,unreadFor}=useSmsTexting();
+  const btAll=useBtLeads();
   const[q,setQ]=useState("");
   const[filter,setFilter]=useState("all");
   const[selKey,setSelKey]=useState(null);
@@ -15117,11 +15118,32 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
         if(String(s.start||"")>c.lastShow)c.lastShow=String(s.start||"");
       });
     });
-    // Status changes, matched back to the person through the saved snapshots.
+    // 🛒 BoldTrail buyers — people who inquired about a listing join the same
+    // list, tagged as buyers, matched to their property.
+    (btAll||[]).forEach(l=>{
+      const key=digits(l.phone);if(!key)return;
+      const pr=activeProps.find(p=>btMatchesProperty(l,p));
+      const c=by[key]||(by[key]={key,phone:l.phone,name:l.name||"",broker:"",email:l.email||"",addrs:[],shows:[],statuses:[],lastShow:"",insp:false});
+      c.buyer=true;
+      if(l.name&&(!c.name||c.name.length<l.name.length))c.name=l.name;
+      if(l.email&&!c.email)c.email=l.email;
+      const addr=pr?String(pr.address).split(",")[0]:"";
+      if(addr&&!c.addrs.includes(addr))c.addrs.push(addr);
+      c.inq={at:l.createdAt||"",addr};
+      if(String(l.createdAt||"")>c.lastShow)c.lastShow=String(l.createdAt||"");
+    });
+    // Status changes, matched back to the person through the saved snapshots
+    // (and by lead id for BoldTrail buyers).
     activeProps.forEach(p=>{
       const snaps=p.showingSnapshots||{};
       Object.entries(p.showingLeads||{}).forEach(([k,lead])=>{
-        const sn=snaps[k];if(!sn||!lead)return;
+        if(!lead)return;
+        if(String(k).startsWith("bt-")){
+          const bl=(btAll||[]).find(x=>"bt-"+x.id===k);
+          if(bl){const c=by[digits(bl.phone)];if(c)c.statuses.push({lead,addr:p.address,at:bl.createdAt||""});}
+          return;
+        }
+        const sn=snaps[k];if(!sn)return;
         parseShowingPhones(sn.phone||"").forEach(ph=>{const c=by[digits(ph)];if(c)c.statuses.push({lead,addr:p.address,at:sn.start||""});});
       });
     });
@@ -15131,18 +15153,24 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
       const lastAt=last?String(last.at||""):"";
       const unread=connected?unreadFor(c.phone):0;
       const noRespDays=last&&last.direction!=="in"?Math.max(0,Math.floor((Date.now()-new Date(last.at).getTime())/86400000)):null;
-      return {...c,thread:t,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,act:lastAt>c.lastShow?lastAt:c.lastShow};
+      // Future-only people (every showing still ahead, no conversation, no
+      // inquiry) hide by default — nothing to chase yet.
+      const future=!c.inq&&t.length===0&&c.shows.length>0&&c.shows.every(s=>!s.start||new Date(s.start).getTime()>Date.now()+3600000);
+      return {...c,thread:t,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,future,act:lastAt>c.lastShow?lastAt:c.lastShow};
     }).sort((a,b)=>((b.unread>0)-(a.unread>0))||String(b.act).localeCompare(String(a.act)));
-  },[showings,sharedProps,connected,textOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[showings,sharedProps,connected,btAll,textOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const term=q.trim().toLowerCase();
   const shown=contacts.filter(c=>{
     if(term&&![c.name,c.phone,...c.addrs].join(" ").toLowerCase().includes(term))return false;
+    if(filter==="upcoming")return c.future;
+    if(c.future)return false;              // future stuff hides everywhere else
     if(filter==="replied")return c.replied;
     if(filter==="noresp")return c.noRespDays!=null;
     if(filter==="new")return c.unread>0;
+    if(filter==="buyers")return !!c.buyer;
     return true;
   });
-  const counts={all:contacts.length,new:contacts.filter(c=>c.unread>0).length,replied:contacts.filter(c=>c.replied).length,noresp:contacts.filter(c=>c.noRespDays!=null).length};
+  const counts={all:contacts.filter(c=>!c.future).length,new:contacts.filter(c=>c.unread>0&&!c.future).length,replied:contacts.filter(c=>c.replied&&!c.future).length,noresp:contacts.filter(c=>c.noRespDays!=null&&!c.future).length,buyers:contacts.filter(c=>c.buyer&&!c.future).length,upcoming:contacts.filter(c=>c.future).length};
   const sel=contacts.find(c=>c.key===selKey)||null;
   const chip=(bg,fg,txt)=><span style={{fontSize:8.5,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
   const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
@@ -15151,6 +15179,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   // The activity log — everything with this person, newest first.
   const events=(c)=>{
     const ev=[];
+    if(c.inq)ev.push({at:c.inq.at,icon:"🛒",title:`Inquired on BoldTrail${c.inq.addr?` — ${c.inq.addr}`:""}`,sub:"buyer lead"});
     c.shows.forEach(s=>ev.push({at:s.start,icon:s.kind!=="showing"?"🔍":"👁",title:`${s.kind!=="showing"?s.kind.charAt(0).toUpperCase()+s.kind.slice(1):"Showing"} — ${s.addr}`,sub:s.src?`via the ${s.src} calendar`:"booked through ShowingTime"}));
     (c.thread||[]).forEach(m=>{
       if(m.kind==="call")ev.push({at:m.at,icon:"📞",title:m.text||"Call",sub:m.direction==="in"?"incoming":"outgoing"});
@@ -15165,9 +15194,9 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
       {/* Left: the people */}
       <div style={{width:isMobile?"100%":340,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"12px 14px 8px",borderBottom:`1px solid ${T.border}`}}>
-          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="⌕ Search an agent, number, property…" style={{width:"100%",padding:"8px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="⌕ Search an agent, buyer, number, property…" style={{width:"100%",padding:"8px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
           <div style={{display:"flex",gap:5,marginTop:8,flexWrap:"wrap"}}>
-            {[["all",`All · ${counts.all}`],["new",`New replies · ${counts.new}`],["replied",`Replied · ${counts.replied}`],["noresp",`No response · ${counts.noresp}`]].map(([k,l])=>(
+            {[["all",`All · ${counts.all}`],["new",`New replies · ${counts.new}`],["replied",`Replied · ${counts.replied}`],["noresp",`No response · ${counts.noresp}`],["buyers",`🛒 Buyers · ${counts.buyers}`],["upcoming",`📅 Upcoming · ${counts.upcoming}`]].map(([k,l])=>(
               <button key={k} onClick={()=>setFilter(k)} style={{fontSize:10.5,fontWeight:800,borderRadius:12,padding:"4px 10px",border:"none",cursor:"pointer",fontFamily:"inherit",background:filter===k?T.gold:"#F3F3F5",color:filter===k?"#fff":"#888"}}>{l}</button>
             ))}
           </div>
@@ -15183,6 +15212,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                 <span style={{flex:1,minWidth:0}}>
                   <span style={{display:"flex",gap:5,alignItems:"baseline"}}>
                     <b style={{fontSize:13,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{c.name||fmtPh(c.phone)}</b>
+                    {c.buyer&&<span title="BoldTrail buyer" style={{flexShrink:0,fontSize:8.5,fontWeight:800,background:"#FCE7F3",color:"#DB2777",border:"1px solid #FBCFE8",borderRadius:8,padding:"1px 6px"}}>🛒 BUYER</span>}
                     {c.insp&&<span title="Inspection / appraisal / walk-through" style={{flexShrink:0,fontSize:10}}>🔍</span>}
                     <span style={{marginLeft:"auto",fontSize:9.5,color:T.textTert,flexShrink:0}}>{fmtShort2(c.act)}</span>
                   </span>
@@ -15212,7 +15242,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
               </div>
               <span style={{display:"flex",gap:6,flexShrink:0}}>
                 <CallA phone={sel.phone} title="Call" style={{...icoS,border:`1px solid ${T.border}`,background:"#fff"}}><PhoneIcon size={13} color={T.text}/></CallA>
-                <button onClick={()=>setTextOpen({phone:sel.phone,name:sel.name,address:sel.addrs[0]||""})} title="Conversation & templates" style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}><SmsChatIcon size={13} color="#15803D"/></button>
+                <button onClick={()=>setTextOpen({phone:sel.phone,name:sel.name,address:sel.addrs[0]||"",bt:!!sel.buyer&&!sel.shows.length})} title="Conversation & templates" style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}><SmsChatIcon size={13} color="#15803D"/></button>
                 {sel.email&&<a href={`mailto:${sel.email}`} title={`Email ${sel.email}`} style={{...icoS,border:`1px solid ${T.blue}`,background:"#EBF4FF",fontSize:13}}>✉️</a>}
               </span>
             </div>
@@ -15239,7 +15269,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           </div>
         )}
       </div>
-      {textOpen&&<SmsThreadPopup phone={textOpen.phone} name={textOpen.name||"Agent"} templates={showingTemplates(false,textOpen.name,textOpen.address)} onClose={()=>setTextOpen(null)}/>}
+      {textOpen&&<SmsThreadPopup phone={textOpen.phone} name={textOpen.name||(textOpen.bt?"Buyer":"Agent")} templates={showingTemplates(!!textOpen.bt,textOpen.name,textOpen.address)} onClose={()=>setTextOpen(null)}/>}
     </div>
   );
 }

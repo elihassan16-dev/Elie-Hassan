@@ -15306,23 +15306,53 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
     return ev.filter(e=>e.at).sort((a,b)=>String(b.at).localeCompare(String(a.at)));
   };
   const icoS={width:32,height:32,borderRadius:16,display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none",padding:0,boxSizing:"border-box",cursor:"pointer",fontFamily:"inherit",flexShrink:0};
-  // The personalized intro for one person — buyer voice for pure buyers.
-  const introFor=(c)=>showingTemplates(!!c.buyer&&!c.shows.length,c.name,c.addrs[0]||"")[0];
+  // The personalized message for one person — buyer voice for pure buyers.
+  const tmplFor=(c,kind)=>{const ts=showingTemplates(!!c.buyer&&!c.shows.length,c.name,c.addrs[0]||"");return (ts.find(t=>t.kind===kind)||ts[0]).text;};
+  const introFor=(c)=>({text:tmplFor(c,"initial")});
   const startBlast=()=>{
     const list=shown.filter(c=>picks.has(c.key));
     if(!list.length)return;
-    setBlast({list});
+    setBlast({list,mk:(c)=>tmplFor(c,"initial")});
   };
-  const runBlast=async(list)=>{
-    const errors=[];
+  // 📣 Campaigns: who × property × window × response status × message. A
+  // campaign never texts the same person the same message kind twice.
+  const campSent=((appSettings||[]).find(x=>x.id==="campaign_sent")||{}).keys||[];
+  const[campOpen,setCampOpen]=useState(false);
+  const[camp,setCamp]=useState({who:"buyers",prop:"all",days:10,resp:"never",msg:"initial",custom:""});
+  const campProps=[...new Set(contacts.flatMap(c=>c.addrs))].sort();
+  const campMatch=(c)=>{
+    if(c.dead||c.future)return false;
+    if(camp.who==="buyers"&&!c.buyer)return false;
+    if(camp.who==="agents"&&c.buyer&&!c.shows.length)return false;
+    if(camp.prop!=="all"&&!c.addrs.includes(camp.prop))return false;
+    const cut=Date.now()-(Number(camp.days)||10)*86400000;
+    const lastAct=Math.max(c.lastShow?new Date(c.lastShow).getTime():0,c.inq&&c.inq.at?new Date(c.inq.at).getTime():0);
+    if(!(lastAct>=cut))return false;
+    if(camp.resp==="never"&&c.contacted)return false;
+    if(camp.resp==="noresp"&&!(c.contacted&&!c.replied))return false;
+    if(camp.resp==="replied"&&!c.replied)return false;
+    if(camp.msg!=="custom"&&campSent.includes(`${c.key}|${camp.msg}`))return false;
+    return true;
+  };
+  const campList=campOpen?contacts.filter(campMatch):[];
+  const launchCamp=()=>{
+    if(!campList.length)return;
+    const mk=camp.msg==="custom"?()=>camp.custom.trim():(c)=>tmplFor(c,camp.msg);
+    setCampOpen(false);
+    setBlast({list:campList,mk,kind:camp.msg!=="custom"?camp.msg:null});
+  };
+  const runBlast=async(b)=>{
+    const{list,mk,kind}=b;
+    const errors=[];const sentOk=[];
     setBlast({sending:true,i:0,total:list.length,errors});
     for(let i=0;i<list.length;i++){
       const c=list[i];
       setBlast({sending:true,i:i+1,total:list.length,errors:[...errors]});
-      try{await smsSend(c.phone,introFor(c).text);}
+      try{await smsSend(c.phone,mk(c));if(kind)sentOk.push(`${c.key}|${kind}`);}
       catch(e){errors.push(`${c.name||c.phone}: ${e.message||"failed"}`);}
       if(i<list.length-1)await new Promise(r=>setTimeout(r,1300)); // carrier-friendly pace
     }
+    if(sentOk.length)setAppSettings([...(appSettings||[]).filter(x=>x.id!=="campaign_sent"),{id:"campaign_sent",keys:[...campSent,...sentOk].slice(-3000)}]);
     setBlast({done:true,total:list.length,errors});
     setPicks(new Set());setSelMode(false);
   };
@@ -15333,6 +15363,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
         <div style={{padding:"12px 14px 8px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             <input value={q} onChange={e=>setQ(e.target.value)} placeholder="⌕ Search an agent, buyer, number, property…" style={{flex:1,minWidth:0,padding:"8px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
+            {connected&&<button onClick={()=>setCampOpen(true)} title="📣 Campaign — mass text by filters, no hand-picking" style={{padding:"7px 10px",borderRadius:9,border:"1px solid #C9A227",background:"#FBF3DD",color:"#8a6d1f",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>📣</button>}
             {connected&&<button onClick={()=>{setSelMode(v=>!v);setPicks(new Set());}} title="Pick several people and text them the intro in one go" style={{padding:"7px 11px",borderRadius:9,border:selMode?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:selMode?T.goldLight:"#fff",color:selMode?"#8a6d1f":T.textSub,fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>☑ Select</button>}
           </div>
           <div style={{display:"flex",gap:5,marginTop:8,flexWrap:"wrap"}}>
@@ -15397,6 +15428,42 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           </div>
         )}
       </div>
+      {/* 📣 Campaign builder */}
+      {campOpen&&(()=>{
+        const chipB=(on)=>({padding:"7px 12px",borderRadius:16,border:on?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:on?T.goldLight:"#fff",color:on?"#8a6d1f":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"});
+        const lbl={fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",margin:"12px 18px 5px"};
+        return(
+        <div onClick={()=>setCampOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:470,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(440px,96vw)",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
+            <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`}}><b style={{fontSize:15}}>📣 New campaign</b><div style={{fontSize:11,color:T.textTert,marginTop:2}}>Mass text by filters — not-interested and wrong numbers are always skipped.</div></div>
+            <div style={lbl}>1 · WHO</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 18px"}}>{[["buyers","🛒 Buyers"],["agents","👤 Agents"],["all","Everyone"]].map(([k,l])=><button key={k} onClick={()=>setCamp({...camp,who:k})} style={chipB(camp.who===k)}>{l}</button>)}</div>
+            <div style={lbl}>2 · WHICH PROPERTY</div>
+            <select value={camp.prop} onChange={e=>setCamp({...camp,prop:e.target.value})} style={{...finInput,width:"calc(100% - 36px)",margin:"0 18px"}}>
+              <option value="all">All properties</option>
+              {campProps.map(a=><option key={a} value={a}>{a}</option>)}
+            </select>
+            <div style={lbl}>3 · ACTIVE IN THE LAST…</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 18px",alignItems:"center"}}>
+              {[7,10,30].map(d=><button key={d} onClick={()=>setCamp({...camp,days:d})} style={chipB(Number(camp.days)===d)}>{d} days</button>)}
+              <input value={camp.days} onChange={e=>setCamp({...camp,days:e.target.value.replace(/\D/g,"")})} inputMode="numeric" style={{width:60,padding:"7px 9px",borderRadius:9,border:`1px solid ${T.gold}`,fontSize:12,fontFamily:"inherit",outline:"none",textAlign:"center"}}/>
+              <span style={{fontSize:11,color:T.textTert}}>days</span>
+            </div>
+            <div style={lbl}>4 · ONLY PEOPLE WHO…</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 18px"}}>{[["any","Anyone"],["never","Never texted"],["noresp","Didn't respond"],["replied","Replied"]].map(([k,l])=><button key={k} onClick={()=>setCamp({...camp,resp:k})} style={chipB(camp.resp===k)}>{l}</button>)}</div>
+            <div style={lbl}>5 · THE MESSAGE</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 18px"}}>{[["initial","Intro (auto voice)"],["followup","Follow-up"],["custom","✎ Write my own"]].map(([k,l])=><button key={k} onClick={()=>setCamp({...camp,msg:k})} style={chipB(camp.msg===k)}>{l}</button>)}</div>
+            {camp.msg==="custom"&&<textarea value={camp.custom} onChange={e=>setCamp({...camp,custom:e.target.value})} rows={3} placeholder="Write the text everyone gets…" style={{...finInput,width:"calc(100% - 36px)",margin:"8px 18px 0",resize:"vertical",lineHeight:1.5}}/>}
+            <div style={{margin:"14px 18px",background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:11,padding:"10px 13px",fontSize:12.5,color:"#8a6d1f",lineHeight:1.6}}>
+              🎯 <b>{campList.length} {campList.length===1?"person matches":"people match"}</b>{camp.msg!=="custom"?" — already-sent ones excluded.":"."} Each message is personalized and sent one at a time, carrier-paced.
+            </div>
+            <div style={{padding:"0 18px 16px",display:"flex",justifyContent:"flex-end",gap:8}}>
+              <button onClick={()=>setCampOpen(false)} style={finBtn(false)}>Cancel</button>
+              <button onClick={launchCamp} disabled={!campList.length||(camp.msg==="custom"&&!camp.custom.trim())} style={{...finBtn(true),opacity:campList.length&&(camp.msg!=="custom"||camp.custom.trim())?1:0.5}}>Review the {campList.length} message{campList.length===1?"":"s"} →</button>
+            </div>
+          </div>
+        </div>
+      );})()}
       {/* Mass-text confirm / progress */}
       {blast&&(
         <div onClick={()=>{if(!blast.sending)setBlast(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:470,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
@@ -15410,7 +15477,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                 {(blast.list||[]).slice(0,4).map(c=>(
                   <div key={c.key} style={{marginBottom:10}}>
                     <div style={{fontSize:12,fontWeight:800,color:T.text}}>{c.name||fmtPh(c.phone)}{c.buyer&&!c.shows.length?" · 🛒 buyer":""}</div>
-                    <div style={{fontSize:11.5,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"7px 10px",marginTop:3,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{introFor(c).text}</div>
+                    <div style={{fontSize:11.5,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"7px 10px",marginTop:3,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{blast.mk(c)}</div>
                   </div>
                 ))}
                 {(blast.list||[]).length>4&&<div style={{fontSize:11,color:T.textTert,textAlign:"center",padding:"4px 0 8px"}}>…and {(blast.list||[]).length-4} more, each personalized the same way.</div>}
@@ -15429,7 +15496,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
               </div>
             )}
             <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
-              {!blast.sending&&!blast.done&&<><button onClick={()=>setBlast(null)} style={finBtn(false)}>Cancel</button><button onClick={()=>runBlast(blast.list)} style={finBtn(true)}>Send {blast.list.length} text{blast.list.length===1?"":"s"}</button></>}
+              {!blast.sending&&!blast.done&&<><button onClick={()=>setBlast(null)} style={finBtn(false)}>Cancel</button><button onClick={()=>runBlast(blast)} style={finBtn(true)}>Send {blast.list.length} text{blast.list.length===1?"":"s"}</button></>}
               {blast.done&&<button onClick={()=>setBlast(null)} style={finBtn(true)}>Done</button>}
             </div>
           </div>

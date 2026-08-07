@@ -1,5 +1,6 @@
 // Deploy trigger: publish latest Financial Section (reinvest register) to production.
 import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from "react";
+import { createPortal } from "react-dom";
 import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";
 import { useOneDrive } from "./onedrive/useOneDrive";
@@ -11385,17 +11386,27 @@ const finInput={width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRa
 
 // Small centered modal shell reused by the Financial Section forms.
 function FinModal({title,onClose,children,footer}){
-  return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+  // Freeze the page behind the popup — on iOS a pan that starts on the popup
+  // otherwise "chains" to the page's scroll container and drags the background.
+  useEffect(()=>{
+    const prev=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    return()=>{document.body.style.overflow=prev;};
+  },[]);
+  // Portaled to <body> so no scrollable app container is an ancestor — the pan
+  // gesture has nowhere to chain to except the popup's own list.
+  return createPortal(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box",overscrollBehavior:"contain"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(440px,96vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.25)",overflow:"hidden"}}>
         <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight}}>
           <div style={{fontSize:14,fontWeight:700,color:T.gold}}>{title}</div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
-        <div style={{padding:16,overflowY:"auto",minHeight:0,WebkitOverflowScrolling:"touch",display:"flex",flexDirection:"column",gap:12}}>{children}</div>
+        <div style={{padding:16,overflowY:"auto",minHeight:0,overscrollBehavior:"contain",touchAction:"pan-y",display:"flex",flexDirection:"column",gap:12}}>{children}</div>
         {footer&&<div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end"}}>{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 const finBtn=(primary)=>({padding:"9px 18px",borderRadius:10,border:primary?"none":`1px solid ${T.border}`,background:primary?T.gold:T.bg,color:primary?"#fff":T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"});

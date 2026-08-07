@@ -11277,6 +11277,23 @@ function NavMenu({items,active,isPinned,onNavigate,onTogglePin,onClose}){
 // Private lender ("funder") ledgers + the draws (money lent against a property).
 // Interest is simple 15%/yr, day-counted — matching the Excel the data came from.
 const LOC_RATE=0.15;
+// 📜 Per-loan terms: the loan's own custom rate wins, else the lender's default
+// (stamped on the draw as funderRate and re-stamped whenever the lender is edited),
+// else the app default 15%. Rates are stored as whole percents (15 = 15%/yr).
+const drawRate=(d)=>{const r=Number(d&&d.rate);if(r>0)return r/100;const fr=Number(d&&d.funderRate);if(fr>0)return fr/100;return LOC_RATE;};
+const drawRatePct=(d)=>Math.round(drawRate(d)*10000)/100;
+// 🏦 Held funder money: a live Bank-Recon line per lender, tagged heldFunderId.
+// Legacy "Held — funder money (property)" lines are matched to their lender
+// through the paid-back draw that carries that property label.
+const isHeldAdj=(a)=>!!a&&(a.heldFunderId!=null||/^Held — funder money/.test(a.label||""));
+const heldAdjFunderId=(a,draws)=>{
+  if(!a)return null;
+  if(a.heldFunderId!=null)return a.heldFunderId;
+  const m=/^Held — funder money \((.+)\)$/.exec(a.label||"");
+  if(!m)return null;
+  const d=(draws||[]).find(x=>x.paybackDate&&x.propertyLabel&&String(x.propertyLabel)===m[1]);
+  return d?d.funderId:null;
+};
 const daysBetween=(a,b)=>{const s=new Date(a),e=new Date(b);if(isNaN(s)||isNaN(e))return 0;return Math.max(0,Math.round((e-s)/86400000));};
 const drawDays=(d)=>daysBetween(d.dateFunded,d.paybackDate||new Date());
 // Partial paydowns: money the lender got back before the loan was fully paid off.
@@ -11291,14 +11308,15 @@ const drawInterest=(d)=>{
   if(!d||!d.dateFunded)return 0;
   const end=d.paybackDate||new Date().toISOString().slice(0,10);
   const pays=[...(d.payments||[])].filter(p=>p.date&&(Number(p.amount)||0)>0).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const rate=drawRate(d);
   let bal=Number(d.amount)||0, cursor=d.dateFunded, int=0;
   for(const p of pays){
     if(String(p.date)>String(end))break;                 // paid after payoff — ignore
-    int+=bal*(LOC_RATE/365)*daysBetween(cursor,p.date);
+    int+=bal*(rate/365)*daysBetween(cursor,p.date);
     bal=Math.max(0,bal-(Number(p.amount)||0));
     cursor=p.date;
   }
-  int+=bal*(LOC_RATE/365)*daysBetween(cursor,end);
+  int+=bal*(rate/365)*daysBetween(cursor,end);
   return int;
 };
 const sameName=(a,b)=>!!a&&!!b&&String(a).trim().toLowerCase()===String(b).trim().toLowerCase();
@@ -11427,9 +11445,11 @@ function FinFunderModal({funder,onSave,onClose}){
   const[phone,setPhone]=useState(funder?.phone||"");
   const[email,setEmail]=useState(funder?.email||"");
   const[principal,setPrincipal]=useState("");
+  const[rate,setRate]=useState(funder&&funder.rate!=null?String(funder.rate):"");
   const save=()=>{
     const nm=name.trim();if(!nm)return;
-    const extra={address:address.trim(),phone:phone.trim(),email:email.trim()};
+    const r=Number(String(rate).replace(/[^0-9.]/g,""));
+    const extra={address:address.trim(),phone:phone.trim(),email:email.trim(),rate:r>0?r:null};
     if(editing){onSave({...funder,name:nm,notes:notes.trim(),...extra});}
     else{
       const ledger=[];const p=Number(numIn(principal));
@@ -11446,6 +11466,10 @@ function FinFunderModal({funder,onSave,onClose}){
       <div style={{display:"flex",gap:10}}>
         <div style={{flex:1,minWidth:0}}><div style={finLabel}>Phone</div><input value={phone} onChange={e=>setPhone(e.target.value)} type="tel" placeholder="Optional" style={finInput}/></div>
         <div style={{flex:1,minWidth:0}}><div style={finLabel}>Email</div><input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="Optional" style={finInput}/></div>
+      </div>
+      <div><div style={finLabel}>His default interest rate (%/yr)</div>
+        <input value={rate} onChange={e=>setRate(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" placeholder="15" style={finInput}/>
+        <div style={{fontSize:11,color:T.textTert,marginTop:4}}>Every loan of his uses this rate unless that one loan gets its own custom rate. Empty = the app default (15%).</div>
       </div>
       {!editing&&<div><div style={finLabel}>Initial principal (optional)</div><input value={principal} onChange={e=>setPrincipal(numIn(e.target.value))} inputMode="decimal" placeholder="e.g. 740000" style={finInput}/><div style={{fontSize:11,color:T.textTert,marginTop:4}}>Adds a first "Principal in" ledger entry. You can add more later.</div></div>}
       <div><div style={finLabel}>Notes</div><textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Terms, anything…" style={{...finInput,minHeight:60,resize:"vertical"}}/></div>
@@ -11483,6 +11507,18 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
   const[dateFunded,setDateFunded]=useState(draw?.dateFunded||new Date().toISOString().slice(0,10));
   const[paybackDate,setPaybackDate]=useState(draw?.paybackDate||"");
   const[note,setNote]=useState(draw?.note||"");
+  // 📜 Terms for this loan: the lender's default, or a custom rate for just this one.
+  const[customRate,setCustomRate]=useState(!!(draw&&Number(draw.rate)>0));
+  const[rate,setRate]=useState(draw&&Number(draw.rate)>0?String(draw.rate):"");
+  const {bankAccounts,draws:allDraws}=useData()||{};
+  const selFunder=funders.find(x=>String(x.id)===String(funderId));
+  const defRate=selFunder&&Number(selFunder.rate)>0?Number(selFunder.rate):15;
+  // 🏦 What this lender has held with us — the funding takes from it first.
+  const heldTotal=(bankAccounts||[]).reduce((t,b)=>t+(b.adjustments||[]).reduce((s,a)=>{
+    if(!isHeldAdj(a))return s;
+    const fid=heldAdjFunderId(a,allDraws);
+    return String(fid||"")===String(funderId||"")?s+Math.max(0,Number(a.amount)||0):s;
+  },0),0);
   const propOptions=[...new Set((properties||[]).map(p=>`${p.address}${p.city?`, ${p.city}`:""}`).filter(Boolean))].sort();
   const save=()=>{
     const a=Number(numIn(amount));if(!a||!funderId)return;
@@ -11494,6 +11530,8 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
       propertyId:match?match.id:(draw?.propertyId||null),
       propertyLabel:prop.trim(),
       funderId, funderName:f?.name||"",
+      rate:customRate&&Number(rate)>0?Number(rate):null,
+      funderRate:f&&Number(f.rate)>0?Number(f.rate):null,
       amount:a, dateFunded, paybackDate:paybackDate||null, note:note.trim(),
     });
     onClose();
@@ -11512,19 +11550,41 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
         </select>
       </div>
       <div><div style={finLabel}>Amount</div><input value={amount} onChange={e=>setAmount(numIn(e.target.value))} inputMode="decimal" placeholder="0" style={finInput}/></div>
+      {/* 🏦 The held-money split — his money already sitting with us covers it first */}
+      {!editing&&heldTotal>0.5&&Number(numIn(amount))>0&&(()=>{
+        const a=Number(numIn(amount));const fromHeld=Math.min(a,heldTotal);const after=Math.max(0,heldTotal-a);
+        return(
+          <div style={{background:"#F7F7F9",border:"1px solid #ECECEF",borderRadius:12,overflow:"hidden"}}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:8,padding:"8px 12px",fontSize:12}}><span style={{color:T.textSub}}>💰 {selFunder?.name||"His"} money held with us</span><b>{fmtD(heldTotal)}</b></div>
+            <div style={{display:"flex",justifyContent:"space-between",gap:8,padding:"8px 12px",fontSize:12,background:"#FDF9EE",borderTop:"2px solid #C9A227"}}><span style={{fontWeight:800,color:"#8a6d1f"}}>→ Comes out of the held money first</span><b style={{color:"#8a6d1f",fontSize:13.5}}>{fmtD(fromHeld)}</b></div>
+            <div style={{display:"flex",justifyContent:"space-between",gap:8,padding:"8px 12px",fontSize:12,background:"#EDFBF1",borderTop:"2px solid #0F9D58"}}><span style={{fontWeight:800,color:"#0F9D58"}}>Still held for him after this</span><b style={{color:"#0F9D58",fontSize:13.5}}>{fmtD(after)}</b></div>
+            {a>heldTotal&&<div style={{padding:"6px 12px 8px",fontSize:10.5,color:T.textTert,lineHeight:1.5}}>The extra {fmtD(a-heldTotal)} is a normal deployment — only the held part shrinks the Bank Recon line.</div>}
+          </div>
+        );
+      })()}
+      {/* 📜 Terms for this loan */}
+      <div>
+        <div style={finLabel}>Terms for this loan</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {[[false,`${selFunder?.name||"Lender"}'s default — ${defRate}%/yr`],[true,"✎ Custom for this loan"]].map(([v,l])=>{const on=customRate===v;return(
+            <button key={String(v)} onClick={()=>setCustomRate(v)} style={{padding:"7px 12px",borderRadius:16,border:on?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:on?T.goldLight:"#fff",color:on?"#8a6d1f":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+          );})}
+        </div>
+        {customRate&&<div style={{marginTop:8}}><input value={rate} onChange={e=>setRate(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" placeholder={`${defRate}`} style={finInput}/><div style={{fontSize:11,color:T.textTert,marginTop:4}}>%/yr — only this loan runs at this rate; his other loans stay at his default.</div></div>}
+      </div>
       <div style={{display:"flex",gap:10,flexDirection:isMobile?"column":"row"}}>
         <div style={{flex:1,minWidth:0}}><div style={finLabel}>Date funded</div><input type="date" value={dateFunded} onChange={e=>setDateFunded(e.target.value)} style={{...finInput,minHeight:44,WebkitAppearance:"none",appearance:"none"}}/></div>
         <div style={{flex:1,minWidth:0}}><div style={finLabel}>Payback date</div><input type="date" value={paybackDate} onChange={e=>setPaybackDate(e.target.value)} style={{...finInput,minHeight:44,WebkitAppearance:"none",appearance:"none"}}/></div>
       </div>
       <div style={{fontSize:11,color:T.textTert,marginTop:-4}}>Leave payback empty while the loan is open — interest accrues to today.</div>
       {(()=>{
-        const a=Number(numIn(amount));const prev={amount:a,dateFunded,paybackDate:paybackDate||null};
+        const a=Number(numIn(amount));const prev={amount:a,dateFunded,paybackDate:paybackDate||null,rate:customRate&&Number(rate)>0?Number(rate):null,funderRate:selFunder&&Number(selFunder.rate)>0?Number(selFunder.rate):null};
         const days=drawDays(prev);const int=drawInterest(prev);
         if(!a||!dateFunded)return null;
         const bad=(!!paybackDate&&new Date(paybackDate)<new Date(dateFunded));
         return(
           <div style={{background:bad?"#FFF0EF":T.goldLight,border:`1px solid ${bad?T.red:T.gold}`,borderRadius:10,padding:"10px 12px"}}>
-            <div style={{fontSize:13,color:bad?T.red:"#8a6d1f"}}><b>{days} day{days===1?"":"s"}</b> {paybackDate?"(funded → payback)":"(accruing to today)"} · interest <b>{fmtD(int)}</b> @ 15%/yr</div>
+            <div style={{fontSize:13,color:bad?T.red:"#8a6d1f"}}><b>{days} day{days===1?"":"s"}</b> {paybackDate?"(funded → payback)":"(accruing to today)"} · interest <b>{fmtD(int)}</b> @ {drawRatePct(prev)}%/yr</div>
             <div style={{fontSize:12,color:bad?T.red:"#8a6d1f",marginTop:2}}>Payoff (principal + interest): <b>{fmtD(a+int)}</b></div>
             {bad&&<div style={{fontSize:11,color:T.red,marginTop:3,fontWeight:600}}>Payback date is before the funded date — check the years.</div>}
           </div>
@@ -11634,7 +11694,7 @@ function FinRegisterImport({funder,onImport,onClose}){
 // the interest was reinvested (added to his balance) or paid out to him.
 // The four big choices are selectable chips — the tapped one lights up gold and a
 // plain sentence under them spells out exactly what will be recorded.
-function FinPaybackModal({draw,onConfirm,onPartial,onClose}){
+function FinPaybackModal({draw,funder,onConfirm,onPartial,onClose}){
   const[date,setDate]=useState(draw.paybackDate||new Date().toISOString().slice(0,10));
   const[partAmt,setPartAmt]=useState("");
   // "Pay back X only" and "hold Y only" land on the same principal/interest combo,
@@ -11693,17 +11753,27 @@ function FinPaybackModal({draw,onConfirm,onPartial,onClose}){
       footer={<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button disabled={mode==="part"&&!partOk} onClick={()=>{
         // ✂️ Partial: record a paydown — the loan stays open on the rest.
         if(mode==="part"){if(!partOk||!onPartial)return;onPartial({date,amount:partVal});onClose();return;}
-        // Optionally park the money that stays with us on a bank account —
-        // a positive "held" line so Bank Recon expects it there.
+        // Park the money that stays with us on a bank account — one LIVE held
+        // line per lender per account: holds add to it, deployments subtract.
         if(holdAcct&&heldSum>0&&setBankAccounts){
-          setBankAccounts(prev2=>(prev2||[]).map(b=>String(b.id)!==String(holdAcct)?b:{...b,adjustments:[...(b.adjustments||[]),{id:Date.now(),label:`Held — funder money (${draw.propertyLabel||"payback"})`,amount:Math.round(heldSum*100)/100}]}));
+          const at=new Date().toISOString();
+          const amt=Math.round(heldSum*100)/100;
+          const hnote=`held — payback ${draw.propertyLabel||""}`.trim();
+          setBankAccounts(prev2=>(prev2||[]).map(b=>{
+            if(String(b.id)!==String(holdAcct))return b;
+            const adjs=[...(b.adjustments||[])];
+            const i=funder?adjs.findIndex(a=>isHeldAdj(a)&&a.heldFunderId!=null&&String(a.heldFunderId)===String(funder.id)):-1;
+            if(i>=0){const a=adjs[i];adjs[i]={...a,amount:Math.round(((Number(a.amount)||0)+amt)*100)/100,borrows:[...(a.borrows||[]),{amount:amt,at,note:hnote}]};}
+            else adjs.push({id:Date.now(),label:`Held — funder money (${funder?funder.name:draw.propertyLabel||"payback"})`,amount:amt,heldFunderId:funder?funder.id:null,borrows:[{amount:amt,at,note:hnote}]});
+            return {...b,adjustments:adjs};
+          }));
           if(flushBank)setTimeout(flushBank,0);
         }
         onConfirm({paybackDate:date,principalHandling:principal,interestHandling:interest});onClose();
       }} style={{...finBtn(true),opacity:mode==="part"&&!partOk?0.5:1}}>{mode==="part"?"Record paydown":"Record payback"}</button></>}>
       <div><div style={finLabel}>{mode==="part"?"Paydown date":"Payback date"}</div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={finInput}/></div>
       <div style={{background:bad?"#FFF0EF":T.goldLight,border:`1px solid ${bad?T.red:T.gold}`,borderRadius:10,padding:"10px 12px",fontSize:13,color:bad?T.red:"#8a6d1f"}}>
-        Principal <b>{fmtD(pr)}</b> · <b>{days} day{days===1?"":"s"}</b> · interest <b>{fmtD(int)}</b> @ 15%/yr
+        Principal <b>{fmtD(pr)}</b> · <b>{days} day{days===1?"":"s"}</b> · interest <b>{fmtD(int)}</b> @ {drawRatePct(prev)}%/yr{Number(draw.rate)>0&&<span style={{fontSize:10.5,fontWeight:700}}> (custom for this loan)</span>}
         {paidSoFar>0&&<div style={{fontSize:11,marginTop:3}}>already paid down <b>{fmtD(paidSoFar)}</b> — original loan {fmtD(Number(draw.amount)||0)}; interest counted on each balance for its own days</div>}
         <div style={{marginTop:5,paddingTop:5,borderTop:"1px solid rgba(184,149,63,0.35)",fontSize:13.5}}>Total — principal + interest: <b style={{fontSize:15}}>{fmtD(pr+int)}</b></div>
         {bad&&<div style={{fontSize:11,fontWeight:600,marginTop:3}}>Payback date is before the funded date.</div>}
@@ -11792,7 +11862,7 @@ function FinPartialPayModal({draw,onConfirm,onClose}){
       {a>0&&!bad&&!over&&(
         <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px",fontSize:12.5,color:T.textSub,lineHeight:1.7}}>
           <div>Interest to this date on the <b>{fmtD(bal)}</b> balance: <b style={{color:T.gold}}>{fmtD(intToDate)}</b></div>
-          <div>New balance going forward: <b style={{color:T.text}}>{fmtD(newBal)}</b> <span style={{color:T.textTert}}>· accrues at 15%/yr from {finFmtDate(date)}</span></div>
+          <div>New balance going forward: <b style={{color:T.text}}>{fmtD(newBal)}</b> <span style={{color:T.textTert}}>· accrues at {drawRatePct(draw)}%/yr from {finFmtDate(date)}</span></div>
         </div>
       )}
       {bad&&<div style={{fontSize:11.5,color:T.red,fontWeight:600}}>Paydown date is before the funded date — check the year.</div>}
@@ -11816,7 +11886,8 @@ function FinPaybackPick({funder,draws,onPick,onClose}){
               <span style={{fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.propertyLabel||"—"}</span>
               <span style={{fontSize:13.5,fontWeight:800,color:T.text,flexShrink:0}}>{fmtD(pr+it)}</span>
             </div>
-            <div style={{display:"flex",gap:12,fontSize:11,color:T.textSub,marginTop:3,flexWrap:"wrap"}}>
+            <div style={{display:"flex",gap:"3px 12px",fontSize:11,color:T.textSub,marginTop:3,flexWrap:"wrap",alignItems:"center"}}>
+              <span style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",whiteSpace:"nowrap",...(Number(d.rate)>0?{background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9"}:{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0"})}}>{Number(d.rate)>0?`✎ ${drawRatePct(d)}% custom`:`${drawRatePct(d)}%`}</span>
               <span>principal <b style={{color:T.text}}>{fmtD(pr)}</b></span>
               <span>interest <b style={{color:T.gold}}>{fmtD(it)}</b></span>
               <span>{drawDays(d)} day{drawDays(d)===1?"":"s"}</span>
@@ -11854,6 +11925,7 @@ function FinPaybackAllPick({funders,draws,onPick,onClose}){
             </div>
             <div style={{display:"flex",gap:"3px 12px",fontSize:11,color:T.textSub,marginTop:3,flexWrap:"wrap",alignItems:"center"}}>
               <span style={{fontSize:10,fontWeight:800,background:T.goldLight,color:"#8a6d1f",borderRadius:9,padding:"2px 8px",whiteSpace:"nowrap"}}>{f.name}</span>
+              <span style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",whiteSpace:"nowrap",...(Number(d.rate)>0?{background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9"}:{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0"})}}>{Number(d.rate)>0?`✎ ${drawRatePct(d)}% custom`:`${drawRatePct(d)}%`}</span>
               <span>principal <b style={{color:T.text}}>{fmtD(pr)}</b></span>
               <span>interest <b style={{color:T.gold}}>{fmtD(it)}</b></span>
               <span>{drawDays(d)} day{drawDays(d)===1?"":"s"}</span>
@@ -12682,17 +12754,30 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
                   <option value="bridge">🌉 construction bridge — until the draw arrives</option>
                   <option value="none">not a loan — just tracked</option>
                 </select>;
-              const tagChip=(a.tag||a.linkKind==="bridge")&&<span style={{fontSize:8.5,fontWeight:800,borderRadius:8,padding:"2px 7px",background:a.linkKind==="bridge"?"#FDF9EE":a.tag==="Debt service"?"#EDE9FE":"#DBEAFE",color:a.linkKind==="bridge"?"#8a6d1f":a.tag==="Debt service"?"#6D28D9":"#2563EB",border:a.linkKind==="bridge"?"1px solid #EAD9A9":"none",whiteSpace:"nowrap",flexShrink:0}}>{a.linkKind==="bridge"?"🌉 BRIDGE":`${a.tag==="Debt service"?"🏦":"🏗"} ${a.tag.toUpperCase()}`}</span>;
+              const held=isHeldAdj(a);
+              const tagChip=(a.tag||a.linkKind==="bridge"||held)&&<span style={{fontSize:8.5,fontWeight:800,borderRadius:8,padding:"2px 7px",background:(a.linkKind==="bridge"||held)?"#FDF9EE":a.tag==="Debt service"?"#EDE9FE":"#DBEAFE",color:(a.linkKind==="bridge"||held)?"#8a6d1f":a.tag==="Debt service"?"#6D28D9":"#2563EB",border:(a.linkKind==="bridge"||held)?"1px solid #EAD9A9":"none",whiteSpace:"nowrap",flexShrink:0}}>{a.linkKind==="bridge"?"🌉 BRIDGE":held?"🏦 HELD":`${a.tag==="Debt service"?"🏦":"🏗"} ${a.tag.toUpperCase()}`}</span>;
+              // The held line's in-and-out history — every hold adds, every deployment subtracts.
+              const heldHist=held&&(a.borrows||[]).length>0&&(
+                <div style={{padding:"0 16px 8px",fontSize:10.5,color:T.textTert,lineHeight:1.8,background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
+                  {(a.borrows||[]).slice(-8).map((h,hi)=>(
+                    <div key={hi} style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><b style={{color:(Number(h.amount)||0)>=0?"#0F9D58":"#B45309"}}>{(Number(h.amount)||0)>=0?"+":"−"}{fmtD(Math.abs(Number(h.amount)||0))}</b> {h.note||""} · {finFmtDate(h.at)}</div>
+                  ))}
+                </div>
+              );
               const amt=<span style={{textAlign:"right",fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap",flexShrink:0,...(isMobile?{}:{width:92})}}>{fmtD(Number(a.amount)||0)}</span>;
               const del=canEdit&&<span style={{width:16,flexShrink:0,textAlign:"center"}}><button onClick={()=>delAdj(b.id,a.id)} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,padding:0}}>×</button></span>;
               const linkedTxt=!canEdit&&a.propertyId&&<span style={{fontSize:10,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {(props.find(pp=>String(pp.id)===String(a.propertyId))||{}).address||"linked"}</span>;
               return isMobile?(
-              <div key={a.id} style={{padding:"9px 14px",borderTop:ai===0?`1px solid ${T.border}`:"none",background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
+              <Fragment key={a.id}>
+              <div style={{padding:"9px 14px",borderTop:ai===0?`1px solid ${T.border}`:"none",background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>{editLbl}{tagChip}{amt}{del}</div>
                 {(dealSel||kindSel||linkedTxt)&&<div style={{display:"flex",gap:6,marginTop:6}}>{dealSel&&<span style={{flex:1,minWidth:0}}>{dealSel}</span>}{kindSel&&<span style={{flex:1,minWidth:0}}>{kindSel}</span>}{linkedTxt}</div>}
               </div>
+              {heldHist}
+              </Fragment>
               ):(
-              <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:ai===0?`1px solid ${T.border}`:"none",background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
+              <Fragment key={a.id}>
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:ai===0?`1px solid ${T.border}`:"none",background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
                 {editLbl}
                 {tagChip}
                 {canEdit
@@ -12702,6 +12787,8 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
                 {amt}
                 {del}
               </div>
+              {heldHist}
+              </Fragment>
               );
             })}
             {!canEdit?null:addAdjFor===b.id
@@ -14699,7 +14786,7 @@ const navBack=()=>{const f=gsNav.stack.pop();if(f)f();};
 const navCanBack=()=>gsNav.stack.length>0;
 
 function FinancialSectionPage({onNavigate,canEdit=true}){
-  const { funders, setFunders:rawSetFunders, flushFunders, draws, setDraws:rawSetDraws, flushDraws, sharedProps } = useData();
+  const { funders, setFunders:rawSetFunders, flushFunders, draws, setDraws:rawSetDraws, flushDraws, sharedProps, bankAccounts, setBankAccounts, flushBank } = useData();
   // View-only members: block every write path (setters become no-ops).
   const setFunders = canEdit ? rawSetFunders : ()=>{};
   const setDraws = canEdit ? rawSetDraws : ()=>{};
@@ -14726,12 +14813,40 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   const totals=list.reduce((acc,f)=>{const s=funderStats(f,draws);acc.capital+=s.capital;acc.deployed+=s.deployed;acc.interest+=s.interestOwed;acc.available+=s.available;return acc;},{capital:0,deployed:0,interest:0,available:0});
 
   const addFunder=(f)=>{setFunders(prev=>[...prev,f]);save();setSelId(f.id);};
-  const updateFunder=(f)=>{setFunders(prev=>prev.map(x=>String(x.id)===String(f.id)?f:x));save();};
+  // Editing a lender re-stamps his default rate onto his draws, so loans without
+  // a custom rate follow the new default (loans with their own rate keep it).
+  const updateFunder=(f)=>{
+    setFunders(prev=>prev.map(x=>String(x.id)===String(f.id)?f:x));
+    setDraws(prev=>prev.map(d=>(String(d.funderId)===String(f.id)||sameName(d.funderName,f.name))?{...d,funderName:f.name,funderRate:Number(f.rate)>0?Number(f.rate):null}:d));
+    save();
+  };
   const deleteFunder=(id)=>{if(!window.confirm("Delete this lender and its ledger? (Their draws stay, tagged by name.)"))return;setFunders(prev=>prev.filter(x=>String(x.id)!==String(id)));save();setSelId(null);};
   const addLedger=(funderId,entry)=>{setFunders(prev=>prev.map(x=>String(x.id)===String(funderId)?{...x,ledger:[...(x.ledger||[]),entry]}:x));save();};
   const addLedgerBulk=(funderId,entries)=>{if(!entries.length)return;setFunders(prev=>prev.map(x=>String(x.id)===String(funderId)?{...x,ledger:[...(x.ledger||[]),...entries]}:x));save();};
   const delLedger=(funderId,entryId)=>{setFunders(prev=>prev.map(x=>String(x.id)===String(funderId)?{...x,ledger:(x.ledger||[]).filter(e=>e.id!==entryId)}:x));save();};
-  const saveDraw=(d)=>{setDraws(prev=>prev.some(x=>x.id===d.id)?prev.map(x=>x.id===d.id?d:x):[...prev,d]);save();};
+  const saveDraw=(d)=>{
+    const isNew=!(draws||[]).some(x=>x.id===d.id);
+    setDraws(prev=>prev.some(x=>x.id===d.id)?prev.map(x=>x.id===d.id?d:x):[...prev,d]);
+    // 🏦 Deploying a lender's money takes from his held Bank-Recon lines first
+    // (oldest line first), each with a history entry — so the held number is
+    // always what's physically still sitting in the account.
+    if(isNew&&canEdit&&setBankAccounts){
+      let left=Number(d.amount)||0;
+      const at=new Date().toISOString();
+      setBankAccounts(prev=>(prev||[]).map(b=>({...b,adjustments:(b.adjustments||[]).map(a=>{
+        if(left<=0.5||!isHeldAdj(a))return a;
+        const fid=heldAdjFunderId(a,draws);
+        if(String(fid||"")!==String(d.funderId||"")||fid==null)return a;
+        const cur=Number(a.amount)||0;
+        if(cur<=0.5)return a;
+        const take=Math.min(cur,left);left-=take;
+        const f=(funders||[]).find(x=>String(x.id)===String(fid));
+        return {...a,heldFunderId:fid,label:f?`Held — funder money (${f.name})`:a.label,amount:Math.round((cur-take)*100)/100,borrows:[...(a.borrows||[]),{amount:-take,at,note:`deployed to ${d.propertyLabel||"a deal"}`}]};
+      })})));
+      if(flushBank)setTimeout(flushBank,0);
+    }
+    save();
+  };
   const delDraw=(id)=>{setDraws(prev=>prev.filter(x=>x.id!==id));save();};
   const markPaid=(d)=>{saveDraw({...d,paybackDate:new Date().toISOString().slice(0,10)});};
   // Store the payback date + interest decision on the draw itself, so it can be
@@ -14767,7 +14882,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
     const stat=(l,v,c)=>`<div class="stat"><div class="sl">${l}</div><div class="sv" style="color:${c||"#1C1C1E"}">${fmtD(v)}</div></div>`;
-    const rowOpen=(d)=>`<tr><td>${esc(d.propertyLabel||"—")}${drawPaid(d)>0?` <span style="color:#8A8A8E">(paid down from ${fmtD(d.amount)})</span>`:""}</td><td>${esc(finFmtDate(d.dateFunded))}</td><td>${drawDays(d)}d</td><td class="r">${fmtD(drawBalance(d))}</td><td class="r gold">${fmtD(drawInterest(d))}</td></tr>`;
+    const rowOpen=(d)=>`<tr><td>${esc(d.propertyLabel||"—")}${drawPaid(d)>0?` <span style="color:#8A8A8E">(paid down from ${fmtD(d.amount)})</span>`:""}</td><td>${esc(finFmtDate(d.dateFunded))}</td><td>${drawDays(d)}d @ ${drawRatePct(d)}%</td><td class="r">${fmtD(drawBalance(d))}</td><td class="r gold">${fmtD(drawInterest(d))}</td></tr>`;
     const rowPaid=(d)=>`<tr><td>${esc(d.propertyLabel||"—")}</td><td>${esc(finFmtDate(d.dateFunded))}</td><td>${esc(finFmtDate(d.paybackDate))}</td><td class="r">${fmtD(d.amount)}</td><td class="r gold">${fmtD(drawInterest(d))}</td></tr>`;
     const openRows=open.length?open.map(rowOpen).join(""):`<tr><td colspan="5" class="empty">None outstanding.</td></tr>`;
     const paidRows=paid.length?paid.map(rowPaid).join(""):`<tr><td colspan="5" class="empty">None yet.</td></tr>`;
@@ -14796,7 +14911,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       <table><thead><tr><th>Property</th><th>Funded</th><th>Days</th><th class="r">Amount</th><th class="r">Interest</th></tr></thead><tbody>${openRows}</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="r">${fmtD(openAmt)}</td><td class="r gold">${fmtD(openInt)}</td></tr></tfoot></table>
       <h2>Sold / paid-back properties — interest paid</h2>
       <table><thead><tr><th>Property</th><th>Funded</th><th>Paid back</th><th class="r">Amount</th><th class="r">Interest</th></tr></thead><tbody>${paidRows}</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="r">${fmtD(paidAmt)}</td><td class="r gold">${fmtD(paidInt)}</td></tr></tfoot></table>
-      <div class="foot">Interest accrues at 15% / yr, day-counted. Private &amp; confidential.</div>
+      <div class="foot">Interest accrues day-counted at each loan's own rate (default ${Number(f.rate)>0?f.rate:15}% / yr). Private &amp; confidential.</div>
     </body></html>`;
     const w=window.open("","_blank");
     if(!w){alert("Please allow pop-ups for this site to generate the report.");return;}
@@ -14926,7 +15041,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       {registerImport&&sel&&<FinRegisterImport funder={sel} onImport={(entries)=>addLedgerBulk(sel.id,entries)} onClose={()=>setRegisterImport(false)}/>}
       {paybackPick&&<FinPaybackPick funder={paybackPick} draws={draws} onPick={(d)=>{setPaybackPick(null);setPaybackModal(d);}} onClose={()=>setPaybackPick(null)}/>}
       {paybackAll&&<FinPaybackAllPick funders={list} draws={draws} onPick={(d)=>{setPaybackAll(false);setPaybackModal(d);}} onClose={()=>setPaybackAll(false)}/>}
-      {paybackModal&&<FinPaybackModal draw={paybackModal} onConfirm={(r)=>recordPayback(paybackModal,r)} onPartial={(r)=>addPartialPayment(paybackModal,r)} onClose={()=>setPaybackModal(null)}/>}
+      {paybackModal&&<FinPaybackModal draw={paybackModal} funder={list.find(f=>String(paybackModal.funderId)===String(f.id)||sameName(paybackModal.funderName,f.name))||null} onConfirm={(r)=>recordPayback(paybackModal,r)} onPartial={(r)=>addPartialPayment(paybackModal,r)} onClose={()=>setPaybackModal(null)}/>}
       {partialModal&&<FinPartialPayModal draw={partialModal} onConfirm={(r)=>addPartialPayment(partialModal,r)} onClose={()=>setPartialModal(null)}/>}
       {rowMenu&&(()=>{const acts=rowActions(rowMenu.ev);const W=200;const vw=typeof window!=="undefined"?window.innerWidth:400;const left=Math.max(8,Math.min(rowMenu.x-W,vw-W-8));return(
         <>
@@ -14986,7 +15101,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
               :<div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:T.textSub,padding:24,textAlign:"center"}}>
                 <div style={{width:60,height:60,borderRadius:16,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",color:T.gold}}>{ICONS.financials}</div>
                 <div style={{fontSize:16,fontWeight:700}}>Pick a lender</div>
-                <div style={{fontSize:13,color:T.textTert,maxWidth:340}}>See their capital ledger — principal, reinvested profit, payouts — and every property their money is in, with interest accruing at 15%.</div>
+                <div style={{fontSize:13,color:T.textTert,maxWidth:340}}>See their capital ledger — principal, reinvested profit, payouts — and every property their money is in, with interest accruing at each lender's own rate.</div>
               </div>}
           </div>
         </div>

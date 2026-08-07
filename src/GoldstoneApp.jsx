@@ -17002,10 +17002,25 @@ function PhonePopup({onClose}){
     (CONTACTS||[]).forEach(c=>{[c.phone,c.phone2,c.cell,c.mobile,c.altPhone,...(Array.isArray(c.phones)?c.phones:[])].filter(Boolean).forEach(x=>{const e=smsE164(String(x));if(e&&!m.has(e))m.set(e,{name:c.name||c.company||"",role:"contact",addr:""});});});
     (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
     // Leads added by hand in the Showings CRM win over everything — the team
-    // typed those names themselves, on the exact property they belong to.
-    (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&l.name)m.set(e,{name:l.name,role:l.buyer?"buyer":"lead",addr:String(pp.address||"").split(",")[0]});})));
+    // typed those names themselves. Same person on several properties → the
+    // most recently added lead names them.
+    const bestCl=new Map();
+    (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(!e||!l.name)return;const at=String(l.at||"");const prev=bestCl.get(e);if(!prev||at>prev.at)bestCl.set(e,{at,who:{name:l.name,role:l.buyer?"buyer":"lead",addr:String(pp.address||"").split(",")[0]}});})));
+    bestCl.forEach((v,e)=>m.set(e,v.who));
     return m;
   },[btAll,CONTACTS,showFeed,sharedProps]);
+  // Which properties is this number tied to? Most recent first — the row's
+  // gold line shows the first, "+N more" hints at the rest, and tapping the
+  // name opens the card with the full list.
+  const propsFor=useMemo(()=>{
+    const m=new Map();
+    const add=(ph,addr,at)=>{const e=smsE164(ph);if(!e||!addr)return;const a=String(addr).split(",")[0].trim();if(!a)return;let l=m.get(e);if(!l)m.set(e,l=[]);const key=a.toLowerCase();const hit=l.find(x=>x.key===key);const t=at?String(at):"";if(hit){if(t>hit.at)hit.at=t;}else l.push({key,addr:a,at:t});};
+    (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,s.location||s.summary||"",s.start)));
+    (btAll||[]).forEach(l=>{const pp=(sharedProps||[]).find(x=>btMatchesProperty(l,x));if(pp)add(l.phone,pp.address,l.createdAt);});
+    (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,pp.address,l.at))));
+    m.forEach(l=>l.sort((a,b)=>String(b.at).localeCompare(String(a.at))));
+    return m;
+  },[showFeed,btAll,sharedProps]);
   // Whose line is each extension? ext digits → owner ("elie"), for the tabs
   // and the little line chips. "Mine" = whoever the server matched me to.
   const extOwner=useMemo(()=>{const m={};Object.entries(jv.exts||{}).forEach(([k,v])=>{m[String(v)]=k;});return m;},[jv.exts]);
@@ -17092,6 +17107,7 @@ function PhonePopup({onClose}){
               {rows.map(m=>{
                 const p=smsE164(m.phone);
                 const w=who.get(p)||null;
+                const pl=propsFor.get(p)||[];
                 const name=(w&&w.name)||m.by||fmtCallPhone(m.phone);
                 const missed=!!m.missed&&m.direction==="call-in";
                 const out=m.direction==="call-out";
@@ -17102,7 +17118,8 @@ function PhonePopup({onClose}){
                     <span title={missed?"Missed call":out?"Outgoing call":"Incoming call"} style={{width:31,height:31,borderRadius:"50%",background:missed?"#FFE4D6":out?"#EFF6FF":"#EDFBF1",color:missed?"#C2410C":out?"#2563EB":"#15803D",fontSize:13,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{out?"↗":"↙"}</span>
                     <span onClick={()=>setPerson({phone:m.phone,name,who:w})} title="See who this is" style={{flex:1,minWidth:0,cursor:"pointer"}}>
                       <b style={{display:"block",fontSize:12.5,color:missed?"#C2410C":T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}{w&&w.role==="agent"?" · agent":w&&w.role==="buyer"?" · buyer":w&&w.role==="lead"?" · lead":""}</b>
-                      <span style={{display:"block",fontSize:10,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{status} · {callRel(m.at)}{name!==fmtCallPhone(m.phone)?` · ${fmtCallPhone(m.phone)}`:""}{w&&w.addr?` · ${w.addr}`:""}</span>
+                      {pl.length>0&&<span style={{display:"block",fontSize:10.5,fontWeight:700,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>🏠 {pl[0].addr}{pl.length>1&&<b style={{color:"#C9A227"}}> +{pl.length-1} more</b>}</span>}
+                      <span style={{display:"block",fontSize:10,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{status} · {callRel(m.at)}{name!==fmtCallPhone(m.phone)?` · ${fmtCallPhone(m.phone)}`:""}</span>
                     </span>
                     {(owner||m.ext)&&<span title={`Rang ${owner?cap(owner)+"'s":"ext "+m.ext} line`} style={{fontSize:9.5,fontWeight:800,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:9,padding:"2px 7px",flexShrink:0}}>{owner?cap(owner):`ext ${m.ext}`}</span>}
                     <CallA phone={m.phone} title="Call back" style={{...ico,background:"#0F9D58",border:"none",color:"#fff"}}>📞</CallA>

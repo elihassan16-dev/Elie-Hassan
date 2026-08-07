@@ -1,0 +1,25 @@
+# Goldstone Properties — working notes for Claude
+
+Production real-estate PWA for Elie Hassan (non-technical; voice-dictated messages, sends screenshots). React+Vite+Supabase, live at gpflips.com, auto-deploys from `main` on Vercel. Team: Elie (admin), Moshe, Esti (Estie Ungar, bookkeeper); contractors have a separate portal and must NEVER see admin texting/leads/financials.
+
+## How to ship (every change)
+1. Side branch from origin/main: `git checkout -b claude/<name> origin/main`
+2. Edit → `npx vite build` (must show "✓ built")
+3. Commit → push → PR via GitHub MCP → squash-merge immediately
+4. `git fetch origin main && git checkout claude/app-changes-continuation-ocrkls && git rebase origin/main && git push --force-with-lease` then delete the side branch.
+- UI redesigns: show an HTML mockup screenshot (playwright-core, executablePath /opt/pw-browsers/chromium, deviceScaleFactor 2 → SendUserFile display:render) and get approval BEFORE building.
+- Never put secrets in chat/code — Vercel env vars only. No model ids in commits/PRs.
+
+## Key architecture
+- `src/GoldstoneApp.jsx` (~15k lines): almost everything. `src/sms.jsx`: texting store (useSmsTexting, SmsThreadPane/Popup, CallTextCards). `api/jivetel/*`: send/webhook/calls (per-person tokens; JIVETEL_NUMBERS name→number; extensions 101 Elie /102 Moshe /103 Esti). `lib/showings.js`: ShowingTime multi-calendar feeds + 5-min watcher (new-showing alerts + follow-up reminders). `lib/jivetel.js`: identifyPhone/whoLabel (names+roles for notifications). `lib/notify.js`: notifyFanout (recipientsFirst, toTeam, pushOnly).
+- Showings page: By property / Hot leads / 👤 By agent (AgentsCrmView = CRM: chase chips, activity log + always-open SmsThreadPane column on desktop, 🤖 reply classifier → status suggestions, ☑ Select mass-text, 📣 Campaigns with campaign_sent dedupe log, 📅 follow-ups in app_settings id "followups", not-interested/badnum hidden).
+- Messages page: Team / Texts / All views (texts = SMS threads, tagged agent/buyer via whoMap, 📅 follow-up per row).
+- Financials: private-lender draws (drawRate: loan rate → funder default → 15%; hasRate treats 0 as real), held funder money (heldFunderId adjustments auto-shrink on new fundings), construction bridges (linkKind "bridge"), payback chips modal, auto "Reconcile line of credit" task to Esti on new fundings (task.locInfo popup).
+
+## Standing rules
+- Preview-before-build for UI; production hotfixes same side-branch flow.
+- Do NOT cancel Quo subscription decision = Elie's alone. PR #502 preview shipped (CRM). Tasks "By property" third view previewed but NOT approved/built.
+- Sort/behavior decisions Elie made are in git history — read recent commit messages for rationale.
+
+## NEXT TASK (approved, not yet built)
+📞 Phone popup: green 📞 icon in the top bar next to the ✨ assistant (desktop + PWA), red missed-call badge (clears on open). Popup = dial pad ("Call from my desk" via Jivetel click-to-call + "📲 Send to my cell" handoff) + named call history for all office lines (identifyPhone-style names/roles/property, missed/answered/outgoing + durations from the calls data in sms_messages kind:"call" and api/jivetel/calls.js store, filter tabs All/Mine/Moshe/Esti, per-row call-back + text). Admin/team only. Mockups approved: scratchpad fin-mock/dialer.html + dialtop.html.

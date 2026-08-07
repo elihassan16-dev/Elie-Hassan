@@ -639,7 +639,7 @@ export function TextA({ phone, style, title, onInApp, templates, onTemplate, chi
 // chips, and a composer that sends from the company line. Renders as the
 // popup card by default; `inline` makes it fill its parent (the always-open
 // conversation column in the Showings → By agent view).
-export function SmsThreadPane({ phone, name, templates = [], initialKind = null, sentStamps = {}, onClearStamp, onSent, onClose, inline = false }) {
+export function SmsThreadPane({ phone, name, sub = "", templates = [], initialKind = null, sentStamps = {}, onClearStamp, onSent, onClose, inline = false }) {
   const { from, threadFor, send } = useSmsTexting();
   const init = templates.find((t) => t.kind === initialKind);
   const [draft, setDraft] = useState(init ? init.text : "");
@@ -672,6 +672,7 @@ export function SmsThreadPane({ phone, name, templates = [], initialKind = null,
         <div style={{ padding: inline ? "10px 14px" : "13px 16px", borderBottom: `2px solid ${T.gold}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: inline ? 13.5 : 15, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 7 }}><SmsChatIcon size={15} color="#15803D" /> {name || phone}</div>
+            {sub && <div style={{ fontSize: 11, fontWeight: 700, color: "#8a6d1f", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>{sub}</div>}
             <div style={{ fontSize: 11, color: T.textSub }}>{phone} · from your business line {from}</div>
           </div>
           {onClose && <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>}

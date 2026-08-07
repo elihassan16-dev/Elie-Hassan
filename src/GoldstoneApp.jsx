@@ -13199,6 +13199,14 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const vS={fontWeight:700,color:T.text,whiteSpace:"nowrap"};
   const pinTag={fontSize:10.5,fontWeight:700,color:T.blue,maxWidth:250,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"};
   const chip=(on)=>({display:"inline-flex",alignItems:"center",gap:5,fontSize:10.5,fontWeight:700,borderRadius:13,padding:"3px 9px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",border:on?"1px solid #16A34A":`1px dashed ${T.border}`,color:on?"#15803D":T.blue,background:on?"#EDFBF1":"#fff",textTransform:"none",letterSpacing:0});
+  // Automation section — one grid for all rows so the Auto/＋ chips and amounts line up as columns
+  const agGrid={display:"grid",gridTemplateColumns:"minmax(0,1fr) auto auto",columnGap:8,alignItems:"center",fontSize:12};
+  const agName={color:T.textSub,padding:"7px 0",minWidth:0};
+  const agSub={fontSize:10.5,color:T.textSub,marginTop:1};
+  const agCtrl={display:"flex",gap:5,alignItems:"center",justifyContent:"flex-end",flexWrap:"wrap",padding:"7px 0"};
+  const agAmt={display:"flex",justifyContent:"flex-end",padding:"7px 0",minWidth:86};
+  const agFull={gridColumn:"1 / -1"};
+  const agRule={gridColumn:"1 / -1",borderTop:`1px dashed ${T.border}`};
   const jobTag=(p,key)=>{
     const j=jobOf(p,key);
     const st=j==="constr"?{background:"#FFEDD5",color:"#C2410C"}:j==="pot"?{background:"#F3E8FF",color:"#9333EA"}:{background:"#DBEAFE",color:T.blue};
@@ -13368,38 +13376,43 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                     <div key={l.id} style={{...rowS,paddingLeft:14}}><span style={lS}>✎ {l.label||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&removeChip(()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id)))}</span></div>
                   ))}
                   {manualFor==="draw"&&manualForm((nm,amt)=>updateProp(sel.id,"dmDrawCustom",[...(sel.dmDrawCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
-                </>):(<>
-                  <div style={rowS}><span style={lS}><b>🧾 Debt service</b> — interest payments
-                    {canEdit&&(sel.qbProjectId?<button onClick={()=>updateProp(sel.id,"qbDebtAuto",!sel.qbDebtAuto)} title="Pins this property's debt service automatically every month" style={chip(!!sel.qbDebtAuto)}>{sel.qbDebtAuto?"✓ Auto":"Auto?"}</button>:<span style={{fontSize:10.5,color:T.textTert}}>link the QB project for auto</span>)}
+                </>):(<div style={agGrid}>
+                  <div style={agName}><b>🧾 Debt service</b><div style={agSub}>interest payments</div></div>
+                  <div style={agCtrl}>
+                    {canEdit&&(sel.qbProjectId?<button onClick={()=>updateProp(sel.id,"qbDebtAuto",!sel.qbDebtAuto)} title="Pins this property's debt service automatically every month" style={chip(!!sel.qbDebtAuto)}>{sel.qbDebtAuto?"✓ Auto":"Auto?"}</button>:<span style={{fontSize:10.5,color:T.textTert,textAlign:"right"}}>link the QB project for auto</span>)}
                     {canEdit&&!sel.qbDebtAuto&&sel.qbProjectId&&<button onClick={()=>setTxPick({propId:sel.id,kind:"debt",src:sel.qbProjectId})} style={chip(false)}>📌 Pin</button>}
-                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="debt"?null:"debt");}} style={chip(false)}>＋</button>}</span>
-                    <span style={{display:"flex",gap:6,alignItems:"center"}}>
-                      {((sel.qbDebtTxns||[]).length>0||(sel.qbDebtCustom||[]).length>0)&&<button onClick={()=>setPinsOpen({field:"qbDebtTxns",title:"Debt service — payments"})} style={chip(true)}>✓ {money(c.paid)} ›</button>}
-                    </span></div>
-                  {sel.qbDebtAuto&&(sel.qbDebtExcluded||[]).length>0&&<div style={{fontSize:10.5,color:T.textTert,margin:"2px 0 0 14px"}}>⊘ {(sel.qbDebtExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"qbDebtExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>}
-                  {manualFor==="debt"&&manualForm((nm,amt)=>updateProp(sel.id,"qbDebtCustom",[...(sel.qbDebtCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
-                  <div style={rowS}><span style={lS}><b>🔨 Rehab paid out</b>
-                    {canEdit&&(sel.qbProjectId?<button onClick={()=>updateProp(sel.id,"dmRehabAuto",!sel.dmRehabAuto)} style={chip(!!sel.dmRehabAuto)}>{sel.dmRehabAuto?"✓ Auto":"Auto?"}</button>:<span style={{fontSize:10.5,color:T.textTert}}>link the QB project for auto</span>)}
+                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="debt"?null:"debt");}} style={chip(false)}>＋</button>}</div>
+                  <div style={agAmt}>
+                    {((sel.qbDebtTxns||[]).length>0||(sel.qbDebtCustom||[]).length>0)&&<button onClick={()=>setPinsOpen({field:"qbDebtTxns",title:"Debt service — payments"})} style={chip(true)}>✓ {money(c.paid)} ›</button>}
+                  </div>
+                  {sel.qbDebtAuto&&(sel.qbDebtExcluded||[]).length>0&&<div style={{...agFull,fontSize:10.5,color:T.textTert,margin:"0 0 6px 14px"}}>⊘ {(sel.qbDebtExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"qbDebtExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>}
+                  {manualFor==="debt"&&<div style={agFull}>{manualForm((nm,amt)=>updateProp(sel.id,"qbDebtCustom",[...(sel.qbDebtCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}</div>}
+                  <div style={agRule}/>
+                  <div style={agName}><b>🔨 Rehab paid out</b></div>
+                  <div style={agCtrl}>
+                    {canEdit&&(sel.qbProjectId?<button onClick={()=>updateProp(sel.id,"dmRehabAuto",!sel.dmRehabAuto)} style={chip(!!sel.dmRehabAuto)}>{sel.dmRehabAuto?"✓ Auto":"Auto?"}</button>:<span style={{fontSize:10.5,color:T.textTert,textAlign:"right"}}>link the QB project for auto</span>)}
                     {canEdit&&!sel.dmRehabAuto&&sel.qbProjectId&&<button onClick={()=>setTxPick({propId:sel.id,kind:"cspent",src:sel.qbProjectId})} style={chip(false)}>📌 Pin</button>}
-                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="cspent"?null:"cspent");}} style={chip(false)}>＋</button>}</span>
-                    <span style={{display:"flex",gap:6,alignItems:"center"}}>
-                      {((sel.dmConstrSpentTxns||[]).length>0||(sel.dmConstrSpentCustom||[]).length>0)&&<button onClick={()=>setPinsOpen({field:"dmConstrSpentTxns",title:"Rehab paid out — pinned"})} style={chip(true)}>✓ {money(c.constrSpent)} ›</button>}
-                    </span></div>
-                  {sel.dmRehabAuto&&(sel.dmRehabExcluded||[]).length>0&&<div style={{fontSize:10.5,color:T.textTert,margin:"2px 0 0 14px"}}>⊘ {(sel.dmRehabExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"dmRehabExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>}
-                  {manualFor==="cspent"&&manualForm((nm,amt)=>updateProp(sel.id,"dmConstrSpentCustom",[...(sel.dmConstrSpentCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}
-                  <div style={rowS}><span style={lS}><b>🏦 Draws</b> — credits that raise the mortgage
+                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="cspent"?null:"cspent");}} style={chip(false)}>＋</button>}</div>
+                  <div style={agAmt}>
+                    {((sel.dmConstrSpentTxns||[]).length>0||(sel.dmConstrSpentCustom||[]).length>0)&&<button onClick={()=>setPinsOpen({field:"dmConstrSpentTxns",title:"Rehab paid out — pinned"})} style={chip(true)}>✓ {money(c.constrSpent)} ›</button>}
+                  </div>
+                  {sel.dmRehabAuto&&(sel.dmRehabExcluded||[]).length>0&&<div style={{...agFull,fontSize:10.5,color:T.textTert,margin:"0 0 6px 14px"}}>⊘ {(sel.dmRehabExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"dmRehabExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>}
+                  {manualFor==="cspent"&&<div style={agFull}>{manualForm((nm,amt)=>updateProp(sel.id,"dmConstrSpentCustom",[...(sel.dmConstrSpentCustom||[]),{id:Date.now(),label:nm||"Manual",amount:amt}]))}</div>}
+                  <div style={agRule}/>
+                  <div style={agName}><b>🏦 Draws</b><div style={agSub}>credits that raise the mortgage</div></div>
+                  <div style={agCtrl}>
                     {canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawAuto",!sel.dmDrawAuto)} title="Every credit that raises the mortgage counts as a draw automatically" style={chip(!!sel.dmDrawAuto)}>{sel.dmDrawAuto?"✓ Auto":"Auto?"}</button>}
                     {canEdit&&!sel.dmDrawAuto&&bankEntries.map(e=>(
                       <button key={e.key} onClick={()=>setTxPick({propId:sel.id,kind:"draw",src:e.key})} title={`Pin draws from ${e.name}`} style={chip(false)}>📌 Pin{bankEntries.length>1?` (${e.name.split(":").pop().trim().slice(0,12)}…)`:""}</button>
                     ))}
-                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="draw"?null:"draw");}} style={chip(false)}>＋</button>}</span>
-                    <span style={{display:"flex",gap:6,alignItems:"center"}}>
-                      {((sel.qbDrawTxns||[]).length>0||(sel.dmDrawCustom||[]).length>0)&&<button onClick={()=>setPinsOpen({field:"qbDrawTxns",title:"Draws received — pinned"})} style={chip(true)}>✓ {money(c.draws)} ›</button>}
-                    </span></div>
-                  {sel.dmDrawAuto&&(sel.dmDrawExcluded||[]).length>0&&<div style={{fontSize:10.5,color:T.textTert,margin:"2px 0 0 14px"}}>⊘ {(sel.dmDrawExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"dmDrawExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>}
-                  {manualFor==="draw"&&manualForm((nm,amt)=>updateProp(sel.id,"dmDrawCustom",[...(sel.dmDrawCustom||[]),{id:Date.now(),label:nm||"Manual draw",amount:amt}]))}
-                  <div style={{fontSize:10.5,color:T.textTert,marginTop:8,lineHeight:1.5}}>With ✓ Auto on, QuickBooks keeps each list current by itself — tap ⊘ on any transaction (in the popups or the activity feed) to exclude it.</div>
-                </>)}
+                    {canEdit&&<button onClick={()=>{setManualFor(manualFor==="draw"?null:"draw");}} style={chip(false)}>＋</button>}</div>
+                  <div style={agAmt}>
+                    {((sel.qbDrawTxns||[]).length>0||(sel.dmDrawCustom||[]).length>0)&&<button onClick={()=>setPinsOpen({field:"qbDrawTxns",title:"Draws received — pinned"})} style={chip(true)}>✓ {money(c.draws)} ›</button>}
+                  </div>
+                  {sel.dmDrawAuto&&(sel.dmDrawExcluded||[]).length>0&&<div style={{...agFull,fontSize:10.5,color:T.textTert,margin:"0 0 6px 14px"}}>⊘ {(sel.dmDrawExcluded||[]).length} excluded — <button onClick={()=>updateProp(sel.id,"dmDrawExcluded",[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring them back</button></div>}
+                  {manualFor==="draw"&&<div style={agFull}>{manualForm((nm,amt)=>updateProp(sel.id,"dmDrawCustom",[...(sel.dmDrawCustom||[]),{id:Date.now(),label:nm||"Manual draw",amount:amt}]))}</div>}
+                  <div style={{...agFull,fontSize:10.5,color:T.textTert,marginTop:8,lineHeight:1.5}}>With ✓ Auto on, QuickBooks keeps each list current by itself — tap ⊘ on any transaction (in the popups or the activity feed) to exclude it.</div>
+                </div>)}
               </div>)}
               {setupStep===5&&(<div style={secBox}>
                 <div style={h}>🏛 Where the money sits — for Bank Recon</div>

@@ -11634,8 +11634,9 @@ function FinRegisterImport({funder,onImport,onClose}){
 // the interest was reinvested (added to his balance) or paid out to him.
 // The four big choices are selectable chips — the tapped one lights up gold and a
 // plain sentence under them spells out exactly what will be recorded.
-function FinPaybackModal({draw,onConfirm,onClose}){
+function FinPaybackModal({draw,onConfirm,onPartial,onClose}){
   const[date,setDate]=useState(draw.paybackDate||new Date().toISOString().slice(0,10));
+  const[partAmt,setPartAmt]=useState("");
   // "Pay back X only" and "hold Y only" land on the same principal/interest combo,
   // so track the choice the user actually tapped (mode + holdWhat) for the display.
   const comboMode=(p,i)=>p==="keep"&&i==="distribute"?"int":p==="withdraw"&&i==="reinvest"?"prin":p==="withdraw"&&i==="distribute"?"both":p==="keep"&&i==="reinvest"?"hold":null;
@@ -11647,29 +11648,39 @@ function FinPaybackModal({draw,onConfirm,onClose}){
   const[showAdv,setShowAdv]=useState(false);
   const[holdAcct,setHoldAcct]=useState(""); // optional: which bank account holds the money that stays
   const {bankAccounts,setBankAccounts,flushBank}=useData()||{};
-  const prev={amount:Number(draw.amount)||0,dateFunded:draw.dateFunded,paybackDate:date};
+  // Keep the FULL draw (with its partial-payback history) so the interest is the
+  // real tiered calc — the bigger balance accrues only until each paydown, the
+  // smaller balance after it. Only the payback date is overridden.
+  const prev={...draw,paybackDate:date};
+  const pr=drawBalance(prev), paidSoFar=drawPaid(prev);
   const days=drawDays(prev), int=drawInterest(prev);
   // Money that STAYS with the company (kept principal + reinvested interest)
   // physically sits in one of the bank accounts — track which one so Bank
   // Recon expects it there.
-  const heldSum=(principal==="keep"?prev.amount:0)+(interest==="reinvest"?int:0);
+  const heldSum=(principal==="keep"?pr:0)+(interest==="reinvest"?int:0);
+  const partVal=Number(numIn(partAmt))||0;
+  const partOver=partVal>pr+0.5;
+  const partOk=partVal>0&&!partOver;
   const bad=new Date(date)<new Date(draw.dateFunded||date);
   const applyHold=(w)=>{setHoldWhat(w);if(w==="prin"){setPrincipal("keep");setInterest("distribute");}else if(w==="int"){setPrincipal("withdraw");setInterest("reinvest");}else{setPrincipal("keep");setInterest("reinvest");}};
   const acctName=holdAcct?((bankAccounts||[]).find(b=>String(b.id)===String(holdAcct))||{}).name:"";
   const sentence=(()=>{
+    if(mode==="part")return partVal>0
+      ?`Paying back ${fmtD(partVal)} now — it comes off the principal. The loan stays open on ${fmtD(Math.max(0,pr-partVal))}, and interest keeps counting on the smaller balance from ${finFmtDate(date)} forward.`
+      :`Put in how much he's getting back — it comes off the principal, and the loan stays open on the rest with interest re-tiering from that date.`;
     if(interest==="leave")return principal==="withdraw"
-      ?`Paying back the ${fmtD(prev.amount)} principal — no interest entry is recorded.`
-      :`The ${fmtD(prev.amount)} principal stays on his balance — no interest entry is recorded.`;
+      ?`Paying back the ${fmtD(pr)} principal — no interest entry is recorded.`
+      :`The ${fmtD(pr)} principal stays on his balance — no interest entry is recorded.`;
     if(mode==="hold")return holdWhat==="prin"
-      ?`Holding the ${fmtD(prev.amount)} principal with us — the ${fmtD(int)} interest is paid out to him.`
+      ?`Holding the ${fmtD(pr)} principal with us — the ${fmtD(int)} interest is paid out to him.`
       :holdWhat==="int"
-      ?`Holding the ${fmtD(int)} interest on his balance — the ${fmtD(prev.amount)} principal is paid back to him.`
-      :`Holding ${fmtD(prev.amount+int)} for him — nothing paid out; it all stays on his balance.`;
-    if(mode==="int")return `Paying out the ${fmtD(int)} interest — the ${fmtD(prev.amount)} principal stays on his balance to redeploy.`;
-    if(mode==="prin")return `Paying back the ${fmtD(prev.amount)} principal — the ${fmtD(int)} interest is reinvested onto his balance.`;
-    if(mode==="both")return `Paying back everything — ${fmtD(prev.amount+int)} out the door (${fmtD(prev.amount)} principal + ${fmtD(int)} interest); the loan settles in full.`;
+      ?`Holding the ${fmtD(int)} interest on his balance — the ${fmtD(pr)} principal is paid back to him.`
+      :`Holding ${fmtD(pr+int)} for him — nothing paid out; it all stays on his balance.`;
+    if(mode==="int")return `Paying out the ${fmtD(int)} interest — the ${fmtD(pr)} principal stays on his balance to redeploy.`;
+    if(mode==="prin")return `Paying back the ${fmtD(pr)} principal — the ${fmtD(int)} interest is reinvested onto his balance.`;
+    if(mode==="both")return `Paying back everything — ${fmtD(pr+int)} out the door (${fmtD(pr)} principal + ${fmtD(int)} interest); the loan settles in full.`;
     return `Custom split — principal ${principal==="keep"?"stays with us":"paid back"}, interest ${interest==="reinvest"?"reinvested":"paid out"}.`;
-  })()+(heldSum>0&&acctName?` Bank Recon expects the ${fmtD(heldSum)} in ${acctName}.`:"");
+  })()+(mode!=="part"&&heldSum>0&&acctName?` Bank Recon expects the ${fmtD(heldSum)} in ${acctName}.`:"");
   // Advanced radios keep the chips honest: changing one re-derives which chip lights.
   const radio=(cur,set,opts,name)=>opts.map(([v,l])=>(
     <label key={v} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 4px",cursor:"pointer"}}>
@@ -11679,7 +11690,9 @@ function FinPaybackModal({draw,onConfirm,onClose}){
   ));
   return(
     <FinModal title={`Record payback — ${draw.propertyLabel||"draw"}`} onClose={onClose}
-      footer={<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button onClick={()=>{
+      footer={<><button onClick={onClose} style={finBtn(false)}>Cancel</button><button disabled={mode==="part"&&!partOk} onClick={()=>{
+        // ✂️ Partial: record a paydown — the loan stays open on the rest.
+        if(mode==="part"){if(!partOk||!onPartial)return;onPartial({date,amount:partVal});onClose();return;}
         // Optionally park the money that stays with us on a bank account —
         // a positive "held" line so Bank Recon expects it there.
         if(holdAcct&&heldSum>0&&setBankAccounts){
@@ -11687,27 +11700,36 @@ function FinPaybackModal({draw,onConfirm,onClose}){
           if(flushBank)setTimeout(flushBank,0);
         }
         onConfirm({paybackDate:date,principalHandling:principal,interestHandling:interest});onClose();
-      }} style={finBtn(true)}>Record payback</button></>}>
-      <div><div style={finLabel}>Payback date</div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={finInput}/></div>
+      }} style={{...finBtn(true),opacity:mode==="part"&&!partOk?0.5:1}}>{mode==="part"?"Record paydown":"Record payback"}</button></>}>
+      <div><div style={finLabel}>{mode==="part"?"Paydown date":"Payback date"}</div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={finInput}/></div>
       <div style={{background:bad?"#FFF0EF":T.goldLight,border:`1px solid ${bad?T.red:T.gold}`,borderRadius:10,padding:"10px 12px",fontSize:13,color:bad?T.red:"#8a6d1f"}}>
-        Principal <b>{fmtD(prev.amount)}</b> · <b>{days} day{days===1?"":"s"}</b> · interest <b>{fmtD(int)}</b> @ 15%/yr
-        <div style={{marginTop:5,paddingTop:5,borderTop:"1px solid rgba(184,149,63,0.35)",fontSize:13.5}}>Total — principal + interest: <b style={{fontSize:15}}>{fmtD(prev.amount+int)}</b></div>
+        Principal <b>{fmtD(pr)}</b> · <b>{days} day{days===1?"":"s"}</b> · interest <b>{fmtD(int)}</b> @ 15%/yr
+        {paidSoFar>0&&<div style={{fontSize:11,marginTop:3}}>already paid down <b>{fmtD(paidSoFar)}</b> — original loan {fmtD(Number(draw.amount)||0)}; interest counted on each balance for its own days</div>}
+        <div style={{marginTop:5,paddingTop:5,borderTop:"1px solid rgba(184,149,63,0.35)",fontSize:13.5}}>Total — principal + interest: <b style={{fontSize:15}}>{fmtD(pr+int)}</b></div>
         {bad&&<div style={{fontSize:11,fontWeight:600,marginTop:3}}>Payback date is before the funded date.</div>}
       </div>
-      {/* The four big choices — chips that visibly light up when tapped */}
+      {/* The big choices — chips that visibly light up when tapped */}
       <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
         {[["int","💵 Interest only back",()=>{setPrincipal("keep");setInterest("distribute");}],
           ["prin","💵 Principal only back",()=>{setPrincipal("withdraw");setInterest("reinvest");}],
           ["both","💵 Principal + interest back",()=>{setPrincipal("withdraw");setInterest("distribute");}],
-          ["hold","🏦 Hold it with us",()=>applyHold(holdWhat)]].map(([m,l,fn])=>{const on=mode===m;return(
+          ["hold","🏦 Hold it with us",()=>applyHold(holdWhat)],
+          ...(onPartial&&!draw.paybackDate?[["part","✂️ Partial — some of it",()=>{}]]:[])].map(([m,l,fn])=>{const on=mode===m;return(
           <button key={m} onClick={()=>{setMode(m);fn();}} style={{padding:"8px 13px",borderRadius:20,border:on?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:on?T.goldLight:"#fff",color:on?"#8a6d1f":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
         );})}
       </div>
+      {mode==="part"&&(
+        <div style={{background:"#fff",border:`1px solid ${partOver?T.red:T.border}`,borderRadius:11,padding:"9px 12px"}}>
+          <div style={{fontSize:10.5,fontWeight:800,color:T.textTert,letterSpacing:"0.04em",textTransform:"uppercase"}}>How much is he getting back now?</div>
+          <input autoFocus value={partAmt} onChange={e=>setPartAmt(numIn(e.target.value))} inputMode="decimal" placeholder="$ amount" style={{...finInput,marginTop:6,minHeight:44}}/>
+          {partOver&&<div style={{fontSize:11,fontWeight:600,color:T.red,marginTop:4}}>That's more than the {fmtD(pr)} outstanding — for a full payoff use “Principal + interest back.”</div>}
+        </div>
+      )}
       {mode==="hold"&&(
         <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:11,padding:"9px 12px"}}>
           <div style={{fontSize:10.5,fontWeight:800,color:T.textTert,letterSpacing:"0.04em",textTransform:"uppercase"}}>What are we holding?</div>
           <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
-            {[["prin","Principal only",prev.amount],["int","Interest only",int],["both",`Both — ${fmtD(prev.amount+int)}`,0]].map(([w,l])=>{const on=holdWhat===w;return(
+            {[["prin","Principal only",pr],["int","Interest only",int],["both",`Both — ${fmtD(pr+int)}`,0]].map(([w,l])=>{const on=holdWhat===w;return(
               <button key={w} onClick={()=>applyHold(w)} style={{padding:"6px 11px",borderRadius:16,border:on?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:on?T.goldLight:"#fff",color:on?"#8a6d1f":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
             );})}
           </div>
@@ -11715,16 +11737,16 @@ function FinPaybackModal({draw,onConfirm,onClose}){
       )}
       {mode&&<div style={{background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:11,padding:"9px 12px",fontSize:12.5,color:"#8a6d1f",lineHeight:1.6}}>{sentence}</div>}
       {/* Fine-tune radios live under Advanced — the chips cover the normal cases */}
-      <button onClick={()=>setShowAdv(v=>!v)} style={{background:"none",border:"none",color:T.textTert,fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left",padding:"0 2px"}}>{showAdv?"▾":"›"} Advanced — fine-tune principal / interest</button>
-      {showAdv&&<>
-        <div><div style={finLabel}>The principal ({fmtD(prev.amount)})…</div>
+      {mode!=="part"&&<button onClick={()=>setShowAdv(v=>!v)} style={{background:"none",border:"none",color:T.textTert,fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left",padding:"0 2px"}}>{showAdv?"▾":"›"} Advanced — fine-tune principal / interest</button>}
+      {mode!=="part"&&showAdv&&<>
+        <div><div style={finLabel}>The principal ({fmtD(pr)})…</div>
           {radio(principal,setPrincipal,[["keep","Stays in his balance (available to redeploy)"],["withdraw","Paid back to him — a withdrawal"]],"pp")}
         </div>
         <div><div style={finLabel}>The interest ({fmtD(int)})…</div>
           {radio(interest,setInterest,[["reinvest","Reinvested — added to his balance"],["distribute","Paid out to him (his profit)"],["leave","No interest entry"]],"pi")}
         </div>
       </>}
-      {heldSum>0&&(bankAccounts||[]).length>0&&(
+      {mode!=="part"&&heldSum>0&&(bankAccounts||[]).length>0&&(
         <div>
           <div style={{background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:9,padding:"7px 11px",fontSize:12,color:"#8a6d1f",fontWeight:700,marginBottom:8}}>
             🏦 You're holding {principal==="keep"&&interest==="reinvest"?"principal + interest":principal==="keep"?"the principal only":"the interest only"} — {fmtD(heldSum)}
@@ -14904,7 +14926,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       {registerImport&&sel&&<FinRegisterImport funder={sel} onImport={(entries)=>addLedgerBulk(sel.id,entries)} onClose={()=>setRegisterImport(false)}/>}
       {paybackPick&&<FinPaybackPick funder={paybackPick} draws={draws} onPick={(d)=>{setPaybackPick(null);setPaybackModal(d);}} onClose={()=>setPaybackPick(null)}/>}
       {paybackAll&&<FinPaybackAllPick funders={list} draws={draws} onPick={(d)=>{setPaybackAll(false);setPaybackModal(d);}} onClose={()=>setPaybackAll(false)}/>}
-      {paybackModal&&<FinPaybackModal draw={paybackModal} onConfirm={(r)=>recordPayback(paybackModal,r)} onClose={()=>setPaybackModal(null)}/>}
+      {paybackModal&&<FinPaybackModal draw={paybackModal} onConfirm={(r)=>recordPayback(paybackModal,r)} onPartial={(r)=>addPartialPayment(paybackModal,r)} onClose={()=>setPaybackModal(null)}/>}
       {partialModal&&<FinPartialPayModal draw={partialModal} onConfirm={(r)=>addPartialPayment(partialModal,r)} onClose={()=>setPartialModal(null)}/>}
       {rowMenu&&(()=>{const acts=rowActions(rowMenu.ev);const W=200;const vw=typeof window!=="undefined"?window.innerWidth:400;const left=Math.max(8,Math.min(rowMenu.x-W,vw-W-8));return(
         <>

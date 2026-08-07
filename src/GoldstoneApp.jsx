@@ -11392,7 +11392,7 @@ function FinModal({title,onClose,children,footer}){
           <div style={{fontSize:14,fontWeight:700,color:T.gold}}>{title}</div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
-        <div style={{padding:16,overflowY:"auto",display:"flex",flexDirection:"column",gap:12}}>{children}</div>
+        <div style={{padding:16,overflowY:"auto",minHeight:0,WebkitOverflowScrolling:"touch",display:"flex",flexDirection:"column",gap:12}}>{children}</div>
         {footer&&<div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end"}}>{footer}</div>}
       </div>
     </div>
@@ -11793,14 +11793,21 @@ function FinPaybackPick({funder,draws,onPick,onClose}){
 // row per property with the lender tagged on it — no need to remember who funded
 // what. Tap a row to open the payback options for that loan.
 function FinPaybackAllPick({funders,draws,onPick,onClose}){
+  const[q,setQ]=useState("");
+  const term=q.trim().toLowerCase();
   const open=(funders||[]).flatMap(f=>funderStats(f,draws).open.map(d=>({d,f})))
     .sort((a,b)=>String(a.d.propertyLabel||"").localeCompare(String(b.d.propertyLabel||""))||String(a.d.dateFunded||"").localeCompare(String(b.d.dateFunded||"")));
+  const shown=term?open.filter(({d,f})=>`${d.propertyLabel||""} ${f.name||""}`.toLowerCase().includes(term)):open;
   return(
     <FinModal title="↩ Pay back a loan" onClose={onClose}
       footer={<button onClick={onClose} style={finBtn(false)}>Close</button>}>
       <div style={{fontSize:12.5,color:T.textSub,marginTop:-4}}>{open.length===0?"No outstanding loans — everything is settled up.":`${open.length} outstanding loan${open.length===1?"":"s"} — tap the property you're settling.`}</div>
-      {open.length>0&&<div style={{border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden"}}>
-        {open.map(({d,f},i)=>{const pr=drawBalance(d),it=drawInterest(d);return(
+      {open.length>0&&<div style={{position:"sticky",top:-16,zIndex:1,background:"#fff",padding:"4px 0",margin:"-8px 0"}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="🔎 Search property or lender…" style={{width:"100%",padding:"10px 12px",borderRadius:10,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
+      </div>}
+      {term&&shown.length===0&&open.length>0&&<div style={{fontSize:12.5,color:T.textTert,textAlign:"center",padding:"10px 0"}}>No open loans match "{q.trim()}".</div>}
+      {shown.length>0&&<div style={{border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden"}}>
+        {shown.map(({d,f},i)=>{const pr=drawBalance(d),it=drawInterest(d);return(
           <div key={d.id} onClick={()=>onPick(d)} style={{padding:"11px 14px",borderTop:i?`1px solid ${T.border}`:"none",cursor:"pointer",background:T.card}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
               <span style={{fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{d.propertyLabel||"—"}</span>

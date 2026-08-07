@@ -16972,7 +16972,7 @@ const callRel=(iso)=>{const t=new Date(iso).getTime();if(isNaN(t))return "";cons
 function PhonePopup({onClose}){
   const{connected,msgs}=useSmsTexting();
   const jv=useJivetelCall();
-  const{contacts:CONTACTS}=useData();
+  const{contacts:CONTACTS,sharedProps}=useData();
   const btAll=useBtLeads();
   const[view,setView]=useState("recents"); // recents | keypad
   const[filter,setFilter]=useState("all");
@@ -16990,8 +16990,11 @@ function PhonePopup({onClose}){
     (btAll||[]).forEach(l=>{const e=smsE164(l.phone);if(e&&!m.has(e))m.set(e,{name:l.name||"",role:"buyer",addr:""});});
     (CONTACTS||[]).forEach(c=>{[c.phone,c.phone2,c.cell,c.mobile,c.altPhone,...(Array.isArray(c.phones)?c.phones:[])].filter(Boolean).forEach(x=>{const e=smsE164(String(x));if(e&&!m.has(e))m.set(e,{name:c.name||c.company||"",role:"contact",addr:""});});});
     (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
+    // Leads added by hand in the Showings CRM win over everything — the team
+    // typed those names themselves, on the exact property they belong to.
+    (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&l.name)m.set(e,{name:l.name,role:l.buyer?"buyer":"lead",addr:String(pp.address||"").split(",")[0]});})));
     return m;
-  },[btAll,CONTACTS,showFeed]);
+  },[btAll,CONTACTS,showFeed,sharedProps]);
   // Whose line is each extension? ext digits → owner ("elie"), for the tabs
   // and the little line chips. "Mine" = whoever the server matched me to.
   const extOwner=useMemo(()=>{const m={};Object.entries(jv.exts||{}).forEach(([k,v])=>{m[String(v)]=k;});return m;},[jv.exts]);
@@ -17087,7 +17090,7 @@ function PhonePopup({onClose}){
                   <div key={m.id} style={{display:"flex",gap:9,alignItems:"center",padding:"9px 14px",borderBottom:`1px solid ${T.border}55`}}>
                     <span title={missed?"Missed call":out?"Outgoing call":"Incoming call"} style={{width:31,height:31,borderRadius:"50%",background:missed?"#FFE4D6":out?"#EFF6FF":"#EDFBF1",color:missed?"#C2410C":out?"#2563EB":"#15803D",fontSize:13,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{out?"↗":"↙"}</span>
                     <span onClick={()=>setPerson({phone:m.phone,name,who:w})} title="See who this is" style={{flex:1,minWidth:0,cursor:"pointer"}}>
-                      <b style={{display:"block",fontSize:12.5,color:missed?"#C2410C":T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}{w&&w.role==="agent"?" · agent":w&&w.role==="buyer"?" · buyer":""}</b>
+                      <b style={{display:"block",fontSize:12.5,color:missed?"#C2410C":T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}{w&&w.role==="agent"?" · agent":w&&w.role==="buyer"?" · buyer":w&&w.role==="lead"?" · lead":""}</b>
                       <span style={{display:"block",fontSize:10,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{status} · {callRel(m.at)}{name!==fmtCallPhone(m.phone)?` · ${fmtCallPhone(m.phone)}`:""}{w&&w.addr?` · ${w.addr}`:""}</span>
                     </span>
                     {(owner||m.ext)&&<span title={`Rang ${owner?cap(owner)+"'s":"ext "+m.ext} line`} style={{fontSize:9.5,fontWeight:800,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:9,padding:"2px 7px",flexShrink:0}}>{owner?cap(owner):`ext ${m.ext}`}</span>}
@@ -17139,9 +17142,21 @@ function PersonCard({phone,name,who,showFeed,onText,onClose}){
       .sort((a,b)=>(b.when?b.when.getTime():0)-(a.when?a.when.getTime():0))
       .slice(0,8);
   },[showFeed,p]);
+  // Leads added by hand in the Showings CRM: which property, when, status.
+  const manual=useMemo(()=>{
+    const out=[];
+    (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>{
+      if(!String(l.phone||"").split(/[\/,;]| or /i).some(x=>smsE164(x)===p))return;
+      const t=l.at?new Date(l.at):null;
+      out.push({addr:pp.address,when:t&&!isNaN(t.getTime())?t:null,status:l.lead||"",buyer:!!l.buyer});
+    }));
+    out.sort((a,b)=>(b.when?b.when.getTime():0)-(a.when?a.when.getTime():0));
+    return out;
+  },[sharedProps,p]);
   const contact=(CONTACTS||[]).find(c=>[c.phone,c.phone2,c.cell,c.mobile,c.altPhone,...(Array.isArray(c.phones)?c.phones:[])].filter(Boolean).some(x=>smsE164(String(x))===p))||null;
-  const initials=String(name||"").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
-  const roleLabel=who&&who.role==="buyer"?"Buyer lead":who&&who.role==="agent"?"Showing agent":contact?"In your contacts":"";
+  // A name that's really just the number has no initials — show a phone, not "(7".
+  const initials=String(name||"").replace(/[^a-zA-Z\s]/g,"").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"📞";
+  const roleLabel=who&&who.role==="buyer"?"Buyer lead":who&&who.role==="agent"?"Showing agent":who&&who.role==="lead"?"Lead":contact?"In your contacts":"";
   const sect={fontSize:11,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:0.4,padding:"12px 16px 6px"};
   const row={padding:"8px 16px",borderBottom:`1px solid ${T.border}55`};
   return(
@@ -17160,6 +17175,15 @@ function PersonCard({phone,name,who,showFeed,onText,onClose}){
           <button onClick={onText} style={{flex:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:12,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>💬 Text</button>
         </div>
         <div style={{flex:1,minHeight:0,overflowY:"auto",paddingBottom:8}}>
+          {manual.length>0&&(<>
+            <div style={sect}>🏷 Lead on your properties</div>
+            {manual.map((r,i)=>(
+              <div key={i} style={row}>
+                <b style={{display:"block",fontSize:13,color:T.text}}>{r.addr}</b>
+                <span style={{display:"block",fontSize:11,color:T.textSub,marginTop:1}}>{r.buyer?"Buyer":"Lead"}{r.when?` · added ${fmtD(r.when)}`:""}{r.status?` · ${r.status}`:""}</span>
+              </div>
+            ))}
+          </>)}
           {reqs.length>0&&(<>
             <div style={sect}>🏠 Property requests</div>
             {reqs.map((r,i)=>(
@@ -17182,8 +17206,8 @@ function PersonCard({phone,name,who,showFeed,onText,onClose}){
             <div style={sect}>📇 Contacts</div>
             <div style={row}><span style={{fontSize:12.5,color:T.text}}>{[contact.company,contact.role||contact.title].filter(Boolean).join(" · ")}</span></div>
           </>)}
-          {reqs.length===0&&shows.length===0&&!contact&&(
-            <div style={{padding:"22px 18px",textAlign:"center",color:T.textTert,fontSize:12.5,lineHeight:1.6}}>Nothing else on file for this number — no property requests or showings, just the calls and texts.</div>
+          {manual.length===0&&reqs.length===0&&shows.length===0&&!contact&&(
+            <div style={{padding:"22px 18px",textAlign:"center",color:T.textTert,fontSize:12.5,lineHeight:1.6}}>Nothing else on file for this number — no leads, property requests or showings, just the calls and texts.</div>
           )}
         </div>
       </div>

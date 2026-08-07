@@ -27,6 +27,20 @@ async function profileOf(userId) {
 
 const first = (s) => String(s || "").trim().toLowerCase().split(/[\s@]+/)[0];
 
+// Last desk-call attempts (admin-readable via GET ?log=1): enough to see WHY
+// a click-to-call failed — extension typo, bad creds, Jivetel rejection —
+// without hunting through Vercel logs. Best-effort, never blocks a call.
+async function logAttempt(entry) {
+  try {
+    if (!SERVICE) return;
+    const db = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } });
+    const row = (await db.from("app_settings").select("data").eq("id", "jivetel_call_log").maybeSingle()).data;
+    const list = ((row && row.data && row.data.attempts) || []).slice(-24);
+    list.push({ at: new Date().toISOString(), ...entry });
+    await db.from("app_settings").upsert({ id: "jivetel_call_log", data: { attempts: list }, updated_at: new Date().toISOString() });
+  } catch { /* diagnostics only */ }
+}
+
 // Tolerant first-name match ("Esti" vs "Estie"): equal, or one is the
 // other's prefix at 3+ letters.
 const sameFirst = (a, b) => { a = first(a); b = first(b); if (!a || !b) return false; if (a === b) return true; return a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a)); };
@@ -77,6 +91,18 @@ export default async function handler(req, res) {
     // the call popup so a hidden Jivetel option explains itself in one look.
     return res.status(200).json({ enabled, from: enabled ? ani : "", me: first(person || prof?.name || ""), exts, why: enabled ? "" : `missing ${missing.join(" + ")} for "${person || prof?.name || user.email || "this login"}"` });
   }
+  // Signed-in admin peek at the recent desk-call attempts and how Jivetel
+  // answered each one — GET /api/jivetel/call?log=1 while signed in.
+  if (req.method === "GET" && req.query.log) {
+    const user = await requireAppUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in first." });
+    const prof = await profileOf(user.id);
+    if (prof?.role !== "admin") return res.status(403).json({ error: "Admins only." });
+    if (!SERVICE) return res.status(200).json({ attempts: [] });
+    const db = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } });
+    const { data } = await db.from("app_settings").select("data").eq("id", "jivetel_call_log").maybeSingle();
+    return res.status(200).json({ attempts: (((data || {}).data || {}).attempts || []).slice().reverse() });
+  }
   // Browser test door, gated like the webhook:
   // GET /api/jivetel/call?key=SECRET&to=7325551234[&ext=101@DOMAIN]
   const isTest = req.method === "GET";
@@ -98,6 +124,7 @@ export default async function handler(req, res) {
     // Vercel round-trip — for pinning down the right domain with support.
     const ext = (isTest && String(req.query.ext || "").trim()) || creds.ext;
     if (!host || !creds.username || !creds.password || !ext) {
+      await logAttempt({ person, ext: String(ext || ""), to: String(to), ok: false, msg: "not configured (missing " + [!host && "host", !creds.username && "username", !creds.password && "password", !ext && "extension"].filter(Boolean).join(" + ") + ")" });
       return res.status(503).json({ error: `Calling isn't set up for ${person || "you"} yet.` });
     }
     const digits = (p) => { const d = String(p || "").replace(/\D/g, ""); return d.length === 11 && d.startsWith("1") ? d.slice(1) : d; };
@@ -117,11 +144,21 @@ export default async function handler(req, res) {
       body: JSON.stringify(body),
     });
     const text = await r.text();
-    if (!r.ok) return res.status(502).json({ error: `Click2Call failed (${r.status})`, detail: text.slice(0, 300) });
+    if (!r.ok) {
+      await logAttempt({ person, ext, to: body.Destination, ok: false, msg: `HTTP ${r.status}: ${text.slice(0, 200)}` });
+      return res.status(502).json({ error: `Click2Call failed (${r.status})`, detail: text.slice(0, 300) });
+    }
     let data = null; try { data = JSON.parse(text); } catch { /* non-JSON OK */ }
     // Jivetel can return HTTP 200 with {result:false, msg:"..."} — surface
-    // that as the failure it is instead of a confusing ok:true.
-    if (data && data.result === false) return res.status(502).json({ ok: false, error: data.msg || "Click2Call rejected the call.", detail: data });
+    // that as the failure it is instead of a confusing ok:true. Its generic
+    // "Failed to place call" is almost always the extension/desk-phone side,
+    // so flag the one misconfiguration we can spot from here outright.
+    if (data && data.result === false) {
+      const hint = String(ext).includes("@") ? "" : " — the extension is configured without its @domain (Jivetel needs extension@domain)";
+      await logAttempt({ person, ext, to: body.Destination, ok: false, msg: String(data.msg || "rejected") });
+      return res.status(502).json({ ok: false, error: `Jivetel said: ${data.msg || "call rejected"}${hint}`, detail: data });
+    }
+    await logAttempt({ person, ext, to: body.Destination, ok: true, msg: "" });
     return res.status(200).json({ ok: true, ringing: ext, thenDialing: body.Destination, callerId: body.Ani, result: data ?? text.slice(0, 200) });
   } catch (e) {
     return res.status(500).json({ error: e.message });

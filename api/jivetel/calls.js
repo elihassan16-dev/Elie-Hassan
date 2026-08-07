@@ -83,30 +83,35 @@ export default async function handler(req, res) {
     const rung = log.rung || [];     // orig_callids we already ring-notified
     let dirty = false;
     // Whose line is an extension? JIVETEL_CALL_EXT_ELIE="101@DOMAIN" etc. map
-    // it — so the ring/missed alert goes ONLY to that person. Unknown
-    // extension → the whole team (better than nobody).
+    // it — so the ring/missed alert goes ONLY to that person. Elie's extension
+    // may live in the legacy un-suffixed JIVETEL_CALL_EXT (same rule the
+    // click-to-call endpoint honors) — without that check his line's alerts
+    // fell through to the whole team, buzzing Moshe for 101's calls.
     const extOwner = (ext) => {
-      const e = String(ext || "").split("@")[0];
+      const e = String(ext || "").split("@")[0].trim();
       if (!e) return null;
       for (const [k, v] of Object.entries(process.env)) {
         const m = /^JIVETEL_CALL_EXT_([A-Z0-9]+)$/.exec(k);
-        if (m && String(v || "").split("@")[0] === e) return m[1].toLowerCase();
+        if (m && String(v || "").split("@")[0].trim() === e) return m[1].toLowerCase();
       }
+      if (String(process.env.JIVETEL_CALL_EXT || "").split("@")[0].trim() === e) return "elie";
       return null;
     };
     const notify = async (ext, payload) => {
       const { notifyFanout } = await import("../../lib/notify.js");
       const owner = extOwner(ext);
-      // pushOnly: useful as a banner, pure noise as email/SMS.
+      // pushOnly: useful as a banner, pure noise as email/SMS. A truly unknown
+      // extension alerts admins only — nothing is lost silently, but the rest
+      // of the team stops getting other people's calls.
       let result = null, err = "";
-      try { result = await notifyFanout(client, null, { ...(owner ? { recipientsFirst: [owner] } : { toTeam: true }), url: "/", pushOnly: true, ...payload }); }
+      try { result = await notifyFanout(client, null, { ...(owner ? { recipientsFirst: [owner] } : { toAdmins: true }), url: "/", pushOnly: true, ...payload }); }
       catch (e) { err = e.message || "failed"; }
       // Diagnostics trail: the last 20 alert attempts — who was targeted and
       // how many devices actually got pushed. Read via GET ?key&who=1.
       try {
         const arow = (await client.from("app_settings").select("data").eq("id", "jivetel_alerts").maybeSingle()).data;
         const list = ((arow && arow.data && arow.data.log) || []).slice(-19);
-        list.push({ at: new Date().toISOString(), ext: String(ext || ""), owner: owner || "(team)", title: payload.title, pushed: result ? result.pushed : null, err });
+        list.push({ at: new Date().toISOString(), ext: String(ext || ""), owner: owner || "(admins)", title: payload.title, pushed: result ? result.pushed : null, err });
         await client.from("app_settings").upsert({ id: "jivetel_alerts", data: { log: list }, updated_at: new Date().toISOString() });
       } catch { /* diagnostics only */ }
     };

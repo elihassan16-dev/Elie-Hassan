@@ -2283,8 +2283,16 @@ function fmtShowingTime(s){
 const parseShowingPhones=(raw)=>String(raw||"").split(/[,/;]|\bor\b/i).map(x=>x.trim()).filter(x=>x.replace(/[^\d]/g,"").length>=7);
 const showingFirstName=(name)=>{const n=(name||"").trim().split(/\s+/)[0];return n||"there";};
 // The two text-message templates (auto-fill the agent's first name + the address).
-function showingMessage(kind,agentName,address){
+function showingMessage(kind,agentName,address,opts){
   const fn=showingFirstName(agentName);
+  // Owner-portal showings (a third-party agent runs the listing): two plain
+  // texts to that showing's agent, with the date/time filled in from the feed.
+  if(opts&&opts.simple){
+    const when=opts.when?` on ${opts.when}`:"";
+    if(kind==="followup")
+      return `Hey ${fn}, following up on the showing at ${address}${opts.when?` from ${opts.when}`:""} — how did it go? Any feedback from the buyer?`;
+    return `Hey ${fn}, wanted to see how the showing at ${address}${when} went?`;
+  }
   if(kind==="followup")
     return `Hey ${fn}, Eli again — just following up to see your client's interest and whether we can expect an offer. Thanks!`;
   if(kind==="sweeten")
@@ -2308,8 +2316,13 @@ ${zillow}`;
 }
 // The one template list used by every texting entry point (property showings,
 // showings page, calendar) so the options are identical everywhere.
-function showingTemplates(bt,name,address){
-  const t=(kind)=>(bt?btMessage:showingMessage)(kind,name,address);
+function showingTemplates(bt,name,address,opts){
+  const t=(kind)=>(bt?btMessage:showingMessage)(kind,name,address,opts);
+  // Owner-portal showings get the two simple "how did it go?" templates.
+  if(!bt&&opts&&opts.simple)return[
+    {kind:"initial",label:"How'd it go?",text:t("initial")},
+    {kind:"followup",label:"Follow-up",text:t("followup")},
+  ];
   return[
     {kind:"initial",label:"Initial intro",text:t("initial")},
     {kind:"followup",label:"Follow-up",text:t("followup")},
@@ -2687,15 +2700,15 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   };
   // The full action set for one number, icon-sized: call / text / email / team
   // note (+ the personal-phone template links for members without texting).
-  const iconCluster=(ph,name,rowKey,msgMeta,bt,email)=>{
+  const iconCluster=(ph,name,rowKey,msgMeta,bt,email,tmplOpts)=>{
     const t=showingTexts[rowKey]||{};
     const anySent=!!(t.initial||t.followup||t.sweeten);
-    const tmplText=(kind)=>(bt?btMessage:showingMessage)(kind,name,address);
+    const tmplText=(kind)=>(bt?btMessage:showingMessage)(kind,name,address,tmplOpts);
     return(
       <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
         <CallA phone={ph} title="Call" style={icoC}><PhoneIcon size={13} color={T.text}/></CallA>
-        <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setSmsPop({phone:ph,name,rowKey,bt,kind:kind||null})}
-          templates={showingTemplates(bt,name,address)}
+        <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setSmsPop({phone:ph,name,rowKey,bt,kind:kind||null,tmplOpts})}
+          templates={showingTemplates(bt,name,address,tmplOpts)}
           onTemplate={(kind)=>markText(rowKey,kind)}
           style={{...icoC,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
           <SmsChatIcon size={13} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:12,height:12,borderRadius:6,background:T.green,color:"#fff",fontSize:7.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
@@ -2709,7 +2722,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   };
   // One condensed row for all three kinds — showing agent, hand-added lead,
   // BoldTrail buyer. Desktop: single line. Mobile: two lines. Gold stripes.
-  const CompactRow=({idx,dot,name,nameTitle,meta,phones,rowKey,leadVal,onLead,email,msgMeta,bt,onRemove,addUI})=>{
+  const CompactRow=({idx,dot,name,nameTitle,meta,phones,rowKey,leadVal,onLead,email,msgMeta,bt,onRemove,addUI,tmplOpts,srcTag})=>{
     const lead=SHOWING_LEADS.find(x=>x.key===(leadVal||""));
     const stripe=lead?lead.bg+"55":(idx%2?T.goldLight+"55":"transparent");
     const first=phones[0];
@@ -2724,22 +2737,23 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         <div style={{display:"flex",alignItems:"center",gap:7}}>
           <span style={{width:7,height:7,borderRadius:4,background:dot,flexShrink:0}}/>
           <span title={nameTitle||name} style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...(isMobile?{flex:1,minWidth:0}:{flex:"0 0 150px"})}}>{name}</span>
+          {srcTag&&<span title={`From the ${srcTag} ShowingTime calendar`} style={{fontSize:8,fontWeight:800,background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap",flexShrink:0,textTransform:"uppercase"}}>{srcTag}</span>}
           <span style={{fontSize:9.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0,...(isMobile?{}:{width:100,overflow:"hidden",textOverflow:"ellipsis"})}}>{meta}</span>
           {!isMobile&&<span style={{flex:1,minWidth:0,display:"flex"}}>{first?phoneSeg(first):<span style={{fontSize:11,color:T.textTert}}>No phone number.</span>}</span>}
           {leadSelect(leadVal||"",onLead,lead)}
-          {!isMobile&&first&&iconCluster(first,name,rowKey,msgMeta,bt,email)}
+          {!isMobile&&first&&iconCluster(first,name,rowKey,msgMeta,bt,email,tmplOpts)}
           {removeBtn}
         </div>
         {isMobile&&(
           <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4,paddingLeft:14}}>
             <span style={{flex:1,minWidth:0,display:"flex"}}>{first?phoneSeg(first):<span style={{fontSize:10.5,color:T.textTert}}>No phone number.</span>}</span>
-            {first&&iconCluster(first,name,rowKey,msgMeta,bt,email)}
+            {first&&iconCluster(first,name,rowKey,msgMeta,bt,email,tmplOpts)}
           </div>
         )}
         {phones.slice(1).map((ph,i)=>(
           <div key={i} style={{display:"flex",alignItems:"center",gap:6,marginTop:4,paddingLeft:14}}>
             <span style={{flex:1,minWidth:0,display:"flex"}}>{phoneSeg(ph)}</span>
-            {iconCluster(ph,name,rowKey,msgMeta,bt,null)}
+            {iconCluster(ph,name,rowKey,msgMeta,bt,null,tmplOpts)}
           </div>
         ))}
         {addUI}
@@ -2763,11 +2777,16 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       onUpdate(property.id,"showingKinds",map);saveNow();
     };
     const metaEl=<span onClick={e=>{e.stopPropagation();cycleKind();}} title="Tap to change the appointment type — showing / inspection / appraisal / walk-through" style={{cursor:"pointer"}}>{kindTag?`${kindTag} · ${when}`:when}</span>;
+    // Owner-portal showings (any non-agent ShowingTime calendar): the simple
+    // two-template texts to that showing's own agent, date/time filled in.
+    const ownerSrc=!!(s.src&&!/^agent/i.test(String(s.src).trim()));
+    const tOpts=ownerSrc?{simple:true,when}:null;
     return <CompactRow key={s.uid||s.ts+s.summary} idx={idx} dot={/cancel|declin/i.test(s.status)?T.red:eff!=="showing"?"#B45309":T.green}
-      name={s.agent||s.summary||"(agent)"} nameTitle={[kindTag,s.agent,s.broker,s.email,s.status].filter(Boolean).join(" \u00b7 ")}
+      name={s.agent||s.summary||"(agent)"} nameTitle={[kindTag,s.agent,s.broker,s.email,s.status,s.src].filter(Boolean).join(" \u00b7 ")}
       meta={metaEl} phones={phones} rowKey={k}
       leadVal={leadMap[k]||""} onLead={e=>setLead(s,e.target.value)}
       email={s.email||null} msgMeta={{key:k,label:`Showing \u2014 ${s.agent||"agent"}`,snap}}
+      tmplOpts={tOpts} srcTag={ownerSrc?s.src:null}
       addUI={addNumberUI(k,()=>addShowingPhone(s))}/>;
   };
   const LeadRowC=(l,idx)=>(
@@ -2880,7 +2899,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       );
     })()}
     {smsPop&&<SmsThreadPopup phone={smsPop.phone} name={smsPop.name||(smsPop.bt?"Buyer":"Agent")} initialKind={smsPop.kind||null}
-      templates={showingTemplates(smsPop.bt,smsPop.name,address)}
+      templates={showingTemplates(smsPop.bt,smsPop.name,address,smsPop.tmplOpts)}
       sentStamps={showingTexts[smsPop.rowKey]||{}}
       onClearStamp={(kind)=>smsPop.rowKey&&clearText(smsPop.rowKey,kind)}
       onSent={(kind)=>{if(kind&&smsPop.rowKey)markText(smsPop.rowKey,kind);}} onClose={()=>setSmsPop(null)}/>}

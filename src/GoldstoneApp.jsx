@@ -11402,7 +11402,10 @@ function FinModal({title,onClose,children,footer}){
           <div style={{fontSize:14,fontWeight:700,color:T.gold}}>{title}</div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
-        <div style={{padding:16,overflowY:"auto",minHeight:0,overscrollBehavior:"contain",touchAction:"pan-y",display:"flex",flexDirection:"column",gap:12}}>{children}</div>
+        {/* Safari ignores maxHeight on the flex box when sizing children, so the
+            scroller must carry its own cap — otherwise it lays out at full height
+            and never becomes scrollable on iOS (looks fine in Chrome). */}
+        <div style={{padding:16,overflowY:"auto",minHeight:0,maxHeight:"calc(88vh - 120px)",boxSizing:"border-box",overscrollBehavior:"contain",touchAction:"pan-y",display:"flex",flexDirection:"column",gap:12}}>{children}</div>
         {footer&&<div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end"}}>{footer}</div>}
       </div>
     </div>,

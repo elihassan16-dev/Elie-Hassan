@@ -17,7 +17,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink } from "./sms";
+import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164 } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -10712,7 +10712,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
 }
 const OFFICE_ID="__office__";
 function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}){
-  const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS, officeMessages, setOfficeMessages, officeTasks, setOfficeTasks, flushOfficeTasks } = useData();
+  const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS, officeMessages, setOfficeMessages, officeTasks, setOfficeTasks, flushOfficeTasks, contacts:CONTACTS } = useData();
   // Contractor-portal threads surface INSIDE each property's chat (tagged, like
   // showing threads) so the whole team sees contractor conversations in context.
   const { orgs:ctrOrgs, jobs:ctrJobs, messages:ctrMessages, save:ctrSave, remove:ctrRemove } = useContractorData();
@@ -10750,6 +10750,56 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const[selId,setSelId]=useState(initialSelId||null);
   useEffect(()=>{if(initialSelId){setSelId(initialSelId);onNavConsumed&&onNavConsumed();}},[initialSelId]);// eslint-disable-line
   const[search,setSearch]=useState("");
+  // ── 📱 Texts — real SMS conversations on the business lines, sharing the
+  // Messages page with the internal team chats. Three views: Team / Texts /
+  // All-tagged; the pick is remembered per device.
+  const { connected:smsOn, msgs:smsMsgs, unreadFor:smsUnreadFor, lines:smsLines } = useSmsTexting();
+  const[mode,setModeRaw]=useState(()=>{try{return localStorage.getItem("msgsMode")||"team";}catch{return "team";}});
+  const setMode=(m)=>{setModeRaw(m);try{localStorage.setItem("msgsMode",m);}catch{/* private mode */}};
+  const[showShowTexts,setShowShowTexts]=useState(false); // include showing-agent texts (their home is the Showings CRM)
+  const[smsSel,setSmsSel]=useState(null);                // {phone,name} → conversation popup
+  // Numbers that belong to showing agents — hidden from the Texts list by default.
+  const[showPhones,setShowPhones]=useState(null);
+  useEffect(()=>{
+    if(!smsOn)return;
+    let dead=false;
+    fetchShowingsShared().then(d=>{
+      if(dead)return;
+      const set=new Set();
+      const addPh=(raw)=>String(raw||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e)set.add(e);});
+      (d.showings||[]).forEach(s=>addPh(s.phone));
+      (sharedProps||[]).forEach(p=>Object.values(p.showingSnapshots||{}).forEach(sn=>addPh(sn.phone)));
+      setShowPhones(set);
+    }).catch(()=>{if(!dead)setShowPhones(new Set());});
+    return()=>{dead=true;};
+  },[smsOn]); // eslint-disable-line
+  // Contact names by number, so texts show "Shloimy the Plumber", not digits.
+  const contactMap=useMemo(()=>{
+    const m=new Map();
+    (CONTACTS||[]).forEach(c=>{
+      [c.phone,c.phone2,c.cell,c.mobile,c.altPhone,...(Array.isArray(c.phones)?c.phones:[])]
+        .filter(Boolean).forEach(x=>{const e=smsE164(String(x));if(e&&!m.has(e))m.set(e,c.name||c.company||"");});
+    });
+    return m;
+  },[CONTACTS]);
+  const sameFirstC=(a,b)=>{a=String(a||"").trim().toLowerCase().split(/\s+/)[0];b=String(b||"").trim().toLowerCase().split(/\s+/)[0];return !!a&&!!b&&(a===b||(a.length>=3&&b.length>=3&&(a.startsWith(b)||b.startsWith(a))));};
+  const lineVals=useMemo(()=>new Set(Object.values(smsLines||{}).map(x=>smsE164(x)).filter(Boolean)),[smsLines]);
+  const ownerOfLine=(from)=>{const e=smsE164(from||"");if(!e)return "";return Object.keys(smsLines||{}).find(n=>smsE164(smsLines[n])===e)||"";};
+  const texts=useMemo(()=>{
+    if(!smsOn||!Array.isArray(smsMsgs))return [];
+    const by=new Map();
+    smsMsgs.forEach(m=>{const p=smsE164(m.phone);if(!p||lineVals.has(p))return;(by.get(p)||by.set(p,[]).get(p)).push(m);});
+    const out=[];
+    by.forEach((arr,p)=>{
+      const txts=arr.filter(m=>m.kind!=="call").sort((a,b)=>String(a.at||"").localeCompare(String(b.at||"")));
+      if(!txts.length)return;
+      const last=txts[txts.length-1];
+      out.push({phone:p,last,lastAt:new Date(last.at||0).getTime()||0,unread:smsUnreadFor(p),name:contactMap.get(p)||"",line:ownerOfLine(last.from),showing:showPhones?showPhones.has(p):false});
+    });
+    out.sort((a,b)=>b.lastAt-a.lastAt);
+    return out;
+  },[smsOn,smsMsgs,contactMap,showPhones,smsLines]); // eslint-disable-line
+  const textsUnreadTotal=texts.reduce((n,t)=>n+t.unread,0);
   const active=sharedProps.filter(p=>!p.archived);
   const withMeta=active.map(p=>{const merged=mergedFor(p).sort((a,b)=>msgTime(a.at)-msgTime(b.at));const last=merged[merged.length-1];return {p,last,lastAt:last?new Date(last.at).getTime():0,count:merged.length,unread:merged.reduce((n,m)=>n+(isUnreadForUser(m,CURRENT_USER)?1:0),0)};});
   const q=search.toLowerCase();
@@ -10884,59 +10934,127 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   };
   const fmtShort=(iso)=>{if(!iso)return "";try{const d=new Date(iso),now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
+  // Row tags for the ⊞ All view — every row says what it is.
+  const tagTeam={flexShrink:0,fontSize:8,fontWeight:800,background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap"};
+  const tagText={flexShrink:0,fontSize:8,fontWeight:800,background:"#EDFBF1",color:"#15803D",border:"1px solid #BFE8CD",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap"};
+  const tagLine={flexShrink:0,fontSize:8,fontWeight:800,background:"#EBF4FF",color:"#2563EB",border:"1px solid #C7DDF8",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap"};
+  const officeRow=(showTag)=>{
+    const isActive=selId===OFFICE_ID;
+    const last=officeSorted[officeSorted.length-1];
+    const hasUnread=officeUnread>0&&!isActive;
+    return(
+      <div key="__office" onClick={()=>setSelId(OFFICE_ID)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?T.goldLight:T.goldLight+"80",borderLeft:isActive?`3px solid ${T.gold}`:`3px solid ${T.gold}`}}>
+        <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+          <span style={{fontWeight:700,fontSize:13,color:isActive?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>📌 Office Chat</span>
+          {showTag&&<span style={tagTeam}>💬 TEAM</span>}
+          <span style={{flex:1}}/>
+          {last&&<span style={{fontSize:10,color:hasUnread?T.red:T.textTert,fontWeight:hasUnread?700:400,flexShrink:0}}>{fmtShort(last.at)}</span>}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
+          <div style={{flex:1,minWidth:0,fontSize:12,color:hasUnread?T.text:T.textSub,fontWeight:hasUnread?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {last?<>{last.author?`${last.author.split(" ")[0]}: `:""}{last.text||(last.attachment?(last.attachment.kind==="images"?`📷 ${(last.attachment.items||[]).length} photos`:last.attachment.kind==="image"?"📷 Photo":last.attachment.kind==="audio"?"🎤 Voice note":"📎 Attachment"):"")}</>:<span style={{color:T.textTert}}>General team chat — not tied to a property</span>}
+          </div>
+          {hasUnread&&<UnreadBadge count={officeUnread}/>}
+        </div>
+      </div>
+    );
+  };
+  const propRow=({p,last,unread},showTag)=>{
+    const isActive=p.id===selId;
+    const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
+    const hasUnread=unread>0&&!isActive;
+    return(
+      <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?T.goldLight:"transparent",borderLeft:isActive?`3px solid ${T.gold}`:"3px solid transparent"}}>
+        <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+          <span style={{fontWeight:hasUnread||isActive?700:600,fontSize:13,color:isActive?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{addr}</span>
+          {showTag&&<span style={tagTeam}>💬 TEAM</span>}
+          <span style={{flex:1}}/>
+          {last&&<span style={{fontSize:10,color:hasUnread?T.red:T.textTert,fontWeight:hasUnread?700:400,flexShrink:0}}>{fmtShort(last.at)}</span>}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
+          <div style={{flex:1,minWidth:0,fontSize:12,color:hasUnread?T.text:T.textSub,fontWeight:hasUnread?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {last?<>{last.taskText?<span title={`On task: ${last.taskText}`} style={{color:"#b8912e"}}>↳ </span>:null}{last.author?`${last.author.split(" ")[0]}: `:""}{last.text||(last.attachment?(last.attachment.kind==="images"?`📷 ${(last.attachment.items||[]).length} photos`:last.attachment.kind==="image"?"📷 Photo":last.attachment.kind==="audio"?"🎤 Voice note":"📎 Attachment"):"")}</>:<span style={{color:T.textTert}}>No messages yet</span>}
+          </div>
+          {hasUnread&&<UnreadBadge count={unread}/>}
+        </div>
+      </div>
+    );
+  };
+  // A real SMS conversation row — green accents, tap opens the texting popup.
+  const textRow=(t,showTag)=>{
+    const isActive=smsSel&&smsSel.phone===t.phone;
+    const hasUnread=t.unread>0;
+    const mine=t.line&&sameFirstC(t.line,CURRENT_USER);
+    return(
+      <div key={"sms-"+t.phone} onClick={()=>setSmsSel({phone:t.phone,name:t.name||t.phone})} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?"#EDFBF1":"transparent",borderLeft:isActive?"3px solid #15803D":"3px solid transparent"}}>
+        <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+          <span style={{fontWeight:hasUnread?700:600,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{t.name||t.phone}</span>
+          {showTag&&<span style={tagText}>📱 TEXT</span>}
+          {t.line&&!mine&&<span style={tagLine}>{String(t.line).split(" ")[0].toUpperCase()}'S LINE</span>}
+          <span style={{flex:1}}/>
+          <span style={{fontSize:10,color:hasUnread?T.red:T.textTert,fontWeight:hasUnread?700:400,flexShrink:0}}>{fmtShort(t.last.at)}</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
+          <div style={{flex:1,minWidth:0,fontSize:12,color:hasUnread?T.text:T.textSub,fontWeight:hasUnread?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {t.name?<span style={{color:T.textTert}}>{t.phone} · </span>:null}{t.last.direction!=="in"?"You: ":""}{t.last.text||"(media)"}
+          </div>
+          {hasUnread&&<UnreadBadge count={t.unread}/>}
+        </div>
+      </div>
+    );
+  };
+  const textsFiltered=texts.filter(t=>(showShowTexts||!t.showing)&&((t.name+" "+t.phone).toLowerCase().includes(q)));
+  const modePill=(m,label,activeStyle,badge)=>{
+    const on=mode===m;
+    return(
+      <button key={m} onClick={()=>setMode(m)} style={{flex:1,padding:"7px 0",borderRadius:16,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,...(on?activeStyle:{border:`1px solid ${T.border}`,background:"#fff",color:T.textSub})}}>
+        {label}{badge>0&&<span style={{minWidth:16,height:16,borderRadius:8,background:T.red,color:"#fff",fontSize:9.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{badge}</span>}
+      </button>
+    );
+  };
   return(
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
       <div style={{width:isMobile?"100%":320,flexShrink:0,display:isMobile&&(sel||selId===OFFICE_ID)?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{fontWeight:700,fontSize:15,color:T.text,marginBottom:10}}>Messages</div>
+          {/* Team / Texts / All — only once the business texting line is connected */}
+          {smsOn&&(
+            <div style={{display:"flex",gap:5,marginBottom:8}}>
+              {modePill("team","💬 Team",{border:`1.5px solid ${T.gold}`,background:T.goldLight,color:"#8a6d1f"},0)}
+              {modePill("texts","📱 Texts",{border:"1.5px solid #15803D",background:"#EDFBF1",color:"#15803D"},textsUnreadTotal)}
+              {modePill("all","⊞ All",{border:"1.5px solid #475569",background:"#F1F5F9",color:"#334155"},0)}
+            </div>
+          )}
           <div style={{position:"relative"}}>
             <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:15,pointerEvents:"none"}}>⌕</span>
-            <input placeholder="Search properties…" value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px"}}/>
+            <input placeholder={mode==="team"||!smsOn?"Search properties…":"Search names, numbers, properties…"} value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px"}}/>
           </div>
         </div>
+        {/* Showing-agent texts stay in the Showings CRM unless invited in */}
+        {smsOn&&mode!=="team"&&texts.some(t=>t.showing)&&(
+          <label style={{display:"flex",alignItems:"center",gap:7,padding:"7px 14px",borderBottom:`1px solid ${T.border}`,fontSize:11,color:T.textSub,cursor:"pointer"}}>
+            <input type="checkbox" checked={showShowTexts} onChange={e=>setShowShowTexts(e.target.checked)} style={{accentColor:"#15803D"}}/>
+            Show showing-agent texts too <span style={{marginLeft:"auto",color:T.textTert}}>home: Showings CRM</span>
+          </label>
+        )}
         <div style={{flex:1,overflowY:"auto"}}>
-          {/* Pinned general office chat — always at the very top, not tied to a property */}
-          {(()=>{
-            const isActive=selId===OFFICE_ID;
-            const last=officeSorted[officeSorted.length-1];
-            const hasUnread=officeUnread>0&&!isActive;
-            return(
-              <div onClick={()=>setSelId(OFFICE_ID)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?T.goldLight:T.goldLight+"80",borderLeft:isActive?`3px solid ${T.gold}`:`3px solid ${T.gold}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
-                  <span style={{fontWeight:700,fontSize:13,color:isActive?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>📌 Office Chat</span>
-                  {last&&<span style={{fontSize:10,color:hasUnread?T.red:T.textTert,fontWeight:hasUnread?700:400,flexShrink:0}}>{fmtShort(last.at)}</span>}
-                </div>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
-                  <div style={{flex:1,minWidth:0,fontSize:12,color:hasUnread?T.text:T.textSub,fontWeight:hasUnread?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                    {last?<>{last.author?`${last.author.split(" ")[0]}: `:""}{last.text||(last.attachment?(last.attachment.kind==="images"?`📷 ${(last.attachment.items||[]).length} photos`:last.attachment.kind==="image"?"📷 Photo":last.attachment.kind==="audio"?"🎤 Voice note":"📎 Attachment"):"")}</>:<span style={{color:T.textTert}}>General team chat — not tied to a property</span>}
-                  </div>
-                  {hasUnread&&<UnreadBadge count={officeUnread}/>}
-                </div>
-              </div>
-            );
-          })()}
-          {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No properties.</div>}
-          {list.map(({p,last,unread})=>{
-            const isActive=p.id===selId;
-            const addr=`${p.address}${p.city?`, ${p.city}`:""}`;
-            const hasUnread=unread>0&&!isActive;
-            return(
-              <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?T.goldLight:"transparent",borderLeft:isActive?`3px solid ${T.gold}`:"3px solid transparent"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
-                  <span style={{fontWeight:hasUnread||isActive?700:600,fontSize:13,color:isActive?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{addr}</span>
-                  {last&&<span style={{fontSize:10,color:hasUnread?T.red:T.textTert,fontWeight:hasUnread?700:400,flexShrink:0}}>{fmtShort(last.at)}</span>}
-                </div>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
-                  <div style={{flex:1,minWidth:0,fontSize:12,color:hasUnread?T.text:T.textSub,fontWeight:hasUnread?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                    {last?<>{last.taskText?<span title={`On task: ${last.taskText}`} style={{color:"#b8912e"}}>↳ </span>:null}{last.author?`${last.author.split(" ")[0]}: `:""}{last.text||(last.attachment?(last.attachment.kind==="images"?`📷 ${(last.attachment.items||[]).length} photos`:last.attachment.kind==="image"?"📷 Photo":last.attachment.kind==="audio"?"🎤 Voice note":"📎 Attachment"):"")}</>:<span style={{color:T.textTert}}>No messages yet</span>}
-                  </div>
-                  {hasUnread&&<UnreadBadge count={unread}/>}
-                </div>
-              </div>
-            );
-          })}
+          {(!smsOn||mode==="team")&&(<>
+            {officeRow(false)}
+            {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No properties.</div>}
+            {list.map(x=>propRow(x,false))}
+          </>)}
+          {smsOn&&mode==="texts"&&(<>
+            {textsFiltered.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13,lineHeight:1.6}}>No text conversations yet.<br/>Texts you send — and any text to the business lines — land here.</div>}
+            {textsFiltered.map(t=>textRow(t,false))}
+          </>)}
+          {smsOn&&mode==="all"&&(<>
+            {officeRow(true)}
+            {[...list.map(x=>({at:x.lastAt,el:propRow(x,true)})),...textsFiltered.map(t=>({at:t.lastAt,el:textRow(t,true)}))]
+              .sort((a,b)=>b.at-a.at).map(r=>r.el)}
+          </>)}
         </div>
       </div>
+      {smsSel&&<SmsThreadPopup phone={smsSel.phone} name={smsSel.name} onClose={()=>setSmsSel(null)}/>}
       <div style={{flex:1,display:isMobile&&!sel&&selId!==OFFICE_ID?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
         {selId===OFFICE_ID
           ? <MessageThread property={{id:OFFICE_ID,address:"📌 Office Chat",city:"",status:"",tasks:officeTasks||[]}} messages={officeSorted} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={officeSend} onDelete={officeDelete} onBack={()=>setSelId(null)} isMobile={isMobile}/>

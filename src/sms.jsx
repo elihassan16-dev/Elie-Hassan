@@ -61,7 +61,7 @@ const e164 = (n) => {
   return d ? "+" + d : "";
 };
 
-let store = { connected: null, from: "", msgs: null };
+let store = { connected: null, from: "", msgs: null, lines: {} };
 // Per-user "last read" time per conversation (keyed by E.164 number), saved in
 // the account's metadata so read/unread follows you across phone and computer.
 let readMap = {};
@@ -99,7 +99,7 @@ function start() {
   };
   const check = (attempt = 0) => {
     qbAuthFetch("/api/jivetel/send?cap=1").then((s) => {
-      store = { ...store, connected: !!s.connected, from: s.from || "" };
+      store = { ...store, connected: !!s.connected, from: s.from || "", lines: s.lines || {} };
       emit();
       if (s.connected) init();
     }).catch(() => {
@@ -147,8 +147,12 @@ export function useSmsTexting() {
     await qbAuthFetch("/api/jivetel/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, message: text }) });
     setTimeout(loadMsgs, 500);
   };
-  return { connected: store.connected, from: store.from, msgs, threadFor, statusFor, unreadFor, send };
+  return { connected: store.connected, from: store.from, lines: store.lines || {}, msgs, threadFor, statusFor, unreadFor, send };
 }
+
+// The Texts inbox (Messages page) groups threads itself — it needs the same
+// number normalizer the store keys by.
+export const smsE164 = e164;
 
 // Tiny thread-status badge for lists: ⏳ we texted, no reply yet · replied
 // (green) · NEW REPLY (red) until the conversation is opened.

@@ -2985,6 +2985,26 @@ function ShowingsPage(){
   const[search,setSearch]=useState("");
   const[showConn,setShowConn]=useState(false);
   const[copied,setCopied]=useState(false);
+  // ＋ Add another ShowingTime calendar (e.g. the owner-side account when a
+  // third-party agent has the listing) — feeds merge into one schedule.
+  const[addUrl,setAddUrl]=useState("");
+  const[addLabel,setAddLabel]=useState("");
+  const[addBusy,setAddBusy]=useState(false);
+  const[addErr,setAddErr]=useState("");
+  const refreshStatus=()=>qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>{});
+  const addCalendar=async()=>{
+    if(!addUrl.trim())return;setAddBusy(true);setAddErr("");
+    try{
+      await qbAuthFetch("/api/showings/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({addUrl:addUrl.trim(),label:addLabel.trim()||"Owner account"})});
+      setAddUrl("");setAddLabel("");await refreshStatus();load(true);
+    }catch(e){setAddErr(e.message);}
+    setAddBusy(false);
+  };
+  const removeCalendar=async(f)=>{
+    if(!window.confirm(`Disconnect “${f.label||"this calendar"}”? Its showings drop out of the schedule.`))return;
+    try{await qbAuthFetch("/api/showings/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({removeId:f.id})});await refreshStatus();load(true);}
+    catch(e){setAddErr(e.message);}
+  };
   const[view,setView]=useState("props"); // props (per-property) | hot (every live lead, ranked)
   const[hotOpen,setHotOpen]=useState(null); // {propId, skey} → ShowingInfoPopup
   useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
@@ -3165,14 +3185,27 @@ function ShowingsPage(){
         {isAdmin&&status.configured&&(
           <div style={{padding:"10px 14px",borderTop:`1px solid ${T.border}`,fontSize:11,color:T.textTert,flexShrink:0}}>
             <div style={{display:"flex",gap:12,alignItems:"center"}}>
-              <span style={{color:T.green,fontWeight:600}}>● ShowingTime connected</span>
-              {status.icsUrl&&<span onClick={()=>setShowConn(v=>!v)} style={{color:T.blue,cursor:"pointer",fontWeight:600}}>{showConn?"Hide link":"Show link"}</span>}
-              <span onClick={()=>{setStatus({configured:false});setShowConn(false);}} style={{color:T.blue,cursor:"pointer",fontWeight:600}}>Change</span>
+              <span style={{color:T.green,fontWeight:600}}>● ShowingTime connected{(status.feeds||[]).length>1?` · ${status.feeds.length} calendars`:""}</span>
+              <span onClick={()=>setShowConn(v=>!v)} style={{color:T.blue,cursor:"pointer",fontWeight:600}}>{showConn?"Hide":"Manage"}</span>
             </div>
-            {showConn&&status.icsUrl&&(
-              <div style={{marginTop:8,display:"flex",gap:6,alignItems:"center"}}>
-                <input readOnly value={status.icsUrl} onFocus={e=>e.target.select()} style={{flex:1,minWidth:0,fontSize:11,padding:"7px 9px",border:`1px solid ${T.border}`,borderRadius:8,background:T.bg,color:T.text,outline:"none",fontFamily:"inherit"}}/>
-                <button onClick={()=>{if(navigator.clipboard)navigator.clipboard.writeText(status.icsUrl).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1500);});}} style={{padding:"7px 12px",borderRadius:8,background:copied?T.green:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>{copied?"✓":"Copy"}</button>
+            {showConn&&(
+              <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6}}>
+                {(status.feeds||(status.icsUrl?[{id:"main",url:status.icsUrl,label:"Agent account"}]:[])).map(f=>(
+                  <div key={f.id} style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <span style={{flexShrink:0,fontSize:10,fontWeight:800,background:T.goldLight,color:"#8a6d1f",borderRadius:9,padding:"3px 8px",whiteSpace:"nowrap",maxWidth:110,overflow:"hidden",textOverflow:"ellipsis"}}>{f.label||"Calendar"}</span>
+                    <input readOnly value={f.url} onFocus={e=>e.target.select()} style={{flex:1,minWidth:0,fontSize:11,padding:"7px 9px",border:`1px solid ${T.border}`,borderRadius:8,background:T.bg,color:T.text,outline:"none",fontFamily:"inherit"}}/>
+                    <button onClick={()=>{if(navigator.clipboard)navigator.clipboard.writeText(f.url).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1500);});}} style={{padding:"7px 12px",borderRadius:8,background:copied?T.green:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>{copied?"✓":"Copy"}</button>
+                    <button onClick={()=>removeCalendar(f)} title="Disconnect this calendar" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>
+                  </div>
+                ))}
+                {/* Add the owner-side account (or any other ShowingTime calendar) */}
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                  <input value={addLabel} onChange={e=>setAddLabel(e.target.value)} placeholder="Owner account" style={{width:110,fontSize:11,padding:"7px 9px",border:`1px solid ${T.border}`,borderRadius:8,background:"#fff",color:T.text,outline:"none",fontFamily:"inherit",flexShrink:0}}/>
+                  <input value={addUrl} onChange={e=>setAddUrl(e.target.value)} placeholder="webcal://showingti.me/cal/… (from that account's Calendar Sync)" style={{flex:1,minWidth:140,fontSize:11,padding:"7px 9px",border:`1px solid ${T.border}`,borderRadius:8,background:"#fff",color:T.text,outline:"none",fontFamily:"inherit"}}/>
+                  <button onClick={addCalendar} disabled={addBusy||!addUrl.trim()} style={{padding:"7px 12px",borderRadius:8,background:addUrl.trim()?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:11,cursor:addUrl.trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{addBusy?"…":"＋ Add"}</button>
+                </div>
+                {addErr&&<div style={{color:T.red,fontWeight:600}}>{addErr}</div>}
+                <div style={{fontSize:10.5,color:T.textTert,lineHeight:1.5}}>All calendars merge into one schedule — e.g. add the owner-side ShowingTime account for listings a third-party agent runs. Owner feeds often hide the agent's info; the showings still show and count.</div>
               </div>
             )}
           </div>

@@ -11398,15 +11398,18 @@ function FinModal({title,onClose,children,footer}){
   return createPortal(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box",overscrollBehavior:"contain"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(440px,96vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.25)",overflow:"hidden"}}>
-        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",background:T.goldLight,flexShrink:0}}>
           <div style={{fontSize:14,fontWeight:700,color:T.gold}}>{title}</div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
-        {/* Safari ignores maxHeight on the flex box when sizing children, so the
-            scroller must carry its own cap — otherwise it lays out at full height
-            and never becomes scrollable on iOS (looks fine in Chrome). */}
-        <div style={{padding:16,overflowY:"auto",minHeight:0,maxHeight:"calc(88vh - 120px)",boxSizing:"border-box",overscrollBehavior:"contain",touchAction:"pan-y",display:"flex",flexDirection:"column",gap:12}}>{children}</div>
-        {footer&&<div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end"}}>{footer}</div>}
+        {/* Same scroll structure as the ⚙ Deal setup sheet (proven to scroll on
+            iOS): plain flex:1 scroller between flexShrink:0 header/footer. A
+            shrink-based scroller in a maxHeight flex box never becomes
+            scrollable in WebKit. */}
+        <div style={{overflowY:"auto",flex:1,padding:16,overscrollBehavior:"contain"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>{children}</div>
+        </div>
+        {footer&&<div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0}}>{footer}</div>}
       </div>
     </div>,
     document.body

@@ -613,9 +613,11 @@ export function TextA({ phone, style, title, onInApp, templates, onTemplate, chi
   </>);
 }
 
-// The conversation popup: full back-and-forth with one number, template chips,
-// and a composer that sends from the company line.
-export function SmsThreadPopup({ phone, name, templates = [], initialKind = null, sentStamps = {}, onClearStamp, onSent, onClose }) {
+// The conversation itself — full back-and-forth with one number, template
+// chips, and a composer that sends from the company line. Renders as the
+// popup card by default; `inline` makes it fill its parent (the always-open
+// conversation column in the Showings → By agent view).
+export function SmsThreadPane({ phone, name, templates = [], initialKind = null, sentStamps = {}, onClearStamp, onSent, onClose, inline = false }) {
   const { from, threadFor, send } = useSmsTexting();
   const init = templates.find((t) => t.kind === initialKind);
   const [draft, setDraft] = useState(init ? init.text : "");
@@ -642,14 +644,15 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
   };
   const fmt = (iso) => { try { return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 460, display: "flex", alignItems: "center", justifyContent: "center", padding: 14, boxSizing: "border-box", backdropFilter: "blur(5px)" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: "min(480px,96vw)", height: "min(640px,90vh)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 48px rgba(0,0,0,0.25)" }}>
-        <div style={{ padding: "13px 16px", borderBottom: `2px solid ${T.gold}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+      <div onClick={(e) => e.stopPropagation()} style={inline
+        ? { background: "#fff", height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }
+        : { background: "#fff", borderRadius: 18, width: "min(480px,96vw)", height: "min(640px,90vh)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 48px rgba(0,0,0,0.25)" }}>
+        <div style={{ padding: inline ? "10px 14px" : "13px 16px", borderBottom: `2px solid ${T.gold}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 7 }}><SmsChatIcon size={15} color="#15803D" /> {name || phone}</div>
+            <div style={{ fontSize: inline ? 13.5 : 15, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 7 }}><SmsChatIcon size={15} color="#15803D" /> {name || phone}</div>
             <div style={{ fontSize: 11, color: T.textSub }}>{phone} · from your business line {from}</div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+          {onClose && <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>}
         </div>
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "14px 14px", display: "flex", flexDirection: "column", gap: 8, background: T.bg }}>
           {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 12.5, padding: "30px 10px" }}>No texts with this number yet. Pick a template below or write your own — it sends from the company line, and their replies show up right here.</div>}
@@ -707,6 +710,14 @@ export function SmsThreadPopup({ phone, name, templates = [], initialKind = null
           </div>
         </div>
       </div>
+  );
+}
+
+// The popup wrapper — the same conversation card centered over the page.
+export function SmsThreadPopup(props) {
+  return (
+    <div onClick={props.onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 460, display: "flex", alignItems: "center", justifyContent: "center", padding: 14, boxSizing: "border-box", backdropFilter: "blur(5px)" }}>
+      <SmsThreadPane {...props} inline={false} />
     </div>
   );
 }

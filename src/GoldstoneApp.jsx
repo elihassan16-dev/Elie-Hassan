@@ -17,7 +17,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, SmsBadge, SmsThreadPopup, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164 } from "./sms";
+import { useSmsTexting, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164 } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -15242,23 +15242,31 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
               </div>
               <span style={{display:"flex",gap:6,flexShrink:0}}>
                 <CallA phone={sel.phone} title="Call" style={{...icoS,border:`1px solid ${T.border}`,background:"#fff"}}><PhoneIcon size={13} color={T.text}/></CallA>
-                <button onClick={()=>setTextOpen({phone:sel.phone,name:sel.name,address:sel.addrs[0]||"",bt:!!sel.buyer&&!sel.shows.length})} title="Conversation & templates" style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}><SmsChatIcon size={13} color="#15803D"/></button>
+                {isMobile&&<button onClick={()=>setTextOpen({phone:sel.phone,name:sel.name,address:sel.addrs[0]||"",bt:!!sel.buyer&&!sel.shows.length})} title="Conversation & templates" style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}><SmsChatIcon size={13} color="#15803D"/></button>}
                 {sel.email&&<a href={`mailto:${sel.email}`} title={`Email ${sel.email}`} style={{...icoS,border:`1px solid ${T.blue}`,background:"#EBF4FF",fontSize:13}}>✉️</a>}
               </span>
             </div>
-            <div style={{flex:1,overflowY:"auto",padding:"14px 18px 40px"}}>
-              <div style={{fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",marginBottom:10}}>ACTIVITY — EVERYTHING WITH {String(sel.name||"THEM").split(" ")[0].toUpperCase()}, NEWEST FIRST</div>
-              {events(sel).map((e,i)=>(
-                <div key={i} style={{display:"flex",gap:11,marginBottom:12}}>
-                  <span style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0,background:e.tone==="in"?"#FDECEA":e.tone==="out"?"#EDFBF1":"#fff",border:`1px solid ${e.tone==="in"?"#F3CFC9":e.tone==="out"?"#BFE8CD":T.border}`}}>{e.icon}</span>
-                  <span style={{minWidth:0,paddingTop:1}}>
-                    <span style={{display:"block",fontSize:12.5,fontWeight:700,color:T.text}}>{e.title}</span>
-                    {e.sub&&<span style={{display:"block",fontSize:11,color:T.textSub,marginTop:1,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.sub}</span>}
-                    <span style={{display:"block",fontSize:9.5,color:T.textTert,marginTop:1}}>{fmtT(e.at)}</span>
-                  </span>
+            <div style={{flex:1,display:"flex",overflow:"hidden"}}>
+              <div style={{flex:1,overflowY:"auto",padding:"14px 18px 40px"}}>
+                <div style={{fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",marginBottom:10}}>ACTIVITY — EVERYTHING WITH {String(sel.name||"THEM").split(" ")[0].toUpperCase()}, NEWEST FIRST</div>
+                {events(sel).map((e,i)=>(
+                  <div key={i} style={{display:"flex",gap:11,marginBottom:12}}>
+                    <span style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0,background:e.tone==="in"?"#FDECEA":e.tone==="out"?"#EDFBF1":"#fff",border:`1px solid ${e.tone==="in"?"#F3CFC9":e.tone==="out"?"#BFE8CD":T.border}`}}>{e.icon}</span>
+                    <span style={{minWidth:0,paddingTop:1}}>
+                      <span style={{display:"block",fontSize:12.5,fontWeight:700,color:T.text}}>{e.title}</span>
+                      {e.sub&&<span style={{display:"block",fontSize:11,color:T.textSub,marginTop:1,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.sub}</span>}
+                      <span style={{display:"block",fontSize:9.5,color:T.textTert,marginTop:1}}>{fmtT(e.at)}</span>
+                    </span>
+                  </div>
+                ))}
+                {events(sel).length===0&&<div style={{padding:"30px 0",textAlign:"center",color:T.textTert,fontSize:12.5}}>No activity recorded yet.</div>}
+              </div>
+              {/* Desktop: the conversation rides along in its own always-open column */}
+              {!isMobile&&(
+                <div style={{width:"min(390px,42%)",flexShrink:0,borderLeft:`1px solid ${T.border}`,display:"flex",flexDirection:"column",overflow:"hidden",background:"#fff"}}>
+                  <SmsThreadPane key={sel.key} inline phone={sel.phone} name={sel.name||fmtPh(sel.phone)} templates={showingTemplates(!!sel.buyer&&!sel.shows.length,sel.name,sel.addrs[0]||"")}/>
                 </div>
-              ))}
-              {events(sel).length===0&&<div style={{padding:"30px 0",textAlign:"center",color:T.textTert,fontSize:12.5}}>No activity recorded yet.</div>}
+              )}
             </div>
           </>
         ):(

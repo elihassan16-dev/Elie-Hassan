@@ -69,9 +69,13 @@ const listeners = new Set();
 const emit = () => listeners.forEach((fn) => { try { fn(); } catch { /* consumer gone */ } });
 let started = false, loadT = null;
 
-async function loadMsgs() {
+async function loadMsgs(retry = 0) {
   const { data, error } = await supabase.from("sms_messages").select("id,phone,data").order("updated_at", { ascending: true });
   if (!error) { store = { ...store, msgs: (data || []).map((r) => ({ ...(r.data || {}), id: r.id, phone: r.phone || (r.data || {}).phone || "" })) }; emit(); }
+  // A failed load right after the phone wakes (expired token mid-refresh,
+  // radio not up yet) used to leave the list stale until the next event —
+  // retry a few times so desktop↔phone catch up on their own.
+  else if (retry < 3) setTimeout(() => loadMsgs(retry + 1), 2500 * (retry + 1));
 }
 const scheduleLoad = () => {
   if (typeof document !== "undefined" && document.visibilityState === "hidden") return; // visibilitychange below reloads on return
@@ -92,10 +96,26 @@ function start() {
     inited = true;
     loadMsgs();
     supabase.auth.getUser().then(({ data }) => { readMap = (data?.user?.user_metadata?.smsRead) || {}; emit(); }).catch(() => {});
-    const ch = supabase.channel("sms-shared");
+    let ch = supabase.channel("sms-shared");
     ch.on("postgres_changes", { event: "*", schema: "public", table: "sms_messages" }, scheduleLoad);
     ch.subscribe();
-    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") scheduleLoad(); });
+    // Waking the app (especially the iOS PWA) often finds the realtime socket
+    // dead — rebuild the subscription and re-pull, with follow-up pulls to
+    // ride out the auth-token refresh that happens at the same time.
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") return;
+      scheduleLoad();
+      setTimeout(() => loadMsgs(), 3000);
+      setTimeout(() => loadMsgs(), 9000);
+      try {
+        if (ch.state !== "joined") {
+          supabase.removeChannel(ch);
+          ch = supabase.channel("sms-shared-" + Date.now());
+          ch.on("postgres_changes", { event: "*", schema: "public", table: "sms_messages" }, scheduleLoad);
+          ch.subscribe();
+        }
+      } catch { /* next wake retries */ }
+    });
   };
   const check = (attempt = 0) => {
     qbAuthFetch("/api/jivetel/send?cap=1").then((s) => {

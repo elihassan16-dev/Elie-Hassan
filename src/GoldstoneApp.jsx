@@ -489,14 +489,13 @@ const NAV=[
   {key:"rentals",label:"Rental Portfolio",short:"Rentals",icon:ICONS.rentals},
   {key:"calendar",label:"Calendar",short:"Calendar",icon:ICONS.calendar},
   {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
-  {key:"crm",label:"Showings CRM",short:"CRM",icon:ICONS.leads},
   {key:"contacts",label:"Contacts",short:"Contacts",icon:ICONS.contacts},
   {key:"email",label:"Email",short:"Email",icon:ICONS.email},
   {key:"financials",label:"Financial Section",short:"Financials",icon:ICONS.financials},
   {key:"contractors",label:"Contractors",short:"Contractors",icon:ICONS.contacts},
 ];
 // Sections only the admin (Elie) can see. Everyone else never gets these nav items.
-const ADMIN_ONLY_KEYS=new Set(["financials","contractors","crm"]);
+const ADMIN_ONLY_KEYS=new Set(["financials","contractors"]);
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
 function Card({children,style={}}){return <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",...style}}>{children}</div>;}
@@ -3114,12 +3113,14 @@ function ShowingsPage(){
   return(
     <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
     <div style={{display:"flex",gap:6,padding:"10px 14px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
-      {[["props","🏠 By property"],["hot",`🔥 Hot leads${hotRows.length?` (${hotRows.length})`:""}`]].map(([k,l])=>{
+      {[["props","🏠 By property"],["hot",`🔥 Hot leads${hotRows.length?` (${hotRows.length})`:""}`],["agents","👤 By agent"]].map(([k,l])=>{
         const on=view===k;
         return <button key={k} onClick={()=>setView(k)} style={{padding:"7px 14px",borderRadius:20,fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub}}>{l}</button>;
       })}
     </div>
-    {view==="hot"?(
+    {view==="agents"?(
+      <AgentsCrmView sharedProps={sharedProps} showings={showings} isMobile={isMobile}/>
+    ):view==="hot"?(
       <div style={{flex:1,overflowY:"auto",background:T.bg}}>
         <div style={{maxWidth:640,margin:"0 auto",padding:"6px 16px 40px",boxSizing:"border-box"}}>
           {hotRows.length===0&&<div style={{padding:"46px 20px",textAlign:"center",color:T.textTert,fontSize:13,lineHeight:1.6}}>No live leads yet.<br/>Set a lead status on a showing (anything except "Not interested") and it shows up here, hottest first.</div>}
@@ -15083,6 +15084,166 @@ function CrmPage({sharedProps}){
   );
 }
 
+// 👤 By agent — the Showings CRM folded into the Showings page: agents on the
+// left with the chase chips (NEW REPLY floats to the top; otherwise most
+// recent activity first), and the picked person's full activity log on the
+// right — every showing, every text out, every reply, calls, status changes.
+function AgentsCrmView({sharedProps,showings,isMobile}){
+  const {connected,threadFor,unreadFor}=useSmsTexting();
+  const[q,setQ]=useState("");
+  const[filter,setFilter]=useState("all");
+  const[selKey,setSelKey]=useState(null);
+  const[textOpen,setTextOpen]=useState(null); // {phone,name,address}
+  const digits=(x)=>{const d=String(x||"").replace(/\D/g,"");return d.length===11&&d.startsWith("1")?d.slice(1):d;};
+  const fmtPh=(p)=>{const n=digits(p);return n.length===10?`(${n.slice(0,3)}) ${n.slice(3,6)}-${n.slice(6)}`:String(p||"");};
+  const contacts=useMemo(()=>{
+    const activeProps=(sharedProps||[]).filter(p=>!p.archived);
+    const by={};
+    (showings||[]).forEach(s=>{
+      const pr=activeProps.find(p=>showingMatchesProperty(s.location||s.summary||"",p));
+      const k=showingKey(s);
+      const phones=[...parseShowingPhones(s.phone),...(((pr&&pr.showingPhones)||{})[k]||[])];
+      phones.forEach(ph=>{
+        const key=digits(ph);if(!key)return;
+        const c=by[key]||(by[key]={key,phone:ph,name:s.agent||"",broker:s.broker||"",email:s.email||"",addrs:[],shows:[],statuses:[],lastShow:"",insp:false});
+        if(s.agent&&(!c.name||c.name.length<s.agent.length))c.name=s.agent;
+        if(s.broker&&!c.broker)c.broker=s.broker;
+        if(s.email&&!c.email)c.email=s.email;
+        const addr=String((pr&&pr.address)||s.location||s.summary||"").split(",")[0];
+        if(addr&&!c.addrs.includes(addr))c.addrs.push(addr);
+        const ek=(((pr&&pr.showingKinds)||{})[k])||s.kind||"showing";
+        if(ek!=="showing")c.insp=true;
+        c.shows.push({addr,start:s.start||"",kind:ek,src:s.src||""});
+        if(String(s.start||"")>c.lastShow)c.lastShow=String(s.start||"");
+      });
+    });
+    // Status changes, matched back to the person through the saved snapshots.
+    activeProps.forEach(p=>{
+      const snaps=p.showingSnapshots||{};
+      Object.entries(p.showingLeads||{}).forEach(([k,lead])=>{
+        const sn=snaps[k];if(!sn||!lead)return;
+        parseShowingPhones(sn.phone||"").forEach(ph=>{const c=by[digits(ph)];if(c)c.statuses.push({lead,addr:p.address,at:sn.start||""});});
+      });
+    });
+    return Object.values(by).map(c=>{
+      const t=connected?threadFor(c.phone):[];
+      const last=t.filter(m=>m.kind!=="call").slice(-1)[0]||null;
+      const lastAt=last?String(last.at||""):"";
+      const unread=connected?unreadFor(c.phone):0;
+      const noRespDays=last&&last.direction!=="in"?Math.max(0,Math.floor((Date.now()-new Date(last.at).getTime())/86400000)):null;
+      return {...c,thread:t,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,act:lastAt>c.lastShow?lastAt:c.lastShow};
+    }).sort((a,b)=>((b.unread>0)-(a.unread>0))||String(b.act).localeCompare(String(a.act)));
+  },[showings,sharedProps,connected,textOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const term=q.trim().toLowerCase();
+  const shown=contacts.filter(c=>{
+    if(term&&![c.name,c.phone,...c.addrs].join(" ").toLowerCase().includes(term))return false;
+    if(filter==="replied")return c.replied;
+    if(filter==="noresp")return c.noRespDays!=null;
+    if(filter==="new")return c.unread>0;
+    return true;
+  });
+  const counts={all:contacts.length,new:contacts.filter(c=>c.unread>0).length,replied:contacts.filter(c=>c.replied).length,noresp:contacts.filter(c=>c.noRespDays!=null).length};
+  const sel=contacts.find(c=>c.key===selKey)||null;
+  const chip=(bg,fg,txt)=><span style={{fontSize:8.5,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
+  const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
+  const fmtT=(iso)=>{if(!iso)return"";try{const d=new Date(iso.length===10?iso+"T12:00:00":iso);return d.toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return"";}};
+  const fmtShort2=(iso)=>{if(!iso)return"";try{const d=new Date(iso.length===10?iso+"T12:00:00":iso);return new Date().toDateString()===d.toDateString()?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return"";}}
+  // The activity log — everything with this person, newest first.
+  const events=(c)=>{
+    const ev=[];
+    c.shows.forEach(s=>ev.push({at:s.start,icon:s.kind!=="showing"?"🔍":"👁",title:`${s.kind!=="showing"?s.kind.charAt(0).toUpperCase()+s.kind.slice(1):"Showing"} — ${s.addr}`,sub:s.src?`via the ${s.src} calendar`:"booked through ShowingTime"}));
+    (c.thread||[]).forEach(m=>{
+      if(m.kind==="call")ev.push({at:m.at,icon:"📞",title:m.text||"Call",sub:m.direction==="in"?"incoming":"outgoing"});
+      else ev.push({at:m.at,icon:m.direction==="in"?"↙":"↗",tone:m.direction==="in"?"in":"out",title:m.direction==="in"?"They replied":"Text sent",sub:String(m.text||"").slice(0,100)});
+    });
+    (c.statuses||[]).forEach(st=>{const meta=SHOWING_LEADS.find(x=>x.key===st.lead)||{};ev.push({at:st.at,icon:"🏷",title:`Status: ${meta.short||st.lead}`,sub:st.addr});});
+    return ev.filter(e=>e.at).sort((a,b)=>String(b.at).localeCompare(String(a.at)));
+  };
+  const icoS={width:32,height:32,borderRadius:16,display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none",padding:0,boxSizing:"border-box",cursor:"pointer",fontFamily:"inherit",flexShrink:0};
+  return(
+    <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+      {/* Left: the people */}
+      <div style={{width:isMobile?"100%":340,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
+        <div style={{padding:"12px 14px 8px",borderBottom:`1px solid ${T.border}`}}>
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="⌕ Search an agent, number, property…" style={{width:"100%",padding:"8px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
+          <div style={{display:"flex",gap:5,marginTop:8,flexWrap:"wrap"}}>
+            {[["all",`All · ${counts.all}`],["new",`New replies · ${counts.new}`],["replied",`Replied · ${counts.replied}`],["noresp",`No response · ${counts.noresp}`]].map(([k,l])=>(
+              <button key={k} onClick={()=>setFilter(k)} style={{fontSize:10.5,fontWeight:800,borderRadius:12,padding:"4px 10px",border:"none",cursor:"pointer",fontFamily:"inherit",background:filter===k?T.gold:"#F3F3F5",color:filter===k?"#fff":"#888"}}>{l}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:"auto"}}>
+          {showings===null&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>⏳ Loading your showings…</div>}
+          {showings!==null&&shown.length===0&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing here{term?" for that search":""}.</div>}
+          {shown.map(c=>{
+            const active=c.key===selKey;
+            return(
+              <div key={c.key} onClick={()=>setSelKey(c.key)} style={{display:"flex",gap:9,alignItems:"center",padding:"10px 13px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:active?T.goldLight:"transparent",borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent"}}>
+                <span style={{width:33,height:33,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:11.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(c.name)}</span>
+                <span style={{flex:1,minWidth:0}}>
+                  <span style={{display:"flex",gap:5,alignItems:"baseline"}}>
+                    <b style={{fontSize:13,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{c.name||fmtPh(c.phone)}</b>
+                    {c.insp&&<span title="Inspection / appraisal / walk-through" style={{flexShrink:0,fontSize:10}}>🔍</span>}
+                    <span style={{marginLeft:"auto",fontSize:9.5,color:T.textTert,flexShrink:0}}>{fmtShort2(c.act)}</span>
+                  </span>
+                  <span style={{display:"block",fontSize:10.5,color:T.textSub,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.addrs.slice(0,2).join(" · ")||fmtPh(c.phone)}{c.shows.length>1?` — ${c.shows.length} showings`:""}</span>
+                </span>
+                <span style={{flexShrink:0}}>
+                  {c.unread>0?chip(T.red,"#fff",`NEW REPLY · ${c.unread}`)
+                   :c.replied?chip("#EDFBF1","#0F9D58","REPLIED")
+                   :c.noRespDays!=null?chip("#FFF4E5","#B45309",`NO RESPONSE${c.noRespDays>0?` · ${c.noRespDays}d`:""}`)
+                   :connected?chip("#F1F5F9","#64748B","NOT CONTACTED"):null}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {/* Right: the activity log */}
+      <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
+        {sel?(
+          <>
+            <div style={{padding:"12px 16px",background:T.card,borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+              {isMobile&&<button onClick={()=>setSelKey(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:16,cursor:"pointer",padding:"2px 4px",flexShrink:0}}>‹</button>}
+              <span style={{width:38,height:38,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:13,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(sel.name)}</span>
+              <div style={{minWidth:0,flex:1}}>
+                <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.name||fmtPh(sel.phone)}</div>
+                <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[sel.broker,fmtPh(sel.phone),`${sel.shows.length} showing${sel.shows.length===1?"":"s"} across ${sel.addrs.length} propert${sel.addrs.length===1?"y":"ies"}`].filter(Boolean).join(" · ")}</div>
+              </div>
+              <span style={{display:"flex",gap:6,flexShrink:0}}>
+                <CallA phone={sel.phone} title="Call" style={{...icoS,border:`1px solid ${T.border}`,background:"#fff"}}><PhoneIcon size={13} color={T.text}/></CallA>
+                <button onClick={()=>setTextOpen({phone:sel.phone,name:sel.name,address:sel.addrs[0]||""})} title="Conversation & templates" style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}><SmsChatIcon size={13} color="#15803D"/></button>
+                {sel.email&&<a href={`mailto:${sel.email}`} title={`Email ${sel.email}`} style={{...icoS,border:`1px solid ${T.blue}`,background:"#EBF4FF",fontSize:13}}>✉️</a>}
+              </span>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"14px 18px 40px"}}>
+              <div style={{fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",marginBottom:10}}>ACTIVITY — EVERYTHING WITH {String(sel.name||"THEM").split(" ")[0].toUpperCase()}, NEWEST FIRST</div>
+              {events(sel).map((e,i)=>(
+                <div key={i} style={{display:"flex",gap:11,marginBottom:12}}>
+                  <span style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0,background:e.tone==="in"?"#FDECEA":e.tone==="out"?"#EDFBF1":"#fff",border:`1px solid ${e.tone==="in"?"#F3CFC9":e.tone==="out"?"#BFE8CD":T.border}`}}>{e.icon}</span>
+                  <span style={{minWidth:0,paddingTop:1}}>
+                    <span style={{display:"block",fontSize:12.5,fontWeight:700,color:T.text}}>{e.title}</span>
+                    {e.sub&&<span style={{display:"block",fontSize:11,color:T.textSub,marginTop:1,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.sub}</span>}
+                    <span style={{display:"block",fontSize:9.5,color:T.textTert,marginTop:1}}>{fmtT(e.at)}</span>
+                  </span>
+                </div>
+              ))}
+              {events(sel).length===0&&<div style={{padding:"30px 0",textAlign:"center",color:T.textTert,fontSize:12.5}}>No activity recorded yet.</div>}
+            </div>
+          </>
+        ):(
+          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:T.textSub}}>
+            <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>👤</div>
+            <div style={{fontSize:16,fontWeight:600}}>Pick a person</div>
+            <div style={{fontSize:13,color:T.textTert,maxWidth:320,textAlign:"center"}}>Every agent from your showings — tap one to see their full activity log and act on it.</div>
+          </div>
+        )}
+      </div>
+      {textOpen&&<SmsThreadPopup phone={textOpen.phone} name={textOpen.name||"Agent"} templates={showingTemplates(false,textOpen.name,textOpen.address)} onClose={()=>setTextOpen(null)}/>}
+    </div>
+  );
+}
+
 // ── App-wide back stack ──────────────────────────────────────────────────────
 // Screens push a restore-closure BEFORE navigating away; "‹ Back" (or the
 // phone's back gesture — each push also adds a history entry) pops one.
@@ -16697,7 +16858,7 @@ export function GoldstoneShell(){
     : active==="leads" ? <NewLeadsPage/>
     : active==="messages" ? <MessagingCenter sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navChatId} onNavConsumed={()=>setNavChatId(null)}/>
     : active==="showings" ? <ShowingsPage/>
-    : active==="crm" ? <CrmPage sharedProps={sharedProps}/>
+    : active==="crm" ? <ShowingsPage/>  /* folded into Showings — old links land there */
     : active==="rentals" ? <RentalPortfolioPage/>
     : active==="calendar" ? <CalendarPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>

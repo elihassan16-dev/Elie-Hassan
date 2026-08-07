@@ -10714,7 +10714,20 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
 }
 const OFFICE_ID="__office__";
 function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}){
-  const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS, officeMessages, setOfficeMessages, officeTasks, setOfficeTasks, flushOfficeTasks, contacts:CONTACTS } = useData();
+  const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS, officeMessages, setOfficeMessages, officeTasks, setOfficeTasks, flushOfficeTasks, contacts:CONTACTS, appSettings, setAppSettings } = useData();
+  const btAllTx=useBtLeads();
+  // 📅 Follow-up calls — same list the By-agent view pins and the watcher pings.
+  const followupsTx=((appSettings||[]).find(x=>x.id==="followups")||{}).items||[];
+  const[fupTx,setFupTx]=useState(null); // {phone,name,addr} being scheduled
+  const[fupTxDate,setFupTxDate]=useState("");
+  const[fupTxNote,setFupTxNote]=useState("");
+  const isoPlusTx=(d)=>{const x=new Date();x.setDate(x.getDate()+d);return x.toISOString().slice(0,10);};
+  const nextMondayTx=()=>{const x=new Date();x.setDate(x.getDate()+((8-x.getDay())%7||7));return x.toISOString().slice(0,10);};
+  const saveFupTx=()=>{
+    if(!fupTx||!fupTxDate)return;
+    setAppSettings([...(appSettings||[]).filter(x=>x.id!=="followups"),{id:"followups",items:[...followupsTx,{id:Date.now(),phone:fupTx.phone,name:fupTx.name||"",addr:fupTx.addr||"",due:fupTxDate,note:fupTxNote.trim(),by:CURRENT_USER||"",done:false}].slice(-300)}]);
+    setFupTx(null);setFupTxDate("");setFupTxNote("");
+  };
   // Contractor-portal threads surface INSIDE each property's chat (tagged, like
   // showing threads) so the whole team sees contractor conversations in context.
   const { orgs:ctrOrgs, jobs:ctrJobs, messages:ctrMessages, save:ctrSave, remove:ctrRemove } = useContractorData();
@@ -10771,10 +10784,18 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       const addPh=(raw)=>String(raw||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e)set.add(e);});
       (d.showings||[]).forEach(s=>addPh(s.phone));
       (sharedProps||[]).forEach(p=>Object.values(p.showingSnapshots||{}).forEach(sn=>addPh(sn.phone)));
-      setShowPhones(set);
+      setShowPhones(set);setShowFeed(d.showings||[]);
     }).catch(()=>{if(!dead)setShowPhones(new Set());});
     return()=>{dead=true;};
   },[smsOn]); // eslint-disable-line
+  const[showFeed,setShowFeed]=useState([]);
+  // Who is this number? Agents (with their property) and BoldTrail buyers.
+  const whoMap=useMemo(()=>{
+    const m=new Map();
+    (btAllTx||[]).forEach(l=>{const e=smsE164(l.phone);if(e&&!m.has(e))m.set(e,{name:l.name||"",role:"buyer",addr:""});});
+    (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
+    return m;
+  },[btAllTx,showFeed]);
   // Contact names by number, so texts show "Shloimy the Plumber", not digits.
   const contactMap=useMemo(()=>{
     const m=new Map();
@@ -10796,7 +10817,8 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       const txts=arr.filter(m=>m.kind!=="call").sort((a,b)=>String(a.at||"").localeCompare(String(b.at||"")));
       if(!txts.length)return;
       const last=txts[txts.length-1];
-      out.push({phone:p,last,lastAt:new Date(last.at||0).getTime()||0,unread:smsUnreadFor(p),name:contactMap.get(p)||"",line:ownerOfLine(last.from),showing:showPhones?showPhones.has(p):false});
+      const who=whoMap.get(p)||null;
+      out.push({phone:p,last,lastAt:new Date(last.at||0).getTime()||0,unread:smsUnreadFor(p),name:contactMap.get(p)||(who&&who.name)||"",who,line:ownerOfLine(last.from),showing:showPhones?showPhones.has(p):false});
     });
     out.sort((a,b)=>b.lastAt-a.lastAt);
     return out;
@@ -10991,14 +11013,16 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       <div key={"sms-"+t.phone} onClick={()=>setSmsSel({phone:t.phone,name:t.name||t.phone})} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?"#EDFBF1":"transparent",borderLeft:isActive?"3px solid #15803D":"3px solid transparent"}}>
         <div style={{display:"flex",alignItems:"baseline",gap:6}}>
           <span style={{fontWeight:hasUnread?700:600,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{t.name||t.phone}</span>
+          {t.who&&<span style={t.who.role==="buyer"?{...tagLine,background:"#FCE7F3",color:"#DB2777",border:"1px solid #FBCFE8"}:tagTeam}>{t.who.role==="buyer"?"🛒 BUYER":"AGENT"}</span>}
           {showTag&&<span style={tagText}>📱 TEXT</span>}
           {t.line&&!mine&&<span style={tagLine}>{String(t.line).split(" ")[0].toUpperCase()}'S LINE</span>}
           <span style={{flex:1}}/>
+          <button onClick={e=>{e.stopPropagation();setFupTx({phone:t.phone,name:t.name||"",addr:(t.who&&t.who.addr)||""});setFupTxDate(isoPlusTx(1));setFupTxNote("");}} title="📅 Schedule a follow-up call" style={{background:"#F5F3FF",border:"1px solid #7C3AED",borderRadius:12,width:24,height:24,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,cursor:"pointer",flexShrink:0,padding:0}}>📅</button>
           <span style={{fontSize:10,color:hasUnread?T.red:T.textTert,fontWeight:hasUnread?700:400,flexShrink:0}}>{fmtShort(t.last.at)}</span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
           <div style={{flex:1,minWidth:0,fontSize:12,color:hasUnread?T.text:T.textSub,fontWeight:hasUnread?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-            {t.name?<span style={{color:T.textTert}}>{t.phone} · </span>:null}{t.last.direction!=="in"?"You: ":""}{t.last.text||"(media)"}
+            <span style={{color:T.textTert}}>{[t.name?t.phone:null,t.who&&t.who.addr?t.who.addr:null].filter(Boolean).join(" · ")}{(t.name||t.who&&t.who.addr)?" · ":""}</span>{t.last.direction!=="in"?"You: ":""}{t.last.text||"(media)"}
           </div>
           {hasUnread&&<UnreadBadge count={t.unread}/>}
         </div>
@@ -11057,6 +11081,29 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
         </div>
       </div>
       {smsSel&&<SmsThreadPopup phone={smsSel.phone} name={smsSel.name} onClose={()=>setSmsSel(null)}/>}
+      {fupTx&&(
+        <div onClick={()=>setFupTx(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:470,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(380px,96vw)",boxShadow:"0 14px 44px rgba(0,0,0,0.25)",overflow:"hidden"}}>
+            <div style={{padding:"13px 18px",borderBottom:"2px solid #7C3AED"}}>
+              <b style={{fontSize:15}}>📅 Follow-up call — {fupTx.name||fupTx.phone}</b>
+              <div style={{fontSize:11,color:T.textTert,marginTop:2}}>Pins to the Showings → By agent list when due, and your phone gets a ping that morning.</div>
+            </div>
+            <div style={{padding:"12px 18px",display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {[["Tomorrow",isoPlusTx(1)],["Monday",nextMondayTx()],["Next week",isoPlusTx(7)]].map(([l,d])=>(
+                  <button key={l} onClick={()=>setFupTxDate(d)} style={{padding:"7px 12px",borderRadius:16,border:fupTxDate===d?"1.5px solid #7C3AED":`1px solid ${T.border}`,background:fupTxDate===d?"#F5F3FF":"#fff",color:fupTxDate===d?"#7C3AED":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                ))}
+              </div>
+              <input type="date" value={fupTxDate} onChange={e=>setFupTxDate(e.target.value)} style={{...iS,minHeight:44}}/>
+              <input value={fupTxNote} onChange={e=>setFupTxNote(e.target.value)} placeholder="Note (optional)" style={iS}/>
+            </div>
+            <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              <button onClick={()=>setFupTx(null)} style={{padding:"9px 16px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+              <button onClick={saveFupTx} disabled={!fupTxDate} style={{padding:"9px 18px",borderRadius:10,border:"none",background:fupTxDate?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:13,cursor:fupTxDate?"pointer":"default",fontFamily:"inherit"}}>Set follow-up</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{flex:1,display:isMobile&&!sel&&selId!==OFFICE_ID?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
         {selId===OFFICE_ID
           ? <MessageThread property={{id:OFFICE_ID,address:"📌 Office Chat",city:"",status:"",tasks:officeTasks||[]}} messages={officeSorted} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={officeSend} onDelete={officeDelete} onBack={()=>setSelId(null)} isMobile={isMobile}/>

@@ -213,16 +213,18 @@ const smsHref = (phone, body) => {
 // own portal creds (contractors, teammates not set up yet) simply don't get
 // the Jivetel option — their buttons behave exactly as before.
 let jvCapPromise = null;
-let jvCap = { enabled: false, from: "", why: "" };
+let jvCap = { enabled: false, from: "", why: "", me: "", exts: {} };
 export function useJivetelCall() {
   const [st, setSt] = useState(jvCap);
   useEffect(() => {
     if (!jvCapPromise) {
       // qbAuthFetch returns the parsed JSON (and throws with the server's
       // error message on failure) — no Response unwrapping here.
+      // me/exts (who am I + whose extension is whose) feed the phone popup's
+      // Mine/Moshe/Esti history tabs.
       jvCapPromise = qbAuthFetch("/api/jivetel/call?cap=1")
-        .then((d) => { jvCap = { enabled: !!(d && d.enabled), from: (d && d.from) || "", why: (d && d.why) || "" }; })
-        .catch((e) => { jvCap = { enabled: false, from: "", why: e?.message || "network error" }; });
+        .then((d) => { jvCap = { enabled: !!(d && d.enabled), from: (d && d.from) || "", why: (d && d.why) || "", me: (d && d.me) || "", exts: (d && d.exts) || {} }; })
+        .catch((e) => { jvCap = { enabled: false, from: "", why: e?.message || "network error", me: "", exts: {} }; });
     }
     let live = true;
     jvCapPromise.then(() => { if (live) setSt(jvCap); });

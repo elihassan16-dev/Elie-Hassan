@@ -2898,7 +2898,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         </Card>
       );
     })()}
-    {smsPop&&<SmsThreadPopup phone={smsPop.phone} name={smsPop.name||(smsPop.bt?"Buyer":"Agent")} initialKind={smsPop.kind||null}
+    {smsPop&&<SmsThreadPopup phone={smsPop.phone} name={smsPop.name||(smsPop.bt?"Buyer":"Agent")} sub={[smsPop.bt?"🛒 Buyer":"Agent",address?`🏠 ${String(address).split(",")[0]}`:""].filter(Boolean).join(" · ")} initialKind={smsPop.kind||null}
       templates={showingTemplates(smsPop.bt,smsPop.name,address,smsPop.tmplOpts)}
       sentStamps={showingTexts[smsPop.rowKey]||{}}
       onClearStamp={(kind)=>smsPop.rowKey&&clearText(smsPop.rowKey,kind)}
@@ -3456,7 +3456,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
   const calSmsPopup=calSmsPop&&(()=>{
     const prop=(sharedProps||[]).find(p=>p.id===calSmsPop.propId);
     const stamps=((prop&&prop.showingTexts)||{})[calSmsPop.k]||{};
-    return <SmsThreadPopup phone={calSmsPop.phone} name={calSmsPop.name||"Agent"} initialKind={calSmsPop.kind||null}
+    return <SmsThreadPopup phone={calSmsPop.phone} name={calSmsPop.name||"Agent"} sub={["Agent",calSmsPop.address?`🏠 ${String(calSmsPop.address).split(",")[0]}`:""].filter(Boolean).join(" · ")} initialKind={calSmsPop.kind||null}
       templates={showingTemplates(false,calSmsPop.name,calSmsPop.address)}
       sentStamps={stamps}
       onClearStamp={(kind)=>clearShowingText(calSmsPop.propId,calSmsPop.k,kind)}
@@ -10794,8 +10794,15 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     const m=new Map();
     (btAllTx||[]).forEach(l=>{const e=smsE164(l.phone);if(e&&!m.has(e))m.set(e,{name:l.name||"",role:"buyer",addr:""});});
     (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
+    // Hand-added CRM leads win — most recently added one names the person.
+    const bestCl=new Map();
+    (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(!e||!l.name)return;const at=String(l.at||"");const prev=bestCl.get(e);if(!prev||at>prev.at)bestCl.set(e,{at,who:{name:l.name,role:l.buyer?"buyer":"lead",addr:String(pp.address||"").split(",")[0]}});})));
+    bestCl.forEach((v,e)=>m.set(e,v.who));
     return m;
-  },[btAllTx,showFeed]);
+  },[btAllTx,showFeed,sharedProps]);
+  // The gold 🏠 line on each texts row + the popup header: every property the
+  // number is tied to, most recent first.
+  const txProps=useMemo(()=>buildPhoneProps(showFeed,btAllTx,sharedProps),[showFeed,btAllTx,sharedProps]);
   // Contact names by number, so texts show "Shloimy the Plumber", not digits.
   const contactMap=useMemo(()=>{
     const m=new Map();
@@ -10822,7 +10829,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     });
     out.sort((a,b)=>b.lastAt-a.lastAt);
     return out;
-  },[smsOn,smsMsgs,contactMap,showPhones,smsLines]); // eslint-disable-line
+  },[smsOn,smsMsgs,contactMap,showPhones,smsLines,whoMap]); // eslint-disable-line
   const textsUnreadTotal=texts.reduce((n,t)=>n+t.unread,0);
   const active=sharedProps.filter(p=>!p.archived);
   const withMeta=active.map(p=>{const merged=mergedFor(p).sort((a,b)=>msgTime(a.at)-msgTime(b.at));const last=merged[merged.length-1];return {p,last,lastAt:last?new Date(last.at).getTime():0,count:merged.length,unread:merged.reduce((n,m)=>n+(isUnreadForUser(m,CURRENT_USER)?1:0),0)};});
@@ -11009,20 +11016,22 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     const isActive=smsSel&&smsSel.phone===t.phone;
     const hasUnread=t.unread>0;
     const mine=t.line&&sameFirstC(t.line,CURRENT_USER);
+    const pl=txProps.get(t.phone)||[];
     return(
       <div key={"sms-"+t.phone} onClick={()=>setSmsSel({phone:t.phone,name:t.name||t.phone})} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?"#EDFBF1":"transparent",borderLeft:isActive?"3px solid #15803D":"3px solid transparent"}}>
         <div style={{display:"flex",alignItems:"baseline",gap:6}}>
           <span style={{fontWeight:hasUnread?700:600,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{t.name||t.phone}</span>
-          {t.who&&<span style={t.who.role==="buyer"?{...tagLine,background:"#FCE7F3",color:"#DB2777",border:"1px solid #FBCFE8"}:tagTeam}>{t.who.role==="buyer"?"🛒 BUYER":"AGENT"}</span>}
+          {t.who&&<span style={t.who.role==="buyer"?{...tagLine,background:"#FCE7F3",color:"#DB2777",border:"1px solid #FBCFE8"}:t.who.role==="lead"?{...tagLine,background:"#FBF3DD",color:"#8a6d1f",border:"1px solid #EAD9A9"}:tagTeam}>{t.who.role==="buyer"?"🛒 BUYER":t.who.role==="lead"?"🏷 LEAD":"AGENT"}</span>}
           {showTag&&<span style={tagText}>📱 TEXT</span>}
           {t.line&&!mine&&<span style={tagLine}>{String(t.line).split(" ")[0].toUpperCase()}'S LINE</span>}
           <span style={{flex:1}}/>
-          <button onClick={e=>{e.stopPropagation();setFupTx({phone:t.phone,name:t.name||"",addr:(t.who&&t.who.addr)||""});setFupTxDate(isoPlusTx(1));setFupTxNote("");}} title="📅 Schedule a follow-up call" style={{background:"#F5F3FF",border:"1px solid #7C3AED",borderRadius:12,width:24,height:24,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,cursor:"pointer",flexShrink:0,padding:0}}>📅</button>
+          <button onClick={e=>{e.stopPropagation();setFupTx({phone:t.phone,name:t.name||"",addr:(pl[0]&&pl[0].addr)||(t.who&&t.who.addr)||""});setFupTxDate(isoPlusTx(1));setFupTxNote("");}} title="📅 Schedule a follow-up call" style={{background:"#F5F3FF",border:"1px solid #7C3AED",borderRadius:12,width:24,height:24,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,cursor:"pointer",flexShrink:0,padding:0}}>📅</button>
           <span style={{fontSize:10,color:hasUnread?T.red:T.textTert,fontWeight:hasUnread?700:400,flexShrink:0}}>{fmtShort(t.last.at)}</span>
         </div>
+        {pl.length>0&&<div style={{fontSize:10.5,fontWeight:700,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:2}}>🏠 {pl[0].addr}{pl.length>1&&<b style={{color:"#C9A227"}}> +{pl.length-1} more</b>}</div>}
         <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
           <div style={{flex:1,minWidth:0,fontSize:12,color:hasUnread?T.text:T.textSub,fontWeight:hasUnread?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-            <span style={{color:T.textTert}}>{[t.name?t.phone:null,t.who&&t.who.addr?t.who.addr:null].filter(Boolean).join(" · ")}{(t.name||t.who&&t.who.addr)?" · ":""}</span>{t.last.direction!=="in"?"You: ":""}{t.last.text||"(media)"}
+            <span style={{color:T.textTert}}>{t.name?t.phone:null}{t.name?" · ":""}</span>{t.last.direction!=="in"?"You: ":""}{t.last.text||"(media)"}
           </div>
           {hasUnread&&<UnreadBadge count={t.unread}/>}
         </div>
@@ -11080,7 +11089,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
           </>)}
         </div>
       </div>
-      {smsSel&&<SmsThreadPopup phone={smsSel.phone} name={smsSel.name} onClose={()=>setSmsSel(null)}/>}
+      {smsSel&&<SmsThreadPopup phone={smsSel.phone} name={smsSel.name} sub={whoSubLine(whoMap.get(smsE164(smsSel.phone))||null,txProps.get(smsE164(smsSel.phone))||[])} onClose={()=>setSmsSel(null)}/>}
       {fupTx&&(
         <div onClick={()=>setFupTx(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:470,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(380px,96vw)",boxShadow:"0 14px 44px rgba(0,0,0,0.25)",overflow:"hidden"}}>
@@ -15127,7 +15136,7 @@ function CrmPage({sharedProps}){
           </div>
         ))}
       </div>
-      {open&&<SmsThreadPopup phone={open.phone} name={open.name||"Agent"} templates={showingTemplates(false,open.name,open.address)} onClose={()=>setOpen(null)}/>}
+      {open&&<SmsThreadPopup phone={open.phone} name={open.name||"Agent"} sub={["Agent",open.address?`🏠 ${String(open.address).split(",")[0]}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(false,open.name,open.address)} onClose={()=>setOpen(null)}/>}
     </div>
   );
 }
@@ -15560,7 +15569,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
               {/* Desktop: the conversation rides along in its own always-open column */}
               {!isMobile&&(
                 <div style={{width:"min(390px,42%)",flexShrink:0,borderLeft:`1px solid ${T.border}`,display:"flex",flexDirection:"column",overflow:"hidden",background:"#fff"}}>
-                  <SmsThreadPane key={sel.key} inline phone={sel.phone} name={sel.name||fmtPh(sel.phone)} templates={showingTemplates(!!sel.buyer&&!sel.shows.length,sel.name,sel.addrs[0]||"")}/>
+                  <SmsThreadPane key={sel.key} inline phone={sel.phone} name={sel.name||fmtPh(sel.phone)} sub={[sel.buyer&&!sel.shows.length?"🛒 Buyer":"Agent",sel.addrs[0]?`🏠 ${sel.addrs[0]}${sel.addrs.length>1?` +${sel.addrs.length-1} more`:""}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(!!sel.buyer&&!sel.shows.length,sel.name,sel.addrs[0]||"")}/>
                 </div>
               )}
             </div>
@@ -15597,7 +15606,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           </div>
         </div>
       )}
-      {textOpen&&<SmsThreadPopup phone={textOpen.phone} name={textOpen.name||(textOpen.bt?"Buyer":"Agent")} templates={showingTemplates(!!textOpen.bt,textOpen.name,textOpen.address)} onClose={()=>setTextOpen(null)}/>}
+      {textOpen&&<SmsThreadPopup phone={textOpen.phone} name={textOpen.name||(textOpen.bt?"Buyer":"Agent")} sub={[textOpen.bt?"🛒 Buyer":"Agent",textOpen.address?`🏠 ${String(textOpen.address).split(",")[0]}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(!!textOpen.bt,textOpen.name,textOpen.address)} onClose={()=>setTextOpen(null)}/>}
     </div>
   );
 }
@@ -16980,6 +16989,26 @@ function PropertyEmails({property,onUpdate,isMobile}){
 const fmtCallPhone=(p)=>{const d=String(p||"").replace(/\D/g,"");const n=d.length===11&&d.startsWith("1")?d.slice(1):d;return n.length===10?`(${n.slice(0,3)}) ${n.slice(3,6)}-${n.slice(6)}`:String(p||"");};
 const fmtTalk=(s)=>{s=Number(s)||0;return s>=60?`${Math.floor(s/60)}m ${s%60}s`:`${s}s`;};
 const callRel=(iso)=>{const t=new Date(iso).getTime();if(isNaN(t))return "";const m=Math.floor(Math.max(0,Date.now()-t)/60000);if(m<1)return "just now";if(m<60)return `${m} min ago`;const h=Math.floor(m/60);if(h<24)return `${h}h ago`;const d=Math.floor(h/24);if(d===1)return "yesterday";if(d<7)return `${d}d ago`;try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
+// Every property a number is tied to — hand-added CRM leads, BoldTrail
+// requests matched to our properties, ShowingTime showings — deduped, most
+// recent first. Feeds the gold 🏠 line on call/text rows and thread headers.
+function buildPhoneProps(showFeed,btAll,sharedProps){
+  const m=new Map();
+  const add=(ph,addr,at)=>{const e=smsE164(ph);if(!e||!addr)return;const a=String(addr).split(",")[0].trim();if(!a)return;let l=m.get(e);if(!l)m.set(e,l=[]);const key=a.toLowerCase();const hit=l.find(x=>x.key===key);const t=at?String(at):"";if(hit){if(t>hit.at)hit.at=t;}else l.push({key,addr:a,at:t});};
+  (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,s.location||s.summary||"",s.start)));
+  (btAll||[]).forEach(l=>{const pp=(sharedProps||[]).find(x=>btMatchesProperty(l,x));if(pp)add(l.phone,pp.address,l.createdAt);});
+  (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,pp.address,l.at))));
+  m.forEach(l=>l.sort((a,b)=>String(b.at).localeCompare(String(a.at))));
+  return m;
+}
+// "🛒 Buyer · 🏠 7487 Githens Ave +1 more" — the who-they-are line under a
+// name in the conversation popup header.
+const whoSubLine=(w,pl)=>{
+  const role=w?(w.role==="buyer"?"🛒 Buyer":w.role==="agent"?"Agent":w.role==="lead"?"🏷 Lead":""):"";
+  const addr=(pl&&pl.length?pl[0].addr:(w&&w.addr)||"");
+  const more=pl&&pl.length>1?` +${pl.length-1} more`:"";
+  return [role,addr?`🏠 ${addr}${more}`:""].filter(Boolean).join(" · ");
+};
 function PhonePopup({onClose}){
   const{connected,msgs}=useSmsTexting();
   const jv=useJivetelCall();
@@ -17012,15 +17041,7 @@ function PhonePopup({onClose}){
   // Which properties is this number tied to? Most recent first — the row's
   // gold line shows the first, "+N more" hints at the rest, and tapping the
   // name opens the card with the full list.
-  const propsFor=useMemo(()=>{
-    const m=new Map();
-    const add=(ph,addr,at)=>{const e=smsE164(ph);if(!e||!addr)return;const a=String(addr).split(",")[0].trim();if(!a)return;let l=m.get(e);if(!l)m.set(e,l=[]);const key=a.toLowerCase();const hit=l.find(x=>x.key===key);const t=at?String(at):"";if(hit){if(t>hit.at)hit.at=t;}else l.push({key,addr:a,at:t});};
-    (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,s.location||s.summary||"",s.start)));
-    (btAll||[]).forEach(l=>{const pp=(sharedProps||[]).find(x=>btMatchesProperty(l,x));if(pp)add(l.phone,pp.address,l.createdAt);});
-    (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,pp.address,l.at))));
-    m.forEach(l=>l.sort((a,b)=>String(b.at).localeCompare(String(a.at))));
-    return m;
-  },[showFeed,btAll,sharedProps]);
+  const propsFor=useMemo(()=>buildPhoneProps(showFeed,btAll,sharedProps),[showFeed,btAll,sharedProps]);
   // Whose line is each extension? ext digits → owner ("elie"), for the tabs
   // and the little line chips. "Mine" = whoever the server matched me to.
   const extOwner=useMemo(()=>{const m={};Object.entries(jv.exts||{}).forEach(([k,v])=>{m[String(v)]=k;});return m;},[jv.exts]);
@@ -17132,7 +17153,7 @@ function PhonePopup({onClose}){
         )}
       </div>
       {person&&<PersonCard phone={person.phone} name={person.name} who={person.who} showFeed={showFeed} onText={()=>setTextTo({phone:person.phone,name:person.name})} onClose={()=>setPerson(null)}/>}
-      {textTo&&<SmsThreadPopup phone={textTo.phone} name={textTo.name} onClose={()=>setTextTo(null)}/>}
+      {textTo&&<SmsThreadPopup phone={textTo.phone} name={textTo.name} sub={whoSubLine(who.get(smsE164(textTo.phone))||null,propsFor.get(smsE164(textTo.phone))||[])} onClose={()=>setTextTo(null)}/>}
     </div>
   );
 }

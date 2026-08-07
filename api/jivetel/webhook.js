@@ -3,7 +3,7 @@
 // ?key= to match JIVETEL_WEBHOOK_SECRET (set in Vercel). GET is open but
 // returns only counts and redacted key-shapes — never message content.
 import { createClient } from "@supabase/supabase-js";
-import { storeSms, e164, identifyPhone, whoLabel } from "../../lib/jivetel.js";
+import { storeSms, e164, identifyPhone, whoSub } from "../../lib/jivetel.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://wtmsukjnuqsprtvfytin.supabase.co";
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -91,10 +91,13 @@ export default async function handler(req, res) {
             if (hit) owner = hit[0];
           } catch { /* bad JSON → team-wide */ }
           let who = null; try { who = await identifyPhone(msg.from); } catch { /* number-only */ }
+          // Name in the title; buyer/agent/lead + their property before the
+          // message, so the banner answers "who and about what" at a glance.
+          const sub = whoSub(who);
           await notifyFanout(client, null, {
             ...(owner ? { recipientsFirst: [owner] } : { toTeam: true }),
             title: `💬 New text — ${(who && who.name) || msg.name || msg.from}`,
-            body: `${who ? whoLabel(who) + " · " : ""}${preview || "(no text)"}`,
+            body: `${sub ? sub + " · " : ""}${preview || "(no text)"}`,
             tag: `jvmsg-${msg.id}`.slice(0, 64),
             url: "/",
           }).catch(() => {});

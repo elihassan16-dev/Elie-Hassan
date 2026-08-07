@@ -36,7 +36,11 @@ export default async function handler(req, res) {
     if (prof?.role === "contractor") return res.status(200).json({ connected: false, from: "" });
     const { from, token } = resolveSender(user, null, prof?.name);
     const connected = !!(from && token);
-    return res.status(200).json({ connected, from: connected ? from : "" });
+    // The line map (name → number) lets the app label which line a
+    // conversation lives on (e.g. "MOSHE'S LINE" in the Texts inbox).
+    let lines = {};
+    try { lines = JSON.parse(process.env.JIVETEL_NUMBERS || "{}"); } catch { /* label-only */ }
+    return res.status(200).json({ connected, from: connected ? from : "", lines });
   }
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
   const user = await requireAppUser(req);

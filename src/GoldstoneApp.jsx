@@ -15088,11 +15088,35 @@ function CrmPage({sharedProps}){
 // left with the chase chips (NEW REPLY floats to the top; otherwise most
 // recent activity first), and the picked person's full activity log on the
 // right — every showing, every text out, every reply, calls, status changes.
+// 🤖 Read a reply and suggest a lead status. Order matters: the not-interested
+// patterns run before the plain "interested" match so "we are NOT interested"
+// never reads as interest.
+function classifySug(txt){
+  const s=String(txt||"").toLowerCase();
+  if(!s)return null;
+  if(/(not|no longer|isn'?t|aren'?t) interested|uninterested|pass(ing)? on|went with|going with|chose (another|a different)|out of (our|my|their) (price|budget|range)|too (high|much|small|far)|didn'?t (like|love|work)|we'?re (good|all set)|no,? thank/.test(s))return "not";
+  if(/(making|submitting|sending|putting in|writing|expect) (an? )?offer|offer (coming|incoming|on the way)|make an offer/.test(s))return "offer";
+  if(/(very|really|quite|still) interested|loved it|liked it|thinking (it over|about it)|considering|second (look|showing)|come back|schedule another/.test(s))return "interest";
+  if(/interested/.test(s))return "interest";
+  return null;
+}
 function AgentsCrmView({sharedProps,showings,isMobile}){
   const {connected,threadFor,unreadFor}=useSmsTexting();
+  const {setSharedProps,flushProps}=useData();
   const btAll=useBtLeads();
   const[q,setQ]=useState("");
   const[filter,setFilter]=useState("all");
+  // Dismissed 🤖 suggestions (per phone+message) — stay dismissed on this device.
+  const[sugDis,setSugDis]=useState(()=>{try{return new Set(JSON.parse(localStorage.getItem("crmSugDis")||"[]"));}catch{return new Set();}});
+  const dismissSug=(c)=>{if(!c.sug)return;const next=new Set(sugDis);next.add(c.sug.disKey);setSugDis(next);try{localStorage.setItem("crmSugDis",JSON.stringify([...next].slice(-500)));}catch{/* private mode */}};
+  // Accepting writes the status (and its snapshot, so it survives the scrub)
+  // onto the matched property — same data the whole Showings section reads.
+  const applySug=(c)=>{
+    if(!c.sug||!c.ref||!setSharedProps)return;
+    const {propId,skey,snap}=c.ref;
+    setSharedProps(prev=>prev.map(p=>String(p.id)!==String(propId)?p:{...p,showingLeads:{...(p.showingLeads||{}),[skey]:c.sug.key},showingSnapshots:{...(p.showingSnapshots||{}),[skey]:(p.showingSnapshots||{})[skey]||snap}}));
+    if(flushProps)setTimeout(flushProps,0);
+  };
   const[selKey,setSelKey]=useState(null);
   const[textOpen,setTextOpen]=useState(null); // {phone,name,address}
   const digits=(x)=>{const d=String(x||"").replace(/\D/g,"");return d.length===11&&d.startsWith("1")?d.slice(1):d;};
@@ -15115,6 +15139,8 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
         const ek=(((pr&&pr.showingKinds)||{})[k])||s.kind||"showing";
         if(ek!=="showing")c.insp=true;
         c.shows.push({addr,start:s.start||"",kind:ek,src:s.src||""});
+        // Where a one-tap status would land: the person's latest matched showing.
+        if(pr&&(!c.ref||String(s.start||"")>=String(c.refStart||""))){c.refStart=s.start||"";c.ref={propId:pr.id,skey:k,snap:{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""}};}
         if(String(s.start||"")>c.lastShow)c.lastShow=String(s.start||"");
       });
     });
@@ -15130,6 +15156,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
       const addr=pr?String(pr.address).split(",")[0]:"";
       if(addr&&!c.addrs.includes(addr))c.addrs.push(addr);
       c.inq={at:l.createdAt||"",addr};
+      if(pr&&!c.ref)c.ref={propId:pr.id,skey:"bt-"+l.id,snap:{agent:l.name||"",phone:l.phone||"",start:l.createdAt||"",summary:"BoldTrail buyer"}};
       if(String(l.createdAt||"")>c.lastShow)c.lastShow=String(l.createdAt||"");
     });
     // Status changes, matched back to the person through the saved snapshots
@@ -15156,9 +15183,22 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
       // Future-only people (every showing still ahead, no conversation, no
       // inquiry) hide by default — nothing to chase yet.
       const future=!c.inq&&t.length===0&&c.shows.length>0&&c.shows.every(s=>!s.start||new Date(s.start).getTime()>Date.now()+3600000);
-      return {...c,thread:t,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,future,act:lastAt>c.lastShow?lastAt:c.lastShow};
-    }).sort((a,b)=>((b.unread>0)-(a.unread>0))||String(b.act).localeCompare(String(a.act)));
-  },[showings,sharedProps,connected,btAll,textOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+      const contacted=t.some(m=>m.direction!=="in"&&m.kind!=="call");
+      // 🤖 Suggest a status from their latest reply (unless dismissed, already
+      // set to the same thing, or there's nowhere to put it).
+      let sug=null;
+      const lastIn=[...t].reverse().find(m=>m.direction==="in"&&m.kind!=="call");
+      if(lastIn&&c.ref){
+        const key=classifySug(lastIn.text);
+        const disKey=`${c.key}|${lastIn.id}`;
+        if(key&&!sugDis.has(disKey)&&!c.statuses.some(st=>st.lead===key))sug={key,disKey,reply:String(lastIn.text||"").slice(0,120)};
+      }
+      return {...c,thread:t,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,future,contacted,sug,act:lastAt>c.lastShow?lastAt:c.lastShow};
+    }).sort((a,b)=>((b.unread>0)-(a.unread>0))
+      ||((b.contacted?1:0)-(a.contacted?1:0))                       // reached-out people before not-contacted
+      ||String(b.lastShow).localeCompare(String(a.lastShow))        // then most recent showing first
+      ||String(b.act).localeCompare(String(a.act)));
+  },[showings,sharedProps,connected,btAll,sugDis,textOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const term=q.trim().toLowerCase();
   const shown=contacts.filter(c=>{
     if(term&&![c.name,c.phone,...c.addrs].join(" ").toLowerCase().includes(term))return false;
@@ -15218,7 +15258,8 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                   </span>
                   <span style={{display:"block",fontSize:10.5,color:T.textSub,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.addrs.slice(0,2).join(" · ")||fmtPh(c.phone)}{c.shows.length>1?` — ${c.shows.length} showings`:""}</span>
                 </span>
-                <span style={{flexShrink:0}}>
+                <span style={{flexShrink:0,display:"flex",alignItems:"center",gap:4}}>
+                  {c.sug&&<span title={`🤖 Their reply suggests: ${(SHOWING_LEADS.find(x=>x.key===c.sug.key)||{}).short||c.sug.key}`} style={{fontSize:11}}>🤖</span>}
                   {c.unread>0?chip(T.red,"#fff",`NEW REPLY · ${c.unread}`)
                    :c.replied?chip("#EDFBF1","#0F9D58","REPLIED")
                    :c.noRespDays!=null?chip("#FFF4E5","#B45309",`NO RESPONSE${c.noRespDays>0?` · ${c.noRespDays}d`:""}`)
@@ -15248,6 +15289,14 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
             </div>
             <div style={{flex:1,display:"flex",overflow:"hidden"}}>
               <div style={{flex:1,overflowY:"auto",padding:"14px 18px 40px"}}>
+                {/* 🤖 One-tap status from their reply */}
+                {sel.sug&&(()=>{const meta=SHOWING_LEADS.find(x=>x.key===sel.sug.key)||{};return(
+                  <div style={{display:"flex",alignItems:"center",gap:8,background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:11,padding:"9px 12px",marginBottom:12,flexWrap:"wrap"}}>
+                    <span style={{fontSize:12,color:"#8a6d1f",minWidth:0,flex:1}}>🤖 From {String(sel.name||"their").split(" ")[0]}'s reply this looks like: <b style={{color:meta.color||"#8a6d1f"}}>{meta.label||sel.sug.key}</b></span>
+                    <button onClick={()=>applySug(sel)} style={{padding:"6px 12px",borderRadius:14,border:"none",background:T.gold,color:"#fff",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>✓ Set status</button>
+                    <button onClick={()=>dismissSug(sel)} style={{padding:"6px 10px",borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Dismiss</button>
+                  </div>
+                );})()}
                 <div style={{fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",marginBottom:10}}>ACTIVITY — EVERYTHING WITH {String(sel.name||"THEM").split(" ")[0].toUpperCase()}, NEWEST FIRST</div>
                 {events(sel).map((e,i)=>(
                   <div key={i} style={{display:"flex",gap:11,marginBottom:12}}>

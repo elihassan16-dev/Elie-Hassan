@@ -131,6 +131,18 @@ function start() {
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && !store.connected) check(); });
 }
 
+// ─── App-provided directory & thread actions ────────────────────────────────
+// The main app registers these on every render (it knows names, roles and
+// properties, and can write statuses/follow-ups); the sms components stay
+// dumb and just call them. Unregistered (e.g. in tests) everything still
+// renders — names fall back to numbers and the action chips hide.
+let smsDir = null;      // (phone) => {name, role, addr, sub} | null
+let smsActions = null;  // {followUp({phone,name,addr}), notInterested({phone,name})}
+export const setSmsDirectory = (fn) => { smsDir = fn; };
+export const setSmsThreadActions = (a) => { smsActions = a; };
+const dirFor = (phone) => { try { return smsDir ? smsDir(phone) : null; } catch { return null; } };
+const looksLikeNumber = (s) => !s || /^[\d\s()+.\-·]*$/.test(String(s));
+
 // Opening a conversation marks it read (for this account, on every device).
 function markThreadRead(phone) {
   const p = e164(phone);
@@ -566,36 +578,42 @@ export function CallTextCards({ prefs = {}, savePrefs }) {
     {missed.length > 0 && (
       <div style={card}>
         {hd("📞", "Missed calls", missed.length, "#FFF1EA", "#C2410C", "#F6C9B2")}
-        {missed.map((m) => (
+        {missed.map((m) => {
+          const dir = dirFor(m.phone);
+          const nm = (dir && dir.name) || m.by || fmtPhone(m.phone);
+          return (
           <div key={m.id} style={row}>
-            <span style={{ width: 32, height: 32, borderRadius: "50%", background: "#FFE4D6", color: "#C2410C", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initials(m.by)}</span>
+            <span style={{ width: 32, height: 32, borderRadius: "50%", background: "#FFE4D6", color: "#C2410C", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initials(nm !== fmtPhone(m.phone) ? nm : "")}</span>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <b style={{ display: "block", fontSize: 12.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.by || fmtPhone(m.phone)}</b>
+              <b style={{ display: "block", fontSize: 12.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nm}</b>
               <span style={{ display: "block", fontSize: 10, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {ringing === m.phone ? "☎️ Your phone is ringing — pick up to connect" : `${m.by ? fmtPhone(m.phone) + " · " : ""}${rel(m.at)}${m.ext ? ` · rang ext ${m.ext}` : ""}`}
+                {ringing === m.phone ? "☎️ Your phone is ringing — pick up to connect" : `${nm !== fmtPhone(m.phone) ? fmtPhone(m.phone) + " · " : ""}${rel(m.at)}${dir && dir.addr ? ` · 🏠 ${dir.addr}` : ""}${m.ext ? ` · rang ext ${m.ext}` : ""}`}
               </span>
             </span>
             {jv.enabled && <button onClick={() => callBack(m.phone)} title="Call back on your Jivetel line" style={{ ...ico, background: T.gold, border: "none", color: "#fff" }}>📞</button>}
-            <button onClick={() => setOpen({ phone: m.phone, name: m.by || fmtPhone(m.phone) })} title="Open the conversation" style={ico}>💬</button>
+            <button onClick={() => setOpen({ phone: m.phone, name: nm })} title="Open the conversation" style={ico}>💬</button>
             <button onClick={() => dismiss(m.id)} title="Dismiss" style={{ ...ico, border: "none", fontSize: 15, color: T.textTert }}>×</button>
           </div>
-        ))}
+        );})}
         <div style={{ padding: "7px 14px", fontSize: 9.5, color: T.textTert, textAlign: "center" }}>clears itself once you call or text them back</div>
       </div>
     )}
     {texts.length > 0 && (
       <div style={card}>
         {hd("💬", "New texts", texts.length, "#FDE9C8", "#B45309", "#EAD9A9")}
-        {texts.map((t) => (
-          <div key={t.phone} onClick={() => setOpen({ phone: t.phone, name: t.name || fmtPhone(t.phone) })} style={{ ...row, cursor: "pointer" }}>
-            <span style={{ width: 32, height: 32, borderRadius: "50%", background: "#EEE7D4", color: "#8a6d1f", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initials(t.name)}</span>
+        {texts.map((t) => {
+          const dir = dirFor(t.phone);
+          const nm = t.name || (dir && dir.name) || fmtPhone(t.phone);
+          return (
+          <div key={t.phone} onClick={() => setOpen({ phone: t.phone, name: nm })} style={{ ...row, cursor: "pointer" }}>
+            <span style={{ width: 32, height: 32, borderRadius: "50%", background: "#EEE7D4", color: "#8a6d1f", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initials(nm !== fmtPhone(t.phone) ? nm : "")}</span>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <b style={{ display: "block", fontSize: 12.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name || fmtPhone(t.phone)}</b>
-              <span style={{ display: "block", fontSize: 10, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>“{String(t.text).slice(0, 60)}” · {rel(t.at)}</span>
+              <b style={{ display: "block", fontSize: 12.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nm}</b>
+              <span style={{ display: "block", fontSize: 10, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>“{String(t.text).slice(0, 60)}” · {rel(t.at)}{dir && dir.addr ? ` · 🏠 ${dir.addr}` : ""}</span>
             </span>
-            <button onClick={(e) => { e.stopPropagation(); setOpen({ phone: t.phone, name: t.name || fmtPhone(t.phone) }); }} title="Reply" style={{ ...ico, background: "#0F9D58", border: "none", color: "#fff" }}>↩</button>
+            <button onClick={(e) => { e.stopPropagation(); setOpen({ phone: t.phone, name: nm }); }} title="Reply" style={{ ...ico, background: "#0F9D58", border: "none", color: "#fff" }}>↩</button>
           </div>
-        ))}
+        );})}
       </div>
     )}
     {open && <SmsThreadPopup phone={open.phone} name={open.name} onClose={() => setOpen(null)} />}
@@ -641,6 +659,10 @@ export function TextA({ phone, style, title, onInApp, templates, onTemplate, chi
 // conversation column in the Showings → By agent view).
 export function SmsThreadPane({ phone, name, sub = "", templates = [], initialKind = null, sentStamps = {}, onClearStamp, onSent, onClose, inline = false }) {
   const { from, threadFor, send } = useSmsTexting();
+  // Callers that only had digits get the app directory's name/role/property.
+  const dir = dirFor(phone);
+  const shownName = (!looksLikeNumber(name) && name) || (dir && dir.name) || name || fmtPhone(phone);
+  const shownSub = sub || (dir && dir.sub) || "";
   const init = templates.find((t) => t.kind === initialKind);
   const [draft, setDraft] = useState(init ? init.text : "");
   const [kind, setKind] = useState(init ? init.kind : null);
@@ -671,12 +693,18 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], initialKi
         : { background: "#fff", borderRadius: 18, width: "min(480px,96vw)", height: "min(640px,90vh)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 48px rgba(0,0,0,0.25)" }}>
         <div style={{ padding: inline ? "10px 14px" : "13px 16px", borderBottom: `2px solid ${T.gold}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: inline ? 13.5 : 15, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 7 }}><SmsChatIcon size={15} color="#15803D" /> {name || phone}</div>
-            {sub && <div style={{ fontSize: 11, fontWeight: 700, color: "#8a6d1f", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>{sub}</div>}
+            <div style={{ fontSize: inline ? 13.5 : 15, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 7 }}><SmsChatIcon size={15} color="#15803D" /> {shownName}</div>
+            {shownSub && <div style={{ fontSize: 11, fontWeight: 700, color: "#8a6d1f", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>{shownSub}</div>}
             <div style={{ fontSize: 11, color: T.textSub }}>{phone} · from your business line {from}</div>
           </div>
           {onClose && <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>}
         </div>
+        {smsActions && (
+          <div style={{ display: "flex", gap: 6, padding: inline ? "6px 14px" : "7px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: "#fff" }}>
+            <button onClick={() => smsActions.followUp({ phone, name: shownName, addr: (dir && dir.addr) || "" })} title="Set a follow-up reminder — pick the day, and a time if you want one" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: "1px solid #DDD6FE", background: "#F5F3FF", color: "#7C3AED", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>📅 Follow-up</button>
+            <button onClick={() => smsActions.notInterested({ phone, name: shownName })} title="Mark this lead not interested — they drop off the chase lists" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🚫 Not interested</button>
+          </div>
+        )}
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "14px 14px", display: "flex", flexDirection: "column", gap: 8, background: T.bg }}>
           {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 12.5, padding: "30px 10px" }}>No texts with this number yet. Pick a template below or write your own — it sends from the company line, and their replies show up right here.</div>}
           {thread.map((m) => {

@@ -17,7 +17,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164 } from "./sms";
+import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -10720,13 +10720,14 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const followupsTx=((appSettings||[]).find(x=>x.id==="followups")||{}).items||[];
   const[fupTx,setFupTx]=useState(null); // {phone,name,addr} being scheduled
   const[fupTxDate,setFupTxDate]=useState("");
+  const[fupTxTime,setFupTxTime]=useState(""); // optional — "" = that morning
   const[fupTxNote,setFupTxNote]=useState("");
   const isoPlusTx=(d)=>{const x=new Date();x.setDate(x.getDate()+d);return x.toISOString().slice(0,10);};
   const nextMondayTx=()=>{const x=new Date();x.setDate(x.getDate()+((8-x.getDay())%7||7));return x.toISOString().slice(0,10);};
   const saveFupTx=()=>{
     if(!fupTx||!fupTxDate)return;
-    setAppSettings([...(appSettings||[]).filter(x=>x.id!=="followups"),{id:"followups",items:[...followupsTx,{id:Date.now(),phone:fupTx.phone,name:fupTx.name||"",addr:fupTx.addr||"",due:fupTxDate,note:fupTxNote.trim(),by:CURRENT_USER||"",done:false}].slice(-300)}]);
-    setFupTx(null);setFupTxDate("");setFupTxNote("");
+    setAppSettings([...(appSettings||[]).filter(x=>x.id!=="followups"),{id:"followups",items:[...followupsTx,{id:Date.now(),phone:fupTx.phone,name:fupTx.name||"",addr:fupTx.addr||"",due:fupTxDate,time:fupTxTime||"",note:fupTxNote.trim(),by:CURRENT_USER||"",done:false}].slice(-300)}]);
+    setFupTx(null);setFupTxDate("");setFupTxTime("");setFupTxNote("");
   };
   // Contractor-portal threads surface INSIDE each property's chat (tagged, like
   // showing threads) so the whole team sees contractor conversations in context.
@@ -11104,6 +11105,10 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
                 ))}
               </div>
               <input type="date" value={fupTxDate} onChange={e=>setFupTxDate(e.target.value)} style={{...iS,minHeight:44}}/>
+              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                <button onClick={()=>setFupTxTime("")} style={{padding:"7px 12px",borderRadius:16,border:!fupTxTime?"1.5px solid #7C3AED":`1px solid ${T.border}`,background:!fupTxTime?"#F5F3FF":"#fff",color:!fupTxTime?"#7C3AED":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⏰ No specific time</button>
+                <input type="time" value={fupTxTime} onChange={e=>setFupTxTime(e.target.value)} title="Pick a time and the reminder comes then instead of in the morning" style={{...iS,minHeight:44,width:130,flex:"0 0 auto"}}/>
+              </div>
               <input value={fupTxNote} onChange={e=>setFupTxNote(e.target.value)} placeholder="Note (optional)" style={iS}/>
             </div>
             <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
@@ -15167,17 +15172,19 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   const saveFollowups=(items)=>setAppSettings([...(appSettings||[]).filter(x=>x.id!=="followups"),{id:"followups",items:items.slice(-300)}]);
   const[fupFor,setFupFor]=useState(null); // contact getting a follow-up scheduled
   const[fupDate,setFupDate]=useState("");
+  const[fupTime,setFupTime]=useState(""); // optional — "" = that morning
   const[fupNote,setFupNote]=useState("");
   const isoPlus=(d)=>{const x=new Date();x.setDate(x.getDate()+d);return x.toISOString().slice(0,10);};
   const nextMonday=()=>{const x=new Date();x.setDate(x.getDate()+((8-x.getDay())%7||7));return x.toISOString().slice(0,10);};
   const addFup=()=>{
     if(!fupFor||!fupDate)return;
-    saveFollowups([...followups,{id:Date.now(),phone:fupFor.phone,name:fupFor.name||"",addr:fupFor.addrs[0]||"",due:fupDate,note:fupNote.trim(),by:CURRENT_USER||"",done:false}]);
-    setFupFor(null);setFupDate("");setFupNote("");
+    saveFollowups([...followups,{id:Date.now(),phone:fupFor.phone,name:fupFor.name||"",addr:fupFor.addrs[0]||"",due:fupDate,time:fupTime||"",note:fupNote.trim(),by:CURRENT_USER||"",done:false}]);
+    setFupFor(null);setFupDate("");setFupTime("");setFupNote("");
   };
   const todayIso=new Date().toISOString().slice(0,10);
   const myDue=followups.filter(x=>!x.done&&x.due&&x.due<=todayIso&&(!x.by||x.by===CURRENT_USER));
   const fmtDue=(d)=>{try{return new Date(d+"T12:00:00").toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});}catch{return d;}};
+  const fmtFupTime=(t)=>{const m=/^(\d{2}):(\d{2})$/.exec(String(t||""));if(!m)return "";const h=Number(m[1]);return `${h%12||12}:${m[2]} ${h<12?"AM":"PM"}`;};
   // ☑ Mass text: pick people (or everyone in the current filter) and blast the
   // intro — buyers get the buyer voice, agents the agent voice, each
   // personalized. Sent one by one with a breather so the carrier stays happy.
@@ -15394,7 +15401,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                 <div key={f.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 13px"}}>
                   <span style={{flex:1,minWidth:0}}>
                     <b style={{fontSize:12.5,color:T.text,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name||f.phone}</b>
-                    <span style={{fontSize:10.5,color:T.textSub,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[f.addr,f.due<todayIso?`was due ${fmtDue(f.due)}`:"due today",f.note].filter(Boolean).join(" · ")}</span>
+                    <span style={{fontSize:10.5,color:T.textSub,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[f.addr,(f.due<todayIso?`was due ${fmtDue(f.due)}`:"due today")+(f.time?` ${fmtFupTime(f.time)}`:""),f.note].filter(Boolean).join(" · ")}</span>
                   </span>
                   <CallA phone={f.phone} title="Call now" style={{...icoS,width:28,height:28,border:"1px solid #7C3AED",background:"#fff"}}><PhoneIcon size={12} color="#7C3AED"/></CallA>
                   <button onClick={()=>saveFollowups(followups.map(x=>x.id===f.id?{...x,done:true}:x))} title="Done — clear it" style={{...icoS,width:28,height:28,border:`1px solid ${T.green}`,background:"#EDFBF1",fontSize:12,color:"#15803D"}}>✓</button>
@@ -15537,7 +15544,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                 <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[sel.broker,fmtPh(sel.phone),`${sel.shows.length} showing${sel.shows.length===1?"":"s"} across ${sel.addrs.length} propert${sel.addrs.length===1?"y":"ies"}`].filter(Boolean).join(" · ")}</div>
               </div>
               <span style={{display:"flex",gap:6,flexShrink:0}}>
-                <button onClick={()=>{setFupFor(sel);setFupDate(isoPlus(1));setFupNote("");}} title="📅 Schedule a follow-up call — it pins here when due and pings your phone that morning" style={{...icoS,border:"1px solid #7C3AED",background:"#F5F3FF",fontSize:13}}>📅</button>
+                <button onClick={()=>{setFupFor(sel);setFupDate(isoPlus(1));setFupTime("");setFupNote("");}} title="📅 Schedule a follow-up call — it pins here when due and pings your phone that morning (or at the time you pick)" style={{...icoS,border:"1px solid #7C3AED",background:"#F5F3FF",fontSize:13}}>📅</button>
                 <CallA phone={sel.phone} title="Call" style={{...icoS,border:`1px solid ${T.border}`,background:"#fff"}}><PhoneIcon size={13} color={T.text}/></CallA>
                 {isMobile&&<button onClick={()=>setTextOpen({phone:sel.phone,name:sel.name,address:sel.addrs[0]||"",bt:!!sel.buyer&&!sel.shows.length})} title="Conversation & templates" style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}><SmsChatIcon size={13} color="#15803D"/></button>}
                 {sel.email&&<a href={`mailto:${sel.email}`} title={`Email ${sel.email}`} style={{...icoS,border:`1px solid ${T.blue}`,background:"#EBF4FF",fontSize:13}}>✉️</a>}
@@ -15597,6 +15604,10 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                 ))}
               </div>
               <input type="date" value={fupDate} onChange={e=>setFupDate(e.target.value)} style={{...finInput,minHeight:44}}/>
+              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                <button onClick={()=>setFupTime("")} style={{padding:"7px 12px",borderRadius:16,border:!fupTime?"1.5px solid #7C3AED":`1px solid ${T.border}`,background:!fupTime?"#F5F3FF":"#fff",color:!fupTime?"#7C3AED":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⏰ No specific time</button>
+                <input type="time" value={fupTime} onChange={e=>setFupTime(e.target.value)} title="Pick a time and the reminder comes then instead of in the morning" style={{...finInput,minHeight:44,width:130,flex:"0 0 auto"}}/>
+              </div>
               <input value={fupNote} onChange={e=>setFupNote(e.target.value)} placeholder="Note (optional) — e.g. talk numbers, mortgage broker" style={finInput}/>
             </div>
             <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
@@ -17284,9 +17295,84 @@ function PhoneTopButton(){
 }
 
 export function GoldstoneShell(){
-  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, setUserChannels, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks, currentUser: CURRENT_USER } = useData();
+  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, setUserChannels, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks, currentUser: CURRENT_USER, contacts: CONTACTS_G, appSettings, setAppSettings } = useData();
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
   const isMobile = useIsMobile();
+
+  // ── 📖 App-wide phone directory + conversation quick-actions ───────────────
+  // Registered into the sms module every render, so ANY place a number or a
+  // conversation shows — Tasks-page call/text cards, thread popups from every
+  // page — gets names/roles/properties, plus 📅 follow-up & 🚫 not-interested.
+  const btAllG=useBtLeads();
+  const[showFeedG,setShowFeedG]=useState([]);
+  useEffect(()=>{let dead=false;fetchShowingsShared().then(d=>{if(!dead)setShowFeedG(d.showings||[]);}).catch(()=>{/* names only */});return()=>{dead=true;};},[]);
+  const whoG=useMemo(()=>{
+    const m=new Map();
+    (btAllG||[]).forEach(l=>{const e=smsE164(l.phone);if(e&&!m.has(e))m.set(e,{name:l.name||"",role:"buyer",addr:""});});
+    (CONTACTS_G||[]).forEach(c=>{[c.phone,c.phone2,c.cell,c.mobile,c.altPhone,...(Array.isArray(c.phones)?c.phones:[])].filter(Boolean).forEach(x=>{const e=smsE164(String(x));if(e&&!m.has(e))m.set(e,{name:c.name||c.company||"",role:"contact",addr:""});});});
+    (showFeedG||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
+    const bestCl=new Map();
+    (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(!e||!l.name)return;const at=String(l.at||"");const prev=bestCl.get(e);if(!prev||at>prev.at)bestCl.set(e,{at,who:{name:l.name,role:l.buyer?"buyer":"lead",addr:String(pp.address||"").split(",")[0]}});})));
+    bestCl.forEach((v,e)=>m.set(e,v.who));
+    return m;
+  },[btAllG,CONTACTS_G,showFeedG,sharedProps]);
+  const propsG=useMemo(()=>buildPhoneProps(showFeedG,btAllG,sharedProps),[showFeedG,btAllG,sharedProps]);
+  const digitsG=(x)=>{const d=String(x||"").replace(/\D/g,"");return d.length===11&&d.startsWith("1")?d.slice(1):d;};
+  // 📅 The global follow-up popup: any conversation's "Follow-up" chip lands
+  // here — a date, an OPTIONAL specific time, and a note.
+  const[fupG,setFupG]=useState(null); // {phone,name,addr}
+  const[fupGDate,setFupGDate]=useState("");
+  const[fupGTime,setFupGTime]=useState("");
+  const[fupGNote,setFupGNote]=useState("");
+  const isoPlusG=(n)=>new Date(Date.now()+n*86400000).toLocaleDateString("en-CA");
+  const saveFupG=()=>{
+    if(!fupG||!fupGDate)return;
+    const items=((appSettings||[]).find(x=>x.id==="followups")||{}).items||[];
+    setAppSettings([...(appSettings||[]).filter(x=>x.id!=="followups"),{id:"followups",items:[...items,{id:Date.now(),phone:fupG.phone,name:fupG.name||"",addr:fupG.addr||"",due:fupGDate,time:fupGTime||"",note:fupGNote.trim(),by:CURRENT_USER||"",done:false}].slice(-300)}]);
+    setFupG(null);
+  };
+  // 🚫 Mark "not interested" from any conversation: writes the same statuses
+  // the Showings section owns — hand-added leads, BoldTrail inquiries, and
+  // showings matched to properties (with the snapshot, so it sticks).
+  const markNotInterestedG=({phone,name})=>{
+    const key=digitsG(phone);
+    if(!key)return;
+    if(!window.confirm(`Mark ${name||phone} as "Not interested"? They'll drop off the chase lists.`))return;
+    const matchPh=(raw)=>String(raw||"").split(/[\/,;]| or /i).some(x=>digitsG(x)===key);
+    const btHits=(btAllG||[]).filter(l=>digitsG(l.phone)===key);
+    const showHits=(showFeedG||[]).filter(s=>matchPh(s.phone));
+    let hit=false;
+    const next=(sharedProps||[]).map(pp=>{
+      let np=pp,ch=false;
+      if((pp.customLeads||[]).some(l=>matchPh(l.phone)&&l.lead!=="not")){np={...np,customLeads:np.customLeads.map(l=>matchPh(l.phone)?{...l,lead:"not"}:l)};ch=true;}
+      btHits.forEach(l=>{if(btMatchesProperty(l,pp)&&(np.showingLeads||{})["bt-"+l.id]!=="not"){np={...np,showingLeads:{...(np.showingLeads||{}),["bt-"+l.id]:"not"}};ch=true;}});
+      showHits.forEach(s=>{
+        if(!showingMatchesProperty(s.location||s.summary||"",pp))return;
+        const k=showingKey(s);
+        if((np.showingLeads||{})[k]==="not")return;
+        np={...np,showingLeads:{...(np.showingLeads||{}),[k]:"not"},showingSnapshots:{...(np.showingSnapshots||{}),[k]:(np.showingSnapshots||{})[k]||{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""}}};
+        ch=true;
+      });
+      if(ch){hit=true;return np;}
+      return pp;
+    });
+    if(hit)setSharedProps(()=>next);
+    else window.alert(`Couldn't find a lead or showing on file for ${name||phone} — set the status from the Showings page instead.`);
+  };
+  // Registered during render (cheap assignments) so children always call the
+  // freshest closures — no stale sharedProps in the not-interested writer.
+  setSmsDirectory((phone)=>{
+    const p=smsE164(phone);
+    if(!p)return null;
+    const w=whoG.get(p)||null;
+    const pl=propsG.get(p)||[];
+    if(!w&&!pl.length)return null;
+    return{name:(w&&w.name)||"",role:(w&&w.role)||"",addr:pl[0]?pl[0].addr:(w&&w.addr)||"",sub:whoSubLine(w,pl)};
+  });
+  setSmsThreadActions({
+    followUp:(t)=>{setFupG(t);setFupGDate(isoPlusG(1));setFupGTime("");setFupGNote("");},
+    notInterested:markNotInterestedG,
+  });
 
   const navItems = isAdmin ? NAV : NAV.filter(n=>MEMBER_KEYS.has(n.key)||VIEW_ONLY_MEMBER_KEYS.has(n.key));
   const officeUnread = officeUnreadCount(officeMessages,officeTasks,displayName);
@@ -17599,6 +17685,36 @@ export function GoldstoneShell(){
           </button>
         </nav>
       )}
+      {fupG&&(()=>{
+        const inG={width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",outline:"none",minHeight:44,background:"#fff",color:T.text};
+        const chipG=(on)=>({padding:"7px 12px",borderRadius:16,border:on?"1.5px solid #7C3AED":`1px solid ${T.border}`,background:on?"#F5F3FF":"#fff",color:on?"#7C3AED":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"});
+        return(
+        <div onClick={()=>setFupG(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:480,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(380px,96vw)",boxShadow:"0 14px 44px rgba(0,0,0,0.25)",overflow:"hidden"}}>
+            <div style={{padding:"13px 18px",borderBottom:"2px solid #7C3AED"}}>
+              <b style={{fontSize:15}}>📅 Follow-up — {fupG.name||fupG.phone}</b>
+              <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{fupG.addr?`🏠 ${fupG.addr} · `:""}Pins to Showings → By agent when due, and pings your phone {fupGTime?"at that time":"that morning"}.</div>
+            </div>
+            <div style={{padding:"12px 18px",display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {[["Tomorrow",isoPlusG(1)],["3 days",isoPlusG(3)],["Next week",isoPlusG(7)]].map(([l,d])=>(
+                  <button key={l} onClick={()=>setFupGDate(d)} style={chipG(fupGDate===d)}>{l}</button>
+                ))}
+              </div>
+              <input type="date" value={fupGDate} onChange={e=>setFupGDate(e.target.value)} style={inG}/>
+              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                <button onClick={()=>setFupGTime("")} style={chipG(!fupGTime)}>⏰ No specific time</button>
+                <input type="time" value={fupGTime} onChange={e=>setFupGTime(e.target.value)} title="Pick a time and the reminder comes then instead of in the morning" style={{...inG,width:130,flex:"0 0 auto"}}/>
+              </div>
+              <input value={fupGNote} onChange={e=>setFupGNote(e.target.value)} placeholder="Note (optional)" style={inG}/>
+            </div>
+            <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              <button onClick={()=>setFupG(null)} style={{padding:"9px 16px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+              <button onClick={saveFupG} disabled={!fupGDate} style={{padding:"9px 18px",borderRadius:10,border:"none",background:fupGDate?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:13,cursor:fupGDate?"pointer":"default",fontFamily:"inherit"}}>Set follow-up</button>
+            </div>
+          </div>
+        </div>
+      );})()}
       {showAiAssistant&&<GlobalAiChat onClose={()=>setShowAiAssistant(false)}/>}
       {showNavMenu&&<NavMenu items={navItems} active={active} isPinned={isPinned} onNavigate={(k)=>{pushPage(k);setShowNavMenu(false);}} onTogglePin={togglePin} onClose={()=>setShowNavMenu(false)}/>}
       {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}/>}

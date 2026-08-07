@@ -489,13 +489,14 @@ const NAV=[
   {key:"rentals",label:"Rental Portfolio",short:"Rentals",icon:ICONS.rentals},
   {key:"calendar",label:"Calendar",short:"Calendar",icon:ICONS.calendar},
   {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
+  {key:"crm",label:"Showings CRM",short:"CRM",icon:ICONS.leads},
   {key:"contacts",label:"Contacts",short:"Contacts",icon:ICONS.contacts},
   {key:"email",label:"Email",short:"Email",icon:ICONS.email},
   {key:"financials",label:"Financial Section",short:"Financials",icon:ICONS.financials},
   {key:"contractors",label:"Contractors",short:"Contractors",icon:ICONS.contacts},
 ];
 // Sections only the admin (Elie) can see. Everyone else never gets these nav items.
-const ADMIN_ONLY_KEYS=new Set(["financials","contractors"]);
+const ADMIN_ONLY_KEYS=new Set(["financials","contractors","crm"]);
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
 function Card({children,style={}}){return <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",...style}}>{children}</div>;}
@@ -2282,8 +2283,16 @@ function fmtShowingTime(s){
 const parseShowingPhones=(raw)=>String(raw||"").split(/[,/;]|\bor\b/i).map(x=>x.trim()).filter(x=>x.replace(/[^\d]/g,"").length>=7);
 const showingFirstName=(name)=>{const n=(name||"").trim().split(/\s+/)[0];return n||"there";};
 // The two text-message templates (auto-fill the agent's first name + the address).
-function showingMessage(kind,agentName,address){
+function showingMessage(kind,agentName,address,opts){
   const fn=showingFirstName(agentName);
+  // Owner-portal showings (a third-party agent runs the listing): two plain
+  // texts to that showing's agent, with the date/time filled in from the feed.
+  if(opts&&opts.simple){
+    const when=opts.when?` on ${opts.when}`:"";
+    if(kind==="followup")
+      return `Hey ${fn}, following up on the showing at ${address}${opts.when?` from ${opts.when}`:""} — how did it go? Any feedback from the buyer?`;
+    return `Hey ${fn}, wanted to see how the showing at ${address}${when} went?`;
+  }
   if(kind==="followup")
     return `Hey ${fn}, Eli again — just following up to see your client's interest and whether we can expect an offer. Thanks!`;
   if(kind==="sweeten")
@@ -2307,8 +2316,13 @@ ${zillow}`;
 }
 // The one template list used by every texting entry point (property showings,
 // showings page, calendar) so the options are identical everywhere.
-function showingTemplates(bt,name,address){
-  const t=(kind)=>(bt?btMessage:showingMessage)(kind,name,address);
+function showingTemplates(bt,name,address,opts){
+  const t=(kind)=>(bt?btMessage:showingMessage)(kind,name,address,opts);
+  // Owner-portal showings get the two simple "how did it go?" templates.
+  if(!bt&&opts&&opts.simple)return[
+    {kind:"initial",label:"How'd it go?",text:t("initial")},
+    {kind:"followup",label:"Follow-up",text:t("followup")},
+  ];
   return[
     {kind:"initial",label:"Initial intro",text:t("initial")},
     {kind:"followup",label:"Follow-up",text:t("followup")},
@@ -2686,15 +2700,15 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   };
   // The full action set for one number, icon-sized: call / text / email / team
   // note (+ the personal-phone template links for members without texting).
-  const iconCluster=(ph,name,rowKey,msgMeta,bt,email)=>{
+  const iconCluster=(ph,name,rowKey,msgMeta,bt,email,tmplOpts)=>{
     const t=showingTexts[rowKey]||{};
     const anySent=!!(t.initial||t.followup||t.sweeten);
-    const tmplText=(kind)=>(bt?btMessage:showingMessage)(kind,name,address);
+    const tmplText=(kind)=>(bt?btMessage:showingMessage)(kind,name,address,tmplOpts);
     return(
       <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
         <CallA phone={ph} title="Call" style={icoC}><PhoneIcon size={13} color={T.text}/></CallA>
-        <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setSmsPop({phone:ph,name,rowKey,bt,kind:kind||null})}
-          templates={showingTemplates(bt,name,address)}
+        <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setSmsPop({phone:ph,name,rowKey,bt,kind:kind||null,tmplOpts})}
+          templates={showingTemplates(bt,name,address,tmplOpts)}
           onTemplate={(kind)=>markText(rowKey,kind)}
           style={{...icoC,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
           <SmsChatIcon size={13} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:12,height:12,borderRadius:6,background:T.green,color:"#fff",fontSize:7.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
@@ -2708,7 +2722,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   };
   // One condensed row for all three kinds — showing agent, hand-added lead,
   // BoldTrail buyer. Desktop: single line. Mobile: two lines. Gold stripes.
-  const CompactRow=({idx,dot,name,nameTitle,meta,phones,rowKey,leadVal,onLead,email,msgMeta,bt,onRemove,addUI})=>{
+  const CompactRow=({idx,dot,name,nameTitle,meta,phones,rowKey,leadVal,onLead,email,msgMeta,bt,onRemove,addUI,tmplOpts,srcTag})=>{
     const lead=SHOWING_LEADS.find(x=>x.key===(leadVal||""));
     const stripe=lead?lead.bg+"55":(idx%2?T.goldLight+"55":"transparent");
     const first=phones[0];
@@ -2723,22 +2737,23 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         <div style={{display:"flex",alignItems:"center",gap:7}}>
           <span style={{width:7,height:7,borderRadius:4,background:dot,flexShrink:0}}/>
           <span title={nameTitle||name} style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...(isMobile?{flex:1,minWidth:0}:{flex:"0 0 150px"})}}>{name}</span>
+          {srcTag&&<span title={`From the ${srcTag} ShowingTime calendar`} style={{fontSize:8,fontWeight:800,background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap",flexShrink:0,textTransform:"uppercase"}}>{srcTag}</span>}
           <span style={{fontSize:9.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0,...(isMobile?{}:{width:100,overflow:"hidden",textOverflow:"ellipsis"})}}>{meta}</span>
           {!isMobile&&<span style={{flex:1,minWidth:0,display:"flex"}}>{first?phoneSeg(first):<span style={{fontSize:11,color:T.textTert}}>No phone number.</span>}</span>}
           {leadSelect(leadVal||"",onLead,lead)}
-          {!isMobile&&first&&iconCluster(first,name,rowKey,msgMeta,bt,email)}
+          {!isMobile&&first&&iconCluster(first,name,rowKey,msgMeta,bt,email,tmplOpts)}
           {removeBtn}
         </div>
         {isMobile&&(
           <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4,paddingLeft:14}}>
             <span style={{flex:1,minWidth:0,display:"flex"}}>{first?phoneSeg(first):<span style={{fontSize:10.5,color:T.textTert}}>No phone number.</span>}</span>
-            {first&&iconCluster(first,name,rowKey,msgMeta,bt,email)}
+            {first&&iconCluster(first,name,rowKey,msgMeta,bt,email,tmplOpts)}
           </div>
         )}
         {phones.slice(1).map((ph,i)=>(
           <div key={i} style={{display:"flex",alignItems:"center",gap:6,marginTop:4,paddingLeft:14}}>
             <span style={{flex:1,minWidth:0,display:"flex"}}>{phoneSeg(ph)}</span>
-            {iconCluster(ph,name,rowKey,msgMeta,bt,null)}
+            {iconCluster(ph,name,rowKey,msgMeta,bt,null,tmplOpts)}
           </div>
         ))}
         {addUI}
@@ -2762,11 +2777,16 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       onUpdate(property.id,"showingKinds",map);saveNow();
     };
     const metaEl=<span onClick={e=>{e.stopPropagation();cycleKind();}} title="Tap to change the appointment type — showing / inspection / appraisal / walk-through" style={{cursor:"pointer"}}>{kindTag?`${kindTag} · ${when}`:when}</span>;
+    // Owner-portal showings (any non-agent ShowingTime calendar): the simple
+    // two-template texts to that showing's own agent, date/time filled in.
+    const ownerSrc=!!(s.src&&!/^agent/i.test(String(s.src).trim()));
+    const tOpts=ownerSrc?{simple:true,when}:null;
     return <CompactRow key={s.uid||s.ts+s.summary} idx={idx} dot={/cancel|declin/i.test(s.status)?T.red:eff!=="showing"?"#B45309":T.green}
-      name={s.agent||s.summary||"(agent)"} nameTitle={[kindTag,s.agent,s.broker,s.email,s.status].filter(Boolean).join(" \u00b7 ")}
+      name={s.agent||s.summary||"(agent)"} nameTitle={[kindTag,s.agent,s.broker,s.email,s.status,s.src].filter(Boolean).join(" \u00b7 ")}
       meta={metaEl} phones={phones} rowKey={k}
       leadVal={leadMap[k]||""} onLead={e=>setLead(s,e.target.value)}
       email={s.email||null} msgMeta={{key:k,label:`Showing \u2014 ${s.agent||"agent"}`,snap}}
+      tmplOpts={tOpts} srcTag={ownerSrc?s.src:null}
       addUI={addNumberUI(k,()=>addShowingPhone(s))}/>;
   };
   const LeadRowC=(l,idx)=>(
@@ -2879,7 +2899,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       );
     })()}
     {smsPop&&<SmsThreadPopup phone={smsPop.phone} name={smsPop.name||(smsPop.bt?"Buyer":"Agent")} initialKind={smsPop.kind||null}
-      templates={showingTemplates(smsPop.bt,smsPop.name,address)}
+      templates={showingTemplates(smsPop.bt,smsPop.name,address,smsPop.tmplOpts)}
       sentStamps={showingTexts[smsPop.rowKey]||{}}
       onClearStamp={(kind)=>smsPop.rowKey&&clearText(smsPop.rowKey,kind)}
       onSent={(kind)=>{if(kind&&smsPop.rowKey)markText(smsPop.rowKey,kind);}} onClose={()=>setSmsPop(null)}/>}
@@ -14845,6 +14865,106 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   );
 }
 
+// ─── 📞 Showings CRM (v1) — everyone from the showings feed with where the
+// conversation stands, powered by ShowingTime + the current texting line.
+// Call history, per-person numbers, and AI tags arrive with the Jivetel hookup.
+function CrmPage({sharedProps}){
+  const isMobile=useIsMobile();
+  const {connected,threadFor,unreadFor}=useSmsTexting();
+  const[showings,setShowings]=useState(null);
+  const[err,setErr]=useState("");
+  useEffect(()=>{fetchShowingsShared().then(d=>setShowings(d.showings||[])).catch(e=>setErr(e.message||"Couldn't load showings."));},[]);
+  const[filter,setFilter]=useState("all");
+  const[q,setQ]=useState("");
+  const[open,setOpen]=useState(null); // {phone,name,address}
+  const digits=(x)=>{const d=String(x||"").replace(/\D/g,"");return d.length===11&&d.startsWith("1")?d.slice(1):d;};
+  const fmtPh=(p)=>{const n=digits(p);return n.length===10?`(${n.slice(0,3)}) ${n.slice(3,6)}-${n.slice(6)}`:String(p||"");};
+  const contacts=useMemo(()=>{
+    const activeProps=(sharedProps||[]).filter(p=>!p.archived);
+    const by={};
+    (showings||[]).forEach(s=>{
+      const pr=activeProps.find(p=>showingMatchesProperty(s.location||s.summary||"",p));
+      const k=showingKey(s);
+      const phones=[...parseShowingPhones(s.phone),...(((pr&&pr.showingPhones)||{})[k]||[])];
+      phones.forEach(ph=>{
+        const key=digits(ph);if(!key)return;
+        const c=by[key]||(by[key]={phone:ph,name:s.agent||"",addrs:[],lastShow:"",insp:false});
+        if(s.agent&&(!c.name||c.name.length<s.agent.length))c.name=s.agent;
+        const addr=String((pr&&pr.address)||s.location||s.summary||"").split(",")[0];
+        if(addr&&!c.addrs.includes(addr))c.addrs.push(addr);
+        const ek=(((pr&&pr.showingKinds)||{})[k])||s.kind||"showing";
+        if(ek!=="showing")c.insp=true;
+        if(String(s.start||"")>c.lastShow)c.lastShow=String(s.start||"");
+      });
+    });
+    return Object.values(by).map(c=>{
+      const t=connected?threadFor(c.phone):[];
+      const last=t[t.length-1]||null;
+      const lastAt=last?String(last.at||""):"";
+      const unread=connected?unreadFor(c.phone):0;
+      const noRespDays=last&&last.direction==="out"?Math.max(0,Math.floor((Date.now()-new Date(last.at).getTime())/86400000)):null;
+      return {...c,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,act:lastAt>c.lastShow?lastAt:c.lastShow};
+    }).sort((a,b)=>String(b.act).localeCompare(String(a.act)));
+  },[showings,sharedProps,connected,open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const term=q.trim().toLowerCase();
+  const shown=contacts.filter(c=>{
+    if(term&&![c.name,c.phone,...c.addrs].join(" ").toLowerCase().includes(term))return false;
+    if(filter==="replied")return c.replied;
+    if(filter==="noresp")return c.noRespDays!=null;
+    if(filter==="new")return c.unread>0;
+    return true;
+  });
+  const counts={all:contacts.length,new:contacts.filter(c=>c.unread>0).length,replied:contacts.filter(c=>c.replied).length,noresp:contacts.filter(c=>c.noRespDays!=null).length};
+  const chip=(bg,fg,txt)=><span style={{fontSize:8.5,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
+  const fmtT=(iso)=>{if(!iso)return"";try{const d=new Date(iso.length===10?iso+"T12:00:00":iso);return new Date().toDateString()===d.toDateString()?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return"";}};
+  const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
+  const icoS={width:30,height:30,borderRadius:15,display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none",padding:0,boxSizing:"border-box",cursor:"pointer",fontFamily:"inherit",flexShrink:0};
+  return(
+    <div style={{maxWidth:760,margin:"0 auto",padding:isMobile?"10px 10px 70px":"18px 18px 70px"}}>
+      <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:16,overflow:"hidden",boxShadow:T.shadow}}>
+        <div style={{padding:"13px 16px 10px",borderBottom:`1px solid ${T.border}`}}>
+          <div style={{fontWeight:800,fontSize:15,color:T.text}}>📞 Showings CRM</div>
+          <div style={{fontSize:11,color:T.textTert,marginTop:1,lineHeight:1.5}}>Everyone from your showings and where the conversation stands. Call history, per-person numbers and AI tags come with the Jivetel hookup.</div>
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 Search name, number, property…" style={{width:"100%",marginTop:9,padding:"7px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
+          <div style={{display:"flex",gap:5,marginTop:8,flexWrap:"wrap"}}>
+            {[["all",`All · ${counts.all}`],["new",`New replies · ${counts.new}`],["replied",`Replied · ${counts.replied}`],["noresp",`No response · ${counts.noresp}`]].map(([k,l])=>(
+              <button key={k} onClick={()=>setFilter(k)} style={{fontSize:10.5,fontWeight:800,borderRadius:12,padding:"4px 10px",border:"none",cursor:"pointer",fontFamily:"inherit",background:filter===k?T.gold:"#F3F3F5",color:filter===k?"#fff":"#888"}}>{l}</button>
+            ))}
+          </div>
+        </div>
+        {showings===null&&!err&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>⏳ Loading your showings…</div>}
+        {err&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.red}}>{err}</div>}
+        {showings!==null&&!err&&shown.length===0&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing here{term?" for that search":""}.</div>}
+        {shown.map((c,i)=>(
+          <div key={digits(c.phone)} onClick={()=>setOpen({phone:c.phone,name:c.name,address:c.addrs[0]||""})} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"10px 16px",borderTop:`1px solid ${T.border}55`,cursor:"pointer",background:i%2?T.goldLight+"22":"transparent"}}>
+            <span style={{width:34,height:34,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(c.name)}</span>
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{display:"flex",gap:6,alignItems:"center"}}>
+                <b style={{fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{c.name||fmtPh(c.phone)}</b>
+                {c.insp&&<span title="Inspection / appraisal / walk-through" style={{flexShrink:0,fontSize:10}}>🔍</span>}
+                <span style={{marginLeft:"auto",fontSize:9.5,color:T.textTert,flexShrink:0}}>{fmtT(c.act)}</span>
+              </span>
+              <span style={{display:"block",fontSize:10.5,color:T.textSub,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.addrs.slice(0,2).join(" · ")||fmtPh(c.phone)}</span>
+              {c.last&&<span style={{display:"block",fontSize:10.5,color:T.textTert,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.last.direction==="in"?"":"You: "}{String(c.last.text||"").slice(0,64)}</span>}
+              <span style={{display:"flex",gap:4,marginTop:4,flexWrap:"wrap"}}>
+                {c.unread>0&&chip(T.red,"#fff",`NEW REPLY · ${c.unread}`)}
+                {c.replied&&!c.unread&&chip("#EDFBF1","#0F9D58","REPLIED")}
+                {c.noRespDays!=null&&chip("#F3F3F5","#98A0AA",`NO RESPONSE${c.noRespDays>0?` · ${c.noRespDays}d`:""}`)}
+                {!c.last&&connected&&chip("#FBF7EC","#8a6d1f","NOT CONTACTED")}
+              </span>
+            </span>
+            <span style={{display:"flex",gap:6,flexShrink:0,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+              <CallA phone={c.phone} title="Call" style={{...icoS,border:`1px solid ${T.border}`,background:"#fff"}}><PhoneIcon size={13} color={T.text}/></CallA>
+              <button onClick={()=>setOpen({phone:c.phone,name:c.name,address:c.addrs[0]||""})} title="Conversation & templates" style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}><SmsChatIcon size={13} color="#15803D"/></button>
+            </span>
+          </div>
+        ))}
+      </div>
+      {open&&<SmsThreadPopup phone={open.phone} name={open.name||"Agent"} templates={showingTemplates(false,open.name,open.address)} onClose={()=>setOpen(null)}/>}
+    </div>
+  );
+}
+
 // ── App-wide back stack ──────────────────────────────────────────────────────
 // Screens push a restore-closure BEFORE navigating away; "‹ Back" (or the
 // phone's back gesture — each push also adds a history entry) pops one.
@@ -16459,6 +16579,7 @@ export function GoldstoneShell(){
     : active==="leads" ? <NewLeadsPage/>
     : active==="messages" ? <MessagingCenter sharedProps={sharedProps} setSharedProps={setSharedProps} initialSelId={navChatId} onNavConsumed={()=>setNavChatId(null)}/>
     : active==="showings" ? <ShowingsPage/>
+    : active==="crm" ? <CrmPage sharedProps={sharedProps}/>
     : active==="rentals" ? <RentalPortfolioPage/>
     : active==="calendar" ? <CalendarPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>

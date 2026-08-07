@@ -7088,6 +7088,22 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
                 ? <textarea ref={editRef} value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Escape")setEditing(false);}} rows={Math.min(10,Math.max(4,Math.ceil((draft.length||1)/40)))}
                     style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.blue}`,fontSize:14.5,lineHeight:1.55,fontFamily:"inherit",color:T.text,outline:"none",resize:"vertical"}}/>
                 : <div style={{fontSize:14.5,lineHeight:1.6,color:T.text,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{t.text||"(untitled task)"}</div>}
+              {/* 🏦 LOC reconcile tasks carry the loan details — shown right in the
+                  normal task popup so the row itself stays a regular task. */}
+              {!editing&&t.locInfo&&(()=>{const L=t.locInfo;return(
+                <div style={{marginTop:14,border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden"}}>
+                  {[["Funder",L.funderName||"—"],
+                    ["Amount funded",fmtD(Number(L.amount)||0)],
+                    ["Date funded",finFmtDate(L.dateFunded)||"—"],
+                    ["Rate",L.ratePct!=null?`${L.ratePct}% / yr${L.custom?" — custom for this loan":""}`:"—"],
+                    ...(L.locTotal!=null?[["LOC total on this deal",fmtD(Number(L.locTotal)||0)]]:[])].map(([k,v],i)=>(
+                    <div key={k} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"9px 13px",borderTop:i?`1px solid ${T.border}`:"none",fontSize:13}}>
+                      <span style={{color:T.textSub,flexShrink:0}}>{k}</span><b style={{color:k.startsWith("LOC")?T.gold:T.text,textAlign:"right",minWidth:0}}>{v}</b>
+                    </div>
+                  ))}
+                  <button onClick={()=>{closeViewer();window.dispatchEvent(new CustomEvent("gs-open-financials"));}} style={{display:"block",width:"100%",padding:"11px 0",background:T.goldLight,border:"none",borderTop:`1px solid ${T.gold}`,color:"#8a6d1f",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Open in Financial Section ›</button>
+                </div>
+              );})()}
             </div>
             <div style={{padding:"12px 18px max(12px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8}}>
               {!editing&&onContact&&(
@@ -11512,7 +11528,9 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
   // 📜 Terms for this loan: the lender's default, or a custom rate for just this one.
   const[customRate,setCustomRate]=useState(!!(draw&&hasRate(draw.rate)));
   const[rate,setRate]=useState(draw&&hasRate(draw.rate)?String(draw.rate):"");
-  const {bankAccounts,draws:allDraws}=useData()||{};
+  const[mkTask,setMkTask]=useState(true); // 📋 auto-create the QuickBooks reconcile task
+  const {bankAccounts,draws:allDraws,teamMembers}=useData()||{};
+  const bookkeeper=((teamMembers||[]).find(n=>/^esti/i.test(String(n).trim()))||"Esti").split(" ")[0];
   const selFunder=funders.find(x=>String(x.id)===String(funderId));
   const defRate=selFunder&&hasRate(selFunder.rate)?Number(selFunder.rate):15;
   // 🏦 What this lender has held with us — the funding takes from it first.
@@ -11535,6 +11553,7 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
       rate:customRate&&hasRate(rate)?Number(rate):null,
       funderRate:f&&hasRate(f.rate)?Number(f.rate):null,
       amount:a, dateFunded, paybackDate:paybackDate||null, note:note.trim(),
+      ...(editing?{}:{_mkTask:mkTask}),   // stripped before the draw is stored
     });
     onClose();
   };
@@ -11592,6 +11611,12 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
           </div>
         );
       })()}
+      {!editing&&(
+        <div onClick={()=>setMkTask(v=>!v)} style={{display:"flex",alignItems:"center",gap:10,background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:11,padding:"10px 12px",cursor:"pointer"}}>
+          <span style={{flex:1,minWidth:0,fontSize:12,color:"#8a6d1f",lineHeight:1.5}}>📋 <b>Auto-task for {bookkeeper}</b> — “Reconcile line of credit” lands on this property with the loan details, and her phone gets a ping.</span>
+          <span style={{width:36,height:21,borderRadius:12,background:mkTask?T.gold:"#D8D8DC",position:"relative",flexShrink:0,transition:"background 0.15s"}}><span style={{position:"absolute",top:2.5,left:mkTask?17.5:2.5,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.15s",boxShadow:"0 1px 2px rgba(0,0,0,0.2)"}}/></span>
+        </div>
+      )}
       <div><div style={finLabel}>Note</div><input value={note} onChange={e=>setNote(e.target.value)} placeholder="Optional (e.g. rehab draw, refi proceeds)" style={finInput}/></div>
     </FinModal>
   );
@@ -14788,7 +14813,7 @@ const navBack=()=>{const f=gsNav.stack.pop();if(f)f();};
 const navCanBack=()=>gsNav.stack.length>0;
 
 function FinancialSectionPage({onNavigate,canEdit=true}){
-  const { funders, setFunders:rawSetFunders, flushFunders, draws, setDraws:rawSetDraws, flushDraws, sharedProps, bankAccounts, setBankAccounts, flushBank } = useData();
+  const { funders, setFunders:rawSetFunders, flushFunders, draws, setDraws:rawSetDraws, flushDraws, sharedProps, setSharedProps, flushProps, setOfficeTasks, flushOfficeTasks, teamMembers, currentUser, bankAccounts, setBankAccounts, flushBank } = useData();
   // View-only members: block every write path (setters become no-ops).
   const setFunders = canEdit ? rawSetFunders : ()=>{};
   const setDraws = canEdit ? rawSetDraws : ()=>{};
@@ -14826,9 +14851,22 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   const addLedger=(funderId,entry)=>{setFunders(prev=>prev.map(x=>String(x.id)===String(funderId)?{...x,ledger:[...(x.ledger||[]),entry]}:x));save();};
   const addLedgerBulk=(funderId,entries)=>{if(!entries.length)return;setFunders(prev=>prev.map(x=>String(x.id)===String(funderId)?{...x,ledger:[...(x.ledger||[]),...entries]}:x));save();};
   const delLedger=(funderId,entryId)=>{setFunders(prev=>prev.map(x=>String(x.id)===String(funderId)?{...x,ledger:(x.ledger||[]).filter(e=>e.id!==entryId)}:x));save();};
-  const saveDraw=(d)=>{
+  const saveDraw=(dIn)=>{
+    const{_mkTask,...d}=dIn;   // _mkTask is UI-only — never stored on the draw
     const isNew=!(draws||[]).some(x=>x.id===d.id);
     setDraws(prev=>prev.some(x=>x.id===d.id)?prev.map(x=>x.id===d.id?d:x):[...prev,d]);
+    // 📋 Assigning a line of credit auto-creates the QuickBooks reconcile task —
+    // a completely regular task (the loan details live in its tap popup).
+    if(isNew&&canEdit&&_mkTask!==false&&_mkTask!==undefined){
+      const esti=(teamMembers||[]).find(n=>/^esti/i.test(String(n).trim()))||"Estie Ungar";
+      const locTotal=drawBalance(d)+(draws||[]).filter(x=>!x.paybackDate&&String(x.id)!==String(d.id)&&((d.propertyId!=null&&String(x.propertyId||"")===String(d.propertyId))||sameName(x.propertyLabel,d.propertyLabel))).reduce((s,x)=>s+drawBalance(x),0);
+      const task={id:Date.now()+1,text:"Reconcile line of credit",status:"Not Started",assignee:esti,delegate:"",assignedAt:Date.now(),assignedBy:currentUser||"",autoId:"loc-reconcile",
+        locInfo:{funderName:d.funderName||"",amount:Number(d.amount)||0,dateFunded:d.dateFunded,ratePct:drawRatePct(d),custom:hasRate(d.rate),locTotal,drawId:d.id}};
+      const pid=d.propertyId!=null&&(sharedProps||[]).some(p=>String(p.id)===String(d.propertyId))?d.propertyId:null;
+      if(pid&&setSharedProps){setSharedProps(prev=>prev.map(p=>String(p.id)!==String(pid)?p:{...p,tasks:[...(p.tasks||[]),task]}));if(flushProps)setTimeout(flushProps,0);}
+      else if(setOfficeTasks){setOfficeTasks(prev=>[...(prev||[]),task]);if(flushOfficeTasks)setTimeout(flushOfficeTasks,0);}
+      if(esti!==currentUser)notify([esti],{title:"New task for you",body:`Reconcile LOC in QuickBooks — ${d.propertyLabel||"a property"} · ${fmtD(Number(d.amount)||0)} from ${d.funderName||"a lender"}`,tag:`task-${task.id}`,url:"/?goto=tasks"});
+    }
     // 🏦 Deploying a lender's money takes from his held Bank-Recon lines first
     // (oldest line first), each with a history entry — so the held number is
     // always what's physically still sitting in the account.
@@ -16362,6 +16400,8 @@ export function GoldstoneShell(){
     return()=>setVideoPatcher(null);
   },[setSharedProps,setOfficeMessages,setOfficeTasks,flushOfficeTasks]);
 
+  // "Open in Financial Section" from a LOC-reconcile task popup (admins only).
+  useEffect(()=>{const f=()=>{if(isAdmin)setActive("financials");};window.addEventListener("gs-open-financials",f);return()=>window.removeEventListener("gs-open-financials",f);},[isAdmin]);
   // Seed the seen-set the first time so pre-existing tasks don't all count as new.
   useEffect(()=>{ if(taskSeen===null && myTaskIds.length>0) savePrefs({taskSeenIds:myTaskIds}); },[taskSeen,myTaskIds.length]); // eslint-disable-line
   // Opening the Tasks tab marks everything currently assigned to me as seen.

@@ -11789,6 +11789,36 @@ function FinPaybackPick({funder,draws,onPick,onClose}){
   );
 }
 
+// ↩ The one global payback popup: every outstanding loan across ALL lenders, one
+// row per property with the lender tagged on it — no need to remember who funded
+// what. Tap a row to open the payback options for that loan.
+function FinPaybackAllPick({funders,draws,onPick,onClose}){
+  const open=(funders||[]).flatMap(f=>funderStats(f,draws).open.map(d=>({d,f})))
+    .sort((a,b)=>String(a.d.propertyLabel||"").localeCompare(String(b.d.propertyLabel||""))||String(a.d.dateFunded||"").localeCompare(String(b.d.dateFunded||"")));
+  return(
+    <FinModal title="↩ Pay back a loan" onClose={onClose}
+      footer={<button onClick={onClose} style={finBtn(false)}>Close</button>}>
+      <div style={{fontSize:12.5,color:T.textSub,marginTop:-4}}>{open.length===0?"No outstanding loans — everything is settled up.":`${open.length} outstanding loan${open.length===1?"":"s"} — tap the property you're settling.`}</div>
+      {open.length>0&&<div style={{border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden"}}>
+        {open.map(({d,f},i)=>{const pr=drawBalance(d),it=drawInterest(d);return(
+          <div key={d.id} onClick={()=>onPick(d)} style={{padding:"11px 14px",borderTop:i?`1px solid ${T.border}`:"none",cursor:"pointer",background:T.card}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
+              <span style={{fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{d.propertyLabel||"—"}</span>
+              <span style={{fontSize:13.5,fontWeight:800,color:T.text,flexShrink:0}}>{fmtD(pr+it)}</span>
+            </div>
+            <div style={{display:"flex",gap:"3px 12px",fontSize:11,color:T.textSub,marginTop:3,flexWrap:"wrap",alignItems:"center"}}>
+              <span style={{fontSize:10,fontWeight:800,background:T.goldLight,color:"#8a6d1f",borderRadius:9,padding:"2px 8px",whiteSpace:"nowrap"}}>{f.name}</span>
+              <span>principal <b style={{color:T.text}}>{fmtD(pr)}</b></span>
+              <span>interest <b style={{color:T.gold}}>{fmtD(it)}</b></span>
+              <span>{drawDays(d)} day{drawDays(d)===1?"":"s"}</span>
+            </div>
+          </div>
+        );})}
+      </div>}
+    </FinModal>
+  );
+}
+
 // All-in cost for a property (actuals preferred), and its financing pieces.
 const propAllIn=(f)=>{const useAct=!!(f&&f.useActualProfit);const g=(act,proj)=>{const a=n(f[act]);return useAct&&a?a:n(f[proj]);};return g("actualPurchasePrice","purchasePrice")+g("actualBuyingCosts","buyingCosts")+g("actualRehabCosts","rehabCosts");};
 const propHmLoan=(f)=>{const a=n(f&&f.acHmLoanAmt);if(a)return a;return Math.round(n(f&&f.purchasePrice)*(n((f&&f.hmLoanPct)||90)/100));};
@@ -14638,6 +14668,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   const[paybackModal,setPaybackModal]=useState(null);  // draw being paid back
   const[partialModal,setPartialModal]=useState(null);  // draw getting a partial paydown
   const[paybackPick,setPaybackPick]=useState(null);    // funder whose ↩ pick-the-loan popup is open
+  const[paybackAll,setPaybackAll]=useState(false);     // the one global ↩ pick-the-property popup
   const[rowMenu,setRowMenu]=useState(null);            // {id,x,y} of the open register-row actions menu
   const[drawModal,setDrawModal]=useState(null);        // {} new, or draw obj, or {defaultFunderId}
   const save=()=>{setTimeout(()=>{flushFunders&&flushFunders();flushDraws&&flushDraws();},0);};
@@ -14748,7 +14779,6 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           </div>
           <div style={{fontSize:11,color:T.textSub,marginTop:2}}>{fmtD(s.deployed)} out · {s.open.length} open · {fmtD(s.interestOwed)} int owed</div>
         </div>
-        {canEdit&&<button onClick={(e)=>{e.stopPropagation();setPaybackPick(f);}} title={`Pay back ${f.name} — pick the loan`} style={payIcon}>↩</button>}
       </div>
     );
   };
@@ -14849,6 +14879,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       {ledgerModal&&sel&&<FinLedgerModal funderName={sel.name} onSave={(e)=>addLedger(sel.id,e)} onClose={()=>setLedgerModal(false)}/>}
       {registerImport&&sel&&<FinRegisterImport funder={sel} onImport={(entries)=>addLedgerBulk(sel.id,entries)} onClose={()=>setRegisterImport(false)}/>}
       {paybackPick&&<FinPaybackPick funder={paybackPick} draws={draws} onPick={(d)=>{setPaybackPick(null);setPaybackModal(d);}} onClose={()=>setPaybackPick(null)}/>}
+      {paybackAll&&<FinPaybackAllPick funders={list} draws={draws} onPick={(d)=>{setPaybackAll(false);setPaybackModal(d);}} onClose={()=>setPaybackAll(false)}/>}
       {paybackModal&&<FinPaybackModal draw={paybackModal} onConfirm={(r)=>recordPayback(paybackModal,r)} onClose={()=>setPaybackModal(null)}/>}
       {partialModal&&<FinPartialPayModal draw={partialModal} onConfirm={(r)=>addPartialPayment(partialModal,r)} onClose={()=>setPartialModal(null)}/>}
       {rowMenu&&(()=>{const acts=rowActions(rowMenu.ev);const W=200;const vw=typeof window!=="undefined"?window.innerWidth:400;const left=Math.max(8,Math.min(rowMenu.x-W,vw-W-8));return(
@@ -14870,6 +14901,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           <span style={{fontSize:9,fontWeight:800,background:T.gold,color:"#fff",borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>Private</span>
           {!canEdit&&<span style={{fontSize:9,fontWeight:800,background:T.bg,color:T.textSub,border:`1px solid ${T.border}`,borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>View only</span>}
           {canEdit&&subTab==="loc"&&<div style={{marginLeft:"auto",display:"flex",gap:8}}>
+            <button onClick={()=>setPaybackAll(true)} title="Pay back a loan — pick the property, the lender's tagged on each" style={{...finBtn(false),padding:"8px 12px",border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#8a6d1f"}}>↩ Payback</button>
             <button onClick={downloadBackup} title="Download a backup file of all financial data" style={{...finBtn(false),padding:"8px 12px"}}>⬇ Backup</button>
             <button onClick={()=>setFunderModal({})} style={{...finBtn(false),padding:"8px 12px"}}>+ Lender</button>
             <button onClick={()=>setDrawModal({})} style={{...finBtn(true),padding:"8px 14px"}}>+ Draw</button>

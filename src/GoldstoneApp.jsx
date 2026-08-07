@@ -15318,7 +15318,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   // campaign never texts the same person the same message kind twice.
   const campSent=((appSettings||[]).find(x=>x.id==="campaign_sent")||{}).keys||[];
   const[campOpen,setCampOpen]=useState(false);
-  const[camp,setCamp]=useState({who:"buyers",prop:"all",days:10,resp:"never",msg:"initial",custom:""});
+  const[camp,setCamp]=useState({who:"buyers",prop:"all",days:10,resp:"never",wait:2,msg:"initial",custom:""});
   const campProps=[...new Set(contacts.flatMap(c=>c.addrs))].sort();
   const campMatch=(c)=>{
     if(c.dead||c.future)return false;
@@ -15329,7 +15329,9 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
     const lastAct=Math.max(c.lastShow?new Date(c.lastShow).getTime():0,c.inq&&c.inq.at?new Date(c.inq.at).getTime():0);
     if(!(lastAct>=cut))return false;
     if(camp.resp==="never"&&c.contacted)return false;
-    if(camp.resp==="noresp"&&!(c.contacted&&!c.replied))return false;
+    // "Didn't respond" also waits: only people whose last text from us is at
+    // least camp.wait days old — someone texted this morning isn't hit again.
+    if(camp.resp==="noresp"&&!(c.contacted&&!c.replied&&c.noRespDays!=null&&c.noRespDays>=(Number(camp.wait)||0)))return false;
     if(camp.resp==="replied"&&!c.replied)return false;
     if(camp.msg!=="custom"&&campSent.includes(`${c.key}|${camp.msg}`))return false;
     return true;
@@ -15453,6 +15455,15 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
             </div>
             <div style={lbl}>4 · ONLY PEOPLE WHO…</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 18px"}}>{[["any","Anyone"],["never","Never texted"],["noresp","Didn't respond"],["replied","Replied"]].map(([k,l])=><button key={k} onClick={()=>setCamp({...camp,resp:k})} style={chipB(camp.resp===k)}>{l}</button>)}</div>
+            {camp.resp==="noresp"&&(<>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"8px 18px 0",alignItems:"center"}}>
+                <span style={{fontSize:11.5,color:T.textSub,fontWeight:700}}>…and my last text was at least</span>
+                {[1,2,3,7].map(d=><button key={d} onClick={()=>setCamp({...camp,wait:d})} style={chipB(Number(camp.wait)===d)}>{d} day{d===1?"":"s"}</button>)}
+                <input value={camp.wait} onChange={e=>setCamp({...camp,wait:e.target.value.replace(/\D/g,"")})} inputMode="numeric" style={{width:44,padding:"7px 9px",borderRadius:9,border:`1px solid ${T.gold}`,fontSize:12,fontFamily:"inherit",outline:"none",textAlign:"center"}}/>
+                <span style={{fontSize:11,color:T.textTert}}>days ago</span>
+              </div>
+              <div style={{padding:"4px 18px 0",fontSize:10.5,color:T.textTert,lineHeight:1.5}}>So someone you texted this morning doesn't get another one — they only qualify once they've had {Number(camp.wait)||0} day{(Number(camp.wait)||0)===1?"":"s"} to answer.</div>
+            </>)}
             <div style={lbl}>5 · THE MESSAGE</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 18px"}}>{[["initial","Intro (auto voice)"],["followup","Follow-up"],["custom","✎ Write my own"]].map(([k,l])=><button key={k} onClick={()=>setCamp({...camp,msg:k})} style={chipB(camp.msg===k)}>{l}</button>)}</div>
             {camp.msg==="custom"&&<textarea value={camp.custom} onChange={e=>setCamp({...camp,custom:e.target.value})} rows={3} placeholder="Write the text everyone gets…" style={{...finInput,width:"calc(100% - 36px)",margin:"8px 18px 0",resize:"vertical",lineHeight:1.5}}/>}

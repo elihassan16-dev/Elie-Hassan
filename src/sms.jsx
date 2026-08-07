@@ -580,7 +580,8 @@ export function CallTextCards({ prefs = {}, savePrefs }) {
         {hd("📞", "Missed calls", missed.length, "#FFF1EA", "#C2410C", "#F6C9B2")}
         {missed.map((m) => {
           const dir = dirFor(m.phone);
-          const nm = (dir && dir.name) || m.by || fmtPhone(m.phone);
+          // Jivetel's CNAM often IS the raw number — that's not a name.
+          const nm = (dir && dir.name) || (!looksLikeNumber(m.by) && m.by) || fmtPhone(m.phone);
           return (
           <div key={m.id} style={row}>
             <span style={{ width: 32, height: 32, borderRadius: "50%", background: "#FFE4D6", color: "#C2410C", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initials(nm !== fmtPhone(m.phone) ? nm : "")}</span>
@@ -603,7 +604,8 @@ export function CallTextCards({ prefs = {}, savePrefs }) {
         {hd("💬", "New texts", texts.length, "#FDE9C8", "#B45309", "#EAD9A9")}
         {texts.map((t) => {
           const dir = dirFor(t.phone);
-          const nm = t.name || (dir && dir.name) || fmtPhone(t.phone);
+          // Jivetel's ContactName often IS the raw number — that's not a name.
+          const nm = (dir && dir.name) || (!looksLikeNumber(t.name) && t.name) || fmtPhone(t.phone);
           return (
           <div key={t.phone} onClick={() => setOpen({ phone: t.phone, name: nm })} style={{ ...row, cursor: "pointer" }}>
             <span style={{ width: 32, height: 32, borderRadius: "50%", background: "#EEE7D4", color: "#8a6d1f", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initials(nm !== fmtPhone(t.phone) ? nm : "")}</span>

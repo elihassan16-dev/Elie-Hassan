@@ -11021,7 +11021,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     return(
       <div key={"sms-"+t.phone} onClick={()=>setSmsSel({phone:t.phone,name:t.name||t.phone})} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?"#EDFBF1":"transparent",borderLeft:isActive?"3px solid #15803D":"3px solid transparent"}}>
         <div style={{display:"flex",alignItems:"baseline",gap:6}}>
-          <span style={{fontWeight:hasUnread?700:600,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{t.name||t.phone}</span>
+          <span style={{fontWeight:hasUnread?700:600,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{t.name||fmtCallPhone(t.phone)}</span>
           {t.who&&<span style={t.who.role==="buyer"?{...tagLine,background:"#FCE7F3",color:"#DB2777",border:"1px solid #FBCFE8"}:t.who.role==="lead"?{...tagLine,background:"#FBF3DD",color:"#8a6d1f",border:"1px solid #EAD9A9"}:tagTeam}>{t.who.role==="buyer"?"🛒 BUYER":t.who.role==="lead"?"🏷 LEAD":"AGENT"}</span>}
           {showTag&&<span style={tagText}>📱 TEXT</span>}
           {t.line&&!mine&&<span style={tagLine}>{String(t.line).split(" ")[0].toUpperCase()}'S LINE</span>}

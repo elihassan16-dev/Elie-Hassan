@@ -15004,7 +15004,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
     acts.push({label:e.kind==="fund"?"Delete funding":e.kind==="payback"?"Reopen loan":e.kind==="payment"?"Remove paydown":"Remove",color:T.red,fn:()=>delEvent(e)});
     return acts;
   };
-  const openRowMenu=(ev,evt)=>{const r=evt.currentTarget.getBoundingClientRect();setRowMenu(rowMenu&&rowMenu.ev.id===ev.id?null:{ev,x:r.right,y:r.bottom});};
+  const openRowMenu=(ev,evt)=>{const r=evt.currentTarget.getBoundingClientRect();setRowMenu(rowMenu&&rowMenu.ev.id===ev.id?null:{ev,x:r.right,y:r.bottom,yTop:r.top});};
   const detail=(f)=>{
     const s=funderStats(f,draws);
     const reg=funderRegister(f,draws);
@@ -15083,10 +15083,15 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       {paybackAll&&<FinPaybackAllPick funders={list} draws={draws} onPick={(d)=>{setPaybackAll(false);setPaybackModal(d);}} onClose={()=>setPaybackAll(false)}/>}
       {paybackModal&&<FinPaybackModal draw={paybackModal} funder={list.find(f=>String(paybackModal.funderId)===String(f.id)||sameName(paybackModal.funderName,f.name))||null} onConfirm={(r)=>recordPayback(paybackModal,r)} onPartial={(r)=>addPartialPayment(paybackModal,r)} onClose={()=>setPaybackModal(null)}/>}
       {partialModal&&<FinPartialPayModal draw={partialModal} onConfirm={(r)=>addPartialPayment(partialModal,r)} onClose={()=>setPartialModal(null)}/>}
-      {rowMenu&&(()=>{const acts=rowActions(rowMenu.ev);const W=200;const vw=typeof window!=="undefined"?window.innerWidth:400;const left=Math.max(8,Math.min(rowMenu.x-W,vw-W-8));return(
+      {rowMenu&&(()=>{const acts=rowActions(rowMenu.ev);const W=200;const vw=typeof window!=="undefined"?window.innerWidth:400;const vh=typeof window!=="undefined"?window.innerHeight:700;const left=Math.max(8,Math.min(rowMenu.x-W,vw-W-8));
+        // Open upward when the menu would run off the bottom of the screen
+        // (the last register rows), so every option stays tappable.
+        const H=acts.length*42+2;
+        const top=(rowMenu.y+4+H>vh-8)?Math.max(8,(rowMenu.yTop??rowMenu.y)-H-4):rowMenu.y+4;
+        return(
         <>
           <div onClick={()=>setRowMenu(null)} style={{position:"fixed",inset:0,zIndex:600}}/>
-          <div style={{position:"fixed",left,top:rowMenu.y+4,zIndex:601,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,boxShadow:T.shadowMd||"0 8px 30px rgba(0,0,0,0.18)",overflow:"hidden",width:W}}>
+          <div style={{position:"fixed",left,top,zIndex:601,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,boxShadow:T.shadowMd||"0 8px 30px rgba(0,0,0,0.18)",overflow:"hidden",width:W,maxHeight:vh-16,overflowY:"auto"}}>
             {acts.map((a,ai)=>(
               <button key={ai} onClick={()=>{setRowMenu(null);a.fn();}} style={{display:"block",width:"100%",textAlign:"left",padding:"10px 14px",background:"none",border:"none",borderTop:ai?`1px solid ${T.border}`:"none",color:a.color,fontSize:13.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{a.label}</button>
             ))}

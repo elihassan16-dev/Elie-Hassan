@@ -15101,8 +15101,14 @@ function classifySug(txt){
   return null;
 }
 function AgentsCrmView({sharedProps,showings,isMobile}){
-  const {connected,threadFor,unreadFor}=useSmsTexting();
+  const {connected,threadFor,unreadFor,send:smsSend}=useSmsTexting();
   const {setSharedProps,flushProps}=useData();
+  // ☑ Mass text: pick people (or everyone in the current filter) and blast the
+  // intro — buyers get the buyer voice, agents the agent voice, each
+  // personalized. Sent one by one with a breather so the carrier stays happy.
+  const[selMode,setSelMode]=useState(false);
+  const[picks,setPicks]=useState(()=>new Set());
+  const[blast,setBlast]=useState(null); // {list} confirm → {sending,i,total,errors} → {done,total,errors}
   const btAll=useBtLeads();
   const[q,setQ]=useState("");
   const[filter,setFilter]=useState("all");
@@ -15229,12 +15235,35 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
     return ev.filter(e=>e.at).sort((a,b)=>String(b.at).localeCompare(String(a.at)));
   };
   const icoS={width:32,height:32,borderRadius:16,display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none",padding:0,boxSizing:"border-box",cursor:"pointer",fontFamily:"inherit",flexShrink:0};
+  // The personalized intro for one person — buyer voice for pure buyers.
+  const introFor=(c)=>showingTemplates(!!c.buyer&&!c.shows.length,c.name,c.addrs[0]||"")[0];
+  const startBlast=()=>{
+    const list=shown.filter(c=>picks.has(c.key));
+    if(!list.length)return;
+    setBlast({list});
+  };
+  const runBlast=async(list)=>{
+    const errors=[];
+    setBlast({sending:true,i:0,total:list.length,errors});
+    for(let i=0;i<list.length;i++){
+      const c=list[i];
+      setBlast({sending:true,i:i+1,total:list.length,errors:[...errors]});
+      try{await smsSend(c.phone,introFor(c).text);}
+      catch(e){errors.push(`${c.name||c.phone}: ${e.message||"failed"}`);}
+      if(i<list.length-1)await new Promise(r=>setTimeout(r,1300)); // carrier-friendly pace
+    }
+    setBlast({done:true,total:list.length,errors});
+    setPicks(new Set());setSelMode(false);
+  };
   return(
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
       {/* Left: the people */}
       <div style={{width:isMobile?"100%":340,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"12px 14px 8px",borderBottom:`1px solid ${T.border}`}}>
-          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="⌕ Search an agent, buyer, number, property…" style={{width:"100%",padding:"8px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="⌕ Search an agent, buyer, number, property…" style={{flex:1,minWidth:0,padding:"8px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
+            {connected&&<button onClick={()=>{setSelMode(v=>!v);setPicks(new Set());}} title="Pick several people and text them the intro in one go" style={{padding:"7px 11px",borderRadius:9,border:selMode?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:selMode?T.goldLight:"#fff",color:selMode?"#8a6d1f":T.textSub,fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>☑ Select</button>}
+          </div>
           <div style={{display:"flex",gap:5,marginTop:8,flexWrap:"wrap"}}>
             {[["all",`All · ${counts.all}`],["new",`New replies · ${counts.new}`],["replied",`Replied · ${counts.replied}`],["noresp",`No response · ${counts.noresp}`],["buyers",`🛒 Buyers · ${counts.buyers}`],["upcoming",`📅 Upcoming · ${counts.upcoming}`]].map(([k,l])=>(
               <button key={k} onClick={()=>setFilter(k)} style={{fontSize:10.5,fontWeight:800,borderRadius:12,padding:"4px 10px",border:"none",cursor:"pointer",fontFamily:"inherit",background:filter===k?T.gold:"#F3F3F5",color:filter===k?"#fff":"#888"}}>{l}</button>
@@ -15246,8 +15275,10 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           {showings!==null&&shown.length===0&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing here{term?" for that search":""}.</div>}
           {shown.map(c=>{
             const active=c.key===selKey;
+            const picked=picks.has(c.key);
             return(
-              <div key={c.key} onClick={()=>setSelKey(c.key)} style={{display:"flex",gap:9,alignItems:"center",padding:"10px 13px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:active?T.goldLight:"transparent",borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent"}}>
+              <div key={c.key} onClick={()=>{if(selMode){const n=new Set(picks);picked?n.delete(c.key):n.add(c.key);setPicks(n);}else setSelKey(c.key);}} style={{display:"flex",gap:9,alignItems:"center",padding:"10px 13px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:selMode&&picked?T.goldLight:active&&!selMode?T.goldLight:"transparent",borderLeft:(selMode&&picked)||(active&&!selMode)?`3px solid ${T.gold}`:"3px solid transparent"}}>
+                {selMode&&<input type="checkbox" checked={picked} readOnly style={{width:16,height:16,accentColor:T.gold,flexShrink:0,pointerEvents:"none"}}/>}
                 <span style={{width:33,height:33,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:11.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(c.name)}</span>
                 <span style={{flex:1,minWidth:0}}>
                   <span style={{display:"flex",gap:5,alignItems:"baseline"}}>
@@ -15269,7 +15300,54 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
             );
           })}
         </div>
+        {/* ☑ Select-mode action bar */}
+        {selMode&&(
+          <div style={{padding:"9px 12px",borderTop:`2px solid ${T.gold}`,background:T.goldLight,display:"flex",alignItems:"center",gap:8,flexShrink:0,flexWrap:"wrap"}}>
+            <b style={{fontSize:12,color:"#8a6d1f"}}>{picks.size} picked</b>
+            <button onClick={()=>setPicks(new Set(shown.map(c=>c.key)))} style={{padding:"5px 10px",borderRadius:12,border:`1px solid ${T.gold}`,background:"#fff",color:"#8a6d1f",fontWeight:800,fontSize:10.5,cursor:"pointer",fontFamily:"inherit"}}>All shown · {shown.length}</button>
+            <button onClick={()=>setPicks(new Set())} style={{padding:"5px 10px",borderRadius:12,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:10.5,cursor:"pointer",fontFamily:"inherit"}}>None</button>
+            <button onClick={startBlast} disabled={!picks.size} style={{marginLeft:"auto",padding:"7px 13px",borderRadius:12,border:"none",background:picks.size?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:11.5,cursor:picks.size?"pointer":"default",fontFamily:"inherit"}}>💬 Text intro to {picks.size||"…"}</button>
+          </div>
+        )}
       </div>
+      {/* Mass-text confirm / progress */}
+      {blast&&(
+        <div onClick={()=>{if(!blast.sending)setBlast(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:470,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(460px,96vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
+            <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`}}>
+              <b style={{fontSize:15}}>💬 Mass text — the intro</b>
+              <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{blast.sending?`Sending ${blast.i} of ${blast.total}…`:blast.done?`Done — ${blast.total-(blast.errors||[]).length} of ${blast.total} sent.`:`${(blast.list||[]).length} people — each message is personalized (name + property); buyers get the buyer version.`}</div>
+            </div>
+            {!blast.sending&&!blast.done&&(
+              <div style={{overflowY:"auto",flex:1,padding:"10px 18px"}}>
+                {(blast.list||[]).slice(0,4).map(c=>(
+                  <div key={c.key} style={{marginBottom:10}}>
+                    <div style={{fontSize:12,fontWeight:800,color:T.text}}>{c.name||fmtPh(c.phone)}{c.buyer&&!c.shows.length?" · 🛒 buyer":""}</div>
+                    <div style={{fontSize:11.5,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"7px 10px",marginTop:3,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{introFor(c).text}</div>
+                  </div>
+                ))}
+                {(blast.list||[]).length>4&&<div style={{fontSize:11,color:T.textTert,textAlign:"center",padding:"4px 0 8px"}}>…and {(blast.list||[]).length-4} more, each personalized the same way.</div>}
+              </div>
+            )}
+            {blast.sending&&(
+              <div style={{padding:"22px 18px"}}>
+                <div style={{height:8,borderRadius:5,background:T.bg,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.round((blast.i/Math.max(1,blast.total))*100)}%`,background:T.gold,transition:"width 0.3s"}}/></div>
+                <div style={{fontSize:11.5,color:T.textSub,marginTop:8,textAlign:"center"}}>Keep this open — texts go out one at a time with a short breather between them.</div>
+              </div>
+            )}
+            {blast.done&&(blast.errors||[]).length>0&&(
+              <div style={{padding:"10px 18px",maxHeight:160,overflowY:"auto"}}>
+                <div style={{fontSize:11.5,fontWeight:800,color:T.red,marginBottom:5}}>Didn't go through:</div>
+                {(blast.errors||[]).map((e,i)=><div key={i} style={{fontSize:11,color:T.textSub,marginBottom:3}}>{e}</div>)}
+              </div>
+            )}
+            <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              {!blast.sending&&!blast.done&&<><button onClick={()=>setBlast(null)} style={finBtn(false)}>Cancel</button><button onClick={()=>runBlast(blast.list)} style={finBtn(true)}>Send {blast.list.length} text{blast.list.length===1?"":"s"}</button></>}
+              {blast.done&&<button onClick={()=>setBlast(null)} style={finBtn(true)}>Done</button>}
+            </div>
+          </div>
+        </div>
+      )}
       {/* Right: the activity log */}
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
         {sel?(

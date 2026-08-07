@@ -65,9 +65,17 @@ export default async function handler(req, res) {
     const { person, creds, ani } = resolvePerson(user, null, prof?.name);
     const missing = [!host && "server address", !creds.username && "username", !creds.password && "password", !creds.ext && "extension"].filter(Boolean);
     const enabled = !missing.length;
+    // Which extension is whose (owner → ext digits, from JIVETEL_CALL_EXT_*):
+    // the phone popup's All/Mine/Moshe/Esti history tabs come from this map.
+    const exts = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      const m = /^JIVETEL_CALL_EXT_([A-Z0-9]+)$/.exec(k);
+      if (m && String(v || "").split("@")[0]) exts[m[1].toLowerCase()] = String(v).split("@")[0];
+    }
+    if (!exts.elie && process.env.JIVETEL_CALL_EXT) exts.elie = String(process.env.JIVETEL_CALL_EXT).split("@")[0];
     // "why" names the person the server matched and what's missing — shows in
     // the call popup so a hidden Jivetel option explains itself in one look.
-    return res.status(200).json({ enabled, from: enabled ? ani : "", why: enabled ? "" : `missing ${missing.join(" + ")} for "${person || prof?.name || user.email || "this login"}"` });
+    return res.status(200).json({ enabled, from: enabled ? ani : "", me: first(person || prof?.name || ""), exts, why: enabled ? "" : `missing ${missing.join(" + ")} for "${person || prof?.name || user.email || "this login"}"` });
   }
   // Browser test door, gated like the webhook:
   // GET /api/jivetel/call?key=SECRET&to=7325551234[&ext=101@DOMAIN]

@@ -17,7 +17,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164 } from "./sms";
+import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164 } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -16957,6 +16957,163 @@ function PropertyEmails({property,onUpdate,isMobile}){
   );
 }
 
+// ─── 📞 Phone — the top-bar call center (desktop + PWA) ─────────────────────
+// Green phone button next to the ✨ assistant, admin/team only (contractors
+// never mount this shell). Red badge = missed calls newer than the last time
+// the popup was opened (saved on the account, so it follows you across
+// devices); opening clears it. Inside: a keypad — "Call from my desk" rings
+// your own Jivetel phone first (click-to-call), "📲 Send to my cell" pings
+// your phone with the dialer ready — plus named history for ALL office lines
+// (contacts/agents/buyers matched by number, missed/answered/outgoing with
+// durations, All/Mine/Moshe/Esti tabs, per-row call-back and text).
+const fmtCallPhone=(p)=>{const d=String(p||"").replace(/\D/g,"");const n=d.length===11&&d.startsWith("1")?d.slice(1):d;return n.length===10?`(${n.slice(0,3)}) ${n.slice(3,6)}-${n.slice(6)}`:String(p||"");};
+const fmtTalk=(s)=>{s=Number(s)||0;return s>=60?`${Math.floor(s/60)}m ${s%60}s`:`${s}s`;};
+const callRel=(iso)=>{const t=new Date(iso).getTime();if(isNaN(t))return "";const m=Math.floor(Math.max(0,Date.now()-t)/60000);if(m<1)return "just now";if(m<60)return `${m} min ago`;const h=Math.floor(m/60);if(h<24)return `${h}h ago`;const d=Math.floor(h/24);if(d===1)return "yesterday";if(d<7)return `${d}d ago`;try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
+function PhonePopup({onClose}){
+  const{connected,msgs}=useSmsTexting();
+  const jv=useJivetelCall();
+  const{contacts:CONTACTS}=useData();
+  const btAll=useBtLeads();
+  const[view,setView]=useState("recents"); // recents | keypad
+  const[filter,setFilter]=useState("all");
+  const[dial,setDial]=useState("");
+  const[calling,setCalling]=useState(""); // "" | busy | ringing | sent | err:<msg>
+  const[textTo,setTextTo]=useState(null); // {phone,name} → conversation popup
+  const[showFeed,setShowFeed]=useState([]);
+  useEffect(()=>{let dead=false;fetchShowingsShared().then(d=>{if(!dead)setShowFeed(d.showings||[]);}).catch(()=>{/* names only */});return()=>{dead=true;};},[]);
+  // Who is this number? Same sources as the server's identifyPhone: BoldTrail
+  // buyers and contacts first-come, then showing agents overwrite — an agent's
+  // name + which property they showed is the richest label.
+  const who=useMemo(()=>{
+    const m=new Map();
+    (btAll||[]).forEach(l=>{const e=smsE164(l.phone);if(e&&!m.has(e))m.set(e,{name:l.name||"",role:"buyer",addr:""});});
+    (CONTACTS||[]).forEach(c=>{[c.phone,c.phone2,c.cell,c.mobile,c.altPhone,...(Array.isArray(c.phones)?c.phones:[])].filter(Boolean).forEach(x=>{const e=smsE164(String(x));if(e&&!m.has(e))m.set(e,{name:c.name||c.company||"",role:"contact",addr:""});});});
+    (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
+    return m;
+  },[btAll,CONTACTS,showFeed]);
+  // Whose line is each extension? ext digits → owner ("elie"), for the tabs
+  // and the little line chips. "Mine" = whoever the server matched me to.
+  const extOwner=useMemo(()=>{const m={};Object.entries(jv.exts||{}).forEach(([k,v])=>{m[String(v)]=k;});return m;},[jv.exts]);
+  const sameF=(a,b)=>{a=String(a||"").toLowerCase();b=String(b||"").toLowerCase();return !!a&&!!b&&(a===b||(a.length>=3&&b.length>=3&&(a.startsWith(b)||b.startsWith(a))));};
+  const myKey=Object.keys(jv.exts||{}).find(k=>sameF(k,jv.me))||null;
+  const cap=(s)=>s?s[0].toUpperCase()+s.slice(1):"";
+  const tabs=[["all","All"],...Object.entries(jv.exts||{}).sort((a,b)=>String(a[1]).localeCompare(String(b[1]))).map(([k])=>[k,k===myKey?"Mine":cap(k)])];
+  const calls=useMemo(()=>msgs.filter(m=>m.kind==="call").sort((a,b)=>String(b.at||"").localeCompare(String(a.at||""))).slice(0,300),[msgs]);
+  const rows=filter==="all"?calls:calls.filter(m=>extOwner[String(m.ext||"").split("@")[0]]===filter);
+  const digitsOf=(s)=>String(s||"").replace(/\D/g,"");
+  const canDial=digitsOf(dial).length>=7;
+  const placeDesk=async()=>{
+    if(!canDial)return;
+    setCalling("busy");
+    try{await qbAuthFetch("/api/jivetel/call",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:dial.trim()})});setCalling("ringing");}
+    catch(e){setCalling("err:"+(e.message||"Couldn't place the call."));}
+  };
+  const sendCell=async()=>{
+    if(!canDial)return;
+    setCalling("busy");
+    try{await sendToMyPhone({phone:dial.trim(),mode:"call"});setCalling("sent");}
+    catch(e){setCalling("err:"+(e.message||"Couldn't reach your phone."));}
+  };
+  const tabBtn=(on)=>({padding:"6px 13px",borderRadius:15,border:`1px solid ${on?"#3BA55D":T.border}`,background:on?"#EDFBF1":"#fff",color:on?"#15803D":T.textSub,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0});
+  const ico={width:29,height:29,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:12.5,cursor:"pointer",flexShrink:0,padding:0,fontFamily:"inherit",textDecoration:"none",boxSizing:"border-box"};
+  const key=(k)=>(
+    <button key={k} onClick={()=>setDial(d=>d+k)} style={{height:52,borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",fontSize:21,fontWeight:700,color:T.text,cursor:"pointer",fontFamily:"inherit"}}>{k}</button>
+  );
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{background:T.bg,borderRadius:18,width:"min(440px,96vw)",height:"min(660px,92vh)",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+        <div style={{padding:"13px 16px 10px",background:"#fff",borderBottom:`2px solid #3BA55D`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:800,color:T.text}}>📞 Phone</div>
+            <div style={{fontSize:11,color:T.textSub}}>{jv.enabled?`Your line ${fmtCallPhone(jv.from)} — calls & history for all office lines`:"Call history for all office lines"}</div>
+          </div>
+          <div style={{display:"flex",gap:5,flexShrink:0}}>
+            <button onClick={()=>setView("recents")} style={tabBtn(view==="recents")}>🕘 Recent</button>
+            <button onClick={()=>{setView("keypad");setCalling("");}} style={tabBtn(view==="keypad")}>⌨️ Keypad</button>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0,padding:0}}>×</button>
+        </div>
+        {view==="keypad"?(
+          <div style={{flex:1,overflowY:"auto",padding:"18px 20px",display:"flex",flexDirection:"column",gap:12}}>
+            {calling?(
+              <div style={{padding:"30px 12px",textAlign:"center",fontSize:13.5,lineHeight:1.6}}>
+                {calling==="busy"?<b>☎️ One moment…</b>
+                  :calling==="ringing"?<><b>☎️ Your phone is ringing</b><div style={{fontSize:12,color:T.textSub,marginTop:4}}>Pick up, and we'll connect you to {fmtCallPhone(dial)}. They see your business number.</div></>
+                  :calling==="sent"?<><b>📲 Check your phone</b><div style={{fontSize:12,color:T.textSub,marginTop:4}}>Tap the notification and the dialer opens with {fmtCallPhone(dial)}.</div></>
+                  :<span style={{color:T.red,fontWeight:700}}>{calling.slice(4)}</span>}
+                <div><button onClick={()=>setCalling("")} style={{marginTop:16,padding:"9px 20px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",cursor:"pointer",fontFamily:"inherit",fontSize:12.5,fontWeight:700}}>‹ Back to keypad</button></div>
+              </div>
+            ):(<>
+              <div style={{display:"flex",gap:7,alignItems:"center"}}>
+                <input type="tel" value={dial} onChange={(e)=>setDial(e.target.value.replace(/[^\d+*#]/g,""))} placeholder="Enter a number…" autoFocus
+                  style={{flex:1,minWidth:0,padding:"12px 14px",borderRadius:12,border:`1px solid ${T.border}`,background:"#fff",fontSize:19,fontWeight:700,letterSpacing:0.5,color:T.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box",textAlign:"center"}}/>
+                {dial&&<button onClick={()=>setDial(d=>d.slice(0,-1))} title="Delete" style={{...ico,width:42,height:42,fontSize:16}}>⌫</button>}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                {["1","2","3","4","5","6","7","8","9","+","0","#"].map(key)}
+              </div>
+              <button onClick={placeDesk} disabled={!canDial||!jv.enabled} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"13px",borderRadius:14,border:"none",background:canDial&&jv.enabled?"#0F9D58":T.border,color:"#fff",fontWeight:800,fontSize:14.5,cursor:canDial&&jv.enabled?"pointer":"default",fontFamily:"inherit"}}>☎️ Call from my desk</button>
+              {!jv.enabled&&jv.why&&<div style={{fontSize:10.5,color:T.textTert,textAlign:"center",lineHeight:1.5}}>☎️ Desk calling unavailable — {jv.why}</div>}
+              {jv.enabled&&<div style={{fontSize:10.5,color:T.textTert,textAlign:"center"}}>Your Jivetel phone rings first — answer, and we connect them.</div>}
+              <button onClick={sendCell} disabled={!canDial} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"12px",borderRadius:14,border:"1.5px solid #2563EB",background:canDial?"#EFF6FF":T.bg,color:canDial?"#2563EB":T.textTert,fontWeight:800,fontSize:13.5,cursor:canDial?"pointer":"default",fontFamily:"inherit"}}>📲 Send to my cell</button>
+            </>)}
+          </div>
+        ):(
+          <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column"}}>
+            <div style={{display:"flex",gap:6,padding:"10px 14px",overflowX:"auto",flexShrink:0,background:"#fff",borderBottom:`1px solid ${T.border}`}}>
+              {tabs.map(([k,label])=><button key={k} onClick={()=>setFilter(k)} style={tabBtn(filter===k)}>{label}</button>)}
+            </div>
+            <div style={{flex:1,overflowY:"auto"}}>
+              {rows.length===0&&<div style={{padding:"40px 20px",textAlign:"center",color:T.textTert,fontSize:12.5,lineHeight:1.6}}>{connected?"No calls here yet — calls on the office lines show up as they happen.":"Call history loads once your line is connected."}</div>}
+              {rows.map(m=>{
+                const p=smsE164(m.phone);
+                const w=who.get(p)||null;
+                const name=(w&&w.name)||m.by||fmtCallPhone(m.phone);
+                const missed=!!m.missed&&m.direction==="call-in";
+                const out=m.direction==="call-out";
+                const owner=extOwner[String(m.ext||"").split("@")[0]];
+                const status=missed?"Missed":out?(m.talkSecs?`Outgoing · ${fmtTalk(m.talkSecs)}`:"Outgoing · no answer"):`Answered · ${fmtTalk(m.talkSecs||0)}`;
+                return(
+                  <div key={m.id} style={{display:"flex",gap:9,alignItems:"center",padding:"9px 14px",borderBottom:`1px solid ${T.border}55`}}>
+                    <span title={missed?"Missed call":out?"Outgoing call":"Incoming call"} style={{width:31,height:31,borderRadius:"50%",background:missed?"#FFE4D6":out?"#EFF6FF":"#EDFBF1",color:missed?"#C2410C":out?"#2563EB":"#15803D",fontSize:13,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{out?"↗":"↙"}</span>
+                    <span style={{flex:1,minWidth:0}}>
+                      <b style={{display:"block",fontSize:12.5,color:missed?"#C2410C":T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}{w&&w.role==="agent"?" · agent":w&&w.role==="buyer"?" · buyer":""}</b>
+                      <span style={{display:"block",fontSize:10,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{status} · {callRel(m.at)}{name!==fmtCallPhone(m.phone)?` · ${fmtCallPhone(m.phone)}`:""}{w&&w.addr?` · ${w.addr}`:""}</span>
+                    </span>
+                    {(owner||m.ext)&&<span title={`Rang ${owner?cap(owner)+"'s":"ext "+m.ext} line`} style={{fontSize:9.5,fontWeight:800,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:9,padding:"2px 7px",flexShrink:0}}>{owner?cap(owner):`ext ${m.ext}`}</span>}
+                    <CallA phone={m.phone} title="Call back" style={{...ico,background:"#0F9D58",border:"none",color:"#fff"}}>📞</CallA>
+                    <button onClick={()=>setTextTo({phone:m.phone,name})} title="Text them" style={ico}>💬</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+      {textTo&&<SmsThreadPopup phone={textTo.phone} name={textTo.name} onClose={()=>setTextTo(null)}/>}
+    </div>
+  );
+}
+function PhoneTopButton(){
+  const{connected,msgs}=useSmsTexting();
+  const jv=useJivetelCall();
+  const{prefs,savePrefs}=useAuth();
+  const[open,setOpen]=useState(false);
+  if(!connected&&!jv.enabled)return null;
+  // Missed inbound calls since the popup was last opened (recent ones only, so
+  // the first-ever open doesn't light up with months of history).
+  const seen=String((prefs||{}).callsSeenAt||"");
+  const weekAgo=new Date(Date.now()-7*86400000).toISOString();
+  const missedN=(msgs||[]).filter(m=>m.kind==="call"&&m.missed&&m.direction==="call-in"&&String(m.at||"")>seen&&String(m.at||"")>weekAgo).length;
+  const openUp=()=>{setOpen(true);if(savePrefs)Promise.resolve(savePrefs({callsSeenAt:new Date().toISOString()})).catch(()=>{/* badge just stays */});};
+  return(<>
+    <button onClick={openUp} title="Phone — dialer & call history" aria-label="Phone" style={{position:"relative",boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:"1px solid #3BA55D",background:"#EDFBF1",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0}}>📞
+      {missedN>0&&<UnreadBadge count={missedN} style={{position:"absolute",top:-6,right:-6,minWidth:16,height:16,fontSize:9.5}}/>}
+    </button>
+    {open&&<PhonePopup onClose={()=>setOpen(false)}/>}
+  </>);
+}
+
 export function GoldstoneShell(){
   const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, setUserChannels, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks, currentUser: CURRENT_USER } = useData();
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
@@ -17249,6 +17406,7 @@ export function GoldstoneShell(){
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             {!isMobile&&<div style={{fontSize:13,color:T.textSub}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>}
+            <PhoneTopButton/>
             <button onClick={()=>setShowAiAssistant(true)} title="Goldstone Assistant — ask AI anything" aria-label="AI assistant" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:28,minWidth:28,flexShrink:0,borderRadius:14,border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,padding:isMobile?"0 7px":"0 11px",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:4}}>✨{!isMobile&&" AI"}</button>
             {isMobile&&<div role="button" onClick={()=>setShowProfileMenu(true)} title="Profile & team" aria-label="Profile and team" style={{boxSizing:"border-box",lineHeight:1,width:28,height:28,minWidth:28,maxWidth:28,flex:"0 0 28px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff",cursor:"pointer"}}>{initials}</div>}
             {isAdmin&&<button onClick={()=>setShowSettings(true)} title="Settings" aria-label="Settings" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",height:28,background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14,padding:"0 8px",lineHeight:1}}>⚙</button>}

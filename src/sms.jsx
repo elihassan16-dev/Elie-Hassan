@@ -654,7 +654,20 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], initialKi
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [note, setNote] = useState(""); // 📲 handoff confirmation
+  const [stOpen, setStOpen] = useState(false); // 🏷 status options expanded
+  // 🤖 dismissed suggestions (per phone+message) — stay dismissed on this device.
+  const [sugDis, setSugDis] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("smsSugDis") || "[]")); } catch { return new Set(); } });
   const thread = threadFor(phone);
+  // 🤖 Read their latest reply and suggest a status — same classifier the CRM
+  // uses, now right in the conversation.
+  const lastIn = [...thread].reverse().find((m) => m.direction === "in" && m.kind !== "call");
+  const sugKey = smsActions && smsActions.suggest && lastIn ? smsActions.suggest(lastIn.text) : null;
+  const sugDisKey = lastIn ? `${e164(phone)}|${lastIn.id}` : "";
+  const sug = sugKey && !sugDis.has(sugDisKey) ? (smsActions.statusOptions || []).find((o) => o.key === sugKey) : null;
+  const dismissSug = () => {
+    const next = new Set(sugDis); next.add(sugDisKey); setSugDis(next);
+    try { localStorage.setItem("smsSugDis", JSON.stringify([...next].slice(-300))); } catch { /* private mode */ }
+  };
   const scrollRef = useRef(null);
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length]);
   // Having the conversation open means you've read it — clears the red
@@ -685,9 +698,30 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], initialKi
           {onClose && <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>}
         </div>
         {smsActions && (
-          <div style={{ display: "flex", gap: 6, padding: inline ? "6px 14px" : "7px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: "#fff" }}>
-            <button onClick={() => smsActions.followUp({ phone, name: shownName, addr: (dir && dir.addr) || "" })} title="Set a follow-up reminder — pick the day, and a time if you want one" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: "1px solid #DDD6FE", background: "#F5F3FF", color: "#7C3AED", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>📅 Follow-up</button>
-            <button onClick={() => smsActions.notInterested({ phone, name: shownName })} title="Mark this lead not interested — they drop off the chase lists" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🚫 Not interested</button>
+          <div style={{ padding: inline ? "6px 14px" : "7px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: "#fff" }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button onClick={() => smsActions.followUp({ phone, name: shownName, addr: (dir && dir.addr) || "" })} title="Set a follow-up reminder — pick the day, and a time if you want one" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: "1px solid #DDD6FE", background: "#F5F3FF", color: "#7C3AED", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>📅 Follow-up</button>
+              {smsActions.setStatus && (
+                <button onClick={() => setStOpen((v) => !v)} title="Set this lead's status — the same options as the Showings page" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: `1px solid ${stOpen ? "#C9A227" : T.border}`, background: stOpen ? "#FBF3DD" : "#fff", color: stOpen ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🏷 Set status {stOpen ? "▴" : "▾"}</button>
+              )}
+              {!smsActions.setStatus && (
+                <button onClick={() => smsActions.notInterested({ phone, name: shownName })} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🚫 Not interested</button>
+              )}
+            </div>
+            {stOpen && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
+                {(smsActions.statusOptions || []).map((o) => (
+                  <button key={o.key} onClick={() => { setStOpen(false); smsActions.setStatus({ phone, name: shownName }, o.key); }} style={{ padding: "6px 11px", borderRadius: 13, border: "none", background: o.bg, color: o.color, fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{o.label}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {sug && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: "#FDF9EE", borderBottom: "1px solid #EAD9A9", flexShrink: 0 }}>
+            <span style={{ fontSize: 11.5, color: "#8a6d1f", flex: 1, minWidth: 0, lineHeight: 1.45 }}>🤖 Their reply sounds like: <b style={{ color: sug.color }}>{sug.short || sug.label}</b></span>
+            <button onClick={() => { smsActions.setStatus({ phone, name: shownName }, sug.key); dismissSug(); }} style={{ padding: "6px 12px", borderRadius: 13, border: "none", background: "#C9A227", color: "#fff", fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>✓ Set status</button>
+            <button onClick={dismissSug} title="Dismiss" style={{ background: "none", border: "none", color: T.textTert, fontSize: 17, cursor: "pointer", lineHeight: 1, flexShrink: 0, padding: "0 2px" }}>×</button>
           </div>
         )}
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "14px 14px", display: "flex", flexDirection: "column", gap: 8, background: T.bg }}>

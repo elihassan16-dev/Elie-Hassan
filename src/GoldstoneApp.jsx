@@ -10804,6 +10804,17 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   // The gold 🏠 line on each texts row + the popup header: every property the
   // number is tied to, most recent first.
   const txProps=useMemo(()=>buildPhoneProps(showFeed,btAllTx,sharedProps),[showFeed,btAllTx,sharedProps]);
+  // ✏️ New text: everyone we know a number for — leads/buyers/agents (whoMap)
+  // enriched first, then the Contacts book fills the rest.
+  const[newTx,setNewTx]=useState(false);
+  const[newTxQ,setNewTxQ]=useState("");
+  const txPeople=useMemo(()=>{
+    const by=new Map();
+    const add=(phone,name,role,addr)=>{const e=smsE164(phone);if(!e||!name||by.has(e))return;by.set(e,{phone:e,name,role:role||"",addr:addr||""});};
+    whoMap.forEach((w,e)=>add(e,w.name,w.role,w.addr));
+    (CONTACTS||[]).forEach(c=>[c.phone,c.phone2,c.cell,c.mobile,c.altPhone,...(Array.isArray(c.phones)?c.phones:[])].filter(Boolean).forEach(x=>add(String(x),c.name||c.company||"","contact","")));
+    return [...by.values()].sort((a,b)=>a.name.localeCompare(b.name));
+  },[whoMap,CONTACTS]);
   // Contact names by number, so texts show "Shloimy the Plumber", not digits.
   const contactMap=useMemo(()=>{
     const m=new Map();
@@ -11061,9 +11072,12 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
               {modePill("all","⊞ All",{border:"1.5px solid #475569",background:"#F1F5F9",color:"#334155"},0)}
             </div>
           )}
-          <div style={{position:"relative"}}>
-            <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:15,pointerEvents:"none"}}>⌕</span>
-            <input placeholder={mode==="team"||!smsOn?"Search properties…":"Search names, numbers, properties…"} value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px"}}/>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <div style={{position:"relative",flex:1,minWidth:0}}>
+              <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:15,pointerEvents:"none"}}>⌕</span>
+              <input placeholder={mode==="team"||!smsOn?"Search properties…":"Search names, numbers, properties…"} value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px"}}/>
+            </div>
+            {smsOn&&mode!=="team"&&<button onClick={()=>{setNewTx(true);setNewTxQ("");}} title="✏️ New text — pick a contact or type a number; it sends from your office line" style={{width:33,height:33,minWidth:33,borderRadius:"50%",border:"1.5px solid #15803D",background:"#EDFBF1",fontSize:13.5,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>✏️</button>}
           </div>
         </div>
         {/* Showing-agent texts stay in the Showings CRM unless invited in */}
@@ -11118,6 +11132,44 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
           </div>
         </div>
       )}
+      {newTx&&(()=>{
+        const digits=String(newTxQ).replace(/\D/g,"");
+        const dialable=digits.length>=7?smsE164(digits):"";
+        const q=newTxQ.trim().toLowerCase();
+        const people=txPeople.filter(p=>!q||`${p.name} ${p.phone} ${p.addr}`.toLowerCase().includes(q)).slice(0,50);
+        const openThread=(phone,name)=>{setNewTx(false);setSmsSel({phone,name});};
+        return(
+        <div onClick={()=>setNewTx(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:470,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"7vh 16px 16px",boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(420px,96vw)",maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
+            <div style={{padding:"13px 16px 12px",borderBottom:"2px solid #15803D",flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <b style={{fontSize:15,flex:1}}>✏️ New text</b>
+                <button onClick={()=>setNewTx(false)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,padding:0}}>×</button>
+              </div>
+              <div style={{fontSize:11,color:T.textTert,marginTop:2}}>Pick a contact, or type any cell number — it sends from your office line.</div>
+              <input autoFocus value={newTxQ} onChange={e=>setNewTxQ(e.target.value)} placeholder="Name, or phone number…" style={{...iS,marginTop:9,fontSize:14,padding:"10px 12px"}}/>
+            </div>
+            <div style={{flex:1,minHeight:0,overflowY:"auto"}}>
+              {dialable&&(
+                <div onClick={()=>openThread(dialable,fmtCallPhone(dialable))} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:"#EDFBF1"}}>
+                  <span style={{width:34,height:34,borderRadius:"50%",background:"#0F9D58",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>💬</span>
+                  <span style={{fontSize:13.5,fontWeight:800,color:"#15803D"}}>Text {fmtCallPhone(dialable)}</span>
+                </div>
+              )}
+              {people.map(p=>(
+                <div key={p.phone} onClick={()=>openThread(p.phone,p.name)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:`1px solid ${T.border}55`,cursor:"pointer"}}>
+                  <span style={{width:32,height:32,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{String(p.name).trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?"}</span>
+                  <span style={{flex:1,minWidth:0}}>
+                    <b style={{display:"block",fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</b>
+                    <span style={{display:"block",fontSize:10.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[p.role==="buyer"?"🛒 buyer":p.role==="agent"?"agent":p.role==="lead"?"🏷 lead":p.role==="contact"?"contact":"",p.addr,fmtCallPhone(p.phone)].filter(Boolean).join(" · ")}</span>
+                  </span>
+                </div>
+              ))}
+              {!dialable&&people.length===0&&<div style={{padding:"26px 18px",textAlign:"center",color:T.textTert,fontSize:12.5,lineHeight:1.6}}>No one matches — keep typing a name, or type the full number to text it directly.</div>}
+            </div>
+          </div>
+        </div>
+      );})()}
       <div style={{flex:1,display:isMobile&&!sel&&selId!==OFFICE_ID?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
         {selId===OFFICE_ID
           ? <MessageThread property={{id:OFFICE_ID,address:"📌 Office Chat",city:"",status:"",tasks:officeTasks||[]}} messages={officeSorted} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={officeSend} onDelete={officeDelete} onBack={()=>setSelId(null)} isMobile={isMobile}/>

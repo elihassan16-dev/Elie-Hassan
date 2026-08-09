@@ -8,7 +8,7 @@
 // GET ?cap=1 (signed-in) answers "is texting set up for me?" for the app.
 // Sent messages are logged to the shared sms_messages conversation store.
 import { requireAppUser } from "../../lib/showings.js";
-import { storeSms, e164, profileOf, firstName, sameFirst } from "../../lib/jivetel.js";
+import { storeSms, e164, profileOf, firstName, sameFirst, checkOutreach } from "../../lib/jivetel.js";
 
 // Who is texting: their JIVETEL_NUMBERS key, from-number, and API token.
 function resolveSender(user, fromName, profileName) {
@@ -53,6 +53,12 @@ export default async function handler(req, res) {
     const { person, from, token } = resolveSender(user, fromName, prof?.name);
     if (!from) return res.status(503).json({ error: "No from-number configured (JIVETEL_NUMBERS / JIVETEL_FROM_DEFAULT)." });
     if (!token) return res.status(503).json({ error: `Texting isn't connected for ${person || "you"} yet.` });
+    // 🔒 Someone else's contact? Block, and the owner just got an approval ask.
+    const gate = await checkOutreach(to, prof?.name || person || "", "text");
+    if (!gate.allowed) {
+      const cap = firstName(gate.owner).replace(/^./, (c) => c.toUpperCase());
+      return res.status(403).json({ error: `This is ${cap}'s contact — ${cap} just got an approval request. Once ${cap} approves, you can text them.`, needsApproval: true, owner: cap });
+    }
     const body = { to: e164(to), from: e164(from), message: String(message) };
     if (Array.isArray(media) && media.length) body.media = media;
     const r = await fetch("https://jivetel-txt.jivetel.com/api/send", {

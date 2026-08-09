@@ -15191,6 +15191,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   const[selMode,setSelMode]=useState(false);
   const[picks,setPicks]=useState(()=>new Set());
   const[blast,setBlast]=useState(null); // {list} confirm → {sending,i,total,errors} → {done,total,errors}
+  const[blastOff,setBlastOff]=useState(()=>new Set()); // people unticked in the review — skipped
   const btAll=useBtLeads();
   const[q,setQ]=useState("");
   const[filter,setFilter]=useState("all");
@@ -15328,11 +15329,18 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   const startBlast=()=>{
     const list=shown.filter(c=>picks.has(c.key));
     if(!list.length)return;
+    setBlastOff(new Set());
     setBlast({list,mk:(c)=>tmplFor(c,"initial")});
   };
   // 📣 Campaigns: who × property × window × response status × message. A
   // campaign never texts the same person the same message kind twice.
   const campSent=((appSettings||[]).find(x=>x.id==="campaign_sent")||{}).keys||[];
+  // 🔒 Whose line owns each extension — so calls count toward ownership too.
+  const jvCrm=useJivetelCall();
+  const crmExtOwner=useMemo(()=>{const m={};Object.entries(jvCrm.exts||{}).forEach(([k,v])=>{m[String(v)]=k;});return m;},[jvCrm.exts]);
+  // A teammate (not Esti, not me) already in touch with this person? Their
+  // contact — campaigns never poach.
+  const campOwnedBy=(c)=>{const own=threadOwnerOf(c.thread,crmExtOwner);return own&&!sameFirstName(own,CURRENT_USER)?own:"";};
   const[campOpen,setCampOpen]=useState(false);
   const[camp,setCamp]=useState({who:"buyers",prop:"all",days:10,resp:"never",wait:2,msg:"initial",custom:""});
   const campProps=[...new Set(contacts.flatMap(c=>c.addrs))].sort();
@@ -15352,11 +15360,13 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
     if(camp.msg!=="custom"&&campSent.includes(`${c.key}|${camp.msg}`))return false;
     return true;
   };
-  const campList=campOpen?contacts.filter(campMatch):[];
+  const campList=campOpen?contacts.filter(c=>campMatch(c)&&!campOwnedBy(c)):[];
+  const campSkipped=campOpen?contacts.filter(c=>campMatch(c)&&campOwnedBy(c)).length:0;
   const launchCamp=()=>{
     if(!campList.length)return;
     const mk=camp.msg==="custom"?()=>camp.custom.trim():(c)=>tmplFor(c,camp.msg);
     setCampOpen(false);
+    setBlastOff(new Set());
     setBlast({list:campList,mk,kind:camp.msg!=="custom"?camp.msg:null});
   };
   const bgRef=useRef(false); // ⏬ keep sending while the popup is closed
@@ -15484,7 +15494,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
             <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 18px"}}>{[["initial","Intro (auto voice)"],["followup","Follow-up"],["custom","✎ Write my own"]].map(([k,l])=><button key={k} onClick={()=>setCamp({...camp,msg:k})} style={chipB(camp.msg===k)}>{l}</button>)}</div>
             {camp.msg==="custom"&&<textarea value={camp.custom} onChange={e=>setCamp({...camp,custom:e.target.value})} rows={3} placeholder="Write the text everyone gets…" style={{...finInput,width:"calc(100% - 36px)",margin:"8px 18px 0",resize:"vertical",lineHeight:1.5}}/>}
             <div style={{margin:"14px 18px",background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:11,padding:"10px 13px",fontSize:12.5,color:"#8a6d1f",lineHeight:1.6}}>
-              🎯 <b>{campList.length} {campList.length===1?"person matches":"people match"}</b>{camp.msg!=="custom"?" — already-sent ones excluded.":"."} Each message is personalized and sent one at a time, carrier-paced.
+              🎯 <b>{campList.length} {campList.length===1?"person matches":"people match"}</b>{camp.msg!=="custom"?" — already-sent ones excluded.":"."}{campSkipped>0?` 🔒 ${campSkipped} skipped — a teammate is already in touch with them.`:""} Each message is personalized and sent one at a time, carrier-paced.
             </div>
             <div style={{padding:"0 18px 16px",display:"flex",justifyContent:"flex-end",gap:8}}>
               <button onClick={()=>setCampOpen(false)} style={finBtn(false)}>Cancel</button>
@@ -15499,17 +15509,21 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(460px,96vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
             <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`}}>
               <b style={{fontSize:15}}>💬 Mass text — the intro</b>
-              <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{blast.sending?`Sending ${blast.i} of ${blast.total}…`:blast.done?`Done — ${blast.total-(blast.errors||[]).length} of ${blast.total} sent.`:`${(blast.list||[]).length} people — each message is personalized (name + property); buyers get the buyer version.`}</div>
+              <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{blast.sending?`Sending ${blast.i} of ${blast.total}…`:blast.done?`Done — ${blast.total-(blast.errors||[]).length} of ${blast.total} sent.`:`${(blast.list||[]).length-blastOff.size} of ${(blast.list||[]).length} will get it — untick anyone to skip them. Each message is personalized; buyers get the buyer version.`}</div>
             </div>
             {!blast.sending&&!blast.done&&(
               <div style={{overflowY:"auto",flex:1,padding:"10px 18px"}}>
-                {(blast.list||[]).slice(0,4).map(c=>(
-                  <div key={c.key} style={{marginBottom:10}}>
-                    <div style={{fontSize:12,fontWeight:800,color:T.text}}>{c.name||fmtPh(c.phone)}{c.buyer&&!c.shows.length?" · 🛒 buyer":""}</div>
-                    <div style={{fontSize:11.5,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"7px 10px",marginTop:3,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{blast.mk(c)}</div>
+                {(blast.list||[]).map(c=>{
+                  const off=blastOff.has(c.key);
+                  return(
+                  <div key={c.key} style={{marginBottom:10,opacity:off?0.45:1}}>
+                    <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+                      <input type="checkbox" checked={!off} onChange={()=>{const n=new Set(blastOff);off?n.delete(c.key):n.add(c.key);setBlastOff(n);}} style={{width:16,height:16,accentColor:T.gold,flexShrink:0}}/>
+                      <span style={{fontSize:12,fontWeight:800,color:T.text,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name||fmtPh(c.phone)}{c.buyer&&!c.shows.length?" · 🛒 buyer":""}{off?" — skipped":""}</span>
+                    </label>
+                    {!off&&<div style={{fontSize:11.5,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"7px 10px",marginTop:3,marginLeft:24,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{blast.mk(c)}</div>}
                   </div>
-                ))}
-                {(blast.list||[]).length>4&&<div style={{fontSize:11,color:T.textTert,textAlign:"center",padding:"4px 0 8px"}}>…and {(blast.list||[]).length-4} more, each personalized the same way.</div>}
+                );})}
               </div>
             )}
             {blast.sending&&(
@@ -15526,7 +15540,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
               </div>
             )}
             <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
-              {!blast.sending&&!blast.done&&<><button onClick={()=>setBlast(null)} style={finBtn(false)}>Cancel</button><button onClick={()=>runBlast(blast)} style={finBtn(true)}>Send {blast.list.length} text{blast.list.length===1?"":"s"}</button></>}
+              {!blast.sending&&!blast.done&&(()=>{const n=blast.list.length-blastOff.size;return(<><button onClick={()=>setBlast(null)} style={finBtn(false)}>Cancel</button><button onClick={()=>runBlast({...blast,list:blast.list.filter(c=>!blastOff.has(c.key))})} disabled={!n} style={{...finBtn(true),opacity:n?1:0.5}}>Send {n} text{n===1?"":"s"}</button></>);})()}
               {blast.done&&<button onClick={()=>setBlast(null)} style={finBtn(true)}>Done</button>}
             </div>
           </div>
@@ -17012,6 +17026,19 @@ function buildPhoneProps(showFeed,btAll,sharedProps){
   m.forEach(l=>l.sort((a,b)=>String(b.at).localeCompare(String(a.at))));
   return m;
 }
+// Spelling-tolerant first-name compare (client mirror of the server's).
+const sameFirstName=(a,b)=>{a=String(a||"").trim().toLowerCase().split(/[\s@]+/)[0];b=String(b||"").trim().toLowerCase().split(/[\s@]+/)[0];return !!a&&!!b&&(a===b||(a.length>=3&&b.length>=3&&(a.startsWith(b)||b.startsWith(a))));};
+// 🔒 Who "owns" a conversation: the first NON-ESTI team member who reached
+// out (their text, or an outgoing call on their line). Esti reaches out as
+// the agent, so her touches never claim a contact. Client mirror of the
+// server's contactOwner — campaigns use it to skip teammates' contacts.
+const threadOwnerOf=(thread,extOwnerMap)=>{
+  for(const m of thread||[]){
+    if(m.direction==="out"&&m.kind!=="call"&&m.by&&!sameFirstName(m.by,"esti"))return String(m.by).trim();
+    if(m.direction==="call-out"&&m.kind==="call"&&extOwnerMap){const o=extOwnerMap[String(m.ext||"").split("@")[0]];if(o&&!sameFirstName(o,"esti"))return o;}
+  }
+  return "";
+};
 // "🛒 Buyer · 🏠 7487 Githens Ave +1 more" — the who-they-are line under a
 // name in the conversation popup header.
 const whoSubLine=(w,pl)=>{
@@ -17373,6 +17400,22 @@ export function GoldstoneShell(){
     followUp:(t)=>{setFupG(t);setFupGDate(isoPlusG(1));setFupGTime("");setFupGNote("");},
     notInterested:markNotInterestedG,
   });
+  // 🔒 Approval requests waiting on ME: someone wants to reach one of my
+  // contacts. Approve unlocks that person for that contact (permanently) and
+  // pings them; decline clears the ask and pings them too.
+  const apprItems=((appSettings||[]).find(x=>x.id==="contact_approvals")||{}).items||{};
+  const myApprovals=Object.entries(apprItems).filter(([,e])=>e&&e.owner&&sameFirstName(e.owner,CURRENT_USER)&&(e.pending||[]).length>0);
+  const decideApproval=(phone,req,ok)=>{
+    const ent=apprItems[phone]||{};
+    const next={...apprItems,[phone]:{...ent,pending:(ent.pending||[]).filter(q=>q.by!==req.by),approved:ok?[...new Set([...(ent.approved||[]),req.by])]:(ent.approved||[])}};
+    setAppSettings([...(appSettings||[]).filter(x=>x.id!=="contact_approvals"),{id:"contact_approvals",items:next}]);
+    const w=whoG.get(phone);
+    const label=(w&&w.name)||fmtCallPhone(phone);
+    const me=String(CURRENT_USER||"").split(" ")[0]||"They";
+    notify([req.by],ok
+      ?{title:`✅ ${me} approved — you can ${req.kind==="call"?"call":"text"} ${label}`,body:"Go ahead whenever you're ready.",tag:`ownok-${phone}`.slice(0,64),url:"/"}
+      :{title:`❌ ${me} declined the request for ${label}`,body:"They'll handle this contact themselves.",tag:`ownok-${phone}`.slice(0,64),url:"/"});
+  };
 
   const navItems = isAdmin ? NAV : NAV.filter(n=>MEMBER_KEYS.has(n.key)||VIEW_ONLY_MEMBER_KEYS.has(n.key));
   const officeUnread = officeUnreadCount(officeMessages,officeTasks,displayName);
@@ -17636,6 +17679,22 @@ export function GoldstoneShell(){
         <div onClick={clearSaveError} style={{position:"fixed",top:"max(12px,env(safe-area-inset-top))",left:"50%",transform:"translateX(-50%)",zIndex:9999,maxWidth:"92vw",background:"#FFF0EF",border:`1.5px solid ${T.red}`,color:T.red,borderRadius:12,padding:"12px 16px",fontSize:13,fontWeight:600,boxShadow:"0 8px 30px rgba(0,0,0,0.18)",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
           <span style={{flex:1}}>{saveError}</span>
           <span style={{fontSize:16,lineHeight:1}}>×</span>
+        </div>
+      )}
+      {myApprovals.length>0&&(
+        <div style={{position:"fixed",top:"max(64px,calc(env(safe-area-inset-top) + 54px))",left:"50%",transform:"translateX(-50%)",zIndex:9998,width:"min(460px,94vw)",display:"flex",flexDirection:"column",gap:8}}>
+          {myApprovals.slice(0,3).flatMap(([phone,ent])=>(ent.pending||[]).map(req=>{
+            const w=whoG.get(phone);
+            const label=(w&&w.name)||fmtCallPhone(phone);
+            return(
+              <div key={phone+req.by} style={{background:"#fff",border:"1.5px solid #7C3AED",borderRadius:14,boxShadow:"0 10px 34px rgba(0,0,0,0.22)",padding:"11px 14px",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:18,flexShrink:0}}>🔒</span>
+                <span style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,lineHeight:1.45}}><b>{String(req.by).split(" ")[0]}</b> wants to {req.kind==="call"?"call":"text"} <b>{label}</b>{w&&w.addr?` (${w.addr})`:""} — your contact.</span>
+                <button onClick={()=>decideApproval(phone,req,true)} style={{padding:"8px 14px",borderRadius:10,border:"none",background:"#0F9D58",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>✓ Approve</button>
+                <button onClick={()=>decideApproval(phone,req,false)} title="Decline" style={{padding:"8px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>✕</button>
+              </div>
+            );
+          }))}
         </div>
       )}
       <aside style={{width:220,background:T.card,borderRight:`1px solid ${T.border}`,display:isMobile?"none":"flex",flexDirection:"column",flexShrink:0}}>

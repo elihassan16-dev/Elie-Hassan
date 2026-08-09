@@ -300,14 +300,15 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
           )}
           {mode === "text" && (
             <button style={opt} onClick={() => {
-              if (onInApp && templates.length) setStep("business");
-              else if (onInApp) { onClose(); onInApp(); }
+              // Straight into the conversation — the template chips live right
+              // inside it, so a separate "start with…" step was a wasted tap.
+              if (onInApp) { onClose(); onInApp(null); }
               else setInThread(true);
             }}>
               <span style={{ fontSize: 22, flexShrink: 0 }}>💼</span>
               <span style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Business line{from ? ` · ${fmtPhone(from)}` : ""}</div>
-                <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>Right here in the app — the full conversation, from your business number</div>
+                <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>Right here in the app — the full conversation, templates inside</div>
               </span>
             </button>
           )}
@@ -360,24 +361,6 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
           }} style={{ ...opt, justifyContent: "center", background: "#EFF6FF", border: "1.5px solid #2563EB", color: "#2563EB", fontWeight: 800, fontSize: 13.5 }}>
             📲 Send to my phone{cellDraft.trim() ? "" : " (blank text)"}
           </button>
-        </>) : step === "business" ? (<>
-          <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px" }}>💼 Business line — start with…</div>
-          <button style={opt} onClick={() => { onClose(); onInApp(null); }}>
-            <span style={{ fontSize: 20, flexShrink: 0 }}>💬</span>
-            <span style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Open the conversation</div>
-              <div style={{ fontSize: 11, color: T.textSub, marginTop: 1 }}>Full history — write your own text or pick a template inside</div>
-            </span>
-          </button>
-          {templates.map((t) => (
-            <button key={t.kind} style={opt} onClick={() => { onClose(); onInApp(t.kind); }}>
-              <span style={{ fontSize: 20, flexShrink: 0 }}>📋</span>
-              <span style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{t.label}</div>
-                <div style={{ fontSize: 11, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.text}</div>
-              </span>
-            </button>
-          ))}
         </>) : (<>
           <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px" }}>📱 Text from my phone — start with…</div>
           <button style={opt} onClick={() => go(smsHref(phone))}>

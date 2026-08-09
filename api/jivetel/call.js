@@ -8,6 +8,7 @@
 // The caller ID (Ani) comes from the person's own line in JIVETEL_NUMBERS.
 // GET ?cap=1 (signed-in) answers "is calling set up for me?" for the UI.
 import { requireAppUser } from "../../lib/showings.js";
+import { checkOutreach, firstName as jvFirst } from "../../lib/jivetel.js";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://wtmsukjnuqsprtvfytin.supabase.co";
@@ -120,6 +121,14 @@ export default async function handler(req, res) {
     const prof = isTest ? null : await profileOf(user.id);
     if (prof?.role === "contractor") return res.status(403).json({ error: "Calling isn't available on contractor accounts." });
     const { person, creds, ani } = resolvePerson(user, fromName, prof?.name);
+    // 🔒 Someone else's contact? Block, and the owner just got an approval ask.
+    if (!isTest) {
+      const gate = await checkOutreach(to, prof?.name || person || "", "call");
+      if (!gate.allowed) {
+        const cap = jvFirst(gate.owner).replace(/^./, (c) => c.toUpperCase());
+        return res.status(403).json({ error: `This is ${cap}'s contact — ${cap} just got an approval request. Once ${cap} approves, you can call them.`, needsApproval: true, owner: cap });
+      }
+    }
     // In test mode ?ext= tries a different extension@domain without a
     // Vercel round-trip — for pinning down the right domain with support.
     const ext = (isTest && String(req.query.ext || "").trim()) || creds.ext;

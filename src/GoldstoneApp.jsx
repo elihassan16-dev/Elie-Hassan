@@ -15213,6 +15213,9 @@ function classifySug(txt){
   if(/(making|submitting|sending|putting in|writing|expect) (an? )?offer|offer (coming|incoming|on the way)|make an offer/.test(s))return "offer";
   if(/(very|really|quite|still) interested|loved it|liked it|thinking (it over|about it)|considering|second (look|showing)|come back|schedule another/.test(s))return "interest";
   if(/interested/.test(s))return "interest";
+  // Positive showing talk without the word "interested" — "it went well",
+  // "you have a beautiful home", "they loved the house".
+  if(/went (really |very |pretty )?(well|great)|beautiful|gorgeous|lovely|stunning|(loved|liked) the (house|home|place|property)|great (showing|house|home|place)|impressed/.test(s))return "interest";
   return null;
 }
 function AgentsCrmView({sharedProps,showings,isMobile}){
@@ -17422,26 +17425,27 @@ export function GoldstoneShell(){
     setAppSettings([...(appSettings||[]).filter(x=>x.id!=="followups"),{id:"followups",items:[...items,{id:Date.now(),phone:fupG.phone,name:fupG.name||"",addr:fupG.addr||"",due:fupGDate,time:fupGTime||"",note:fupGNote.trim(),by:CURRENT_USER||"",done:false}].slice(-300)}]);
     setFupG(null);
   };
-  // 🚫 Mark "not interested" from any conversation: writes the same statuses
+  // 🏷 Set ANY lead status from any conversation: writes the same statuses
   // the Showings section owns — hand-added leads, BoldTrail inquiries, and
   // showings matched to properties (with the snapshot, so it sticks).
-  const markNotInterestedG=({phone,name})=>{
+  const setLeadStatusG=(statusKey,{phone,name})=>{
     const key=digitsG(phone);
     if(!key)return;
-    if(!window.confirm(`Mark ${name||phone} as "Not interested"? They'll drop off the chase lists.`))return;
+    const meta=SHOWING_LEADS.find(x=>x.key===statusKey)||{};
+    if((statusKey==="not"||statusKey==="badnum")&&!window.confirm(`Mark ${name||phone} as "${meta.short||statusKey}"? They'll drop off the chase lists.`))return;
     const matchPh=(raw)=>String(raw||"").split(/[\/,;]| or /i).some(x=>digitsG(x)===key);
     const btHits=(btAllG||[]).filter(l=>digitsG(l.phone)===key);
     const showHits=(showFeedG||[]).filter(s=>matchPh(s.phone));
     let hit=false;
     const next=(sharedProps||[]).map(pp=>{
       let np=pp,ch=false;
-      if((pp.customLeads||[]).some(l=>matchPh(l.phone)&&l.lead!=="not")){np={...np,customLeads:np.customLeads.map(l=>matchPh(l.phone)?{...l,lead:"not"}:l)};ch=true;}
-      btHits.forEach(l=>{if(btMatchesProperty(l,pp)&&(np.showingLeads||{})["bt-"+l.id]!=="not"){np={...np,showingLeads:{...(np.showingLeads||{}),["bt-"+l.id]:"not"}};ch=true;}});
+      if((pp.customLeads||[]).some(l=>matchPh(l.phone)&&l.lead!==statusKey)){np={...np,customLeads:np.customLeads.map(l=>matchPh(l.phone)?{...l,lead:statusKey}:l)};ch=true;}
+      btHits.forEach(l=>{if(btMatchesProperty(l,pp)&&(np.showingLeads||{})["bt-"+l.id]!==statusKey){np={...np,showingLeads:{...(np.showingLeads||{}),["bt-"+l.id]:statusKey}};ch=true;}});
       showHits.forEach(s=>{
         if(!showingMatchesProperty(s.location||s.summary||"",pp))return;
         const k=showingKey(s);
-        if((np.showingLeads||{})[k]==="not")return;
-        np={...np,showingLeads:{...(np.showingLeads||{}),[k]:"not"},showingSnapshots:{...(np.showingSnapshots||{}),[k]:(np.showingSnapshots||{})[k]||{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""}}};
+        if((np.showingLeads||{})[k]===statusKey)return;
+        np={...np,showingLeads:{...(np.showingLeads||{}),[k]:statusKey},showingSnapshots:{...(np.showingSnapshots||{}),[k]:(np.showingSnapshots||{})[k]||{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""}}};
         ch=true;
       });
       if(ch){hit=true;return np;}
@@ -17462,7 +17466,10 @@ export function GoldstoneShell(){
   });
   setSmsThreadActions({
     followUp:(t)=>{setFupG(t);setFupGDate(isoPlusG(1));setFupGTime("");setFupGNote("");},
-    notInterested:markNotInterestedG,
+    notInterested:(t)=>setLeadStatusG("not",t),
+    setStatus:(t,key)=>setLeadStatusG(key,t),
+    statusOptions:SHOWING_LEADS.map(({key,label,short,color,bg})=>({key,label,short,color,bg})),
+    suggest:(txt)=>classifySug(txt),
   });
   // 🔒 Approval requests waiting on ME: someone wants to reach one of my
   // contacts. Approve unlocks that person for that contact (permanently) and

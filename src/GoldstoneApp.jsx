@@ -15151,7 +15151,7 @@ function CrmPage({sharedProps}){
   const chip=(bg,fg,txt)=><span style={{fontSize:8.5,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
   const fmtT=(iso)=>{if(!iso)return"";try{const d=new Date(iso.length===10?iso+"T12:00:00":iso);return new Date().toDateString()===d.toDateString()?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return"";}};
   const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
-  const icoS={width:30,height:30,borderRadius:15,display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none",padding:0,boxSizing:"border-box",cursor:"pointer",fontFamily:"inherit",flexShrink:0};
+  const icoS={width:30,height:30,minWidth:30,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none",padding:0,boxSizing:"border-box",cursor:"pointer",fontFamily:"inherit",flexShrink:0,lineHeight:1,fontSize:13,WebkitAppearance:"none",appearance:"none"};
   return(
     <div style={{maxWidth:760,margin:"0 auto",padding:isMobile?"10px 10px 70px":"18px 18px 70px"}}>
       <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:16,overflow:"hidden",boxShadow:T.shadow}}>
@@ -15260,6 +15260,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   };
   const[selKey,setSelKey]=useState(null);
   const[textOpen,setTextOpen]=useState(null); // {phone,name,address}
+  const[personCrm,setPersonCrm]=useState(null); // tapping the header name → full person card
   const digits=(x)=>{const d=String(x||"").replace(/\D/g,"");return d.length===11&&d.startsWith("1")?d.slice(1):d;};
   const fmtPh=(p)=>{const n=digits(p);return n.length===10?`(${n.slice(0,3)}) ${n.slice(3,6)}-${n.slice(6)}`:String(p||"");};
   const contacts=useMemo(()=>{
@@ -15374,7 +15375,9 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
     (c.statuses||[]).forEach(st=>{const meta=SHOWING_LEADS.find(x=>x.key===st.lead)||{};ev.push({at:st.at,icon:"🏷",title:`Status: ${meta.short||st.lead}`,sub:st.addr});});
     return ev.filter(e=>e.at).sort((a,b)=>String(b.at).localeCompare(String(a.at)));
   };
-  const icoS={width:32,height:32,borderRadius:16,display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none",padding:0,boxSizing:"border-box",cursor:"pointer",fontFamily:"inherit",flexShrink:0};
+  // WebkitAppearance/lineHeight resets keep buttons, anchors and emoji all the
+  // same visual size on iOS — without them Safari renders each a bit different.
+  const icoS={width:33,height:33,minWidth:33,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none",padding:0,boxSizing:"border-box",cursor:"pointer",fontFamily:"inherit",flexShrink:0,lineHeight:1,fontSize:13.5,WebkitAppearance:"none",appearance:"none"};
   // The personalized message for one person — buyer voice for pure buyers.
   const tmplFor=(c,kind)=>{const ts=showingTemplates(!!c.buyer&&!c.shows.length,c.name,c.addrs[0]||"");return (ts.find(t=>t.kind===kind)||ts[0]).text;};
   const introFor=(c)=>({text:tmplFor(c,"initial")});
@@ -15605,7 +15608,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
             <div style={{padding:"12px 16px",background:T.card,borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
               {isMobile&&<button onClick={()=>setSelKey(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:16,cursor:"pointer",padding:"2px 4px",flexShrink:0}}>‹</button>}
               <span style={{width:38,height:38,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:13,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(sel.name)}</span>
-              <div style={{minWidth:0,flex:1}}>
+              <div onClick={()=>setPersonCrm(sel)} title="See everything about them — number, email, properties" style={{minWidth:0,flex:1,cursor:"pointer"}}>
                 <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.name||fmtPh(sel.phone)}</div>
                 <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[sel.broker,fmtPh(sel.phone),`${sel.shows.length} showing${sel.shows.length===1?"":"s"} across ${sel.addrs.length} propert${sel.addrs.length===1?"y":"ies"}`].filter(Boolean).join(" · ")}</div>
               </div>
@@ -15683,6 +15686,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           </div>
         </div>
       )}
+      {personCrm&&<PersonCard phone={personCrm.phone} name={personCrm.name||fmtPh(personCrm.phone)} who={{name:personCrm.name||"",role:personCrm.buyer&&!personCrm.shows.length?"buyer":"agent",addr:personCrm.addrs[0]||""}} email={personCrm.email||""} broker={personCrm.broker||""} showFeed={showings||[]} onText={()=>setTextOpen({phone:personCrm.phone,name:personCrm.name,address:personCrm.addrs[0]||"",bt:!!personCrm.buyer&&!personCrm.shows.length})} onClose={()=>setPersonCrm(null)}/>}
       {textOpen&&<SmsThreadPopup phone={textOpen.phone} name={textOpen.name||(textOpen.bt?"Buyer":"Agent")} sub={[textOpen.bt?"🛒 Buyer":"Agent",textOpen.address?`🏠 ${String(textOpen.address).split(",")[0]}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(!!textOpen.bt,textOpen.name,textOpen.address)} onClose={()=>setTextOpen(null)}/>}
     </div>
   );
@@ -17250,7 +17254,7 @@ function PhonePopup({onClose}){
 // Tap a name in the call history → who this is: a buyer's property requests
 // (which property + when they asked), an agent's showings, or the contacts
 // entry — with call/text right on the card.
-function PersonCard({phone,name,who,showFeed,onText,onClose}){
+function PersonCard({phone,name,who,showFeed,onText,onClose,email="",broker=""}){
   const{contacts:CONTACTS,sharedProps}=useData();
   const btAll=useBtLeads();
   const p=smsE164(phone);
@@ -17314,6 +17318,14 @@ function PersonCard({phone,name,who,showFeed,onText,onClose}){
           <button onClick={onText} style={{flex:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:12,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>💬 Text</button>
         </div>
         <div style={{flex:1,minHeight:0,overflowY:"auto",paddingBottom:8}}>
+          {(email||broker||contact&&contact.email)&&(<>
+            <div style={sect}>📇 Details</div>
+            <div style={row}>
+              <span style={{display:"block",fontSize:12.5,color:T.text}}>📞 {fmtCallPhone(phone)}</span>
+              {(email||contact&&contact.email)&&<a href={`mailto:${email||contact.email}`} style={{display:"block",fontSize:12.5,color:"#2563EB",textDecoration:"none",marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>✉️ {email||contact.email}</a>}
+              {broker&&<span style={{display:"block",fontSize:12.5,color:T.text,marginTop:4}}>🏢 {broker}</span>}
+            </div>
+          </>)}
           {manual.length>0&&(<>
             <div style={sect}>🏷 Lead on your properties</div>
             {manual.map((r,i)=>(

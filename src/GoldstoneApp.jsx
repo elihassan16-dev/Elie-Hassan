@@ -481,7 +481,7 @@ const ICONS={
   rentals:<Ico p="M3 21h18" p2="M5 21V7l7-4 7 4v14" lines={[[10,21,10,14],[14,21,14,14],[10,14,14,14]]}/>,
 };
 const NAV=[
-  {key:"tasks",label:"Tasks",short:"Tasks",icon:ICONS.tasks},
+  {key:"tasks",label:"Dashboard",short:"Dashboard",icon:ICONS.tasks},
   {key:"messages",label:"Messages",short:"Messages",icon:ICONS.messages},
   {key:"portfolio",label:"Portfolio Overview",short:"Portfolio",icon:ICONS.portfolio},
   {key:"leads",label:"New Leads",short:"Leads",icon:ICONS.leads},
@@ -8348,7 +8348,7 @@ function PropertyTaskList({property}){
 // TaskRow + task popups as property tasks, backed by the office_tasks store.
 const OFFICE_TASK_PID="__office_task__";
 function TasksPage({onNavigate}){
-  const { sharedProps, setSharedProps, contacts: CONTACTS, setContacts, flushContacts, teamMembers: TEAM_MEMBERS, currentUser: CURRENT_USER, automations, setAutomations, officeTasks, setOfficeTasks, flushOfficeTasks, setOfficeMessages, flushOffice } = useData();
+  const { sharedProps, setSharedProps, contacts: CONTACTS, setContacts, flushContacts, teamMembers: TEAM_MEMBERS, currentUser: CURRENT_USER, automations, setAutomations, officeTasks, setOfficeTasks, flushOfficeTasks, setOfficeMessages, flushOffice, appSettings, setAppSettings } = useData();
   // Company/general tasks reuse the same task machinery via a virtual property id.
   const isOffice=(pid)=>pid===OFFICE_TASK_PID;
   const saveOffice=()=>{if(flushOfficeTasks)setTimeout(flushOfficeTasks,0);};
@@ -8371,15 +8371,108 @@ function TasksPage({onNavigate}){
   // External (contractor) tasks show alongside internal ones, grouped by property.
   const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, siteStatus:ctrSiteStatus, save:ctrSave, remove:ctrRemove } = useContractorData();
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
-  // Desktop right rail: today's showings load once (best-effort).
+  // Today's showings load once (best-effort) — the 📅 Today card and the
+  // dashboard tiles use them on desktop AND mobile.
   const[railShowings,setRailShowings]=useState(null);
   useEffect(()=>{
-    if(isMobile)return;
     qbAuthFetch("/api/showings/status").then(st=>{
       if(st&&st.configured)fetchShowingsShared().then(d=>setRailShowings(d.showings||[])).catch(()=>setRailShowings([]));
       else setRailShowings([]);
     }).catch(()=>setRailShowings([]));
-  },[isMobile]);
+  },[]);
+  // ── 🏠 Dashboard bits: stat tiles, 📅 Today (both sizes), follow-ups due ──
+  const {connected:dashSmsOn,msgs:dashMsgs,unreadFor:dashUnreadFor}=useSmsTexting();
+  const dashCounts=(()=>{
+    if(!dashSmsOn)return{missed:0,texts:0};
+    const now=Date.now();
+    const dism=prefs.callDismiss||{};
+    const lastOut={};
+    dashMsgs.forEach(m=>{if(m.direction==="out"||m.direction==="call-out"){const p=smsE164(m.phone);if(p&&(!lastOut[p]||String(m.at)>lastOut[p]))lastOut[p]=String(m.at);}});
+    const byPhone={};
+    dashMsgs.forEach(m=>{if(m.kind!=="call"||!m.missed||m.direction!=="call-in")return;const p=smsE164(m.phone);if(p&&(!byPhone[p]||String(m.at)>String(byPhone[p].at)))byPhone[p]=m;});
+    const missed=Object.values(byPhone).filter(m=>{if(dism[m.id])return false;const p=smsE164(m.phone);if(lastOut[p]&&lastOut[p]>String(m.at))return false;const t=new Date(m.at).getTime();return !isNaN(t)&&now-t<7*86400000;}).length;
+    const texts=[...new Set(dashMsgs.filter(m=>m.kind!=="call").map(m=>smsE164(m.phone)).filter(Boolean))].filter(p=>dashUnreadFor(p)>0).length;
+    return{missed,texts};
+  })();
+  const dashOpenTasks=(()=>{let n=0;(sharedProps||[]).filter(p=>!p.archived).forEach(p=>(p.tasks||[]).forEach(t=>{if(t.status!=="Completed"&&t.status!=="N/A")n++;}));(officeTasks||[]).forEach(t=>{if(t.status!=="Completed"&&t.status!=="N/A")n++;});return n;})();
+  const dashTodayShows=(railShowings||[]).filter(s=>String(s.start||"").slice(0,10)===localISO()).length;
+  const dashFups=(((appSettings||[]).find(x=>x.id==="followups")||{}).items||[]).filter(x=>!x.done&&x.due&&x.due<=localISO()&&(!x.by||x.by===CURRENT_USER));
+  const dashDoneFup=(id)=>{const items=((appSettings||[]).find(x=>x.id==="followups")||{}).items||[];setAppSettings([...(appSettings||[]).filter(x=>x.id!=="followups"),{id:"followups",items:items.map(x=>x.id===id?{...x,done:true}:x)}]);};
+  const dashFmtT=(t)=>{const m=/^(\d{2}):(\d{2})$/.exec(String(t||""));if(!m)return "";const h=Number(m[1]);return `${h%12||12}:${m[2]} ${h<12?"AM":"PM"}`;};
+  // Everything on today's plate — closings/deadlines, contractor events,
+  // showings — shared by the desktop rail and the mobile stack.
+  const dashTodayList=()=>{
+    const todayISO=localISO();
+    const today=[];
+    (sharedProps||[]).filter(p=>!p.archived).forEach(p=>CAL_EVENTS.forEach(e=>{
+      const date=String(e.get(p)||"").slice(0,10);if(!date)return;
+      const dismissed=!!(p.calDismissed||{})[`${e.type}:${date}`];
+      const addr=`${p.address||""}${p.city?`, ${p.city}`:""}`;
+      if(date===todayISO)today.push({key:`kd${e.type}${p.id}`,icon:e.icon,label:e.label,addr,pid:p.id,color:e.color});
+      else if(date<todayISO&&e.overdue(p)&&!dismissed)today.push({key:`od${e.type}${p.id}${date}`,icon:"⚠️",label:`${e.label} — overdue`,addr,pid:p.id,color:T.red});
+    }));
+    (ctrSiteStatus||[]).forEach(row=>(row.events||[]).forEach(ev=>{
+      if(String(ev.date||"").slice(0,10)!==todayISO)return;
+      today.push({key:`ev${ev.id}`,icon:ctrEventIcon(ev),label:`${ctrEventLabel(ev)}${ev.time?` · ${clock12(ev.time)}`:""}${ev.orgName?` · ${ev.orgName}`:""}`,addr:row.address||"",pid:row.id,color:"#B45309"});
+    }));
+    (railShowings||[]).forEach(s=>{
+      if(String(s.start||"").slice(0,10)!==todayISO)return;
+      const t=new Date(s.start);
+      today.push({key:`sh${s.start}${s.location||""}`,icon:"👥",label:`Showing${isNaN(t.getTime())?"":` · ${t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})}`}${s.agent?` · ${s.agent}`:""}`,addr:s.location||"",color:T.gold});
+    });
+    return today;
+  };
+  const dashCardHd=(icon,label,n,bg,fg,bd)=>(
+    <div style={{padding:"11px 14px 9px",borderBottom:`1px solid ${T.border}`,fontSize:12,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:6}}>{icon} {label}{n!=null&&<span style={{marginLeft:"auto",fontSize:10,fontWeight:800,background:bg,color:fg,border:`1px solid ${bd}`,borderRadius:10,padding:"2px 8px"}}>{n}</span>}</div>
+  );
+  const dashTodayCard=()=>{
+    const today=dashTodayList();
+    return(
+      <div id="dash-today" style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
+        {dashCardHd("📅","Today",new Date().toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"}),"#EDFBF1","#15803D","#BFE8CD")}
+        {today.length===0&&<div style={{padding:"16px 14px",fontSize:12.5,color:T.textTert}}>Nothing scheduled today. 🎉</div>}
+        {today.slice(0,10).map(x=>(
+          <div key={x.key} onClick={()=>x.pid&&onNavigate&&onNavigate(x.pid)} style={{display:"flex",gap:9,alignItems:"flex-start",padding:"9px 14px",borderBottom:`1px solid ${T.border}55`,cursor:x.pid?"pointer":"default"}}>
+            <span style={{fontSize:14,flexShrink:0}}>{x.icon}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,fontWeight:700,color:x.color||T.text,lineHeight:1.35}}>{x.label}</div>
+              {x.addr&&<div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.addr}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+  const dashFupCard=()=>dashFups.length===0?null:(
+    <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
+      {dashCardHd("📅","Follow-ups due",dashFups.length,"#F5F3FF","#7C3AED","#DDD6FE")}
+      {dashFups.slice(0,6).map(f=>(
+        <div key={f.id} style={{display:"flex",gap:8,alignItems:"center",padding:"9px 13px",borderBottom:`1px solid ${T.border}55`}}>
+          <span style={{flex:1,minWidth:0}}>
+            <b style={{display:"block",fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name||f.phone}</b>
+            <span style={{display:"block",fontSize:10,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[f.addr?`🏠 ${f.addr}`:"",f.due<localISO()?"was due":"due today",f.time?dashFmtT(f.time):"",f.note].filter(Boolean).join(" · ")}</span>
+          </span>
+          <CallA phone={f.phone} title="Call now" style={{width:27,height:27,minWidth:27,borderRadius:"50%",border:"none",background:"#0F9D58",color:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,textDecoration:"none",flexShrink:0,lineHeight:1,boxSizing:"border-box"}}>📞</CallA>
+          <button onClick={()=>dashDoneFup(f.id)} title="Done — clear it" style={{width:27,height:27,minWidth:27,borderRadius:"50%",border:"1px solid #3BA55D",background:"#EDFBF1",color:"#15803D",fontSize:11,cursor:"pointer",fontFamily:"inherit",flexShrink:0,padding:0,WebkitAppearance:"none",appearance:"none",lineHeight:1}}>✓</button>
+        </div>
+      ))}
+    </div>
+  );
+  const dashScrollTo=(id)=>{const el=document.getElementById(id);if(el)el.scrollIntoView({behavior:"smooth",block:"start"});};
+  const dashTile=(icon,bg,n,label,color,target)=>(
+    <div key={label} onClick={()=>dashScrollTo(target)} style={{background:T.card,borderRadius:14,padding:isMobile?"11px 13px":"12px 15px",boxShadow:T.shadow,display:"flex",alignItems:"center",gap:10,cursor:"pointer",minWidth:0}}>
+      <span style={{width:34,height:34,borderRadius:10,background:bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{icon}</span>
+      <span style={{minWidth:0}}><div style={{fontSize:19,fontWeight:800,color:color||T.text,lineHeight:1.1}}>{n}</div><div style={{fontSize:9.5,fontWeight:700,color:T.textSub,letterSpacing:"0.03em",whiteSpace:"nowrap"}}>{label}</div></span>
+    </div>
+  );
+  const dashTiles=()=>(
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,minmax(0,1fr))",gap:isMobile?9:12,marginBottom:14,maxWidth:1160}}>
+      {dashTile("✅",T.goldLight,dashOpenTasks,"OPEN TASKS",null,"dash-tasks")}
+      {dashTile("📅","#EDFBF1",dashTodayShows,"TODAY'S SHOWINGS",null,"dash-today")}
+      {dashTile("💬","#FDE9C8",dashCounts.texts,"NEW TEXTS",dashCounts.texts>0?"#B45309":null,"dash-cards")}
+      {dashTile("📞","#FFE4D6",dashCounts.missed,"MISSED CALLS",dashCounts.missed>0?"#C2410C":null,"dash-cards")}
+    </div>
+  );
   const extByPid=useMemo(()=>{
     const m={};
     (ctrJobs||[]).forEach(j=>{
@@ -8713,7 +8806,7 @@ function TasksPage({onNavigate}){
       {/* Header */}
       <div style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-          <div style={{fontSize:isMobile?19:22,fontWeight:700,color:T.text}}>Tasks</div>
+          <div style={{fontSize:isMobile?19:22,fontWeight:700,color:T.text}}>Dashboard</div>
           <button onClick={()=>setShowAddTasks(true)} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,padding:isMobile?"8px 12px":"9px 16px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:isMobile?13:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}><span style={{fontSize:16,lineHeight:1}}>＋</span>{isMobile?"Add":"Add Tasks"}</button>
         </div>
         {isMobile?(()=>{
@@ -8766,10 +8859,12 @@ function TasksPage({onNavigate}){
       </div>
 
       <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
-      {/* Mobile: missed calls + new texts up top, before the task lists */}
-      {isMobile&&!showAutomations&&<div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14}}><CallTextCards prefs={prefs} savePrefs={savePrefs}/></div>}
+      {/* 🏠 Dashboard tiles — tap one to jump to its card */}
+      {!showAutomations&&dashTiles()}
+      {/* Mobile: today's plate + calls/texts + follow-ups, before the task lists */}
+      {isMobile&&!showAutomations&&<div id="dash-cards" style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14}}>{dashTodayCard()}<CallTextCards prefs={prefs} savePrefs={savePrefs}/>{dashFupCard()}</div>}
       <div style={{display:isMobile?"block":"flex",gap:22,alignItems:"flex-start"}}>
-      <div style={{flex:"0 1 840px",minWidth:0}}>
+      <div id="dash-tasks" style={{flex:"0 1 840px",minWidth:0}}>
 
         {/* One tidy chip row replaces the old stack of banners: 🔔 new · ✓ done ·
             👷 external · ☑ select. In select mode it becomes the bulk toolbar. */}
@@ -9082,26 +9177,8 @@ function TasksPage({onNavigate}){
         )}
       </div>
 
-      {/* ── Desktop right rail: Today + Waiting on you ───────────────────── */}
+      {/* ── Desktop right rail: Today + calls/texts + follow-ups + Waiting ── */}
       {!isMobile&&!showAutomations&&(()=>{
-        const todayISO=localISO();
-        const today=[];
-        (sharedProps||[]).filter(p=>!p.archived).forEach(p=>CAL_EVENTS.forEach(e=>{
-          const date=String(e.get(p)||"").slice(0,10);if(!date)return;
-          const dismissed=!!(p.calDismissed||{})[`${e.type}:${date}`];
-          const addr=`${p.address||""}${p.city?`, ${p.city}`:""}`;
-          if(date===todayISO)today.push({key:`kd${e.type}${p.id}`,icon:e.icon,label:e.label,addr,pid:p.id,color:e.color});
-          else if(date<todayISO&&e.overdue(p)&&!dismissed)today.push({key:`od${e.type}${p.id}${date}`,icon:"⚠️",label:`${e.label} — overdue`,addr,pid:p.id,color:T.red});
-        }));
-        (ctrSiteStatus||[]).forEach(row=>(row.events||[]).forEach(ev=>{
-          if(String(ev.date||"").slice(0,10)!==todayISO)return;
-          today.push({key:`ev${ev.id}`,icon:ctrEventIcon(ev),label:`${ctrEventLabel(ev)}${ev.time?` · ${clock12(ev.time)}`:""}${ev.orgName?` · ${ev.orgName}`:""}`,addr:row.address||"",pid:row.id,color:"#B45309"});
-        }));
-        (railShowings||[]).forEach(s=>{
-          if(String(s.start||"").slice(0,10)!==todayISO)return;
-          const t=new Date(s.start);
-          today.push({key:`sh${s.start}${s.location||""}`,icon:"👥",label:`Showing${isNaN(t.getTime())?"":` · ${t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})}`}${s.agent?` · ${s.agent}`:""}`,addr:s.location||"",color:T.gold});
-        });
         const bidsIn=(ctrJobs||[]).filter(j=>j.status==="bid"&&j.bidAmount);
         const askedOfMe=extRequests.filter(r=>!ctrClosed(r.t.status)&&(r.t.askedOf||[]).includes(CURRENT_USER));
         const $=(n)=>`$${Number(n||0).toLocaleString()}`;
@@ -9111,20 +9188,8 @@ function TasksPage({onNavigate}){
         const rowS={display:"flex",gap:9,alignItems:"flex-start",padding:"9px 14px",borderBottom:bdr};
         return(
           <div style={{width:300,flexShrink:0,position:"sticky",top:0,display:"flex",flexDirection:"column",gap:16}}>
-            <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
-              {hdr("📅","Today",T.text)}
-              {today.length===0&&<div style={{padding:"16px 14px",fontSize:12.5,color:T.textTert}}>Nothing scheduled today. 🎉</div>}
-              {today.slice(0,10).map(x=>(
-                <div key={x.key} onClick={()=>x.pid&&onNavigate&&onNavigate(x.pid)} style={{...rowS,cursor:x.pid?"pointer":"default"}}>
-                  <span style={{fontSize:14,flexShrink:0}}>{x.icon}</span>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:12,fontWeight:700,color:x.color||T.text,lineHeight:1.35}}>{x.label}</div>
-                    {x.addr&&<div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.addr}</div>}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <CallTextCards prefs={prefs} savePrefs={savePrefs}/>
+            {dashTodayCard()}
+            <div id="dash-cards" style={{display:"flex",flexDirection:"column",gap:16}}><CallTextCards prefs={prefs} savePrefs={savePrefs}/>{dashFupCard()}</div>
             <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
               {hdr("⏳","Waiting on you","#B45309")}
               {pendingCoReqs.length===0&&bidsIn.length===0&&askedOfMe.length===0&&<div style={{padding:"16px 14px",fontSize:12.5,color:T.textTert}}>You're all caught up. ✓</div>}

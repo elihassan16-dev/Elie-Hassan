@@ -15264,7 +15264,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   const applySug=(c)=>{
     if(!c.sug||!c.ref||!setSharedProps)return;
     const {propId,skey,snap}=c.ref;
-    setSharedProps(prev=>prev.map(p=>String(p.id)!==String(propId)?p:{...p,showingLeads:{...(p.showingLeads||{}),[skey]:c.sug.key},showingSnapshots:{...(p.showingSnapshots||{}),[skey]:(p.showingSnapshots||{})[skey]||snap}}));
+    setSharedProps(prev=>prev.map(p=>String(p.id)!==String(propId)?p:{...p,showingLeads:{...(p.showingLeads||{}),[skey]:c.sug.key},showingSnapshots:{...(p.showingSnapshots||{}),[skey]:(p.showingSnapshots||{})[skey]||snap},statusLog:{...(p.statusLog||{}),[skey]:{at:new Date().toISOString(),by:CURRENT_USER||""}}}));
     if(flushProps)setTimeout(flushProps,0);
   };
   const[selKey,setSelKey]=useState(null);
@@ -15316,13 +15316,14 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
       const snaps=p.showingSnapshots||{};
       Object.entries(p.showingLeads||{}).forEach(([k,lead])=>{
         if(!lead)return;
+        const lg=(p.statusLog||{})[k]||null; // when it was set + by whom, if recorded
         if(String(k).startsWith("bt-")){
           const bl=(btAll||[]).find(x=>"bt-"+x.id===k);
-          if(bl){const c=by[digits(bl.phone)];if(c)c.statuses.push({lead,addr:p.address,at:bl.createdAt||""});}
+          if(bl){const c=by[digits(bl.phone)];if(c)c.statuses.push({lead,addr:p.address,at:(lg&&lg.at)||bl.createdAt||"",by:(lg&&lg.by)||""});}
           return;
         }
         const sn=snaps[k];if(!sn)return;
-        parseShowingPhones(sn.phone||"").forEach(ph=>{const c=by[digits(ph)];if(c)c.statuses.push({lead,addr:p.address,at:sn.start||""});});
+        parseShowingPhones(sn.phone||"").forEach(ph=>{const c=by[digits(ph)];if(c)c.statuses.push({lead,addr:p.address,at:(lg&&lg.at)||sn.start||"",by:(lg&&lg.by)||""});});
       });
     });
     return Object.values(by).map(c=>{
@@ -15393,7 +15394,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
     const ev=[];
     if(c.inq&&c.inq.at)ev.push({at:c.inq.at,icon:"🛒",label:`Inquired on BoldTrail${c.inq.addr?` — ${c.inq.addr}`:""}`,tone:"buyer"});
     (c.shows||[]).forEach(s=>{if(!s.start)return;const kind=s.kind&&s.kind!=="showing"?s.kind.charAt(0).toUpperCase()+s.kind.slice(1):"Showing";ev.push({at:s.start,icon:s.kind&&s.kind!=="showing"?"🔍":"👁",label:`${kind} — ${s.addr}`,sub:s.src?`via the ${s.src} calendar`:"via ShowingTime",tone:"showing"});});
-    (c.statuses||[]).forEach(st=>{if(!st.at)return;const meta=SHOWING_LEADS.find(x=>x.key===st.lead)||{};ev.push({at:st.at,icon:"🏷",label:`Status: ${meta.short||st.lead}`,sub:st.addr||"",tone:"status"});});
+    (c.statuses||[]).forEach(st=>{if(!st.at)return;const meta=SHOWING_LEADS.find(x=>x.key===st.lead)||{};ev.push({at:st.at,icon:"🏷",label:`Status: ${meta.short||st.lead}${st.by?` — by ${String(st.by).split(" ")[0]}`:""}`,sub:st.addr||"",tone:"status"});});
     return ev;
   };
   // The personalized message for one person — buyer voice for pure buyers.
@@ -17456,16 +17457,19 @@ export function GoldstoneShell(){
     const matchPh=(raw)=>String(raw||"").split(/[\/,;]| or /i).some(x=>digitsG(x)===key);
     const btHits=(btAllG||[]).filter(l=>digitsG(l.phone)===key);
     const showHits=(showFeedG||[]).filter(s=>matchPh(s.phone));
+    const stamp={at:new Date().toISOString(),by:CURRENT_USER||""};
     let hit=false;
     const next=(sharedProps||[]).map(pp=>{
       let np=pp,ch=false;
-      if((pp.customLeads||[]).some(l=>matchPh(l.phone)&&l.lead!==statusKey)){np={...np,customLeads:np.customLeads.map(l=>matchPh(l.phone)?{...l,lead:statusKey}:l)};ch=true;}
-      btHits.forEach(l=>{if(btMatchesProperty(l,pp)&&(np.showingLeads||{})["bt-"+l.id]!==statusKey){np={...np,showingLeads:{...(np.showingLeads||{}),["bt-"+l.id]:statusKey}};ch=true;}});
+      const logKeys=[]; // property.statusLog: WHEN each status was set and BY whom
+      if((pp.customLeads||[]).some(l=>matchPh(l.phone)&&l.lead!==statusKey)){np={...np,customLeads:np.customLeads.map(l=>matchPh(l.phone)?{...l,lead:statusKey}:l)};pp.customLeads.filter(l=>matchPh(l.phone)).forEach(l=>logKeys.push("cl-"+l.id));ch=true;}
+      btHits.forEach(l=>{if(btMatchesProperty(l,pp)&&(np.showingLeads||{})["bt-"+l.id]!==statusKey){np={...np,showingLeads:{...(np.showingLeads||{}),["bt-"+l.id]:statusKey}};logKeys.push("bt-"+l.id);ch=true;}});
       showHits.forEach(s=>{
         if(!showingMatchesProperty(s.location||s.summary||"",pp))return;
         const k=showingKey(s);
         if((np.showingLeads||{})[k]===statusKey)return;
         np={...np,showingLeads:{...(np.showingLeads||{}),[k]:statusKey},showingSnapshots:{...(np.showingSnapshots||{}),[k]:(np.showingSnapshots||{})[k]||{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""}}};
+        logKeys.push(k);
         ch=true;
       });
       // Saved snapshots: showings that already left the live feed — without
@@ -17474,6 +17478,7 @@ export function GoldstoneShell(){
         if(!matchPh(sn.phone))return;
         if((np.showingLeads||{})[k]===statusKey)return;
         np={...np,showingLeads:{...(np.showingLeads||{}),[k]:statusKey}};
+        logKeys.push(k);
         ch=true;
       });
       // Numbers attached to a showing by hand (＋ Add number) — the feed had
@@ -17482,9 +17487,10 @@ export function GoldstoneShell(){
         if(!(list||[]).some(x=>digitsG(x)===key))return;
         if((np.showingLeads||{})[k]===statusKey)return;
         np={...np,showingLeads:{...(np.showingLeads||{}),[k]:statusKey}};
+        logKeys.push(k);
         ch=true;
       });
-      if(ch){hit=true;return np;}
+      if(ch){hit=true;return {...np,statusLog:{...(pp.statusLog||{}),...Object.fromEntries(logKeys.map(k=>[k,stamp]))}};}
       return pp;
     });
     if(hit)setSharedProps(()=>next);

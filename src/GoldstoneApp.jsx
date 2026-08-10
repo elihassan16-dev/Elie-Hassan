@@ -15192,18 +15192,21 @@ function CrmPage({sharedProps}){
       const lastAt=last?String(last.at||""):"";
       const unread=connected?unreadFor(c.phone):0;
       const noRespDays=last&&last.direction==="out"?Math.max(0,Math.floor((Date.now()-new Date(last.at).getTime())/86400000)):null;
-      return {...c,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,act:lastAt>c.lastShow?lastAt:c.lastShow};
+      // "No response" is for people who NEVER answered — someone with a real
+      // back-and-forth who owes the latest reply just shows blank.
+      const everReplied=t.some(m=>m.direction==="in"&&m.kind!=="call");
+      return {...c,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,everReplied,act:lastAt>c.lastShow?lastAt:c.lastShow};
     }).sort((a,b)=>String(b.act).localeCompare(String(a.act)));
   },[showings,sharedProps,connected,open]); // eslint-disable-line react-hooks/exhaustive-deps
   const term=q.trim().toLowerCase();
   const shown=contacts.filter(c=>{
     if(term&&![c.name,c.phone,...c.addrs].join(" ").toLowerCase().includes(term))return false;
     if(filter==="replied")return c.replied;
-    if(filter==="noresp")return c.noRespDays!=null;
+    if(filter==="noresp")return c.noRespDays!=null&&!c.everReplied;
     if(filter==="new")return c.unread>0;
     return true;
   });
-  const counts={all:contacts.length,new:contacts.filter(c=>c.unread>0).length,replied:contacts.filter(c=>c.replied).length,noresp:contacts.filter(c=>c.noRespDays!=null).length};
+  const counts={all:contacts.length,new:contacts.filter(c=>c.unread>0).length,replied:contacts.filter(c=>c.replied).length,noresp:contacts.filter(c=>c.noRespDays!=null&&!c.everReplied).length};
   const chip=(bg,fg,txt)=><span style={{fontSize:8.5,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
   const fmtT=(iso)=>{if(!iso)return"";try{const d=new Date(iso.length===10?iso+"T12:00:00":iso);return new Date().toDateString()===d.toDateString()?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return"";}};
   const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
@@ -15238,7 +15241,7 @@ function CrmPage({sharedProps}){
               <span style={{display:"flex",gap:4,marginTop:4,flexWrap:"wrap"}}>
                 {c.unread>0&&chip(T.red,"#fff",`NEW REPLY · ${c.unread}`)}
                 {c.replied&&!c.unread&&chip("#EDFBF1","#0F9D58","REPLIED")}
-                {c.noRespDays!=null&&chip("#F3F3F5","#98A0AA",`NO RESPONSE${c.noRespDays>0?` · ${c.noRespDays}d`:""}`)}
+                {c.noRespDays!=null&&!c.everReplied&&chip("#F3F3F5","#98A0AA",`NO RESPONSE${c.noRespDays>0?` · ${c.noRespDays}d`:""}`)}
                 {!c.last&&connected&&chip("#FBF7EC","#8a6d1f","NOT CONTACTED")}
               </span>
             </span>
@@ -15382,6 +15385,9 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
       const lastAt=last?String(last.at||""):"";
       const unread=connected?unreadFor(c.phone):0;
       const noRespDays=last&&last.direction!=="in"?Math.max(0,Math.floor((Date.now()-new Date(last.at).getTime())/86400000)):null;
+      // "No response" is for people who NEVER answered — a real back-and-forth
+      // waiting on their latest reply shows no tag at all.
+      const everReplied=t.some(m=>m.direction==="in"&&m.kind!=="call");
       // Future-only people (every showing still ahead, no conversation, no
       // inquiry) hide by default — nothing to chase yet.
       const future=!c.inq&&t.length===0&&c.shows.length>0&&c.shows.every(s=>!s.start||new Date(s.start).getTime()>Date.now()+3600000);
@@ -15398,7 +15404,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
       // ❌ Not interested / wrong number = off the list. Their statuses stay on
       // the properties; a name/number search still finds them if ever needed.
       const dead=c.statuses.some(st=>st.lead==="not"||st.lead==="badnum");
-      return {...c,thread:t,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,future,contacted,dead,sug,act:lastAt>c.lastShow?lastAt:c.lastShow};
+      return {...c,thread:t,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,everReplied,future,contacted,dead,sug,act:lastAt>c.lastShow?lastAt:c.lastShow};
     }).sort((a,b)=>((b.unread>0)-(a.unread>0))
       ||((b.contacted?1:0)-(a.contacted?1:0))                       // reached-out people before not-contacted
       ||String(b.lastShow).localeCompare(String(a.lastShow))        // then most recent showing first
@@ -15411,13 +15417,13 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
     if(filter==="upcoming")return c.future;
     if(c.future)return false;              // future stuff hides everywhere else
     if(filter==="replied")return c.replied;
-    if(filter==="noresp")return c.noRespDays!=null;
+    if(filter==="noresp")return c.noRespDays!=null&&!c.everReplied;
     if(filter==="new")return c.unread>0;
     if(filter==="buyers")return !!c.buyer;
     return true;
   });
   const live=(c)=>!c.future&&!c.dead;
-  const counts={all:contacts.filter(live).length,new:contacts.filter(c=>c.unread>0&&live(c)).length,replied:contacts.filter(c=>c.replied&&live(c)).length,noresp:contacts.filter(c=>c.noRespDays!=null&&live(c)).length,buyers:contacts.filter(c=>c.buyer&&live(c)).length,upcoming:contacts.filter(c=>c.future&&!c.dead).length};
+  const counts={all:contacts.filter(live).length,new:contacts.filter(c=>c.unread>0&&live(c)).length,replied:contacts.filter(c=>c.replied&&live(c)).length,noresp:contacts.filter(c=>c.noRespDays!=null&&!c.everReplied&&live(c)).length,buyers:contacts.filter(c=>c.buyer&&live(c)).length,upcoming:contacts.filter(c=>c.future&&!c.dead).length};
   const sel=contacts.find(c=>c.key===selKey)||null;
   const chip=(bg,fg,txt)=><span style={{fontSize:8.5,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
   const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
@@ -15479,7 +15485,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
     if(camp.resp==="never"&&c.contacted)return false;
     // "Didn't respond" also waits: only people whose last text from us is at
     // least camp.wait days old — someone texted this morning isn't hit again.
-    if(camp.resp==="noresp"&&!(c.contacted&&!c.replied&&c.noRespDays!=null&&c.noRespDays>=(Number(camp.wait)||0)))return false;
+    if(camp.resp==="noresp"&&!(c.contacted&&!c.everReplied&&c.noRespDays!=null&&c.noRespDays>=(Number(camp.wait)||0)))return false;
     if(camp.resp==="replied"&&!c.replied)return false;
     if(camp.msg!=="custom"&&campSent.includes(`${c.key}|${camp.msg}`))return false;
     return true;
@@ -15565,7 +15571,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                   {c.sug&&<span title={`🤖 Their reply suggests: ${(SHOWING_LEADS.find(x=>x.key===c.sug.key)||{}).short||c.sug.key}`} style={{fontSize:11}}>🤖</span>}
                   {c.unread>0?chip(T.red,"#fff",`NEW REPLY · ${c.unread}`)
                    :c.replied?chip("#EDFBF1","#0F9D58","REPLIED")
-                   :c.noRespDays!=null?chip("#FFF4E5","#B45309",`NO RESPONSE${c.noRespDays>0?` · ${c.noRespDays}d`:""}`)
+                   :c.noRespDays!=null&&!c.everReplied?chip("#FFF4E5","#B45309",`NO RESPONSE${c.noRespDays>0?` · ${c.noRespDays}d`:""}`)
                    :connected?chip("#F1F5F9","#64748B","NOT CONTACTED"):null}
                 </span>
               </div>

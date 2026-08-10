@@ -17455,6 +17455,14 @@ export function GoldstoneShell(){
         np={...np,showingLeads:{...(np.showingLeads||{}),[k]:statusKey},showingSnapshots:{...(np.showingSnapshots||{}),[k]:(np.showingSnapshots||{})[k]||{uid:s.uid||"",start:s.start||"",summary:s.summary||"",location:s.location||"",agent:s.agent||"",broker:s.broker||"",phone:s.phone||"",email:s.email||"",status:s.status||""}}};
         ch=true;
       });
+      // Saved snapshots: showings that already left the live feed — without
+      // this, a past showing's agent couldn't get a status set from a thread.
+      Object.entries(pp.showingSnapshots||{}).forEach(([k,sn])=>{
+        if(!matchPh(sn.phone))return;
+        if((np.showingLeads||{})[k]===statusKey)return;
+        np={...np,showingLeads:{...(np.showingLeads||{}),[k]:statusKey}};
+        ch=true;
+      });
       if(ch){hit=true;return np;}
       return pp;
     });

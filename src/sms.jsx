@@ -642,7 +642,7 @@ export function TextA({ phone, style, title, onInApp, templates, onTemplate, chi
 // chips, and a composer that sends from the company line. Renders as the
 // popup card by default; `inline` makes it fill its parent (the always-open
 // conversation column in the Showings → By agent view).
-export function SmsThreadPane({ phone, name, sub = "", templates = [], initialKind = null, sentStamps = {}, onClearStamp, onSent, onClose, inline = false }) {
+export function SmsThreadPane({ phone, name, sub = "", templates = [], events = [], initialKind = null, sentStamps = {}, onClearStamp, onSent, onClose, inline = false }) {
   const { from, threadFor, send } = useSmsTexting();
   // Callers that only had digits get the app directory's name/role/property.
   const dir = dirFor(phone);
@@ -733,25 +733,45 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], initialKi
         )}
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "14px 14px", display: "flex", flexDirection: "column", gap: 8, background: T.bg }}>
           {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 12.5, padding: "30px 10px" }}>No texts with this number yet. Pick a template below or write your own — it sends from the company line, and their replies show up right here.</div>}
-          {thread.map((m) => {
-            if (m.kind === "call") {
+          {(() => {
+            // The caller can weave in timeline events (a BoldTrail inquiry, a
+            // showing, a status change) — they render as centered pills in
+            // true time order between the texts and calls.
+            const ts = (x) => { const t = new Date(x).getTime(); return isNaN(t) ? 0 : t; };
+            const items = [
+              ...thread.map((m) => ({ k: "m", t: ts(m.at), m })),
+              ...(events || []).map((e, i) => ({ k: "e", t: ts(e.at), e, i })),
+            ].sort((a, b) => a.t - b.t);
+            const tone = { buyer: { background: "#FCE7F3", color: "#DB2777", border: "1px solid #FBCFE8" }, status: { background: "#FEF3C7", color: "#B45309", border: "1px solid #EAD9A9" }, showing: { background: "#EFEFF3", color: "#5B6470", border: `1px solid ${T.border}` } };
+            return items.map((it) => {
+              if (it.k === "e") {
+                return (
+                  <div key={"ev" + it.i} style={{ alignSelf: "center", textAlign: "center" }}>
+                    <span style={{ display: "inline-block", fontSize: 11, fontWeight: 800, borderRadius: 12, padding: "4px 12px", ...(tone[it.e.tone] || tone.showing) }}>{it.e.icon} {it.e.label}</span>
+                    <div style={{ fontSize: 9.5, color: T.textTert, marginTop: 2 }}>{it.e.sub ? `${it.e.sub} · ` : ""}{fmt(it.e.at)}</div>
+                  </div>
+                );
+              }
+              const m = it.m;
+              if (m.kind === "call") {
+                return (
+                  <div key={m.id} style={{ alignSelf: "center", textAlign: "center" }}>
+                    <span style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: m.missed ? "#C2410C" : T.textSub, background: m.missed ? "#FFF1EA" : "#EFEFF3", border: `1px solid ${m.missed ? "#F6C9B2" : T.border}`, borderRadius: 12, padding: "4px 11px" }}>{m.text}</span>
+                    <div style={{ fontSize: 9.5, color: T.textTert, marginTop: 2 }}>{fmt(m.at)}</div>
+                  </div>
+                );
+              }
+              const mine = m.direction !== "in";
               return (
-                <div key={m.id} style={{ alignSelf: "center", textAlign: "center" }}>
-                  <span style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: m.missed ? "#C2410C" : T.textSub, background: m.missed ? "#FFF1EA" : "#EFEFF3", border: `1px solid ${m.missed ? "#F6C9B2" : T.border}`, borderRadius: 12, padding: "4px 11px" }}>{m.text}</span>
-                  <div style={{ fontSize: 9.5, color: T.textTert, marginTop: 2 }}>{fmt(m.at)}</div>
+                <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "82%" }}>
+                  <div style={{ background: mine ? T.gold : "#fff", color: mine ? "#fff" : T.text, border: mine ? "none" : `1px solid ${T.border}`, borderRadius: 14, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{linkifyText(m.text, mine)}</div>
+                  <div style={{ fontSize: 9.5, color: T.textTert, marginTop: 2, textAlign: mine ? "right" : "left" }}>
+                    {mine ? `${(m.by || "").split(" ")[0] || "You"} · ` : ""}{fmt(m.at)}{mine ? (m.status === "delivered" ? " · ✓✓" : " · ✓") : ""}
+                  </div>
                 </div>
               );
-            }
-            const mine = m.direction !== "in";
-            return (
-              <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "82%" }}>
-                <div style={{ background: mine ? T.gold : "#fff", color: mine ? "#fff" : T.text, border: mine ? "none" : `1px solid ${T.border}`, borderRadius: 14, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{linkifyText(m.text, mine)}</div>
-                <div style={{ fontSize: 9.5, color: T.textTert, marginTop: 2, textAlign: mine ? "right" : "left" }}>
-                  {mine ? `${(m.by || "").split(" ")[0] || "You"} · ` : ""}{fmt(m.at)}{mine ? (m.status === "delivered" ? " · ✓✓" : " · ✓") : ""}
-                </div>
-              </div>
-            );
-          })}
+            });
+          })()}
         </div>
         <div style={{ padding: "10px 12px max(10px,env(safe-area-inset-bottom))", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
           {err && <div style={{ fontSize: 11.5, color: T.red, fontWeight: 600, marginBottom: 6 }}>{err}</div>}

@@ -3302,7 +3302,7 @@ const CAL_EVENTS=[
 ];
 function CalendarPage({sharedProps,setSharedProps,onNavigate}){
   const isMobile=useIsMobile();
-  const[view,setView]=useState("today"); // "today" | "dates" | "month"
+  const[view,setView]=useState("month"); // "dates" | "month" — today's showings live on the Dashboard now
   const[showPast,setShowPast]=useState(false);
   const[monthAnchor,setMonthAnchor]=useState(()=>{const d=new Date();return {y:d.getFullYear(),m:d.getMonth()};});
   const[selDay,setSelDay]=useState(()=>localISO());
@@ -3357,7 +3357,6 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
   const shForDay=(iso)=>(showings||[]).filter(s=>String(s.start||"").slice(0,10)===iso)
     .map(s=>({s,prop:active.find(p=>showingMatchesProperty(s.location||s.summary||"",p))}))
     .sort((a,b)=>String(a.s.start||"").localeCompare(String(b.s.start||"")));
-  const shToday=useMemo(()=>shForDay(todayISO),[showings,active]); // eslint-disable-line
 
   // Call / text / email for a showing agent — the SAME uniform icon cluster and
   // template set as the Showings section (call chooses office/personal, text
@@ -3510,7 +3509,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
       <div style={wrap}>
         {/* Segmented control */}
         <div style={{display:"flex",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:3,gap:3,marginBottom:16}}>
-          {[["today","📋 Showings"],["dates","🗓 Key Dates"],["month","📅 Calendar"]].map(([k,l])=>(
+          {[["dates","🗓 Key Dates"],["month","📅 Calendar"]].map(([k,l])=>(
             <button key={k} onClick={()=>setView(k)} style={{flex:1,padding:"9px 8px",borderRadius:9,border:"none",background:view===k?T.gold:"transparent",color:view===k?"#fff":T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
           ))}
         </div>
@@ -3523,38 +3522,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
           </div>
         )}
 
-        {view==="today"?(
-          <div style={card}>
-            <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <div style={{fontSize:15,fontWeight:800,color:T.text}}>Showings today</div>
-              <div style={{fontSize:12,color:T.textSub}}>{fmtDate(todayISO)}</div>
-            </div>
-            {shStatus&&!shStatus.configured
-              ?<div style={{padding:"22px 16px",textAlign:"center",fontSize:13,color:T.textSub}}>Connect ShowingTime in the <strong>Showings</strong> tab to see today's showings here.</div>
-              :showings===null
-              ?<div style={{padding:"22px 16px",textAlign:"center",fontSize:13,color:T.textTert}}>Loading showings…</div>
-              :shToday.length===0
-              ?<div style={{padding:"26px 16px",textAlign:"center",fontSize:13.5,color:T.textTert}}>No showings scheduled today. 🎉</div>
-              :shToday.map(({s,prop},i)=>{
-                  const t=new Date(s.start);const time=isNaN(t.getTime())?"":t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
-                  const address=prop?addr(prop):(s.location||"");
-                  return(
-                    <div key={i} style={{padding:"12px 16px",borderTop:i?`1px solid ${T.border}`:"none"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:12}}>
-                        <div style={{width:66,flexShrink:0,textAlign:"center"}}>
-                          <div style={{fontSize:14,fontWeight:800,color:T.gold}}>{time}</div>
-                        </div>
-                        <div style={{flex:1,minWidth:0}} onClick={()=>prop&&onNavigate&&onNavigate(prop.id)}>
-                          <div style={{fontSize:14,fontWeight:600,color:prop?T.blue:T.text,cursor:prop?"pointer":"default",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prop?addr(prop):(s.location||"Unmatched property")}{(()=>{const ek=((prop&&prop.showingKinds)||{})[showingKey(s)]||s.kind;return ek&&ek!=="showing"&&<span style={{marginLeft:6,fontSize:9.5,fontWeight:800,color:"#B45309",background:"#FFEDD5",borderRadius:10,padding:"2px 7px",verticalAlign:"middle"}}>{ek==="inspection"?"🔍 INSPECTION":ek==="appraisal"?"📋 APPRAISAL":"🚶 WALK-THROUGH"}</span>;})()}</div>
-                          {s.agent&&<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👤 {s.agent}</div>}
-                        </div>
-                      </div>
-                      {showingActions(s,address,prop)}
-                    </div>
-                  );
-                })}
-          </div>
-        ):view==="dates"?(
+        {view==="dates"?(
           <>
             <div style={card}>
               <div style={{padding:"12px 16px",borderBottom:upcoming.length?`1px solid ${T.border}`:"none",fontSize:15,fontWeight:800,color:T.text}}>Upcoming</div>
@@ -8418,10 +8386,15 @@ function TasksPage({onNavigate}){
     (railShowings||[]).forEach(s=>{
       if(String(s.start||"").slice(0,10)!==todayISO)return;
       const t=new Date(s.start);
-      today.push({key:`sh${s.start}${s.location||""}`,icon:"👥",label:`Showing${isNaN(t.getTime())?"":` · ${t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})}`}${s.agent?` · ${s.agent}`:""}`,addr:s.location||"",color:T.gold});
+      // The agent's number (feed, or hand-attached on the showing) makes the
+      // row tappable — straight into the conversation, templates and all.
+      let ph=parseShowingPhones(s.phone)[0]||"";
+      if(!ph){const pr=(sharedProps||[]).find(p=>!p.archived&&showingMatchesProperty(s.location||s.summary||"",p));if(pr)ph=(((pr.showingPhones||{})[showingKey(s)])||[])[0]||"";}
+      today.push({key:`sh${s.start}${s.location||""}`,icon:"👥",label:`Showing${isNaN(t.getTime())?"":` · ${t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})}`}${s.agent?` · ${s.agent}`:""}`,addr:s.location||"",color:T.gold,phone:ph,agent:s.agent||"",showAddr:String(s.location||s.summary||"").split(",")[0]});
     });
     return today;
   };
+  const[dashText,setDashText]=useState(null); // {phone,name,address} → showing-agent conversation
   const dashCardHd=(icon,label,n,bg,fg,bd)=>(
     <div style={{padding:"11px 14px 9px",borderBottom:`1px solid ${T.border}`,fontSize:12,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:6}}>{icon} {label}{n!=null&&<span style={{marginLeft:"auto",fontSize:10,fontWeight:800,background:bg,color:fg,border:`1px solid ${bd}`,borderRadius:10,padding:"2px 8px"}}>{n}</span>}</div>
   );
@@ -8432,17 +8405,21 @@ function TasksPage({onNavigate}){
         {dashCardHd("📅","Today",new Date().toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"}),"#EDFBF1","#15803D","#BFE8CD")}
         {today.length===0&&<div style={{padding:"16px 14px",fontSize:12.5,color:T.textTert}}>Nothing scheduled today. 🎉</div>}
         {today.slice(0,10).map(x=>(
-          <div key={x.key} onClick={()=>x.pid&&onNavigate&&onNavigate(x.pid)} style={{display:"flex",gap:9,alignItems:"flex-start",padding:"9px 14px",borderBottom:`1px solid ${T.border}55`,cursor:x.pid?"pointer":"default"}}>
+          <div key={x.key} onClick={()=>{if(x.phone)setDashText({phone:x.phone,name:x.agent||"Agent",address:x.showAddr||""});else if(x.pid&&onNavigate)onNavigate(x.pid);}} title={x.phone?`Text ${x.agent||"the agent"} — templates inside`:undefined} style={{display:"flex",gap:9,alignItems:"flex-start",padding:"9px 14px",borderBottom:`1px solid ${T.border}55`,cursor:(x.phone||x.pid)?"pointer":"default"}}>
             <span style={{fontSize:14,flexShrink:0}}>{x.icon}</span>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:12,fontWeight:700,color:x.color||T.text,lineHeight:1.35}}>{x.label}</div>
               {x.addr&&<div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.addr}</div>}
             </div>
+            {x.phone&&<span style={{width:24,height:24,borderRadius:"50%",background:"#EDFBF1",border:"1px solid #3BA55D",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:10.5,flexShrink:0}}>💬</span>}
           </div>
         ))}
       </div>
     );
   };
+  const dashTextPopup=()=>dashText&&(
+    <SmsThreadPopup phone={dashText.phone} name={dashText.name} sub={["Agent",dashText.address?`🏠 ${dashText.address}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(false,dashText.name,dashText.address)} onClose={()=>setDashText(null)}/>
+  );
   const dashFupCard=()=>dashFups.length===0?null:(
     <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
       {dashCardHd("📅","Follow-ups due",dashFups.length,"#F5F3FF","#7C3AED","#DDD6FE")}
@@ -8861,6 +8838,7 @@ function TasksPage({onNavigate}){
       <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
       {/* 🏠 Dashboard tiles — tap one to jump to its card */}
       {!showAutomations&&dashTiles()}
+      {dashTextPopup()}
       {/* Mobile: today's plate + calls/texts + follow-ups, before the task lists */}
       {isMobile&&!showAutomations&&<div id="dash-cards" style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14}}>{dashTodayCard()}<CallTextCards prefs={prefs} savePrefs={savePrefs}/>{dashFupCard()}</div>}
       <div style={{display:isMobile?"block":"flex",gap:22,alignItems:"flex-start"}}>

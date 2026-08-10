@@ -8363,6 +8363,9 @@ function TasksPage({onNavigate}){
     return{missed,texts};
   })();
   const dashOpenTasks=(()=>{let n=0;(sharedProps||[]).filter(p=>!p.archived).forEach(p=>(p.tasks||[]).forEach(t=>{if(t.status!=="Completed"&&t.status!=="N/A")n++;}));(officeTasks||[]).forEach(t=>{if(t.status!=="Completed"&&t.status!=="N/A")n++;});return n;})();
+  // Numbers anyone on the team already texted or called — the Today card's
+  // ✓ "reached out" check comes from this.
+  const dashOutSet=new Set(dashMsgs.filter(m=>m.direction==="out"||m.direction==="call-out").map(m=>smsE164(m.phone)).filter(Boolean));
   const dashTodayShows=(railShowings||[]).filter(s=>String(s.start||"").slice(0,10)===localISO()).length;
   const dashFups=(((appSettings||[]).find(x=>x.id==="followups")||{}).items||[]).filter(x=>!x.done&&x.due&&x.due<=localISO()&&(!x.by||x.by===CURRENT_USER));
   const dashDoneFup=(id)=>{const items=((appSettings||[]).find(x=>x.id==="followups")||{}).items||[];setAppSettings([...(appSettings||[]).filter(x=>x.id!=="followups"),{id:"followups",items:items.map(x=>x.id===id?{...x,done:true}:x)}]);};
@@ -8414,7 +8417,9 @@ function TasksPage({onNavigate}){
               <div style={{fontSize:12,fontWeight:700,color:x.color||T.text,lineHeight:1.35}}>{x.label}</div>
               {x.addr&&<div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.addr}</div>}
             </div>
-            {x.phone&&<span style={{width:24,height:24,borderRadius:"50%",background:"#EDFBF1",border:"1px solid #3BA55D",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:10.5,flexShrink:0}}>💬</span>}
+            {x.phone&&(dashOutSet.has(smsE164(x.phone))
+              ?<span title="✓ Already reached out — tap to open the conversation" style={{width:24,height:24,borderRadius:"50%",background:"#0F9D58",border:"none",color:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0,lineHeight:1}}>✓</span>
+              :<span title="Not contacted yet — tap to text them" style={{width:24,height:24,borderRadius:"50%",background:"#fff",border:`1.5px dashed ${T.border}`,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:10.5,flexShrink:0}}>💬</span>)}
           </div>
         ))}
       </div>

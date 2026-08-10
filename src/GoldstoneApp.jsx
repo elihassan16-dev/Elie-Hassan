@@ -15577,6 +15577,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                   {c.unread>0?chip(T.red,"#fff",`NEW REPLY · ${c.unread}`)
                    :c.replied?chip("#EDFBF1","#0F9D58","REPLIED")
                    :c.noRespDays!=null&&!c.everReplied?chip("#FFF4E5","#B45309",`NO RESPONSE${c.noRespDays>0?` · ${c.noRespDays}d`:""}`)
+                   :c.contacted?null /* real history, ball in their court — no tag */
                    :connected?chip("#F1F5F9","#64748B","NOT CONTACTED"):null}
                 </span>
               </div>

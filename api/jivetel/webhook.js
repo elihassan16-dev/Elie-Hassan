@@ -104,6 +104,21 @@ export default async function handler(req, res) {
         }
       }
     }
+    // Delivery receipts: a status-only event (MessageID, no MessageBody)
+    // updates the stored message so the thread's ✓ becomes ✓✓ once the
+    // carrier confirms the handset got it — or flags a failed send. Field
+    // names are probed tolerantly; the raw event is in jivetel_events either
+    // way, so an unrecognized shape can be wired in from the capture.
+    else if (d && d.MessageID && d.MessageBody == null) {
+      const st = String(d.MessageStatus || d.Status || d.DeliveryStatus || d.MessageDeliveryStatus || d.status || "").toLowerCase();
+      const mapped = /deliver/.test(st) ? "delivered" : /fail|undeliver|reject|error/.test(st) ? "failed" : "";
+      if (mapped) {
+        const { data: row } = await client.from("sms_messages").select("data").eq("id", String(d.MessageID)).maybeSingle();
+        if (row && row.data && row.data.status !== mapped) {
+          await client.from("sms_messages").update({ data: { ...row.data, status: mapped }, updated_at: new Date().toISOString() }).eq("id", String(d.MessageID));
+        }
+      }
+    }
     return res.status(200).json({ ok: true });
   } catch (e) {
     // Always 200 on our own hiccups so Jivetel doesn't disable the relay.

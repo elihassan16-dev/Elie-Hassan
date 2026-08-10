@@ -661,9 +661,13 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], initialKi
   // 🤖 Read their latest reply and suggest a status — same classifier the CRM
   // uses, now right in the conversation.
   const lastIn = [...thread].reverse().find((m) => m.direction === "in" && m.kind !== "call");
+  // Their current status — same data the Showings page reads, so the chip here
+  // always matches what the CRM shows.
+  const curKey = smsActions && smsActions.statusFor ? smsActions.statusFor(phone) : "";
+  const cur = curKey ? (smsActions.statusOptions || []).find((o) => o.key === curKey) : null;
   const sugKey = smsActions && smsActions.suggest && lastIn ? smsActions.suggest(lastIn.text) : null;
+  const sug = sugKey && sugKey !== curKey && !sugDis.has(lastIn ? `${e164(phone)}|${lastIn.id}` : "") ? (smsActions.statusOptions || []).find((o) => o.key === sugKey) : null;
   const sugDisKey = lastIn ? `${e164(phone)}|${lastIn.id}` : "";
-  const sug = sugKey && !sugDis.has(sugDisKey) ? (smsActions.statusOptions || []).find((o) => o.key === sugKey) : null;
   const dismissSug = () => {
     const next = new Set(sugDis); next.add(sugDisKey); setSugDis(next);
     try { localStorage.setItem("smsSugDis", JSON.stringify([...next].slice(-300))); } catch { /* private mode */ }
@@ -695,6 +699,7 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], initialKi
             {shownSub && <div style={{ fontSize: 11, fontWeight: 700, color: "#8a6d1f", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>{shownSub}</div>}
             <div style={{ fontSize: 11, color: T.textSub }}>{phone} · from your business line {from}</div>
           </div>
+          <CallA phone={phone} title="Call them" style={{ width: 31, height: 31, minWidth: 31, borderRadius: "50%", border: "none", background: "#0F9D58", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13.5, textDecoration: "none", flexShrink: 0, lineHeight: 1, boxSizing: "border-box" }}>📞</CallA>
           {onClose && <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>}
         </div>
         {smsActions && (
@@ -702,7 +707,9 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], initialKi
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button onClick={() => smsActions.followUp({ phone, name: shownName, addr: (dir && dir.addr) || "" })} title="Set a follow-up reminder — pick the day, and a time if you want one" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: "1px solid #DDD6FE", background: "#F5F3FF", color: "#7C3AED", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>📅 Follow-up</button>
               {smsActions.setStatus && (
-                <button onClick={() => setStOpen((v) => !v)} title="Set this lead's status — the same options as the Showings page" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: `1px solid ${stOpen ? "#C9A227" : T.border}`, background: stOpen ? "#FBF3DD" : "#fff", color: stOpen ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🏷 Set status {stOpen ? "▴" : "▾"}</button>
+                <button onClick={() => setStOpen((v) => !v)} title="Their lead status — same as the Showings page; tap to change it" style={cur
+                  ? { display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: "none", background: cur.bg, color: cur.color, fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }
+                  : { display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: `1px solid ${stOpen ? "#C9A227" : T.border}`, background: stOpen ? "#FBF3DD" : "#fff", color: stOpen ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🏷 {cur ? (cur.short || cur.label) : "Set status"} {stOpen ? "▴" : "▾"}</button>
               )}
               {!smsActions.setStatus && (
                 <button onClick={() => smsActions.notInterested({ phone, name: shownName })} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🚫 Not interested</button>
@@ -711,7 +718,7 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], initialKi
             {stOpen && (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
                 {(smsActions.statusOptions || []).map((o) => (
-                  <button key={o.key} onClick={() => { setStOpen(false); smsActions.setStatus({ phone, name: shownName }, o.key); }} style={{ padding: "6px 11px", borderRadius: 13, border: "none", background: o.bg, color: o.color, fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{o.label}</button>
+                  <button key={o.key} onClick={() => { setStOpen(false); if (o.key !== curKey) smsActions.setStatus({ phone, name: shownName }, o.key); }} style={{ padding: "6px 11px", borderRadius: 13, border: o.key === curKey ? `1.5px solid ${o.color}` : "none", background: o.bg, color: o.color, fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{o.key === curKey ? "✓ " : ""}{o.label}</button>
                 ))}
               </div>
             )}

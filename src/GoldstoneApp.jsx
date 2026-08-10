@@ -10798,6 +10798,9 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     // live feed overwrites with fresher labels.
     (sharedProps||[]).forEach(pp=>Object.values(pp.showingSnapshots||{}).forEach(sn=>String(sn.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(sn.agent||pp.address))m.set(e,{name:sn.agent||"",role:"agent",addr:String(pp.address||"").split(",")[0]});})));
     (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
+    // Numbers the team attached to a showing by hand (＋ Add number) — named
+    // by that showing's agent, on that property.
+    (sharedProps||[]).forEach(pp=>Object.entries(pp.showingPhones||{}).forEach(([k,list])=>(list||[]).forEach(x=>{const e=smsE164(x);if(!e)return;const sn=(pp.showingSnapshots||{})[k]||null;const live=(showFeed||[]).find(s=>showingKey(s)===k);m.set(e,{name:(sn&&sn.agent)||(live&&live.agent)||"",role:"agent",addr:String(pp.address||"").split(",")[0]});})));
     // Hand-added CRM leads win — most recently added one names the person.
     const bestCl=new Map();
     (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(!e||!l.name)return;const at=String(l.at||"");const prev=bestCl.get(e);if(!prev||at>prev.at)bestCl.set(e,{at,who:{name:l.name,role:l.buyer?"buyer":"lead",addr:String(pp.address||"").split(",")[0]}});})));
@@ -17085,6 +17088,8 @@ function buildPhoneProps(showFeed,btAll,sharedProps){
   (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,s.location||s.summary||"",s.start)));
   // Saved snapshots keep people whose showings already left the live feed.
   (sharedProps||[]).forEach(pp=>Object.values(pp.showingSnapshots||{}).forEach(sn=>String(sn.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,pp.address,sn.start))));
+  // Numbers the team attached to a showing by hand (property.showingPhones).
+  (sharedProps||[]).forEach(pp=>Object.entries(pp.showingPhones||{}).forEach(([k,list])=>(list||[]).forEach(x=>add(x,pp.address,((pp.showingSnapshots||{})[k]||{}).start||""))));
   (btAll||[]).forEach(l=>{const pp=(sharedProps||[]).find(x=>btMatchesProperty(l,x));if(pp)add(l.phone,pp.address,l.createdAt);});
   (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,pp.address,l.at))));
   m.forEach(l=>l.sort((a,b)=>String(b.at).localeCompare(String(a.at))));
@@ -17133,6 +17138,9 @@ function PhonePopup({onClose}){
     (CONTACTS||[]).forEach(c=>{[c.phone,c.phone2,c.cell,c.mobile,c.altPhone,...(Array.isArray(c.phones)?c.phones:[])].filter(Boolean).forEach(x=>{const e=smsE164(String(x));if(e&&!m.has(e))m.set(e,{name:c.name||c.company||"",role:"contact",addr:""});});});
     (sharedProps||[]).forEach(pp=>Object.values(pp.showingSnapshots||{}).forEach(sn=>String(sn.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(sn.agent||pp.address))m.set(e,{name:sn.agent||"",role:"agent",addr:String(pp.address||"").split(",")[0]});})));
     (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
+    // Numbers the team attached to a showing by hand (＋ Add number) — named
+    // by that showing's agent, on that property.
+    (sharedProps||[]).forEach(pp=>Object.entries(pp.showingPhones||{}).forEach(([k,list])=>(list||[]).forEach(x=>{const e=smsE164(x);if(!e)return;const sn=(pp.showingSnapshots||{})[k]||null;const live=(showFeed||[]).find(s=>showingKey(s)===k);m.set(e,{name:(sn&&sn.agent)||(live&&live.agent)||"",role:"agent",addr:String(pp.address||"").split(",")[0]});})));
     // Leads added by hand in the Showings CRM win over everything — the team
     // typed those names themselves. Same person on several properties → the
     // most recently added lead names them.
@@ -17412,6 +17420,9 @@ export function GoldstoneShell(){
     (CONTACTS_G||[]).forEach(c=>{[c.phone,c.phone2,c.cell,c.mobile,c.altPhone,...(Array.isArray(c.phones)?c.phones:[])].filter(Boolean).forEach(x=>{const e=smsE164(String(x));if(e&&!m.has(e))m.set(e,{name:c.name||c.company||"",role:"contact",addr:""});});});
     (sharedProps||[]).forEach(pp=>Object.values(pp.showingSnapshots||{}).forEach(sn=>String(sn.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(sn.agent||pp.address))m.set(e,{name:sn.agent||"",role:"agent",addr:String(pp.address||"").split(",")[0]});})));
     (showFeedG||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
+    // Numbers the team attached to a showing by hand (＋ Add number) — named
+    // by that showing's agent, on that property.
+    (sharedProps||[]).forEach(pp=>Object.entries(pp.showingPhones||{}).forEach(([k,list])=>(list||[]).forEach(x=>{const e=smsE164(x);if(!e)return;const sn=(pp.showingSnapshots||{})[k]||null;const live=(showFeedG||[]).find(s=>showingKey(s)===k);m.set(e,{name:(sn&&sn.agent)||(live&&live.agent)||"",role:"agent",addr:String(pp.address||"").split(",")[0]});})));
     const bestCl=new Map();
     (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(!e||!l.name)return;const at=String(l.at||"");const prev=bestCl.get(e);if(!prev||at>prev.at)bestCl.set(e,{at,who:{name:l.name,role:l.buyer?"buyer":"lead",addr:String(pp.address||"").split(",")[0]}});})));
     bestCl.forEach((v,e)=>m.set(e,v.who));
@@ -17463,6 +17474,14 @@ export function GoldstoneShell(){
         np={...np,showingLeads:{...(np.showingLeads||{}),[k]:statusKey}};
         ch=true;
       });
+      // Numbers attached to a showing by hand (＋ Add number) — the feed had
+      // no phone for that agent, so the snapshot doesn't either.
+      Object.entries(pp.showingPhones||{}).forEach(([k,list])=>{
+        if(!(list||[]).some(x=>digitsG(x)===key))return;
+        if((np.showingLeads||{})[k]===statusKey)return;
+        np={...np,showingLeads:{...(np.showingLeads||{}),[k]:statusKey}};
+        ch=true;
+      });
       if(ch){hit=true;return np;}
       return pp;
     });
@@ -17483,7 +17502,8 @@ export function GoldstoneShell(){
         if(!lead)return;
         if(String(k).startsWith("bt-")){const l=(btAllG||[]).find(x=>"bt-"+x.id===k);if(l&&digitsG(l.phone)===key)found.push(lead);return;}
         const sn=snaps[k];
-        if(sn&&matchPh(sn.phone))found.push(lead);
+        const extra=(pp.showingPhones||{})[k]||[];
+        if((sn&&matchPh(sn.phone))||extra.some(x=>digitsG(x)===key))found.push(lead);
       });
     });
     if(!found.length)return "";

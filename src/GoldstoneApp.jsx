@@ -10794,6 +10794,9 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const whoMap=useMemo(()=>{
     const m=new Map();
     (btAllTx||[]).forEach(l=>{const e=smsE164(l.phone);if(e&&!m.has(e))m.set(e,{name:l.name||"",role:"buyer",addr:""});});
+    // Saved showing snapshots first (they survive the feed scrub), then the
+    // live feed overwrites with fresher labels.
+    (sharedProps||[]).forEach(pp=>Object.values(pp.showingSnapshots||{}).forEach(sn=>String(sn.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(sn.agent||pp.address))m.set(e,{name:sn.agent||"",role:"agent",addr:String(pp.address||"").split(",")[0]});})));
     (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
     // Hand-added CRM leads win — most recently added one names the person.
     const bestCl=new Map();
@@ -17080,6 +17083,8 @@ function buildPhoneProps(showFeed,btAll,sharedProps){
   const m=new Map();
   const add=(ph,addr,at)=>{const e=smsE164(ph);if(!e||!addr)return;const a=String(addr).split(",")[0].trim();if(!a)return;let l=m.get(e);if(!l)m.set(e,l=[]);const key=a.toLowerCase();const hit=l.find(x=>x.key===key);const t=at?String(at):"";if(hit){if(t>hit.at)hit.at=t;}else l.push({key,addr:a,at:t});};
   (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,s.location||s.summary||"",s.start)));
+  // Saved snapshots keep people whose showings already left the live feed.
+  (sharedProps||[]).forEach(pp=>Object.values(pp.showingSnapshots||{}).forEach(sn=>String(sn.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,pp.address,sn.start))));
   (btAll||[]).forEach(l=>{const pp=(sharedProps||[]).find(x=>btMatchesProperty(l,x));if(pp)add(l.phone,pp.address,l.createdAt);});
   (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,pp.address,l.at))));
   m.forEach(l=>l.sort((a,b)=>String(b.at).localeCompare(String(a.at))));
@@ -17126,6 +17131,7 @@ function PhonePopup({onClose}){
     const m=new Map();
     (btAll||[]).forEach(l=>{const e=smsE164(l.phone);if(e&&!m.has(e))m.set(e,{name:l.name||"",role:"buyer",addr:""});});
     (CONTACTS||[]).forEach(c=>{[c.phone,c.phone2,c.cell,c.mobile,c.altPhone,...(Array.isArray(c.phones)?c.phones:[])].filter(Boolean).forEach(x=>{const e=smsE164(String(x));if(e&&!m.has(e))m.set(e,{name:c.name||c.company||"",role:"contact",addr:""});});});
+    (sharedProps||[]).forEach(pp=>Object.values(pp.showingSnapshots||{}).forEach(sn=>String(sn.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(sn.agent||pp.address))m.set(e,{name:sn.agent||"",role:"agent",addr:String(pp.address||"").split(",")[0]});})));
     (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
     // Leads added by hand in the Showings CRM win over everything — the team
     // typed those names themselves. Same person on several properties → the
@@ -17404,6 +17410,7 @@ export function GoldstoneShell(){
     const m=new Map();
     (btAllG||[]).forEach(l=>{const e=smsE164(l.phone);if(e&&!m.has(e))m.set(e,{name:l.name||"",role:"buyer",addr:""});});
     (CONTACTS_G||[]).forEach(c=>{[c.phone,c.phone2,c.cell,c.mobile,c.altPhone,...(Array.isArray(c.phones)?c.phones:[])].filter(Boolean).forEach(x=>{const e=smsE164(String(x));if(e&&!m.has(e))m.set(e,{name:c.name||c.company||"",role:"contact",addr:""});});});
+    (sharedProps||[]).forEach(pp=>Object.values(pp.showingSnapshots||{}).forEach(sn=>String(sn.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(sn.agent||pp.address))m.set(e,{name:sn.agent||"",role:"agent",addr:String(pp.address||"").split(",")[0]});})));
     (showFeedG||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
     const bestCl=new Map();
     (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(!e||!l.name)return;const at=String(l.at||"");const prev=bestCl.get(e);if(!prev||at>prev.at)bestCl.set(e,{at,who:{name:l.name,role:l.buyer?"buyer":"lead",addr:String(pp.address||"").split(",")[0]}});})));
@@ -17454,6 +17461,27 @@ export function GoldstoneShell(){
     if(hit)setSharedProps(()=>next);
     else window.alert(`Couldn't find a lead or showing on file for ${name||phone} — set the status from the Showings page instead.`);
   };
+  // What's this person's current status? Reads the same places the setter
+  // writes, strongest first — so the thread chip matches the Showings page.
+  const leadStatusOfG=(phone)=>{
+    const key=digitsG(phone);
+    if(!key)return "";
+    const matchPh=(raw)=>String(raw||"").split(/[\/,;]| or /i).some(x=>digitsG(x)===key);
+    const found=[];
+    (sharedProps||[]).forEach(pp=>{
+      (pp.customLeads||[]).forEach(l=>{if(l.lead&&matchPh(l.phone))found.push(l.lead);});
+      const snaps=pp.showingSnapshots||{};
+      Object.entries(pp.showingLeads||{}).forEach(([k,lead])=>{
+        if(!lead)return;
+        if(String(k).startsWith("bt-")){const l=(btAllG||[]).find(x=>"bt-"+x.id===k);if(l&&digitsG(l.phone)===key)found.push(lead);return;}
+        const sn=snaps[k];
+        if(sn&&matchPh(sn.phone))found.push(lead);
+      });
+    });
+    if(!found.length)return "";
+    found.sort((a,b)=>showingLeadRank(a)-showingLeadRank(b));
+    return found[0];
+  };
   // Registered during render (cheap assignments) so children always call the
   // freshest closures — no stale sharedProps in the not-interested writer.
   setSmsDirectory((phone)=>{
@@ -17468,6 +17496,7 @@ export function GoldstoneShell(){
     followUp:(t)=>{setFupG(t);setFupGDate(isoPlusG(1));setFupGTime("");setFupGNote("");},
     notInterested:(t)=>setLeadStatusG("not",t),
     setStatus:(t,key)=>setLeadStatusG(key,t),
+    statusFor:leadStatusOfG,
     statusOptions:SHOWING_LEADS.map(({key,label,short,color,bg})=>({key,label,short,color,bg})),
     suggest:(txt)=>classifySug(txt),
   });

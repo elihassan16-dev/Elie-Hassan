@@ -18,6 +18,16 @@ function shapeOf(o, pre = "", out = new Set(), depth = 0) {
   return out;
 }
 
+// MMS attachments — relays name the URL list differently across shapes, so
+// probe the common spellings. The raw event is captured either way
+// (jivetel_events), so an unmatched shape can be wired exactly later.
+const mediaOf = (x) => {
+  const raw = x && (x.MediaURLs ?? x.MediaUrls ?? x.MediaUrl ?? x.MediaURL ?? x.Media ?? x.media ?? x.Attachments ?? x.attachments ?? x.Files ?? null);
+  if (!raw) return [];
+  const arr = Array.isArray(raw) ? raw : [raw];
+  return arr.map((m) => (typeof m === "string" ? m : (m && (m.url || m.Url || m.URL || m.link || m.location || m.MediaUrl)) || "")).filter((u) => /^https?:/i.test(u));
+};
+
 export default async function handler(req, res) {
   try {
     if (req.method === "GET") {
@@ -46,7 +56,9 @@ export default async function handler(req, res) {
     // {eventType, timestamp, data:{FromNumber,ToNumber,MessageBody,
     //  MessageDirection, MessageID, ConversationID, ContactName, …}}.
     const d = (req.body && req.body.data) || null;
-    if (d && d.MessageID && d.MessageBody != null) {
+    const media = d ? mediaOf(d) : [];
+    // A picture with no caption has a null body — it's still a message.
+    if (d && d.MessageID && (d.MessageBody != null || media.length)) {
       const dir = /out/i.test(String(d.MessageDirection || "")) ? "out" : "in";
       const msg = {
         id: String(d.MessageID),
@@ -55,6 +67,7 @@ export default async function handler(req, res) {
         from: String(d.FromNumber || ""),
         to: String(d.ToNumber || ""),
         text: String(d.MessageBody || ""),
+        media,
         name: String(d.ContactName || ""),
         convId: String(d.ConversationID || ""),
         userId: String(d.TextableUserID || ""),
@@ -73,6 +86,7 @@ export default async function handler(req, res) {
           phone: e164(dir === "in" ? msg.from : msg.to),
           direction: dir,
           text: msg.text,
+          ...(media.length ? { media } : {}),
           by: dir === "in" ? msg.name : "",
           from: dir === "in" ? e164(msg.to) : e164(msg.from),
           at: msg.at,
@@ -97,7 +111,7 @@ export default async function handler(req, res) {
           await notifyFanout(client, null, {
             ...(owner ? { recipientsFirst: [owner] } : { toTeam: true }),
             title: `💬 New text — ${(who && who.name) || msg.name || msg.from}`,
-            body: `${sub ? sub + " · " : ""}${preview || "(no text)"}`,
+            body: `${sub ? sub + " · " : ""}${preview || (media.length ? "📷 Photo" : "(no text)")}`,
             tag: `jvmsg-${msg.id}`.slice(0, 64),
             url: "/",
           }).catch(() => {});

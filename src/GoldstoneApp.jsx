@@ -15387,6 +15387,15 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   // WebkitAppearance/lineHeight resets keep buttons, anchors and emoji all the
   // same visual size on iOS — without them Safari renders each a bit different.
   const icoS={width:33,height:33,minWidth:33,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none",padding:0,boxSizing:"border-box",cursor:"pointer",fontFamily:"inherit",flexShrink:0,lineHeight:1,fontSize:13.5,WebkitAppearance:"none",appearance:"none"};
+  // The non-message events the combined timeline weaves between the texts:
+  // the BoldTrail inquiry that started it, showings, and status changes.
+  const paneEvents=(c)=>{
+    const ev=[];
+    if(c.inq&&c.inq.at)ev.push({at:c.inq.at,icon:"🛒",label:`Inquired on BoldTrail${c.inq.addr?` — ${c.inq.addr}`:""}`,tone:"buyer"});
+    (c.shows||[]).forEach(s=>{if(!s.start)return;const kind=s.kind&&s.kind!=="showing"?s.kind.charAt(0).toUpperCase()+s.kind.slice(1):"Showing";ev.push({at:s.start,icon:s.kind&&s.kind!=="showing"?"🔍":"👁",label:`${kind} — ${s.addr}`,sub:s.src?`via the ${s.src} calendar`:"via ShowingTime",tone:"showing"});});
+    (c.statuses||[]).forEach(st=>{if(!st.at)return;const meta=SHOWING_LEADS.find(x=>x.key===st.lead)||{};ev.push({at:st.at,icon:"🏷",label:`Status: ${meta.short||st.lead}`,sub:st.addr||"",tone:"status"});});
+    return ev;
+  };
   // The personalized message for one person — buyer voice for pure buyers.
   const tmplFor=(c,kind)=>{const ts=showingTemplates(!!c.buyer&&!c.shows.length,c.name,c.addrs[0]||"");return (ts.find(t=>t.kind===kind)||ts[0]).text;};
   const introFor=(c)=>({text:tmplFor(c,"initial")});
@@ -15624,20 +15633,18 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
               <span style={{display:"flex",gap:6,flexShrink:0}}>
                 <button onClick={()=>{setFupFor(sel);setFupDate(isoPlus(1));setFupTime("");setFupNote("");}} title="📅 Schedule a follow-up call — it pins here when due and pings your phone that morning (or at the time you pick)" style={{...icoS,border:"1px solid #7C3AED",background:"#F5F3FF",fontSize:13}}>📅</button>
                 <CallA phone={sel.phone} title="Call" style={{...icoS,border:`1px solid ${T.border}`,background:"#fff"}}><PhoneIcon size={13} color={T.text}/></CallA>
-                {isMobile&&<button onClick={()=>setTextOpen({phone:sel.phone,name:sel.name,address:sel.addrs[0]||"",bt:!!sel.buyer&&!sel.shows.length})} title="Conversation & templates" style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}><SmsChatIcon size={13} color="#15803D"/></button>}
                 {sel.email&&<a href={`mailto:${sel.email}`} title={`Email ${sel.email}`} style={{...icoS,border:`1px solid ${T.blue}`,background:"#EBF4FF",fontSize:13}}>✉️</a>}
               </span>
             </div>
+            {/* One combined timeline (Elie-approved): the BoldTrail inquiry,
+                showings and status changes ride inline between the real texts
+                and calls — the old separate activity column is retired. It
+                stays as a fallback only when texting isn't connected. */}
             <div style={{flex:1,display:"flex",overflow:"hidden"}}>
+              {connected?(
+                <SmsThreadPane key={sel.key} inline phone={sel.phone} name={sel.name||fmtPh(sel.phone)} sub={[sel.buyer&&!sel.shows.length?"🛒 Buyer":"Agent",sel.addrs[0]?`🏠 ${sel.addrs[0]}${sel.addrs.length>1?` +${sel.addrs.length-1} more`:""}`:""].filter(Boolean).join(" · ")} events={paneEvents(sel)} templates={showingTemplates(!!sel.buyer&&!sel.shows.length,sel.name,sel.addrs[0]||"")}/>
+              ):(
               <div style={{flex:1,overflowY:"auto",padding:"14px 18px 40px"}}>
-                {/* 🤖 One-tap status from their reply */}
-                {sel.sug&&(()=>{const meta=SHOWING_LEADS.find(x=>x.key===sel.sug.key)||{};return(
-                  <div style={{display:"flex",alignItems:"center",gap:8,background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:11,padding:"9px 12px",marginBottom:12,flexWrap:"wrap"}}>
-                    <span style={{fontSize:12,color:"#8a6d1f",minWidth:0,flex:1}}>🤖 From {String(sel.name||"their").split(" ")[0]}'s reply this looks like: <b style={{color:meta.color||"#8a6d1f"}}>{meta.label||sel.sug.key}</b></span>
-                    <button onClick={()=>applySug(sel)} style={{padding:"6px 12px",borderRadius:14,border:"none",background:T.gold,color:"#fff",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>✓ Set status</button>
-                    <button onClick={()=>dismissSug(sel)} style={{padding:"6px 10px",borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Dismiss</button>
-                  </div>
-                );})()}
                 <div style={{fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",marginBottom:10}}>ACTIVITY — EVERYTHING WITH {String(sel.name||"THEM").split(" ")[0].toUpperCase()}, NEWEST FIRST</div>
                 {events(sel).map((e,i)=>(
                   <div key={i} style={{display:"flex",gap:11,marginBottom:12}}>
@@ -15651,11 +15658,6 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                 ))}
                 {events(sel).length===0&&<div style={{padding:"30px 0",textAlign:"center",color:T.textTert,fontSize:12.5}}>No activity recorded yet.</div>}
               </div>
-              {/* Desktop: the conversation rides along in its own always-open column */}
-              {!isMobile&&(
-                <div style={{width:"min(390px,42%)",flexShrink:0,borderLeft:`1px solid ${T.border}`,display:"flex",flexDirection:"column",overflow:"hidden",background:"#fff"}}>
-                  <SmsThreadPane key={sel.key} inline phone={sel.phone} name={sel.name||fmtPh(sel.phone)} sub={[sel.buyer&&!sel.shows.length?"🛒 Buyer":"Agent",sel.addrs[0]?`🏠 ${sel.addrs[0]}${sel.addrs.length>1?` +${sel.addrs.length-1} more`:""}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(!!sel.buyer&&!sel.shows.length,sel.name,sel.addrs[0]||"")}/>
-                </div>
               )}
             </div>
           </>

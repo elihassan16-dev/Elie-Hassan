@@ -10908,12 +10908,16 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       if(!txts.length)return;
       const last=txts[txts.length-1];
       const who=whoMap.get(p)||null;
-      out.push({phone:p,last,lastAt:new Date(last.at||0).getTime()||0,unread:smsUnreadFor(p),name:contactMap.get(p)||(who&&who.name)||"",who,line:ownerOfLine(last.from),showing:showPhones?showPhones.has(p):false});
+      // CRM people — buyers, showing agents, hand-added leads — live in the
+      // Showings section; the Texts inbox hides them unless invited in.
+      out.push({phone:p,last,lastAt:new Date(last.at||0).getTime()||0,unread:smsUnreadFor(p),name:contactMap.get(p)||(who&&who.name)||"",who,line:ownerOfLine(last.from),crm:(showPhones?showPhones.has(p):false)||!!who});
     });
     out.sort((a,b)=>b.lastAt-a.lastAt);
     return out;
   },[smsOn,smsMsgs,contactMap,showPhones,smsLines,whoMap]); // eslint-disable-line
-  const textsUnreadTotal=texts.reduce((n,t)=>n+t.unread,0);
+  // The Texts badge counts only what the list shows — CRM people's replies
+  // badge in the Showings section instead.
+  const textsUnreadTotal=texts.filter(t=>showShowTexts||!t.crm).reduce((n,t)=>n+t.unread,0);
   const active=sharedProps.filter(p=>!p.archived);
   const withMeta=active.map(p=>{const merged=mergedFor(p).sort((a,b)=>msgTime(a.at)-msgTime(b.at));const last=merged[merged.length-1];return {p,last,lastAt:last?new Date(last.at).getTime():0,count:merged.length,unread:merged.reduce((n,m)=>n+(isUnreadForUser(m,CURRENT_USER)?1:0),0)};});
   const q=search.toLowerCase();
@@ -11121,7 +11125,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       </div>
     );
   };
-  const textsFiltered=texts.filter(t=>(showShowTexts||!t.showing)&&((t.name+" "+t.phone).toLowerCase().includes(q)));
+  const textsFiltered=texts.filter(t=>(showShowTexts||!t.crm)&&((t.name+" "+t.phone).toLowerCase().includes(q)));
   const modePill=(m,label,activeStyle,badge)=>{
     const on=mode===m;
     return(
@@ -11151,11 +11155,11 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
             {smsOn&&mode!=="team"&&<button onClick={()=>{setNewTx(true);setNewTxQ("");}} title="✏️ New text — pick a contact or type a number; it sends from your office line" style={{width:33,height:33,minWidth:33,borderRadius:"50%",border:"1.5px solid #15803D",background:"#EDFBF1",fontSize:13.5,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>✏️</button>}
           </div>
         </div>
-        {/* Showing-agent texts stay in the Showings CRM unless invited in */}
-        {smsOn&&mode!=="team"&&texts.some(t=>t.showing)&&(
+        {/* Buyer/agent/lead texts stay in the Showings CRM unless invited in */}
+        {smsOn&&mode!=="team"&&texts.some(t=>t.crm)&&(
           <label style={{display:"flex",alignItems:"center",gap:7,padding:"7px 14px",borderBottom:`1px solid ${T.border}`,fontSize:11,color:T.textSub,cursor:"pointer"}}>
             <input type="checkbox" checked={showShowTexts} onChange={e=>setShowShowTexts(e.target.checked)} style={{accentColor:"#15803D"}}/>
-            Show showing-agent texts too <span style={{marginLeft:"auto",color:T.textTert}}>home: Showings CRM</span>
+            Show buyers &amp; agents too · {texts.filter(t=>t.crm).length} <span style={{marginLeft:"auto",color:T.textTert}}>their home: Showings CRM</span>
           </label>
         )}
         <div style={{flex:1,overflowY:"auto"}}>

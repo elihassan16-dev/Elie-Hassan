@@ -6,7 +6,7 @@
 // own sms: links exactly as before.
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
-import { qbAuthFetch } from "./net";
+import { qbAuthFetch, uploadAttachment } from "./net";
 import { T } from "./theme";
 import { SmsChatIcon } from "./icons";
 
@@ -175,8 +175,8 @@ export function useSmsTexting() {
     const since = readMap[p] || "";
     return threadFor(p).filter((m) => m.direction === "in" && String(m.at || "") > since).length;
   };
-  const send = async (to, text) => {
-    await qbAuthFetch("/api/jivetel/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, message: text }) });
+  const send = async (to, text, media) => {
+    await qbAuthFetch("/api/jivetel/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, message: text, ...(Array.isArray(media) && media.length ? { media } : {}) }) });
     setTimeout(loadMsgs, 500);
   };
   return { connected: store.connected, from: store.from, lines: store.lines || {}, msgs, threadFor, statusFor, unreadFor, send };
@@ -655,6 +655,9 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], events = 
   const [err, setErr] = useState("");
   const [note, setNote] = useState(""); // 📲 handoff confirmation
   const [stOpen, setStOpen] = useState(false); // 🏷 status options expanded
+  const [att, setAtt] = useState(null);        // 📎 uploaded attachment {url,name,kind} waiting to send
+  const [attBusy, setAttBusy] = useState(false);
+  const fileRef = useRef(null);
   // 🤖 dismissed suggestions (per phone+message) — stay dismissed on this device.
   const [sugDis, setSugDis] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("smsSugDis") || "[]")); } catch { return new Set(); } });
   const thread = threadFor(phone);
@@ -679,14 +682,23 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], events = 
   useEffect(() => { markThreadRead(phone); }, [phone, thread.length]);
   const doSend = async () => {
     const t = draft.trim();
-    if (!t || busy) return;
+    if ((!t && !att) || busy) return;
     setBusy(true); setErr("");
     try {
-      await send(phone, t);
-      setDraft(""); setKind(null);
+      await send(phone, t, att ? [att.url] : undefined);
+      setDraft(""); setKind(null); setAtt(null);
       onSent && onSent(kind);
     } catch (ex) { setErr(ex.message || "Couldn't send — try again."); }
     setBusy(false);
+  };
+  const pickFile = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    setAttBusy(true); setErr("");
+    try { setAtt(await uploadAttachment(f, "sms")); }
+    catch (ex) { setErr(ex.message || "Couldn't attach that file."); }
+    setAttBusy(false);
   };
   const fmt = (iso) => { try { return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
   return (
@@ -764,7 +776,19 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], events = 
               const mine = m.direction !== "in";
               return (
                 <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "82%" }}>
-                  <div style={{ background: mine ? T.gold : "#fff", color: mine ? "#fff" : T.text, border: mine ? "none" : `1px solid ${T.border}`, borderRadius: 14, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{linkifyText(m.text, mine)}</div>
+                  <div style={{ background: mine ? T.gold : "#fff", color: mine ? "#fff" : T.text, border: mine ? "none" : `1px solid ${T.border}`, borderRadius: 14, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                    {Array.isArray(m.media) && m.media.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: m.text ? 7 : 0 }}>
+                        {m.media.map((u, i) => /\.(mp4|mov|3gp2?|webm|m4v)(\?|$)/i.test(u)
+                          ? <video key={i} src={u} controls style={{ maxWidth: "100%", borderRadius: 10, maxHeight: 280 }} />
+                          : <a key={i} href={u} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                              <img src={u} alt="attachment" style={{ maxWidth: "100%", borderRadius: 10, maxHeight: 280, display: "block" }}
+                                onError={(ev) => { const a = document.createElement("a"); a.href = u; a.target = "_blank"; a.rel = "noopener noreferrer"; a.textContent = "📎 Attachment"; a.style.cssText = `color:${mine ? "#fff" : "#2563EB"};text-decoration:underline;font-size:12.5px`; ev.currentTarget.parentNode.replaceWith(a); }} />
+                            </a>)}
+                      </div>
+                    )}
+                    {m.text ? linkifyText(m.text, mine) : null}
+                  </div>
                   <div style={{ fontSize: 9.5, color: T.textTert, marginTop: 2, textAlign: mine ? "right" : "left" }}>
                     {mine ? `${(m.by || "").split(" ")[0] || "You"} · ` : ""}{fmt(m.at)}{mine ? (m.status === "delivered" ? " · ✓✓" : m.status === "failed" ? " · ⚠️ not delivered" : " · ✓") : ""}
                   </div>
@@ -795,7 +819,16 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], events = 
               })}
             </div>
           )}
+          {att && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              {att.kind === "image" ? <img src={att.url} alt="" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: `1px solid ${T.border}` }} /> : <span style={{ fontSize: 20 }}>🎬</span>}
+              <span style={{ fontSize: 11.5, color: T.textSub, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📎 {att.name || "attachment"} — sends as a picture message</span>
+              <button onClick={() => setAtt(null)} title="Remove" style={{ background: "none", border: "none", color: T.textTert, fontSize: 16, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+            </div>
+          )}
           <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
+            <input ref={fileRef} type="file" accept="image/*,video/*" onChange={pickFile} style={{ display: "none" }} />
+            <button onClick={() => fileRef.current && fileRef.current.click()} disabled={attBusy} title="Attach a photo or video — sends as a picture message (MMS)" style={{ padding: "10px 12px", borderRadius: 12, border: `1.5px solid ${att ? "#0F9D58" : T.border}`, background: att ? "#EDFBF1" : "#fff", color: att ? "#0F9D58" : T.textSub, fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>{attBusy ? "…" : "📎"}</button>
             <textarea rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Write a text…"
               onPaste={(e) => { const fixed = rescuePastedLink(e); if (fixed != null) { e.preventDefault(); const el = e.target, st = el.selectionStart ?? draft.length, en = el.selectionEnd ?? draft.length; setDraft(draft.slice(0, st) + fixed + draft.slice(en)); } }}
               style={{ flex: 1, minWidth: 0, padding: "9px 12px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg, fontSize: 13.5, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, boxSizing: "border-box" }} />
@@ -803,7 +836,7 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], events = 
               try { await sendToMyPhone({ phone, message: draft.trim() }); setNote("📲 Sent to your phone — tap the notification (or just open the app there: the bar waits for you)."); }
               catch (ex) { setErr(ex.message || "Couldn't reach your phone."); }
             }} title="Send this text from your cell instead — your phone gets a notification that opens Messages prefilled" style={{ padding: "10px 12px", borderRadius: 12, border: "1.5px solid #2563EB", background: "#EFF6FF", color: "#2563EB", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>📲</button>}
-            <button onClick={doSend} disabled={!draft.trim() || busy} style={{ padding: "10px 16px", borderRadius: 12, border: "none", background: draft.trim() && !busy ? T.gold : T.border, color: "#fff", fontWeight: 800, fontSize: 13, cursor: draft.trim() && !busy ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>{busy ? "Sending…" : "Send"}</button>
+            <button onClick={doSend} disabled={(!draft.trim() && !att) || busy} style={{ padding: "10px 16px", borderRadius: 12, border: "none", background: (draft.trim() || att) && !busy ? T.gold : T.border, color: "#fff", fontWeight: 800, fontSize: 13, cursor: (draft.trim() || att) && !busy ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>{busy ? "Sending…" : "Send"}</button>
           </div>
         </div>
       </div>

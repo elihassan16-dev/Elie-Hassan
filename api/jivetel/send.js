@@ -47,7 +47,8 @@ export default async function handler(req, res) {
   if (!user) return res.status(401).json({ error: "Sign in first." });
   try {
     const { to, message, media, fromName } = req.body || {};
-    if (!to || !String(message || "").trim()) return res.status(400).json({ error: "to and message are required." });
+    // A picture with no caption is a valid message.
+    if (!to || (!String(message || "").trim() && !(Array.isArray(media) && media.length))) return res.status(400).json({ error: "to and a message (or attachment) are required." });
     const prof = await profileOf(user.id);
     if (prof?.role === "contractor") return res.status(403).json({ error: "The business texting line isn't available on contractor accounts." });
     const { person, from, token } = resolveSender(user, fromName, prof?.name);
@@ -59,7 +60,7 @@ export default async function handler(req, res) {
       const cap = firstName(gate.owner).replace(/^./, (c) => c.toUpperCase());
       return res.status(403).json({ error: `This is ${cap}'s contact — ${cap} just got an approval request. Once ${cap} approves, you can text them.`, needsApproval: true, owner: cap });
     }
-    const body = { to: e164(to), from: e164(from), message: String(message) };
+    const body = { to: e164(to), from: e164(from), message: String(message || "") };
     if (Array.isArray(media) && media.length) body.media = media;
     const r = await fetch("https://jivetel-txt.jivetel.com/api/send", {
       method: "POST",
@@ -76,7 +77,8 @@ export default async function handler(req, res) {
       id: String(data?.id || `out-${Date.now()}`),
       phone: body.to,
       direction: "out",
-      text: String(message),
+      text: String(message || ""),
+      ...(Array.isArray(media) && media.length ? { media } : {}),
       by: prof?.name || user.user_metadata?.name || "",
       from: body.from,
       at: new Date().toISOString(),

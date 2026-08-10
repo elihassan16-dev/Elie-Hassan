@@ -8381,7 +8381,7 @@ function TasksPage({onNavigate}){
     }));
     (ctrSiteStatus||[]).forEach(row=>(row.events||[]).forEach(ev=>{
       if(String(ev.date||"").slice(0,10)!==todayISO)return;
-      today.push({key:`ev${ev.id}`,icon:ctrEventIcon(ev),label:`${ctrEventLabel(ev)}${ev.time?` · ${clock12(ev.time)}`:""}${ev.orgName?` · ${ev.orgName}`:""}`,addr:row.address||"",pid:row.id,color:"#B45309"});
+      today.push({key:`ev${ev.id}`,icon:ctrEventIcon(ev),label:`${ctrEventLabel(ev)}${ev.time?` · ${clock12(ev.time)}`:""}${ev.orgName?` · ${ev.orgName}`:""}`,addr:row.address||"",pid:row.id,color:"#B45309",t:ev.time?new Date(`${todayISO}T${ev.time}`).getTime()||0:0});
     }));
     (railShowings||[]).forEach(s=>{
       if(String(s.start||"").slice(0,10)!==todayISO)return;
@@ -8390,8 +8390,11 @@ function TasksPage({onNavigate}){
       // row tappable — straight into the conversation, templates and all.
       let ph=parseShowingPhones(s.phone)[0]||"";
       if(!ph){const pr=(sharedProps||[]).find(p=>!p.archived&&showingMatchesProperty(s.location||s.summary||"",p));if(pr)ph=(((pr.showingPhones||{})[showingKey(s)])||[])[0]||"";}
-      today.push({key:`sh${s.start}${s.location||""}`,icon:"👥",label:`Showing${isNaN(t.getTime())?"":` · ${t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})}`}${s.agent?` · ${s.agent}`:""}`,addr:s.location||"",color:T.gold,phone:ph,agent:s.agent||"",showAddr:String(s.location||s.summary||"").split(",")[0]});
+      today.push({key:`sh${s.start}${s.location||""}`,icon:"👥",label:`Showing${isNaN(t.getTime())?"":` · ${t.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})}`}${s.agent?` · ${s.agent}`:""}`,addr:s.location||"",color:T.gold,phone:ph,agent:s.agent||"",showAddr:String(s.location||s.summary||"").split(",")[0],t:t.getTime()||0});
     });
+    // Morning first: all-day items (closings, deadlines) on top, then timed
+    // events earliest → latest.
+    today.sort((a,b)=>(a.t||0)-(b.t||0));
     return today;
   };
   const[dashText,setDashText]=useState(null); // {phone,name,address} → showing-agent conversation

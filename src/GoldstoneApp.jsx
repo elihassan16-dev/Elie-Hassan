@@ -7069,7 +7069,7 @@ function SwipeToDelete({onDelete,confirm,children,style={}}){
   );
 }
 
-function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onNavigate,currentUser,selectMode,selected,onToggleSelect,compact,stripe,grid}){
+function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onNavigate,currentUser,selectMode,selected,onToggleSelect,compact,stripe,grid,emph}){
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
@@ -7188,7 +7188,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       {selBox}
       {/* The AUTO pill sits OUTSIDE the truncating text so a long title can't clip it. */}
       <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
-        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
+        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:emph?700:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
         {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
       </span>
       {t.delegate&&t.delegate===currentUser&&t.assignee
@@ -9053,20 +9053,22 @@ function TasksPage({onNavigate}){
                 off the list (their history lives in ✓ Done). */}
             {byProp&&(()=>{
               const isOpenT=(t)=>t.status!=="Completed"&&t.status!=="N/A";
+              // "Mine" = I own it, it's delegated to me, or I delegated it out.
+              const isMineT=(t)=>t.assignee===CURRENT_USER||t.delegate===CURRENT_USER;
               const rows=[];
               sharedProps.filter(p=>!p.archived).forEach(p=>{
                 const ts=(p.tasks||[]).filter(t=>!t.deleted&&(t.text||"").trim());
                 const extOpen=(extByPid[String(p.id)]||[]).reduce((n,x)=>n+x.rows.filter(t=>t.status!=="Completed").length,0);
                 const done=ts.filter(t=>t.status==="Completed").length;
                 const open=ts.filter(isOpenT).length+extOpen;
-                if(open>0)rows.push({pid:p.id,addr:`${p.address||""}${p.city?`, ${p.city}`:""}`,status:p.status||"",open,done,total:ts.length+extOpen});
+                if(open>0)rows.push({pid:p.id,addr:`${p.address||""}${p.city?`, ${p.city}`:""}`,status:p.status||"",open,done,total:ts.length+extOpen,mine:ts.filter(t=>isOpenT(t)&&isMineT(t)).length});
               });
               // Same status order as the Properties page; rentals sink to the very
               // bottom. Within a status, the most open work floats up.
               const rank=(s)=>{if(s==="Rental")return 999;const i=PROP_ORDER.indexOf(s);return i===-1?900:i;};
               rows.sort((a,b)=>rank(a.status)-rank(b.status)||b.open-a.open||a.addr.localeCompare(b.addr));
               const oTs=(officeTasks||[]).filter(t=>!t.deleted&&(t.text||"").trim());
-              rows.unshift({pid:OFFICE_TASK_PID,addr:"🏢 Company Tasks",status:"",open:oTs.filter(isOpenT).length,done:oTs.filter(t=>t.status==="Completed").length,total:oTs.length,office:true});
+              rows.unshift({pid:OFFICE_TASK_PID,addr:"🏢 Company Tasks",status:"",open:oTs.filter(isOpenT).length,done:oTs.filter(t=>t.status==="Completed").length,total:oTs.length,mine:oTs.filter(t=>isOpenT(t)&&isMineT(t)).length,office:true});
               const openProps=rows.filter(r=>r.open>0&&!r.office).length;
               return(
                 <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14,maxWidth:840}}>
@@ -9081,20 +9083,27 @@ function TasksPage({onNavigate}){
                     const pillEl=r.open>0
                       ?<span style={{fontSize:11,fontWeight:800,color:"#B45309",background:"#FFF4E5",borderRadius:10,padding:"3px 10px",whiteSpace:"nowrap",flexShrink:0}}>{r.open} open · {r.done}/{r.total}</span>
                       :<span style={{fontSize:11,fontWeight:800,color:"#15803D",background:"#EDFBF1",borderRadius:10,padding:"3px 10px",whiteSpace:"nowrap",flexShrink:0}}>✓ all done</span>;
+                    const mineEl=r.mine>0?<span style={{fontSize:10,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:"1px solid #E5D9A9",borderRadius:10,padding:"2px 8px",whiteSpace:"nowrap"}}>👤 {r.mine} for you</span>:null;
                     return(
                       <div key={String(r.pid)} onClick={()=>setByPropOpen(r.pid)} title="See this property's open tasks"
-                        style={{padding:isMobile?"10px 14px":"12px 16px",borderBottom:i<rows.length-1?`1px solid ${T.border}55`:"none",cursor:"pointer"}}
+                        style={{padding:isMobile?"12px 14px":"12px 16px",borderBottom:i<rows.length-1?`1px solid ${T.border}`:"none",cursor:"pointer"}}
                         onMouseEnter={e=>e.currentTarget.style.background="#FBFAF6"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                         {isMobile?(<>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
                             <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
-                            {pillEl}<span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
+                            {mineEl}{pillEl}<span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
                           </div>
-                          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6}}>{chipEl}{barEl}</div>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:7}}>{chipEl}{barEl}</div>
                         </>):(
+                          /* Fixed-width slots for the status chip, "for you" pill and
+                             count pill keep every progress bar the exact same length. */
                           <div style={{display:"flex",alignItems:"center",gap:12}}>
-                            <span style={{width:240,flexShrink:0,fontSize:13.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
-                            {chipEl}{barEl}{pillEl}<span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
+                            <span style={{width:235,flexShrink:0,fontSize:13.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
+                            <span style={{width:150,flexShrink:0,display:"flex",justifyContent:"center"}}>{chipEl}</span>
+                            {barEl}
+                            <span style={{width:90,flexShrink:0,display:"flex",justifyContent:"flex-end"}}>{mineEl}</span>
+                            <span style={{width:110,flexShrink:0,display:"flex",justifyContent:"center"}}>{pillEl}</span>
+                            <span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
                           </div>
                         )}
                       </div>
@@ -9135,7 +9144,20 @@ function TasksPage({onNavigate}){
                     </div>
                     <div style={{overflowY:"auto",flex:1}}>
                       {openTs.length===0&&ext.length===0&&<div style={{padding:"22px 18px",fontSize:13,color:"#15803D",fontWeight:700}}>✓ All caught up — nothing open here.</div>}
-                      {openTs.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER}/>)}
+                      {/* Your tasks (owned, delegated to you, or delegated BY you)
+                          bold and on top; everyone else's in a lighter shade below. */}
+                      {(()=>{
+                        const isMineT=(t)=>t.assignee===CURRENT_USER||t.delegate===CURRENT_USER;
+                        const mineTs=openTs.filter(isMineT),otherTs=openTs.filter(t=>!isMineT(t));
+                        const row=(t,mine)=><TaskRow key={t.id} t={t} emph={mine} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER}/>;
+                        if(!mineTs.length||!otherTs.length)return openTs.map(t=>row(t,isMineT(t)));
+                        return(<>
+                          <div style={{padding:"8px 16px 3px",fontSize:9.5,fontWeight:800,color:"#8a6d1f",letterSpacing:"0.05em"}}>👤 YOUR TASKS</div>
+                          {mineTs.map(t=>row(t,true))}
+                          <div style={{padding:"8px 16px 3px",fontSize:9.5,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>EVERYONE ELSE</div>
+                          {otherTs.map(t=><div key={t.id} style={{opacity:0.45}}>{row(t,false)}</div>)}
+                        </>);
+                      })()}
                       {ext.map(({job,rows:xr})=>(
                         <div key={"ext-"+job.id} style={{background:"#FFF9EC",borderTop:`1.5px solid ${T.gold}`}}>
                           <div style={{padding:"8px 14px 5px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>

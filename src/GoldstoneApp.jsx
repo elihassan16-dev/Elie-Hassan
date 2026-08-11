@@ -7085,6 +7085,9 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
   const msgCount=(t.messages||[]).length;
+  // The red number = messages YOU haven't read (matches the property-row
+  // bubble on the Dashboard). A read-up chat keeps the quiet blue bubble.
+  const msgUnread=currentUser?(t.messages||[]).filter(m=>isUnreadForUser(m,currentUser)).length:0;
   // Match the green EH avatar's diameter exactly. Render these as <div>s (not
   // <button>s) for the same reason the avatar stays perfectly round: iOS Safari
   // forces its own sizing onto <button> elements, squashing them into ovals even
@@ -7108,7 +7111,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       style={circleBtn(!!t.taskContact)}>{t.taskContact?.kind==="company"?"🏢":(t.taskContact?.name?.[0]||"👤")}</div>
   );
   const msgBtnEl=(
-    <div role="button" onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",...circleBtn(!!msgCount)}}><TeamChatIcon size={13}/>{msgCount>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgCount}</span>}</div>
+    <div role="button" onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",...circleBtn(!!msgCount)}}><TeamChatIcon size={13}/>{msgUnread>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgUnread}</span>}</div>
   );
   const selBox=selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:18,height:18,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>;
   // Address + property status are already shown in the group header above, so the
@@ -9069,13 +9072,15 @@ function TasksPage({onNavigate}){
               const isOpenT=(t)=>t.status!=="Completed"&&t.status!=="N/A";
               // "Mine" = I own it, it's delegated to me, or I delegated it out.
               const isMineT=(t)=>t.assignee===CURRENT_USER||t.delegate===CURRENT_USER;
+              // Task-chat messages I haven't read yet, totaled across the property.
+              const unreadOf=(ts)=>ts.reduce((n,t)=>n+(t.messages||[]).filter(m=>isUnreadForUser(m,CURRENT_USER)).length,0);
               const rows=[];
               sharedProps.filter(p=>!p.archived).forEach(p=>{
                 const ts=(p.tasks||[]).filter(t=>!t.deleted&&(t.text||"").trim());
                 const extOpen=(extByPid[String(p.id)]||[]).reduce((n,x)=>n+x.rows.filter(t=>t.status!=="Completed").length,0);
                 const done=ts.filter(t=>t.status==="Completed").length;
                 const open=ts.filter(isOpenT).length+extOpen;
-                if(open>0)rows.push({pid:p.id,addr:`${p.address||""}${p.city?`, ${p.city}`:""}`,status:p.status||"",open,done,total:ts.length+extOpen,mine:ts.filter(t=>isOpenT(t)&&isMineT(t)).length});
+                if(open>0)rows.push({pid:p.id,addr:`${p.address||""}${p.city?`, ${p.city}`:""}`,status:p.status||"",open,done,total:ts.length+extOpen,mine:ts.filter(t=>isOpenT(t)&&isMineT(t)).length,msgs:unreadOf(ts)});
               });
               // Same status order as the Properties page; rentals sink to the very
               // bottom. Within a status, properties with YOUR open work float up,
@@ -9083,7 +9088,7 @@ function TasksPage({onNavigate}){
               const rank=(s)=>{if(s==="Rental")return 999;const i=PROP_ORDER.indexOf(s);return i===-1?900:i;};
               rows.sort((a,b)=>rank(a.status)-rank(b.status)||b.mine-a.mine||b.open-a.open||a.addr.localeCompare(b.addr));
               const oTs=(officeTasks||[]).filter(t=>!t.deleted&&(t.text||"").trim());
-              rows.unshift({pid:OFFICE_TASK_PID,addr:"🏢 Company Tasks",status:"",open:oTs.filter(isOpenT).length,done:oTs.filter(t=>t.status==="Completed").length,total:oTs.length,mine:oTs.filter(t=>isOpenT(t)&&isMineT(t)).length,office:true});
+              rows.unshift({pid:OFFICE_TASK_PID,addr:"🏢 Company Tasks",status:"",open:oTs.filter(isOpenT).length,done:oTs.filter(t=>t.status==="Completed").length,total:oTs.length,mine:oTs.filter(t=>isOpenT(t)&&isMineT(t)).length,msgs:unreadOf(oTs),office:true});
               const openProps=rows.filter(r=>r.open>0&&!r.office).length;
               return(
                 <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14,maxWidth:840}}>
@@ -9098,6 +9103,14 @@ function TasksPage({onNavigate}){
                     // One number per row — YOUR open tasks. No team tallies (those
                     // live in the popup); the bar alone shows overall progress.
                     const mineEl=r.mine>0?<span style={{fontSize:11,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:"1px solid #E5D9A9",borderRadius:10,padding:"3px 10px",whiteSpace:"nowrap"}}>👤 {r.mine} for you</span>:null;
+                    // 💬 Unread task-chat messages, totaled across the property's
+                    // tasks — its own fixed slot on desktop so nothing shifts.
+                    const msgEl=(sz)=>r.msgs>0?(
+                      <span title={`${r.msgs} unread task message${r.msgs===1?"":"s"}`} style={{position:"relative",width:sz,height:sz,borderRadius:"50%",background:"#EBF4FF",border:`1px solid ${T.blue}`,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxSizing:"border-box"}}>
+                        <TeamChatIcon size={sz<26?11:13}/>
+                        <span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:800,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{r.msgs}</span>
+                      </span>
+                    ):null;
                     return(
                       <div key={String(r.pid)} onClick={()=>setByPropOpen(r.pid)} title="See this property's open tasks"
                         style={{padding:isMobile?"12px 14px":"12px 16px",borderBottom:i<rows.length-1?`1px solid ${T.border}`:"none",cursor:"pointer"}}
@@ -9105,16 +9118,17 @@ function TasksPage({onNavigate}){
                         {isMobile?(<>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
                             <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
-                            {mineEl}<span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
+                            {msgEl(24)}{mineEl}<span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:8,marginTop:7}}>{chipEl}{barEl}</div>
                         </>):(
-                          /* Fixed-width slots for the status chip and "for you" pill
-                             keep every progress bar the exact same length. */
+                          /* Fixed-width slots for the status chip, 💬 bubble and
+                             "for you" pill keep every progress bar the exact same length. */
                           <div style={{display:"flex",alignItems:"center",gap:12}}>
                             <span style={{width:235,flexShrink:0,fontSize:13.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
                             <span style={{width:150,flexShrink:0,display:"flex",justifyContent:"center"}}>{chipEl}</span>
                             {barEl}
+                            <span style={{width:34,flexShrink:0,display:"flex",justifyContent:"center"}}>{msgEl(27)}</span>
                             <span style={{width:110,flexShrink:0,display:"flex",justifyContent:"center"}}>{mineEl}</span>
                             <span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
                           </div>

@@ -17084,10 +17084,23 @@ function autoMailLabel(m){
   if(/\btitle\b|escrow|settlement|closing disclosure|\bdeed\b|payoff/.test(s))return "Title";
   if(/\bloan\b|lender|mortgage|appraisal|underwrit|refinanc/.test(s))return "Lender";
   if(/insurance|\bpolicy\b|premium|coverage|binder/.test(s))return "Insurance";
+  if(/\bquote\b|estimate|proposal|\bbid\b|scope of work/.test(s))return "Quote";
   if(/permit|township|zoning|inspection|violation|certificate of occupancy/.test(s))return "Permits";
   if(/utilit|electric bill|gas bill|water bill|sewer|pse&g|jcp&l/.test(s))return "Utilities";
   return "";
 }
+// The Emails tab's buckets — pins group into these by their label note; anything
+// unrecognized (custom notes, task links, no label) lands in Other.
+const MAIL_CATS=[
+  {key:"Lender",name:"Lender",icon:"🏦",color:"#0891B2"},
+  {key:"Title",name:"Title",icon:"🏛",color:"#7C3AED"},
+  {key:"Quote",name:"Contractors & Quotes",icon:"👷",color:"#B45309"},
+  {key:"Insurance",name:"Insurance",icon:"🛡",color:"#0F766E"},
+  {key:"Permits",name:"Permits",icon:"🏗",color:"#EA580C"},
+  {key:"Utilities",name:"Utilities",icon:"⚡",color:"#CA8A04"},
+  {key:"Other",name:"Other",icon:"📁",color:"#9BA0A8"},
+];
+const mailCatOf=(p)=>{const n=p.label&&p.label.note;return MAIL_CATS.some(c=>c.key===n)?n:"Other";};
 // "Re: Fwd: 18 Fisk St docs" → "18 fisk st docs" — cross-mailbox dedupe: two
 // teammates on one thread see different conversation/message ids, but the same
 // normalized subject on the same property is the same paper trail.
@@ -17190,24 +17203,43 @@ function PropertyEmails({property,onUpdate,isMobile}){
   const[vReply,setVReply]=useState(null);       // {all, text, cc}
   const[vSending,setVSending]=useState(false);
   const[unreadMap,setUnreadMap]=useState({});   // pin id -> unread message count
+  const[inBox,setInBox]=useState({});           // pin id -> lives in MY mailbox? (false = teammate's)
+  const[mailFilter,setMailFilter]=useState("all"); // all | mine | a MAIL_CATS key
+  const[teamView,setTeamView]=useState(null);   // teammate's pin being viewed read-only
+  const[teamMsgs,setTeamMsgs]=useState(null);
+  const[teamFrom,setTeamFrom]=useState("");
   const vScrollRef=useRef(null);
   const pinKey=pinned.map(p=>p.id).join(",");
 
-  // Show an unread dot on each pinned chain that has unread messages in my mailbox.
+  // Show an unread dot on each pinned chain that has unread messages in my
+  // mailbox — and remember whether each chain IS in my mailbox at all (that's
+  // what decides open-and-reply vs the read-only 👁 view).
   useEffect(()=>{
     if(!mail.signedIn||pinned.length===0)return;let alive=true;
     // All pins checked in parallel (was one-at-a-time — slow with several pins).
     (async()=>{
       await Promise.all(pinned.map(async(p)=>{
         let convId=p.conversationId;
-        if(p.internetMessageId){try{const hit=await mail.findByInternetId(p.internetMessageId);if(hit)convId=hit.conversationId;}catch{/* keep stored */}}
+        let hit=null;
+        if(p.internetMessageId){try{hit=await mail.findByInternetId(p.internetMessageId);if(hit)convId=hit.conversationId;}catch{/* keep stored */}}
         const n=await mail.conversationUnread(convId);
         if(!alive)return;
         setUnreadMap(m=>({...m,[p.id]:n}));
+        // Older pins without a Message-ID stay "mine" (legacy open behavior).
+        setInBox(m=>({...m,[p.id]:p.internetMessageId?(!!hit||n>0):true}));
       }));
     })();
     return ()=>{alive=false;};
   },[mail.signedIn,pinKey,viewer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 👁 Read-only view of a chain that lives in a teammate's mailbox — the
+  // server finds it via the app's Mail.Read permission. View only, no reply.
+  const openTeamView=(p)=>{
+    setTeamView(p);setTeamMsgs(null);setTeamFrom("");
+    qbAuthFetch("/api/email/thread",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({internetMessageId:p.internetMessageId||"",conversationId:p.conversationId||""})})
+      .then(r=>{setTeamMsgs((r&&r.messages)||[]);setTeamFrom((r&&r.mailbox)||"");})
+      .catch(()=>setTeamMsgs([]));
+  };
 
   const savePinned=(next)=>{onUpdate(property.id,"pinnedEmails",next);};
   const pinChain=(c)=>{const m=c.latest;if(pinned.some(p=>p.internetMessageId&&p.internetMessageId===m.internetMessageId))return;
@@ -17300,25 +17332,86 @@ function PropertyEmails({property,onUpdate,isMobile}){
 
       {pinned.length===0
         ? <div style={{padding:"24px 16px",textAlign:"center",color:T.textTert,fontSize:13,background:T.card,borderRadius:T.radius,border:`1px dashed ${T.border}`}}>No emails pinned yet. Pin the chains that relate to this property — attorney, septic, title, inspection — so they live right here.</div>
-        : <div style={{background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden"}}>
-            {pinned.map((p,i)=>{const unread=(unreadMap[p.id]||0)>0;return(
-              <div key={p.id} style={{display:"flex",gap:10,alignItems:"center",padding:"12px 16px",borderTop:i===0?"none":`1px solid ${T.border}`,background:unread?"#F5F9FF":"transparent"}}>
-                <div style={{width:8,flexShrink:0,alignSelf:"flex-start",paddingTop:5}}>{unread&&<span title={`${unreadMap[p.id]} unread`} style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
-                <div onClick={()=>setViewer(p)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
-                  <div style={{fontSize:13.5,fontWeight:unread?800:700,color:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
-                  <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.from} · {mailWhen(p.date)}</div>
-                  {(p.label||p.preview||p.auto)&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,minWidth:0}}>
-                    {p.auto&&<span title={`Pinned automatically${p.autoBy?` (matched in ${String(p.autoBy).split(" ")[0]}'s inbox)`:""}`} style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
-                    {p.label&&<MailLabelChip lab={p.label} small/>}
-                    {p.label?.taskId&&<span style={{display:"inline-flex",alignItems:"center",gap:2,fontSize:10,fontWeight:700,color:T.gold,background:T.goldLight,borderRadius:12,padding:"1px 7px",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>🔗 {taskName(p.label.taskId)||"Linked task"}</span>}
-                    {p.preview&&<span style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{p.preview}</span>}
-                  </div>}
-                </div>
-                <button onClick={()=>setLabelPin(p)} title="Label / link this chain" style={{background:p.label?T.goldLight:"none",border:p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:"5px 8px"}}>🏷</button>
-                <button onClick={()=>unpin(p.id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+        : (()=>{
+            // ── Buckets + yours-first (per signed-in user) + filter chips ──
+            const isMineP=(p)=>inBox[p.id]!==false;
+            const withCat=pinned.map(p=>({p,cat:mailCatOf(p),mine:isMineP(p)}));
+            const counts={all:pinned.length,mine:withCat.filter(x=>x.mine).length};
+            MAIL_CATS.forEach(c=>{counts[c.key]=withCat.filter(x=>x.cat===c.key).length;});
+            const shownPins=withCat.filter(x=>mailFilter==="all"?true:mailFilter==="mine"?x.mine:x.cat===mailFilter);
+            const groups=MAIL_CATS.map(c=>({c,items:shownPins.filter(x=>x.cat===c.key).sort((a,b)=>((b.mine?1:0)-(a.mine?1:0))||String(b.p.date||"").localeCompare(String(a.p.date||"")))})).filter(g=>g.items.length);
+            const chipB=(key,label)=>(
+              <button key={key} onClick={()=>setMailFilter(key)} style={{flexShrink:0,padding:"6px 12px",borderRadius:16,border:mailFilter===key?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:mailFilter===key?T.goldLight:"#fff",color:mailFilter===key?"#8a6d1f":T.textSub,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{label}</button>
+            );
+            const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"👥";
+            return(<>
+              <div style={{display:"flex",gap:6,marginBottom:10,overflowX:"auto",paddingBottom:2,WebkitOverflowScrolling:"touch"}}>
+                {chipB("all",`All · ${counts.all}`)}
+                {chipB("mine",`👤 Yours · ${counts.mine}`)}
+                {MAIL_CATS.filter(c=>counts[c.key]>0).map(c=>chipB(c.key,`${c.icon} ${c.key==="Quote"?"Quotes":c.name} · ${counts[c.key]}`))}
               </div>
-            );})}
-          </div>}
+              <div style={{background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden"}}>
+                {shownPins.length===0&&<div style={{padding:"18px 16px",fontSize:12.5,color:T.textTert}}>Nothing in this bucket.</div>}
+                {groups.map((g,gi)=>(<Fragment key={g.c.key}>
+                  <div style={{padding:"7px 16px 4px",fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:g.c.color,borderTop:gi===0?"none":`1px solid ${T.border}`}}>{g.c.icon} {g.c.name.toUpperCase()}</div>
+                  {g.items.map(({p,mine})=>{const unread=mine&&(unreadMap[p.id]||0)>0;return(
+                    <div key={p.id} style={{display:"flex",gap:10,alignItems:"center",padding:"11px 16px",borderTop:`1px solid ${T.border}55`,background:unread?"#F5F9FF":"transparent",opacity:mine?1:0.62}}>
+                      <div style={{width:8,flexShrink:0,alignSelf:"flex-start",paddingTop:5}}>{unread&&<span title={`${unreadMap[p.id]} unread`} style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
+                      <div onClick={()=>mine?setViewer(p):openTeamView(p)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
+                        <div style={{fontSize:13.5,fontWeight:unread?800:700,color:mine?T.blue:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
+                        <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.from} · {mailWhen(p.date)}{mine?" · yours":""}</div>
+                        {(p.label||p.preview||p.auto)&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,minWidth:0}}>
+                          {p.auto&&<span title={`Pinned automatically${p.autoBy?` (matched in ${String(p.autoBy).split(" ")[0]}'s inbox)`:""}`} style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
+                          {p.label&&<MailLabelChip lab={p.label} small/>}
+                          {p.label?.taskId&&<span style={{display:"inline-flex",alignItems:"center",gap:2,fontSize:10,fontWeight:700,color:T.gold,background:T.goldLight,borderRadius:12,padding:"1px 7px",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>🔗 {taskName(p.label.taskId)||"Linked task"}</span>}
+                          {p.preview&&<span style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{p.preview}</span>}
+                        </div>}
+                      </div>
+                      {!mine&&<span title={`Matched in ${p.autoBy||"a teammate"}'s inbox`} style={{width:22,height:22,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:8.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(p.autoBy)}</span>}
+                      {!mine&&<button onClick={()=>openTeamView(p)} title="View this thread (read-only)" style={{fontSize:10,fontWeight:800,color:T.blue,border:"1px solid #BFDBFE",background:"#EFF6FF",borderRadius:10,padding:"3px 9px",flexShrink:0,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>👁 View</button>}
+                      <button onClick={()=>setLabelPin(p)} title="Label / link this chain" style={{background:p.label?T.goldLight:"none",border:p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:"5px 8px"}}>🏷</button>
+                      <button onClick={()=>unpin(p.id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+                    </div>
+                  );})}
+                </Fragment>))}
+              </div>
+            </>);
+          })()}
+      {/* 👁 Read-only viewer for a teammate's chain */}
+      {teamView&&(
+        <div onClick={()=>setTeamView(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:252,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:isMobile?"20px 20px 0 0":20,width:680,maxWidth:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+            <div style={{padding:"14px 18px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+              <div style={{flex:1,minWidth:0,fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{teamView.subject||"(no subject)"}</div>
+              <button onClick={()=>setTeamView(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+            <div style={{background:"#EFF6FF",borderBottom:"1px solid #BFDBFE",color:"#1D4ED8",fontSize:11.5,fontWeight:700,padding:"8px 18px",flexShrink:0,lineHeight:1.45}}>👁 View only — this thread lives in {teamFrom||"a teammate"}'s mailbox. Replying happens from their login.</div>
+            <div style={{flex:1,overflowY:"auto",padding:isMobile?12:16}}>
+              {teamMsgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Opening the thread…</div>}
+              {teamMsgs&&teamMsgs.length===0&&(
+                <div style={{padding:"18px",background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`}}>
+                  <div style={{fontSize:13.5,fontWeight:700,color:T.text}}>{teamView.subject||"(no subject)"}</div>
+                  <div style={{fontSize:12,color:T.textTert,marginTop:3}}>{teamView.from} · {mailWhen(teamView.date)}</div>
+                  {teamView.preview&&<div style={{fontSize:13,color:T.textSub,marginTop:8,lineHeight:1.5}}>{teamView.preview}</div>}
+                  <div style={{fontSize:11.5,color:T.textTert,marginTop:12,lineHeight:1.5,paddingTop:10,borderTop:`1px solid ${T.border}`}}>Couldn't locate the full thread in any team mailbox — the pinned summary above stays as the reference.</div>
+                </div>
+              )}
+              {teamMsgs&&teamMsgs.map(m=>(
+                <div key={m.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,marginBottom:10,overflow:"hidden"}}>
+                  <div style={{display:"flex",gap:10,alignItems:"center",padding:"10px 14px",borderBottom:`1px solid ${T.border}`}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.from||"(unknown)"}</div>
+                      <div style={{fontSize:11,color:T.textTert}}>{mailWhen(m.at)}</div>
+                    </div>
+                    {m.hasAttachments&&<span title="Has attachments (open from the mailbox it lives in)" style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
+                  </div>
+                  <MailBody message={m} mail={null}/>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {labelPin&&<MailLabelPopover current={labelPin.label} tasks={propTasks} centered onClose={()=>setLabelPin(null)} onSet={v=>setPinLabel(labelPin.id,v)}/>}
 
       {/* Picker */}

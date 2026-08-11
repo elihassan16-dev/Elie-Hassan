@@ -3,11 +3,16 @@
 // returns only counts (never email content) and throttles itself internally
 // (one real sweep per 4 minutes). Until AZURE_CLIENT_SECRET is configured it
 // simply reports configured:false and does nothing.
-import { sweepMailboxes, mailSweepConfigured } from "../../lib/mailsweep.js";
+import { sweepMailboxes, mailSweepConfigured, purgeAutoPins } from "../../lib/mailsweep.js";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   if (req.query.status) return res.status(200).json({ configured: mailSweepConfigured() });
+  // ?purgeauto=1 → remove every AUTO pin (hand pins stay); rescan re-pins clean.
+  if (req.query.purgeauto) {
+    try { return res.status(200).json({ ok: true, ...(await purgeAutoPins()) }); }
+    catch (e) { return res.status(200).json({ ok: false, error: e.message }); }
+  }
   try {
     // ?rescan=1 → wipe the watermarks and re-scan the last 14 days right now.
     // ?debug=1 → include scan counts + matched addresses (never mail content).

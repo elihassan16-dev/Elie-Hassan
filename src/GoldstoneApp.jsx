@@ -17063,13 +17063,19 @@ function propAddrTokens(property){
   const words=addr.replace(/^\d+\s*/,"").split(/[\s,]+/).filter(w=>w.length>2&&!STOP.has(w));
   return {num,words};
 }
+const mailRxEsc=(s)=>String(s).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
 function chainMatchesProperty(chain,property){
   const {num,words}=propAddrTokens(property);
-  if(!words.length&&!num)return false;
   const hay=((chain.latest.subject||"")+" "+(chain.latest.bodyPreview||"")).toLowerCase();
-  const numHit=num&&hay.includes(num);
-  const wordHit=words.some(w=>hay.includes(w));
-  return (numHit&&wordHit)||(words.length>=2&&words.every(w=>hay.includes(w)));
+  // The address must be WRITTEN as an address — house number right before the
+  // street name ("12 Indian King…", "6 S 4th…"). Loose contains-matching let
+  // "asking/looking" + any stray "12" pin junk onto 12 Indian King Dr.
+  if(num&&words.length){
+    const rx=new RegExp(`(^|[^0-9])${mailRxEsc(num)}\\s+(?:(?:n|s|e|w|north|south|east|west)\\.?\\s+)?${mailRxEsc(words[0])}`,"i");
+    return rx.test(hay);
+  }
+  if(!num&&words.length>=2)return words.every(w=>new RegExp(`\\b${mailRxEsc(w)}\\b`,"i").test(hay));
+  return false;
 }
 // ── 🤖 Auto email matcher ─────────────────────────────────────────────────────
 // Best-effort category from an email's subject + preview, for the auto label.
@@ -17130,6 +17136,9 @@ function useEmailAutoPin(){
           chains.forEach(ch=>{
             const im=ch.latest.internetMessageId||"";
             const fromA=String(ch.latest.from?.emailAddress?.address||"").toLowerCase();
+            // The app's own notification emails (@gpflips.com) name addresses
+            // constantly — never auto-pin them.
+            if(fromA.endsWith("@gpflips.com"))return;
             const sk=mailSubjKey(ch.latest.subject);
             props.forEach(p=>{
               const skip=p.autoPinSkip||[];

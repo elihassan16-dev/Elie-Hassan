@@ -3,6 +3,7 @@ import { supabase } from "../supabaseClient";
 import { useAuth } from "../auth/AuthProvider";
 import { INIT_PROPS, INIT_LEADS, DEFAULT_CONTACTS } from "../seed";
 import { readSnap, writeSnap } from "../snapshot";
+import { merge3 } from "./merge3";
 
 export const DataCtx = createContext(null);
 export const useData = () => useContext(DataCtx);
@@ -63,12 +64,40 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
       for (const x of changed) {
         const id = String(x.id);
         const existed = synced.current.has(id);
-        const row = toRow(x);
+        let out = x;
         let error;
-        if (existed) { const { id: _omit, ...rest } = row; ({ error } = await supabase.from(table).update(rest).eq("id", id)); }
-        else { ({ error } = await supabase.from(table).insert(row)); }
+        if (existed) {
+          // 🔀 Someone else (another device or teammate) may have written this
+          // row since we last loaded it. A blind whole-row update would erase
+          // their changes — the "lead status went back to default" bug. So:
+          // fetch the freshest copy, and if it moved, three-way-merge our edits
+          // onto it before saving. Best-effort — any hiccup falls back to the
+          // plain write, which is exactly the old behavior.
+          try {
+            const { data: freshRow } = await supabase.from(table).select("data").eq("id", id).maybeSingle();
+            const baseStr = synced.current.get(id);
+            const fresh = freshRow && freshRow.data ? freshRow.data : null;
+            if (fresh && baseStr && JSON.stringify(fresh) !== baseStr) out = merge3(JSON.parse(baseStr), x, fresh);
+          } catch { /* merge is best-effort */ }
+          const { id: _omit, ...rest } = toRow(out);
+          ({ error } = await supabase.from(table).update(rest).eq("id", id));
+        } else { ({ error } = await supabase.from(table).insert(toRow(x))); }
         if (error) reportError(table, existed ? "update" : "insert", error);
-        else { synced.current.set(id, JSON.stringify(x)); dirty.current.delete(id); }
+        else {
+          synced.current.set(id, JSON.stringify(out));
+          dirty.current.delete(id);
+          if (out !== x) {
+            // We saved a merged row. Adopt it locally so the next flush doesn't
+            // push our stale copy back over it — unless a NEWER local edit
+            // landed mid-flight, in which case re-dirty and merge again.
+            const local = ref.current.find((r) => String(r.id) === id);
+            if (JSON.stringify(local) === JSON.stringify(x)) {
+              const nextItems = ref.current.map((r) => (String(r.id) === id ? out : r));
+              ref.current = nextItems;
+              setItems(nextItems);
+            } else { dirty.current.add(id); again.current = true; }
+          }
+        }
       }
       if (removed.length) {
         const { error } = await supabase.from(table).delete().in("id", removed);

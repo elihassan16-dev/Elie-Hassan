@@ -15722,11 +15722,20 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                 </span>
                 <span style={{flexShrink:0,display:"flex",alignItems:"center",gap:4}}>
                   {c.sug&&<span title={`🤖 Their reply suggests: ${(SHOWING_LEADS.find(x=>x.key===c.sug.key)||{}).short||c.sug.key}`} style={{fontSize:11}}>🤖</span>}
-                  {c.unread>0?chip(T.red,"#fff",`NEW REPLY · ${c.unread}`)
-                   :c.replied?chip("#EDFBF1","#0F9D58","REPLIED")
-                   :c.noRespDays!=null&&!c.everReplied?chip("#FFF4E5","#B45309",`NO RESPONSE${c.noRespDays>0?` · ${c.noRespDays}d`:""}`)
-                   :c.contacted?null /* real history, ball in their court — no tag */
-                   :connected?chip("#F1F5F9","#64748B","NOT CONTACTED"):null}
+                  {(()=>{
+                    // A set lead status shows right on the row (hottest one wins) —
+                    // same chip the popup uses, so the list and popup always agree.
+                    const best=[...(c.statuses||[])].sort((a,b)=>showingLeadRank(a.lead)-showingLeadRank(b.lead))[0];
+                    const meta=best?SHOWING_LEADS.find(x=>x.key===best.lead):null;
+                    return(<>
+                      {c.unread>0&&chip(T.red,"#fff",`NEW REPLY · ${c.unread}`)}
+                      {meta&&chip(meta.bg,meta.color,(meta.short||"").toUpperCase())}
+                      {!meta&&c.unread===0&&(c.replied?chip("#EDFBF1","#0F9D58","REPLIED")
+                       :c.noRespDays!=null&&!c.everReplied?chip("#FFF4E5","#B45309",`NO RESPONSE${c.noRespDays>0?` · ${c.noRespDays}d`:""}`)
+                       :c.contacted?null /* real history, ball in their court — no tag */
+                       :connected?chip("#F1F5F9","#64748B","NOT CONTACTED"):null)}
+                    </>);
+                  })()}
                 </span>
               </div>
             );

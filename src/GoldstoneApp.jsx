@@ -9061,8 +9061,10 @@ function TasksPage({onNavigate}){
                 const open=ts.filter(isOpenT).length+extOpen;
                 if(open>0)rows.push({pid:p.id,addr:`${p.address||""}${p.city?`, ${p.city}`:""}`,status:p.status||"",open,done,total:ts.length+extOpen});
               });
-              // Most open work floats to the top, ties alphabetical.
-              rows.sort((a,b)=>b.open-a.open||a.addr.localeCompare(b.addr));
+              // Same status order as the Properties page; rentals sink to the very
+              // bottom. Within a status, the most open work floats up.
+              const rank=(s)=>{if(s==="Rental")return 999;const i=PROP_ORDER.indexOf(s);return i===-1?900:i;};
+              rows.sort((a,b)=>rank(a.status)-rank(b.status)||b.open-a.open||a.addr.localeCompare(b.addr));
               const oTs=(officeTasks||[]).filter(t=>!t.deleted&&(t.text||"").trim());
               rows.unshift({pid:OFFICE_TASK_PID,addr:"🏢 Company Tasks",status:"",open:oTs.filter(isOpenT).length,done:oTs.filter(t=>t.status==="Completed").length,total:oTs.length,office:true});
               const openProps=rows.filter(r=>r.open>0&&!r.office).length;

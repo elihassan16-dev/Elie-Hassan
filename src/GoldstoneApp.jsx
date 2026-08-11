@@ -17071,6 +17071,94 @@ function chainMatchesProperty(chain,property){
   const wordHit=words.some(w=>hay.includes(w));
   return (numHit&&wordHit)||(words.length>=2&&words.every(w=>hay.includes(w)));
 }
+// ── 🤖 Auto email matcher ─────────────────────────────────────────────────────
+// Best-effort category from an email's subject + preview, for the auto label.
+function autoMailLabel(m){
+  const s=((m.subject||"")+" "+(m.bodyPreview||"")).toLowerCase();
+  if(/\btitle\b|escrow|settlement|closing disclosure|\bdeed\b|payoff/.test(s))return "Title";
+  if(/\bloan\b|lender|mortgage|appraisal|underwrit|refinanc/.test(s))return "Lender";
+  if(/insurance|\bpolicy\b|premium|coverage|binder/.test(s))return "Insurance";
+  if(/permit|township|zoning|inspection|violation|certificate of occupancy/.test(s))return "Permits";
+  if(/utilit|electric bill|gas bill|water bill|sewer|pse&g|jcp&l/.test(s))return "Utilities";
+  return "";
+}
+// Sweeps the signed-in user's recent inbox (their own mailbox, per login) and
+// auto-pins matching chains onto properties: an email that names the address
+// (same matcher the pin-picker's "Suggested" list uses), or one whose sender is
+// a contact linked to exactly ONE active property (a title company on three
+// deals can't decide by sender alone). Auto pins carry auto:true + a guessed
+// category label; unpinning one records the chain in autoPinSkip so the sweep
+// never re-adds it. Runs shortly after load, every 10 minutes while the app is
+// open, and on returning to the tab. A per-account watermark keeps each pass
+// to only mail that arrived since the last one (first run: 14 days back).
+function useEmailAutoPin(){
+  const mail=useOutlookMail();
+  const {sharedProps,setSharedProps,contacts,currentUser}=useData()||{};
+  const stateRef=useRef({});
+  stateRef.current={sharedProps,contacts,currentUser};
+  const busyRef=useRef(false);
+  useEffect(()=>{
+    if(!mail.signedIn||!setSharedProps)return;
+    let alive=true;
+    const KEY="gs_mailSweep_"+String((mail.account&&mail.account.username)||"me").toLowerCase();
+    const sweep=async()=>{
+      if(busyRef.current||document.visibilityState==="hidden")return;
+      const {sharedProps:allProps,contacts:book,currentUser:me}=stateRef.current;
+      const props=(allProps||[]).filter(p=>!p.archived);
+      if(!props.length)return;
+      busyRef.current=true;
+      try{
+        let since="";try{since=localStorage.getItem(KEY)||"";}catch{/* private mode */}
+        if(!since)since=new Date(Date.now()-14*86400000).toISOString();
+        const {items}=await mail.fetchInbox({top:100});
+        if(!alive)return;
+        const newest=(items[0]&&items[0].receivedDateTime)||new Date().toISOString();
+        const chains=groupChains(items.filter(m=>String(m.receivedDateTime||"")>since));
+        if(chains.length){
+          // sender email → the one property its linked contact belongs to (null = ambiguous)
+          const byEmail={};
+          props.forEach(p=>(p.contacts||[]).forEach(cid=>{
+            const c=(book||[]).find(x=>x.id===cid);
+            const e=c&&c.email?String(c.email).toLowerCase():"";
+            if(e)byEmail[e]=byEmail[e]===undefined?p.id:null;
+          }));
+          const adds={};
+          chains.forEach(ch=>{
+            const im=ch.latest.internetMessageId||"";
+            const fromA=String(ch.latest.from?.emailAddress?.address||"").toLowerCase();
+            props.forEach(p=>{
+              const skip=p.autoPinSkip||[];
+              if(skip.includes(ch.key)||(im&&skip.includes(im)))return;
+              if((p.pinnedEmails||[]).some(pe=>(pe.internetMessageId&&pe.internetMessageId===im)||pe.conversationId===ch.key))return;
+              const senderHit=fromA&&byEmail[fromA]!=null&&String(byEmail[fromA])===String(p.id);
+              if(!senderHit&&!chainMatchesProperty(ch,p))return;
+              const m=ch.latest;
+              const note=autoMailLabel(m);
+              (adds[p.id]=adds[p.id]||[]).push({
+                id:Date.now()+"_a"+Math.round(Math.random()*1e6),
+                conversationId:ch.key,internetMessageId:im,subject:m.subject||"",
+                from:mailAddr(m.from),fromAddr:fromA,date:m.receivedDateTime||"",preview:m.bodyPreview||"",
+                auto:true,autoBy:me||"",...(note?{label:{kind:"general",note}}:{}),
+              });
+            });
+          });
+          if(alive&&Object.keys(adds).length){
+            setSharedProps(prev=>prev.map(p=>adds[p.id]
+              ?{...p,pinnedEmails:[...(p.pinnedEmails||[]),...adds[p.id].filter(a=>!(p.pinnedEmails||[]).some(pe=>(pe.internetMessageId&&pe.internetMessageId===a.internetMessageId)||pe.conversationId===a.conversationId))]}
+              :p));
+          }
+        }
+        try{localStorage.setItem(KEY,newest);}catch{/* private mode */}
+      }catch{/* Graph hiccup — the next pulse retries */}
+      finally{busyRef.current=false;}
+    };
+    const t0=setTimeout(sweep,4000); // let the data load first
+    const iv=setInterval(sweep,10*60*1000);
+    const onVis=()=>{if(document.visibilityState==="visible")sweep();};
+    document.addEventListener("visibilitychange",onVis);
+    return ()=>{alive=false;clearTimeout(t0);clearInterval(iv);document.removeEventListener("visibilitychange",onVis);};
+  },[mail.signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+}
 function PropertyEmails({property,onUpdate,isMobile}){
   const mail=useOutlookMail();
   const od=useOneDrive();
@@ -17110,7 +17198,13 @@ function PropertyEmails({property,onUpdate,isMobile}){
   const savePinned=(next)=>{onUpdate(property.id,"pinnedEmails",next);};
   const pinChain=(c)=>{const m=c.latest;if(pinned.some(p=>p.internetMessageId&&p.internetMessageId===m.internetMessageId))return;
     savePinned([...pinned,{id:Date.now()+"_"+Math.round(Math.random()*1e6),conversationId:c.key,internetMessageId:m.internetMessageId||"",subject:m.subject||"",from:mailAddr(m.from),fromAddr:m.from?.emailAddress?.address||"",date:m.receivedDateTime||"",preview:m.bodyPreview||""}]);};
-  const unpin=(id)=>savePinned(pinned.filter(p=>p.id!==id));
+  // Unpinning also remembers the chain in autoPinSkip so the auto matcher
+  // never pins it back (applies to hand pins too — an unpin means "not here").
+  const unpin=(id)=>{
+    const pe=pinned.find(p=>p.id===id);
+    savePinned(pinned.filter(p=>p.id!==id));
+    if(pe)onUpdate(property.id,"autoPinSkip",[...new Set([...(property.autoPinSkip||[]),...[pe.conversationId,pe.internetMessageId].filter(Boolean)])].slice(-500));
+  };
   const[labelPin,setLabelPin]=useState(null); // pin whose label editor is open
   const setPinLabel=(pinId,val)=>{savePinned(pinned.map(p=>p.id!==pinId?p:(val?{...p,label:val}:(()=>{const{label,...rest}=p;return rest;})())));setLabelPin(null);};
   const propTasks=(property.tasks||[]).map(t=>({id:t.id,text:t.text}));
@@ -17199,7 +17293,8 @@ function PropertyEmails({property,onUpdate,isMobile}){
                 <div onClick={()=>setViewer(p)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                   <div style={{fontSize:13.5,fontWeight:unread?800:700,color:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
                   <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.from} · {mailWhen(p.date)}</div>
-                  {(p.label||p.preview)&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,minWidth:0}}>
+                  {(p.label||p.preview||p.auto)&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,minWidth:0}}>
+                    {p.auto&&<span title={`Pinned automatically${p.autoBy?` (matched in ${String(p.autoBy).split(" ")[0]}'s inbox)`:""}`} style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
                     {p.label&&<MailLabelChip lab={p.label} small/>}
                     {p.label?.taskId&&<span style={{display:"inline-flex",alignItems:"center",gap:2,fontSize:10,fontWeight:700,color:T.gold,background:T.goldLight,borderRadius:12,padding:"1px 7px",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>🔗 {taskName(p.label.taskId)||"Linked task"}</span>}
                     {p.preview&&<span style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{p.preview}</span>}
@@ -17648,6 +17743,9 @@ export function GoldstoneShell(){
   const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, setUserChannels, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks, currentUser: CURRENT_USER, contacts: CONTACTS_G, appSettings, setAppSettings } = useData();
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
   const isMobile = useIsMobile();
+  // 🤖 Auto email matcher — scans this user's inbox and pins matching chains
+  // onto their properties (runs app-wide, not just on the Email page).
+  useEmailAutoPin();
 
   // ── 📖 App-wide phone directory + conversation quick-actions ───────────────
   // Registered into the sms module every render, so ANY place a number or a

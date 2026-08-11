@@ -9064,9 +9064,10 @@ function TasksPage({onNavigate}){
                 if(open>0)rows.push({pid:p.id,addr:`${p.address||""}${p.city?`, ${p.city}`:""}`,status:p.status||"",open,done,total:ts.length+extOpen,mine:ts.filter(t=>isOpenT(t)&&isMineT(t)).length});
               });
               // Same status order as the Properties page; rentals sink to the very
-              // bottom. Within a status, the most open work floats up.
+              // bottom. Within a status, properties with YOUR open work float up,
+              // then the most open work overall.
               const rank=(s)=>{if(s==="Rental")return 999;const i=PROP_ORDER.indexOf(s);return i===-1?900:i;};
-              rows.sort((a,b)=>rank(a.status)-rank(b.status)||b.open-a.open||a.addr.localeCompare(b.addr));
+              rows.sort((a,b)=>rank(a.status)-rank(b.status)||b.mine-a.mine||b.open-a.open||a.addr.localeCompare(b.addr));
               const oTs=(officeTasks||[]).filter(t=>!t.deleted&&(t.text||"").trim());
               rows.unshift({pid:OFFICE_TASK_PID,addr:"🏢 Company Tasks",status:"",open:oTs.filter(isOpenT).length,done:oTs.filter(t=>t.status==="Completed").length,total:oTs.length,mine:oTs.filter(t=>isOpenT(t)&&isMineT(t)).length,office:true});
               const openProps=rows.filter(r=>r.open>0&&!r.office).length;
@@ -9080,10 +9081,9 @@ function TasksPage({onNavigate}){
                     const pct=r.total?Math.round(r.done/r.total*100):0;
                     const chipEl=(r.office||r.status)?<span style={{fontSize:9,fontWeight:800,color:sc.color,background:sc.bg,padding:"3px 9px",borderRadius:8,whiteSpace:"nowrap",flexShrink:0}}>{r.office?"GENERAL":String(r.status).toUpperCase()}</span>:null;
                     const barEl=<span style={{flex:1,height:7,borderRadius:4,background:"#F1F1F4",overflow:"hidden",minWidth:36}}><span style={{display:"block",height:"100%",width:`${pct}%`,background:"#34C759"}}/></span>;
-                    const pillEl=r.open>0
-                      ?<span style={{fontSize:11,fontWeight:800,color:"#B45309",background:"#FFF4E5",borderRadius:10,padding:"3px 10px",whiteSpace:"nowrap",flexShrink:0}}>{r.open} open · {r.done}/{r.total}</span>
-                      :<span style={{fontSize:11,fontWeight:800,color:"#15803D",background:"#EDFBF1",borderRadius:10,padding:"3px 10px",whiteSpace:"nowrap",flexShrink:0}}>✓ all done</span>;
-                    const mineEl=r.mine>0?<span style={{fontSize:10,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:"1px solid #E5D9A9",borderRadius:10,padding:"2px 8px",whiteSpace:"nowrap"}}>👤 {r.mine} for you</span>:null;
+                    // One number per row — YOUR open tasks. No team tallies (those
+                    // live in the popup); the bar alone shows overall progress.
+                    const mineEl=r.mine>0?<span style={{fontSize:11,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:"1px solid #E5D9A9",borderRadius:10,padding:"3px 10px",whiteSpace:"nowrap"}}>👤 {r.mine} for you</span>:null;
                     return(
                       <div key={String(r.pid)} onClick={()=>setByPropOpen(r.pid)} title="See this property's open tasks"
                         style={{padding:isMobile?"12px 14px":"12px 16px",borderBottom:i<rows.length-1?`1px solid ${T.border}`:"none",cursor:"pointer"}}
@@ -9091,18 +9091,17 @@ function TasksPage({onNavigate}){
                         {isMobile?(<>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
                             <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
-                            {mineEl}{pillEl}<span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
+                            {mineEl}<span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:8,marginTop:7}}>{chipEl}{barEl}</div>
                         </>):(
-                          /* Fixed-width slots for the status chip, "for you" pill and
-                             count pill keep every progress bar the exact same length. */
+                          /* Fixed-width slots for the status chip and "for you" pill
+                             keep every progress bar the exact same length. */
                           <div style={{display:"flex",alignItems:"center",gap:12}}>
                             <span style={{width:235,flexShrink:0,fontSize:13.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
                             <span style={{width:150,flexShrink:0,display:"flex",justifyContent:"center"}}>{chipEl}</span>
                             {barEl}
-                            <span style={{width:90,flexShrink:0,display:"flex",justifyContent:"flex-end"}}>{mineEl}</span>
-                            <span style={{width:110,flexShrink:0,display:"flex",justifyContent:"center"}}>{pillEl}</span>
+                            <span style={{width:110,flexShrink:0,display:"flex",justifyContent:"center"}}>{mineEl}</span>
                             <span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
                           </div>
                         )}

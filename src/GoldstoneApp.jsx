@@ -17136,6 +17136,9 @@ function useEmailAutoPin(){
           chains.forEach(ch=>{
             const im=ch.latest.internetMessageId||"";
             const fromA=String(ch.latest.from?.emailAddress?.address||"").toLowerCase();
+            // The app's own notification emails (@gpflips.com) name addresses
+            // constantly — never auto-pin them.
+            if(fromA.endsWith("@gpflips.com"))return;
             const sk=mailSubjKey(ch.latest.subject);
             props.forEach(p=>{
               const skip=p.autoPinSkip||[];

@@ -9117,7 +9117,10 @@ function TasksPage({onNavigate}){
                         onMouseEnter={e=>e.currentTarget.style.background="#FBFAF6"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                         {isMobile?(<>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
+                            {/* Weight 700, not 800 — Windows renders heavier weights of its
+                                system font cramped and fuzzy at this size; 700 is crisp on
+                                every platform and looks the same on iPhone/iPad. */}
+                            <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
                             {msgEl(24)}{mineEl}<span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:8,marginTop:7}}>{chipEl}{barEl}</div>
@@ -9125,7 +9128,7 @@ function TasksPage({onNavigate}){
                           /* Fixed-width slots for the status chip, 💬 bubble and
                              "for you" pill keep every progress bar the exact same length. */
                           <div style={{display:"flex",alignItems:"center",gap:12}}>
-                            <span style={{width:235,flexShrink:0,fontSize:13.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
+                            <span style={{width:235,flexShrink:0,fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
                             <span style={{width:150,flexShrink:0,display:"flex",justifyContent:"center"}}>{chipEl}</span>
                             {barEl}
                             <span style={{width:34,flexShrink:0,display:"flex",justifyContent:"center"}}>{msgEl(27)}</span>

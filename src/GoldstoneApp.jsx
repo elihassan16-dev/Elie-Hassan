@@ -7080,7 +7080,7 @@ function SwipeToDelete({onDelete,confirm,children,style={}}){
   );
 }
 
-function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onNavigate,currentUser,selectMode,selected,onToggleSelect,compact,stripe,grid,emph}){
+function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onNavigate,currentUser,selectMode,selected,onToggleSelect,compact,stripe,grid,emph,faded}){
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
@@ -7195,7 +7195,10 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   }
   return(
     <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
-    <div style={{display:"flex",alignItems:"center",gap:compact?8:isMobile?8:10,padding:compact?"5px 12px":isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
+    {/* `faded` dims ONLY this row — the viewer/status/message popups render as
+        siblings below, so they stay full-strength and fully usable. (Opacity on
+        an ancestor would ghost a position:fixed popup inside it.) */}
+    <div style={{display:"flex",alignItems:"center",gap:compact?8:isMobile?8:10,padding:compact?"5px 12px":isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff",opacity:faded?0.45:1}}>
       {selBox}
       {/* The AUTO pill sits OUTSIDE the truncating text so a long title can't clip it. */}
       <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
@@ -7213,8 +7216,8 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       {contactBtnEl}
       {msgBtnEl}
       <TaskStatusPicker small={compact} value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
-      {viewerEl}
     </div>
+    {viewerEl}
     </SwipeToDelete>
   );
 }
@@ -9159,13 +9162,13 @@ function TasksPage({onNavigate}){
                       {(()=>{
                         const isMineT=(t)=>t.assignee===CURRENT_USER||t.delegate===CURRENT_USER;
                         const mineTs=openTs.filter(isMineT),otherTs=openTs.filter(t=>!isMineT(t));
-                        const row=(t,mine)=><TaskRow key={t.id} t={t} emph={mine} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER}/>;
+                        const row=(t,mine)=><TaskRow key={t.id} t={t} emph={mine} faded={!mine&&mineTs.length>0&&otherTs.length>0} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER}/>;
                         if(!mineTs.length||!otherTs.length)return openTs.map(t=>row(t,isMineT(t)));
                         return(<>
                           <div style={{padding:"8px 16px 3px",fontSize:9.5,fontWeight:800,color:"#8a6d1f",letterSpacing:"0.05em"}}>👤 YOUR TASKS</div>
                           {mineTs.map(t=>row(t,true))}
                           <div style={{padding:"8px 16px 3px",fontSize:9.5,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>EVERYONE ELSE</div>
-                          {otherTs.map(t=><div key={t.id} style={{opacity:0.45}}>{row(t,false)}</div>)}
+                          {otherTs.map(t=>row(t,false))}
                         </>);
                       })()}
                       {ext.map(({job,rows:xr})=>(

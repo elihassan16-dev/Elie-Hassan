@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Ping the BoldTrail lead sync
         run: curl -fsS -m 55 "https://gpflips.com/api/boldtrail/sync" || true
+      - name: Ping the 24/7 email sweeper (auto-pins mail to properties)
+        run: curl -fsS -m 55 "https://gpflips.com/api/email/sweep" || true
       - name: BoldTrail status (diagnostics in the log)
         run: curl -sS -m 30 "https://gpflips.com/api/boldtrail/status" || true
       - name: Jivetel webhook status (shape-only diagnostics in the log)

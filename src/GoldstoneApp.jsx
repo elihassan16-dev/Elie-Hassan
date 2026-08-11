@@ -17082,6 +17082,10 @@ function autoMailLabel(m){
   if(/utilit|electric bill|gas bill|water bill|sewer|pse&g|jcp&l/.test(s))return "Utilities";
   return "";
 }
+// "Re: Fwd: 18 Fisk St docs" → "18 fisk st docs" — cross-mailbox dedupe: two
+// teammates on one thread see different conversation/message ids, but the same
+// normalized subject on the same property is the same paper trail.
+const mailSubjKey=(s)=>String(s||"").toLowerCase().replace(/^((re|fwd?|aw)\s*:\s*)+/i,"").replace(/\s+/g," ").trim();
 // Sweeps the signed-in user's recent inbox (their own mailbox, per login) and
 // auto-pins matching chains onto properties: an email that names the address
 // (same matcher the pin-picker's "Suggested" list uses), or one whose sender is
@@ -17126,10 +17130,11 @@ function useEmailAutoPin(){
           chains.forEach(ch=>{
             const im=ch.latest.internetMessageId||"";
             const fromA=String(ch.latest.from?.emailAddress?.address||"").toLowerCase();
+            const sk=mailSubjKey(ch.latest.subject);
             props.forEach(p=>{
               const skip=p.autoPinSkip||[];
               if(skip.includes(ch.key)||(im&&skip.includes(im)))return;
-              if((p.pinnedEmails||[]).some(pe=>(pe.internetMessageId&&pe.internetMessageId===im)||pe.conversationId===ch.key))return;
+              if((p.pinnedEmails||[]).some(pe=>(pe.internetMessageId&&pe.internetMessageId===im)||pe.conversationId===ch.key||(sk&&mailSubjKey(pe.subject)===sk)))return;
               const senderHit=fromA&&byEmail[fromA]!=null&&String(byEmail[fromA])===String(p.id);
               if(!senderHit&&!chainMatchesProperty(ch,p))return;
               const m=ch.latest;

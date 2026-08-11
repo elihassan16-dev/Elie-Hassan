@@ -71,11 +71,26 @@ let started = false, loadT = null;
 
 async function loadMsgs(retry = 0) {
   const { data, error } = await supabase.from("sms_messages").select("id,phone,data").order("updated_at", { ascending: true });
-  if (!error) { store = { ...store, msgs: (data || []).map((r) => ({ ...(r.data || {}), id: r.id, phone: r.phone || (r.data || {}).phone || "" })) }; emit(); }
+  if (!error) { store = { ...store, msgs: (data || []).map((r) => ({ ...(r.data || {}), id: r.id, phone: r.phone || (r.data || {}).phone || "" })) }; emit(); loadReadMap(); }
   // A failed load right after the phone wakes (expired token mid-refresh,
   // radio not up yet) used to leave the list stale until the next event —
   // retry a few times so desktop↔phone catch up on their own.
   else if (retry < 3) setTimeout(() => loadMsgs(retry + 1), 2500 * (retry + 1));
+}
+// Read/unread follows the account — but each device only loaded the map at
+// startup, so a thread read on the phone stayed "new" on the desktop until a
+// full reload. Re-pull it on every message refresh and app wake; the newest
+// stamp per thread wins, so a thread just tapped HERE never flickers back.
+async function loadReadMap() {
+  try {
+    const { data } = await supabase.auth.getUser();
+    const m = data?.user?.user_metadata?.smsRead;
+    if (!m) return;
+    const merged = { ...m };
+    Object.entries(readMap).forEach(([k, v]) => { if (!merged[k] || String(v) > String(merged[k])) merged[k] = v; });
+    readMap = merged;
+    emit();
+  } catch { /* next pass refreshes */ }
 }
 const scheduleLoad = () => {
   if (typeof document !== "undefined" && document.visibilityState === "hidden") return; // visibilitychange below reloads on return

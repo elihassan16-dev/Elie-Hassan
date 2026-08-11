@@ -16395,7 +16395,10 @@ function MailBody({message,mail,trimQuote}){
   }catch{/* ignore */}};
   const onLoad=(e)=>fit(e.target);
   useEffect(()=>{const f=ref.current;if(!f)return;const onResize=()=>fit(f);window.addEventListener("resize",onResize);return ()=>window.removeEventListener("resize",onResize);},[html]); // eslint-disable-line
-  return <iframe ref={ref} title="email" onLoad={onLoad} sandbox="allow-same-origin allow-popups" srcDoc={doc} style={{width:"100%",border:"none",height:120,background:"#fff"}}/>;
+  // allow-popups-to-escape-sandbox: links clicked in an email (DocuSign, title
+  // portals…) open as NORMAL pages — without it they inherit the sandbox and
+  // load with JavaScript disabled. The email body itself stays script-free.
+  return <iframe ref={ref} title="email" onLoad={onLoad} sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcDoc={doc} style={{width:"100%",border:"none",height:120,background:"#fff"}}/>;
 }
 // Labels the user can tag an email chain with, so the inbox says at a glance what
 // each thread is about. Stored per mailbox on this device (localStorage).

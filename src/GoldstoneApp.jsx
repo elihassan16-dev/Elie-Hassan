@@ -8327,15 +8327,17 @@ function TasksPage({onNavigate}){
   const addContactToDir=(c)=>{ setContacts(prev=>prev.some(x=>x.id===c.id)?prev:[...prev,c]); if(flushContacts)setTimeout(flushContacts,0); };
   const { isAdmin, prefs, savePrefs } = useAuth();
   const isMobile=useIsMobile();
-  // Excel-style density on desktop: slimmer rows + one-line property headers so
-  // far more tasks fit on screen. Toggleable (☰ Compact chip), remembered per
-  // device; phones keep the roomier touch-friendly layout.
-  const[compactView,setCompactView]=useState(()=>{try{const v=localStorage.getItem("tasksCompact");return v==null?true:v==="1";}catch{return true;}});
+  // Three ways to see the task list — "byprop" (default): one simple row per
+  // property, tap it for that property's tasks popup; "grid": the Excel-style
+  // spreadsheet (desktop only); "boxes": the original roomy per-property cards.
+  const[taskViewMode,setTaskViewMode]=useState(()=>{try{return localStorage.getItem("tasksViewMode")||"byprop";}catch{return "byprop";}});
   // The saved ACCOUNT preference (Supabase user metadata) beats the device cache —
   // whatever view each user picks follows them to any phone or computer.
-  useEffect(()=>{const pv=prefs&&prefs.tasksView;if(pv)setCompactView(pv==="grid");},[prefs&&prefs.tasksView]); // eslint-disable-line react-hooks/exhaustive-deps
-  const toggleCompact=()=>{setCompactView(v=>{const nv=!v;try{localStorage.setItem("tasksCompact",nv?"1":"0");}catch{/* ignore */}if(savePrefs)savePrefs({tasksView:nv?"grid":"boxes"});return nv;});};
-  const compact=!isMobile&&compactView;
+  useEffect(()=>{const pv=prefs&&prefs.tasksViewMode;if(pv)setTaskViewMode(pv);},[prefs&&prefs.tasksViewMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setViewMode=(m)=>{setTaskViewMode(m);try{localStorage.setItem("tasksViewMode",m);}catch{/* ignore */}if(savePrefs)savePrefs({tasksViewMode:m});};
+  // Phones can't show the spreadsheet — a saved "grid" pick falls back to the list there.
+  const byProp=taskViewMode==="byprop"||(isMobile&&taskViewMode==="grid");
+  const compact=!isMobile&&taskViewMode==="grid";
   // External (contractor) tasks show alongside internal ones, grouped by property.
   const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, siteStatus:ctrSiteStatus, save:ctrSave, remove:ctrRemove } = useContractorData();
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
@@ -8532,6 +8534,7 @@ function TasksPage({onNavigate}){
   const[msgAudience,setMsgAudience]=useState(null); // 💬 chooser: internal note vs a contractor thread
   const[taskAssignTarget,setTaskAssignTarget]=useState(null); // task we're delegating
   const[showAddTasks,setShowAddTasks]=useState(false); // bulk add-tasks popup
+  const[byPropOpen,setByPropOpen]=useState(null); // property id (or OFFICE_TASK_PID) whose tasks popup is open
   const[selectMode,setSelectMode]=useState(false);
   const[selectedKeys,setSelectedKeys]=useState(new Set()); // `${propId}:${taskId}`
   const selKey=(t)=>`${t.propId}:${t.id}`;
@@ -8800,6 +8803,8 @@ function TasksPage({onNavigate}){
           const summary=Object.entries(summaryByStatus).filter(([,v])=>v>0).map(([s,v])=>`${v} ${s}`).join(" · ");
           const toggleView=(k)=>setViews(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
           const toggleStatus=(s)=>setStatusFilter(p=>{const n=new Set(p);n.has(s)?n.delete(s):n.add(s);return n;});
+          // The By-property list ignores the task filters — show just the tallies.
+          if(byProp)return <div style={{fontSize:11,color:T.textSub}}>{summary||`${allTasks.length} tasks`}</div>;
           return(
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               <div style={{display:"flex",gap:8}}>
@@ -8828,8 +8833,8 @@ function TasksPage({onNavigate}){
           })}
           <div style={{background:T.bg,color:T.textSub,fontSize:12,fontWeight:700,padding:"5px 14px",borderRadius:20,border:bdr}}>{allTasks.length} Total Tasks</div>
         </div>
-        {/* View tabs */}
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {/* View tabs — the By-property list shows everything, so they hide there */}
+        {!byProp&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {[["my","My Tasks"],["assigned","Delegated by Me"],["member","By Team Member"],["unassigned","Unassigned"],["all","All Tasks"]].map(([k,l])=>{
             const active=views.has(k);
             return(
@@ -8839,7 +8844,7 @@ function TasksPage({onNavigate}){
               </button>
             );
           })}
-        </div>
+        </div>}
         </>)}
       </div>
 
@@ -8864,8 +8869,9 @@ function TasksPage({onNavigate}){
                 {completedItems.length>0&&<button onClick={()=>setCompletedOpen(true)} style={chip("#15803D","#EDFBF1")}>✓ Done{cnt(completedItems.length,T.green)}</button>}
                 {extRequests.length>0&&<button onClick={()=>setExtReqOpen(true)} style={chip("#8a6d1f","#FFF9EC")}>👷 External{openExtCount>0&&cnt(openExtCount,T.red)}</button>}
                 <div style={{flex:1}}/>
-                {!isMobile&&<button onClick={toggleCompact} title={compactView?"Switch back to the property boxes":"One Excel-style grid — every task a row"} style={chip(compactView?"#b8912e":T.textSub,compactView?T.goldLight:T.card,compactView)}>▦ Spreadsheet</button>}
-                {filteredDisplay.length>0&&<button onClick={()=>setSelectMode(true)} style={chip(T.textSub,T.card,false)}>☑ Select</button>}
+                {!isMobile&&<button onClick={()=>setViewMode(compact?"boxes":"grid")} title={compact?"Switch back to the property boxes":"One Excel-style grid — every task a row"} style={chip(compact?"#b8912e":T.textSub,compact?T.goldLight:T.card,compact)}>▦ Spreadsheet</button>}
+                <button onClick={()=>setViewMode(byProp?"boxes":"byprop")} title={byProp?"Switch to the full task boxes":"One simple list — tap a property to see its tasks"} style={chip(byProp?"#b8912e":T.textSub,byProp?T.goldLight:T.card,byProp)}>🏠 By property</button>
+                {!byProp&&filteredDisplay.length>0&&<button onClick={()=>setSelectMode(true)} style={chip(T.textSub,T.card,false)}>☑ Select</button>}
               </>):(<>
                 <span style={{fontSize:13,fontWeight:600,color:T.text}}>{selectedKeys.size} selected</span>
                 <select value="" onChange={e=>{if(e.target.value)setSelectedStatus(e.target.value);}} disabled={selectedKeys.size===0}
@@ -8881,7 +8887,7 @@ function TasksPage({onNavigate}){
         })()}
         {showRecent&&<RecentAssignedModal tasks={recentAssigned} currentUser={CURRENT_USER} onClose={()=>setShowRecent(false)} onOpenTask={(t)=>{setShowRecent(false);if(t.propId!==OFFICE_TASK_PID&&onNavigate)onNavigate(t.propId);}}/>}
 
-        {!showAutomations&&!compact&&(()=>{
+        {!showAutomations&&!compact&&!byProp&&(()=>{
           const oTasks=(officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company Tasks",propStatus:""}));
           const doneCount=oTasks.filter(t=>t.status==="Completed").length;
           return(
@@ -9004,7 +9010,7 @@ function TasksPage({onNavigate}){
         {!showAutomations&&(
           <div style={{maxWidth:840}}>
             {/* Filter bar (desktop only — mobile uses the compact dropdowns in the header) */}
-            {!isMobile&&<div style={{display:"flex",gap:10,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
+            {!isMobile&&!byProp&&<div style={{display:"flex",gap:10,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
               {views.has("member")&&(
                 <select value={filterMember} onChange={e=>setFilterMember(e.target.value)}
                   style={{padding:"7px 12px",borderRadius:T.radiusSm,border:bdr,background:T.card,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"}}>
@@ -9029,7 +9035,7 @@ function TasksPage({onNavigate}){
               <div style={{marginLeft:"auto",fontSize:12,color:T.textSub}}>{filteredDisplay.length} tasks</div>
             </div>}
 
-            {filteredDisplay.length===0&&(
+            {!byProp&&filteredDisplay.length===0&&(
               <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,padding:40,textAlign:"center",color:T.textTert,fontSize:14}}>
                 {views.has("my")?"No tasks assigned to you yet."
                 :views.has("unassigned")?"No unassigned tasks."
@@ -9041,9 +9047,117 @@ function TasksPage({onNavigate}){
 
             {completedOpen&&<CompletedTasksPopup items={completedItems} onRestore={restoreCompleted} onDelete={deleteCompleted} onClose={()=>setCompletedOpen(false)}/>}
             {extReqOpen&&<ExternalRequestsPopup requests={extRequests} coRequests={pendingCoReqs} onDecideCo={isAdmin?decideCoReq:null} onSetStatus={setExtTaskStatus} onChat={(x)=>setExtChat(x)} onClose={()=>setExtReqOpen(false)}/>}
+            {/* ── 🏠 By property (default): one row per property with open work —
+                address · status · progress · "N open" — tap for its tasks popup.
+                Company Tasks is always pinned on top; fully-done properties drop
+                off the list (their history lives in ✓ Done). */}
+            {byProp&&(()=>{
+              const isOpenT=(t)=>t.status!=="Completed"&&t.status!=="N/A";
+              const rows=[];
+              sharedProps.filter(p=>!p.archived).forEach(p=>{
+                const ts=(p.tasks||[]).filter(t=>!t.deleted&&(t.text||"").trim());
+                const extOpen=(extByPid[String(p.id)]||[]).reduce((n,x)=>n+x.rows.filter(t=>t.status!=="Completed").length,0);
+                const done=ts.filter(t=>t.status==="Completed").length;
+                const open=ts.filter(isOpenT).length+extOpen;
+                if(open>0)rows.push({pid:p.id,addr:`${p.address||""}${p.city?`, ${p.city}`:""}`,status:p.status||"",open,done,total:ts.length+extOpen});
+              });
+              // Most open work floats to the top, ties alphabetical.
+              rows.sort((a,b)=>b.open-a.open||a.addr.localeCompare(b.addr));
+              const oTs=(officeTasks||[]).filter(t=>!t.deleted&&(t.text||"").trim());
+              rows.unshift({pid:OFFICE_TASK_PID,addr:"🏢 Company Tasks",status:"",open:oTs.filter(isOpenT).length,done:oTs.filter(t=>t.status==="Completed").length,total:oTs.length,office:true});
+              const openProps=rows.filter(r=>r.open>0&&!r.office).length;
+              return(
+                <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14,maxWidth:840}}>
+                  <div style={{padding:"11px 15px 9px",borderBottom:bdr,fontSize:12,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:6}}>🏠 Properties with open tasks
+                    <span style={{marginLeft:"auto",fontSize:10,fontWeight:800,background:"#FFF4E5",color:"#B45309",border:"1px solid #F6C9B2",borderRadius:10,padding:"2px 8px"}}>{openProps}</span>
+                  </div>
+                  {rows.map((r,i)=>{
+                    const sc=r.office?{color:T.textSub,bg:"#F1F1F4"}:(SC[r.status]||{});
+                    const pct=r.total?Math.round(r.done/r.total*100):0;
+                    const chipEl=(r.office||r.status)?<span style={{fontSize:9,fontWeight:800,color:sc.color,background:sc.bg,padding:"3px 9px",borderRadius:8,whiteSpace:"nowrap",flexShrink:0}}>{r.office?"GENERAL":String(r.status).toUpperCase()}</span>:null;
+                    const barEl=<span style={{flex:1,height:7,borderRadius:4,background:"#F1F1F4",overflow:"hidden",minWidth:36}}><span style={{display:"block",height:"100%",width:`${pct}%`,background:"#34C759"}}/></span>;
+                    const pillEl=r.open>0
+                      ?<span style={{fontSize:11,fontWeight:800,color:"#B45309",background:"#FFF4E5",borderRadius:10,padding:"3px 10px",whiteSpace:"nowrap",flexShrink:0}}>{r.open} open · {r.done}/{r.total}</span>
+                      :<span style={{fontSize:11,fontWeight:800,color:"#15803D",background:"#EDFBF1",borderRadius:10,padding:"3px 10px",whiteSpace:"nowrap",flexShrink:0}}>✓ all done</span>;
+                    return(
+                      <div key={String(r.pid)} onClick={()=>setByPropOpen(r.pid)} title="See this property's open tasks"
+                        style={{padding:isMobile?"10px 14px":"12px 16px",borderBottom:i<rows.length-1?`1px solid ${T.border}55`:"none",cursor:"pointer"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="#FBFAF6"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                        {isMobile?(<>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
+                            {pillEl}<span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6}}>{chipEl}{barEl}</div>
+                        </>):(
+                          <div style={{display:"flex",alignItems:"center",gap:12}}>
+                            <span style={{width:240,flexShrink:0,fontSize:13.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
+                            {chipEl}{barEl}{pillEl}<span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+            {/* The tasks popup a By-property row opens — live tasks with the same
+                status/assign/chat handlers the full views use, plus add-a-task. */}
+            {byPropOpen!=null&&(()=>{
+              const office=isOffice(byPropOpen);
+              const prop=office?null:sharedProps.find(p=>String(p.id)===String(byPropOpen));
+              if(!office&&!prop)return null;
+              const addr=office?"🏢 Company Tasks":`${prop.address||""}${prop.city?`, ${prop.city}`:""}`;
+              const status=office?"":(prop.status||"");
+              const sc=SC[status]||{};
+              const list=(office?(officeTasks||[]):(prop.tasks||[])).filter(t=>!t.deleted&&(t.text||"").trim())
+                .map(t=>({...t,propId:office?OFFICE_TASK_PID:prop.id,propAddr:addr,propStatus:status}));
+              const openTs=list.filter(t=>t.status!=="Completed"&&t.status!=="N/A");
+              const done=list.filter(t=>t.status==="Completed").length;
+              const ext=office?[]:(extByPid[String(prop.id)]||[]);
+              return(
+                // z 290 keeps this UNDER the assign/contact/message popups (z 300+)
+                // a row's buttons open, so those land on top of this one.
+                <div onClick={()=>setByPropOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:290,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+                  <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(560px,94vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:"0 18px 60px rgba(0,0,0,0.3)",overflow:"hidden"}}>
+                    <div style={{padding:"14px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:7,marginTop:3}}>
+                          {(office||status)&&<span style={{fontSize:9,fontWeight:800,color:office?T.textSub:sc.color,background:office?"#F1F1F4":sc.bg,padding:"2px 8px",borderRadius:8,whiteSpace:"nowrap"}}>{office?"GENERAL":status.toUpperCase()}</span>}
+                          <span style={{fontSize:11,color:T.textSub,whiteSpace:"nowrap"}}>{openTs.length} open · {done}/{list.length} done</span>
+                        </div>
+                      </div>
+                      {!office&&onNavigate&&<button onClick={()=>{setByPropOpen(null);onNavigate(prop.id);}} style={{background:"none",border:"none",color:T.blue,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0,padding:0}}>Open property ›</button>}
+                      <button onClick={()=>setByPropOpen(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0,padding:0}}>×</button>
+                    </div>
+                    <div style={{overflowY:"auto",flex:1}}>
+                      {openTs.length===0&&ext.length===0&&<div style={{padding:"22px 18px",fontSize:13,color:"#15803D",fontWeight:700}}>✓ All caught up — nothing open here.</div>}
+                      {openTs.map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER}/>)}
+                      {ext.map(({job,rows:xr})=>(
+                        <div key={"ext-"+job.id} style={{background:"#FFF9EC",borderTop:`1.5px solid ${T.gold}`}}>
+                          <div style={{padding:"8px 14px 5px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                            <span style={{fontSize:11.5,fontWeight:800,color:"#8a6d1f"}}>👷 {ctrOrgName(job.orgId)}{job.title?` — ${job.title}`:""}</span>
+                            <span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
+                          </div>
+                          {xr.filter(t=>t.status!=="Completed").map(t=>(
+                            <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)"}}>
+                              <span style={{flex:1,minWidth:0,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text}</span>
+                              <button onClick={()=>setExtChat({task:t,job})} title="Message about this task" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit",display:"inline-flex",alignItems:"center"}}><TeamChatIcon size={13}/></button>
+                              <CtrStatusPill t={t} onSet={setExtTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                      <AddTaskInline onAdd={(text)=>office?addOfficeTask(text):addTaskToProp(prop.id,text)} placeholder={office?"Add a company task…":"Add a task for this property…"}/>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             {/* Group by property, then apply my personal "sent to bottom" order:
                 pushed properties sink below the rest, most-recently-pushed last. */}
-            {(()=>{
+            {!byProp&&(()=>{
               const groups=Object.entries(filteredDisplay.reduce((acc,t)=>{(acc[t.propAddr]=acc[t.propAddr]||[]).push(t);return acc;},{}))
                 .map(([addr,ptasks],gi)=>({addr,ptasks,gi,pid:ptasks[0]?.propId,propStatus:ptasks[0]?.propStatus}));
               // A property whose only tasks are external still gets its ONE card here —

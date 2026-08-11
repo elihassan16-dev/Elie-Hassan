@@ -2370,7 +2370,12 @@ function ShowingInfoPopup({property,skey,onUpdate,onClose}){
   const fmtSent=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   const setLeadStatus=(val)=>{
     if(isLead){if(cl)onUpdate(property.id,"customLeads",customLeads.map(l=>l.id===cl.id?{...l,lead:val}:l));}
-    else{const next={...(property.showingLeads||{})};if(val)next[skey]=val;else delete next[skey];onUpdate(property.id,"showingLeads",next);}
+    else{
+      const next={...(property.showingLeads||{})};if(val)next[skey]=val;else delete next[skey];onUpdate(property.id,"showingLeads",next);
+      // Stamp who/when — also marks the status as deliberately set, so the
+      // startup scrub of pre-snapshot leftovers never deletes it.
+      if(val)onUpdate(property.id,"statusLog",{...(property.statusLog||{}),[skey]:{at:new Date().toISOString(),by:""}});
+    }
   };
   const row=(label,val)=>val?<div style={{display:"flex",gap:10,fontSize:13,padding:"7px 0",borderTop:`1px solid ${T.border}`}}><span style={{width:86,flexShrink:0,color:T.textTert,fontWeight:600,fontSize:11.5,textTransform:"uppercase",letterSpacing:"0.03em",paddingTop:1}}>{label}</span><span style={{color:T.text,minWidth:0,wordBreak:"break-word"}}>{val}</span></div>:null;
   // 📇 vCard → iPhone Contacts. A PWA can't hook the incoming-call screen
@@ -3050,7 +3055,13 @@ function ShowingsPage(){
       if(p.archived)return;
       const snaps=p.showingSnapshots||{};
       const leads=p.showingLeads||{};
-      const bad=Object.keys(leads).filter(k=>{const sn=snaps[k];return !sn||!(sn.agent||sn.summary);});
+      const bad=Object.keys(leads).filter(k=>{
+        // NEVER scrub these — they're real statuses, not pre-snapshot leftovers:
+        if(String(k).startsWith("bt-"))return false;               // BoldTrail buyers (validated by lead id, not snapshot)
+        if((p.statusLog||{})[k])return false;                      // a recorded who/when = someone set it on purpose
+        if(((p.showingPhones||{})[k]||[]).length)return false;     // hand-attached number = a real person
+        const sn=snaps[k];return !sn||!(sn.agent||sn.summary||sn.location||sn.phone);
+      });
       if(bad.length){const next={...leads};bad.forEach(k=>delete next[k]);onUpdate(p.id,"showingLeads",next);}
     });
   },[sharedProps.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -17662,7 +17673,7 @@ export function GoldstoneShell(){
       let np=pp,ch=false;
       const logKeys=[]; // property.statusLog: WHEN each status was set and BY whom
       if((pp.customLeads||[]).some(l=>matchPh(l.phone)&&l.lead!==statusKey)){np={...np,customLeads:np.customLeads.map(l=>matchPh(l.phone)?{...l,lead:statusKey}:l)};pp.customLeads.filter(l=>matchPh(l.phone)).forEach(l=>logKeys.push("cl-"+l.id));ch=true;}
-      btHits.forEach(l=>{if(btMatchesProperty(l,pp)&&(np.showingLeads||{})["bt-"+l.id]!==statusKey){np={...np,showingLeads:{...(np.showingLeads||{}),["bt-"+l.id]:statusKey}};logKeys.push("bt-"+l.id);ch=true;}});
+      btHits.forEach(l=>{if(btMatchesProperty(l,pp)&&(np.showingLeads||{})["bt-"+l.id]!==statusKey){np={...np,showingLeads:{...(np.showingLeads||{}),["bt-"+l.id]:statusKey},showingSnapshots:{...(np.showingSnapshots||{}),["bt-"+l.id]:(np.showingSnapshots||{})["bt-"+l.id]||{agent:l.name||"",phone:l.phone||"",start:l.createdAt||"",summary:"BoldTrail buyer"}}};logKeys.push("bt-"+l.id);ch=true;}});
       showHits.forEach(s=>{
         if(!showingMatchesProperty(s.location||s.summary||"",pp))return;
         const k=showingKey(s);

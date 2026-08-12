@@ -15446,7 +15446,20 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                   <input value={saleDraft.q||""} onChange={e=>setSaleDraft(d=>({...d,q:e.target.value}))} placeholder="🔍 Search QuickBooks projects (e.g. Montgomery)…" style={iS4} autoFocus/>
                   {qbProjList===null&&term.length>=2&&<div style={{fontSize:12,color:T.textTert,padding:"4px 2px"}}>Loading QuickBooks projects…</div>}
                   {projMatches.map(x=>(
-                    <div key={x.id} onClick={()=>setSaleDraft(d=>({...d,qbId:x.id,addr:x.name.includes(":")?x.name.split(":").pop().trim():x.name,q:""}))} style={{padding:"10px 12px",border:`1px solid ${T.border}`,borderRadius:10,cursor:"pointer",background:T.bg}}>
+                    <div key={x.id} onClick={async()=>{
+                      // Picking the project also finds the SOLD DATE in QuickBooks:
+                      // the latest income line (the closing journal entry books the
+                      // sale) — falling back to the latest journal entry, then the
+                      // latest transaction. Editable if it guessed wrong.
+                      setSaleDraft(d=>({...d,qbId:x.id,addr:x.name.includes(":")?x.name.split(":").pop().trim():x.name,q:"",dateBusy:true}));
+                      try{
+                        const t=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(x.id)}`);
+                        const items=t.items||[];
+                        const latest=(arr)=>arr.map(i=>String(i.date||"")).filter(Boolean).sort().pop()||"";
+                        const best=latest(items.filter(i=>String(i.section||"").toLowerCase()==="income"))||latest(items.filter(i=>/journal/i.test(i.type||"")))||latest(items);
+                        setSaleDraft(d=>d&&d.qbId===x.id?{...d,date:d.date||best,dateBusy:false,dateFromQb:!!best}:d);
+                      }catch{setSaleDraft(d=>d&&d.qbId===x.id?{...d,dateBusy:false}:d);}
+                    }} style={{padding:"10px 12px",border:`1px solid ${T.border}`,borderRadius:10,cursor:"pointer",background:T.bg}}>
                       <div style={{fontSize:13.5,fontWeight:700,color:T.text}}>{x.name}</div>
                       {x.parent&&<div style={{fontSize:10.5,color:T.textTert}}>under {x.parent}</div>}
                     </div>
@@ -15470,11 +15483,13 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                      books. Stacked on mobile: the iOS date input fought the
                      two-column row and everything misaligned. */
                   <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:9}}>
-                    <span style={{flex:1,minWidth:0}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>DATE SOLD</span><input type="date" value={saleDraft.date} onChange={e=>setSaleDraft(d=>({...d,date:e.target.value}))} style={{...iS4,minWidth:0,WebkitAppearance:"none",appearance:"none",minHeight:42}}/></span>
+                    {/* No appearance reset here — iOS renders an empty date input
+                        as a dead blank box with -webkit-appearance:none. */}
+                    <span style={{flex:1,minWidth:0}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>DATE SOLD{saleDraft.dateBusy?" — checking QuickBooks…":saleDraft.dateFromQb?" — from QuickBooks ✓":""}</span><input type="date" value={saleDraft.date} onChange={e=>setSaleDraft(d=>({...d,date:e.target.value,dateFromQb:false}))} style={{...iS4,minWidth:0,minHeight:42}}/></span>
                     {!saleDraft.qbId&&<span style={{flex:1,minWidth:0}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>SALE PRICE (OPTIONAL)</span><input value={saleDraft.price} onChange={e=>setSaleDraft(d=>({...d,price:e.target.value.replace(/[^0-9.]/g,"")}))} placeholder="0" inputMode="decimal" style={{...iS4,minWidth:0,textAlign:"right"}}/></span>}
                   </div>
                 )}
-                {saleDraft.qbId&&<div style={{fontSize:11,color:T.textTert,lineHeight:1.5}}>Sale price, costs and profit come straight from this QuickBooks project — nothing else to enter.</div>}
+                {saleDraft.qbId&&<div style={{fontSize:11,color:T.textTert,lineHeight:1.5}}>Sale price, costs, profit — and the sold date — come straight from this QuickBooks project. Adjust the date if the books closed it on a different day.</div>}
               </div>
               <div style={{padding:"12px 18px 16px",display:"flex",justifyContent:"flex-end",gap:8,flexShrink:0,borderTop:`1px solid ${T.border}`}}>
                 <button onClick={()=>setSaleDraft(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>

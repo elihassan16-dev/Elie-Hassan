@@ -15656,21 +15656,15 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                       :qbv?<span title="From the journal entry in QuickBooks — type a date to correct it" style={{fontSize:10,fontWeight:800,color:"#2CA01C",background:"#EAF7E8",border:"1px solid #BFE5BA",borderRadius:8,padding:"2px 7px"}}>from QuickBooks ✓</span>:null;
                     const dIn={padding:"6px 9px",borderRadius:8,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:12.5,outline:"none",fontFamily:"inherit"};
                     return(<>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,flexWrap:"wrap"}}>
-                    <span style={{fontSize:11,fontWeight:800,color:sd.sell?T.textSub:T.orange}}>Sold</span>
-                    <input type="date" value={sd.sell||""} disabled={!canEdit} onChange={e=>setF("soldDateOverride",e.target.value)} style={{...dIn,border:`1px solid ${sd.sell?T.border:T.orange}`}}/>
-                    {srcTag(f2.soldDateOverride,qx.sell,"soldDateOverride")}
-                    <span style={{fontSize:11,fontWeight:800,color:T.textSub,marginLeft:2}}>Bought</span>
-                    <input type="date" value={sd.buy||""} disabled={!canEdit} onChange={e=>setF("boughtDateOverride",e.target.value)} style={dIn}/>
-                    {srcTag(f2.boughtDateOverride,qx.buy,"boughtDateOverride")}
+                  <div style={{display:"flex",gap:16,marginTop:8,flexWrap:"wrap"}}>
+                    {[["Bought","boughtDateOverride",sd.buy,qx.buy],["Sold","soldDateOverride",sd.sell,qx.sell]].map(([lab,key,val,qbv])=>(
+                      <div key={key} style={{display:"flex",flexDirection:"column",gap:4,alignItems:"flex-start"}}>
+                        <span style={{fontSize:11,fontWeight:800,color:val?T.textSub:T.orange}}>{lab}</span>
+                        <input type="date" value={val||""} disabled={!canEdit} onChange={e=>setF(key,e.target.value)} style={{...dIn,border:`1px solid ${val?T.border:T.orange}`}}/>
+                        {srcTag(f2[key],qbv,key)}
+                      </div>
+                    ))}
                   </div>
-                  {soldSel.qbProjectId&&soldTxns&&(()=>{
-                    // Show the sale-side entries the date sync is reading, so a
-                    // wrong date is traceable to the exact QuickBooks line.
-                    const inc=soldTxns.filter(t=>String(t.section||"").toLowerCase().includes("income")&&/^\d{4}-\d{2}-\d{2}/.test(String(t.date||"")));
-                    return(<div style={{fontSize:10.5,color:T.textTert,marginTop:5,lineHeight:1.5}}>
-                      {inc.length?<>Sale entries in QuickBooks: {inc.map(t=>`${finFmtDate(String(t.date).slice(0,10))} — ${fmtD(Math.abs(Number(t.amount)||0))}`).join(" · ")}</>:"No sale entry found in this QuickBooks project."}
-                    </div>);})()}
                   {!soldSel.qbProjectId&&canEdit&&connected&&(()=>{
                     // Not linked to the books — the numbers above are the app's
                     // saved figures. Search + tap to link the QuickBooks project.

@@ -15331,7 +15331,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
         {t:fmtD(r.profit),align:"right",strong:true,color:r.profit<0?T.red:T.green},
         {t:r.months==null?"—":`${r.months.toFixed(1)} mo`,align:"right"},
       ]),
-      foot:[[{t:`${rptSold.rows.length} deal${rptSold.rows.length!==1?"s":""} sold`,strong:true},{t:""},{t:fmtD(rptSold.total.sale),align:"right",strong:true},{t:fmtD(rptSold.total.allIn),align:"right",strong:true},{t:fmtD(rptSold.total.profit),align:"right",strong:true,color:rptSold.total.profit<0?T.red:T.gold},{t:rptSold.total.moN?`${(rptSold.total.mo/rptSold.total.moN).toFixed(1)} mo avg`:"—",align:"right"}]],
+      foot:[[{t:`${rptSold.rows.length} deal${rptSold.rows.length!==1?"s":""} sold`,strong:true},{t:""},{t:fmtD(rptSold.total.sale),align:"right",strong:true},{t:fmtD(rptSold.total.allIn),align:"right",strong:true},{t:fmtD(rptSold.total.profit),align:"right",strong:true,color:rptSold.total.profit<0?T.red:T.gold},{t:rptSold.total.moN?`${(rptSold.total.mo/rptSold.total.moN).toFixed(1)} mo avg`:"—",align:"right"}],
+        [{t:"Average per deal"},{t:""},{t:""},{t:""},{t:rptSold.rows.length?fmtD(rptSold.total.profit/rptSold.rows.length):"—",align:"right",strong:true,color:rptSold.total.profit<0?T.red:T.green},{t:""}]],
       empty:"Nothing marked Sold with a selling date this year yet — set the status and Selling Date on a deal and it shows up here.",
     },
     loc:{

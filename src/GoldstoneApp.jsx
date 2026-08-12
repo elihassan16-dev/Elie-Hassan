@@ -6177,6 +6177,11 @@ function SortModal({order,hidden,onSave,onClose}){
   );
 }
 
+// Fresh property record with the full financials template (cost items etc.) —
+// used by the Properties page Add form and the Sold report's "Add a past sale".
+function mkPropertyRecord(address,city,state,zip,status){
+  return {id:Date.now(),address,city,state,zip,status,financials:{purchasePrice:"",buyingCosts:"",buyingTransferTax:"",transferTaxResp:"Seller Pays",rehabCosts:"",annualHoldingCosts:"",holdPeriod:"",fundingSource:"",salePrice:"",sellingCosts:"",sellingTransferTax:"",actualPurchasePrice:"",actualBuyingCosts:"",actualRehabCosts:"",purchaseDate:"",sellingDate:"",locLoan:"",locInterest:"",hmLoan:"",hmInterest:"",actualSalePrice:"",actualSellingCosts:"",actualSellingTransferTax:"",buyingCostItems:[{id:1,title:"Title Cost",autoType:"title",auto:true,resp:"Buyer Pays"},{id:2,title:"Transfer Tax",autoType:"tax",auto:true,resp:"Seller Pays"},{id:3,title:"Miscellaneous",autoType:null,auto:false,resp:"Buyer Pays",amount:"1000"}],sellingCostItems:[{id:1,title:"Commission",autoType:"commission",auto:true,resp:"Seller Pays",commissionPct:"2"},{id:2,title:"Transfer Tax",autoType:"tax",auto:true,resp:"Seller Pays"},{id:3,title:"Miscellaneous",autoType:null,auto:false,resp:"Seller Pays",amount:"2000"}],holdingCostItems:[{id:1,title:"Property Taxes",amount:"",perYear:true,auto:false},{id:2,title:"Insurance",amount:"",perYear:true,auto:false},{id:3,title:"Utilities",amount:"150",perMonth:true,auto:true},{id:4,title:"Miscellaneous",amount:"200",perMonth:true,auto:false}]},propertyInfo:{type:"",beds:"",baths:"",sqft:"",yearBuilt:"",lot:"",parcel:"",lockboxCode:"",lockboxLocation:"",notes:""},tasks:[],contacts:[]};
+}
 // ─── Properties Page ──────────────────────────────────────────────────────────
 function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,onArchive,onOpenChat}){
   // 📧 unread-pinned-email badge on each list row (same one as the Portfolio).
@@ -6235,7 +6240,7 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
   const grouped=useMemo(()=>{const out=[];let last=null;sorted.forEach(p=>{if(p.status!==last){out.push({type:"h",status:p.status});last=p.status;}out.push({type:"p",...p});});return out;},[sorted]);
   function addProp(){
     if(!form.addr.trim())return;
-    const p={id:Date.now(),address:form.addr,city:form.city,state:form.state,zip:form.zip,status:form.status,financials:{purchasePrice:"",buyingCosts:"",buyingTransferTax:"",transferTaxResp:"Seller Pays",rehabCosts:"",annualHoldingCosts:"",holdPeriod:"",fundingSource:"",salePrice:"",sellingCosts:"",sellingTransferTax:"",actualPurchasePrice:"",actualBuyingCosts:"",actualRehabCosts:"",purchaseDate:"",sellingDate:"",locLoan:"",locInterest:"",hmLoan:"",hmInterest:"",actualSalePrice:"",actualSellingCosts:"",actualSellingTransferTax:"",buyingCostItems:[{id:1,title:"Title Cost",autoType:"title",auto:true,resp:"Buyer Pays"},{id:2,title:"Transfer Tax",autoType:"tax",auto:true,resp:"Seller Pays"},{id:3,title:"Miscellaneous",autoType:null,auto:false,resp:"Buyer Pays",amount:"1000"}],sellingCostItems:[{id:1,title:"Commission",autoType:"commission",auto:true,resp:"Seller Pays",commissionPct:"2"},{id:2,title:"Transfer Tax",autoType:"tax",auto:true,resp:"Seller Pays"},{id:3,title:"Miscellaneous",autoType:null,auto:false,resp:"Seller Pays",amount:"2000"}],holdingCostItems:[{id:1,title:"Property Taxes",amount:"",perYear:true,auto:false},{id:2,title:"Insurance",amount:"",perYear:true,auto:false},{id:3,title:"Utilities",amount:"150",perMonth:true,auto:true},{id:4,title:"Miscellaneous",amount:"200",perMonth:true,auto:false}]},propertyInfo:{type:"",beds:"",baths:"",sqft:"",yearBuilt:"",lot:"",parcel:"",lockboxCode:"",lockboxLocation:"",notes:""},tasks:[],contacts:[]};
+    const p=mkPropertyRecord(form.addr,form.city,form.state,form.zip,form.status);
     setProps(prev=>[...prev,p]);setSelId(p.id);setShowAdd(false);setForm({addr:"",city:"",state:"NJ",zip:"",status:"Under Contract"});
   }
   const iS={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
@@ -15148,6 +15153,19 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   },[connected,soldKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const[soldFor,setSoldFor]=useState(null); // property id whose cost breakdown is open
   const[adjDraft,setAdjDraft]=useState({label:"",amount:"",cat:"Rehab"});
+  // ＋ Add a past sale — deals sold before the app existed get created right
+  // from the report: archived + Sold + selling date (+ sale price if known).
+  const[saleDraft,setSaleDraft]=useState(null); // {addr,city,date,price}
+  const addPastSale=()=>{
+    const a=saleDraft;if(!canEdit||!a||!a.addr.trim()||!a.date)return;
+    const rec=mkPropertyRecord(a.addr.trim(),a.city.trim(),"NJ","","Sold");
+    rec.archived=true; // history, not the active pipeline
+    rec.financials.sellingDate=a.date;
+    rec.financials.actualSalePrice=String(a.price||"");
+    setSharedProps(prev=>[...prev,rec]);
+    if(flushProps)setTimeout(flushProps,0);
+    setSaleDraft(null);
+  };
   const soldSel=soldFor!=null?(sharedProps||[]).find(x=>x.id===soldFor):null;
   const addAdj=()=>{if(!canEdit||!soldSel||!(Number(adjDraft.amount)))return;updateProp(soldSel.id,"soldAdjust",[...(soldSel.soldAdjust||[]),{id:Date.now(),label:adjDraft.label.trim()||adjDraft.cat,amount:Number(adjDraft.amount)||0,cat:adjDraft.cat}]);setAdjDraft({label:"",amount:"",cat:adjDraft.cat});};
   const delAdj=(id)=>canEdit&&soldSel&&updateProp(soldSel.id,"soldAdjust",(soldSel.soldAdjust||[]).filter(a=>a.id!==id));
@@ -15184,7 +15202,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
       cols:[{label:"Property"},{label:"Sold"},{label:"Sale price",align:"right"},{label:"All-in cost",align:"right"},{label:"Profit",align:"right"},{label:"Held",align:"right"}],
       rows:rptSold.rows.map(r=>[
         {t:r.address+(r.qb?" · QB":"")},
-        {t:r.sold?D(r.sold):"— no sale date",color:r.sold?undefined:T.orange},
+        {soldCost:{propId:r.propId},t:r.sold?D(r.sold):"Set sale date",color:r.sold?undefined:T.orange},
         {t:fmtD(r.sale),align:"right"},
         {soldCost:{propId:r.propId},t:fmtD(r.allIn)+(r.adj?" ✎":""),align:"right",color:T.blue},
         {t:fmtD(r.profit),align:"right",strong:true,color:r.profit<0?T.red:T.green},
@@ -15301,7 +15319,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
     const planWord=(pl)=>pl==="takeback"?"taken back":pl==="reinvest_plus"?"reinvests + interest":"reinvests principal";
-    const cellText=(c)=>c.planAmt?esc(`${fmtD(c.planAmt.plan==="reinvest_plus"?c.planAmt.amount+(c.planAmt.interest||0):c.planAmt.amount)} — ${planWord(c.planAmt.plan)}`):c.plan?esc(c.plan==="takeback"?"Take back":c.plan==="reinvest_plus"?"Reinvest + interest":"Reinvest"):c.fund?esc(c.fund.checked?c.t+" ✓ funded":c.t):esc((c.edit||c.draw||c.soldCost)?((c.t==="Tap to set"||c.t==="Tap to pin")?"—":String(c.t).replace(" 📌","").replace(" ✎","")):c.t);
+    const cellText=(c)=>c.planAmt?esc(`${fmtD(c.planAmt.plan==="reinvest_plus"?c.planAmt.amount+(c.planAmt.interest||0):c.planAmt.amount)} — ${planWord(c.planAmt.plan)}`):c.plan?esc(c.plan==="takeback"?"Take back":c.plan==="reinvest_plus"?"Reinvest + interest":"Reinvest"):c.fund?esc(c.fund.checked?c.t+" ✓ funded":c.t):esc((c.edit||c.draw||c.soldCost)?((c.t==="Tap to set"||c.t==="Tap to pin"||c.t==="Set sale date")?"—":String(c.t).replace(" 📌","").replace(" ✎","")):c.t);
     const th=rep.cols.map(c=>`<th style="text-align:${c.align||"left"}">${esc(c.label)}</th>`).join("");
     const trs=rep.rows.length?rep.rows.map((cells,ri)=>`<tr${ri%2?' style="background:#faf6ea"':''}>${cells.map(c=>`<td style="text-align:${c.align||"left"};${c.strong?"font-weight:700;":""}${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${rep.cols.length}" class="empty">${esc(rep.empty)}</td></tr>`;
     const foot=rep.foot&&rep.rows.length?rep.foot.map((frow,fi)=>`<tr class="${fi===0?"tot":"tot2"}">${frow.map(c=>`<td style="text-align:${c.align||"left"};font-weight:${c.strong?"800":"600"};${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):"";
@@ -15389,7 +15407,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                 </tbody>
               </table>
             </div>
-            <div style={{padding:isMobile?"12px 16px":"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:10}}>
+            <div style={{padding:isMobile?"12px 16px":"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",alignItems:"center",gap:10}}>
+              {open==="sold"&&canEdit&&<button onClick={()=>setSaleDraft({addr:"",city:"",date:"",price:""})} style={{marginRight:"auto",padding:"10px 16px",borderRadius:T.radiusSm,background:T.card,border:`1.5px dashed ${T.gold}`,color:"#8a6d1f",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>＋ Add a past sale</button>}
               <button onClick={()=>setOpen(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
               <button onClick={()=>exportReport(rep)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export / PDF</button>
             </div>
@@ -15397,6 +15416,33 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
         </div>
       )}
 
+      {/* ＋ Add a past sale — creates an archived Sold deal from the report */}
+      {saleDraft&&(()=>{
+        const iS4={padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text,width:"100%"};
+        const ok=saleDraft.addr.trim()&&saleDraft.date;
+        return(
+          <div onClick={()=>setSaleDraft(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:256,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:440,maxWidth:"100%",boxShadow:T.shadowMd,overflow:"hidden"}}>
+              <div style={{padding:"16px 18px 10px",borderBottom:`2px solid ${T.gold}`}}>
+                <div style={{fontSize:16,fontWeight:800,color:T.text}}>＋ Add a past sale</div>
+                <div style={{fontSize:11.5,color:T.textSub,marginTop:2,lineHeight:1.5}}>For deals sold before they were in the app. Creates the property as Sold (archived), dated — link its QuickBooks project later or add costs as adjustments.</div>
+              </div>
+              <div style={{padding:"14px 18px",display:"flex",flexDirection:"column",gap:9}}>
+                <input value={saleDraft.addr} onChange={e=>setSaleDraft(d=>({...d,addr:e.target.value}))} placeholder="Street address (e.g. 130 Montgomery Ave)" style={iS4} autoFocus/>
+                <input value={saleDraft.city} onChange={e=>setSaleDraft(d=>({...d,city:e.target.value}))} placeholder="City (optional)" style={iS4}/>
+                <div style={{display:"flex",gap:9}}>
+                  <span style={{flex:1}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>DATE SOLD</span><input type="date" value={saleDraft.date} onChange={e=>setSaleDraft(d=>({...d,date:e.target.value}))} style={iS4}/></span>
+                  <span style={{flex:1}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>SALE PRICE (OPTIONAL)</span><input value={saleDraft.price} onChange={e=>setSaleDraft(d=>({...d,price:e.target.value.replace(/[^0-9.]/g,"")}))} placeholder="0" inputMode="decimal" style={{...iS4,textAlign:"right"}}/></span>
+                </div>
+              </div>
+              <div style={{padding:"0 18px 16px",display:"flex",justifyContent:"flex-end",gap:8}}>
+                <button onClick={()=>setSaleDraft(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                <button onClick={addPastSale} disabled={!ok} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:ok?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:13,cursor:ok?"pointer":"default",fontFamily:"inherit"}}>Add sale</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* 💵 Sold-deal cost breakdown + custom adjustments */}
       {soldSel&&(()=>{
         const {q,f,adj,locDraws,sale,allIn,profit}=soldNumbersOf(soldSel);
@@ -15424,6 +15470,11 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:16,fontWeight:800,color:T.text}}>All-in Cost Breakdown</div>
                   <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{soldSel.address} · {q?"live from QuickBooks":"app actual figures"} · sale {fmtD(sale)}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8}}>
+                    <span style={{fontSize:11,fontWeight:800,color:f.sellingDate?T.textSub:T.orange}}>Sold date</span>
+                    <input type="date" value={f.sellingDate||""} disabled={!canEdit} onChange={e=>updateProp(soldSel.id,"financials",{...(soldSel.financials||{}),sellingDate:e.target.value})}
+                      style={{padding:"6px 9px",borderRadius:8,border:`1px solid ${f.sellingDate?T.border:T.orange}`,background:T.bg,color:T.text,fontSize:12.5,outline:"none",fontFamily:"inherit"}}/>
+                  </div>
                 </div>
                 <button onClick={()=>setSoldFor(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
               </div>

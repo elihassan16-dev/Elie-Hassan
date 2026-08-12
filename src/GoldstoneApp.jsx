@@ -15136,9 +15136,10 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const soldProps=useMemo(()=>(sharedProps||[]).filter(p=>{
     if(p.status!=="Sold")return false;
     const sd=(p.financials||{}).sellingDate||"";
-    // Undated Sold deals (archived or not) show flagged — hiding them made
-    // this-year sales silently vanish when nobody filled in the sale date.
-    return sd?sd>=`${soldYear}-01-01`:true;
+    // Undated ARCHIVED Sold deals stay out (old half-entered records with bad
+    // data) — re-adding one via ＋ Add a past sale repairs the existing record
+    // in place. Undated active Sold deals still show flagged.
+    return sd?sd>=`${soldYear}-01-01`:!p.archived;
   }),[sharedProps,soldYear]);
   const[soldPnl,setSoldPnl]=useState(()=>qbCache.get("soldPnl",{})); // projectId → {income,cogs,expenses,net,rows}
   useEffect(()=>{qbCache.set("soldPnl",soldPnl);},[soldPnl]);
@@ -15181,12 +15182,21 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     const a=saleDraft;if(!canEdit||!a||!a.addr.trim()||!a.date)return;
     // "130 Montgomery Ave, Cinnaminson" style project names split into addr + city.
     const parts=a.addr.split(",").map(s=>s.trim()).filter(Boolean);
-    const rec=mkPropertyRecord(parts[0]||a.addr.trim(),(a.city||parts[1]||"").trim(),"NJ","","Sold");
-    rec.archived=true; // history, not the active pipeline
-    rec.financials.sellingDate=a.date;
-    rec.financials.actualSalePrice=String(a.price||"");
-    if(a.qbId)rec.qbProjectId=a.qbId; // numbers go live from the project P&L
-    setSharedProps(prev=>[...prev,rec]);
+    // Already in the app (e.g. an archived half-entered record)? REPAIR it in
+    // place — link QB, set the date — instead of creating a duplicate.
+    const normA=(s)=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+    const a0=normA(parts[0]||a.addr);
+    const existing=a0.length>=5?(sharedProps||[]).find(p=>{const b=normA(p.address);return b.length>=5&&(a0.startsWith(b)||b.startsWith(a0));}):null;
+    if(existing){
+      setSharedProps(prev=>prev.map(p=>p.id!==existing.id?p:{...p,status:"Sold",...(a.qbId?{qbProjectId:a.qbId}:{}),financials:{...(p.financials||{}),sellingDate:a.date,...(a.price?{actualSalePrice:String(a.price)}:{})}}));
+    }else{
+      const rec=mkPropertyRecord(parts[0]||a.addr.trim(),(a.city||parts[1]||"").trim(),"NJ","","Sold");
+      rec.archived=true; // history, not the active pipeline
+      rec.financials.sellingDate=a.date;
+      rec.financials.actualSalePrice=String(a.price||"");
+      if(a.qbId)rec.qbProjectId=a.qbId; // numbers go live from the project P&L
+      setSharedProps(prev=>[...prev,rec]);
+    }
     if(flushProps)setTimeout(flushProps,0);
     setSaleDraft(null);
   };

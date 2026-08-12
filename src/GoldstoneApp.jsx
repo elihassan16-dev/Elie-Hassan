@@ -15153,6 +15153,21 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   },[connected,soldKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const[soldFor,setSoldFor]=useState(null); // property id whose cost breakdown is open
   const[adjDraft,setAdjDraft]=useState({label:"",amount:"",cat:"Rehab"});
+  // Drill-down: tapping a bucket's total lists its underlying QuickBooks
+  // transactions (vendor / date / memo, searchable) — same interactivity as
+  // the other QuickBooks sections.
+  const[soldTxns,setSoldTxns]=useState(null);   // the open deal's QB transactions
+  const[bucketOpen,setBucketOpen]=useState(null); // bucket cat being drilled
+  const[bucketQ,setBucketQ]=useState("");
+  useEffect(()=>{
+    setSoldTxns(null);setBucketOpen(null);setBucketQ("");
+    if(soldFor==null)return;
+    const p=(sharedProps||[]).find(x=>x.id===soldFor);
+    if(!p||!p.qbProjectId)return;
+    let alive=true;
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(p.qbProjectId)}`).then(d=>{if(alive)setSoldTxns(d.items||[]);}).catch(()=>{if(alive)setSoldTxns([]);});
+    return()=>{alive=false;};
+  },[soldFor]); // eslint-disable-line react-hooks/exhaustive-deps
   // ＋ Add a past sale — deals sold before the app existed get created right
   // from the report: pick the QuickBooks project (address + live numbers in one
   // shot) or type the address by hand; archived + Sold + selling date.
@@ -15529,7 +15544,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
         locDraws.forEach(x=>{const b=bucketOf("Debt service");b.lines.push({label:`LOC interest — ${x.funder}`,amount:x.interest});b.total+=x.interest;});
         (soldSel.soldAdjust||[]).forEach(a=>{const b=bucketOf(SOLD_CATS.includes(a.cat)?a.cat:"Other");b.total+=Number(a.amount)||0;});
         const iS3={padding:"9px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text};
-        return(
+        return(<>
           <div onClick={()=>setSoldFor(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:255,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
             <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
               <div style={{padding:"16px 18px 12px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"flex-start",gap:10}}>
@@ -15549,7 +15564,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                   <div key={b.cat}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 18px 4px"}}>
                       <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>{b.cat.toUpperCase()}</span>
-                      <span style={{fontSize:12.5,fontWeight:800,color:T.text}}>{fmtD(b.total)}</span>
+                      <span onClick={()=>{setBucketOpen(b.cat);setBucketQ("");}} title="Tap for every line item — searchable" style={{fontSize:12.5,fontWeight:800,color:T.blue,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{fmtD(b.total)} ›</span>
                     </div>
                     {b.lines.map((l,i)=>(
                       <div key={i} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"4px 18px",fontSize:12,color:T.textSub}}>
@@ -15587,7 +15602,55 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
               </div>
             </div>
           </div>
-        );
+          {/* 🔍 Bucket drill-down: every line item behind the tapped total */}
+          {bucketOpen&&(()=>{
+            const cat=bucketOpen;
+            const catMeta={Purchase:"🏠",Rehab:"🔨",Holding:"📆","Debt service":"🏦",Selling:"🤝",Other:"📁"};
+            const qbItems=(soldTxns||[]).filter(t=>String(t.section||"").toLowerCase()!=="income"&&soldCatOfAcct(t.account)===cat)
+              .sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+            const extras=[
+              ...(cat==="Debt service"?locDraws.map(x=>({vendor:`LOC interest — ${x.funder}`,account:"Draw register (app)",date:"",amount:x.interest})):[]),
+              ...((soldSel.soldAdjust||[]).filter(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Other")===cat).map(a=>({vendor:`✎ ${a.label}`,account:"Custom adjustment",date:"",amount:Number(a.amount)||0}))),
+            ];
+            const ql=bucketQ.trim().toLowerCase();
+            const shown=[...qbItems,...extras].filter(t=>!ql||[t.vendor,t.memo,t.account,t.type,t.num].filter(Boolean).join(" ").toLowerCase().includes(ql));
+            const tot=shown.reduce((s,t)=>s+(Number(t.amount)||0),0);
+            const loading=soldTxns===null&&!!soldSel.qbProjectId;
+            return(
+              <div onClick={()=>setBucketOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:257,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+                <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:540,maxWidth:"100%",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+                  <div style={{padding:"14px 16px 10px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+                    <span style={{minWidth:0,flex:1}}>
+                      <div style={{fontSize:15,fontWeight:800,color:T.text}}>{catMeta[cat]||"📁"} {cat} — line items</div>
+                      <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{soldSel.address}{soldSel.qbProjectId?" · live from QuickBooks":""}</div>
+                    </span>
+                    <button onClick={()=>setBucketOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+                  </div>
+                  <div style={{padding:"10px 14px 8px",flexShrink:0}}>
+                    <input autoFocus={!isMobile} value={bucketQ} onChange={e=>setBucketQ(e.target.value)} placeholder="🔍 Search vendor / memo / account…" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
+                  </div>
+                  <div style={{flex:1,overflowY:"auto"}}>
+                    {loading&&<div style={{padding:"22px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>Loading QuickBooks…</div>}
+                    {!loading&&shown.length===0&&<div style={{padding:"22px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>{ql?`Nothing matches “${bucketQ}”.`:"No line items in this bucket."}</div>}
+                    {shown.map((t,i)=>(
+                      <div key={i} style={{display:"flex",gap:10,alignItems:"center",padding:"9px 16px",borderTop:`1px solid ${T.border}55`}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"Transaction"}</div>
+                          <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date?finFmtDate(t.date):"",t.account,t.memo].filter(Boolean).join(" · ")}</div>
+                        </div>
+                        <b style={{fontSize:13,flexShrink:0,color:(Number(t.amount)||0)<0?T.green:T.text}}>{fmtD(Math.abs(Number(t.amount)||0))}</b>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{padding:"11px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"10",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+                    <span style={{fontSize:12.5,fontWeight:800,color:T.text}}>{shown.length} line item{shown.length!==1?"s":""}{ql?" (filtered)":""}</span>
+                    <span style={{fontSize:15,fontWeight:800,color:T.gold}}>{fmtD(tot)}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </>);
       })()}
       {hbProp&&!hbPicker&&(()=>{
         const pins=hbProp.qbHoldbackTxns||[];

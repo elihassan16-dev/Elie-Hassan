@@ -15132,7 +15132,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     if(/insurance|utilit|tax|hoa|lawn|maintenance/.test(s))return "Holding";
     return "Other";
   };
-  const soldYear=new Date().getFullYear();
+  const nowYear=new Date().getFullYear();
+  const[soldYear,setSoldYear]=useState(nowYear); // year the Sold report shows
   // Per-deal QuickBooks transaction facts: debt payments (for the interest
   // dedupe) + the BOUGHT date (earliest purchase-bucket entry — the buying
   // journal entry) and SOLD date (latest income entry — the closing JE), so
@@ -15150,9 +15151,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     if(p.status!=="Sold")return false;
     // Undated ARCHIVED Sold deals stay out (old half-entered records with bad
     // data) — re-adding one via ＋ Add a past sale repairs the existing record
-    // in place. Undated active Sold deals still show flagged.
+    // in place. Undated active Sold deals still show flagged (current year only).
     const sd=soldDatesOf(p).sell;
-    return sd?sd>=`${soldYear}-01-01`:!p.archived;
+    return sd?sd.slice(0,4)===String(soldYear):(!p.archived&&soldYear===nowYear);
   }),[sharedProps,soldYear,soldTxAll]); // eslint-disable-line react-hooks/exhaustive-deps
   const[soldPnl,setSoldPnl]=useState(()=>qbCache.get("soldPnl",{})); // projectId → {income,cogs,expenses,net,rows}
   useEffect(()=>{qbCache.set("soldPnl",soldPnl);},[soldPnl]);
@@ -15468,7 +15469,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   };
 
   const cards=[
-    {id:"sold",icon:"💵",title:`Sold in ${soldYear} — Profit by Deal`,desc:"Every deal sold this year — sale, all-in cost and profit, live from QuickBooks. Tap a cost for the breakdown."},
+    {id:"sold",icon:"💵",title:`Sold in ${nowYear} — Profit by Deal`,desc:`Every deal sold this year — sale, all-in cost and profit, live from QuickBooks. Tap a cost for the breakdown; switch to ${nowYear-1} inside.`},
     {id:"loc",icon:"📄",title:"Outstanding LOC by Deal",desc:"Who you owe line-of-credit to, by property — oldest funding first."},
     {id:"future",icon:"📈",title:"Available Future Funds",desc:"LOC capital freeing up from your upcoming closings."},
     {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Bank loan, credit lines with their splits, interest reserve and true equity — live from QuickBooks."},
@@ -15502,6 +15503,13 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:isMobile?16:18,fontWeight:800,color:T.text}}>{rep.title}</div>
                 <div style={{fontSize:12,color:T.textSub,marginTop:3,lineHeight:1.4}}>{rep.subtitle}</div>
+                {open==="sold"&&(
+                  <div style={{display:"flex",gap:6,marginTop:8}}>
+                    {[nowYear,nowYear-1].map(y=>(
+                      <button key={y} onClick={()=>setSoldYear(y)} style={{padding:"5px 14px",borderRadius:20,border:`1.5px solid ${soldYear===y?T.gold:T.border}`,background:soldYear===y?T.gold+"22":T.card,color:soldYear===y?"#8a6d1f":T.textSub,fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{y}</button>
+                    ))}
+                  </div>
+                )}
               </div>
               <button onClick={()=>setOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
             </div>

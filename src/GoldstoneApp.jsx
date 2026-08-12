@@ -15185,9 +15185,19 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     const sale=q?q.income:(n(f.actualSalePrice)||n(f.salePrice));
     const baseCost=q?(q.cogs+q.expenses):(n(f.actualPurchasePrice)+n(f.actualBuyingCosts)+n(f.actualRehabCosts)+n(f.actualSellingCosts)+n(f.actualSellingTransferTax));
     // Debt service: private-lender interest lives in the app's draw register
-    // (settled at closing), NOT the QuickBooks project P&L — pull it from the
-    // deal's draws so the true cost of money is in the number.
-    const locDraws=drawsForProperty(p,draws||[]).map(d=>({funder:d.funderName||"—",interest:Math.round(drawInterest(d))})).filter(x=>x.interest>0);
+    // (settled at closing), usually NOT in the QuickBooks project P&L — pull it
+    // from the deal's draws so the true cost of money is in the number. BUT when
+    // Esti DID book a draw's interest to the project (a debt-service line within
+    // ~2% of the draw's interest), the register line steps aside — the same
+    // dollars were counting twice (4 Rauer Ct: QB "Debt Service" $31,323.29 AND
+    // "LOC interest — Cohen" $31,323).
+    const qbDebt=q?(q.rows||[]).filter(r=>String(r.section||"").toLowerCase()!=="income"&&soldCatOfAcct(r.name)==="Debt service").map(r=>Number(r.amount)||0):[];
+    const usedQbDebt=new Set();
+    const locDraws=drawsForProperty(p,draws||[]).map(d=>({funder:d.funderName||"—",interest:Math.round(drawInterest(d))})).filter(x=>x.interest>0).filter(x=>{
+      const i=qbDebt.findIndex((amt,idx)=>!usedQbDebt.has(idx)&&Math.abs(amt-x.interest)<=Math.max(5,x.interest*0.02));
+      if(i>=0){usedQbDebt.add(i);return false;} // already in the books
+      return true;
+    });
     const locInt=locDraws.reduce((s,x)=>s+x.interest,0);
     return {q,f,adj,locDraws,locInt,sale:sale||0,allIn:baseCost+locInt+adj,profit:(sale||0)-baseCost-locInt-adj};
   };

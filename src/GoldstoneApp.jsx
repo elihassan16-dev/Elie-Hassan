@@ -15174,13 +15174,18 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
       try{const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);
         const items=d.items||[];
-        const debt=items.filter(t=>String(t.section||"").toLowerCase()!=="income"&&soldCatOfAcct(t.account)==="Debt service").map(t=>({vendor:t.vendor||"",memo:t.memo||"",amount:Number(t.amount)||0}));
-        const dOf=(list)=>list.map(t=>String(t.date||"")).filter(s=>/^\d{4}-\d{2}-\d{2}/.test(s)).sort();
-        const buyDates=dOf(items.filter(t=>String(t.section||"").toLowerCase()!=="income"&&soldCatOfAcct(t.account)==="Purchase"));
-        const anyDates=dOf(items);
-        const sellDates=dOf(items.filter(t=>String(t.section||"").toLowerCase()==="income"));
-        const buy=(buyDates[0]||anyDates[0]||"").slice(0,10);
-        const sell=(sellDates[sellDates.length-1]||"").slice(0,10);
+        const isInc=(t)=>String(t.section||"").toLowerCase().includes("income");
+        const dated=(list)=>list.filter(t=>/^\d{4}-\d{2}-\d{2}/.test(String(t.date||"")));
+        const debt=items.filter(t=>!isInc(t)&&soldCatOfAcct(t.account)==="Debt service").map(t=>({vendor:t.vendor||"",memo:t.memo||"",amount:Number(t.amount)||0}));
+        // The closing entries are the BIG ones — take the date of the largest
+        // sale-side entry (not the latest: a stray rent payment or credit booked
+        // after the sale was hijacking the sold date), and likewise the largest
+        // purchase-bucket entry for the bought date.
+        const bigDate=(list)=>{if(!list.length)return "";const b=list.reduce((m,t)=>Math.abs(Number(t.amount)||0)>Math.abs(Number(m.amount)||0)?t:m,list[0]);return String(b.date).slice(0,10);};
+        const buyList=dated(items.filter(t=>!isInc(t)&&soldCatOfAcct(t.account)==="Purchase"));
+        const anyDates=dated(items).map(t=>String(t.date).slice(0,10)).sort();
+        const buy=bigDate(buyList)||anyDates[0]||"";
+        const sell=bigDate(dated(items.filter(isInc)));
         if(!cancelled)setSoldTxAll(m=>({...m,[id]:{debt,buy,sell}}));
       }catch{/* keep cached */}}};
     Promise.all([run(),run()]);return()=>{cancelled=true;};
@@ -15569,8 +15574,11 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                       try{
                         const t=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(x.id)}`);
                         const items=t.items||[];
+                        // Largest sale-side entry = the closing JE (same rule as
+                        // the report's date sync — not the latest line).
+                        const big=(arr)=>{const l=arr.filter(i=>/^\d{4}-\d{2}-\d{2}/.test(String(i.date||"")));if(!l.length)return "";return String(l.reduce((m,t)=>Math.abs(Number(t.amount)||0)>Math.abs(Number(m.amount)||0)?t:m,l[0]).date).slice(0,10);};
                         const latest=(arr)=>arr.map(i=>String(i.date||"")).filter(Boolean).sort().pop()||"";
-                        const best=latest(items.filter(i=>String(i.section||"").toLowerCase()==="income"))||latest(items.filter(i=>/journal/i.test(i.type||"")))||latest(items);
+                        const best=big(items.filter(i=>String(i.section||"").toLowerCase().includes("income")))||latest(items.filter(i=>/journal/i.test(i.type||"")))||latest(items);
                         setSaleDraft(d=>d&&d.qbId===x.id?{...d,date:d.date||best,dateBusy:false,dateFromQb:!!best}:d);
                       }catch{setSaleDraft(d=>d&&d.qbId===x.id?{...d,dateBusy:false}:d);}
                     }} style={{padding:"10px 12px",border:`1px solid ${T.border}`,borderRadius:10,cursor:"pointer",background:T.bg}}>
@@ -15655,6 +15663,13 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                     <input type="date" value={sd.buy||""} disabled={!canEdit} onChange={e=>setF("boughtDateOverride",e.target.value)} style={dIn}/>
                     {srcTag(f2.boughtDateOverride,qx.buy,"boughtDateOverride")}
                   </div>
+                  {soldSel.qbProjectId&&soldTxns&&(()=>{
+                    // Show the sale-side entries the date sync is reading, so a
+                    // wrong date is traceable to the exact QuickBooks line.
+                    const inc=soldTxns.filter(t=>String(t.section||"").toLowerCase().includes("income")&&/^\d{4}-\d{2}-\d{2}/.test(String(t.date||"")));
+                    return(<div style={{fontSize:10.5,color:T.textTert,marginTop:5,lineHeight:1.5}}>
+                      {inc.length?<>Sale entries in QuickBooks: {inc.map(t=>`${finFmtDate(String(t.date).slice(0,10))} — ${fmtD(Math.abs(Number(t.amount)||0))}`).join(" · ")}</>:"No sale entry found in this QuickBooks project."}
+                    </div>);})()}
                   {!soldSel.qbProjectId&&canEdit&&connected&&(()=>{
                     // Not linked to the books — the numbers above are the app's
                     // saved figures. Search + tap to link the QuickBooks project.

@@ -15131,7 +15131,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const soldProps=useMemo(()=>(sharedProps||[]).filter(p=>{
     if(p.status!=="Sold")return false;
     const sd=(p.financials||{}).sellingDate||"";
-    return sd?sd>=`${soldYear}-01-01`:!p.archived; // undated Sold: only if not archived yet
+    // Undated Sold deals (archived or not) show flagged — hiding them made
+    // this-year sales silently vanish when nobody filled in the sale date.
+    return sd?sd>=`${soldYear}-01-01`:true;
   }),[sharedProps,soldYear]);
   const[soldPnl,setSoldPnl]=useState(()=>qbCache.get("soldPnl",{})); // projectId → {income,cogs,expenses,net,rows}
   useEffect(()=>{qbCache.set("soldPnl",soldPnl);},[soldPnl]);

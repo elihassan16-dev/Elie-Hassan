@@ -15133,14 +15133,22 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     return "Other";
   };
   const soldYear=new Date().getFullYear();
+  // Per-deal QuickBooks transaction facts: debt payments (for the interest
+  // dedupe) + the BOUGHT date (earliest purchase-bucket entry — the buying
+  // journal entry) and SOLD date (latest income entry — the closing JE), so
+  // holding periods sync from the books when the app's dates are blank.
+  const[soldTxAll,setSoldTxAll]=useState(()=>qbCache.get("soldTxAll",{}));
+  useEffect(()=>{qbCache.set("soldTxAll",soldTxAll);},[soldTxAll]);
+  const soldQxOf=(p)=>{const v=p.qbProjectId?soldTxAll[p.qbProjectId]:null;return Array.isArray(v)?{debt:v}:(v||{});};
+  const soldDatesOf=(p)=>{const f=p.financials||{};const qx=soldQxOf(p);return {buy:f.purchaseDate||qx.buy||"",sell:f.sellingDate||qx.sell||""};};
   const soldProps=useMemo(()=>(sharedProps||[]).filter(p=>{
     if(p.status!=="Sold")return false;
-    const sd=(p.financials||{}).sellingDate||"";
     // Undated ARCHIVED Sold deals stay out (old half-entered records with bad
     // data) — re-adding one via ＋ Add a past sale repairs the existing record
     // in place. Undated active Sold deals still show flagged.
+    const sd=soldDatesOf(p).sell;
     return sd?sd>=`${soldYear}-01-01`:!p.archived;
-  }),[sharedProps,soldYear]);
+  }),[sharedProps,soldYear,soldTxAll]); // eslint-disable-line react-hooks/exhaustive-deps
   const[soldPnl,setSoldPnl]=useState(()=>qbCache.get("soldPnl",{})); // projectId → {income,cogs,expenses,net,rows}
   useEffect(()=>{qbCache.set("soldPnl",soldPnl);},[soldPnl]);
   const soldKey=soldProps.map(p=>p.qbProjectId).filter(Boolean).join(",");
@@ -15152,17 +15160,23 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
       }catch{/* keep cached */}}};
     Promise.all([run(),run()]);return ()=>{cancelled=true;};
   },[connected,soldKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Per-deal QuickBooks DEBT transactions (vendor/memo/amount) — the dedupe
-  // needs transaction-level detail: a P&L "Debt Service" account totals many
-  // payments, so a single lender's payment never matches the account total.
-  const[soldTxAll,setSoldTxAll]=useState(()=>qbCache.get("soldTxAll",{}));
-  useEffect(()=>{qbCache.set("soldTxAll",soldTxAll);},[soldTxAll]);
+  // Fetch each deal's QB transactions once → debt lines (vendor/memo/amount,
+  // transaction-level: a P&L "Debt Service" account totals many payments so a
+  // single lender's payment never matches the account total) + the buy/sell
+  // journal-entry dates for soldDatesOf above.
   useEffect(()=>{
     if(!connected)return;const ids=[...new Set(soldProps.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
     const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
       try{const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);
-        const debt=(d.items||[]).filter(t=>String(t.section||"").toLowerCase()!=="income"&&soldCatOfAcct(t.account)==="Debt service").map(t=>({vendor:t.vendor||"",memo:t.memo||"",amount:Number(t.amount)||0}));
-        if(!cancelled)setSoldTxAll(m=>({...m,[id]:debt}));
+        const items=d.items||[];
+        const debt=items.filter(t=>String(t.section||"").toLowerCase()!=="income"&&soldCatOfAcct(t.account)==="Debt service").map(t=>({vendor:t.vendor||"",memo:t.memo||"",amount:Number(t.amount)||0}));
+        const dOf=(list)=>list.map(t=>String(t.date||"")).filter(s=>/^\d{4}-\d{2}-\d{2}/.test(s)).sort();
+        const buyDates=dOf(items.filter(t=>String(t.section||"").toLowerCase()!=="income"&&soldCatOfAcct(t.account)==="Purchase"));
+        const anyDates=dOf(items);
+        const sellDates=dOf(items.filter(t=>String(t.section||"").toLowerCase()==="income"));
+        const buy=(buyDates[0]||anyDates[0]||"").slice(0,10);
+        const sell=(sellDates[sellDates.length-1]||"").slice(0,10);
+        if(!cancelled)setSoldTxAll(m=>({...m,[id]:{debt,buy,sell}}));
       }catch{/* keep cached */}}};
     Promise.all([run(),run()]);return()=>{cancelled=true;};
   },[connected,soldKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -15230,7 +15244,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     // ~2% of the draw's interest), the register line steps aside — the same
     // dollars were counting twice (4 Rauer Ct: QB "Debt Service" $31,323.29 AND
     // "LOC interest — Cohen" $31,323).
-    const txDebt=p.qbProjectId?(soldTxAll[p.qbProjectId]||[]):[];
+    const txDebt=soldQxOf(p).debt||[];
     // Amounts to dedupe against: individual debt TRANSACTIONS first (a P&L
     // account line totals many payments and never matches one lender), with
     // the P&L account lines as backup when transactions haven't loaded yet.
@@ -15253,9 +15267,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   };
   const rptSold=useMemo(()=>{
     const rows=soldProps.map(p=>{
-      const {q,f,adj,sale,allIn,profit}=soldNumbersOf(p);
-      const months=f.purchaseDate&&f.sellingDate?((new Date(f.sellingDate)-new Date(f.purchaseDate))/(1000*60*60*24*30.44)):null;
-      return {propId:p.id,address:p.address,sold:f.sellingDate||"",qb:!!q,sale,allIn,profit,months,adj};
+      const {q,adj,sale,allIn,profit}=soldNumbersOf(p);
+      // Held syncs from the books: buy = the purchase journal entry's date,
+      // sell = the sale journal entry's date, unless the app has its own dates.
+      const {buy,sell}=soldDatesOf(p);
+      const months=buy&&sell?((new Date(sell)-new Date(buy))/(1000*60*60*24*30.44)):null;
+      return {propId:p.id,address:p.address,sold:sell||"",qb:!!q,sale,allIn,profit,months,adj};
     }).sort((a,b)=>String(a.sold||"9999").localeCompare(String(b.sold||"9999")));
     const total={sale:0,allIn:0,profit:0,mo:0,moN:0};
     rows.forEach(r=>{total.sale+=r.sale;total.allIn+=r.allIn;total.profit+=r.profit;if(r.months!=null){total.mo+=r.months;total.moN++;}});
@@ -15586,11 +15603,13 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:16,fontWeight:800,color:T.text}}>All-in Cost Breakdown</div>
                   <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{soldSel.address} · {q?"live from QuickBooks":"app actual figures"} · sale {fmtD(sale)}</div>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8}}>
-                    <span style={{fontSize:11,fontWeight:800,color:f.sellingDate?T.textSub:T.orange}}>Sold date</span>
-                    <input type="date" value={f.sellingDate||""} disabled={!canEdit} onChange={e=>updateProp(soldSel.id,"financials",{...(soldSel.financials||{}),sellingDate:e.target.value})}
-                      style={{padding:"6px 9px",borderRadius:8,border:`1px solid ${f.sellingDate?T.border:T.orange}`,background:T.bg,color:T.text,fontSize:12.5,outline:"none",fontFamily:"inherit"}}/>
-                  </div>
+                  {(()=>{const sd=soldDatesOf(soldSel);return(
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:11,fontWeight:800,color:sd.sell?T.textSub:T.orange}}>Sold date</span>
+                    <input type="date" value={sd.sell||""} disabled={!canEdit} onChange={e=>updateProp(soldSel.id,"financials",{...(soldSel.financials||{}),sellingDate:e.target.value})}
+                      style={{padding:"6px 9px",borderRadius:8,border:`1px solid ${sd.sell?T.border:T.orange}`,background:T.bg,color:T.text,fontSize:12.5,outline:"none",fontFamily:"inherit"}}/>
+                    {!f.sellingDate&&sd.sell?<span style={{fontSize:10,fontWeight:800,color:"#2CA01C",background:"#EAF7E8",border:"1px solid #BFE5BA",borderRadius:8,padding:"2px 7px"}}>from QuickBooks ✓</span>:null}
+                  </div>);})()}
                 </div>
                 <button onClick={()=>setSoldFor(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
               </div>

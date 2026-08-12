@@ -15149,20 +15149,29 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   // closing — the JE carries the booking date, not the closing date — so the
   // popup lets the real date be pinned on top.
   const soldDatesOf=(p)=>{const f=p.financials||{};const qx=soldQxOf(p);return {buy:f.boughtDateOverride||qx.buy||f.purchaseDate||"",sell:f.soldDateOverride||qx.sell||f.sellingDate||""};};
-  const soldProps=useMemo(()=>(sharedProps||[]).filter(p=>{
+  // Every reportable Sold deal, ANY year — QuickBooks data loads for all of
+  // them so the year pills and the Compare-years view are instant.
+  const soldPropsAll=useMemo(()=>(sharedProps||[]).filter(p=>{
     if(p.status!=="Sold")return false;
     if(p.soldExcluded)return false; // hand-removed from the report (restorable)
     // Undated ARCHIVED Sold deals stay out (old half-entered records with bad
     // data) — re-adding one via ＋ Add a past sale repairs the existing record
-    // in place. Undated active Sold deals still show flagged (current year only).
+    // in place. Undated active Sold deals still show flagged.
     const sd=soldDatesOf(p).sell;
-    return sd?sd.slice(0,4)===String(soldYear):(!p.archived&&soldYear===nowYear);
-  }),[sharedProps,soldYear,soldTxAll]); // eslint-disable-line react-hooks/exhaustive-deps
+    return sd?true:!p.archived;
+  }),[sharedProps,soldTxAll]); // eslint-disable-line react-hooks/exhaustive-deps
+  const soldProps=useMemo(()=>soldPropsAll.filter(p=>{
+    const sd=soldDatesOf(p).sell;
+    return sd?sd.slice(0,4)===String(soldYear):soldYear===nowYear;
+  }),[soldPropsAll,soldYear]); // eslint-disable-line react-hooks/exhaustive-deps
+  const[soldView,setSoldView]=useState("deals"); // deals | month | compare
+  const[soldMonth,setSoldMonth]=useState(null);  // 0-11 → deals list narrowed to that month
+  useEffect(()=>{setSoldMonth(null);},[soldYear]);
   const[soldPnl,setSoldPnl]=useState(()=>qbCache.get("soldPnl",{})); // projectId → {income,cogs,expenses,net,rows}
   useEffect(()=>{qbCache.set("soldPnl",soldPnl);},[soldPnl]);
-  const soldKey=soldProps.map(p=>p.qbProjectId).filter(Boolean).join(",");
+  const soldKey=soldPropsAll.map(p=>p.qbProjectId).filter(Boolean).join(",");
   useEffect(()=>{
-    if(!connected)return;const ids=[...new Set(soldProps.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
+    if(!connected)return;const ids=[...new Set(soldPropsAll.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
     const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
       try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);
         if(!cancelled)setSoldPnl(m=>({...m,[id]:{income:Number(d.income)||0,cogs:Number(d.cogs)||0,expenses:Number(d.expenses)||0,net:Number(d.netIncome)||0,rows:d.rows||[]}}));
@@ -15174,7 +15183,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   // single lender's payment never matches the account total) + the buy/sell
   // journal-entry dates for soldDatesOf above.
   useEffect(()=>{
-    if(!connected)return;const ids=[...new Set(soldProps.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
+    if(!connected)return;const ids=[...new Set(soldPropsAll.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
     const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
       try{const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);
         const items=d.items||[];
@@ -15228,7 +15237,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   // ＋ Add a past sale repair uses — so its numbers and dates sync live
   // without re-adding it by hand (114 Hillcrest sat on stale app figures
   // because the link was missing).
-  const soldUnlinkedKey=soldProps.filter(p=>!p.qbProjectId).map(p=>p.id).join(",");
+  const soldUnlinkedKey=soldPropsAll.filter(p=>!p.qbProjectId).map(p=>p.id).join(",");
   useEffect(()=>{
     if(!connected||!canEdit||!soldUnlinkedKey)return;
     let alive=true;
@@ -15237,7 +15246,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
       const list=d.items||[];
       const norm=(s)=>String(s||"").split(",")[0].toLowerCase().replace(/[^a-z0-9]/g,"");
       const used=new Set((sharedProps||[]).map(p=>p.qbProjectId).filter(Boolean));
-      soldProps.filter(p=>!p.qbProjectId).forEach(p=>{
+      soldPropsAll.filter(p=>!p.qbProjectId).forEach(p=>{
         const a=norm(p.address);
         if(a.length<5)return;
         let hits=list.filter(x=>{if(used.has(x.id))return false;const b=norm(x.name);return b.length>=5&&(a.startsWith(b)||b.startsWith(a));});
@@ -15386,11 +15395,48 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
       const {buy,sell}=soldDatesOf(p);
       const months=buy&&sell?((new Date(sell)-new Date(buy))/(1000*60*60*24*30.44)):null;
       return {propId:p.id,address:p.address,sold:sell||"",qb:!!q,sale,allIn,profit,months,adj};
-    }).sort((a,b)=>String(a.sold||"9999").localeCompare(String(b.sold||"9999")));
+    }).filter(r=>soldMonth==null||(r.sold&&parseInt(r.sold.slice(5,7),10)-1===soldMonth))
+      .sort((a,b)=>String(a.sold||"9999").localeCompare(String(b.sold||"9999")));
     const total={sale:0,allIn:0,profit:0,mo:0,moN:0};
     rows.forEach(r=>{total.sale+=r.sale;total.allIn+=r.allIn;total.profit+=r.profit;if(r.months!=null){total.mo+=r.months;total.moN++;}});
     return {rows,total};
-  },[soldProps,soldPnl,soldTxAll,sharedProps,draws]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[soldProps,soldMonth,soldPnl,soldTxAll,sharedProps,draws]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Aggregates for the By-month and Compare-years views.
+  const MONTHS_S=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const MONTHS_F=["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const soldStatsOf=(list)=>{
+    const s={n:0,sale:0,profit:0,mo:0,moN:0,monthly:Array.from({length:12},()=>({n:0,sale:0,profit:0}))};
+    list.forEach(p=>{
+      const {sale,profit}=soldNumbersOf(p);
+      const {buy,sell}=soldDatesOf(p);
+      s.n++;s.sale+=sale;s.profit+=profit;
+      if(buy&&sell){s.mo+=(new Date(sell)-new Date(buy))/(1000*60*60*24*30.44);s.moN++;}
+      const m=sell?parseInt(sell.slice(5,7),10)-1:-1;
+      if(m>=0&&m<12){const mm=s.monthly[m];mm.n++;mm.sale+=sale;mm.profit+=profit;}
+    });
+    return s;
+  };
+  const soldYearList=(y)=>soldPropsAll.filter(p=>soldDatesOf(p).sell.slice(0,4)===String(y));
+  // Exportable table shapes for the two extra views (print like any report).
+  const buildMonthRep=()=>{
+    const s=soldStatsOf(soldProps);
+    const rows=s.monthly.map((m,i)=>({m,i})).filter(x=>x.m.n>0).map(({m,i})=>[
+      {t:MONTHS_F[i]},{t:String(m.n),align:"right"},{t:fmtD(m.sale),align:"right"},
+      {t:fmtD(m.profit),align:"right",strong:true,color:m.profit<0?T.red:T.green},
+      {t:fmtD(m.profit/m.n),align:"right"},
+    ]);
+    return {title:`Sold in ${soldYear} — By Month`,subtitle:"Closings, sales volume and profit month by month, live from QuickBooks.",
+      cols:[{label:"Month"},{label:"Closings",align:"right"},{label:"Sales volume",align:"right"},{label:"Profit",align:"right"},{label:"Avg / deal",align:"right"}],
+      rows,foot:[[{t:`${soldYear}${soldYear===nowYear?" so far":""}`,strong:true},{t:String(s.n),align:"right",strong:true},{t:fmtD(s.sale),align:"right",strong:true},{t:fmtD(s.profit),align:"right",strong:true,color:T.gold},{t:s.n?fmtD(s.profit/s.n):"—",align:"right",strong:true}]],
+      empty:"No sales this year yet."};
+  };
+  const buildCmpRep=()=>{
+    const cur=soldStatsOf(soldYearList(nowYear)),prev=soldStatsOf(soldYearList(nowYear-1));
+    const row=(y,s,note)=>[{t:`${y}${note}`},{t:String(s.n),align:"right"},{t:fmtD(s.sale),align:"right"},{t:fmtD(s.profit),align:"right",strong:true,color:T.green},{t:s.n?fmtD(s.profit/s.n):"—",align:"right"},{t:s.moN?`${(s.mo/s.moN).toFixed(1)} mo`:"—",align:"right"}];
+    return {title:`Sold — ${nowYear} vs ${nowYear-1}`,subtitle:"Closings, volume, profit, average per deal and average hold, year over year.",
+      cols:[{label:"Year"},{label:"Closings",align:"right"},{label:"Sales volume",align:"right"},{label:"Profit",align:"right"},{label:"Avg / deal",align:"right"},{label:"Avg held",align:"right"}],
+      rows:[row(nowYear,cur," (so far)"),row(nowYear-1,prev,"")],foot:null,empty:""};
+  };
 
   const D=(iso)=>iso?finFmtDate(iso):"—";
   const M=(v)=>v==null?"—":fmtD(v);
@@ -15579,17 +15625,122 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                 <div style={{fontSize:isMobile?16:18,fontWeight:800,color:T.text}}>{rep.title}</div>
                 <div style={{fontSize:12,color:T.textSub,marginTop:3,lineHeight:1.4}}>{rep.subtitle}</div>
                 {open==="sold"&&(
-                  <div style={{display:"flex",gap:6,marginTop:8}}>
-                    {[nowYear,nowYear-1].map(y=>(
+                  <div style={{display:"flex",gap:8,marginTop:9,flexWrap:"wrap",alignItems:"center"}}>
+                    <div style={{display:"inline-flex",background:T.bg,borderRadius:12,padding:3,gap:2}}>
+                      {[["deals","Deals"],["month","📅 By month"],["compare","⚖ Compare years"]].map(([k,l])=>(
+                        <button key={k} onClick={()=>{setSoldView(k);if(k!=="deals")setSoldMonth(null);}} style={{padding:"6px 12px",borderRadius:9,border:"none",background:soldView===k?T.card:"transparent",color:soldView===k?"#8a6d1f":T.textSub,fontWeight:soldView===k?800:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",boxShadow:soldView===k?"0 1px 4px rgba(0,0,0,0.10)":"none",whiteSpace:"nowrap"}}>{l}</button>
+                      ))}
+                    </div>
+                    {soldView!=="compare"&&[nowYear,nowYear-1].map(y=>(
                       <button key={y} onClick={()=>setSoldYear(y)} style={{padding:"5px 14px",borderRadius:20,border:`1.5px solid ${soldYear===y?T.gold:T.border}`,background:soldYear===y?T.gold+"22":T.card,color:soldYear===y?"#8a6d1f":T.textSub,fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{y}</button>
                     ))}
+                    {soldView==="deals"&&soldMonth!=null&&(
+                      <button onClick={()=>setSoldMonth(null)} style={{padding:"5px 12px",borderRadius:20,border:"none",background:T.gold,color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{MONTHS_F[soldMonth]} ✕</button>
+                    )}
                   </div>
                 )}
               </div>
               <button onClick={()=>setOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
             </div>
             <div style={{flex:1,overflow:"auto",padding:isMobile?"4px 4px 12px":"6px 10px 14px"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?12:13}}>
+              {open==="sold"&&soldView==="month"&&(()=>{
+                // 📅 By month — tappable profit bars + a monthly summary table.
+                const s=soldStatsOf(soldProps);
+                const maxP=Math.max(...s.monthly.map(m=>Math.abs(m.profit)),1);
+                const kf=(v)=>Math.abs(v)>=1000?`${Math.round(v/1000)}k`:String(Math.round(v));
+                const mRows=s.monthly.map((m,i)=>({m,i})).filter(x=>x.m.n>0);
+                return(<div>
+                  <div style={{display:"flex",alignItems:"flex-end",gap:isMobile?3:8,height:150,padding:"16px 10px 0"}}>
+                    {s.monthly.map((m,i)=>(
+                      <div key={i} onClick={m.n?()=>{setSoldMonth(i);setSoldView("deals");}:undefined} title={m.n?`See ${MONTHS_F[i]}'s closings`:undefined}
+                        style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",gap:4,height:"100%",cursor:m.n?"pointer":"default",minWidth:0}}>
+                        {m.n?<span style={{fontSize:isMobile?8.5:10,fontWeight:800,color:T.text}}>{kf(m.profit)}</span>:null}
+                        {m.n?<div style={{width:"100%",maxWidth:40,height:`${Math.max(4,Math.round(Math.abs(m.profit)/maxP*100))}%`,background:m.profit<0?T.red:T.gold,borderRadius:"4px 4px 0 0"}}/>:null}
+                        <span style={{fontSize:isMobile?8.5:10,fontWeight:700,color:m.n?T.textSub:T.border,paddingTop:3}}>{MONTHS_S[i]}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {mRows.length===0?<div style={{textAlign:"center",color:T.textTert,padding:"24px 10px",fontSize:13}}>No sales in {soldYear} yet.</div>:(
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?12:13,marginTop:12}}>
+                    <thead><tr>{["Month","Closings","Sales volume","Profit","Avg / deal"].map((h,i)=><th key={h} style={{textAlign:i?"right":"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"8px 10px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {mRows.map(({m,i},ri)=>(
+                        <tr key={i} onClick={()=>{setSoldMonth(i);setSoldView("deals");}} title="Tap to see these closings" style={{background:ri%2?T.gold+"12":T.card,cursor:"pointer"}}>
+                          <td style={{padding:"9px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:700,color:T.text}}>{MONTHS_F[i]}</td>
+                          <td style={{padding:"9px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right"}}>{m.n}</td>
+                          <td style={{padding:"9px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right"}}>{fmtD(m.sale)}</td>
+                          <td style={{padding:"9px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontWeight:800,color:m.profit<0?T.red:T.green}}>{fmtD(m.profit)}</td>
+                          <td style={{padding:"9px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right"}}>{fmtD(m.profit/m.n)}</td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td style={{padding:"11px 10px",borderTop:`2px solid ${T.gold}`,fontWeight:800}}>{soldYear}{soldYear===nowYear?" so far":""}</td>
+                        <td style={{padding:"11px 10px",borderTop:`2px solid ${T.gold}`,textAlign:"right",fontWeight:800}}>{s.n}</td>
+                        <td style={{padding:"11px 10px",borderTop:`2px solid ${T.gold}`,textAlign:"right",fontWeight:800}}>{fmtD(s.sale)}</td>
+                        <td style={{padding:"11px 10px",borderTop:`2px solid ${T.gold}`,textAlign:"right",fontWeight:800,color:T.gold}}>{fmtD(s.profit)}</td>
+                        <td style={{padding:"11px 10px",borderTop:`2px solid ${T.gold}`,textAlign:"right",fontWeight:800}}>{s.n?fmtD(s.profit/s.n):"—"}</td>
+                      </tr>
+                    </tbody>
+                  </table>)}
+                </div>);})()}
+              {open==="sold"&&soldView==="compare"&&(()=>{
+                // ⚖ Compare years — same-date pace in the cards (this year isn't
+                // over, so profit-through-today vs profit-through-this-date-last-year).
+                const mmdd=new Date().toISOString().slice(5,10);
+                const curList=soldYearList(nowYear),prevList=soldYearList(nowYear-1);
+                const cur=soldStatsOf(curList),prev=soldStatsOf(prevList);
+                const prevPace=soldStatsOf(prevList.filter(p=>soldDatesOf(p).sell.slice(5,10)<=mmdd));
+                const pct=(a,b)=>b?Math.round((a-b)/Math.abs(b)*100):null;
+                const maxP=Math.max(...cur.monthly.map(m=>Math.abs(m.profit)),...prev.monthly.map(m=>Math.abs(m.profit)),1);
+                const BLUE="#4E7BC4";
+                const delta=(v,good)=>v==null?null:<span style={{fontSize:11,fontWeight:800,color:(v>=0)===good?T.green:T.red}}>{v>=0?"▲":"▼"} {v>=0?"+":""}{v}%</span>;
+                const card=(label,val,dl,sub)=>(
+                  <div style={{flex:"1 1 130px",minWidth:0,border:`1px solid ${T.border}`,borderRadius:14,padding:"11px 13px"}}>
+                    <div style={{fontSize:10,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em",whiteSpace:"nowrap"}}>{label}</div>
+                    <div style={{fontSize:isMobile?16:18,fontWeight:800,color:T.text,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val}</div>
+                    {dl&&<div style={{marginTop:2}}>{dl}</div>}
+                    <div style={{fontSize:10.5,color:T.textTert,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{sub}</div>
+                  </div>);
+                return(<div style={{padding:"10px 8px 4px"}}>
+                  {prev.n===0&&<div style={{margin:"4px 10px 10px",padding:"10px 12px",borderRadius:10,background:T.gold+"18",border:`1px solid ${T.gold}55`,fontSize:12,color:"#8a6d1f",fontWeight:600}}>No {nowYear-1} sales in the app yet — switch to {nowYear-1} on the Deals view and tap ⚡ Auto-import {nowYear-1} sales to pull them from QuickBooks.</div>}
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap",padding:"0 10px"}}>
+                    {card("Closings",cur.n,prevPace.n?<span style={{fontSize:11,fontWeight:800,color:cur.n>=prevPace.n?T.green:T.red}}>{cur.n>=prevPace.n?"▲ +":"▼ "}{cur.n-prevPace.n} vs '{String(nowYear-1).slice(2)} pace</span>:null,`${nowYear-1} full year: ${prev.n}`)}
+                    {card("Profit",fmtD(cur.profit),delta(pct(cur.profit,prevPace.profit),true),`${nowYear-1} full year: ${fmtD(prev.profit)}`)}
+                    {card("Avg profit / deal",cur.n?fmtD(cur.profit/cur.n):"—",delta(pct(cur.n?cur.profit/cur.n:0,prev.n?prev.profit/prev.n:0),true),`${nowYear-1}: ${prev.n?fmtD(prev.profit/prev.n):"—"}`)}
+                    {card("Avg held",cur.moN?`${(cur.mo/cur.moN).toFixed(1)} mo`:"—",null,`${nowYear-1}: ${prev.moN?`${(prev.mo/prev.moN).toFixed(1)} mo`:"—"}`)}
+                  </div>
+                  <div style={{display:"flex",gap:16,padding:"14px 12px 0",fontSize:11.5,fontWeight:700,color:T.textSub}}>
+                    <span><span style={{display:"inline-block",width:9,height:9,borderRadius:3,background:T.gold,marginRight:5,verticalAlign:-1}}/>{nowYear}</span>
+                    <span><span style={{display:"inline-block",width:9,height:9,borderRadius:3,background:BLUE,marginRight:5,verticalAlign:-1}}/>{nowYear-1}</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"flex-end",gap:isMobile?3:8,height:120,padding:"10px 10px 0"}}>
+                    {MONTHS_S.map((mn,i)=>(
+                      <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",gap:4,height:"100%",minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"flex-end",gap:2,height:"100%",justifyContent:"center",width:"100%"}}>
+                          {prev.monthly[i].n?<div title={`${MONTHS_F[i]} ${nowYear-1}: ${fmtD(prev.monthly[i].profit)}`} style={{width:isMobile?9:15,height:`${Math.max(4,Math.round(Math.abs(prev.monthly[i].profit)/maxP*100))}%`,background:BLUE,borderRadius:"4px 4px 0 0"}}/>:null}
+                          {cur.monthly[i].n?<div title={`${MONTHS_F[i]} ${nowYear}: ${fmtD(cur.monthly[i].profit)}`} style={{width:isMobile?9:15,height:`${Math.max(4,Math.round(Math.abs(cur.monthly[i].profit)/maxP*100))}%`,background:cur.monthly[i].profit<0?T.red:T.gold,borderRadius:"4px 4px 0 0"}}/>:null}
+                        </div>
+                        <span style={{fontSize:isMobile?8.5:10,fontWeight:700,color:(cur.monthly[i].n||prev.monthly[i].n)?T.textSub:T.border,paddingTop:3}}>{mn}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?12:13,marginTop:14}}>
+                    <thead><tr>{["","Closings","Volume","Profit","Avg / deal","Avg held"].map((h,i)=><th key={i} style={{textAlign:i?"right":"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"8px 10px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {[[nowYear,cur,T.gold,` (through ${finFmtDate(new Date().toISOString().slice(0,10))})`],[nowYear-1,prev,BLUE,""]].map(([y,s,c,note])=>(
+                        <tr key={y}>
+                          <td style={{padding:"9px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}><span style={{display:"inline-block",width:9,height:9,borderRadius:3,background:c,marginRight:6,verticalAlign:-1}}/>{y}<span style={{fontWeight:600,color:T.textTert,fontSize:11}}>{note}</span></td>
+                          <td style={{padding:"9px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right"}}>{s.n}</td>
+                          <td style={{padding:"9px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right"}}>{fmtD(s.sale)}</td>
+                          <td style={{padding:"9px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontWeight:800,color:s.profit<0?T.red:T.green}}>{fmtD(s.profit)}</td>
+                          <td style={{padding:"9px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right"}}>{s.n?fmtD(s.profit/s.n):"—"}</td>
+                          <td style={{padding:"9px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right"}}>{s.moN?`${(s.mo/s.moN).toFixed(1)} mo`:"—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>);})()}
+              {(open!=="sold"||soldView==="deals")&&<table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?12:13}}>
                 <thead><tr>{rep.cols.map((c,i)=><th key={i} style={{textAlign:c.align||"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"8px 10px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:T.card,...(i===0?{left:0,zIndex:3,borderRight:`1px solid ${T.border}`}:{zIndex:1}),...(c.gutter?{paddingRight:31}:null)}}>{c.label}</th>)}</tr></thead>
                 <tbody>
                   {rep.rows.length===0
@@ -15617,7 +15768,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                         :c.t}</td>)}</tr>;})}
                   {rep.rows.length>0&&rep.foot&&rep.foot.map((frow,fi)=><tr key={"f"+fi}>{frow.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:fi===0?"11px 10px 8px":"2px 10px 8px",...(fi===0?{borderTop:`2px solid ${T.gold}`}:{}),fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{background:T.card})}}>{c.t}</td>)}</tr>)}
                 </tbody>
-              </table>
+              </table>}
             </div>
             <div style={{padding:isMobile?"12px 16px":"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",alignItems:"center",gap:10}}>
               {open==="sold"&&canEdit&&<div style={{marginRight:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -15630,7 +15781,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                     style={{padding:"10px 14px",borderRadius:T.radiusSm,background:"none",border:"none",color:T.textTert,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>↩ Restore {exN} removed</button>:null;})()}
               </div>}
               <button onClick={()=>setOpen(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
-              <button onClick={()=>exportReport(rep)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export / PDF</button>
+              <button onClick={()=>exportReport(open==="sold"&&soldView==="month"?buildMonthRep():open==="sold"&&soldView==="compare"?buildCmpRep():rep)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export / PDF</button>
             </div>
           </div>
         </div>

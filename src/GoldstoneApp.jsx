@@ -16627,6 +16627,23 @@ function AssignEmailModal({chain,properties,onAssign,onClose}){
   );
 }
 // Merge app contacts + Outlook people into one deduped suggestion list.
+// Everyone the app knows an email address for — the contacts book PLUS every
+// sender from every pinned email chain across the portfolio (the people you
+// actually correspond with about deals). Feeds the To/Cc autocomplete, so
+// suggestions work like Outlook's even without the People.Read permission.
+function useMailPeople(){
+  const{sharedProps,contacts}=useData()||{};
+  return useMemo(()=>{
+    const seen=new Map();
+    (contacts||[]).forEach(c=>{const e=c&&c.email?String(c.email).toLowerCase():"";if(e&&!seen.has(e))seen.set(e,{name:c.name||c.email,email:c.email});});
+    (sharedProps||[]).forEach(pp=>(pp.pinnedEmails||[]).forEach(pe=>{
+      const e=String(pe.fromAddr||"").toLowerCase();
+      if(!e||e.endsWith("@gpflips.com")||seen.has(e))return;
+      seen.set(e,{name:pe.from||pe.fromAddr,email:pe.fromAddr});
+    }));
+    return [...seen.values()];
+  },[sharedProps,contacts]);
+}
 function mergeSuggestions(appMatches,people){
   const seen=new Set(),out=[];
   [...appMatches.map(c=>({name:c.name,email:c.email,src:"app"})),...people.map(p=>({...p,src:"outlook"}))].forEach(p=>{
@@ -16710,7 +16727,7 @@ function EmailPage({isMobile}){
   const od=useOneDrive();
   const{sharedProps,setSharedProps,contacts}=useData()||{};
   const savePropList=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived).sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[sharedProps]);
-  const appPeople=(contacts||[]).filter(c=>c&&c.email).map(c=>({name:c.name||c.email,email:c.email}));
+  const appPeople=useMailPeople(); // contacts book + everyone from pinned chains
   const[assignChain,setAssignChain]=useState(null);
   const[items,setItems]=useState(null);     // flat accumulated messages (null = loading)
   const[next,setNext]=useState(null);        // pagination token (@odata.nextLink)
@@ -17312,7 +17329,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
   const mail=useOutlookMail();
   const od=useOneDrive();
   const{contacts}=useData()||{};
-  const appPeople=(contacts||[]).filter(c=>c&&c.email).map(c=>({name:c.name||c.email,email:c.email}));
+  const appPeople=useMailPeople(); // contacts book + everyone from pinned chains
   const filesFolder=property.filesFolder||null; // OneDrive/SharePoint folder for this property's Files
   const pinned=property.pinnedEmails||[];
   const[picker,setPicker]=useState(false);
@@ -17331,6 +17348,36 @@ function PropertyEmails({property,onUpdate,isMobile}){
   const[teamMsgs,setTeamMsgs]=useState(null);
   const[teamFrom,setTeamFrom]=useState("");
   const[senderOpen,setSenderOpen]=useState(null); // sender-group key whose page is open
+  // ✉️ Start a NEW email chain about this property: subject pre-filled with the
+  // address (add "— septic" etc.), To/Cc with autocomplete; after sending, the
+  // chain is found in Sent Items and pinned here automatically.
+  const[composeP,setComposeP]=useState(null); // {to,cc,subject,text,files,sending,err}
+  const sendComposeP=async()=>{
+    const c=composeP;if(!c||!c.to.trim()||c.sending)return;
+    const subject=(c.subject||"").trim().replace(/\s*[—-]\s*$/,"")||`${property.address||""}${property.city?`, ${property.city}`:""}`;
+    setComposeP({...c,sending:true,err:""});
+    try{
+      await mail.sendNew({to:c.to,cc:c.cc||"",subject,html:`<div>${mailEsc(c.text||"").replace(/\n/g,"<br>")}</div>`,files:c.files||[]});
+      setComposeP(null);
+      // Pin the new chain (retry a few times — Sent Items can lag a moment).
+      (async()=>{
+        for(const wait of[1500,3500,7000]){
+          await new Promise(r=>setTimeout(r,wait));
+          try{
+            const sent=await mail.listChains("sentitems",10);
+            const hit=sent.find(x=>String(x.latest.subject||"").trim()===subject);
+            if(hit){
+              if(!(property.pinnedEmails||[]).some(pe=>(pe.internetMessageId&&pe.internetMessageId===hit.latest.internetMessageId)||pe.conversationId===hit.key)){
+                const note=autoMailLabel({subject,bodyPreview:c.text||""});
+                savePinned([...(property.pinnedEmails||[]),{...buildEmailPin(hit),...(note?{label:{kind:"general",note}}:{})}]);
+              }
+              return;
+            }
+          }catch{/* retry */}
+        }
+      })();
+    }catch(e){setComposeP({...c,sending:false,err:e.message||"Couldn't send."});}
+  };
   const vScrollRef=useRef(null);
   const pinKey=pinned.map(p=>p.id).join(",");
 
@@ -17446,7 +17493,8 @@ function PropertyEmails({property,onUpdate,isMobile}){
     <div style={{padding:isMobile?"14px":"20px 24px"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
         <div style={{fontSize:15,fontWeight:800,color:T.text}}>Pinned email chains</div>
-        <div style={{marginLeft:"auto"}}>
+        <div style={{marginLeft:"auto",display:"flex",gap:8}}>
+          {mail.signedIn&&<button onClick={()=>setComposeP({to:"",cc:"",subject:`${property.address||""}${property.city?`, ${property.city}`:""} — `,text:"",files:[]})} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.card,border:`1.5px solid ${T.gold}`,color:"#8a6d1f",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>✉️ New email</button>}
           {mail.signedIn
             ? <button onClick={()=>setPicker(true)} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>📌 Pin an email</button>
             : <button onClick={()=>mail.signIn()} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.card,border:`1px solid ${T.border}`,color:T.blue,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Connect Outlook to pin</button>}
@@ -17590,6 +17638,35 @@ function PropertyEmails({property,onUpdate,isMobile}){
       )}
       {labelPin&&<MailLabelPopover current={labelPin.label} tasks={propTasks} centered onClose={()=>setLabelPin(null)} onSet={v=>setPinLabel(labelPin.id,v)}/>}
 
+      {/* ✉️ New chain composer */}
+      {composeP&&(()=>{
+        const inp={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8};
+        return(
+        <div onClick={()=>!composeP.sending&&setComposeP(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:253,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+            <div style={{padding:"14px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+              <div style={{minWidth:0,flex:1}}>
+                <div style={{fontSize:15,fontWeight:800,color:T.text}}>✉️ New email</div>
+                <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Starts a chain pinned to {property.address} — add the topic after the address</div>
+              </div>
+              <button onClick={()=>!composeP.sending&&setComposeP(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+            <div style={{padding:"14px 18px",overflowY:"auto",flex:1}}>
+              <RecipientInput value={composeP.to} onChange={v=>setComposeP(c=>({...c,to:v}))} placeholder="To — start typing a name or email…" style={inp} contacts={appPeople} mail={mail}/>
+              <RecipientInput value={composeP.cc} onChange={v=>setComposeP(c=>({...c,cc:v}))} placeholder="Cc (optional)" style={inp} contacts={appPeople} mail={mail}/>
+              <input value={composeP.subject} onChange={e=>setComposeP(c=>({...c,subject:e.target.value}))} placeholder="Subject" style={{...inp,fontWeight:700}}/>
+              <textarea value={composeP.text} onChange={e=>setComposeP(c=>({...c,text:e.target.value}))} placeholder="Write your email…" rows={7} style={{...inp,resize:"vertical",lineHeight:1.55}}/>
+              <AttachFilesRow files={composeP.files} onChange={f=>setComposeP(c=>({...c,files:f}))} disabled={composeP.sending}/>
+              {composeP.err&&<div style={{marginTop:8,fontSize:12.5,color:T.red}}>{composeP.err}</div>}
+            </div>
+            <div style={{padding:"12px 18px max(12px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8,flexShrink:0}}>
+              <button onClick={()=>setComposeP(null)} disabled={composeP.sending} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600}}>Cancel</button>
+              <button onClick={sendComposeP} disabled={composeP.sending||!composeP.to.trim()} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:composeP.to.trim()?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:13,cursor:composeP.to.trim()?"pointer":"default",fontFamily:"inherit"}}>{composeP.sending?"Sending…":"Send"}</button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
       {/* Picker */}
       {picker&&(
         <div onClick={()=>setPicker(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>

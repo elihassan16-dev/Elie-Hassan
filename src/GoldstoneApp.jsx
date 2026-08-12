@@ -15155,7 +15155,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     const adj=(p.soldAdjust||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
     const sale=q?q.income:(n(f.actualSalePrice)||n(f.salePrice));
     const baseCost=q?(q.cogs+q.expenses):(n(f.actualPurchasePrice)+n(f.actualBuyingCosts)+n(f.actualRehabCosts)+n(f.actualSellingCosts)+n(f.actualSellingTransferTax));
-    return {q,f,adj,sale:sale||0,allIn:baseCost+adj,profit:(sale||0)-baseCost-adj};
+    // Debt service: private-lender interest lives in the app's draw register
+    // (settled at closing), NOT the QuickBooks project P&L — pull it from the
+    // deal's draws so the true cost of money is in the number.
+    const locDraws=drawsForProperty(p,draws||[]).map(d=>({funder:d.funderName||"—",interest:Math.round(drawInterest(d))})).filter(x=>x.interest>0);
+    const locInt=locDraws.reduce((s,x)=>s+x.interest,0);
+    return {q,f,adj,locDraws,locInt,sale:sale||0,allIn:baseCost+locInt+adj,profit:(sale||0)-baseCost-locInt-adj};
   };
   const rptSold=useMemo(()=>{
     const rows=soldProps.map(p=>{
@@ -15166,14 +15171,14 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     const total={sale:0,allIn:0,profit:0,mo:0,moN:0};
     rows.forEach(r=>{total.sale+=r.sale;total.allIn+=r.allIn;total.profit+=r.profit;if(r.months!=null){total.mo+=r.months;total.moN++;}});
     return {rows,total};
-  },[soldProps,soldPnl,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[soldProps,soldPnl,sharedProps,draws]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const D=(iso)=>iso?finFmtDate(iso):"—";
   const M=(v)=>v==null?"—":fmtD(v);
   const REPORTS={
     sold:{
       title:`Sold in ${soldYear} — Profit by Deal`,
-      subtitle:"Every property sold since January 1 — sale price, all-in cost and profit, live from each deal's QuickBooks project (QB); deals without a linked project use the app's actual figures. Tap an all-in cost for the breakdown — purchase, rehab, selling — and to add custom adjustments.",
+      subtitle:"Every property sold since January 1 — sale price, all-in cost and profit, live from each deal's QuickBooks project (QB); deals without a linked project use the app's actual figures. Debt service adds each deal's private-lender interest from the draw register. Tap an all-in cost for the breakdown — purchase, rehab, debt service, selling — and to add custom adjustments.",
       cols:[{label:"Property"},{label:"Sold"},{label:"Sale price",align:"right"},{label:"All-in cost",align:"right"},{label:"Profit",align:"right"},{label:"Held",align:"right"}],
       rows:rptSold.rows.map(r=>[
         {t:r.address+(r.qb?" · QB":"")},
@@ -15392,7 +15397,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
 
       {/* 💵 Sold-deal cost breakdown + custom adjustments */}
       {soldSel&&(()=>{
-        const {q,f,adj,sale,allIn,profit}=soldNumbersOf(soldSel);
+        const {q,f,adj,locDraws,sale,allIn,profit}=soldNumbersOf(soldSel);
         // Buckets: QB expense lines grouped by account keywords, or the app's
         // actual figures when there's no linked project.
         const buckets=SOLD_CATS.map(cat=>({cat,lines:[],total:0}));
@@ -15406,6 +15411,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
           put("Selling","Selling costs",n(f.actualSellingCosts));
           put("Selling","Transfer tax",n(f.actualSellingTransferTax));
         }
+        // Private-lender interest from the deal's draw register (not in QB).
+        locDraws.forEach(x=>{const b=bucketOf("Debt service");b.lines.push({label:`LOC interest — ${x.funder}`,amount:x.interest});b.total+=x.interest;});
         (soldSel.soldAdjust||[]).forEach(a=>{const b=bucketOf(SOLD_CATS.includes(a.cat)?a.cat:"Other");b.total+=Number(a.amount)||0;});
         const iS3={padding:"9px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text};
         return(

@@ -15149,6 +15149,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const soldDatesOf=(p)=>{const f=p.financials||{};const qx=soldQxOf(p);return {buy:f.boughtDateOverride||qx.buy||f.purchaseDate||"",sell:f.soldDateOverride||qx.sell||f.sellingDate||""};};
   const soldProps=useMemo(()=>(sharedProps||[]).filter(p=>{
     if(p.status!=="Sold")return false;
+    if(p.soldExcluded)return false; // hand-removed from the report (restorable)
     // Undated ARCHIVED Sold deals stay out (old half-entered records with bad
     // data) — re-adding one via ＋ Add a past sale repairs the existing record
     // in place. Undated active Sold deals still show flagged (current year only).
@@ -15621,6 +15622,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                 {connected&&<button onClick={importYearSales} disabled={!!importBusy} style={{padding:"10px 16px",borderRadius:T.radiusSm,background:importBusy?T.bg:T.card,border:`1.5px solid #2CA01C`,color:"#2CA01C",fontWeight:700,fontSize:13,cursor:importBusy?"default":"pointer",fontFamily:"inherit"}}>
                   {importBusy?(typeof importBusy==="string"?importBusy:`Scanning QuickBooks… ${importBusy.done}/${importBusy.total||"…"}`):`⚡ Auto-import ${soldYear} sales`}
                 </button>}
+                {(()=>{const exN=(sharedProps||[]).filter(p=>p.status==="Sold"&&p.soldExcluded).length;
+                  return exN>0?<button onClick={()=>{setSharedProps(prev=>prev.map(p=>p.soldExcluded?{...p,soldExcluded:false}:p));if(flushProps)setTimeout(flushProps,0);}}
+                    style={{padding:"10px 14px",borderRadius:T.radiusSm,background:"none",border:"none",color:T.textTert,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>↩ Restore {exN} removed</button>:null;})()}
               </div>}
               <button onClick={()=>setOpen(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
               <button onClick={()=>exportReport(rep)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export / PDF</button>
@@ -15809,6 +15813,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                     </div>
                     <div style={{fontSize:10.5,color:T.textTert,marginTop:6}}>Use a negative amount for a credit. Adjustments save on the deal and roll into the report's totals.</div>
                   </div>
+                )}
+                {canEdit&&(
+                  <button onClick={()=>{updateProp(soldSel.id,"soldExcluded",true);setSoldFor(null);}}
+                    style={{display:"block",margin:"0 18px 14px",background:"none",border:"none",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",padding:"4px 0"}}>
+                    🗑 Remove this deal from the report
+                  </button>
                 )}
               </div>
               <div style={{padding:"12px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"10",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>

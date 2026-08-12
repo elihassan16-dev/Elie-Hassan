@@ -15154,14 +15154,23 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const[soldFor,setSoldFor]=useState(null); // property id whose cost breakdown is open
   const[adjDraft,setAdjDraft]=useState({label:"",amount:"",cat:"Rehab"});
   // ＋ Add a past sale — deals sold before the app existed get created right
-  // from the report: archived + Sold + selling date (+ sale price if known).
-  const[saleDraft,setSaleDraft]=useState(null); // {addr,city,date,price}
+  // from the report: pick the QuickBooks project (address + live numbers in one
+  // shot) or type the address by hand; archived + Sold + selling date.
+  const[saleDraft,setSaleDraft]=useState(null); // {q,qbId,addr,city,date,price,manual}
+  const[qbProjList,setQbProjList]=useState(null);
+  useEffect(()=>{
+    if(!saleDraft||qbProjList!==null||!connected)return;
+    qbAuthFetch("/api/quickbooks/projects").then(d=>setQbProjList(d.items||[])).catch(()=>setQbProjList([]));
+  },[saleDraft,connected]); // eslint-disable-line react-hooks/exhaustive-deps
   const addPastSale=()=>{
     const a=saleDraft;if(!canEdit||!a||!a.addr.trim()||!a.date)return;
-    const rec=mkPropertyRecord(a.addr.trim(),a.city.trim(),"NJ","","Sold");
+    // "130 Montgomery Ave, Cinnaminson" style project names split into addr + city.
+    const parts=a.addr.split(",").map(s=>s.trim()).filter(Boolean);
+    const rec=mkPropertyRecord(parts[0]||a.addr.trim(),(a.city||parts[1]||"").trim(),"NJ","","Sold");
     rec.archived=true; // history, not the active pipeline
     rec.financials.sellingDate=a.date;
     rec.financials.actualSalePrice=String(a.price||"");
+    if(a.qbId)rec.qbProjectId=a.qbId; // numbers go live from the project P&L
     setSharedProps(prev=>[...prev,rec]);
     if(flushProps)setTimeout(flushProps,0);
     setSaleDraft(null);
@@ -15416,26 +15425,54 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
         </div>
       )}
 
-      {/* ＋ Add a past sale — creates an archived Sold deal from the report */}
+      {/* ＋ Add a past sale — pick the QuickBooks project (or type an address) */}
       {saleDraft&&(()=>{
         const iS4={padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text,width:"100%"};
         const ok=saleDraft.addr.trim()&&saleDraft.date;
+        const usedQb=new Set((sharedProps||[]).map(p=>p.qbProjectId).filter(Boolean));
+        const term=(saleDraft.q||"").trim().toLowerCase();
+        const projMatches=!saleDraft.manual&&term.length>=2
+          ?(qbProjList||[]).filter(x=>!usedQb.has(x.id)&&String(x.name||"").toLowerCase().includes(term)).slice(0,8)
+          :[];
         return(
           <div onClick={()=>setSaleDraft(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:256,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
-            <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:440,maxWidth:"100%",boxShadow:T.shadowMd,overflow:"hidden"}}>
-              <div style={{padding:"16px 18px 10px",borderBottom:`2px solid ${T.gold}`}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:460,maxWidth:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+              <div style={{padding:"16px 18px 10px",borderBottom:`2px solid ${T.gold}`,flexShrink:0}}>
                 <div style={{fontSize:16,fontWeight:800,color:T.text}}>＋ Add a past sale</div>
-                <div style={{fontSize:11.5,color:T.textSub,marginTop:2,lineHeight:1.5}}>For deals sold before they were in the app. Creates the property as Sold (archived), dated — link its QuickBooks project later or add costs as adjustments.</div>
+                <div style={{fontSize:11.5,color:T.textSub,marginTop:2,lineHeight:1.5}}>{saleDraft.manual?"Typing the address by hand — no QuickBooks link (add costs as adjustments later).":"Pick the deal's QuickBooks project — the address AND live numbers come with it."}</div>
               </div>
-              <div style={{padding:"14px 18px",display:"flex",flexDirection:"column",gap:9}}>
-                <input value={saleDraft.addr} onChange={e=>setSaleDraft(d=>({...d,addr:e.target.value}))} placeholder="Street address (e.g. 130 Montgomery Ave)" style={iS4} autoFocus/>
-                <input value={saleDraft.city} onChange={e=>setSaleDraft(d=>({...d,city:e.target.value}))} placeholder="City (optional)" style={iS4}/>
-                <div style={{display:"flex",gap:9}}>
-                  <span style={{flex:1}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>DATE SOLD</span><input type="date" value={saleDraft.date} onChange={e=>setSaleDraft(d=>({...d,date:e.target.value}))} style={iS4}/></span>
-                  <span style={{flex:1}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>SALE PRICE (OPTIONAL)</span><input value={saleDraft.price} onChange={e=>setSaleDraft(d=>({...d,price:e.target.value.replace(/[^0-9.]/g,"")}))} placeholder="0" inputMode="decimal" style={{...iS4,textAlign:"right"}}/></span>
-                </div>
+              <div style={{padding:"14px 18px",display:"flex",flexDirection:"column",gap:9,overflowY:"auto",flex:1}}>
+                {!saleDraft.manual&&!saleDraft.qbId&&(<>
+                  <input value={saleDraft.q||""} onChange={e=>setSaleDraft(d=>({...d,q:e.target.value}))} placeholder="🔍 Search QuickBooks projects (e.g. Montgomery)…" style={iS4} autoFocus/>
+                  {qbProjList===null&&term.length>=2&&<div style={{fontSize:12,color:T.textTert,padding:"4px 2px"}}>Loading QuickBooks projects…</div>}
+                  {projMatches.map(x=>(
+                    <div key={x.id} onClick={()=>setSaleDraft(d=>({...d,qbId:x.id,addr:x.name.includes(":")?x.name.split(":").pop().trim():x.name,q:""}))} style={{padding:"10px 12px",border:`1px solid ${T.border}`,borderRadius:10,cursor:"pointer",background:T.bg}}>
+                      <div style={{fontSize:13.5,fontWeight:700,color:T.text}}>{x.name}</div>
+                      {x.parent&&<div style={{fontSize:10.5,color:T.textTert}}>under {x.parent}</div>}
+                    </div>
+                  ))}
+                  {qbProjList!==null&&term.length>=2&&projMatches.length===0&&<div style={{fontSize:12,color:T.textTert,padding:"4px 2px"}}>No unlinked QuickBooks project matches “{saleDraft.q}”.</div>}
+                  <button onClick={()=>setSaleDraft(d=>({...d,manual:true}))} style={{alignSelf:"flex-start",background:"none",border:"none",color:T.blue,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"2px 0"}}>No QuickBooks project? Type the address instead ›</button>
+                </>)}
+                {saleDraft.qbId&&(
+                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",border:`1.5px solid #2CA01C`,borderRadius:10,background:"#EAF7E8"}}>
+                    <span style={{fontSize:9,fontWeight:800,color:"#2CA01C",background:"#fff",border:"1px solid #BFE5BA",borderRadius:8,padding:"1px 6px",flexShrink:0}}>QB</span>
+                    <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{saleDraft.addr}</span>
+                    <button onClick={()=>setSaleDraft(d=>({...d,qbId:"",addr:""}))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
+                  </div>
+                )}
+                {saleDraft.manual&&(<>
+                  <input value={saleDraft.addr} onChange={e=>setSaleDraft(d=>({...d,addr:e.target.value}))} placeholder="Street address (e.g. 130 Montgomery Ave)" style={iS4} autoFocus/>
+                  <input value={saleDraft.city} onChange={e=>setSaleDraft(d=>({...d,city:e.target.value}))} placeholder="City (optional)" style={iS4}/>
+                </>)}
+                {(saleDraft.qbId||saleDraft.manual)&&(
+                  <div style={{display:"flex",gap:9}}>
+                    <span style={{flex:1}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>DATE SOLD</span><input type="date" value={saleDraft.date} onChange={e=>setSaleDraft(d=>({...d,date:e.target.value}))} style={iS4}/></span>
+                    <span style={{flex:1}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>{saleDraft.qbId?"SALE PRICE (QB PROVIDES IT)":"SALE PRICE (OPTIONAL)"}</span><input value={saleDraft.price} onChange={e=>setSaleDraft(d=>({...d,price:e.target.value.replace(/[^0-9.]/g,"")}))} placeholder="0" inputMode="decimal" style={{...iS4,textAlign:"right"}}/></span>
+                  </div>
+                )}
               </div>
-              <div style={{padding:"0 18px 16px",display:"flex",justifyContent:"flex-end",gap:8}}>
+              <div style={{padding:"12px 18px 16px",display:"flex",justifyContent:"flex-end",gap:8,flexShrink:0,borderTop:`1px solid ${T.border}`}}>
                 <button onClick={()=>setSaleDraft(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
                 <button onClick={addPastSale} disabled={!ok} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:ok?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:13,cursor:ok?"pointer":"default",fontFamily:"inherit"}}>Add sale</button>
               </div>

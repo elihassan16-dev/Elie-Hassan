@@ -15122,15 +15122,17 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   // an all-in cost opens the breakdown popup — QB lines bucketed into Purchase /
   // Rehab / Holding / Debt service / Selling / Other — plus custom adjustments
   // (stored on the property as soldAdjust) that roll into the totals.
-  const SOLD_CATS=["Purchase","Rehab","Holding","Debt service","Selling","Other"];
+  // "Holding" displays as "Holding costs" and is also the catch-all — Elie:
+  // whatever isn't purchase/rehab/debt/selling on a flip is really a holding
+  // cost, so there is no separate "Other" bucket.
+  const SOLD_CATS=["Purchase","Rehab","Holding","Debt service","Selling"];
   const soldCatOfAcct=(name)=>{
     const s=String(name||"").toLowerCase();
     if(/purchase|acquisition|land|buying|title|closing cost/.test(s))return "Purchase";
     if(/rehab|construction|repair|material|contractor/.test(s))return "Rehab";
     if(/interest|debt|loan fee|points|financ/.test(s))return "Debt service";
     if(/commission|selling|transfer tax|staging|realtor/.test(s))return "Selling";
-    if(/insurance|utilit|tax|hoa|lawn|maintenance/.test(s))return "Holding";
-    return "Other";
+    return "Holding";
   };
   const nowYear=new Date().getFullYear();
   const[soldYear,setSoldYear]=useState(nowYear); // year the Sold report shows
@@ -15201,8 +15203,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const[bucketOpen,setBucketOpen]=useState(null); // bucket cat being drilled
   const[bucketQ,setBucketQ]=useState("");
   const[linkQ,setLinkQ]=useState("");            // QB-project link search (unlinked deals)
+  const[adjOpen,setAdjOpen]=useState(false);     // the small add-adjustment popup
   useEffect(()=>{
-    setSoldTxns(null);setBucketOpen(null);setBucketQ("");setLinkQ("");
+    setSoldTxns(null);setBucketOpen(null);setBucketQ("");setLinkQ("");setAdjOpen(false);
     if(soldFor==null)return;
     const p=(sharedProps||[]).find(x=>x.id===soldFor);
     if(!p||!p.qbProjectId)return;
@@ -15728,7 +15731,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
         }
         // Private-lender interest from the deal's draw register (not in QB).
         locDraws.forEach(x=>{const b=bucketOf("Debt service");b.lines.push({label:`LOC interest — ${x.funder}`,amount:x.interest});b.total+=x.interest;});
-        (soldSel.soldAdjust||[]).forEach(a=>{const b=bucketOf(SOLD_CATS.includes(a.cat)?a.cat:"Other");b.total+=Number(a.amount)||0;});
+        (soldSel.soldAdjust||[]).forEach(a=>{const b=bucketOf(SOLD_CATS.includes(a.cat)?a.cat:"Holding");b.total+=Number(a.amount)||0;});
         const iS3={padding:"9px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text};
         return(<>
           <div onClick={()=>setSoldFor(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:255,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
@@ -15790,9 +15793,10 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                 </div>
                 {/* One clean row per category — every line item lives behind the
                     tap (drill-down). Adjustments roll into their category's row. */}
-                {(()=>{const CAT_ICON={Purchase:"🏠",Rehab:"🔨",Holding:"📆","Debt service":"🏦",Selling:"🤝",Other:"📁"};
+                {(()=>{const CAT_ICON={Purchase:"🏠",Rehab:"🔨",Holding:"📆","Debt service":"🏦",Selling:"🤝"};
+                  const CAT_LABEL={Holding:"Holding costs"};
                   return buckets.filter(b=>b.lines.length||b.total).map(b=>{
-                    const adjN=(soldSel.soldAdjust||[]).filter(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Other")===b.cat).length;
+                    const adjN=(soldSel.soldAdjust||[]).filter(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Holding")===b.cat).length;
                     const notes=[b.cat==="Debt service"&&locDraws.length?"incl. LOC interest":"",adjN?`✎ ${adjN} adjustment${adjN>1?"s":""}`:""].filter(Boolean).join(" · ");
                     const w=Math.max(2,Math.min(100,Math.round(b.total/Math.max(allIn,1)*100)));
                     return(
@@ -15800,7 +15804,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                       style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px",borderBottom:`1px solid ${T.border}55`,cursor:"pointer"}}>
                       <span style={{fontSize:16,flexShrink:0}}>{CAT_ICON[b.cat]||"📁"}</span>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.cat}{notes?<span style={{fontSize:10.5,fontWeight:600,color:T.textTert}}> · {notes}</span>:null}</div>
+                        <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CAT_LABEL[b.cat]||b.cat}{notes?<span style={{fontSize:10.5,fontWeight:600,color:T.textTert}}> · {notes}</span>:null}</div>
                         <div style={{height:4,borderRadius:2,background:T.border+"66",marginTop:5,overflow:"hidden"}}>
                           <div style={{height:"100%",width:`${w}%`,background:T.gold,borderRadius:2}}/>
                         </div>
@@ -15809,28 +15813,43 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                       <span style={{flexShrink:0,color:T.textTert,fontSize:13}}>›</span>
                     </div>);});})()}
                 {canEdit&&(
-                  <div style={{margin:"12px 18px",padding:"12px 14px",border:`1.5px dashed ${T.gold}`,borderRadius:12,background:T.goldLight+"55"}}>
-                    <div style={{fontSize:11,fontWeight:800,color:"#8a6d1f",marginBottom:8}}>＋ ADD A CUSTOM ADJUSTMENT</div>
-                    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                      <input value={adjDraft.label} onChange={e=>setAdjDraft(d=>({...d,label:e.target.value}))} placeholder="What is it? (e.g. extra dumpster)" style={{...iS3,flex:"1 1 160px",minWidth:0}}/>
-                      <input value={adjDraft.amount} onChange={e=>setAdjDraft(d=>({...d,amount:e.target.value.replace(/[^0-9.-]/g,"")}))} placeholder="Amount" inputMode="decimal" style={{...iS3,width:90,textAlign:"right"}}/>
-                      <select value={adjDraft.cat} onChange={e=>setAdjDraft(d=>({...d,cat:e.target.value}))} style={{...iS3,width:130}}>
-                        {SOLD_CATS.map(c2=><option key={c2}>{c2}</option>)}
-                      </select>
-                      <button onClick={addAdj} disabled={!Number(adjDraft.amount)} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:Number(adjDraft.amount)?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:12.5,cursor:Number(adjDraft.amount)?"pointer":"default",fontFamily:"inherit"}}>Add</button>
-                    </div>
-                    <div style={{fontSize:10.5,color:T.textTert,marginTop:6}}>Pick the category and it rolls right into that row (and the totals). Negative amount = a credit. Delete it from inside the category's line items.</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 18px 14px"}}>
+                    <button onClick={()=>{setAdjDraft({label:"",amount:"",cat:adjDraft.cat||"Rehab"});setAdjOpen(true);}}
+                      style={{background:"none",border:"none",color:"#8a6d1f",fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",padding:"4px 0"}}>
+                      ＋ Add adjustment
+                    </button>
+                    <button onClick={()=>{updateProp(soldSel.id,"soldExcluded",true);setSoldFor(null);}}
+                      style={{background:"none",border:"none",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",padding:"4px 0"}}>
+                      🗑 Remove from report
+                    </button>
                   </div>
-                )}
-                {canEdit&&(
-                  <button onClick={()=>{updateProp(soldSel.id,"soldExcluded",true);setSoldFor(null);}}
-                    style={{display:"block",margin:"0 18px 14px",background:"none",border:"none",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",padding:"4px 0"}}>
-                    🗑 Remove this deal from the report
-                  </button>
                 )}
               </div>
             </div>
           </div>
+          {/* ＋ Small add-adjustment popup — description, amount, category */}
+          {adjOpen&&(
+            <div onClick={()=>setAdjOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:258,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":18,width:380,maxWidth:"100%",boxShadow:T.shadowMd,overflow:"hidden"}}>
+                <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center"}}>
+                  <span style={{flex:1,fontSize:15,fontWeight:800,color:T.text}}>✎ Add an adjustment</span>
+                  <button onClick={()=>setAdjOpen(false)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+                </div>
+                <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:9}}>
+                  <input autoFocus={!isMobile} value={adjDraft.label} onChange={e=>setAdjDraft(d=>({...d,label:e.target.value}))} placeholder="What is it? (e.g. extra dumpster)" style={{...iS3,width:"100%"}}/>
+                  <input value={adjDraft.amount} onChange={e=>setAdjDraft(d=>({...d,amount:e.target.value.replace(/[^0-9.-]/g,"")}))} placeholder="Amount (negative = credit)" inputMode="decimal" style={{...iS3,width:"100%"}}/>
+                  <select value={adjDraft.cat} onChange={e=>setAdjDraft(d=>({...d,cat:e.target.value}))} style={{...iS3,width:"100%"}}>
+                    {SOLD_CATS.map(c2=><option key={c2} value={c2}>{c2==="Holding"?"Holding costs":c2}</option>)}
+                  </select>
+                  <div style={{fontSize:10.5,color:T.textTert,lineHeight:1.45}}>Rolls right into that category's row and the report totals. Delete it later from inside the category's line items.</div>
+                </div>
+                <div style={{padding:"0 16px 14px",display:"flex",justifyContent:"flex-end",gap:8}}>
+                  <button onClick={()=>setAdjOpen(false)} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                  <button onClick={()=>{addAdj();setAdjOpen(false);}} disabled={!Number(adjDraft.amount)} style={{padding:"9px 18px",borderRadius:T.radiusSm,background:Number(adjDraft.amount)?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:13,cursor:Number(adjDraft.amount)?"pointer":"default",fontFamily:"inherit"}}>Add</button>
+                </div>
+              </div>
+            </div>
+          )}
           {/* 🔍 Bucket drill-down: every line item behind the tapped total */}
           {bucketOpen&&(()=>{
             const cat=bucketOpen;
@@ -15839,7 +15858,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
               .sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
             const extras=[
               ...(cat==="Debt service"?locDraws.map(x=>({vendor:`LOC interest — ${x.funder}`,account:"Draw register (app)",date:"",amount:x.interest})):[]),
-              ...((soldSel.soldAdjust||[]).filter(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Other")===cat).map(a=>({vendor:`✎ ${a.label}`,account:"Custom adjustment",date:"",amount:Number(a.amount)||0,adjId:a.id}))),
+              ...((soldSel.soldAdjust||[]).filter(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Holding")===cat).map(a=>({vendor:`✎ ${a.label}`,account:"Custom adjustment",date:"",amount:Number(a.amount)||0,adjId:a.id}))),
             ];
             const ql=bucketQ.trim().toLowerCase();
             const shown=[...qbItems,...extras].filter(t=>!ql||[t.vendor,t.memo,t.account,t.type,t.num].filter(Boolean).join(" ").toLowerCase().includes(ql));
@@ -15850,7 +15869,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                 <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:540,maxWidth:"100%",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
                   <div style={{padding:"14px 16px 10px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
                     <span style={{minWidth:0,flex:1}}>
-                      <div style={{fontSize:15,fontWeight:800,color:T.text}}>{catMeta[cat]||"📁"} {cat} — line items</div>
+                      <div style={{fontSize:15,fontWeight:800,color:T.text}}>{catMeta[cat]||"📁"} {cat==="Holding"?"Holding costs":cat} — line items</div>
                       <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{soldSel.address}{soldSel.qbProjectId?" · live from QuickBooks":""}</div>
                     </span>
                     <button onClick={()=>setBucketOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>

@@ -15779,27 +15779,35 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                 <button onClick={()=>setSoldFor(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
               </div>
               <div style={{flex:1,overflowY:"auto"}}>
-                {buckets.filter(b=>b.lines.length||b.total).map(b=>(
-                  <div key={b.cat}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 18px 4px"}}>
-                      <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>{b.cat.toUpperCase()}</span>
-                      <span onClick={()=>{setBucketOpen(b.cat);setBucketQ("");}} title="Tap for every line item — searchable" style={{fontSize:12.5,fontWeight:800,color:T.blue,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{fmtD(b.total)} ›</span>
+                {/* Sale / All-in / Profit stat cards */}
+                <div style={{display:"flex",gap:10,padding:"12px 18px",borderBottom:`1px solid ${T.border}`,background:T.bg+"66"}}>
+                  {[["Sale price",fmtD(sale),T.text],["All-in cost",fmtD(allIn),T.text],["Profit",fmtD(profit),profit<0?T.red:T.green]].map(([l,v,c])=>(
+                    <div key={l} style={{flex:1,background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"9px 12px",minWidth:0}}>
+                      <div style={{fontSize:9.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em",whiteSpace:"nowrap"}}>{l}</div>
+                      <div style={{fontSize:isMobile?14.5:16,fontWeight:800,color:c,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v}</div>
                     </div>
-                    {b.lines.map((l,i)=>(
-                      <div key={i} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"4px 18px",fontSize:12,color:T.textSub}}>
-                        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label}</span>
-                        <span style={{flexShrink:0}}>{fmtD(l.amount)}</span>
+                  ))}
+                </div>
+                {/* One clean row per category — every line item lives behind the
+                    tap (drill-down). Adjustments roll into their category's row. */}
+                {(()=>{const CAT_ICON={Purchase:"🏠",Rehab:"🔨",Holding:"📆","Debt service":"🏦",Selling:"🤝",Other:"📁"};
+                  return buckets.filter(b=>b.lines.length||b.total).map(b=>{
+                    const adjN=(soldSel.soldAdjust||[]).filter(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Other")===b.cat).length;
+                    const notes=[b.cat==="Debt service"&&locDraws.length?"incl. LOC interest":"",adjN?`✎ ${adjN} adjustment${adjN>1?"s":""}`:""].filter(Boolean).join(" · ");
+                    const w=Math.max(2,Math.min(100,Math.round(b.total/Math.max(allIn,1)*100)));
+                    return(
+                    <div key={b.cat} onClick={()=>{setBucketOpen(b.cat);setBucketQ("");}} title="Tap for every line item — searchable"
+                      style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px",borderBottom:`1px solid ${T.border}55`,cursor:"pointer"}}>
+                      <span style={{fontSize:16,flexShrink:0}}>{CAT_ICON[b.cat]||"📁"}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.cat}{notes?<span style={{fontSize:10.5,fontWeight:600,color:T.textTert}}> · {notes}</span>:null}</div>
+                        <div style={{height:4,borderRadius:2,background:T.border+"66",marginTop:5,overflow:"hidden"}}>
+                          <div style={{height:"100%",width:`${w}%`,background:T.gold,borderRadius:2}}/>
+                        </div>
                       </div>
-                    ))}
-                    {(soldSel.soldAdjust||[]).filter(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Other")===b.cat).map(a=>(
-                      <div key={a.id} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 18px",fontSize:12}}>
-                        <span style={{minWidth:0,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:T.blue,fontWeight:600}}>✎ {a.label}</span>
-                        <span style={{flexShrink:0,fontWeight:700,color:(Number(a.amount)||0)<0?T.green:T.text}}>{fmtD(Number(a.amount)||0)}</span>
-                        {canEdit&&<button onClick={()=>delAdj(a.id)} title="Remove adjustment" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,flexShrink:0,padding:0}}>×</button>}
-                      </div>
-                    ))}
-                  </div>
-                ))}
+                      <span style={{flexShrink:0,fontSize:13.5,fontWeight:800,color:T.text}}>{fmtD(b.total)}</span>
+                      <span style={{flexShrink:0,color:T.textTert,fontSize:13}}>›</span>
+                    </div>);});})()}
                 {canEdit&&(
                   <div style={{margin:"12px 18px",padding:"12px 14px",border:`1.5px dashed ${T.gold}`,borderRadius:12,background:T.goldLight+"55"}}>
                     <div style={{fontSize:11,fontWeight:800,color:"#8a6d1f",marginBottom:8}}>＋ ADD A CUSTOM ADJUSTMENT</div>
@@ -15811,7 +15819,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                       </select>
                       <button onClick={addAdj} disabled={!Number(adjDraft.amount)} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:Number(adjDraft.amount)?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:12.5,cursor:Number(adjDraft.amount)?"pointer":"default",fontFamily:"inherit"}}>Add</button>
                     </div>
-                    <div style={{fontSize:10.5,color:T.textTert,marginTop:6}}>Use a negative amount for a credit. Adjustments save on the deal and roll into the report's totals.</div>
+                    <div style={{fontSize:10.5,color:T.textTert,marginTop:6}}>Pick the category and it rolls right into that row (and the totals). Negative amount = a credit. Delete it from inside the category's line items.</div>
                   </div>
                 )}
                 {canEdit&&(
@@ -15820,10 +15828,6 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                     🗑 Remove this deal from the report
                   </button>
                 )}
-              </div>
-              <div style={{padding:"12px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"10",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
-                <span style={{fontSize:13,fontWeight:800,color:T.text}}>All-in {fmtD(allIn)}{adj?` (incl. ${fmtD(adj)} adj.)`:""}</span>
-                <span style={{fontSize:16,fontWeight:800,color:profit<0?T.red:T.green}}>Profit {fmtD(profit)}</span>
               </div>
             </div>
           </div>
@@ -15835,7 +15839,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
               .sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
             const extras=[
               ...(cat==="Debt service"?locDraws.map(x=>({vendor:`LOC interest — ${x.funder}`,account:"Draw register (app)",date:"",amount:x.interest})):[]),
-              ...((soldSel.soldAdjust||[]).filter(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Other")===cat).map(a=>({vendor:`✎ ${a.label}`,account:"Custom adjustment",date:"",amount:Number(a.amount)||0}))),
+              ...((soldSel.soldAdjust||[]).filter(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Other")===cat).map(a=>({vendor:`✎ ${a.label}`,account:"Custom adjustment",date:"",amount:Number(a.amount)||0,adjId:a.id}))),
             ];
             const ql=bucketQ.trim().toLowerCase();
             const shown=[...qbItems,...extras].filter(t=>!ql||[t.vendor,t.memo,t.account,t.type,t.num].filter(Boolean).join(" ").toLowerCase().includes(ql));
@@ -15864,6 +15868,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                           <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date?finFmtDate(t.date):"",t.account,t.memo].filter(Boolean).join(" · ")}</div>
                         </div>
                         <b style={{fontSize:13,flexShrink:0,color:(Number(t.amount)||0)<0?T.green:T.text}}>{fmtD(Math.abs(Number(t.amount)||0))}</b>
+                        {t.adjId&&canEdit&&<button onClick={()=>delAdj(t.adjId)} title="Remove this adjustment" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0,padding:0}}>×</button>}
                       </div>
                     ))}
                   </div>

@@ -15191,8 +15191,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const[soldTxns,setSoldTxns]=useState(null);   // the open deal's QB transactions
   const[bucketOpen,setBucketOpen]=useState(null); // bucket cat being drilled
   const[bucketQ,setBucketQ]=useState("");
+  const[linkQ,setLinkQ]=useState("");            // QB-project link search (unlinked deals)
   useEffect(()=>{
-    setSoldTxns(null);setBucketOpen(null);setBucketQ("");
+    setSoldTxns(null);setBucketOpen(null);setBucketQ("");setLinkQ("");
     if(soldFor==null)return;
     const p=(sharedProps||[]).find(x=>x.id===soldFor);
     if(!p||!p.qbProjectId)return;
@@ -15205,10 +15206,11 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   // shot) or type the address by hand; archived + Sold + selling date.
   const[saleDraft,setSaleDraft]=useState(null); // {q,qbId,addr,city,date,price,manual}
   const[qbProjList,setQbProjList]=useState(null);
+  const linkTarget=soldFor!=null&&!!(sharedProps||[]).find(x=>x.id===soldFor&&!x.qbProjectId);
   useEffect(()=>{
-    if(!saleDraft||qbProjList!==null||!connected)return;
+    if((!saleDraft&&!linkTarget)||qbProjList!==null||!connected)return;
     qbAuthFetch("/api/quickbooks/projects").then(d=>setQbProjList(d.items||[])).catch(()=>setQbProjList([]));
-  },[saleDraft,connected]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[saleDraft,linkTarget,connected]); // eslint-disable-line react-hooks/exhaustive-deps
   // Auto-link: a Sold deal with no QuickBooks project gets matched to one by
   // address — unique, unused, ≥5-char prefix match, the same rule the
   // ＋ Add a past sale repair uses — so its numbers and dates sync live
@@ -15226,7 +15228,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
       soldProps.filter(p=>!p.qbProjectId).forEach(p=>{
         const a=norm(p.address);
         if(a.length<5)return;
-        const hits=list.filter(x=>{if(used.has(x.id))return false;const b=norm(x.name);return b.length>=5&&(a.startsWith(b)||b.startsWith(a));});
+        let hits=list.filter(x=>{if(used.has(x.id))return false;const b=norm(x.name);return b.length>=5&&(a.startsWith(b)||b.startsWith(a));});
+        // A customer + its project often share the name — the project row wins.
+        if(hits.length>1)hits=hits.filter(x=>x.isProject);
         if(hits.length===1){used.add(hits[0].id);updateProp(p.id,"qbProjectId",hits[0].id);}
       });
     }).catch(()=>{});
@@ -15634,13 +15638,36 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:16,fontWeight:800,color:T.text}}>All-in Cost Breakdown</div>
                   <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{soldSel.address} · {q?"live from QuickBooks":"app actual figures"} · sale {fmtD(sale)}</div>
-                  {(()=>{const qx=soldQxOf(soldSel);const sd=soldDatesOf(soldSel);return(
+                  {(()=>{const qx=soldQxOf(soldSel);const sd=soldDatesOf(soldSel);return(<>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,flexWrap:"wrap"}}>
                     <span style={{fontSize:11,fontWeight:800,color:sd.sell?T.textSub:T.orange}}>Sold date</span>
                     <input type="date" value={sd.sell||""} disabled={!canEdit||!!qx.sell} title={qx.sell?"Synced from the sale entry in QuickBooks — redate it there to change it":undefined} onChange={e=>updateProp(soldSel.id,"financials",{...(soldSel.financials||{}),sellingDate:e.target.value})}
                       style={{padding:"6px 9px",borderRadius:8,border:`1px solid ${sd.sell?T.border:T.orange}`,background:T.bg,color:T.text,fontSize:12.5,outline:"none",fontFamily:"inherit"}}/>
                     {qx.sell?<span title="Synced from the sale entry in QuickBooks" style={{fontSize:10,fontWeight:800,color:"#2CA01C",background:"#EAF7E8",border:"1px solid #BFE5BA",borderRadius:8,padding:"2px 7px"}}>from QuickBooks ✓</span>:null}
-                  </div>);})()}
+                    {sd.buy?<span style={{fontSize:11,color:T.textSub}}>· bought {finFmtDate(sd.buy)}{qx.buy&&!(soldSel.financials||{}).purchaseDate?" (QB)":""}</span>:null}
+                  </div>
+                  {!soldSel.qbProjectId&&canEdit&&connected&&(()=>{
+                    // Not linked to the books — the numbers above are the app's
+                    // saved figures. Search + tap to link the QuickBooks project.
+                    const term=linkQ.trim().toLowerCase();
+                    const usedQb=new Set((sharedProps||[]).map(p=>p.qbProjectId).filter(Boolean));
+                    const hits=term.length>=2?(qbProjList||[]).filter(x=>!usedQb.has(x.id)&&String(x.name||"").toLowerCase().includes(term)).slice(0,5):[];
+                    return(
+                    <div style={{marginTop:8}}>
+                      <div style={{fontSize:11,fontWeight:700,color:T.orange,marginBottom:5}}>⚠ Not linked to QuickBooks — showing the app's saved figures</div>
+                      <input value={linkQ} onChange={e=>setLinkQ(e.target.value)} placeholder="🔗 Search QuickBooks projects to link…"
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                      {qbProjList===null&&term.length>=2&&<div style={{fontSize:11.5,color:T.textTert,padding:"5px 2px"}}>Loading QuickBooks projects…</div>}
+                      {hits.map(x=>(
+                        <div key={x.id} onClick={()=>{updateProp(soldSel.id,"qbProjectId",x.id);setLinkQ("");}}
+                          style={{padding:"8px 10px",border:`1px solid ${T.border}`,borderRadius:8,marginTop:5,cursor:"pointer",background:T.bg}}>
+                          <span style={{fontSize:12.5,fontWeight:700,color:T.text}}>{x.name}</span>
+                          {x.parent&&<span style={{fontSize:10.5,color:T.textTert}}> · under {x.parent}</span>}
+                        </div>
+                      ))}
+                      {qbProjList!==null&&term.length>=2&&hits.length===0&&<div style={{fontSize:11.5,color:T.textTert,padding:"5px 2px"}}>No unlinked project matches “{linkQ}”.</div>}
+                    </div>);})()}
+                  </>);})()}
                 </div>
                 <button onClick={()=>setSoldFor(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
               </div>

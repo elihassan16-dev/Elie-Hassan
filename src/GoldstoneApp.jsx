@@ -15209,6 +15209,29 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     if(!saleDraft||qbProjList!==null||!connected)return;
     qbAuthFetch("/api/quickbooks/projects").then(d=>setQbProjList(d.items||[])).catch(()=>setQbProjList([]));
   },[saleDraft,connected]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Auto-link: a Sold deal with no QuickBooks project gets matched to one by
+  // address — unique, unused, ≥5-char prefix match, the same rule the
+  // ＋ Add a past sale repair uses — so its numbers and dates sync live
+  // without re-adding it by hand (114 Hillcrest sat on stale app figures
+  // because the link was missing).
+  const soldUnlinkedKey=soldProps.filter(p=>!p.qbProjectId).map(p=>p.id).join(",");
+  useEffect(()=>{
+    if(!connected||!canEdit||!soldUnlinkedKey)return;
+    let alive=true;
+    qbAuthFetch("/api/quickbooks/projects").then(d=>{
+      if(!alive)return;
+      const list=d.items||[];
+      const norm=(s)=>String(s||"").split(",")[0].toLowerCase().replace(/[^a-z0-9]/g,"");
+      const used=new Set((sharedProps||[]).map(p=>p.qbProjectId).filter(Boolean));
+      soldProps.filter(p=>!p.qbProjectId).forEach(p=>{
+        const a=norm(p.address);
+        if(a.length<5)return;
+        const hits=list.filter(x=>{if(used.has(x.id))return false;const b=norm(x.name);return b.length>=5&&(a.startsWith(b)||b.startsWith(a));});
+        if(hits.length===1){used.add(hits[0].id);updateProp(p.id,"qbProjectId",hits[0].id);}
+      });
+    }).catch(()=>{});
+    return()=>{alive=false;};
+  },[connected,soldUnlinkedKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const addPastSale=()=>{
     const a=saleDraft;if(!canEdit||!a||!a.addr.trim()||!a.date)return;
     // "130 Montgomery Ave, Cinnaminson" style project names split into addr + city.

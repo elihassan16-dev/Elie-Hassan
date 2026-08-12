@@ -15112,9 +15112,80 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     return {groups,grand};
   },[inClosingProps,accounts,spend,intPaid]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Report 8 — 💵 Sold this year: sale, all-in cost and profit per deal, live
+  // from each deal's QuickBooks project (app actuals as the fallback). Tapping
+  // an all-in cost opens the breakdown popup — QB lines bucketed into Purchase /
+  // Rehab / Holding / Debt service / Selling / Other — plus custom adjustments
+  // (stored on the property as soldAdjust) that roll into the totals.
+  const SOLD_CATS=["Purchase","Rehab","Holding","Debt service","Selling","Other"];
+  const soldCatOfAcct=(name)=>{
+    const s=String(name||"").toLowerCase();
+    if(/purchase|acquisition|land|buying|title|closing cost/.test(s))return "Purchase";
+    if(/rehab|construction|repair|material|contractor/.test(s))return "Rehab";
+    if(/interest|debt|loan fee|points|financ/.test(s))return "Debt service";
+    if(/commission|selling|transfer tax|staging|realtor/.test(s))return "Selling";
+    if(/insurance|utilit|tax|hoa|lawn|maintenance/.test(s))return "Holding";
+    return "Other";
+  };
+  const soldYear=new Date().getFullYear();
+  const soldProps=useMemo(()=>(sharedProps||[]).filter(p=>{
+    if(p.status!=="Sold")return false;
+    const sd=(p.financials||{}).sellingDate||"";
+    return sd?sd>=`${soldYear}-01-01`:!p.archived; // undated Sold: only if not archived yet
+  }),[sharedProps,soldYear]);
+  const[soldPnl,setSoldPnl]=useState(()=>qbCache.get("soldPnl",{})); // projectId → {income,cogs,expenses,net,rows}
+  useEffect(()=>{qbCache.set("soldPnl",soldPnl);},[soldPnl]);
+  const soldKey=soldProps.map(p=>p.qbProjectId).filter(Boolean).join(",");
+  useEffect(()=>{
+    if(!connected)return;const ids=[...new Set(soldProps.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
+    const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
+      try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);
+        if(!cancelled)setSoldPnl(m=>({...m,[id]:{income:Number(d.income)||0,cogs:Number(d.cogs)||0,expenses:Number(d.expenses)||0,net:Number(d.netIncome)||0,rows:d.rows||[]}}));
+      }catch{/* keep cached */}}};
+    Promise.all([run(),run()]);return ()=>{cancelled=true;};
+  },[connected,soldKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const[soldFor,setSoldFor]=useState(null); // property id whose cost breakdown is open
+  const[adjDraft,setAdjDraft]=useState({label:"",amount:"",cat:"Rehab"});
+  const soldSel=soldFor!=null?(sharedProps||[]).find(x=>x.id===soldFor):null;
+  const addAdj=()=>{if(!canEdit||!soldSel||!(Number(adjDraft.amount)))return;updateProp(soldSel.id,"soldAdjust",[...(soldSel.soldAdjust||[]),{id:Date.now(),label:adjDraft.label.trim()||adjDraft.cat,amount:Number(adjDraft.amount)||0,cat:adjDraft.cat}]);setAdjDraft({label:"",amount:"",cat:adjDraft.cat});};
+  const delAdj=(id)=>canEdit&&soldSel&&updateProp(soldSel.id,"soldAdjust",(soldSel.soldAdjust||[]).filter(a=>a.id!==id));
+  const soldNumbersOf=(p)=>{
+    const f=p.financials||{};
+    const q=p.qbProjectId?soldPnl[p.qbProjectId]:null;
+    const adj=(p.soldAdjust||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
+    const sale=q?q.income:(n(f.actualSalePrice)||n(f.salePrice));
+    const baseCost=q?(q.cogs+q.expenses):(n(f.actualPurchasePrice)+n(f.actualBuyingCosts)+n(f.actualRehabCosts)+n(f.actualSellingCosts)+n(f.actualSellingTransferTax));
+    return {q,f,adj,sale:sale||0,allIn:baseCost+adj,profit:(sale||0)-baseCost-adj};
+  };
+  const rptSold=useMemo(()=>{
+    const rows=soldProps.map(p=>{
+      const {q,f,adj,sale,allIn,profit}=soldNumbersOf(p);
+      const months=f.purchaseDate&&f.sellingDate?((new Date(f.sellingDate)-new Date(f.purchaseDate))/(1000*60*60*24*30.44)):null;
+      return {propId:p.id,address:p.address,sold:f.sellingDate||"",qb:!!q,sale,allIn,profit,months,adj};
+    }).sort((a,b)=>String(a.sold||"9999").localeCompare(String(b.sold||"9999")));
+    const total={sale:0,allIn:0,profit:0,mo:0,moN:0};
+    rows.forEach(r=>{total.sale+=r.sale;total.allIn+=r.allIn;total.profit+=r.profit;if(r.months!=null){total.mo+=r.months;total.moN++;}});
+    return {rows,total};
+  },[soldProps,soldPnl,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const D=(iso)=>iso?finFmtDate(iso):"—";
   const M=(v)=>v==null?"—":fmtD(v);
   const REPORTS={
+    sold:{
+      title:`Sold in ${soldYear} — Profit by Deal`,
+      subtitle:"Every property sold since January 1 — sale price, all-in cost and profit, live from each deal's QuickBooks project (QB); deals without a linked project use the app's actual figures. Tap an all-in cost for the breakdown — purchase, rehab, selling — and to add custom adjustments.",
+      cols:[{label:"Property"},{label:"Sold"},{label:"Sale price",align:"right"},{label:"All-in cost",align:"right"},{label:"Profit",align:"right"},{label:"Held",align:"right"}],
+      rows:rptSold.rows.map(r=>[
+        {t:r.address+(r.qb?" · QB":"")},
+        {t:r.sold?D(r.sold):"— no sale date",color:r.sold?undefined:T.orange},
+        {t:fmtD(r.sale),align:"right"},
+        {soldCost:{propId:r.propId},t:fmtD(r.allIn)+(r.adj?" ✎":""),align:"right",color:T.blue},
+        {t:fmtD(r.profit),align:"right",strong:true,color:r.profit<0?T.red:T.green},
+        {t:r.months==null?"—":`${r.months.toFixed(1)} mo`,align:"right"},
+      ]),
+      foot:[[{t:`${rptSold.rows.length} deal${rptSold.rows.length!==1?"s":""} sold`,strong:true},{t:""},{t:fmtD(rptSold.total.sale),align:"right",strong:true},{t:fmtD(rptSold.total.allIn),align:"right",strong:true},{t:fmtD(rptSold.total.profit),align:"right",strong:true,color:rptSold.total.profit<0?T.red:T.gold},{t:rptSold.total.moN?`${(rptSold.total.mo/rptSold.total.moN).toFixed(1)} mo avg`:"—",align:"right"}]],
+      empty:"Nothing marked Sold with a selling date this year yet — set the status and Selling Date on a deal and it shows up here.",
+    },
     loc:{
       title:"Outstanding Line-of-Credit by Deal",
       subtitle:"Every open LOC draw — who funded it, when their money went out, and how much you owe. Oldest first.",
@@ -15223,7 +15294,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
     const planWord=(pl)=>pl==="takeback"?"taken back":pl==="reinvest_plus"?"reinvests + interest":"reinvests principal";
-    const cellText=(c)=>c.planAmt?esc(`${fmtD(c.planAmt.plan==="reinvest_plus"?c.planAmt.amount+(c.planAmt.interest||0):c.planAmt.amount)} — ${planWord(c.planAmt.plan)}`):c.plan?esc(c.plan==="takeback"?"Take back":c.plan==="reinvest_plus"?"Reinvest + interest":"Reinvest"):c.fund?esc(c.fund.checked?c.t+" ✓ funded":c.t):esc((c.edit||c.draw)?((c.t==="Tap to set"||c.t==="Tap to pin")?"—":String(c.t).replace(" 📌","")):c.t);
+    const cellText=(c)=>c.planAmt?esc(`${fmtD(c.planAmt.plan==="reinvest_plus"?c.planAmt.amount+(c.planAmt.interest||0):c.planAmt.amount)} — ${planWord(c.planAmt.plan)}`):c.plan?esc(c.plan==="takeback"?"Take back":c.plan==="reinvest_plus"?"Reinvest + interest":"Reinvest"):c.fund?esc(c.fund.checked?c.t+" ✓ funded":c.t):esc((c.edit||c.draw||c.soldCost)?((c.t==="Tap to set"||c.t==="Tap to pin")?"—":String(c.t).replace(" 📌","").replace(" ✎","")):c.t);
     const th=rep.cols.map(c=>`<th style="text-align:${c.align||"left"}">${esc(c.label)}</th>`).join("");
     const trs=rep.rows.length?rep.rows.map((cells,ri)=>`<tr${ri%2?' style="background:#faf6ea"':''}>${cells.map(c=>`<td style="text-align:${c.align||"left"};${c.strong?"font-weight:700;":""}${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${rep.cols.length}" class="empty">${esc(rep.empty)}</td></tr>`;
     const foot=rep.foot&&rep.rows.length?rep.foot.map((frow,fi)=>`<tr class="${fi===0?"tot":"tot2"}">${frow.map(c=>`<td style="text-align:${c.align||"left"};font-weight:${c.strong?"800":"600"};${c.gold?"color:#B8953F;":""}${c.color?`color:${c.color};`:""}">${cellText(c)}</td>`).join("")}</tr>`).join(""):"";
@@ -15248,6 +15319,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   };
 
   const cards=[
+    {id:"sold",icon:"💵",title:`Sold in ${soldYear} — Profit by Deal`,desc:"Every deal sold this year — sale, all-in cost and profit, live from QuickBooks. Tap a cost for the breakdown."},
     {id:"loc",icon:"📄",title:"Outstanding LOC by Deal",desc:"Who you owe line-of-credit to, by property — oldest funding first."},
     {id:"future",icon:"📈",title:"Available Future Funds",desc:"LOC capital freeing up from your upcoming closings."},
     {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Bank loan, credit lines with their splits, interest reserve and true equity — live from QuickBooks."},
@@ -15301,6 +15373,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                         ?(canEdit?<span onClick={(e)=>{e.stopPropagation();setHoldbackFor(c.edit.propId);}} title="Tap to set" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>:<span>{c.t==="Tap to set"?"—":c.t}</span>)
                         :c.draw
                         ?(canEdit?<span onClick={(e)=>{e.stopPropagation();setDrawFor(c.draw.propId);}} title="Tap to pin draws" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>:<span>{c.t==="Tap to pin"?"—":c.t}</span>)
+                        :c.soldCost
+                        ?<span onClick={(e)=>{e.stopPropagation();setSoldFor(c.soldCost.propId);}} title="Tap for the cost breakdown + adjustments" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>
                         :c.fund
                         ?<span style={{display:"inline-flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}><span style={{filter:c.fund.show&&c.fund.checked?"blur(1.6px)":"none",opacity:c.fund.show&&c.fund.checked?0.4:1,textDecoration:c.fund.show&&c.fund.checked?"line-through":"none"}}>{c.t}</span>{c.fund.show?<input type="checkbox" checked={c.fund.checked} disabled={!canEdit} onClick={(e)=>e.stopPropagation()} onChange={()=>toggleFunded(c.fund.propId)} title="Secured additional funding — dim the shortfall" style={{width:15,height:15,cursor:canEdit?"pointer":"default",accentColor:T.gold,flexShrink:0}}/>:<span style={{width:15,flexShrink:0,display:"inline-block"}}/>}</span>
                         :c.t}</td>)}</tr>;})}
@@ -15316,6 +15390,79 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
         </div>
       )}
 
+      {/* 💵 Sold-deal cost breakdown + custom adjustments */}
+      {soldSel&&(()=>{
+        const {q,f,adj,sale,allIn,profit}=soldNumbersOf(soldSel);
+        // Buckets: QB expense lines grouped by account keywords, or the app's
+        // actual figures when there's no linked project.
+        const buckets=SOLD_CATS.map(cat=>({cat,lines:[],total:0}));
+        const bucketOf=(cat)=>buckets.find(b=>b.cat===cat);
+        if(q)(q.rows||[]).filter(r=>String(r.section||"").toLowerCase()!=="income").forEach(r=>{const b=bucketOf(soldCatOfAcct(r.name));b.lines.push({label:r.name,amount:Number(r.amount)||0});b.total+=Number(r.amount)||0;});
+        else{
+          const put=(cat,label,v)=>{if(v){const b=bucketOf(cat);b.lines.push({label,amount:v});b.total+=v;}};
+          put("Purchase","Purchase price",n(f.actualPurchasePrice));
+          put("Purchase","Buying costs",n(f.actualBuyingCosts));
+          put("Rehab","Rehab costs",n(f.actualRehabCosts));
+          put("Selling","Selling costs",n(f.actualSellingCosts));
+          put("Selling","Transfer tax",n(f.actualSellingTransferTax));
+        }
+        (soldSel.soldAdjust||[]).forEach(a=>{const b=bucketOf(SOLD_CATS.includes(a.cat)?a.cat:"Other");b.total+=Number(a.amount)||0;});
+        const iS3={padding:"9px 11px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text};
+        return(
+          <div onClick={()=>setSoldFor(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:255,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+              <div style={{padding:"16px 18px 12px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"flex-start",gap:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:16,fontWeight:800,color:T.text}}>All-in Cost Breakdown</div>
+                  <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{soldSel.address} · {q?"live from QuickBooks":"app actual figures"} · sale {fmtD(sale)}</div>
+                </div>
+                <button onClick={()=>setSoldFor(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+              </div>
+              <div style={{flex:1,overflowY:"auto"}}>
+                {buckets.filter(b=>b.lines.length||b.total).map(b=>(
+                  <div key={b.cat}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 18px 4px"}}>
+                      <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>{b.cat.toUpperCase()}</span>
+                      <span style={{fontSize:12.5,fontWeight:800,color:T.text}}>{fmtD(b.total)}</span>
+                    </div>
+                    {b.lines.map((l,i)=>(
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"4px 18px",fontSize:12,color:T.textSub}}>
+                        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label}</span>
+                        <span style={{flexShrink:0}}>{fmtD(l.amount)}</span>
+                      </div>
+                    ))}
+                    {(soldSel.soldAdjust||[]).filter(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Other")===b.cat).map(a=>(
+                      <div key={a.id} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 18px",fontSize:12}}>
+                        <span style={{minWidth:0,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:T.blue,fontWeight:600}}>✎ {a.label}</span>
+                        <span style={{flexShrink:0,fontWeight:700,color:(Number(a.amount)||0)<0?T.green:T.text}}>{fmtD(Number(a.amount)||0)}</span>
+                        {canEdit&&<button onClick={()=>delAdj(a.id)} title="Remove adjustment" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,flexShrink:0,padding:0}}>×</button>}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                {canEdit&&(
+                  <div style={{margin:"12px 18px",padding:"12px 14px",border:`1.5px dashed ${T.gold}`,borderRadius:12,background:T.goldLight+"55"}}>
+                    <div style={{fontSize:11,fontWeight:800,color:"#8a6d1f",marginBottom:8}}>＋ ADD A CUSTOM ADJUSTMENT</div>
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                      <input value={adjDraft.label} onChange={e=>setAdjDraft(d=>({...d,label:e.target.value}))} placeholder="What is it? (e.g. extra dumpster)" style={{...iS3,flex:"1 1 160px",minWidth:0}}/>
+                      <input value={adjDraft.amount} onChange={e=>setAdjDraft(d=>({...d,amount:e.target.value.replace(/[^0-9.-]/g,"")}))} placeholder="Amount" inputMode="decimal" style={{...iS3,width:90,textAlign:"right"}}/>
+                      <select value={adjDraft.cat} onChange={e=>setAdjDraft(d=>({...d,cat:e.target.value}))} style={{...iS3,width:130}}>
+                        {SOLD_CATS.map(c2=><option key={c2}>{c2}</option>)}
+                      </select>
+                      <button onClick={addAdj} disabled={!Number(adjDraft.amount)} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:Number(adjDraft.amount)?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:12.5,cursor:Number(adjDraft.amount)?"pointer":"default",fontFamily:"inherit"}}>Add</button>
+                    </div>
+                    <div style={{fontSize:10.5,color:T.textTert,marginTop:6}}>Use a negative amount for a credit. Adjustments save on the deal and roll into the report's totals.</div>
+                  </div>
+                )}
+              </div>
+              <div style={{padding:"12px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"10",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                <span style={{fontSize:13,fontWeight:800,color:T.text}}>All-in {fmtD(allIn)}{adj?` (incl. ${fmtD(adj)} adj.)`:""}</span>
+                <span style={{fontSize:16,fontWeight:800,color:profit<0?T.red:T.green}}>Profit {fmtD(profit)}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {hbProp&&!hbPicker&&(()=>{
         const pins=hbProp.qbHoldbackTxns||[];
         const man=hbProp.constrHoldback||"";

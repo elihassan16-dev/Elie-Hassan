@@ -15466,11 +15466,15 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                   <input value={saleDraft.city} onChange={e=>setSaleDraft(d=>({...d,city:e.target.value}))} placeholder="City (optional)" style={iS4}/>
                 </>)}
                 {(saleDraft.qbId||saleDraft.manual)&&(
-                  <div style={{display:"flex",gap:9}}>
-                    <span style={{flex:1}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>DATE SOLD</span><input type="date" value={saleDraft.date} onChange={e=>setSaleDraft(d=>({...d,date:e.target.value}))} style={iS4}/></span>
-                    <span style={{flex:1}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>{saleDraft.qbId?"SALE PRICE (QB PROVIDES IT)":"SALE PRICE (OPTIONAL)"}</span><input value={saleDraft.price} onChange={e=>setSaleDraft(d=>({...d,price:e.target.value.replace(/[^0-9.]/g,"")}))} placeholder="0" inputMode="decimal" style={{...iS4,textAlign:"right"}}/></span>
+                  /* QB-linked deals need no price — sale/cost/profit come from the
+                     books. Stacked on mobile: the iOS date input fought the
+                     two-column row and everything misaligned. */
+                  <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:9}}>
+                    <span style={{flex:1,minWidth:0}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>DATE SOLD</span><input type="date" value={saleDraft.date} onChange={e=>setSaleDraft(d=>({...d,date:e.target.value}))} style={{...iS4,minWidth:0,WebkitAppearance:"none",appearance:"none",minHeight:42}}/></span>
+                    {!saleDraft.qbId&&<span style={{flex:1,minWidth:0}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textSub,marginBottom:3}}>SALE PRICE (OPTIONAL)</span><input value={saleDraft.price} onChange={e=>setSaleDraft(d=>({...d,price:e.target.value.replace(/[^0-9.]/g,"")}))} placeholder="0" inputMode="decimal" style={{...iS4,minWidth:0,textAlign:"right"}}/></span>}
                   </div>
                 )}
+                {saleDraft.qbId&&<div style={{fontSize:11,color:T.textTert,lineHeight:1.5}}>Sale price, costs and profit come straight from this QuickBooks project — nothing else to enter.</div>}
               </div>
               <div style={{padding:"12px 18px 16px",display:"flex",justifyContent:"flex-end",gap:8,flexShrink:0,borderTop:`1px solid ${T.border}`}}>
                 <button onClick={()=>setSaleDraft(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>

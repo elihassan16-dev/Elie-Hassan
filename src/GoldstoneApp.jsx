@@ -15244,6 +15244,77 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     }).catch(()=>{});
     return()=>{alive=false;};
   },[connected,soldUnlinkedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ⚡ Auto-import: scan every QuickBooks project not yet in the app; any with a
+  // sale-sized income entry (≥ $50k — rent never gets that big) dated in the
+  // displayed year gets added as an archived Sold deal (or repairs a matching
+  // Sold/archived record), pre-seeded with its buy/sell dates and debt lines so
+  // it renders instantly. One tap instead of Add-a-past-sale per deal.
+  const[importBusy,setImportBusy]=useState(null); // null | {done,total} | result string
+  const importYearSales=async()=>{
+    if(!canEdit||!connected||importBusy)return;
+    setImportBusy({done:0,total:0});
+    try{
+      const d=await qbAuthFetch("/api/quickbooks/projects");
+      const used=new Set((sharedProps||[]).map(p=>p.qbProjectId).filter(Boolean));
+      const cands=(d.items||[]).filter(x=>!used.has(x.id));
+      setImportBusy({done:0,total:cands.length});
+      const found=[];const queue=[...cands];let done=0;
+      const worker=async()=>{while(queue.length){const x=queue.shift();
+        try{
+          const r=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(x.id)}`);
+          const items=r.items||[];
+          const isInc=(t)=>String(t.section||"").toLowerCase().includes("income");
+          const dated=(list)=>list.filter(t=>/^\d{4}-\d{2}-\d{2}/.test(String(t.date||"")));
+          const biggest=(list)=>list.length?list.reduce((m,t)=>Math.abs(Number(t.amount)||0)>Math.abs(Number(m.amount)||0)?t:m,list[0]):null;
+          const sale=biggest(dated(items.filter(isInc)));
+          if(sale&&Math.abs(Number(sale.amount)||0)>=50000){
+            const sell=String(sale.date).slice(0,10);
+            if(sell.slice(0,4)===String(soldYear)){
+              const debt=items.filter(t=>!isInc(t)&&soldCatOfAcct(t.account)==="Debt service").map(t=>({vendor:t.vendor||"",memo:t.memo||"",amount:Number(t.amount)||0}));
+              const buyBig=biggest(dated(items.filter(t=>!isInc(t)&&soldCatOfAcct(t.account)==="Purchase")));
+              const anyDates=dated(items).map(t=>String(t.date).slice(0,10)).sort();
+              const buy=(buyBig?String(buyBig.date).slice(0,10):"")||anyDates[0]||"";
+              found.push({proj:x,sell,buy,debt});
+            }
+          }
+        }catch{/* skip this project */}
+        done++;setImportBusy(b=>b&&typeof b==="object"?{...b,done}:b);
+      }};
+      await Promise.all([worker(),worker(),worker()]);
+      if(found.length){
+        // Seed the per-deal QB facts so the new rows show dates immediately.
+        setSoldTxAll(m=>{const n={...m};found.forEach(f=>{n[f.proj.id]={debt:f.debt,buy:f.buy,sell:f.sell};});return n;});
+        const normA=(s)=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+        setSharedProps(prev=>{
+          let next=[...prev];
+          found.forEach((f,i)=>{
+            const parts=String(f.proj.name||"").split(",").map(s=>s.trim()).filter(Boolean);
+            const a0=normA(parts[0]||f.proj.name);
+            const ex=a0.length>=5?next.find(p=>{const b=normA(p.address);return b.length>=5&&(a0.startsWith(b)||b.startsWith(a0));}):null;
+            if(ex){
+              // Only repair records that are already Sold/archived history —
+              // never flip an active pipeline deal from an import.
+              if(ex.qbProjectId||!(ex.status==="Sold"||ex.archived))return;
+              next=next.map(p=>p.id!==ex.id?p:{...p,status:"Sold",qbProjectId:f.proj.id,financials:{...(p.financials||{}),sellingDate:(p.financials||{}).sellingDate||f.sell}});
+            }else{
+              const rec=mkPropertyRecord(parts[0]||f.proj.name,(parts[1]||"").trim(),"NJ","","Sold");
+              rec.id=Date.now()+i; // loop runs in one tick — keep ids unique
+              rec.archived=true;rec.qbProjectId=f.proj.id;
+              rec.financials.sellingDate=f.sell;
+              next.push(rec);
+            }
+          });
+          return next;
+        });
+        if(flushProps)setTimeout(flushProps,0);
+      }
+      setImportBusy(`✓ ${found.length} ${soldYear} sale${found.length!==1?"s":""} imported`);
+      setTimeout(()=>setImportBusy(null),8000);
+    }catch{
+      setImportBusy("Import failed — try again");
+      setTimeout(()=>setImportBusy(null),5000);
+    }
+  };
   const addPastSale=()=>{
     const a=saleDraft;if(!canEdit||!a||!a.addr.trim()||!a.date)return;
     // "130 Montgomery Ave, Cinnaminson" style project names split into addr + city.
@@ -15545,7 +15616,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
               </table>
             </div>
             <div style={{padding:isMobile?"12px 16px":"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",alignItems:"center",gap:10}}>
-              {open==="sold"&&canEdit&&<button onClick={()=>setSaleDraft({addr:"",city:"",date:"",price:""})} style={{marginRight:"auto",padding:"10px 16px",borderRadius:T.radiusSm,background:T.card,border:`1.5px dashed ${T.gold}`,color:"#8a6d1f",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>＋ Add a past sale</button>}
+              {open==="sold"&&canEdit&&<div style={{marginRight:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button onClick={()=>setSaleDraft({addr:"",city:"",date:"",price:""})} style={{padding:"10px 16px",borderRadius:T.radiusSm,background:T.card,border:`1.5px dashed ${T.gold}`,color:"#8a6d1f",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>＋ Add a past sale</button>
+                {connected&&<button onClick={importYearSales} disabled={!!importBusy} style={{padding:"10px 16px",borderRadius:T.radiusSm,background:importBusy?T.bg:T.card,border:`1.5px solid #2CA01C`,color:"#2CA01C",fontWeight:700,fontSize:13,cursor:importBusy?"default":"pointer",fontFamily:"inherit"}}>
+                  {importBusy?(typeof importBusy==="string"?importBusy:`Scanning QuickBooks… ${importBusy.done}/${importBusy.total||"…"}`):`⚡ Auto-import ${soldYear} sales`}
+                </button>}
+              </div>}
               <button onClick={()=>setOpen(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
               <button onClick={()=>exportReport(rep)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export / PDF</button>
             </div>

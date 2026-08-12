@@ -15473,7 +15473,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                 <tbody>
                   {rep.rows.length===0
                     ?<tr><td colSpan={rep.cols.length} style={{textAlign:"center",color:T.textTert,padding:"28px 10px",fontSize:13}}>{rep.empty}</td></tr>
-                    :rep.rows.map((cells,ri)=>{const rowBg=ri%2?T.gold+"12":T.card;return <tr key={ri} style={{background:rowBg}}>{cells.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"8px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:c.strong?700:400,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:rowBg,borderRight:`1px solid ${T.border}`}:{})}}>{c.planAmt
+                    :rep.rows.map((cells,ri)=>{const rowBg=ri%2?T.gold+"12":T.card;
+                      // The sticky Property cell needs an OPAQUE background — the
+                      // zebra tint is translucent, so other columns scrolling
+                      // underneath showed through the address text on mobile.
+                      const stickyBg=ri%2?`linear-gradient(${T.gold}12,${T.gold}12),${T.card}`:T.card;
+                      return <tr key={ri} style={{background:rowBg}}>{cells.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:"8px 10px",borderBottom:`1px solid ${T.border}`,fontWeight:c.strong?700:400,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:stickyBg,borderRight:`1px solid ${T.border}`}:{})}}>{c.planAmt
                         ?<span style={{display:"inline-flex",alignItems:"center",gap:7,justifyContent:"flex-end"}}>
                             <span style={{fontWeight:700,color:c.planAmt.plan==="takeback"?T.textTert:c.planAmt.plan==="reinvest_plus"?T.gold:T.green,textDecoration:c.planAmt.plan==="takeback"?"line-through":"none"}}>{fmtD(c.planAmt.plan==="reinvest_plus"?c.planAmt.amount+(c.planAmt.interest||0):c.planAmt.amount)}</span>
                             <button onClick={canEdit?(e)=>{e.stopPropagation();cyclePlan(c.planAmt.drawId,c.planAmt.plan);}:undefined} title={canEdit?"Tap to cycle: reinvest principal → reinvest + interest → take back":undefined} style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:canEdit?"pointer":"default",fontFamily:"inherit",fontSize:11,fontWeight:700,whiteSpace:"nowrap",...planStyle(c.planAmt.plan)}}>{PLAN_LABEL[c.planAmt.plan]||"↻ Reinvest"}</button>

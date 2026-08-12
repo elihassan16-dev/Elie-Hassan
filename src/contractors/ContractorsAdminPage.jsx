@@ -311,7 +311,10 @@ function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
 export function QBPayPicker({ qbProjectId, orgName, existingQbIds, onAdd, onClose }) {
   const [items, setItems] = useState(null);
   const [err, setErr] = useState("");
-  const [q, setQ] = useState(orgName || "");
+  // Prefilter with the org's FIRST word, not the full legal name — a wire whose
+  // QB memo says "A/C: MCD NY LLC" (no vendor set) still matches "MCD", where
+  // "MCD Builds LLC" would hide it and the payment looked unpinnable.
+  const [q, setQ] = useState((orgName || "").trim().split(/\s+/)[0] || "");
   const [sel, setSel] = useState(new Set());
   useEffect(() => {
     let alive = true;
@@ -335,7 +338,16 @@ export function QBPayPicker({ qbProjectId, orgName, existingQbIds, onAdd, onClos
       <div style={{ fontSize: 11.5, color: T.textSub }}>Showing this property's QuickBooks expenses — prefiltered to “{orgName}”. Clear the search to see everything.</div>
       <div style={{ border: `1px solid ${T.border}`, borderRadius: T.radiusSm, overflow: "hidden", maxHeight: 320, overflowY: "auto" }}>
         {items === null && <div style={{ padding: 20, textAlign: "center", color: T.textTert, fontSize: 13 }}>Loading QuickBooks…</div>}
-        {items !== null && shown.length === 0 && <div style={{ padding: 20, textAlign: "center", color: T.textTert, fontSize: 13 }}>{err || (ql ? `Nothing matches “${q}”.` : "No expense transactions on this project.")}</div>}
+        {items !== null && shown.length === 0 && (
+          <div style={{ padding: 20, textAlign: "center", color: T.textTert, fontSize: 13 }}>
+            {err || (ql ? `Nothing matches “${q}”.` : "No expense transactions on this project.")}
+            {!err && ql && (items || []).length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <button onClick={() => setQ("")} style={{ padding: "7px 14px", borderRadius: 14, border: `1px solid ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontWeight: 800, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Show all {(items || []).length} on this property</button>
+              </div>
+            )}
+          </div>
+        )}
         {shown.map((t) => {
           const k = keyOf(t);
           const already = have.has(k);

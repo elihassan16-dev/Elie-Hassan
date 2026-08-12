@@ -6723,6 +6723,113 @@ function usePinnedEmailUnread(props){
   const emailBadge=(pid)=>{const n=unreadByProp[pid]||0;return n>0?<span title={`${n} unread email${n>1?"s":""} on a pinned chain`} style={{display:"inline-flex",alignItems:"center",gap:3,flexShrink:0,fontSize:10,fontWeight:800,color:"#fff",background:T.blue,borderRadius:12,padding:"1px 7px",whiteSpace:"nowrap"}}>📧 {n}</span>:null;};
   return {unreadByProp,emailBadge};
 }
+// 📧 Dashboard card: unread pinned-property emails for the signed-in user —
+// same pattern as the missed-calls / new-texts cards. Tap a row → the thread
+// opens right here (and gets marked read, clearing it from the card), with a
+// quick reply-all box; "Open property ›" jumps to the full Emails tab.
+function DashEmailCard({activeProps,onNavigate}){
+  const mail=useOutlookMail();
+  const[rows,setRows]=useState([]);
+  const[hidden,setHidden]=useState(()=>new Set()); // pin ids read this session
+  const[open,setOpen]=useState(null); // {pin,prop}
+  const[msgs,setMsgs]=useState(null);
+  const[reply,setReply]=useState("");
+  const[sending,setSending]=useState(false);
+  const pinSig=useMemo(()=>activeProps.filter(p=>(p.pinnedEmails||[]).length).map(p=>`${p.id}:${(p.pinnedEmails||[]).map(pe=>pe.id).join("|")}`).join(","),[activeProps]);
+  useEffect(()=>{
+    if(!mail.signedIn){setRows([]);return;}
+    let alive=true;
+    // Same 4-worker pool as the Portfolio badge check — kept under Graph throttling.
+    (async()=>{
+      const queue=[];
+      activeProps.filter(p=>(p.pinnedEmails||[]).length).forEach(p=>(p.pinnedEmails||[]).forEach(pe=>queue.push({p,pe})));
+      const found=[];
+      const work=async()=>{
+        while(alive&&queue.length){
+          const{p,pe}=queue.shift();
+          let convId=pe.conversationId;
+          if(pe.internetMessageId){try{const hit=await mail.findByInternetId(pe.internetMessageId);if(hit)convId=hit.conversationId;}catch{/* keep stored */}}
+          const n=await mail.conversationUnread(convId);
+          if(!alive)return;
+          if(n>0){found.push({pin:pe,prop:p,unread:n});setRows([...found].sort((a,b)=>String(b.pin.date||"").localeCompare(String(a.pin.date||""))));}
+        }
+      };
+      await Promise.all([work(),work(),work(),work()]);
+    })();
+    return()=>{alive=false;};
+  },[mail.signedIn,pinSig]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shown=rows.filter(r=>!hidden.has(r.pin.id)).slice(0,6);
+  const openRow=(r)=>{
+    setOpen(r);setMsgs(null);setReply("");
+    (async()=>{
+      try{
+        let convId=r.pin.conversationId;
+        if(r.pin.internetMessageId){const hit=await mail.findByInternetId(r.pin.internetMessageId);if(hit)convId=hit.conversationId;}
+        const m=await mail.getConversation(convId);
+        setMsgs(m);
+        const un=m.filter(x=>x.isRead===false);
+        if(un.length)await Promise.all(un.map(u=>mail.markRead(u.id)));
+        setHidden(h=>new Set([...h,r.pin.id])); // read → off the card
+      }catch{setMsgs([]);}
+    })();
+  };
+  const sendReply=async()=>{
+    if(!reply.trim()||!msgs||!msgs.length)return;
+    setSending(true);
+    try{await mail.reply(msgs[msgs.length-1].id,`<div>${mailEsc(reply).replace(/\n/g,"<br>")}</div>`,true);setReply("");setOpen(null);}
+    catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
+    setSending(false);
+  };
+  if(!mail.signedIn||shown.length===0)return null;
+  return(<>
+    <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
+      <div style={{padding:"11px 14px 9px",borderBottom:`1px solid ${T.border}`,fontSize:12,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:6}}>📧 New emails<span style={{marginLeft:"auto",fontSize:10,fontWeight:800,background:"#EEF2FF",color:"#4F46E5",border:"1px solid #C7D2FE",borderRadius:10,padding:"2px 8px"}}>{shown.length}</span></div>
+      {shown.map(r=>{const cat=MAIL_CATS.find(c=>c.key===mailCatOf(r.pin))||MAIL_CATS[MAIL_CATS.length-1];return(
+        <div key={r.pin.id} onClick={()=>openRow(r)} style={{display:"flex",gap:9,alignItems:"center",padding:"9px 13px",borderBottom:`1px solid ${T.border}55`,cursor:"pointer"}}>
+          <span style={{width:28,height:28,borderRadius:9,background:"#EEF0F4",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{cat.icon}</span>
+          <span style={{flex:1,minWidth:0}}>
+            <b style={{display:"block",fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.pin.from||r.pin.fromAddr||"(unknown sender)"}</b>
+            <span style={{display:"block",fontSize:10,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏠 {String(r.prop.address||"").split(",")[0]} · {r.pin.subject||r.pin.preview||""} · {mailWhen(r.pin.date)}</span>
+          </span>
+          <span style={{width:26,height:26,borderRadius:"50%",border:"1px solid #6366F1",background:"#EEF2FF",color:"#4F46E5",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,flexShrink:0}}>›</span>
+        </div>
+      );})}
+    </div>
+    {open&&(
+      <div onClick={()=>setOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)",padding:16,boxSizing:"border-box"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:20,width:640,maxWidth:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+          <div style={{padding:"13px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:14.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{open.pin.subject||"(no subject)"}</div>
+              <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏠 {String(open.prop.address||"")}{open.prop.city?`, ${open.prop.city}`:""}</div>
+            </div>
+            {onNavigate&&<button onClick={()=>{setOpen(null);onNavigate(open.prop.id);}} style={{background:"none",border:"none",color:T.blue,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0,padding:0}}>Open property ›</button>}
+            <button onClick={()=>setOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:12}}>
+            {msgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Opening the thread…</div>}
+            {msgs&&msgs.length===0&&<div style={{padding:16,fontSize:12.5,color:T.textTert}}>Couldn't open this thread here — use "Open property ›" to see it on the Emails tab.</div>}
+            {msgs&&msgs.map(m=>(
+              <div key={m.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,marginBottom:10,overflow:"hidden"}}>
+                <div style={{padding:"9px 13px",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center"}}>
+                  <div style={{flex:1,minWidth:0}}><div style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</div><div style={{fontSize:10.5,color:T.textTert}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div></div>
+                  {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
+                </div>
+                <MailBody message={m} mail={mail}/>
+              </div>
+            ))}
+          </div>
+          {msgs&&msgs.length>0&&(
+            <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,background:T.card,display:"flex",gap:8,flexShrink:0}}>
+              <input value={reply} onChange={e=>setReply(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendReply()} placeholder="Quick reply-all…" style={{flex:1,minWidth:0,padding:"10px 12px",borderRadius:12,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              <button onClick={sendReply} disabled={sending||!reply.trim()} style={{padding:"10px 16px",borderRadius:12,border:"none",background:reply.trim()?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:12.5,cursor:reply.trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{sending?"Sending…":"Send"}</button>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+  </>);
+}
 function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
   const isMobile=useIsMobile();
   const props=sharedProps.filter(p=>!p.archived&&ACTIVE_STATUSES.includes(p.status));
@@ -8870,7 +8977,7 @@ function TasksPage({onNavigate}){
       {!showAutomations&&dashTiles()}
       {dashTextPopup()}
       {/* Mobile: today's plate + calls/texts + follow-ups, before the task lists */}
-      {isMobile&&!showAutomations&&<div id="dash-cards" style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14}}>{dashTodayCard()}<CallTextCards prefs={prefs} savePrefs={savePrefs}/>{dashFupCard()}</div>}
+      {isMobile&&!showAutomations&&<div id="dash-cards" style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14}}>{dashTodayCard()}<CallTextCards prefs={prefs} savePrefs={savePrefs}/><DashEmailCard activeProps={sharedProps.filter(p=>!p.archived)} onNavigate={onNavigate}/>{dashFupCard()}</div>}
       <div style={{display:isMobile?"block":"flex",gap:22,alignItems:"flex-start"}}>
       <div id="dash-tasks" style={{flex:"0 1 840px",minWidth:0}}>
 
@@ -9343,7 +9450,7 @@ function TasksPage({onNavigate}){
         return(
           <div style={{width:300,flexShrink:0,position:"sticky",top:0,display:"flex",flexDirection:"column",gap:16}}>
             {dashTodayCard()}
-            <div id="dash-cards" style={{display:"flex",flexDirection:"column",gap:16}}><CallTextCards prefs={prefs} savePrefs={savePrefs}/>{dashFupCard()}</div>
+            <div id="dash-cards" style={{display:"flex",flexDirection:"column",gap:16}}><CallTextCards prefs={prefs} savePrefs={savePrefs}/><DashEmailCard activeProps={sharedProps.filter(p=>!p.archived)} onNavigate={onNavigate}/>{dashFupCard()}</div>
             <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
               {hdr("⏳","Waiting on you","#B45309")}
               {pendingCoReqs.length===0&&bidsIn.length===0&&askedOfMe.length===0&&<div style={{padding:"16px 14px",fontSize:12.5,color:T.textTert}}>You're all caught up. ✓</div>}
@@ -17104,6 +17211,18 @@ const MAIL_CATS=[
   {key:"Other",name:"Other",icon:"📁",color:"#9BA0A8"},
 ];
 const mailCatOf=(p)=>{const n=p.label&&p.label.note;return MAIL_CATS.some(c=>c.key===n)?n:"Other";};
+// Group pins by WHO they're from: a company = the sender's email domain (all of
+// @limaone.com is one row); personal addresses (gmail…) group by the individual.
+const MAIL_GENERIC_DOMAINS=new Set(["gmail.com","yahoo.com","outlook.com","hotmail.com","aol.com","icloud.com","me.com","msn.com","comcast.net","verizon.net","live.com","ymail.com","proton.me","protonmail.com"]);
+const mailSenderKeyOf=(p)=>{const a=String(p.fromAddr||"").toLowerCase();const dom=a.split("@")[1]||"";if(dom&&!MAIL_GENERIC_DOMAINS.has(dom))return "d:"+dom;return a?"a:"+a:"n:"+String(p.from||"").toLowerCase();};
+// A display name for the group: the one sender name if they're all the same,
+// else the company's domain prettified ("limaone.com" → "Limaone").
+const mailSenderTitle=(pins)=>{
+  const names=[...new Set(pins.map(p=>p.from).filter(Boolean))];
+  if(names.length===1)return names[0];
+  const dom=(String((pins[0]||{}).fromAddr||"").split("@")[1]||"").split(".")[0];
+  return dom?dom.charAt(0).toUpperCase()+dom.slice(1):(names[0]||"(unknown sender)");
+};
 // "Re: Fwd: 18 Fisk St docs" → "18 fisk st docs" — cross-mailbox dedupe: two
 // teammates on one thread see different conversation/message ids, but the same
 // normalized subject on the same property is the same paper trail.
@@ -17211,6 +17330,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
   const[teamView,setTeamView]=useState(null);   // teammate's pin being viewed read-only
   const[teamMsgs,setTeamMsgs]=useState(null);
   const[teamFrom,setTeamFrom]=useState("");
+  const[senderOpen,setSenderOpen]=useState(null); // sender-group key whose page is open
   const vScrollRef=useRef(null);
   const pinKey=pinned.map(p=>p.id).join(",");
 
@@ -17355,31 +17475,84 @@ function PropertyEmails({property,onUpdate,isMobile}){
               </div>
               <div style={{background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden"}}>
                 {shownPins.length===0&&<div style={{padding:"18px 16px",fontSize:12.5,color:T.textTert}}>Nothing in this bucket.</div>}
-                {groups.map((g,gi)=>(<Fragment key={g.c.key}>
-                  <div style={{padding:"7px 16px 4px",fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:g.c.color,borderTop:gi===0?"none":`1px solid ${T.border}`}}>{g.c.icon} {g.c.name.toUpperCase()}</div>
-                  {g.items.map(({p,mine})=>{const unread=mine&&(unreadMap[p.id]||0)>0;return(
-                    <div key={p.id} style={{display:"flex",gap:10,alignItems:"center",padding:"11px 16px",borderTop:`1px solid ${T.border}55`,background:unread?"#F5F9FF":"transparent",opacity:mine?1:0.62}}>
-                      <div style={{width:8,flexShrink:0,alignSelf:"flex-start",paddingTop:5}}>{unread&&<span title={`${unreadMap[p.id]} unread`} style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
-                      <div onClick={()=>mine?setViewer(p):openTeamView(p)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
-                        <div style={{fontSize:13.5,fontWeight:unread?800:700,color:mine?T.blue:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
-                        <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.from} · {mailWhen(p.date)}{mine?" · yours":""}</div>
-                        {(p.label||p.preview||p.auto)&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,minWidth:0}}>
-                          {p.auto&&<span title={`Pinned automatically${p.autoBy?` (matched in ${String(p.autoBy).split(" ")[0]}'s inbox)`:""}`} style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
-                          {p.label&&<MailLabelChip lab={p.label} small/>}
-                          {p.label?.taskId&&<span style={{display:"inline-flex",alignItems:"center",gap:2,fontSize:10,fontWeight:700,color:T.gold,background:T.goldLight,borderRadius:12,padding:"1px 7px",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>🔗 {taskName(p.label.taskId)||"Linked task"}</span>}
-                          {p.preview&&<span style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{p.preview}</span>}
-                        </div>}
-                      </div>
-                      {!mine&&<span title={`Matched in ${p.autoBy||"a teammate"}'s inbox`} style={{width:22,height:22,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:8.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(p.autoBy)}</span>}
-                      {!mine&&<button onClick={()=>openTeamView(p)} title="View this thread (read-only)" style={{fontSize:10,fontWeight:800,color:T.blue,border:"1px solid #BFDBFE",background:"#EFF6FF",borderRadius:10,padding:"3px 9px",flexShrink:0,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>👁 View</button>}
-                      <button onClick={()=>setLabelPin(p)} title="Label / link this chain" style={{background:p.label?T.goldLight:"none",border:p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:"5px 8px"}}>🏷</button>
-                      <button onClick={()=>unpin(p.id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
-                    </div>
-                  );})}
-                </Fragment>))}
+                {groups.map((g,gi)=>{
+                  // One row per COMPANY / PERSON: all their chains roll up —
+                  // who wrote last, chain count, one unread total. Tap → their
+                  // page; a single-chain sender opens the thread directly.
+                  const senders=[];
+                  g.items.forEach(x=>{const k=mailSenderKeyOf(x.p);let s=senders.find(y=>y.k===k);if(!s){s={k,items:[]};senders.push(s);}s.items.push(x);});
+                  senders.forEach(s=>{
+                    s.mine=s.items.some(x=>x.mine);
+                    s.unread=s.items.reduce((n,x)=>n+(x.mine?(unreadMap[x.p.id]||0):0),0);
+                    s.latestP=[...s.items].sort((a,b)=>String(b.p.date||"").localeCompare(String(a.p.date||"")))[0].p;
+                    s.title=mailSenderTitle(s.items.map(x=>x.p));
+                    s.auto=s.items.every(x=>x.p.auto);
+                  });
+                  senders.sort((a,b)=>((b.mine?1:0)-(a.mine?1:0))||String(b.latestP.date||"").localeCompare(String(a.latestP.date||"")));
+                  return(<Fragment key={g.c.key}>
+                    <div style={{padding:"7px 16px 4px",fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:g.c.color,borderTop:gi===0?"none":`1px solid ${T.border}`}}>{g.c.icon} {g.c.name.toUpperCase()}</div>
+                    {senders.map(s=>{
+                      const single=s.items.length===1;
+                      const onOpen=()=>{if(single){const x=s.items[0];x.mine?setViewer(x.p):openTeamView(x.p);}else setSenderOpen(s.k);};
+                      return(
+                        <div key={s.k} style={{display:"flex",gap:11,alignItems:"center",padding:"11px 16px",borderTop:`1px solid ${T.border}55`,background:s.unread>0?"#F5F9FF":"transparent",opacity:s.mine?1:0.62}}>
+                          <div style={{width:8,flexShrink:0}}>{s.unread>0&&<span style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
+                          <span style={{width:32,height:32,borderRadius:10,background:"#EEF0F4",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{g.c.icon}</span>
+                          <div onClick={onOpen} style={{flex:1,minWidth:0,cursor:"pointer"}}>
+                            <div style={{fontSize:13.5,fontWeight:800,color:s.mine?T.text:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title}</div>
+                            <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.latestP.from&&s.latestP.from!==s.title?`${s.latestP.from} · `:""}{s.latestP.subject||s.latestP.preview||""} · {mailWhen(s.latestP.date)}</div>
+                          </div>
+                          {s.auto&&<span title="Pinned automatically" style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
+                          {!s.mine&&<span title={`Matched in ${s.latestP.autoBy||"a teammate"}'s inbox`} style={{width:22,height:22,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:8.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(s.latestP.autoBy)}</span>}
+                          {s.unread>0&&<span style={{fontSize:10.5,fontWeight:800,color:"#fff",background:T.red,borderRadius:10,padding:"3px 9px",flexShrink:0,whiteSpace:"nowrap"}}>{s.unread} new</span>}
+                          <span style={{fontSize:10.5,fontWeight:800,color:T.textSub,background:"#F1F1F4",borderRadius:10,padding:"3px 9px",flexShrink:0,whiteSpace:"nowrap"}}>{s.items.length} chain{s.items.length>1?"s":""}</span>
+                          {single&&<button onClick={()=>setLabelPin(s.items[0].p)} title="Label / link this chain" style={{background:s.items[0].p.label?T.goldLight:"none",border:s.items[0].p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:s.items[0].p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:"5px 8px"}}>🏷</button>}
+                          {single&&<button onClick={()=>unpin(s.items[0].p.id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>}
+                          <span onClick={onOpen} style={{color:"#C7CBD1",fontSize:15,flexShrink:0,cursor:"pointer"}}>›</span>
+                        </div>
+                      );
+                    })}
+                  </Fragment>);
+                })}
               </div>
             </>);
           })()}
+      {/* A company's page: every chain with them on this property */}
+      {senderOpen&&(()=>{
+        const inGroup=pinned.map(p=>({p,mine:inBox[p.id]!==false})).filter(x=>mailSenderKeyOf(x.p)===senderOpen)
+          .sort((a,b)=>String(b.p.date||"").localeCompare(String(a.p.date||"")));
+        if(!inGroup.length)return null;
+        const title=mailSenderTitle(inGroup.map(x=>x.p));
+        const cat=MAIL_CATS.find(c=>c.key===mailCatOf(inGroup[0].p))||MAIL_CATS[MAIL_CATS.length-1];
+        return(
+          <div onClick={()=>setSenderOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+              <div style={{padding:"13px 16px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+                <span style={{width:30,height:30,borderRadius:9,background:"#EEF0F4",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{cat.icon}</span>
+                <span style={{minWidth:0,flex:1}}>
+                  <div style={{fontSize:14.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
+                  <div style={{fontSize:11,color:T.textTert}}>{inGroup.length} email chain{inGroup.length>1?"s":""} · {property.address}</div>
+                </span>
+                <button onClick={()=>setSenderOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+              </div>
+              <div style={{overflowY:"auto",flex:1}}>
+                {inGroup.map(({p,mine})=>{const unread=mine&&(unreadMap[p.id]||0)>0;return(
+                  <div key={p.id} style={{display:"flex",gap:10,alignItems:"center",padding:"11px 16px",borderTop:`1px solid ${T.border}55`,background:unread?"#F5F9FF":"transparent"}}>
+                    <div style={{width:8,flexShrink:0}}>{unread&&<span style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
+                    <div onClick={()=>mine?setViewer(p):openTeamView(p)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
+                      <div style={{fontSize:13,fontWeight:unread?800:700,color:mine?T.blue:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
+                      <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.from} · {mailWhen(p.date)}{mine?"":` · ${p.autoBy||"a teammate"}'s`}</div>
+                    </div>
+                    {p.auto&&<span style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
+                    <button onClick={()=>setLabelPin(p)} title="Label / link this chain" style={{background:p.label?T.goldLight:"none",border:p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:"5px 8px"}}>🏷</button>
+                    <button onClick={()=>unpin(p.id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
+                  </div>
+                );})}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* 👁 Read-only viewer for a teammate's chain */}
       {teamView&&(
         <div onClick={()=>setTeamView(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:252,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>

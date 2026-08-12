@@ -15140,10 +15140,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const[soldTxAll,setSoldTxAll]=useState(()=>qbCache.get("soldTxAll",{}));
   useEffect(()=>{qbCache.set("soldTxAll",soldTxAll);},[soldTxAll]);
   const soldQxOf=(p)=>{const v=p.qbProjectId?soldTxAll[p.qbProjectId]:null;return Array.isArray(v)?{debt:v}:(v||{});};
-  // QuickBooks is the source of truth for buy/sell dates (Elie: "always just
-  // take the date from QuickBooks") — the app's own dates are only a fallback
-  // for deals with no linked project / no QB data yet.
-  const soldDatesOf=(p)=>{const f=p.financials||{};const qx=soldQxOf(p);return {buy:qx.buy||f.purchaseDate||"",sell:qx.sell||f.sellingDate||""};};
+  // Date priority: a date Elie set HERE in the breakdown popup (the override)
+  // wins, then QuickBooks' journal-entry dates, then the app's old fields.
+  // QB stays the default, but the books are sometimes caught up weeks after a
+  // closing — the JE carries the booking date, not the closing date — so the
+  // popup lets the real date be pinned on top.
+  const soldDatesOf=(p)=>{const f=p.financials||{};const qx=soldQxOf(p);return {buy:f.boughtDateOverride||qx.buy||f.purchaseDate||"",sell:f.soldDateOverride||qx.sell||f.sellingDate||""};};
   const soldProps=useMemo(()=>(sharedProps||[]).filter(p=>{
     if(p.status!=="Sold")return false;
     // Undated ARCHIVED Sold deals stay out (old half-entered records with bad
@@ -15638,13 +15640,20 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:16,fontWeight:800,color:T.text}}>All-in Cost Breakdown</div>
                   <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{soldSel.address} · {q?"live from QuickBooks":"app actual figures"} · sale {fmtD(sale)}</div>
-                  {(()=>{const qx=soldQxOf(soldSel);const sd=soldDatesOf(soldSel);return(<>
+                  {(()=>{const f2=soldSel.financials||{};const qx=soldQxOf(soldSel);const sd=soldDatesOf(soldSel);
+                    const setF=(k,v)=>updateProp(soldSel.id,"financials",{...f2,[k]:v});
+                    const srcTag=(ov,qbv,ovKey)=>ov
+                      ?<button onClick={canEdit?()=>setF(ovKey,""):undefined} title="You set this date — tap to go back to the QuickBooks date" style={{fontSize:10,fontWeight:800,color:"#8a6d1f",background:T.gold+"22",border:`1px solid ${T.gold}66`,borderRadius:8,padding:"2px 7px",cursor:canEdit?"pointer":"default",fontFamily:"inherit"}}>set by you ✕</button>
+                      :qbv?<span title="From the journal entry in QuickBooks — type a date to correct it" style={{fontSize:10,fontWeight:800,color:"#2CA01C",background:"#EAF7E8",border:"1px solid #BFE5BA",borderRadius:8,padding:"2px 7px"}}>from QuickBooks ✓</span>:null;
+                    const dIn={padding:"6px 9px",borderRadius:8,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:12.5,outline:"none",fontFamily:"inherit"};
+                    return(<>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,flexWrap:"wrap"}}>
-                    <span style={{fontSize:11,fontWeight:800,color:sd.sell?T.textSub:T.orange}}>Sold date</span>
-                    <input type="date" value={sd.sell||""} disabled={!canEdit||!!qx.sell} title={qx.sell?"Synced from the sale entry in QuickBooks — redate it there to change it":undefined} onChange={e=>updateProp(soldSel.id,"financials",{...(soldSel.financials||{}),sellingDate:e.target.value})}
-                      style={{padding:"6px 9px",borderRadius:8,border:`1px solid ${sd.sell?T.border:T.orange}`,background:T.bg,color:T.text,fontSize:12.5,outline:"none",fontFamily:"inherit"}}/>
-                    {qx.sell?<span title="Synced from the sale entry in QuickBooks" style={{fontSize:10,fontWeight:800,color:"#2CA01C",background:"#EAF7E8",border:"1px solid #BFE5BA",borderRadius:8,padding:"2px 7px"}}>from QuickBooks ✓</span>:null}
-                    {sd.buy?<span style={{fontSize:11,color:T.textSub}}>· bought {finFmtDate(sd.buy)}{qx.buy&&!(soldSel.financials||{}).purchaseDate?" (QB)":""}</span>:null}
+                    <span style={{fontSize:11,fontWeight:800,color:sd.sell?T.textSub:T.orange}}>Sold</span>
+                    <input type="date" value={sd.sell||""} disabled={!canEdit} onChange={e=>setF("soldDateOverride",e.target.value)} style={{...dIn,border:`1px solid ${sd.sell?T.border:T.orange}`}}/>
+                    {srcTag(f2.soldDateOverride,qx.sell,"soldDateOverride")}
+                    <span style={{fontSize:11,fontWeight:800,color:T.textSub,marginLeft:2}}>Bought</span>
+                    <input type="date" value={sd.buy||""} disabled={!canEdit} onChange={e=>setF("boughtDateOverride",e.target.value)} style={dIn}/>
+                    {srcTag(f2.boughtDateOverride,qx.buy,"boughtDateOverride")}
                   </div>
                   {!soldSel.qbProjectId&&canEdit&&connected&&(()=>{
                     // Not linked to the books — the numbers above are the app's

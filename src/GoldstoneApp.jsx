@@ -6751,10 +6751,12 @@ function DashEmailCard({activeProps,onNavigate}){
           if(pe.internetMessageId){try{const hit=await mail.findByInternetId(pe.internetMessageId);if(hit)convId=hit.conversationId;}catch{/* keep stored */}}
           const n=await mail.conversationUnread(convId);
           if(!alive)return;
-          if(n>0){found.push({pin:pe,prop:p,unread:n});setRows([...found].sort((a,b)=>String(b.pin.date||"").localeCompare(String(a.pin.date||""))));}
+          if(n>0)found.push({pin:pe,prop:p,unread:n});
         }
       };
       await Promise.all([work(),work(),work(),work()]);
+      // One shot at the end — updating the card row-by-row made it jitter.
+      if(alive)setRows(found.sort((a,b)=>String(b.pin.date||"").localeCompare(String(a.pin.date||""))));
     })();
     return()=>{alive=false;};
   },[mail.signedIn,pinSig]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -6780,9 +6782,11 @@ function DashEmailCard({activeProps,onNavigate}){
     catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
     setSending(false);
   };
-  if(!mail.signedIn||shown.length===0)return null;
+  // Keep rendering while the thread popup is open — reading the LAST unread
+  // email empties the card, and hiding it then would slam the popup shut too.
+  if(!mail.signedIn||(shown.length===0&&!open))return null;
   return(<>
-    <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
+    {shown.length>0&&<div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
       <div style={{padding:"11px 14px 9px",borderBottom:`1px solid ${T.border}`,fontSize:12,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:6}}>📧 New emails<span style={{marginLeft:"auto",fontSize:10,fontWeight:800,background:"#EEF2FF",color:"#4F46E5",border:"1px solid #C7D2FE",borderRadius:10,padding:"2px 8px"}}>{shown.length}</span></div>
       {shown.map(r=>{const cat=MAIL_CATS.find(c=>c.key===mailCatOf(r.pin))||MAIL_CATS[MAIL_CATS.length-1];return(
         <div key={r.pin.id} onClick={()=>openRow(r)} style={{display:"flex",gap:9,alignItems:"center",padding:"9px 13px",borderBottom:`1px solid ${T.border}55`,cursor:"pointer"}}>
@@ -6794,7 +6798,7 @@ function DashEmailCard({activeProps,onNavigate}){
           <span style={{width:26,height:26,borderRadius:"50%",border:"1px solid #6366F1",background:"#EEF2FF",color:"#4F46E5",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,flexShrink:0}}>›</span>
         </div>
       );})}
-    </div>
+    </div>}
     {open&&(
       <div onClick={()=>setOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)",padding:16,boxSizing:"border-box"}}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:20,width:640,maxWidth:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
@@ -17386,18 +17390,23 @@ function PropertyEmails({property,onUpdate,isMobile}){
   // what decides open-and-reply vs the read-only 👁 view).
   useEffect(()=>{
     if(!mail.signedIn||pinned.length===0)return;let alive=true;
-    // All pins checked in parallel (was one-at-a-time — slow with several pins).
+    // All pins checked in parallel, applied in ONE state update at the end —
+    // applying per-pin re-sorted and re-shaded the rows as each answer landed,
+    // which read as constant blinking on logins with many teammate chains.
     (async()=>{
+      const un={},inb={};
       await Promise.all(pinned.map(async(p)=>{
         let convId=p.conversationId;
         let hit=null;
         if(p.internetMessageId){try{hit=await mail.findByInternetId(p.internetMessageId);if(hit)convId=hit.conversationId;}catch{/* keep stored */}}
         const n=await mail.conversationUnread(convId);
-        if(!alive)return;
-        setUnreadMap(m=>({...m,[p.id]:n}));
+        un[p.id]=n;
         // Older pins without a Message-ID stay "mine" (legacy open behavior).
-        setInBox(m=>({...m,[p.id]:p.internetMessageId?(!!hit||n>0):true}));
+        inb[p.id]=p.internetMessageId?(!!hit||n>0):true;
       }));
+      if(!alive)return;
+      setUnreadMap(m=>({...m,...un}));
+      setInBox(m=>({...m,...inb}));
     })();
     return ()=>{alive=false;};
   },[mail.signedIn,pinKey,viewer]); // eslint-disable-line react-hooks/exhaustive-deps

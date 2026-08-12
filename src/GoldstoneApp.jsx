@@ -15152,6 +15152,20 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
       }catch{/* keep cached */}}};
     Promise.all([run(),run()]);return ()=>{cancelled=true;};
   },[connected,soldKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Per-deal QuickBooks DEBT transactions (vendor/memo/amount) — the dedupe
+  // needs transaction-level detail: a P&L "Debt Service" account totals many
+  // payments, so a single lender's payment never matches the account total.
+  const[soldTxAll,setSoldTxAll]=useState(()=>qbCache.get("soldTxAll",{}));
+  useEffect(()=>{qbCache.set("soldTxAll",soldTxAll);},[soldTxAll]);
+  useEffect(()=>{
+    if(!connected)return;const ids=[...new Set(soldProps.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
+    const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
+      try{const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);
+        const debt=(d.items||[]).filter(t=>String(t.section||"").toLowerCase()!=="income"&&soldCatOfAcct(t.account)==="Debt service").map(t=>({vendor:t.vendor||"",memo:t.memo||"",amount:Number(t.amount)||0}));
+        if(!cancelled)setSoldTxAll(m=>({...m,[id]:debt}));
+      }catch{/* keep cached */}}};
+    Promise.all([run(),run()]);return()=>{cancelled=true;};
+  },[connected,soldKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const[soldFor,setSoldFor]=useState(null); // property id whose cost breakdown is open
   const[adjDraft,setAdjDraft]=useState({label:"",amount:"",cat:"Rehab"});
   // Drill-down: tapping a bucket's total lists its underlying QuickBooks
@@ -15216,9 +15230,20 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     // ~2% of the draw's interest), the register line steps aside — the same
     // dollars were counting twice (4 Rauer Ct: QB "Debt Service" $31,323.29 AND
     // "LOC interest — Cohen" $31,323).
-    const qbDebt=q?(q.rows||[]).filter(r=>String(r.section||"").toLowerCase()!=="income"&&soldCatOfAcct(r.name)==="Debt service").map(r=>Number(r.amount)||0):[];
+    const txDebt=p.qbProjectId?(soldTxAll[p.qbProjectId]||[]):[];
+    // Amounts to dedupe against: individual debt TRANSACTIONS first (a P&L
+    // account line totals many payments and never matches one lender), with
+    // the P&L account lines as backup when transactions haven't loaded yet.
+    const qbDebt=txDebt.length?txDebt.map(t=>t.amount)
+      :(q?(q.rows||[]).filter(r=>String(r.section||"").toLowerCase()!=="income"&&soldCatOfAcct(r.name)==="Debt service").map(r=>Number(r.amount)||0):[]);
+    const qbDebtText=txDebt.map(t=>`${t.vendor} ${t.memo}`).join(" ").toLowerCase().replace(/[^a-z0-9]/g,"");
     const usedQbDebt=new Set();
     const locDraws=drawsForProperty(p,draws||[]).map(d=>({funder:d.funderName||"—",interest:Math.round(drawInterest(d))})).filter(x=>x.interest>0).filter(x=>{
+      // Lender's name shows in the QB debt payments → they're paid through the
+      // books; the register line would double count ("Azaria Weinman debt
+      // payment" $632.47 AND "LOC interest — Azaria Weinman" $632).
+      const nm=String(x.funder||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+      if(nm.length>=4&&qbDebtText.includes(nm))return false;
       const i=qbDebt.findIndex((amt,idx)=>!usedQbDebt.has(idx)&&Math.abs(amt-x.interest)<=Math.max(5,x.interest*0.02));
       if(i>=0){usedQbDebt.add(i);return false;} // already in the books
       return true;
@@ -15235,7 +15260,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
     const total={sale:0,allIn:0,profit:0,mo:0,moN:0};
     rows.forEach(r=>{total.sale+=r.sale;total.allIn+=r.allIn;total.profit+=r.profit;if(r.months!=null){total.mo+=r.months;total.moN++;}});
     return {rows,total};
-  },[soldProps,soldPnl,sharedProps,draws]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[soldProps,soldPnl,soldTxAll,sharedProps,draws]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const D=(iso)=>iso?finFmtDate(iso):"—";
   const M=(v)=>v==null?"—":fmtD(v);

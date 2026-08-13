@@ -15482,6 +15482,99 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       rows:[row(nowYear,cur," (so far)"),row(nowYear-1,prev,"")],foot:null,empty:""};
   };
 
+  // ── 💸 Cash Flow report ────────────────────────────────────────────────────
+  // Money in (QuickBooks income + LOC draws from the register + bank loan
+  // draws) vs interest (split into covered-by-LOC-raises and true cost),
+  // company expenses by QuickBooks category, and owner distributions.
+  const[cfMonth,setCfMonth]=useState(null);              // null = whole year
+  const[cfTx,setCfTx]=useState(()=>qbCache.get("cfTx",null));       // company P&L txns this year
+  const[cfLoan,setCfLoan]=useState(()=>qbCache.get("cfLoan",null)); // loan accounts + GL entries
+  const[cfDist,setCfDist]=useState(()=>qbCache.get("cfDist",null)); // distribution equity accounts + GL
+  useEffect(()=>{if(cfTx)qbCache.set("cfTx",cfTx);},[cfTx]);
+  useEffect(()=>{if(cfLoan)qbCache.set("cfLoan",cfLoan);},[cfLoan]);
+  useEffect(()=>{if(cfDist)qbCache.set("cfDist",cfDist);},[cfDist]);
+  const[cfSel,setCfSel]=useState(null);                  // {title,items} drill-down
+  const[cfQ,setCfQ]=useState("");
+  useEffect(()=>{
+    if(open!=="cash"||!connected)return;let alive=true;
+    qbAuthFetch(`/api/quickbooks/transactions?start=${nowYear}-01-01`).then(d=>{if(alive)setCfTx(d.items||[]);}).catch(()=>{});
+    const pull=async(accts)=>{const out=[];for(const a of accts){try{const r=await qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(a.id)}`);out.push({name:a.name,items:(r.items||[]).filter(t=>String(t.date||"")>=`${nowYear}-01-01`)});}catch{/* skip account */}}return out;};
+    qbAuthFetch("/api/quickbooks/accounts").then(async d=>{
+      const loans=(d.items||[]).filter(a=>/constr|mortgage|bank/i.test(a.name));
+      const out=await pull(loans);if(alive)setCfLoan(out);
+    }).catch(()=>{});
+    qbAuthFetch("/api/quickbooks/accounts?class=Equity").then(async d=>{
+      const dist=(d.items||[]).filter(a=>/distribut/i.test(a.name));
+      const out=await pull(dist);if(alive)setCfDist(out);
+    }).catch(()=>{});
+    return()=>{alive=false;};
+  },[open,connected]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cfCalc=()=>{
+    const inMo=(dstr)=>{const s=String(dstr||"");if(!/^\d{4}-\d{2}/.test(s)||s.slice(0,4)!==String(nowYear))return false;return cfMonth==null||parseInt(s.slice(5,7),10)-1===cfMonth;};
+    const tx=(cfTx||[]).filter(t=>inMo(t.date));
+    const isInc=(t)=>String(t.section||"").toLowerCase().includes("income");
+    const isIntAcct=(nm)=>/interest|debt service|loan fee|points|financ/i.test(String(nm||""));
+    const groupBy=(list)=>{const m={};list.forEach(t=>{const k=t.account||"—";(m[k]=m[k]||{name:k,total:0,items:[]});m[k].total+=Number(t.amount)||0;m[k].items.push(t);});return Object.values(m).sort((a,b)=>Math.abs(b.total)-Math.abs(a.total));};
+    const incomeG=groupBy(tx.filter(isInc));
+    const qbInt=tx.filter(t=>!isInc(t)&&isIntAcct(t.account));
+    const expG=groupBy(tx.filter(t=>!isInc(t)&&!isIntAcct(t.account)));
+    // LOC draws received (the register — the property balance sheets here).
+    const locIn=(draws||[]).filter(d=>inMo(d.dateFunded));
+    const locInTotal=locIn.reduce((s,d)=>s+(Number(d.amount)||0),0);
+    // Interest COVERED by LOC raises: register draws settled in the period —
+    // tracked on the property balance sheet, deliberately not in QuickBooks.
+    // Same dedupe as the Sold report so interest Esti DID book never counts twice.
+    const settled=(draws||[]).filter(d=>inMo(d.paybackDate)).map(d=>({funder:d.funderName||"—",prop:d.propertyLabel||"",date:d.paybackDate,interest:Math.round(drawInterest(d))})).filter(x=>x.interest>0);
+    const qbIntAmts=qbInt.map(t=>Number(t.amount)||0);
+    const qbIntText=qbInt.map(t=>`${t.vendor} ${t.memo}`).join(" ").toLowerCase().replace(/[^a-z0-9]/g,"");
+    const used=new Set();let matchedQb=0;
+    const regOnly=settled.filter(x=>{
+      const nm=String(x.funder||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+      if(nm.length>=4&&qbIntText.includes(nm)){matchedQb+=x.interest;return false;}
+      const i=qbIntAmts.findIndex((amt,idx)=>!used.has(idx)&&Math.abs(amt-x.interest)<=Math.max(5,x.interest*0.02));
+      if(i>=0){used.add(i);matchedQb+=qbIntAmts[i];return false;}
+      return true;
+    });
+    const regOnlySum=regOnly.reduce((s,x)=>s+x.interest,0);
+    const qbIntSum=qbIntAmts.reduce((s,v)=>s+v,0);
+    const intPaid=qbIntSum+regOnlySum;
+    const covered=regOnlySum+matchedQb;
+    const netInt=Math.max(0,intPaid-covered);
+    // Bank construction draws = positive (draw) entries in the loan accounts.
+    const bankAccts=(cfLoan||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date)&&(Number(t.amount)||0)>0);return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:its.reduce((s,t)=>s+(Number(t.amount)||0),0)};}).filter(a=>a.total>0);
+    const bankIn=bankAccts.reduce((s,a)=>s+a.total,0);
+    const distAccts=(cfDist||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date));return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:Math.abs(its.reduce((s,t)=>s+(Number(t.amount)||0),0))};}).filter(a=>a.items.length);
+    const distTotal=distAccts.reduce((s,a)=>s+a.total,0);
+    const incomeTotal=incomeG.reduce((s,g)=>s+g.total,0);
+    const expTotal=expG.reduce((s,g)=>s+g.total,0);
+    const totalIn=incomeTotal+locInTotal+bankIn;
+    const net=totalIn-netInt-expTotal-distTotal;
+    return {incomeG,incomeTotal,locIn,locInTotal,bankAccts,bankIn,totalIn,qbInt,qbIntSum,regOnly,settled,intPaid,covered,netInt,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
+  };
+  const cfLabel=cfMonth==null?`${nowYear} so far`:`${MONTHS_F[cfMonth]} ${nowYear}`;
+  const buildCashRep=()=>{
+    const c=cfCalc();
+    const L=(t,v,o={})=>[{t,...(o.head?{strong:true}:{})},{t:v==null?"":fmtD(v),align:"right",strong:!!o.strong,color:o.color}];
+    const rows=[
+      L("MONEY IN",null,{head:true}),
+      ...c.incomeG.map(g=>L(`　${g.name}`,g.total)),
+      L("　LOC draws received (draw register)",c.locInTotal),
+      ...c.bankAccts.map(a=>L(`　Bank draws — ${a.name}`,a.total)),
+      L("Total in",c.totalIn,{strong:true,color:T.green}),
+      L("INTEREST",null,{head:true}),
+      L("　Interest paid out",c.intPaid),
+      L("　− Covered from LOC raises",-c.covered),
+      L("　Net interest cost",c.netInt,{strong:true}),
+      L("EXPENSES",null,{head:true}),
+      ...c.expG.map(g=>L(`　${g.name}`,g.total)),
+      L("Total expenses",c.expTotal,{strong:true}),
+      L("DISTRIBUTIONS",null,{head:true}),
+      ...c.distAccts.map(a=>L(`　${a.name}`,a.total)),
+      L("Net cash flow",c.net,{strong:true,color:c.net<0?T.red:T.green}),
+    ];
+    return {title:`Cash Flow — ${cfLabel}`,subtitle:"Money in vs money out — QuickBooks income, LOC + bank draws, interest net of LOC-covered, company expenses by category, owner distributions.",cols:[{label:"Line"},{label:"Amount",align:"right"}],rows,foot:null,empty:""};
+  };
+
   const D=(iso)=>iso?finFmtDate(iso):"—";
   const M=(v)=>v==null?"—":fmtD(v);
   const REPORTS={
@@ -15604,6 +15697,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     },
   };
 
+  REPORTS.cash={title:`Cash Flow — ${nowYear}`,subtitle:"Where the cash actually went — QuickBooks income, LOC + bank draws in; interest shown with what LOC raises covered; company expenses by QuickBooks category; owner distributions. Tap any line for the transactions behind it, with search.",cols:[],rows:[],empty:""};
+
   // Export → open a print window (the browser's "Save as PDF" / print / share).
   const exportReport=(rep)=>{
     const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -15634,6 +15729,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   };
 
   const cards=[
+    {id:"cash",icon:"💸",title:`Cash Flow — ${nowYear}`,desc:"Money in vs money out — income, draws, interest net of what LOC raises covered, expenses by category, distributions. Filter any month."},
     {id:"sold",icon:"💵",title:`Sold in ${nowYear} — Profit by Deal`,desc:`Every deal sold this year — sale, all-in cost and profit, live from QuickBooks. Tap a cost for the breakdown; switch to ${nowYear-1} inside.`},
     {id:"loc",icon:"📄",title:"Outstanding LOC by Deal",desc:"Who you owe line-of-credit to, by property — oldest funding first."},
     {id:"future",icon:"📈",title:"Available Future Funds",desc:"LOC capital freeing up from your upcoming closings."},
@@ -15686,6 +15782,14 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                       <button onClick={()=>setSoldMonth(null)} style={{padding:"5px 12px",borderRadius:20,border:"none",background:T.gold,color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{MONTHS_F[soldMonth]} ✕</button>
                     )}
                     {!connected&&<span style={{fontSize:11,fontWeight:700,color:T.orange}}>⚠ QuickBooks not connected here — showing last saved numbers</span>}
+                  </div>
+                )}
+                {open==="cash"&&(
+                  <div style={{display:"flex",gap:5,marginTop:9,flexWrap:"wrap",alignItems:"center"}}>
+                    {[["Whole year",null],...MONTHS_S.slice(0,new Date().getMonth()+1).map((m,i)=>[m,i])].map(([l,v])=>(
+                      <button key={l} onClick={()=>setCfMonth(v)} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${cfMonth===v?T.gold:T.border}`,background:cfMonth===v?T.gold+"22":T.card,color:cfMonth===v?"#8a6d1f":T.textSub,fontWeight:cfMonth===v?800:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                    ))}
+                    {!connected&&<span style={{fontSize:11,fontWeight:700,color:T.orange}}>⚠ QuickBooks not connected here — showing last loaded data</span>}
                   </div>
                 )}
               </div>
@@ -15777,7 +15881,44 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                     </tbody>
                   </table>
                 </div>);})()}
-              {(open!=="sold"||soldView==="deals")&&<table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?12:13}}>
+              {open==="cash"&&(()=>{
+                // 💸 Cash Flow — every line taps open to its transactions.
+                const c=cfCalc();
+                const Sec=({t})=><div style={{padding:"12px 14px 4px",fontSize:10.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>{t}</div>;
+                const Row=({nm,sub,amt,items,title,green,indent})=>(
+                  <div onClick={items&&items.length?()=>{setCfSel({title:title||nm,items});setCfQ("");}:undefined}
+                    style={{display:"flex",alignItems:"center",gap:10,padding:`8px 14px 8px ${indent?26:14}px`,borderBottom:`1px solid ${T.border}44`,cursor:items&&items.length?"pointer":"default"}}>
+                    <span style={{flex:1,minWidth:0,fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nm}{sub?<span style={{fontSize:10.5,color:T.textTert,fontWeight:500}}> · {sub}</span>:null}</span>
+                    <b style={{fontSize:12.5,color:green?T.green:T.text,flexShrink:0}}>{fmtD(amt)}</b>
+                    {items&&items.length?<span style={{color:T.textTert,fontSize:12,flexShrink:0}}>›</span>:<span style={{width:8,flexShrink:0}}/>}
+                  </div>);
+                const Tot=({t,v,color})=><div style={{display:"flex",justifyContent:"space-between",padding:"9px 14px",background:T.gold+"10",fontSize:12.5,fontWeight:800,borderBottom:`1px solid ${T.border}`}}><span>{t}</span><span style={{color:color||T.text}}>{fmtD(v)}</span></div>;
+                if(!c.loaded)return <div style={{textAlign:"center",color:T.textTert,padding:"36px 10px",fontSize:13}}>{connected?"Pulling the year from QuickBooks…":"Connect QuickBooks to load the Cash Flow report."}</div>;
+                const drawItems=c.locIn.map(d=>({vendor:d.funderName||"—",date:d.dateFunded,memo:d.propertyLabel||"",account:"Draw register",amount:Number(d.amount)||0}));
+                const coveredItems=[...c.regOnly.map(x=>({vendor:x.funder,date:x.date,memo:x.prop,account:"Draw register — settled at payback",amount:x.interest}))];
+                return(<div style={{paddingBottom:6}}>
+                  <Sec t="💰 MONEY IN"/>
+                  {c.incomeG.map(g=><Row key={g.name} nm={g.name} amt={g.total} items={g.items} green/>)}
+                  <Row nm="LOC draws received" sub="private lenders · draw register" amt={c.locInTotal} items={drawItems} green/>
+                  {c.bankAccts.map(a=><Row key={a.name} nm={`Bank draws — ${a.name}`} amt={a.total} items={a.items} green/>)}
+                  <Tot t="Total in" v={c.totalIn} color={T.green}/>
+                  <Sec t="🏦 INTEREST — WHAT IT REALLY COST"/>
+                  <Row nm="Interest paid out" amt={c.intPaid} items={[...c.qbInt,...coveredItems]}/>
+                  <Row nm="− Covered from LOC money raised" sub="settled from lender raises — not your cash" amt={-c.covered} items={coveredItems} green indent/>
+                  <Tot t="Net interest cost to you" v={c.netInt}/>
+                  <Sec t="📉 COMPANY EXPENSES — QUICKBOOKS CATEGORIES"/>
+                  {c.expG.map(g=><Row key={g.name} nm={g.name} amt={g.total} items={g.items}/>)}
+                  <Tot t="Total expenses" v={c.expTotal}/>
+                  <Sec t="👤 DISTRIBUTIONS"/>
+                  {c.distAccts.length===0&&<div style={{padding:"6px 14px 10px",fontSize:12,color:T.textTert}}>No distribution activity {cfMonth==null?"this year":"this month"}.</div>}
+                  {c.distAccts.map(a=><Row key={a.name} nm={a.name} amt={a.total} items={a.items}/>)}
+                  {c.distAccts.length>0&&<Tot t="Total distributions" v={c.distTotal}/>}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 14px",borderTop:`2.5px solid ${T.gold}`,background:T.gold+"18",marginTop:6}}>
+                    <span style={{fontSize:13.5,fontWeight:800,color:T.text}}>Net cash flow — {cfLabel}<span style={{fontSize:10.5,fontWeight:600,color:T.textTert}}> · in − interest cost − expenses − distributions</span></span>
+                    <span style={{fontSize:19,fontWeight:800,color:c.net<0?T.red:T.green}}>{c.net<0?"−":"＋"}{fmtD(Math.abs(c.net))}</span>
+                  </div>
+                </div>);})()}
+              {(open!=="sold"||soldView==="deals")&&open!=="cash"&&<table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?12:13}}>
                 <thead><tr>{rep.cols.map((c,i)=><th key={i} style={{textAlign:c.align||"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"8px 10px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:T.card,...(i===0?{left:0,zIndex:3,borderRight:`1px solid ${T.border}`}:{zIndex:1}),...(c.gutter?{paddingRight:31}:null)}}>{c.label}</th>)}</tr></thead>
                 <tbody>
                   {rep.rows.length===0
@@ -15818,7 +15959,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                     style={{padding:"10px 14px",borderRadius:T.radiusSm,background:"none",border:"none",color:T.textTert,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>↩ Restore {exN} removed</button>:null;})()}
               </div>}
               {!soldPage&&<button onClick={()=>setOpen(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Close</button>}
-              <button onClick={()=>exportReport(open==="sold"&&soldView==="month"?buildMonthRep():open==="sold"&&soldView==="compare"?buildCmpRep():rep)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export / PDF</button>
+              <button onClick={()=>exportReport(open==="cash"?buildCashRep():open==="sold"&&soldView==="month"?buildMonthRep():open==="sold"&&soldView==="compare"?buildCmpRep():rep)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export / PDF</button>
             </div>
           </div>
         </div>
@@ -15901,6 +16042,43 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
           </div>
         );
       })()}
+      {/* 💸 Cash Flow drill-down: the transactions behind any tapped line */}
+      {cfSel&&(()=>{
+        const ql=cfQ.trim().toLowerCase();
+        const shown=(cfSel.items||[]).filter(t=>!ql||[t.vendor,t.memo,t.account,t.type,t.num].filter(Boolean).join(" ").toLowerCase().includes(ql))
+          .slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+        const tot=shown.reduce((s,t)=>s+(Number(t.amount)||0),0);
+        return(
+        <div onClick={()=>setCfSel(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:257,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:540,maxWidth:"100%",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+            <div style={{padding:"14px 16px 10px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+              <span style={{minWidth:0,flex:1}}>
+                <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cfSel.title}</div>
+                <div style={{fontSize:11,color:T.textSub}}>{cfLabel}</div>
+              </span>
+              <button onClick={()=>setCfSel(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+            <div style={{padding:"10px 14px 8px",flexShrink:0}}>
+              <input autoFocus={!isMobile} value={cfQ} onChange={e=>setCfQ(e.target.value)} placeholder="🔍 Search vendor / memo / account…" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
+            </div>
+            <div style={{flex:1,overflowY:"auto"}}>
+              {shown.length===0&&<div style={{padding:"22px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>{ql?`Nothing matches “${cfQ}”.`:"No transactions here."}</div>}
+              {shown.map((t,i)=>(
+                <div key={i} style={{display:"flex",gap:10,alignItems:"center",padding:"9px 16px",borderTop:`1px solid ${T.border}55`}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.vendor||t.type||"Transaction"}</div>
+                    <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date?finFmtDate(t.date):"",t.account,t.memo].filter(Boolean).join(" · ")}</div>
+                  </div>
+                  <b style={{fontSize:13,flexShrink:0,color:(Number(t.amount)||0)<0?T.green:T.text}}>{fmtD(Math.abs(Number(t.amount)||0))}</b>
+                </div>
+              ))}
+            </div>
+            <div style={{padding:"11px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"10",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+              <span style={{fontSize:12.5,fontWeight:800,color:T.text}}>{shown.length} line item{shown.length!==1?"s":""}{ql?" (filtered)":""}</span>
+              <span style={{fontSize:15,fontWeight:800,color:T.gold}}>{fmtD(tot)}</span>
+            </div>
+          </div>
+        </div>);})()}
       {/* 💵 Sold-deal cost breakdown + custom adjustments */}
       {soldSel&&(()=>{
         const {q,snap,f,adj,locDraws,sale,allIn,profit,cats}=soldNumbersOf(soldSel);

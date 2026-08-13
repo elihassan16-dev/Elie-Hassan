@@ -14,15 +14,17 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   const user = await requireAppUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
-  const customerId = req.query.customerId;
-  if (!customerId) { res.status(400).json({ error: "Missing customerId." }); return; }
+  // customerId optional: with it → one project's P&L detail; without it → the
+  // WHOLE company's (the Cash Flow report). Optional start=YYYY-MM-DD bounds
+  // the range (default: everything).
+  const customerId = req.query.customerId || "";
 
   const num = (v) => { const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, "")); return isNaN(x) ? 0 : x; };
   try {
-    const start = "2010-01-01";
+    const start = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.start || "")) ? req.query.start : "2010-01-01";
     const end = new Date().toISOString().slice(0, 10);
     const rpt = await qbApi(
-      `/reports/ProfitAndLossDetail?customer=${encodeURIComponent(customerId)}&start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,subt_nat_amount`
+      `/reports/ProfitAndLossDetail?${customerId ? `customer=${encodeURIComponent(customerId)}&` : ""}start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,subt_nat_amount`
     );
 
     // Map each column to a lowercase key from its metadata (fall back to title).

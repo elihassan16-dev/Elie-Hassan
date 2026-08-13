@@ -15488,10 +15488,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   // company expenses by QuickBooks category, and owner distributions.
   const[cfMonth,setCfMonth]=useState(null);              // null = whole year
   const[cfTx,setCfTx]=useState(()=>qbCache.get("cfTx",null));       // company P&L txns this year
-  const[cfLoan,setCfLoan]=useState(()=>qbCache.get("cfLoan",null)); // loan accounts + GL entries
   const[cfDist,setCfDist]=useState(()=>qbCache.get("cfDist",null)); // distribution equity accounts + GL
   useEffect(()=>{if(cfTx)qbCache.set("cfTx",cfTx);},[cfTx]);
-  useEffect(()=>{if(cfLoan)qbCache.set("cfLoan",cfLoan);},[cfLoan]);
   useEffect(()=>{if(cfDist)qbCache.set("cfDist",cfDist);},[cfDist]);
   const[cfSel,setCfSel]=useState(null);                  // {title,items} drill-down
   const[cfQ,setCfQ]=useState("");
@@ -15505,10 +15503,6 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     qbAuthFetch(`/api/quickbooks/transactions?start=${nowYear}-01-01`).then(d=>{if(alive)setCfTx(d.items||[]);}).catch(()=>{});
     qbAuthFetch("/api/quickbooks/accounts?class=Bank").then(d=>{if(alive)setCfBanks(d.items||[]);}).catch(()=>{});
     const pull=async(accts)=>{const out=[];for(const a of accts){try{const r=await qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(a.id)}`);out.push({name:a.name,items:(r.items||[]).filter(t=>String(t.date||"")>=`${nowYear}-01-01`)});}catch{/* skip account */}}return out;};
-    qbAuthFetch("/api/quickbooks/accounts").then(async d=>{
-      const loans=(d.items||[]).filter(a=>/constr|mortgage|bank/i.test(a.name));
-      const out=await pull(loans);if(alive)setCfLoan(out);
-    }).catch(()=>{});
     qbAuthFetch("/api/quickbooks/accounts?class=Equity").then(async d=>{
       const dist=(d.items||[]).filter(a=>/distribut/i.test(a.name));
       const out=await pull(dist);if(alive)setCfDist(out);
@@ -15603,11 +15597,14 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const cfAdjTotal=closingsDetail.reduce((s,b)=>s+b.adjSum,0);
     const closingsNet=wiredTotal-pbPrincipal-pbInterest-cfAdjTotal;
     // FROM DRAWS — lender draws funded (incl. raises rolled over at closings)
-    // + bank construction draws (positive entries in the loan accounts).
+    // + bank CONSTRUCTION draws: the holdback releases pinned on each property
+    // here in the app — NOT the QuickBooks loan accounts, which carry the full
+    // purchase mortgages and made whole acquisitions look like draws.
     const locIn=(draws||[]).filter(d=>inMo(d.dateFunded));
     const locInTotal=locIn.reduce((s,d)=>s+(Number(d.amount)||0),0);
-    const bankAccts=(cfLoan||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date)&&(Number(t.amount)||0)>0);return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:its.reduce((s,t)=>s+(Number(t.amount)||0),0)};}).filter(a=>a.total>0);
-    const bankIn=bankAccts.reduce((s,a)=>s+a.total,0);
+    const hbDraws=[];
+    (sharedProps||[]).forEach(p=>{(p.qbHoldbackTxns||[]).forEach(t=>{if(inMo(t.date))hbDraws.push({...t,vendor:t.vendor||p.address,account:`Holdback — ${p.address}`,amount:Math.abs(Number(t.amount)||0)});});});
+    const bankIn=hbDraws.reduce((s,t)=>s+t.amount,0);
     const drawsIn=locInTotal+bankIn;
     // OTHER INCOME — two line items: rental income, and everything else
     // income-side in QuickBooks that isn't a sale.
@@ -15628,7 +15625,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const distAccts=(cfDist||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date));return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:Math.abs(its.reduce((s,t)=>s+(Number(t.amount)||0),0))};}).filter(a=>a.items.length);
     const distTotal=distAccts.reduce((s,a)=>s+a.total,0);
     const net=totalIn-qbIntSum-expTotal-distTotal;
-    return {closings,closingsDetail,orphanPb,mutedPb,cfAdjTotal,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locIn,locInTotal,bankAccts,bankIn,drawsIn,rentTx,rentTotal,otherTx,otherOnlyTotal,otherTotal,totalIn,qbInt,qbIntSum,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
+    return {closings,closingsDetail,orphanPb,mutedPb,cfAdjTotal,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locIn,locInTotal,hbDraws,bankIn,drawsIn,rentTx,rentTotal,otherTx,otherOnlyTotal,otherTotal,totalIn,qbInt,qbIntSum,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
   };
   const cfLabel=cfMonth==null?`${nowYear} so far`:`${MONTHS_F[cfMonth]} ${nowYear}`;
   const buildCashRep=()=>{
@@ -15646,7 +15643,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       L("　= Total other income",c.otherTotal,{strong:true,color:T.green}),
       L("MONEY IN — FROM DRAWS",null,{head:true}),
       L("　Private-lender draws funded",c.locInTotal),
-      ...c.bankAccts.map(a=>L(`　Bank draws — ${a.name}`,a.total)),
+      L("　Bank construction draws (holdback)",c.bankIn),
       L("　= Money in from draws",c.drawsIn,{strong:true,color:T.green}),
       L("TOTAL MONEY IN",c.totalIn,{strong:true,color:T.green}),
       L("INTEREST PAID (QUICKBOOKS)",null,{head:true}),
@@ -16003,7 +16000,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                   </Grp>
                   <Grp t="🏦 FROM DRAWS">
                     <Row nm="Private-lender draws funded" sub="incl. raises rolled over at closings" amt={c.locInTotal} items={drawItems} green/>
-                    {c.bankAccts.map(a=><Row key={a.name} nm={`Bank draws — ${a.name}`} amt={a.total} items={a.items} green/>)}
+                    <Row nm="Bank construction draws" sub="holdback releases pinned on each property" amt={c.bankIn} items={c.hbDraws} green/>
                     <Eq nm="= Money in from draws" v={c.drawsIn}/>
                   </Grp>
                   <Tot t="TOTAL MONEY IN" v={c.totalIn} color={T.green}/>

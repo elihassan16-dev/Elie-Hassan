@@ -15151,21 +15151,18 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   // closing — the JE carries the booking date, not the closing date — so the
   // popup lets the real date be pinned on top.
   const soldDatesOf=(p)=>{const f=p.financials||{};const qx=soldQxOf(p);return {buy:f.boughtDateOverride||qx.buy||f.purchaseDate||"",sell:f.soldDateOverride||qx.sell||f.sellingDate||""};};
-  // Every reportable Sold deal, ANY year — QuickBooks data loads for all of
-  // them so the year pills and the Compare-years view are instant.
-  const soldPropsAll=useMemo(()=>(sharedProps||[]).filter(p=>{
-    if(p.status!=="Sold")return false;
-    if(p.soldExcluded)return false; // hand-removed from the report (restorable)
-    // Undated ARCHIVED Sold deals stay out (old half-entered records with bad
-    // data) — re-adding one via ＋ Add a past sale repairs the existing record
-    // in place. Undated active Sold deals still show flagged.
-    const sd=soldDatesOf(p).sell;
-    return sd?true:!p.archived;
-  }),[sharedProps,soldTxAll]); // eslint-disable-line react-hooks/exhaustive-deps
+  // EVERY Sold deal, any year, archived or not — anything marked Sold anywhere
+  // in the app gets its QuickBooks project auto-linked and its numbers/dates
+  // pulled, so it lands on the Sold Properties page by itself. Only hand-removed
+  // deals (soldExcluded, restorable) are skipped.
+  const soldPropsAll=useMemo(()=>(sharedProps||[]).filter(p=>p.status==="Sold"&&!p.soldExcluded),[sharedProps]);
   const soldProps=useMemo(()=>soldPropsAll.filter(p=>{
     const sd=soldDatesOf(p).sell;
-    return sd?sd.slice(0,4)===String(soldYear):soldYear===nowYear;
-  }),[soldPropsAll,soldYear]); // eslint-disable-line react-hooks/exhaustive-deps
+    // No date from the books or the app yet: an active Sold deal shows flagged
+    // on the current year; an undated ARCHIVED one stays hidden until its
+    // QuickBooks data arrives (old half-entered records with bad data).
+    return sd?sd.slice(0,4)===String(soldYear):(!p.archived&&soldYear===nowYear);
+  }),[soldPropsAll,soldYear,soldTxAll]); // eslint-disable-line react-hooks/exhaustive-deps
   const[soldView,setSoldView]=useState("deals"); // deals | month | compare
   const[soldMonth,setSoldMonth]=useState(null);  // 0-11 → deals list narrowed to that month
   useEffect(()=>{setSoldMonth(null);},[soldYear]);

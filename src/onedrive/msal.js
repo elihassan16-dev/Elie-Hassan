@@ -15,11 +15,11 @@ export const SITE_SCOPES = ["Sites.Read.All"];
 // Add Mail.ReadWrite + Mail.Send (delegated) to the Azure app registration and
 // grant consent, or the first Email sign-in will prompt for these permissions.
 // Mail.ReadWrite (superset of Mail.Read) also lets us mark messages read.
-// NOTE: People.Read (for Outlook recipient suggestions) is intentionally NOT here
-// — in this tenant it requires admin approval and would block the whole email
-// sign-in. Recipient autocomplete falls back to app contacts; the Outlook-people
-// lookup just no-ops if that permission was never granted.
-export const MAIL_SCOPES = ["Mail.ReadWrite", "Mail.Send", "offline_access"];
+// People.Read powers Outlook recipient suggestions (the people you actually
+// email, ranked by Microsoft). IT granted tenant-wide admin consent for
+// People.Read + People.Read.All on Aug 12 2026 — do NOT add scopes here that
+// lack consent, they block the whole email sign-in for everyone.
+export const MAIL_SCOPES = ["Mail.ReadWrite", "Mail.Send", "People.Read", "offline_access"];
 
 export const msalInstance = new PublicClientApplication({
   auth: {

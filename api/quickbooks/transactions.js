@@ -50,15 +50,18 @@ export default async function handler(req, res) {
     // top-level P&L section (e.g. "Income" / "Expenses" / "Cost of Goods Sold"), so
     // the client can classify by section (income → rent) even when an income account
     // name doesn't contain an obvious keyword.
+    // Only REAL P&L sections may set a branch's section — matched by the row's
+    // machine group OR its header text against an explicit whitelist. Summary
+    // wrappers ("Net Operating Income"…) and unknown groups inherit instead,
+    // so expenses can never masquerade as income (and income never vanishes).
+    const SEC_BY_GROUP = { Income: "Income", COGS: "COGS", Expenses: "Expenses", OtherIncome: "OtherIncome", OtherExpenses: "OtherExpenses" };
+    const SEC_BY_HEADER = { "income": "Income", "total income": "Income", "cost of goods sold": "COGS", "expenses": "Expenses", "other income": "OtherIncome", "other expenses": "OtherExpenses", "other expense": "OtherExpenses" };
     function walk(rows, account, section) {
       if (!rows) return;
       for (const r of rows) {
         const acct = sectionName(r, account);
         const header = r.Header?.ColData ? r.Header.ColData[0]?.value || "" : "";
-        // Prefer the row's machine-readable group ("Income", "COGS", "Expenses",
-        // "OtherIncome"…) over the header text — company-wide reports carry
-        // summary sections whose TITLES contain "income" and misclassify.
-        const sec = section || r.group || header; // top-most wins
+        const sec = SEC_BY_GROUP[r.group] || SEC_BY_HEADER[String(header).trim().toLowerCase()] || section;
         if (r.ColData) {
           const g = (i) => (i >= 0 ? r.ColData[i]?.value : "") || "";
           const date = g(iDate), type = g(iType), vendor = g(iName);

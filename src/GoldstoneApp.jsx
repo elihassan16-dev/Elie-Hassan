@@ -15669,20 +15669,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
               {open==="sold"&&soldView==="month"&&(()=>{
                 // 📅 By month — tappable profit bars + a monthly summary table.
                 const s=soldStatsOf(soldProps);
-                const maxP=Math.max(...s.monthly.map(m=>Math.abs(m.profit)),1);
-                const kf=(v)=>Math.abs(v)>=1000?`${Math.round(v/1000)}k`:String(Math.round(v));
                 const mRows=s.monthly.map((m,i)=>({m,i})).filter(x=>x.m.n>0);
                 return(<div>
-                  <div style={{display:"flex",alignItems:"flex-end",gap:isMobile?3:8,height:150,padding:"16px 10px 0"}}>
-                    {s.monthly.map((m,i)=>(
-                      <div key={i} onClick={m.n?()=>{setSoldMonth(i);setSoldView("deals");}:undefined} title={m.n?`See ${MONTHS_F[i]}'s closings`:undefined}
-                        style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",gap:4,height:"100%",cursor:m.n?"pointer":"default",minWidth:0}}>
-                        {m.n?<span style={{fontSize:isMobile?8.5:10,fontWeight:800,color:T.text}}>{kf(m.profit)}</span>:null}
-                        {m.n?<div style={{width:"100%",maxWidth:40,height:`${Math.max(4,Math.round(Math.abs(m.profit)/maxP*100))}%`,background:m.profit<0?T.red:T.gold,borderRadius:"4px 4px 0 0"}}/>:null}
-                        <span style={{fontSize:isMobile?8.5:10,fontWeight:700,color:m.n?T.textSub:T.border,paddingTop:3}}>{MONTHS_S[i]}</span>
-                      </div>
-                    ))}
-                  </div>
                   {mRows.length===0?<div style={{textAlign:"center",color:T.textTert,padding:"24px 10px",fontSize:13}}>No sales in {soldYear} yet.</div>:(
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?12:13,marginTop:12}}>
                     <thead><tr>{["Month","Closings","Sales volume","Profit","Avg / deal"].map((h,i)=><th key={h} style={{textAlign:i?"right":"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"8px 10px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>

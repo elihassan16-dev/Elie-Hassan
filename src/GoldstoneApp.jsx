@@ -15522,12 +15522,21 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const isSale=(t)=>String(t.section||"").toLowerCase().includes("income")&&/sale/i.test(String(t.account||""));
     const pend=[...new Map(cfTx.filter(t=>isSale(t)&&t.id&&(cfWire||{})[t.id]===undefined).map(t=>[t.id,t])).values()];
     if(!pend.length)return;let alive=true;const queue=[...pend];
+    const bankIds=new Set((cfBanks||[]).map(b=>String(b.id)));
     const bankNames=(cfBanks||[]).map(b=>String(b.name||"").toLowerCase()).filter(Boolean);
-    const isBank=(nm)=>{const s=String(nm||"").toLowerCase();return s&&bankNames.some(b=>s.includes(b)||b.includes(s));};
+    // Match the bank line by account ID first (a JE line's account name and the
+    // account list often spell differently); loose name match as backup.
+    const isBank=(l)=>bankIds.has(String(l.accountId||""))||(()=>{const s=String(l.account||"").toLowerCase();return s&&bankNames.some(b=>s.includes(b)||b.includes(s));})();
     const run=async()=>{while(queue.length&&alive){const t=queue.shift();
       try{
         const d=await qbAuthFetch(`/api/quickbooks/txn-lines?id=${encodeURIComponent(t.id)}&type=${encodeURIComponent(t.type||"Journal Entry")}`);
-        const wire=(d.lines||[]).filter(l=>l.postingType==="Debit"&&isBank(l.account)).reduce((s,l)=>s+(Number(l.amount)||0),0);
+        let wire=0;
+        if(d.entity==="Deposit"||d.entity==="SalesReceipt"){
+          // A deposit IS money landing in the bank — its total is the wire.
+          wire=Number(d.totalAmt)||(d.lines||[]).reduce((s,l)=>s+(Number(l.amount)||0),0);
+        }else{
+          wire=(d.lines||[]).filter(l=>l.postingType==="Debit"&&isBank(l)).reduce((s,l)=>s+(Number(l.amount)||0),0);
+        }
         if(alive)setCfWire(m=>({...(m||{}),[t.id]:{wire:wire>0?wire:null}}));
       }catch{if(alive)setCfWire(m=>({...(m||{}),[t.id]:{wire:null}}));}
     }};
@@ -15550,6 +15559,17 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       cMap.set(k,cur);
     });
     const closings=[...cMap.values()].map(c=>{const w=c.id!=null?(cfWire||{})[c.id]:null;const wire=w&&w.wire!=null?w.wire:null;return {...c,wire:wire!=null?wire:c.gross,est:wire==null};}).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+    // Name each closing with its property — match the sale entry to a Sold deal
+    // by amount (and date when it helps), since JE lines rarely carry a name.
+    const soldRef=soldPropsAll.map(p=>({addr:p.address,income:Number((p.qbSnap||{}).income)||Number(((p.qbProjectId&&soldPnl[p.qbProjectId])||{}).income)||0,sell:soldDatesOf(p).sell})).filter(x=>x.addr);
+    closings.forEach(c=>{
+      if(c.label&&c.label!=="Closing")return;
+      const d10=String(c.date||"").slice(0,10);
+      const hit=soldRef.find(s=>s.income&&Math.abs(s.income-c.gross)<=1&&s.sell===d10)
+        ||soldRef.find(s=>s.income&&Math.abs(s.income-c.gross)<=1)
+        ||soldRef.find(s=>s.sell&&s.sell===d10);
+      if(hit)c.label=hit.addr;
+    });
     const wiredTotal=closings.reduce((s,c)=>s+c.wire,0);
     const wiredEstN=closings.filter(c=>c.est).length;
     // LOC paid back in the period — principal + the interest settled with it

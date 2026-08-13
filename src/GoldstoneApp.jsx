@@ -15596,12 +15596,24 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const orphanPb=pb.filter(d=>!usedPb.has(d.id));
     const cfAdjTotal=closingsDetail.reduce((s,b)=>s+b.adjSum,0);
     const closingsNet=wiredTotal-pbPrincipal-pbInterest-cfAdjTotal;
-    // FROM DRAWS — lender draws funded (incl. raises rolled over at closings)
-    // + bank CONSTRUCTION draws: the holdback releases pinned on each property
-    // here in the app — NOT the QuickBooks loan accounts, which carry the full
-    // purchase mortgages and made whole acquisitions look like draws.
-    const locIn=(draws||[]).filter(d=>inMo(d.dateFunded));
-    const locInTotal=locIn.reduce((s,d)=>s+(Number(d.amount)||0),0);
+    // FROM DRAWS — only LOC money actually ALLOCATED TO CONSTRUCTION DRAWS:
+    // the Bank-Reconciliation adjustments marked 🔨 construction draw
+    // (linkKind "draw") in the Financial Section. Raises sitting as interest
+    // reserve or purchase funds do NOT count as money in. Dated by each
+    // borrow's timestamp; undated older allocations show on whole-year only.
+    const locDrawItems=[];
+    (bankAccounts||[]).forEach(b=>(b.adjustments||[]).forEach(a=>{
+      if(a.linkKind!=="draw")return;
+      const prop=(sharedProps||[]).find(p=>String(p.id)===String(a.propertyId));
+      const label=a.label||(prop&&prop.address)||"Construction draw";
+      const borrows=Array.isArray(a.borrows)?a.borrows:[];
+      if(borrows.length){
+        borrows.forEach(x=>{const d10=String(x.at||"").slice(0,10);if(inMo(d10))locDrawItems.push({vendor:label,date:d10,memo:b.name,account:"🔨 Construction draw",amount:Math.abs(Number(x.amount)||0)});});
+      }else if(cfMonth==null){
+        locDrawItems.push({vendor:label,date:"",memo:b.name,account:"🔨 Construction draw (undated)",amount:Math.abs(Number(a.amount)||0)});
+      }
+    }));
+    const locInTotal=locDrawItems.reduce((s,x)=>s+x.amount,0);
     const hbDraws=[];
     (sharedProps||[]).forEach(p=>{(p.qbHoldbackTxns||[]).forEach(t=>{if(inMo(t.date))hbDraws.push({...t,vendor:t.vendor||p.address,account:`Holdback — ${p.address}`,amount:Math.abs(Number(t.amount)||0)});});});
     const bankIn=hbDraws.reduce((s,t)=>s+t.amount,0);
@@ -15625,7 +15637,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const distAccts=(cfDist||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date));return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:Math.abs(its.reduce((s,t)=>s+(Number(t.amount)||0),0))};}).filter(a=>a.items.length);
     const distTotal=distAccts.reduce((s,a)=>s+a.total,0);
     const net=totalIn-qbIntSum-expTotal-distTotal;
-    return {closings,closingsDetail,orphanPb,mutedPb,cfAdjTotal,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locIn,locInTotal,hbDraws,bankIn,drawsIn,rentTx,rentTotal,otherTx,otherOnlyTotal,otherTotal,totalIn,qbInt,qbIntSum,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
+    return {closings,closingsDetail,orphanPb,mutedPb,cfAdjTotal,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locDrawItems,locInTotal,hbDraws,bankIn,drawsIn,rentTx,rentTotal,otherTx,otherOnlyTotal,otherTotal,totalIn,qbInt,qbIntSum,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
   };
   const cfLabel=cfMonth==null?`${nowYear} so far`:`${MONTHS_F[cfMonth]} ${nowYear}`;
   const buildCashRep=()=>{
@@ -15642,7 +15654,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       L("　Other income",c.otherOnlyTotal),
       L("　= Total other income",c.otherTotal,{strong:true,color:T.green}),
       L("MONEY IN — FROM DRAWS",null,{head:true}),
-      L("　Private-lender draws funded",c.locInTotal),
+      L("　LOC allocated to construction draws",c.locInTotal),
       L("　Bank construction draws (holdback)",c.bankIn),
       L("　= Money in from draws",c.drawsIn,{strong:true,color:T.green}),
       L("TOTAL MONEY IN",c.totalIn,{strong:true,color:T.green}),
@@ -15977,7 +15989,6 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                   </div>);
                 const Tot=({t,v,color})=><div style={{display:"flex",justifyContent:"space-between",padding:"9px 14px",background:T.gold+"10",fontSize:12.5,fontWeight:800,borderBottom:`1px solid ${T.border}`}}><span>{t}</span><span style={{color:color||T.text}}>{fmtD(v)}</span></div>;
                 if(!c.loaded)return <div style={{textAlign:"center",color:T.textTert,padding:"36px 10px",fontSize:13}}>{connected?"Pulling the year from QuickBooks…":"Connect QuickBooks to load the Cash Flow report."}</div>;
-                const drawItems=c.locIn.map(d=>({vendor:d.funderName||"—",date:d.dateFunded,memo:d.propertyLabel||"",account:"Draw register",amount:Number(d.amount)||0}));
                 const Grp=({t,children})=><div style={{margin:"4px 14px 10px",border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden"}}><div style={{padding:"7px 14px",fontSize:11,fontWeight:800,color:T.textSub,background:T.bg+"88",borderBottom:`1px solid ${T.border}66`}}>{t}</div>{children}</div>;
                 const Eq=({nm,v})=><div style={{display:"flex",justifyContent:"space-between",padding:"9px 14px",background:T.gold+"14",fontSize:12.5,fontWeight:800}}><span>{nm}</span><span style={{color:v<0?T.red:T.green}}>{fmtD(v)}</span></div>;
                 return(<div style={{paddingBottom:6}}>
@@ -15999,7 +16010,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                     <Eq nm="= Total other income" v={c.otherTotal}/>
                   </Grp>
                   <Grp t="🏦 FROM DRAWS">
-                    <Row nm="Private-lender draws funded" sub="incl. raises rolled over at closings" amt={c.locInTotal} items={drawItems} green/>
+                    <Row nm="LOC allocated to construction draws" sub="🔨 marked as construction draws in Bank Reconciliation" amt={c.locInTotal} items={c.locDrawItems} green/>
                     <Row nm="Bank construction draws" sub="holdback releases pinned on each property" amt={c.bankIn} items={c.hbDraws} green/>
                     <Eq nm="= Money in from draws" v={c.drawsIn}/>
                   </Grp>

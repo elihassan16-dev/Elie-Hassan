@@ -9,13 +9,14 @@ export default async function handler(req, res) {
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   const num = (v) => { const x = parseFloat(String(v ?? "").replace(/,/g, "")); return isNaN(x) ? 0 : x; };
   try {
-    // ?class=Equity → equity accounts (owner distributions for the Cash Flow
-    // report); default stays Liability (loan accounts).
-    const cls = req.query.class === "Equity" ? "Equity" : "Liability";
+    // ?class=Equity → equity accounts (owner distributions); ?class=Bank →
+    // bank accounts (to spot the wire-in line of a closing JE); default stays
+    // Liability (loan accounts).
+    const cls = req.query.class === "Equity" ? "Equity" : req.query.class === "Bank" ? "Bank" : "Liability";
     const q = "select Id, Name, FullyQualifiedName, AccountType, AccountSubType, CurrentBalance, Classification from Account maxresults 1000";
     const data = await qbApi(`/query?query=${encodeURIComponent(q)}`);
     const items = (data.QueryResponse?.Account || [])
-      .filter((a) => a.Classification === cls)
+      .filter((a) => cls === "Bank" ? a.AccountType === "Bank" : a.Classification === cls)
       .map((a) => ({
         id: a.Id,
         name: a.FullyQualifiedName || a.Name,

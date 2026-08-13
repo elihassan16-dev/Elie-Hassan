@@ -15495,9 +15495,14 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   useEffect(()=>{if(cfDist)qbCache.set("cfDist",cfDist);},[cfDist]);
   const[cfSel,setCfSel]=useState(null);                  // {title,items} drill-down
   const[cfQ,setCfQ]=useState("");
+  const[cfBanks,setCfBanks]=useState(()=>qbCache.get("cfBanks",null)); // bank account names
+  const[cfWire,setCfWire]=useState(()=>qbCache.get("cfWire",{}));      // sale JE id → {wire} (the bank-deposit split)
+  useEffect(()=>{if(cfBanks)qbCache.set("cfBanks",cfBanks);},[cfBanks]);
+  useEffect(()=>{if(cfWire)qbCache.set("cfWire",Object.fromEntries(Object.entries(cfWire).filter(([,v])=>v&&v.wire!=null)));},[cfWire]);
   useEffect(()=>{
     if(open!=="cash"||!connected)return;let alive=true;
     qbAuthFetch(`/api/quickbooks/transactions?start=${nowYear}-01-01`).then(d=>{if(alive)setCfTx(d.items||[]);}).catch(()=>{});
+    qbAuthFetch("/api/quickbooks/accounts?class=Bank").then(d=>{if(alive)setCfBanks(d.items||[]);}).catch(()=>{});
     const pull=async(accts)=>{const out=[];for(const a of accts){try{const r=await qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(a.id)}`);out.push({name:a.name,items:(r.items||[]).filter(t=>String(t.date||"")>=`${nowYear}-01-01`)});}catch{/* skip account */}}return out;};
     qbAuthFetch("/api/quickbooks/accounts").then(async d=>{
       const loans=(d.items||[]).filter(a=>/constr|mortgage|bank/i.test(a.name));
@@ -15509,62 +15514,91 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     }).catch(()=>{});
     return()=>{alive=false;};
   },[open,connected]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Resolve each closing's WIRE-IN: open the sale journal entry's splits and
+  // take what was debited to a bank account — the money that actually landed,
+  // not the gross sale credit. Falls back to the gross when no bank line found.
+  useEffect(()=>{
+    if(open!=="cash"||!connected||!cfTx||!cfBanks)return;
+    const isSale=(t)=>String(t.section||"").toLowerCase().includes("income")&&/sale/i.test(String(t.account||""));
+    const pend=[...new Map(cfTx.filter(t=>isSale(t)&&t.id&&(cfWire||{})[t.id]===undefined).map(t=>[t.id,t])).values()];
+    if(!pend.length)return;let alive=true;const queue=[...pend];
+    const bankNames=(cfBanks||[]).map(b=>String(b.name||"").toLowerCase()).filter(Boolean);
+    const isBank=(nm)=>{const s=String(nm||"").toLowerCase();return s&&bankNames.some(b=>s.includes(b)||b.includes(s));};
+    const run=async()=>{while(queue.length&&alive){const t=queue.shift();
+      try{
+        const d=await qbAuthFetch(`/api/quickbooks/txn-lines?id=${encodeURIComponent(t.id)}&type=${encodeURIComponent(t.type||"Journal Entry")}`);
+        const wire=(d.lines||[]).filter(l=>l.postingType==="Debit"&&isBank(l.account)).reduce((s,l)=>s+(Number(l.amount)||0),0);
+        if(alive)setCfWire(m=>({...(m||{}),[t.id]:{wire:wire>0?wire:null}}));
+      }catch{if(alive)setCfWire(m=>({...(m||{}),[t.id]:{wire:null}}));}
+    }};
+    Promise.all([run(),run()]);return()=>{alive=false;};
+  },[open,connected,cfTx,cfBanks]); // eslint-disable-line react-hooks/exhaustive-deps
   const cfCalc=()=>{
     const inMo=(dstr)=>{const s=String(dstr||"");if(!/^\d{4}-\d{2}/.test(s)||s.slice(0,4)!==String(nowYear))return false;return cfMonth==null||parseInt(s.slice(5,7),10)-1===cfMonth;};
     const tx=(cfTx||[]).filter(t=>inMo(t.date));
     const isInc=(t)=>String(t.section||"").toLowerCase().includes("income");
+    const isSaleAcct=(nm)=>/sale/i.test(String(nm||""));
     const isIntAcct=(nm)=>/interest|debt service|loan fee|points|financ/i.test(String(nm||""));
     const groupBy=(list)=>{const m={};list.forEach(t=>{const k=t.account||"—";(m[k]=m[k]||{name:k,total:0,items:[]});m[k].total+=Number(t.amount)||0;m[k].items.push(t);});return Object.values(m).sort((a,b)=>Math.abs(b.total)-Math.abs(a.total));};
-    const incomeG=groupBy(tx.filter(isInc));
-    const qbInt=tx.filter(t=>!isInc(t)&&isIntAcct(t.account));
-    const expG=groupBy(tx.filter(t=>!isInc(t)&&!isIntAcct(t.account)));
-    // LOC draws received (the register — the property balance sheets here).
+    // FROM CLOSINGS — one row per sale journal entry, valued at the money that
+    // actually LANDED (the JE's bank-deposit split via cfWire; gross fallback).
+    const cMap=new Map();
+    tx.filter(t=>isInc(t)&&isSaleAcct(t.account)).forEach(t=>{
+      const k=t.id||`${t.date}|${t.vendor}|${t.amount}`;
+      const cur=cMap.get(k)||{id:t.id,date:t.date,label:t.vendor||t.memo||"Closing",gross:0};
+      cur.gross+=Number(t.amount)||0;if((!cur.label||cur.label==="Closing")&&t.memo)cur.label=t.memo;
+      cMap.set(k,cur);
+    });
+    const closings=[...cMap.values()].map(c=>{const w=c.id!=null?(cfWire||{})[c.id]:null;const wire=w&&w.wire!=null?w.wire:null;return {...c,wire:wire!=null?wire:c.gross,est:wire==null};}).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+    const wiredTotal=closings.reduce((s,c)=>s+c.wire,0);
+    const wiredEstN=closings.filter(c=>c.est).length;
+    // LOC paid back in the period — principal + the interest settled with it
+    // (the register / property balance sheets here, deliberately not in QB).
+    const pb=(draws||[]).filter(d=>inMo(d.paybackDate));
+    const pbPrincipal=pb.reduce((s,d)=>s+(Number(d.amount)||0),0);
+    const pbInterest=pb.reduce((s,d)=>s+Math.round(drawInterest(d)),0);
+    const closingsNet=wiredTotal-pbPrincipal-pbInterest;
+    // FROM DRAWS — lender draws funded (incl. raises rolled over at closings)
+    // + bank construction draws (positive entries in the loan accounts).
     const locIn=(draws||[]).filter(d=>inMo(d.dateFunded));
     const locInTotal=locIn.reduce((s,d)=>s+(Number(d.amount)||0),0);
-    // Interest COVERED by LOC raises: register draws settled in the period —
-    // tracked on the property balance sheet, deliberately not in QuickBooks.
-    // Same dedupe as the Sold report so interest Esti DID book never counts twice.
-    const settled=(draws||[]).filter(d=>inMo(d.paybackDate)).map(d=>({funder:d.funderName||"—",prop:d.propertyLabel||"",date:d.paybackDate,interest:Math.round(drawInterest(d))})).filter(x=>x.interest>0);
-    const qbIntAmts=qbInt.map(t=>Number(t.amount)||0);
-    const qbIntText=qbInt.map(t=>`${t.vendor} ${t.memo}`).join(" ").toLowerCase().replace(/[^a-z0-9]/g,"");
-    const used=new Set();let matchedQb=0;
-    const regOnly=settled.filter(x=>{
-      const nm=String(x.funder||"").toLowerCase().replace(/[^a-z0-9]/g,"");
-      if(nm.length>=4&&qbIntText.includes(nm)){matchedQb+=x.interest;return false;}
-      const i=qbIntAmts.findIndex((amt,idx)=>!used.has(idx)&&Math.abs(amt-x.interest)<=Math.max(5,x.interest*0.02));
-      if(i>=0){used.add(i);matchedQb+=qbIntAmts[i];return false;}
-      return true;
-    });
-    const regOnlySum=regOnly.reduce((s,x)=>s+x.interest,0);
-    const qbIntSum=qbIntAmts.reduce((s,v)=>s+v,0);
-    const intPaid=qbIntSum+regOnlySum;
-    const covered=regOnlySum+matchedQb;
-    const netInt=Math.max(0,intPaid-covered);
-    // Bank construction draws = positive (draw) entries in the loan accounts.
     const bankAccts=(cfLoan||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date)&&(Number(t.amount)||0)>0);return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:its.reduce((s,t)=>s+(Number(t.amount)||0),0)};}).filter(a=>a.total>0);
     const bankIn=bankAccts.reduce((s,a)=>s+a.total,0);
+    const drawsIn=locInTotal+bankIn;
+    // OTHER INCOME — every income line that isn't a sale.
+    const otherG=groupBy(tx.filter(t=>isInc(t)&&!isSaleAcct(t.account)));
+    const otherTotal=otherG.reduce((s,g)=>s+g.total,0);
+    const totalIn=closingsNet+drawsIn+otherTotal;
+    // Money out (interim until the expenses redesign): QB interest payments —
+    // the register's LOC interest already came off inside the closings box.
+    const qbInt=tx.filter(t=>!isInc(t)&&isIntAcct(t.account));
+    const qbIntSum=qbInt.reduce((s,t)=>s+(Number(t.amount)||0),0);
+    const expG=groupBy(tx.filter(t=>!isInc(t)&&!isIntAcct(t.account)));
+    const expTotal=expG.reduce((s,g)=>s+g.total,0);
     const distAccts=(cfDist||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date));return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:Math.abs(its.reduce((s,t)=>s+(Number(t.amount)||0),0))};}).filter(a=>a.items.length);
     const distTotal=distAccts.reduce((s,a)=>s+a.total,0);
-    const incomeTotal=incomeG.reduce((s,g)=>s+g.total,0);
-    const expTotal=expG.reduce((s,g)=>s+g.total,0);
-    const totalIn=incomeTotal+locInTotal+bankIn;
-    const net=totalIn-netInt-expTotal-distTotal;
-    return {incomeG,incomeTotal,locIn,locInTotal,bankAccts,bankIn,totalIn,qbInt,qbIntSum,regOnly,settled,intPaid,covered,netInt,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
+    const net=totalIn-qbIntSum-expTotal-distTotal;
+    return {closings,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locIn,locInTotal,bankAccts,bankIn,drawsIn,otherG,otherTotal,totalIn,qbInt,qbIntSum,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
   };
   const cfLabel=cfMonth==null?`${nowYear} so far`:`${MONTHS_F[cfMonth]} ${nowYear}`;
   const buildCashRep=()=>{
     const c=cfCalc();
     const L=(t,v,o={})=>[{t,...(o.head?{strong:true}:{})},{t:v==null?"":fmtD(v),align:"right",strong:!!o.strong,color:o.color}];
     const rows=[
-      L("MONEY IN",null,{head:true}),
-      ...c.incomeG.map(g=>L(`　${g.name}`,g.total)),
-      L("　LOC draws received (draw register)",c.locInTotal),
+      L("MONEY IN — FROM CLOSINGS",null,{head:true}),
+      L("　Wired from closings",c.wiredTotal),
+      L("　− LOC principal paid back",-c.pbPrincipal),
+      L("　− LOC interest settled with those paybacks",-c.pbInterest),
+      L("　= Cash to you from closings",c.closingsNet,{strong:true,color:T.green}),
+      L("MONEY IN — FROM DRAWS",null,{head:true}),
+      L("　Private-lender draws funded",c.locInTotal),
       ...c.bankAccts.map(a=>L(`　Bank draws — ${a.name}`,a.total)),
-      L("Total in",c.totalIn,{strong:true,color:T.green}),
-      L("INTEREST",null,{head:true}),
-      L("　Interest paid out",c.intPaid),
-      L("　− Covered from LOC raises",-c.covered),
-      L("　Net interest cost",c.netInt,{strong:true}),
+      L("　= Money in from draws",c.drawsIn,{strong:true,color:T.green}),
+      L("MONEY IN — OTHER INCOME",null,{head:true}),
+      ...c.otherG.map(g=>L(`　${g.name}`,g.total)),
+      L("TOTAL MONEY IN",c.totalIn,{strong:true,color:T.green}),
+      L("INTEREST PAID (QUICKBOOKS)",null,{head:true}),
+      L("　Interest payments",c.qbIntSum),
       L("EXPENSES",null,{head:true}),
       ...c.expG.map(g=>L(`　${g.name}`,g.total)),
       L("Total expenses",c.expTotal,{strong:true}),
@@ -15894,18 +15928,33 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                   </div>);
                 const Tot=({t,v,color})=><div style={{display:"flex",justifyContent:"space-between",padding:"9px 14px",background:T.gold+"10",fontSize:12.5,fontWeight:800,borderBottom:`1px solid ${T.border}`}}><span>{t}</span><span style={{color:color||T.text}}>{fmtD(v)}</span></div>;
                 if(!c.loaded)return <div style={{textAlign:"center",color:T.textTert,padding:"36px 10px",fontSize:13}}>{connected?"Pulling the year from QuickBooks…":"Connect QuickBooks to load the Cash Flow report."}</div>;
+                const closingItems=c.closings.map(x=>({vendor:x.label,date:x.date,memo:x.est?"gross sale — wire line not found yet":"wired in",account:"Closing",amount:x.wire}));
+                const pbPrinItems=c.pb.map(d=>({vendor:d.funderName||"—",date:d.paybackDate,memo:d.propertyLabel||"",account:"LOC payback — principal",amount:Number(d.amount)||0}));
+                const pbIntItems=c.pb.map(d=>({vendor:d.funderName||"—",date:d.paybackDate,memo:d.propertyLabel||"",account:"LOC payback — interest",amount:Math.round(drawInterest(d))})).filter(x=>x.amount>0);
                 const drawItems=c.locIn.map(d=>({vendor:d.funderName||"—",date:d.dateFunded,memo:d.propertyLabel||"",account:"Draw register",amount:Number(d.amount)||0}));
-                const coveredItems=[...c.regOnly.map(x=>({vendor:x.funder,date:x.date,memo:x.prop,account:"Draw register — settled at payback",amount:x.interest}))];
+                const Grp=({t,children})=><div style={{margin:"4px 14px 10px",border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden"}}><div style={{padding:"7px 14px",fontSize:11,fontWeight:800,color:T.textSub,background:T.bg+"88",borderBottom:`1px solid ${T.border}66`}}>{t}</div>{children}</div>;
+                const Eq=({nm,v})=><div style={{display:"flex",justifyContent:"space-between",padding:"9px 14px",background:T.gold+"14",fontSize:12.5,fontWeight:800}}><span>{nm}</span><span style={{color:v<0?T.red:T.green}}>{fmtD(v)}</span></div>;
                 return(<div style={{paddingBottom:6}}>
                   <Sec t="💰 MONEY IN"/>
-                  {c.incomeG.map(g=><Row key={g.name} nm={g.name} amt={g.total} items={g.items} green/>)}
-                  <Row nm="LOC draws received" sub="private lenders · draw register" amt={c.locInTotal} items={drawItems} green/>
-                  {c.bankAccts.map(a=><Row key={a.name} nm={`Bank draws — ${a.name}`} amt={a.total} items={a.items} green/>)}
-                  <Tot t="Total in" v={c.totalIn} color={T.green}/>
-                  <Sec t="🏦 INTEREST — WHAT IT REALLY COST"/>
-                  <Row nm="Interest paid out" amt={c.intPaid} items={[...c.qbInt,...coveredItems]}/>
-                  <Row nm="− Covered from LOC money raised" sub="settled from lender raises — not your cash" amt={-c.covered} items={coveredItems} green indent/>
-                  <Tot t="Net interest cost to you" v={c.netInt}/>
+                  <Grp t={`🏠 FROM CLOSINGS${c.wiredEstN?` · ${c.wiredEstN} still showing gross`:""}`}>
+                    <Row nm="Wired from closings" sub={`${c.closings.length} closing${c.closings.length!==1?"s":""} — tap for each one`} amt={c.wiredTotal} items={closingItems} green/>
+                    <Row nm="− LOC principal paid back" sub="draw register" amt={-c.pbPrincipal} items={pbPrinItems} indent/>
+                    <Row nm="− LOC interest settled with those paybacks" amt={-c.pbInterest} items={pbIntItems} indent/>
+                    <Eq nm="= Cash to you from closings" v={c.closingsNet}/>
+                  </Grp>
+                  <Grp t="🏦 FROM DRAWS">
+                    <Row nm="Private-lender draws funded" sub="incl. raises rolled over at closings" amt={c.locInTotal} items={drawItems} green/>
+                    {c.bankAccts.map(a=><Row key={a.name} nm={`Bank draws — ${a.name}`} amt={a.total} items={a.items} green/>)}
+                    <Eq nm="= Money in from draws" v={c.drawsIn}/>
+                  </Grp>
+                  <Grp t="📥 OTHER INCOME">
+                    {c.otherG.length===0&&<div style={{padding:"8px 14px",fontSize:12,color:T.textTert}}>No other income {cfMonth==null?"this year":"this month"}.</div>}
+                    {c.otherG.map(g=><Row key={g.name} nm={g.name} amt={g.total} items={g.items} green/>)}
+                    {c.otherG.length>0&&<Eq nm="= Other income" v={c.otherTotal}/>}
+                  </Grp>
+                  <Tot t="TOTAL MONEY IN" v={c.totalIn} color={T.green}/>
+                  <Sec t="🏦 INTEREST PAID (QUICKBOOKS)"/>
+                  <Row nm="Interest payments" sub="LOC interest settled at closings already counted above" amt={c.qbIntSum} items={c.qbInt}/>
                   <Sec t="📉 COMPANY EXPENSES — QUICKBOOKS CATEGORIES"/>
                   {c.expG.map(g=><Row key={g.name} nm={g.name} amt={g.total} items={g.items}/>)}
                   <Tot t="Total expenses" v={c.expTotal}/>
@@ -15914,7 +15963,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                   {c.distAccts.map(a=><Row key={a.name} nm={a.name} amt={a.total} items={a.items}/>)}
                   {c.distAccts.length>0&&<Tot t="Total distributions" v={c.distTotal}/>}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 14px",borderTop:`2.5px solid ${T.gold}`,background:T.gold+"18",marginTop:6}}>
-                    <span style={{fontSize:13.5,fontWeight:800,color:T.text}}>Net cash flow — {cfLabel}<span style={{fontSize:10.5,fontWeight:600,color:T.textTert}}> · in − interest cost − expenses − distributions</span></span>
+                    <span style={{fontSize:13.5,fontWeight:800,color:T.text}}>Net cash flow — {cfLabel}<span style={{fontSize:10.5,fontWeight:600,color:T.textTert}}> · in − interest − expenses − distributions</span></span>
                     <span style={{fontSize:19,fontWeight:800,color:c.net<0?T.red:T.green}}>{c.net<0?"−":"＋"}{fmtD(Math.abs(c.net))}</span>
                   </div>
                 </div>);})()}

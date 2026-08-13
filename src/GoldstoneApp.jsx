@@ -15144,7 +15144,10 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   // holding periods sync from the books when the app's dates are blank.
   const[soldTxAll,setSoldTxAll]=useState(()=>qbCache.get("soldTxAll",{}));
   useEffect(()=>{qbCache.set("soldTxAll",soldTxAll);},[soldTxAll]);
-  const soldQxOf=(p)=>{const v=p.qbProjectId?soldTxAll[p.qbProjectId]:null;return Array.isArray(v)?{debt:v}:(v||{});};
+  // Per-deal QB transaction facts, with the deal's SAVED snapshot (p.qbSnap,
+  // shared app data) as the fallback — so dates and debt lines are identical
+  // on every device/login, not hostage to this browser's cache.
+  const soldQxOf=(p)=>{const v=p.qbProjectId?soldTxAll[p.qbProjectId]:null;const live=Array.isArray(v)?{debt:v}:(v||null);if(live)return live;const s=p.qbSnap;return s?{debt:s.debt||[],buy:s.buy||"",sell:s.sell||""}:{};};
   // Date priority: a date Elie set HERE in the breakdown popup (the override)
   // wins, then QuickBooks' journal-entry dates, then the app's old fields.
   // QB stays the default, but the books are sometimes caught up weeks after a
@@ -15202,6 +15205,27 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       }catch{/* keep cached */}}};
     Promise.all([run(),run()]);return()=>{cancelled=true;};
   },[connected,soldKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 💾 Persist each deal's freshly fetched QuickBooks figures as a compact
+  // snapshot on the property itself (shared data): income, per-category totals,
+  // debt lines, buy/sell dates. Any device without a live QB connection then
+  // renders these instead of resetting to stale cache / app figures.
+  useEffect(()=>{
+    if(!connected||!canEdit)return;
+    const upd=[];
+    soldPropsAll.forEach(p=>{
+      const id=p.qbProjectId;if(!id)return;
+      const q=soldPnl[id];const v=soldTxAll[id];const qx=Array.isArray(v)?{debt:v}:(v||null);
+      if(!q&&!qx)return; // nothing fresh fetched for this deal yet
+      const old=p.qbSnap||{};
+      const cats=q?(()=>{const t=Object.fromEntries(SOLD_CATS.map(c=>[c,0]));(q.rows||[]).filter(r=>String(r.section||"").toLowerCase()!=="income").forEach(r=>{t[soldCatOfAcct(r.name)]+=Number(r.amount)||0;});return t;})():old.cats;
+      const snap={income:q?(Number(q.income)||0):(old.income||0),cats:cats||{},debt:(qx&&qx.debt)||old.debt||[],buy:(qx&&qx.buy)||old.buy||"",sell:(qx&&qx.sell)||old.sell||""};
+      if(JSON.stringify(p.qbSnap||null)!==JSON.stringify(snap))upd.push([p.id,snap]);
+    });
+    if(upd.length){
+      setSharedProps(prev=>prev.map(p=>{const u=upd.find(x=>x[0]===p.id);return u?{...p,qbSnap:u[1]}:p;}));
+      if(flushProps)setTimeout(flushProps,0);
+    }
+  },[connected,soldPnl,soldTxAll]); // eslint-disable-line react-hooks/exhaustive-deps
   const[soldFor,setSoldFor]=useState(null); // property id whose cost breakdown is open
   const[adjDraft,setAdjDraft]=useState({label:"",amount:"",cat:"Rehab"});
   // Drill-down: tapping a bucket's total lists its underlying QuickBooks
@@ -15356,9 +15380,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   const soldNumbersOf=(p)=>{
     const f=p.financials||{};
     const q=p.qbProjectId?soldPnl[p.qbProjectId]:null;
+    // The deal's saved snapshot — last-known QuickBooks figures stored in the
+    // SHARED app data, so numbers are identical on every device/login instead
+    // of resetting whenever this browser's cache is cold or QB is signed out.
+    const snap=(!q&&p.qbSnap&&p.qbSnap.income!=null)?p.qbSnap:null;
     const adj=(p.soldAdjust||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
-    const sale=q?q.income:(n(f.actualSalePrice)||n(f.salePrice));
-    const baseCost=q?(q.cogs+q.expenses):(n(f.actualPurchasePrice)+n(f.actualBuyingCosts)+n(f.actualRehabCosts)+n(f.actualSellingCosts)+n(f.actualSellingTransferTax));
+    const sale=q?q.income:snap?Number(snap.income)||0:(n(f.actualSalePrice)||n(f.salePrice));
     // Debt service: private-lender interest lives in the app's draw register
     // (settled at closing), usually NOT in the QuickBooks project P&L — pull it
     // from the deal's draws so the true cost of money is in the number. BUT when
@@ -15391,6 +15418,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     // everything computed for that category, adjustments included).
     const catT=Object.fromEntries(SOLD_CATS.map(c=>[c,0]));
     if(q)(q.rows||[]).filter(r=>String(r.section||"").toLowerCase()!=="income").forEach(r=>{catT[soldCatOfAcct(r.name)]+=Number(r.amount)||0;});
+    else if(snap&&snap.cats)SOLD_CATS.forEach(c=>{catT[c]+=Number(snap.cats[c])||0;});
     else{
       catT.Purchase+=n(f.actualPurchasePrice)+n(f.actualBuyingCosts);
       catT.Rehab+=n(f.actualRehabCosts);
@@ -15401,16 +15429,16 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const ov=p.soldCatOverride||{};
     const cats=Object.fromEntries(SOLD_CATS.map(c=>{const o=ov[c];const has=o!=null&&o!=="";return [c,{val:has?(Number(o)||0):catT[c],overridden:has}];}));
     const allIn=SOLD_CATS.reduce((s,c)=>s+cats[c].val,0);
-    return {q,f,adj,locDraws,locInt,sale:sale||0,cats,ov:Object.keys(ov).length>0,allIn,profit:(sale||0)-allIn};
+    return {q,snap,hasQb:!!q||!!snap,f,adj,locDraws,locInt,sale:sale||0,cats,ov:Object.keys(ov).length>0,allIn,profit:(sale||0)-allIn};
   };
   const rptSold=useMemo(()=>{
     const rows=soldProps.map(p=>{
-      const {q,adj,ov,sale,allIn,profit}=soldNumbersOf(p);
+      const {hasQb,adj,ov,sale,allIn,profit}=soldNumbersOf(p);
       // Held syncs from the books: buy = the purchase journal entry's date,
       // sell = the sale journal entry's date, unless the app has its own dates.
       const {buy,sell}=soldDatesOf(p);
       const months=buy&&sell?((new Date(sell)-new Date(buy))/(1000*60*60*24*30.44)):null;
-      return {propId:p.id,address:p.address,sold:sell||"",qb:!!q,sale,allIn,profit,months,adj:adj||ov};
+      return {propId:p.id,address:p.address,sold:sell||"",qb:hasQb,sale,allIn,profit,months,adj:adj||ov};
     }).filter(r=>soldMonth==null||(r.sold&&parseInt(r.sold.slice(5,7),10)-1===soldMonth))
       .sort((a,b)=>String(a.sold||"9999").localeCompare(String(b.sold||"9999")));
     const total={sale:0,allIn:0,profit:0,mo:0,moN:0};
@@ -15657,6 +15685,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                     {soldView==="deals"&&soldMonth!=null&&(
                       <button onClick={()=>setSoldMonth(null)} style={{padding:"5px 12px",borderRadius:20,border:"none",background:T.gold,color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{MONTHS_F[soldMonth]} ✕</button>
                     )}
+                    {!connected&&<span style={{fontSize:11,fontWeight:700,color:T.orange}}>⚠ QuickBooks not connected here — showing last saved numbers</span>}
                   </div>
                 )}
               </div>
@@ -15874,7 +15903,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       })()}
       {/* 💵 Sold-deal cost breakdown + custom adjustments */}
       {soldSel&&(()=>{
-        const {q,f,adj,locDraws,sale,allIn,profit,cats}=soldNumbersOf(soldSel);
+        const {q,snap,f,adj,locDraws,sale,allIn,profit,cats}=soldNumbersOf(soldSel);
         // Buckets: QB expense lines grouped by account keywords, or the app's
         // actual figures when there's no linked project.
         const buckets=SOLD_CATS.map(cat=>({cat,lines:[],total:0}));
@@ -15898,7 +15927,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
               <div style={{padding:"16px 18px 12px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"flex-start",gap:10}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:16,fontWeight:800,color:T.text}}>All-in Cost Breakdown</div>
-                  <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{soldSel.address} · {q?"live from QuickBooks":"app actual figures"} · sale {fmtD(sale)}</div>
+                  <div style={{fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{soldSel.address} · {q?"live from QuickBooks":snap?"last saved from QuickBooks":"app actual figures"} · sale {fmtD(sale)}</div>
                   {(()=>{const f2=soldSel.financials||{};const qx=soldQxOf(soldSel);const sd=soldDatesOf(soldSel);
                     const setF=(k,v)=>updateProp(soldSel.id,"financials",{...f2,[k]:v});
                     const srcTag=(ov,qbv,ovKey)=>ov

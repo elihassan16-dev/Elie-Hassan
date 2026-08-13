@@ -15213,8 +15213,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const[bucketQ,setBucketQ]=useState("");
   const[linkQ,setLinkQ]=useState("");            // QB-project link search (unlinked deals)
   const[adjOpen,setAdjOpen]=useState(false);     // the small add-adjustment popup
+  const[ovOpen,setOvOpen]=useState(null);        // {cat,val} — category-number override editor
   useEffect(()=>{
-    setSoldTxns(null);setBucketOpen(null);setBucketQ("");setLinkQ("");setAdjOpen(false);
+    setSoldTxns(null);setBucketOpen(null);setBucketQ("");setLinkQ("");setAdjOpen(false);setOvOpen(null);
     if(soldFor==null)return;
     const p=(sharedProps||[]).find(x=>x.id===soldFor);
     if(!p||!p.qbProjectId)return;
@@ -15385,16 +15386,32 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
       return true;
     });
     const locInt=locDraws.reduce((s,x)=>s+x.interest,0);
-    return {q,f,adj,locDraws,locInt,sale:sale||0,allIn:baseCost+locInt+adj,profit:(sale||0)-baseCost-locInt-adj};
+    // Per-category totals (same grouping the breakdown popup shows), so a
+    // category can be OVERRIDDEN with Elie's own number when the books'
+    // account names don't classify right (p.soldCatOverride[cat] wins over
+    // everything computed for that category, adjustments included).
+    const catT=Object.fromEntries(SOLD_CATS.map(c=>[c,0]));
+    if(q)(q.rows||[]).filter(r=>String(r.section||"").toLowerCase()!=="income").forEach(r=>{catT[soldCatOfAcct(r.name)]+=Number(r.amount)||0;});
+    else{
+      catT.Purchase+=n(f.actualPurchasePrice)+n(f.actualBuyingCosts);
+      catT.Rehab+=n(f.actualRehabCosts);
+      catT.Selling+=n(f.actualSellingCosts)+n(f.actualSellingTransferTax);
+    }
+    catT["Debt service"]+=locInt;
+    (p.soldAdjust||[]).forEach(a=>{catT[SOLD_CATS.includes(a.cat)?a.cat:"Holding"]+=Number(a.amount)||0;});
+    const ov=p.soldCatOverride||{};
+    const cats=Object.fromEntries(SOLD_CATS.map(c=>{const o=ov[c];const has=o!=null&&o!=="";return [c,{val:has?(Number(o)||0):catT[c],overridden:has}];}));
+    const allIn=SOLD_CATS.reduce((s,c)=>s+cats[c].val,0);
+    return {q,f,adj,locDraws,locInt,sale:sale||0,cats,ov:Object.keys(ov).length>0,allIn,profit:(sale||0)-allIn};
   };
   const rptSold=useMemo(()=>{
     const rows=soldProps.map(p=>{
-      const {q,adj,sale,allIn,profit}=soldNumbersOf(p);
+      const {q,adj,ov,sale,allIn,profit}=soldNumbersOf(p);
       // Held syncs from the books: buy = the purchase journal entry's date,
       // sell = the sale journal entry's date, unless the app has its own dates.
       const {buy,sell}=soldDatesOf(p);
       const months=buy&&sell?((new Date(sell)-new Date(buy))/(1000*60*60*24*30.44)):null;
-      return {propId:p.id,address:p.address,sold:sell||"",qb:!!q,sale,allIn,profit,months,adj};
+      return {propId:p.id,address:p.address,sold:sell||"",qb:!!q,sale,allIn,profit,months,adj:adj||ov};
     }).filter(r=>soldMonth==null||(r.sold&&parseInt(r.sold.slice(5,7),10)-1===soldMonth))
       .sort((a,b)=>String(a.sold||"9999").localeCompare(String(b.sold||"9999")));
     const total={sale:0,allIn:0,profit:0,mo:0,moN:0};
@@ -15866,7 +15883,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
       })()}
       {/* 💵 Sold-deal cost breakdown + custom adjustments */}
       {soldSel&&(()=>{
-        const {q,f,adj,locDraws,sale,allIn,profit}=soldNumbersOf(soldSel);
+        const {q,f,adj,locDraws,sale,allIn,profit,cats}=soldNumbersOf(soldSel);
         // Buckets: QB expense lines grouped by account keywords, or the app's
         // actual figures when there's no linked project.
         const buckets=SOLD_CATS.map(cat=>({cat,lines:[],total:0}));
@@ -15946,21 +15963,24 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                     tap (drill-down). Adjustments roll into their category's row. */}
                 {(()=>{const CAT_ICON={Purchase:"🏠",Rehab:"🔨",Holding:"📆","Debt service":"🏦",Selling:"🤝"};
                   const CAT_LABEL={Holding:"Holding costs"};
-                  return buckets.filter(b=>b.lines.length||b.total).map(b=>{
+                  return buckets.map(b=>{
+                    const eff=cats[b.cat]||{val:b.total,overridden:false};
                     const adjN=(soldSel.soldAdjust||[]).filter(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Holding")===b.cat).length;
-                    const notes=[b.cat==="Debt service"&&locDraws.length?"incl. LOC interest":"",adjN?`✎ ${adjN} adjustment${adjN>1?"s":""}`:""].filter(Boolean).join(" · ");
-                    const w=Math.max(2,Math.min(100,Math.round(b.total/Math.max(allIn,1)*100)));
+                    const notes=[eff.overridden?"✎ your number":"",b.cat==="Debt service"&&locDraws.length&&!eff.overridden?"incl. LOC interest":"",adjN&&!eff.overridden?`✎ ${adjN} adjustment${adjN>1?"s":""}`:""].filter(Boolean).join(" · ");
+                    const w=Math.max(2,Math.min(100,Math.round(Math.abs(eff.val)/Math.max(allIn,1)*100)));
                     return(
                     <div key={b.cat} onClick={()=>{setBucketOpen(b.cat);setBucketQ("");}} title="Tap for every line item — searchable"
                       style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px",borderBottom:`1px solid ${T.border}55`,cursor:"pointer"}}>
                       <span style={{fontSize:16,flexShrink:0}}>{CAT_ICON[b.cat]||"📁"}</span>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CAT_LABEL[b.cat]||b.cat}{notes?<span style={{fontSize:10.5,fontWeight:600,color:T.textTert}}> · {notes}</span>:null}</div>
+                        <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CAT_LABEL[b.cat]||b.cat}{notes?<span style={{fontSize:10.5,fontWeight:600,color:eff.overridden?"#8a6d1f":T.textTert}}> · {notes}</span>:null}</div>
                         <div style={{height:4,borderRadius:2,background:T.border+"66",marginTop:5,overflow:"hidden"}}>
                           <div style={{height:"100%",width:`${w}%`,background:T.gold,borderRadius:2}}/>
                         </div>
                       </div>
-                      <span style={{flexShrink:0,fontSize:13.5,fontWeight:800,color:T.text}}>{fmtD(b.total)}</span>
+                      <span style={{flexShrink:0,fontSize:13.5,fontWeight:800,color:eff.overridden?"#8a6d1f":T.text}}>{fmtD(eff.val)}</span>
+                      {canEdit&&<button onClick={(e)=>{e.stopPropagation();setOvOpen({cat:b.cat,val:String(Math.round(eff.val)||"")});}} title="Type your own number for this category"
+                        style={{background:"none",border:"none",color:eff.overridden?"#8a6d1f":T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,flexShrink:0,padding:"2px 2px",fontFamily:"inherit"}}>✎</button>}
                       <span style={{flexShrink:0,color:T.textTert,fontSize:13}}>›</span>
                     </div>);});})()}
                 {canEdit&&(
@@ -15978,6 +15998,31 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
               </div>
             </div>
           </div>
+          {/* ✎ Category override — replace a category's number with your own */}
+          {ovOpen&&(()=>{
+            const overridden=!!(soldSel.soldCatOverride||{})[ovOpen.cat]||((soldSel.soldCatOverride||{})[ovOpen.cat]===0);
+            const save=()=>{const v=ovOpen.val===""?null:Number(ovOpen.val);const cur={...(soldSel.soldCatOverride||{})};if(v==null||isNaN(v))delete cur[ovOpen.cat];else cur[ovOpen.cat]=v;updateProp(soldSel.id,"soldCatOverride",cur);setOvOpen(null);};
+            const clear=()=>{const cur={...(soldSel.soldCatOverride||{})};delete cur[ovOpen.cat];updateProp(soldSel.id,"soldCatOverride",cur);setOvOpen(null);};
+            return(
+            <div onClick={()=>setOvOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:258,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":18,width:360,maxWidth:"100%",boxShadow:T.shadowMd,overflow:"hidden"}}>
+                <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center"}}>
+                  <span style={{flex:1,fontSize:15,fontWeight:800,color:T.text}}>✎ {ovOpen.cat==="Holding"?"Holding costs":ovOpen.cat} — your number</span>
+                  <button onClick={()=>setOvOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+                </div>
+                <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:9}}>
+                  <input autoFocus={!isMobile} value={ovOpen.val} onChange={e=>setOvOpen(o=>({...o,val:e.target.value.replace(/[^0-9.-]/g,"")}))} placeholder="Amount" inputMode="decimal" style={{...iS3,width:"100%",fontSize:16,fontWeight:700,textAlign:"right"}}/>
+                  <div style={{fontSize:10.5,color:T.textTert,lineHeight:1.45}}>Replaces everything QuickBooks (and the app) computed for this category on this deal — the all-in cost and profit follow. Clear it any time to go back to the books.</div>
+                </div>
+                <div style={{padding:"0 16px 14px",display:"flex",justifyContent:"space-between",gap:8}}>
+                  {overridden?<button onClick={clear} style={{padding:"9px 12px",borderRadius:T.radiusSm,background:"none",border:"none",color:"#2CA01C",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>↩ Back to QuickBooks</button>:<span/>}
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>setOvOpen(null)} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                    <button onClick={save} disabled={ovOpen.val===""} style={{padding:"9px 18px",borderRadius:T.radiusSm,background:ovOpen.val!==""?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:13,cursor:ovOpen.val!==""?"pointer":"default",fontFamily:"inherit"}}>Use my number</button>
+                  </div>
+                </div>
+              </div>
+            </div>);})()}
           {/* ＋ Small add-adjustment popup — description, amount, category */}
           {adjOpen&&(
             <div onClick={()=>setAdjOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:258,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>

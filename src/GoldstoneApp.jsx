@@ -15507,7 +15507,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     qbAuthFetch("/api/quickbooks/accounts").then(d=>{if(alive)setCfAccts(d.items||[]);}).catch(()=>{});
     const pull=async(accts)=>{const out=[];for(const a of accts){try{const r=await qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(a.id)}`);out.push({name:a.name,items:(r.items||[]).filter(t=>String(t.date||"")>=`${nowYear}-01-01`)});}catch{/* skip account */}}return out;};
     qbAuthFetch("/api/quickbooks/accounts?class=Equity").then(async d=>{
-      const dist=(d.items||[]).filter(a=>/distribut/i.test(a.name));
+      // "Distribution" OR "Draw(s)" — owner-payout accounts get named both ways.
+      const dist=(d.items||[]).filter(a=>/distribut|draw/i.test(a.name));
       const out=await pull(dist);if(alive)setCfDist(out);
     }).catch(()=>{});
     return()=>{alive=false;};
@@ -15699,7 +15700,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       return true;
     }));
     const expTotal=expG.reduce((s,g)=>s+g.total,0);
-    const distAccts=(cfDist||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date));return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:Math.abs(its.reduce((s,t)=>s+(Number(t.amount)||0),0))};}).filter(a=>a.items.length);
+    // Every matched owner-payout account shows, even at $0 — a distribution
+    // account silently vanishing reads as "you removed it".
+    const distAccts=(cfDist||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date));return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:Math.abs(its.reduce((s,t)=>s+(Number(t.amount)||0),0))};});
     const distTotal=distAccts.reduce((s,a)=>s+a.total,0);
     const net=totalIn-netInt-expTotal-distTotal;
     return {closings,closingsDetail,orphanPb,mutedPb,cfAdjTotal,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locDrawItems,locInTotal,hbDraws,bankIn,drawsIn,rentTx,rentTotal,otherTx,otherOnlyTotal,otherTotal,totalIn,qbInt,qbIntSum,coveredTx,coveredInt,netInt,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};

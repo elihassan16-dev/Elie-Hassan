@@ -33,6 +33,7 @@ function lineFields(line) {
   const account = d.AccountRef?.name || line.ItemRef?.name || d.AccountRef?.value || "";
   return {
     account,
+    accountId: d.AccountRef?.value || "",
     amount: Number(line.Amount) || 0,
     description: line.Description || "",
     postingType: d.PostingType || "",
@@ -59,7 +60,12 @@ export default async function handler(req, res) {
       .filter((l) => l.DetailType && l.DetailType !== "SubTotalLineDetail")
       .map((l, i) => ({ ...lineFields(l), lineIdx: i }))
       .filter((l) => l.amount !== 0 || l.account);
-    res.status(200).json({ entity, docNumber: obj.DocNumber || "", date: obj.TxnDate || "", lines });
+    res.status(200).json({
+      entity, docNumber: obj.DocNumber || "", date: obj.TxnDate || "", lines,
+      // A Deposit lands in a bank account by definition — surface where + how much.
+      depositTo: obj.DepositToAccountRef?.name || "",
+      totalAmt: Number(obj.TotalAmt) || 0,
+    });
   } catch (e) {
     console.error("[quickbooks] txn-lines failed:", e.message);
     res.status(500).json({ error: e.message });

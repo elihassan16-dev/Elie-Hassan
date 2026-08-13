@@ -15614,8 +15614,17 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       }
     }));
     const locInTotal=locDrawItems.reduce((s,x)=>s+x.amount,0);
+    // Bank draws = the "Draws received" pinned on each property's balance
+    // sheet (the actual money the bank sent, qbDrawTxns + manual lines) —
+    // NOT the holdback totals, which are the full committed holdback.
     const hbDraws=[];
-    (sharedProps||[]).forEach(p=>{(p.qbHoldbackTxns||[]).forEach(t=>{if(inMo(t.date))hbDraws.push({...t,vendor:t.vendor||p.address,account:`Holdback — ${p.address}`,amount:Math.abs(Number(t.amount)||0)});});});
+    (sharedProps||[]).forEach(p=>{
+      [...(p.qbDrawTxns||[]),...(p.dmDrawCustom||[])].forEach(t=>{
+        const amt=Math.abs(Number(t.amount)||0);if(!amt)return;
+        const d10=String(t.date||"").slice(0,10);
+        if(d10?inMo(d10):cfMonth==null)hbDraws.push({vendor:t.vendor||t.label||p.address,date:d10,memo:t.memo||"",account:`Draws received — ${p.address}`,amount:amt});
+      });
+    });
     const bankIn=hbDraws.reduce((s,t)=>s+t.amount,0);
     const drawsIn=locInTotal+bankIn;
     // OTHER INCOME — two line items: rental income, and everything else
@@ -16011,7 +16020,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                   </Grp>
                   <Grp t="🏦 FROM DRAWS">
                     <Row nm="LOC allocated to construction draws" sub="🔨 marked as construction draws in Bank Reconciliation" amt={c.locInTotal} items={c.locDrawItems} green/>
-                    <Row nm="Bank construction draws" sub="holdback releases pinned on each property" amt={c.bankIn} items={c.hbDraws} green/>
+                    <Row nm="Bank construction draws" sub="the 'Draws received' pinned on each property's balance sheet" amt={c.bankIn} items={c.hbDraws} green/>
                     <Eq nm="= Money in from draws" v={c.drawsIn}/>
                   </Grp>
                   <Tot t="TOTAL MONEY IN" v={c.totalIn} color={T.green}/>

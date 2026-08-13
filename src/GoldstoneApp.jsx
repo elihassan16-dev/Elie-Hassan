@@ -15520,7 +15520,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   // not the gross sale credit. Falls back to the gross when no bank line found.
   useEffect(()=>{
     if(open!=="cash"||!connected||!cfTx||!cfBanks)return;
-    const isSale=(t)=>String(t.section||"").toLowerCase().includes("income")&&/sale/i.test(String(t.account||""));
+    const isSale=(t)=>{const k=String(t.section||"").toLowerCase().replace(/[^a-z]/g,"");return (k==="income"||k==="otherincome"||k==="totalincome")&&/sale/i.test(String(t.account||""));};
     const pend=[...new Map(cfTx.filter(t=>isSale(t)&&t.id&&(cfWire||{})[t.id]===undefined).map(t=>[t.id,t])).values()];
     if(!pend.length)return;let alive=true;const queue=[...pend];
     const bankIds=new Set((cfBanks||[]).map(b=>String(b.id)));
@@ -15546,7 +15546,10 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   const cfCalc=()=>{
     const inMo=(dstr)=>{const s=String(dstr||"");if(!/^\d{4}-\d{2}/.test(s)||s.slice(0,4)!==String(nowYear))return false;return cfMonth==null||parseInt(s.slice(5,7),10)-1===cfMonth;};
     const tx=(cfTx||[]).filter(t=>inMo(t.date));
-    const isInc=(t)=>String(t.section||"").toLowerCase().includes("income");
+    // STRICT income match — the section must BE Income / Other Income, not just
+    // contain the word (summary sections like "Net Operating Income" were
+    // sweeping expense lines into Other income).
+    const isInc=(t)=>{const k=String(t.section||"").toLowerCase().replace(/[^a-z]/g,"");return k==="income"||k==="otherincome"||k==="totalincome";};
     const isSaleAcct=(nm)=>/sale/i.test(String(nm||""));
     const isIntAcct=(nm)=>/interest|debt service|loan fee|points|financ/i.test(String(nm||""));
     const groupBy=(list)=>{const m={};list.forEach(t=>{const k=t.account||"—";(m[k]=m[k]||{name:k,total:0,items:[]});m[k].total+=Number(t.amount)||0;m[k].items.push(t);});return Object.values(m).sort((a,b)=>Math.abs(b.total)-Math.abs(a.total));};
@@ -15637,14 +15640,14 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       L("　− LOC principal paid back",-c.pbPrincipal),
       L("　− LOC interest settled with those paybacks",-c.pbInterest),
       L("　= Cash to you from closings",c.closingsNet,{strong:true,color:T.green}),
-      L("MONEY IN — FROM DRAWS",null,{head:true}),
-      L("　Private-lender draws funded",c.locInTotal),
-      ...c.bankAccts.map(a=>L(`　Bank draws — ${a.name}`,a.total)),
-      L("　= Money in from draws",c.drawsIn,{strong:true,color:T.green}),
       L("MONEY IN — OTHER INCOME",null,{head:true}),
       L("　Rental income",c.rentTotal),
       L("　Other income",c.otherOnlyTotal),
       L("　= Total other income",c.otherTotal,{strong:true,color:T.green}),
+      L("MONEY IN — FROM DRAWS",null,{head:true}),
+      L("　Private-lender draws funded",c.locInTotal),
+      ...c.bankAccts.map(a=>L(`　Bank draws — ${a.name}`,a.total)),
+      L("　= Money in from draws",c.drawsIn,{strong:true,color:T.green}),
       L("TOTAL MONEY IN",c.totalIn,{strong:true,color:T.green}),
       L("INTEREST PAID (QUICKBOOKS)",null,{head:true}),
       L("　Interest payments",c.qbIntSum),
@@ -15993,15 +15996,15 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                       <span style={{color:T.textTert,fontSize:12,flexShrink:0}}>›</span>
                     </div>
                   </Grp>
-                  <Grp t="🏦 FROM DRAWS">
-                    <Row nm="Private-lender draws funded" sub="incl. raises rolled over at closings" amt={c.locInTotal} items={drawItems} green/>
-                    {c.bankAccts.map(a=><Row key={a.name} nm={`Bank draws — ${a.name}`} amt={a.total} items={a.items} green/>)}
-                    <Eq nm="= Money in from draws" v={c.drawsIn}/>
-                  </Grp>
                   <Grp t="📥 OTHER INCOME">
                     <Row nm="Rental income" amt={c.rentTotal} items={c.rentTx} green/>
                     <Row nm="Other income" sub="everything else income-side in QuickBooks" amt={c.otherOnlyTotal} items={c.otherTx} green/>
                     <Eq nm="= Total other income" v={c.otherTotal}/>
+                  </Grp>
+                  <Grp t="🏦 FROM DRAWS">
+                    <Row nm="Private-lender draws funded" sub="incl. raises rolled over at closings" amt={c.locInTotal} items={drawItems} green/>
+                    {c.bankAccts.map(a=><Row key={a.name} nm={`Bank draws — ${a.name}`} amt={a.total} items={a.items} green/>)}
+                    <Eq nm="= Money in from draws" v={c.drawsIn}/>
                   </Grp>
                   <Tot t="TOTAL MONEY IN" v={c.totalIn} color={T.green}/>
                   <Sec t="🏦 INTEREST PAID (QUICKBOOKS)"/>

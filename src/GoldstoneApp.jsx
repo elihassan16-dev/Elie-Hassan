@@ -15495,6 +15495,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   const[cfQ,setCfQ]=useState("");
   const[cfAdj,setCfAdj]=useState(null);                  // {propId,addr,date,kind,label,amount} — add-adjustment draft
   const[cfBanks,setCfBanks]=useState(()=>qbCache.get("cfBanks",null)); // bank account names
+  const[cfAccts,setCfAccts]=useState(()=>qbCache.get("cfAccts",null)); // liability (loan) accounts + balances
+  useEffect(()=>{if(cfAccts)qbCache.set("cfAccts",cfAccts);},[cfAccts]);
   const[cfWire,setCfWire]=useState(()=>qbCache.get("cfWire",{}));      // sale JE id → {wire} (the bank-deposit split)
   useEffect(()=>{if(cfBanks)qbCache.set("cfBanks",cfBanks);},[cfBanks]);
   useEffect(()=>{if(cfWire)qbCache.set("cfWire",Object.fromEntries(Object.entries(cfWire).filter(([,v])=>v&&v.wire!=null)));},[cfWire]);
@@ -15502,6 +15504,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     if(open!=="cash"||!connected)return;let alive=true;
     qbAuthFetch(`/api/quickbooks/transactions?start=${nowYear}-01-01`).then(d=>{if(alive)setCfTx(d.items||[]);}).catch(()=>{});
     qbAuthFetch("/api/quickbooks/accounts?class=Bank").then(d=>{if(alive)setCfBanks(d.items||[]);}).catch(()=>{});
+    qbAuthFetch("/api/quickbooks/accounts").then(d=>{if(alive)setCfAccts(d.items||[]);}).catch(()=>{});
     const pull=async(accts)=>{const out=[];for(const a of accts){try{const r=await qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(a.id)}`);out.push({name:a.name,items:(r.items||[]).filter(t=>String(t.date||"")>=`${nowYear}-01-01`)});}catch{/* skip account */}}return out;};
     qbAuthFetch("/api/quickbooks/accounts?class=Equity").then(async d=>{
       const dist=(d.items||[]).filter(a=>/distribut/i.test(a.name));
@@ -15614,17 +15617,28 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
         locDrawItems.push({vendor:label,date:"",memo:b.name,account:"🔨 Construction draw (undated)",amount:Math.abs(Number(a.amount)||0)});
       }
     }));
-    if(cfMonth==null)(sharedProps||[]).forEach(p=>{
-      const conIds=(p.qbConstrIds||[]).map(String);
-      if(!conIds.length)return;
-      const entries=[
-        ...(p.qbLoanAccounts||[]).map(id=>{const a=(accounts||[]).find(x=>String(x.id)===String(id))||{};return {key:String(id),bal:Math.abs(Number(a.balance)||0),name:a.name||`Account ${id}`};}),
-        ...(p.qbLoanCustom||[]).map(l=>({key:"c"+l.id,bal:Math.abs(Number(l.amount)||0),name:l.name||"Manual entry"})),
-        ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind!=="none"&&a.linkKind!=="draw").map(a=>({key:`adj${b.id}_${a.id}`,bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — ${b.name}`}))),
-      ];
-      entries.filter(e=>conIds.includes(e.key)&&e.bal>0).forEach(e=>{
+    // Deal-sheet allocations — the EXACT math dmPotMath uses: loan entries
+    // whose job is 🔨 construction, plus the "rest of the pot → construction"
+    // toggle. Loan balances come from the shared QB layer with the report's
+    // own liability fetch as backup (the shared layer may not be loaded here).
+    if(cfMonth==null)(sharedProps||[]).filter(p=>!p.archived).forEach(p=>{
+      const acctList=(accounts&&accounts.length?accounts:(cfAccts||[]));
+      const balOf=(id)=>{const a=acctList.find(x=>String(x.id)===String(id));return a?Math.abs(Number(a.balance)||0):0;};
+      const nameOf=(id)=>{const a=acctList.find(x=>String(x.id)===String(id));return (a&&a.name)||`Account ${id}`;};
+      const potIds=(p.qbLocPotIds||[]).map(String),conIds=(p.qbConstrIds||[]).map(String);
+      if(!conIds.length&&!p.dmRestToConstr)return;
+      const keys=[...(p.qbLoanAccounts||[]).map(id=>({key:String(id),bal:balOf(id),name:nameOf(id)})),...(p.qbLoanCustom||[]).map(l=>({key:"c"+l.id,bal:Math.abs(Number(l.amount)||0),name:l.name||"Manual entry"}))];
+      keys.filter(e=>conIds.includes(e.key)&&e.bal>0).forEach(e=>{
         locDrawItems.push({vendor:e.name,date:"",memo:p.address,account:"🔨 allocated to construction (deal sheet)",amount:e.bal});
       });
+      const potBal=keys.filter(e=>potIds.includes(e.key)).reduce((t,e)=>t+e.bal,0);
+      const deployed=bsSum(p.qbFloatTxns)+bsSum(p.qbFloatCustom);
+      const leftPot=potBal-deployed;
+      const mode=p.dmReserveMode||"all";
+      const rAmt=parseFloat(String(p.dmReserveAmt??"").replace(/[^0-9.\-]/g,""));
+      const reserve=mode==="all"?Math.max(0,leftPot):(isNaN(rAmt)?0:rAmt);
+      const fromPot=(mode==="custom"&&p.dmRestToConstr)?Math.max(0,leftPot-reserve):0;
+      if(fromPot>0)locDrawItems.push({vendor:"Rest of LOC pot → construction",date:"",memo:p.address,account:"🔨 allocated to construction (deal sheet)",amount:fromPot});
     });
     const locInTotal=locDrawItems.reduce((s,x)=>s+x.amount,0);
     // Bank draws = the "Draws received" pinned on each property's balance

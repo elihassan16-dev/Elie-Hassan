@@ -55,7 +55,10 @@ export default async function handler(req, res) {
       for (const r of rows) {
         const acct = sectionName(r, account);
         const header = r.Header?.ColData ? r.Header.ColData[0]?.value || "" : "";
-        const sec = section || header; // first (top-most) header on this branch wins
+        // Prefer the row's machine-readable group ("Income", "COGS", "Expenses",
+        // "OtherIncome"…) over the header text — company-wide reports carry
+        // summary sections whose TITLES contain "income" and misclassify.
+        const sec = section || r.group || header; // top-most wins
         if (r.ColData) {
           const g = (i) => (i >= 0 ? r.ColData[i]?.value : "") || "";
           const date = g(iDate), type = g(iType), vendor = g(iName);

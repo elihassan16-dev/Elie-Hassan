@@ -15574,7 +15574,11 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const wiredEstN=closings.filter(c=>c.est).length;
     // LOC paid back in the period — principal + the interest settled with it
     // (the register / property balance sheets here, deliberately not in QB).
-    const pb=(draws||[]).filter(d=>inMo(d.paybackDate));
+    // Muted paybacks (d.cfMuted) stay visible but OUT of the math — for lines
+    // Elie decides don't belong in this cash picture.
+    const pbAll=(draws||[]).filter(d=>inMo(d.paybackDate));
+    const pb=pbAll.filter(d=>!d.cfMuted);
+    const mutedPb=pbAll.filter(d=>d.cfMuted);
     const pbPrincipal=pb.reduce((s,d)=>s+(Number(d.amount)||0),0);
     const pbInterest=pb.reduce((s,d)=>s+Math.round(drawInterest(d)),0);
     // Per-closing detail: each closing's own LOC paybacks under its wire, so
@@ -15615,7 +15619,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const distAccts=(cfDist||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date));return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:Math.abs(its.reduce((s,t)=>s+(Number(t.amount)||0),0))};}).filter(a=>a.items.length);
     const distTotal=distAccts.reduce((s,a)=>s+a.total,0);
     const net=totalIn-qbIntSum-expTotal-distTotal;
-    return {closings,closingsDetail,orphanPb,cfAdjTotal,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locIn,locInTotal,bankAccts,bankIn,drawsIn,otherG,otherTotal,totalIn,qbInt,qbIntSum,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
+    return {closings,closingsDetail,orphanPb,mutedPb,cfAdjTotal,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locIn,locInTotal,bankAccts,bankIn,drawsIn,otherG,otherTotal,totalIn,qbInt,qbIntSum,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
   };
   const cfLabel=cfMonth==null?`${nowYear} so far`:`${MONTHS_F[cfMonth]} ${nowYear}`;
   const buildCashRep=()=>{
@@ -16187,9 +16191,26 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                 <div style={{padding:"10px 16px",borderTop:`2px solid ${T.orange}66`,background:T.orange+"0d"}}>
                   <div style={{fontSize:12,fontWeight:800,color:T.orange,marginBottom:4}}>⚠ LOC paybacks this period not matched to a closing above</div>
                   {orphans.map(d=>(<Fragment key={d.id}>
-                    <div style={sline}><span>− {d.funderName||"Lender"}{d.propertyLabel?` · ${d.propertyLabel}`:""} — payback</span><span style={{fontWeight:700,color:T.red}}>−{fmtD(Number(d.amount)||0)}</span></div>
+                    <div style={sline}>
+                      <span>− {d.funderName||"Lender"}{d.propertyLabel?` · ${d.propertyLabel}`:""} — payback</span>
+                      <span style={{display:"flex",gap:7,alignItems:"center",flexShrink:0}}>
+                        <span style={{fontWeight:700,color:T.red}}>−{fmtD(Number(d.amount)||0)}</span>
+                        {canEdit&&<button onClick={()=>{setDraws(prev=>prev.map(x=>x.id===d.id?{...x,cfMuted:true}:x));if(flushDraws)setTimeout(flushDraws,0);}} title="Mute — leave this payback (and its interest) out of the cash-flow math" style={{background:"none",border:"none",cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>🔇</button>}
+                      </span>
+                    </div>
                     {Math.round(drawInterest(d))>0&&<div style={sline}><span>− {d.funderName||"Lender"} — interest</span><span style={{fontWeight:700,color:T.red}}>−{fmtD(Math.round(drawInterest(d)))}</span></div>}
                   </Fragment>))}
+                </div>
+              )}
+              {c.mutedPb.length>0&&(
+                <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:T.bg+"66"}}>
+                  <div style={{fontSize:11.5,fontWeight:800,color:T.textTert,marginBottom:4}}>🔇 Muted — not counted in the math</div>
+                  {c.mutedPb.map(d=>(
+                    <div key={d.id} style={{...sline,opacity:0.6}}>
+                      <span style={{textDecoration:"line-through"}}>{d.funderName||"Lender"}{d.propertyLabel?` · ${d.propertyLabel}`:""} — payback {fmtD(Number(d.amount)||0)}{Math.round(drawInterest(d))>0?` + ${fmtD(Math.round(drawInterest(d)))} interest`:""}</span>
+                      {canEdit&&<button onClick={()=>{setDraws(prev=>prev.map(x=>x.id===d.id?{...x,cfMuted:false}:x));if(flushDraws)setTimeout(flushDraws,0);}} title="Unmute — count it again" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:11,fontWeight:800,fontFamily:"inherit",padding:0,flexShrink:0}}>↩ unmute</button>}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

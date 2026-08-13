@@ -15664,16 +15664,45 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const otherOnlyTotal=otherTx.reduce((s,t)=>s+(Number(t.amount)||0),0);
     const otherTotal=rentTotal+otherOnlyTotal;
     const totalIn=closingsNet+drawsIn+otherTotal;
-    // Money out (interim until the expenses redesign): QB interest payments —
-    // the register's LOC interest already came off inside the closings box.
+    // INTEREST — paid per QuickBooks, minus what was COVERED from lines of
+    // credit: each QB interest payment is cross-referenced with the draw
+    // register (lender name in the vendor/memo, or the amount matching a
+    // draw's interest) and covered ones are netted out, tagged with their
+    // property so the popup reads by address.
     const qbInt=tx.filter(t=>!isInc(t)&&isIntAcct(t.account));
     const qbIntSum=qbInt.reduce((s,t)=>s+(Number(t.amount)||0),0);
-    const expG=groupBy(tx.filter(t=>!isInc(t)&&!isIntAcct(t.account)));
+    const nmOf=(s)=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+    const regIntRefs=(draws||[]).map(d=>({funder:String(d.funderName||""),label:d.propertyLabel||"",interest:Math.round(drawInterest(d))})).filter(x=>x.interest>0);
+    const usedRef=new Set();
+    const coveredTx=[];
+    qbInt.forEach(t=>{
+      const txt=nmOf(`${t.vendor} ${t.memo}`);
+      let ref=regIntRefs.find(r=>{const n=nmOf(r.funder);return n.length>=4&&txt.includes(n);});
+      if(!ref){const amt=Number(t.amount)||0;const i=regIntRefs.findIndex((r,idx)=>!usedRef.has(idx)&&Math.abs(r.interest-amt)<=Math.max(5,amt*0.02));if(i>=0){usedRef.add(i);ref=regIntRefs[i];}}
+      if(ref)coveredTx.push({...t,account:ref.label||t.account,memo:[t.memo,ref.funder].filter(Boolean).join(" · ")});
+    });
+    coveredTx.sort((a,b)=>String(a.account).localeCompare(String(b.account)));
+    const coveredInt=coveredTx.reduce((s,t)=>s+(Number(t.amount)||0),0);
+    const netInt=qbIntSum-coveredInt;
+    // COMPANY EXPENSES — purchase price / cost of property sold / buying costs
+    // are excluded entirely (deal costs, not operating cash), and Holding
+    // Costs drops lines belonging to properties already sold.
+    const EXP_EXCLUDE=/purchase price|cost of property sold|cost of goods sold|buying cost/i;
+    const soldKeys=(sharedProps||[]).filter(p=>p.status==="Sold").map(p=>nmOf(String(p.address||"").split(",")[0])).filter(k=>k.length>=5);
+    const expG=groupBy(tx.filter(t=>{
+      if(isInc(t)||isIntAcct(t.account))return false;
+      if(EXP_EXCLUDE.test(String(t.account||"")))return false;
+      if(/holding cost/i.test(String(t.account||""))){
+        const txt=nmOf(`${t.vendor} ${t.memo}`);
+        if(soldKeys.some(k=>txt.includes(k)))return false;
+      }
+      return true;
+    }));
     const expTotal=expG.reduce((s,g)=>s+g.total,0);
     const distAccts=(cfDist||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date));return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:Math.abs(its.reduce((s,t)=>s+(Number(t.amount)||0),0))};}).filter(a=>a.items.length);
     const distTotal=distAccts.reduce((s,a)=>s+a.total,0);
-    const net=totalIn-qbIntSum-expTotal-distTotal;
-    return {closings,closingsDetail,orphanPb,mutedPb,cfAdjTotal,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locDrawItems,locInTotal,hbDraws,bankIn,drawsIn,rentTx,rentTotal,otherTx,otherOnlyTotal,otherTotal,totalIn,qbInt,qbIntSum,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
+    const net=totalIn-netInt-expTotal-distTotal;
+    return {closings,closingsDetail,orphanPb,mutedPb,cfAdjTotal,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locDrawItems,locInTotal,hbDraws,bankIn,drawsIn,rentTx,rentTotal,otherTx,otherOnlyTotal,otherTotal,totalIn,qbInt,qbIntSum,coveredTx,coveredInt,netInt,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
   };
   const cfLabel=cfMonth==null?`${nowYear} so far`:`${MONTHS_F[cfMonth]} ${nowYear}`;
   const buildCashRep=()=>{
@@ -15694,9 +15723,11 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       L("　Bank construction draws (holdback)",c.bankIn),
       L("　= Money in from draws",c.drawsIn,{strong:true,color:T.green}),
       L("TOTAL MONEY IN",c.totalIn,{strong:true,color:T.green}),
-      L("INTEREST PAID (QUICKBOOKS)",null,{head:true}),
-      L("　Interest payments",c.qbIntSum),
-      L("EXPENSES",null,{head:true}),
+      L("INTEREST",null,{head:true}),
+      L("　Interest paid (QuickBooks)",c.qbIntSum),
+      L("　− Covered from lines of credit",-c.coveredInt),
+      L("　= Net interest cost",c.netInt,{strong:true}),
+      L("EXPENSES (purchase / property-sold / buying excluded; holding skips sold deals)",null,{head:true}),
       ...c.expG.map(g=>L(`　${g.name}`,g.total)),
       L("Total expenses",c.expTotal,{strong:true}),
       L("DISTRIBUTIONS",null,{head:true}),
@@ -16051,9 +16082,13 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                     <Eq nm="= Money in from draws" v={c.drawsIn}/>
                   </Grp>
                   <Tot t="TOTAL MONEY IN" v={c.totalIn} color={T.green}/>
-                  <Sec t="🏦 INTEREST PAID (QUICKBOOKS)"/>
-                  <Row nm="Interest payments" sub="LOC interest settled at closings already counted above" amt={c.qbIntSum} items={c.qbInt}/>
-                  <Sec t="📉 COMPANY EXPENSES — QUICKBOOKS CATEGORIES"/>
+                  <Sec t="🏦 INTEREST — WHAT IT REALLY COST"/>
+                  <Grp t="INTEREST PAID vs COVERED BY LINES OF CREDIT">
+                    <Row nm="Interest paid (QuickBooks)" amt={c.qbIntSum} items={c.qbInt}/>
+                    <Row nm="− Covered from lines of credit" sub="cross-referenced with the draw register · popup by address" amt={-c.coveredInt} items={c.coveredTx} green indent/>
+                    <div style={{display:"flex",justifyContent:"space-between",padding:"9px 14px",background:T.gold+"14",fontSize:12.5,fontWeight:800}}><span>= Net interest cost to you</span><span style={{color:T.text}}>{fmtD(c.netInt)}</span></div>
+                  </Grp>
+                  <Sec t="📉 COMPANY EXPENSES — QUICKBOOKS CATEGORIES · purchase / property-sold / buying costs excluded · holding costs skip sold deals"/>
                   {c.expG.map(g=><Row key={g.name} nm={g.name} amt={g.total} items={g.items}/>)}
                   <Tot t="Total expenses" v={c.expTotal}/>
                   <Sec t="👤 DISTRIBUTIONS"/>

@@ -15606,9 +15606,15 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const bankAccts=(cfLoan||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date)&&(Number(t.amount)||0)>0);return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:its.reduce((s,t)=>s+(Number(t.amount)||0),0)};}).filter(a=>a.total>0);
     const bankIn=bankAccts.reduce((s,a)=>s+a.total,0);
     const drawsIn=locInTotal+bankIn;
-    // OTHER INCOME — every income line that isn't a sale.
-    const otherG=groupBy(tx.filter(t=>isInc(t)&&!isSaleAcct(t.account)));
-    const otherTotal=otherG.reduce((s,g)=>s+g.total,0);
+    // OTHER INCOME — two line items: rental income, and everything else
+    // income-side in QuickBooks that isn't a sale.
+    const nonSaleInc=tx.filter(t=>isInc(t)&&!isSaleAcct(t.account));
+    const isRentAcct=(nm)=>/rent/i.test(String(nm||""));
+    const rentTx=nonSaleInc.filter(t=>isRentAcct(t.account));
+    const otherTx=nonSaleInc.filter(t=>!isRentAcct(t.account));
+    const rentTotal=rentTx.reduce((s,t)=>s+(Number(t.amount)||0),0);
+    const otherOnlyTotal=otherTx.reduce((s,t)=>s+(Number(t.amount)||0),0);
+    const otherTotal=rentTotal+otherOnlyTotal;
     const totalIn=closingsNet+drawsIn+otherTotal;
     // Money out (interim until the expenses redesign): QB interest payments —
     // the register's LOC interest already came off inside the closings box.
@@ -15619,7 +15625,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const distAccts=(cfDist||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date));return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:Math.abs(its.reduce((s,t)=>s+(Number(t.amount)||0),0))};}).filter(a=>a.items.length);
     const distTotal=distAccts.reduce((s,a)=>s+a.total,0);
     const net=totalIn-qbIntSum-expTotal-distTotal;
-    return {closings,closingsDetail,orphanPb,mutedPb,cfAdjTotal,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locIn,locInTotal,bankAccts,bankIn,drawsIn,otherG,otherTotal,totalIn,qbInt,qbIntSum,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
+    return {closings,closingsDetail,orphanPb,mutedPb,cfAdjTotal,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locIn,locInTotal,bankAccts,bankIn,drawsIn,rentTx,rentTotal,otherTx,otherOnlyTotal,otherTotal,totalIn,qbInt,qbIntSum,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
   };
   const cfLabel=cfMonth==null?`${nowYear} so far`:`${MONTHS_F[cfMonth]} ${nowYear}`;
   const buildCashRep=()=>{
@@ -15636,7 +15642,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       ...c.bankAccts.map(a=>L(`　Bank draws — ${a.name}`,a.total)),
       L("　= Money in from draws",c.drawsIn,{strong:true,color:T.green}),
       L("MONEY IN — OTHER INCOME",null,{head:true}),
-      ...c.otherG.map(g=>L(`　${g.name}`,g.total)),
+      L("　Rental income",c.rentTotal),
+      L("　Other income",c.otherOnlyTotal),
+      L("　= Total other income",c.otherTotal,{strong:true,color:T.green}),
       L("TOTAL MONEY IN",c.totalIn,{strong:true,color:T.green}),
       L("INTEREST PAID (QUICKBOOKS)",null,{head:true}),
       L("　Interest payments",c.qbIntSum),
@@ -15991,9 +15999,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                     <Eq nm="= Money in from draws" v={c.drawsIn}/>
                   </Grp>
                   <Grp t="📥 OTHER INCOME">
-                    {c.otherG.length===0&&<div style={{padding:"8px 14px",fontSize:12,color:T.textTert}}>No other income {cfMonth==null?"this year":"this month"}.</div>}
-                    {c.otherG.map(g=><Row key={g.name} nm={g.name} amt={g.total} items={g.items} green/>)}
-                    {c.otherG.length>0&&<Eq nm="= Other income" v={c.otherTotal}/>}
+                    <Row nm="Rental income" amt={c.rentTotal} items={c.rentTx} green/>
+                    <Row nm="Other income" sub="everything else income-side in QuickBooks" amt={c.otherOnlyTotal} items={c.otherTx} green/>
+                    <Eq nm="= Total other income" v={c.otherTotal}/>
                   </Grp>
                   <Tot t="TOTAL MONEY IN" v={c.totalIn} color={T.green}/>
                   <Sec t="🏦 INTEREST PAID (QUICKBOOKS)"/>

@@ -7112,7 +7112,7 @@ function DoerAvatar({assignee,delegate,size=24}){
 
 // Custom status picker — colored options + a red Delete at the bottom (native
 // <select> can't color options on iOS, and we want a Delete action in here).
-function TaskStatusPicker({value,onChange,onDelete,small}){
+function TaskStatusPicker({value,onChange,onDelete,small,dim}){
   const[open,setOpen]=useState(false);
   const[pos,setPos]=useState({top:0,left:0});
   const btnRef=useRef(null);
@@ -7132,7 +7132,9 @@ function TaskStatusPicker({value,onChange,onDelete,small}){
   };
   return(
     <div style={{flexShrink:0}}>
-      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:small?20:22,padding:small?"0 9px":"0 11px",background:sc.bg,color:sc.color,border:"none",borderRadius:20,fontSize:small?10.5:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
+      {/* dim fades ONLY the pill — the fixed menu below must never inherit
+          opacity (an ancestor's opacity ghosts it gray and glitchy). */}
+      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:small?20:22,padding:small?"0 9px":"0 11px",background:sc.bg,color:sc.color,border:"none",borderRadius:20,fontSize:small?10.5:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap",opacity:dim?0.55:1}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
       {open&&(<>
         {/* fixed positioning so the menu isn't clipped by the property card's overflow:hidden */}
         <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:290}}/>
@@ -7222,12 +7224,13 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   const closeViewer=()=>{setViewer(false);setEditing(false);};
   const pBtn=(primary)=>({padding:"9px 18px",borderRadius:T.radiusSm,border:primary?"none":`1px solid ${T.border}`,background:primary?T.gold:"#fff",color:primary?"#fff":T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"});
   const circleBtn=(active)=>({boxSizing:"border-box",lineHeight:1,background:active?"#EBF4FF":"#fff",border:`1px solid ${active?T.blue:T.border}`,borderRadius:"50%",width:D,height:D,minWidth:D,maxWidth:D,flex:`0 0 ${D}px`,alignSelf:"center",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:compact?11:12,color:active?T.blue:T.textTert});
+  const fadeBit=faded?{opacity:0.55}:{};
   const contactBtnEl=(
     <div role="button" onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name||""}`:"Link a contact"}
-      style={circleBtn(!!t.taskContact)}>{t.taskContact?.kind==="company"?"🏢":(t.taskContact?.name?.[0]||"👤")}</div>
+      style={{...circleBtn(!!t.taskContact),...fadeBit}}>{t.taskContact?.kind==="company"?"🏢":(t.taskContact?.name?.[0]||"👤")}</div>
   );
   const msgBtnEl=(
-    <div role="button" onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",...circleBtn(!!msgCount)}}><TeamChatIcon size={13}/>{msgUnread>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgUnread}</span>}</div>
+    <div role="button" onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",...circleBtn(!!msgCount),...fadeBit}}><TeamChatIcon size={13}/>{msgUnread>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgUnread}</span>}</div>
   );
   const selBox=selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:18,height:18,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>;
   // Address + property status are already shown in the group header above, so the
@@ -7314,14 +7317,15 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   }
   return(
     <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
-    {/* `faded` dims ONLY this row — the viewer/status/message popups render as
-        siblings below, so they stay full-strength and fully usable. (Opacity on
-        an ancestor would ghost a position:fixed popup inside it.) */}
-    <div style={{display:"flex",alignItems:"center",gap:compact?8:isMobile?8:10,padding:compact?"5px 12px":isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff",opacity:faded?0.45:1}}>
+    {/* `faded` dims the PIECES, never the row container — opacity on the row
+        creates a stacking context that ghosts the status picker's fixed menu
+        (grayed and unclickable). Text goes tertiary, buttons drop to 0.55,
+        and every control stays fully usable. */}
+    <div style={{display:"flex",alignItems:"center",gap:compact?8:isMobile?8:10,padding:compact?"5px 12px":isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
       {selBox}
       {/* The AUTO pill sits OUTSIDE the truncating text so a long title can't clip it. */}
       <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
-        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:emph?700:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
+        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:emph?700:500,color:(dim||faded)?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
         {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
       </span>
       {t.delegate&&t.delegate===currentUser&&t.assignee
@@ -7329,12 +7333,12 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
         : (t.delegate&&t.assignee===currentUser)
           ? <span title={`You delegated this to ${t.delegate}`} style={{fontSize:10,color:T.blue,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>to {t.delegate.split(" ")[0]}</span>
           : null}
-      <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
+      <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0,...fadeBit}}>
         <DoerAvatar assignee={t.assignee} delegate={t.delegate} size={D}/>
       </button>
       {contactBtnEl}
       {msgBtnEl}
-      <TaskStatusPicker small={compact} value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
+      <TaskStatusPicker small={compact} dim={faded} value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
     </div>
     {viewerEl}
     </SwipeToDelete>

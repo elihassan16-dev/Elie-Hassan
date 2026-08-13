@@ -14912,7 +14912,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     </div>
   );
 }
-function FinReportCenter({sharedProps,isMobile,canEdit=true}){
+// soldPage: render ONLY the Sold report, inline as its own page (the 🏷 Sold
+// Properties tab) — no report tiles, no overlay, no close buttons.
+function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   const { draws, setDraws, flushDraws, setSharedProps, flushProps, bankAccounts }=useData();
   const setPlan=(drawId,plan)=>{if(!canEdit)return;setDraws(prev=>prev.map(d=>d.id===drawId?{...d,futureFundsPlan:plan}:d));if(flushDraws)setTimeout(flushDraws,0);};
   // Three-way lender plan: reinvest principal only → reinvest principal AND the
@@ -14923,7 +14925,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
   const cyclePlan=(drawId,cur)=>setPlan(drawId,PLAN_NEXT[cur]||"reinvest");
   const updateProp=(id,key,val)=>{if(!canEdit)return;setSharedProps(prev=>prev.map(p=>p.id===id?{...p,[key]:val}:p));if(flushProps)setTimeout(flushProps,0);};
   const {connected,accounts,spend,requestSpend}=useQB();
-  const[open,setOpen]=useState(null); // report id being previewed
+  const[open,setOpen]=useState(soldPage?"sold":null); // report id being previewed
   const[holdbackFor,setHoldbackFor]=useState(null); // property id whose holdback editor is open
   const[hbTxns,setHbTxns]=useState(null);           // that property's QuickBooks transactions
   const[hbPicker,setHbPicker]=useState(false);      // the pin-transactions modal
@@ -15620,9 +15622,10 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
 
   return(
     <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?"14px":"18px 24px"}}>
+      {!soldPage&&<>
       <div style={{fontSize:12.5,color:T.textSub,marginBottom:14,lineHeight:1.5}}>Tap a report to preview it, then export or save it as a PDF.</div>
       <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:12}}>
-        {cards.map(c=>(
+        {cards.filter(c=>c.id!=="sold").map(c=>(
           <button key={c.id} onClick={()=>setOpen(c.id)} style={{textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,padding:"16px 18px",cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,display:"flex",gap:12,alignItems:"flex-start"}}>
             <div style={{width:40,height:40,borderRadius:12,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{c.icon}</div>
             <div style={{minWidth:0}}>
@@ -15632,11 +15635,14 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
           </button>
         ))}
       </div>
+      </>}
 
       {open==="bs"&&<FinDealMoney bsProps={bsProps} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={holdbackOf} onClose={()=>setOpen(null)}/>}
       {rep&&(
-        <div onClick={()=>setOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:900,maxWidth:"100%",maxHeight:isMobile?"92vh":"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+        <div onClick={soldPage?undefined:()=>setOpen(null)} style={soldPage?{}:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={soldPage
+            ?{background:T.card,borderRadius:16,width:"100%",display:"flex",flexDirection:"column",boxShadow:T.shadow,border:`1px solid ${T.border}`,overflow:"hidden"}
+            :{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:900,maxWidth:"100%",maxHeight:isMobile?"92vh":"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
             <div style={{padding:isMobile?"16px 16px 12px":"18px 22px 14px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"flex-start",gap:12}}>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:isMobile?16:18,fontWeight:800,color:T.text}}>{rep.title}</div>
@@ -15657,7 +15663,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                   </div>
                 )}
               </div>
-              <button onClick={()=>setOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+              {!soldPage&&<button onClick={()=>setOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>}
             </div>
             <div style={{flex:1,overflow:"auto",padding:isMobile?"4px 4px 12px":"6px 10px 14px"}}>
               {open==="sold"&&soldView==="month"&&(()=>{
@@ -15797,7 +15803,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true}){
                   return exN>0?<button onClick={()=>{setSharedProps(prev=>prev.map(p=>p.soldExcluded?{...p,soldExcluded:false}:p));if(flushProps)setTimeout(flushProps,0);}}
                     style={{padding:"10px 14px",borderRadius:T.radiusSm,background:"none",border:"none",color:T.textTert,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>↩ Restore {exN} removed</button>:null;})()}
               </div>}
-              <button onClick={()=>setOpen(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
+              {!soldPage&&<button onClick={()=>setOpen(null)} style={{padding:"10px 18px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Close</button>}
               <button onClick={()=>exportReport(open==="sold"&&soldView==="month"?buildMonthRep():open==="sold"&&soldView==="compare"?buildCmpRep():rep)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>⬇ Export / PDF</button>
             </div>
           </div>
@@ -17145,7 +17151,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           </div>}
         </div>
         <div style={{display:"flex",gap:4,marginTop:12,overflowX:"auto",alignItems:"center"}}>
-          {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["reports","Report Center"],["docs","Document Creator"]].map(([k,l])=>(
+          {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["reports","Report Center"],["sold","🏷 Sold Properties"],["docs","Document Creator"]].map(([k,l])=>(
             <button key={k} onClick={()=>{if(k!==subTab)navPush(((st,bp)=>()=>{setSubTab(st);setBsSel(bp);})(subTab,bsSel));setSubTab(k);setBsSel(null);}} style={{padding:"9px 14px",border:"none",borderBottom:subTab===k?`2.5px solid ${T.gold}`:"2.5px solid transparent",background:"none",color:subTab===k?T.gold:T.textSub,fontWeight:subTab===k?800:600,fontSize:isMobile?12.5:13.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
           ))}
           <span style={{marginLeft:"auto",display:"flex",gap:6,flexShrink:0,paddingLeft:8}}>
@@ -17185,6 +17191,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       {subTab==="bs"&&<FinPropertyBS sharedProps={sharedProps} draws={draws} onNavigate={onNavigate} initialSelId={bsSel} isMobile={isMobile} canEdit={canEdit}/>}
       {subTab==="bank"&&<FinBankRecon sharedProps={sharedProps} onOpenProperty={goToBS} isMobile={isMobile} canEdit={canEdit}/>}
       {subTab==="reports"&&<FinReportCenter sharedProps={sharedProps} isMobile={isMobile} canEdit={canEdit}/>}
+      {subTab==="sold"&&<FinReportCenter sharedProps={sharedProps} isMobile={isMobile} canEdit={canEdit} soldPage/>}
       {subTab==="docs"&&<FinDocCreator sharedProps={sharedProps} isMobile={isMobile}/>}
     </div>
   );

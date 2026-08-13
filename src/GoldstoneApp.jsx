@@ -15561,14 +15561,13 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const closings=[...cMap.values()].map(c=>{const w=c.id!=null?(cfWire||{})[c.id]:null;const wire=w&&w.wire!=null?w.wire:null;return {...c,wire:wire!=null?wire:c.gross,est:wire==null};}).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
     // Name each closing with its property — match the sale entry to a Sold deal
     // by amount (and date when it helps), since JE lines rarely carry a name.
-    const soldRef=soldPropsAll.map(p=>({addr:p.address,income:Number((p.qbSnap||{}).income)||Number(((p.qbProjectId&&soldPnl[p.qbProjectId])||{}).income)||0,sell:soldDatesOf(p).sell})).filter(x=>x.addr);
+    const soldRef=soldPropsAll.map(p=>({p,addr:p.address,income:Number((p.qbSnap||{}).income)||Number(((p.qbProjectId&&soldPnl[p.qbProjectId])||{}).income)||0,sell:soldDatesOf(p).sell})).filter(x=>x.addr);
     closings.forEach(c=>{
-      if(c.label&&c.label!=="Closing")return;
       const d10=String(c.date||"").slice(0,10);
       const hit=soldRef.find(s=>s.income&&Math.abs(s.income-c.gross)<=1&&s.sell===d10)
         ||soldRef.find(s=>s.income&&Math.abs(s.income-c.gross)<=1)
         ||soldRef.find(s=>s.sell&&s.sell===d10);
-      if(hit)c.label=hit.addr;
+      if(hit){c.prop=hit.p;if(!c.label||c.label==="Closing")c.label=hit.addr;}
     });
     const wiredTotal=closings.reduce((s,c)=>s+c.wire,0);
     const wiredEstN=closings.filter(c=>c.est).length;
@@ -15578,6 +15577,18 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const pbPrincipal=pb.reduce((s,d)=>s+(Number(d.amount)||0),0);
     const pbInterest=pb.reduce((s,d)=>s+Math.round(drawInterest(d)),0);
     const closingsNet=wiredTotal-pbPrincipal-pbInterest;
+    // Per-closing detail: each closing's own LOC paybacks under its wire, so
+    // the popup shows wire − payback − interest = net PER DEAL, and any
+    // payback that didn't match a closing surfaces separately (nothing hides).
+    const usedPb=new Set();
+    const closingsDetail=closings.map(c=>{
+      const mine=c.prop?pb.filter(d=>!usedPb.has(d.id)&&drawsForProperty(c.prop,[d]).length>0):[];
+      mine.forEach(d=>usedPb.add(d.id));
+      const cp=mine.reduce((s,d)=>s+(Number(d.amount)||0),0);
+      const ci=mine.reduce((s,d)=>s+Math.round(drawInterest(d)),0);
+      return {...c,pbs:mine,pbP:cp,pbI:ci,net:c.wire-cp-ci};
+    });
+    const orphanPb=pb.filter(d=>!usedPb.has(d.id));
     // FROM DRAWS — lender draws funded (incl. raises rolled over at closings)
     // + bank construction draws (positive entries in the loan accounts).
     const locIn=(draws||[]).filter(d=>inMo(d.dateFunded));
@@ -15598,7 +15609,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const distAccts=(cfDist||[]).map(a=>{const its=a.items.filter(t=>inMo(t.date));return {name:a.name,items:its.map(t=>({...t,account:a.name})),total:Math.abs(its.reduce((s,t)=>s+(Number(t.amount)||0),0))};}).filter(a=>a.items.length);
     const distTotal=distAccts.reduce((s,a)=>s+a.total,0);
     const net=totalIn-qbIntSum-expTotal-distTotal;
-    return {closings,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locIn,locInTotal,bankAccts,bankIn,drawsIn,otherG,otherTotal,totalIn,qbInt,qbIntSum,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
+    return {closings,closingsDetail,orphanPb,wiredTotal,wiredEstN,pb,pbPrincipal,pbInterest,closingsNet,locIn,locInTotal,bankAccts,bankIn,drawsIn,otherG,otherTotal,totalIn,qbInt,qbIntSum,expG,expTotal,distAccts,distTotal,net,loaded:cfTx!==null};
   };
   const cfLabel=cfMonth==null?`${nowYear} so far`:`${MONTHS_F[cfMonth]} ${nowYear}`;
   const buildCashRep=()=>{
@@ -15948,19 +15959,21 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                   </div>);
                 const Tot=({t,v,color})=><div style={{display:"flex",justifyContent:"space-between",padding:"9px 14px",background:T.gold+"10",fontSize:12.5,fontWeight:800,borderBottom:`1px solid ${T.border}`}}><span>{t}</span><span style={{color:color||T.text}}>{fmtD(v)}</span></div>;
                 if(!c.loaded)return <div style={{textAlign:"center",color:T.textTert,padding:"36px 10px",fontSize:13}}>{connected?"Pulling the year from QuickBooks…":"Connect QuickBooks to load the Cash Flow report."}</div>;
-                const closingItems=c.closings.map(x=>({vendor:x.label,date:x.date,memo:x.est?"gross sale — wire line not found yet":"wired in",account:"Closing",amount:x.wire}));
-                const pbPrinItems=c.pb.map(d=>({vendor:d.funderName||"—",date:d.paybackDate,memo:d.propertyLabel||"",account:"LOC payback — principal",amount:Number(d.amount)||0}));
-                const pbIntItems=c.pb.map(d=>({vendor:d.funderName||"—",date:d.paybackDate,memo:d.propertyLabel||"",account:"LOC payback — interest",amount:Math.round(drawInterest(d))})).filter(x=>x.amount>0);
                 const drawItems=c.locIn.map(d=>({vendor:d.funderName||"—",date:d.dateFunded,memo:d.propertyLabel||"",account:"Draw register",amount:Number(d.amount)||0}));
                 const Grp=({t,children})=><div style={{margin:"4px 14px 10px",border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden"}}><div style={{padding:"7px 14px",fontSize:11,fontWeight:800,color:T.textSub,background:T.bg+"88",borderBottom:`1px solid ${T.border}66`}}>{t}</div>{children}</div>;
                 const Eq=({nm,v})=><div style={{display:"flex",justifyContent:"space-between",padding:"9px 14px",background:T.gold+"14",fontSize:12.5,fontWeight:800}}><span>{nm}</span><span style={{color:v<0?T.red:T.green}}>{fmtD(v)}</span></div>;
                 return(<div style={{paddingBottom:6}}>
                   <Sec t="💰 MONEY IN"/>
                   <Grp t={`🏠 FROM CLOSINGS${c.wiredEstN?` · ${c.wiredEstN} still showing gross`:""}`}>
-                    <Row nm="Wired from closings" sub={`${c.closings.length} closing${c.closings.length!==1?"s":""} — tap for each one`} amt={c.wiredTotal} items={closingItems} green/>
-                    <Row nm="− LOC principal paid back" sub="draw register" amt={-c.pbPrincipal} items={pbPrinItems} indent/>
-                    <Row nm="− LOC interest settled with those paybacks" amt={-c.pbInterest} items={pbIntItems} indent/>
-                    <Eq nm="= Cash to you from closings" v={c.closingsNet}/>
+                    <div onClick={()=>{setCfSel({closings:true});setCfQ("");}} title="Tap for every closing — wire in minus its LOC payback and interest"
+                      style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",cursor:"pointer"}}>
+                      <span style={{flex:1,minWidth:0}}>
+                        <span style={{display:"block",fontSize:12.5,fontWeight:600,color:T.text}}>Cash from closings — net of LOC paybacks</span>
+                        <span style={{display:"block",fontSize:10.5,color:T.textTert,marginTop:1}}>{c.closings.length} closing{c.closings.length!==1?"s":""} · wired {fmtD(c.wiredTotal)} − LOC paybacks {fmtD(c.pbPrincipal)} − interest {fmtD(c.pbInterest)} · tap for deal-by-deal</span>
+                      </span>
+                      <b style={{fontSize:13.5,color:T.green,flexShrink:0}}>{fmtD(c.closingsNet)}</b>
+                      <span style={{color:T.textTert,fontSize:12,flexShrink:0}}>›</span>
+                    </div>
                   </Grp>
                   <Grp t="🏦 FROM DRAWS">
                     <Row nm="Private-lender draws funded" sub="incl. raises rolled over at closings" amt={c.locInTotal} items={drawItems} green/>
@@ -16112,7 +16125,60 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
         );
       })()}
       {/* 💸 Cash Flow drill-down: the transactions behind any tapped line */}
-      {cfSel&&(()=>{
+      {cfSel&&cfSel.closings&&(()=>{
+        // Deal-by-deal: each closing's wire − its LOC payback − interest = net,
+        // plus any paybacks that didn't match a closing (so nothing hides).
+        const c=cfCalc();
+        const ql=cfQ.trim().toLowerCase();
+        const blocks=c.closingsDetail.filter(b=>!ql||[b.label,...b.pbs.map(d=>d.funderName)].filter(Boolean).join(" ").toLowerCase().includes(ql));
+        const orphans=c.orphanPb.filter(d=>!ql||[d.funderName,d.propertyLabel].filter(Boolean).join(" ").toLowerCase().includes(ql));
+        const sline={display:"flex",justifyContent:"space-between",gap:10,fontSize:11.5,color:T.textSub,padding:"2px 0"};
+        return(
+        <div onClick={()=>setCfSel(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:257,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+            <div style={{padding:"14px 16px 10px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+              <span style={{minWidth:0,flex:1}}>
+                <div style={{fontSize:15,fontWeight:800,color:T.text}}>🏠 Cash from closings — deal by deal</div>
+                <div style={{fontSize:11,color:T.textSub}}>{cfLabel} · wire in − LOC payback − interest = net per closing</div>
+              </span>
+              <button onClick={()=>setCfSel(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+            <div style={{padding:"10px 14px 8px",flexShrink:0}}>
+              <input autoFocus={!isMobile} value={cfQ} onChange={e=>setCfQ(e.target.value)} placeholder="🔍 Search property / lender…" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
+            </div>
+            <div style={{flex:1,overflowY:"auto"}}>
+              {blocks.length===0&&orphans.length===0&&<div style={{padding:"22px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>{ql?`Nothing matches “${cfQ}”.`:"No closings in this period."}</div>}
+              {blocks.map((b,i)=>(
+                <div key={i} style={{padding:"10px 16px",borderTop:`1px solid ${T.border}55`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10}}>
+                    <span style={{minWidth:0,fontSize:13.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.label}<span style={{fontSize:10.5,fontWeight:600,color:T.textTert}}> · {b.date?finFmtDate(b.date):""}</span></span>
+                    <b style={{fontSize:14,color:b.net<0?T.red:T.green,flexShrink:0}}>{fmtD(b.net)}</b>
+                  </div>
+                  <div style={sline}><span>Wired in{b.est?" (gross — wire line not found)":""}</span><span style={{fontWeight:700,color:T.text}}>{fmtD(b.wire)}</span></div>
+                  {b.pbs.map(d=>(<Fragment key={d.id}>
+                    <div style={sline}><span>− {d.funderName||"Lender"} — LOC payback</span><span style={{fontWeight:700,color:T.red}}>−{fmtD(Number(d.amount)||0)}</span></div>
+                    {Math.round(drawInterest(d))>0&&<div style={sline}><span>− {d.funderName||"Lender"} — interest settled</span><span style={{fontWeight:700,color:T.red}}>−{fmtD(Math.round(drawInterest(d)))}</span></div>}
+                  </Fragment>))}
+                  {!b.pbs.length&&<div style={{...sline,color:T.textTert}}><span>No LOC payback matched to this closing</span><span/></div>}
+                </div>
+              ))}
+              {orphans.length>0&&(
+                <div style={{padding:"10px 16px",borderTop:`2px solid ${T.orange}66`,background:T.orange+"0d"}}>
+                  <div style={{fontSize:12,fontWeight:800,color:T.orange,marginBottom:4}}>⚠ LOC paybacks this period not matched to a closing above</div>
+                  {orphans.map(d=>(<Fragment key={d.id}>
+                    <div style={sline}><span>− {d.funderName||"Lender"}{d.propertyLabel?` · ${d.propertyLabel}`:""} — payback</span><span style={{fontWeight:700,color:T.red}}>−{fmtD(Number(d.amount)||0)}</span></div>
+                    {Math.round(drawInterest(d))>0&&<div style={sline}><span>− {d.funderName||"Lender"} — interest</span><span style={{fontWeight:700,color:T.red}}>−{fmtD(Math.round(drawInterest(d)))}</span></div>}
+                  </Fragment>))}
+                </div>
+              )}
+            </div>
+            <div style={{padding:"11px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"10",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+              <span style={{fontSize:12.5,fontWeight:800,color:T.text}}>= Cash to you from closings</span>
+              <span style={{fontSize:15,fontWeight:800,color:c.closingsNet<0?T.red:T.green}}>{fmtD(c.closingsNet)}</span>
+            </div>
+          </div>
+        </div>);})()}
+      {cfSel&&!cfSel.closings&&(()=>{
         const ql=cfQ.trim().toLowerCase();
         const shown=(cfSel.items||[]).filter(t=>!ql||[t.vendor,t.memo,t.account,t.type,t.num].filter(Boolean).join(" ").toLowerCase().includes(ql))
           .slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));

@@ -15596,11 +15596,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const orphanPb=pb.filter(d=>!usedPb.has(d.id));
     const cfAdjTotal=closingsDetail.reduce((s,b)=>s+b.adjSum,0);
     const closingsNet=wiredTotal-pbPrincipal-pbInterest-cfAdjTotal;
-    // FROM DRAWS — only LOC money actually ALLOCATED TO CONSTRUCTION DRAWS:
-    // the Bank-Reconciliation adjustments marked 🔨 construction draw
-    // (linkKind "draw") in the Financial Section. Raises sitting as interest
-    // reserve or purchase funds do NOT count as money in. Dated by each
-    // borrow's timestamp; undated older allocations show on whole-year only.
+    // FROM DRAWS — LOC money allocated to construction, two mechanisms the
+    // Financial Section already tracks: (1) loan entries whose JOB is set to
+    // 🔨 construction on the property's deal-money sheet (qbConstrIds —
+    // balances, no date, so they count on the whole-year view), and
+    // (2) Bank-Recon adjustments marked 🔨 construction draw (dated borrows).
+    // Interest-reserve and purchase-fund raises never count.
     const locDrawItems=[];
     (bankAccounts||[]).forEach(b=>(b.adjustments||[]).forEach(a=>{
       if(a.linkKind!=="draw")return;
@@ -15613,6 +15614,18 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
         locDrawItems.push({vendor:label,date:"",memo:b.name,account:"🔨 Construction draw (undated)",amount:Math.abs(Number(a.amount)||0)});
       }
     }));
+    if(cfMonth==null)(sharedProps||[]).forEach(p=>{
+      const conIds=(p.qbConstrIds||[]).map(String);
+      if(!conIds.length)return;
+      const entries=[
+        ...(p.qbLoanAccounts||[]).map(id=>{const a=(accounts||[]).find(x=>String(x.id)===String(id))||{};return {key:String(id),bal:Math.abs(Number(a.balance)||0),name:a.name||`Account ${id}`};}),
+        ...(p.qbLoanCustom||[]).map(l=>({key:"c"+l.id,bal:Math.abs(Number(l.amount)||0),name:l.name||"Manual entry"})),
+        ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind!=="none"&&a.linkKind!=="draw").map(a=>({key:`adj${b.id}_${a.id}`,bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — ${b.name}`}))),
+      ];
+      entries.filter(e=>conIds.includes(e.key)&&e.bal>0).forEach(e=>{
+        locDrawItems.push({vendor:e.name,date:"",memo:p.address,account:"🔨 allocated to construction (deal sheet)",amount:e.bal});
+      });
+    });
     const locInTotal=locDrawItems.reduce((s,x)=>s+x.amount,0);
     // Bank draws = the "Draws received" pinned on each property's balance
     // sheet (the actual money the bank sent, qbDrawTxns + manual lines) —
@@ -16019,7 +16032,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                     <Eq nm="= Total other income" v={c.otherTotal}/>
                   </Grp>
                   <Grp t="🏦 FROM DRAWS">
-                    <Row nm="LOC allocated to construction draws" sub="🔨 marked as construction draws in Bank Reconciliation" amt={c.locInTotal} items={c.locDrawItems} green/>
+                    <Row nm="LOC allocated to construction draws" sub="🔨 job on the deal sheet + 🔨 marks in Bank Recon · no dates, so whole-year only" amt={c.locInTotal} items={c.locDrawItems} green/>
                     <Row nm="Bank construction draws" sub="the 'Draws received' pinned on each property's balance sheet" amt={c.bankIn} items={c.hbDraws} green/>
                     <Eq nm="= Money in from draws" v={c.drawsIn}/>
                   </Grp>

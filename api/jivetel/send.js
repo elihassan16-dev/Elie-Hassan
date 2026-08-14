@@ -46,7 +46,7 @@ export default async function handler(req, res) {
   const user = await requireAppUser(req);
   if (!user) return res.status(401).json({ error: "Sign in first." });
   try {
-    const { to, message, media, fromName } = req.body || {};
+    const { to, message, media, fromName, prop } = req.body || {};
     // A picture with no caption is a valid message.
     if (!to || (!String(message || "").trim() && !(Array.isArray(media) && media.length))) return res.status(400).json({ error: "to and a message (or attachment) are required." });
     const prof = await profileOf(user.id);
@@ -83,6 +83,9 @@ export default async function handler(req, res) {
       from: body.from,
       at: new Date().toISOString(),
       status: "sent",
+      // Property context the text was sent from — the app files the
+      // conversation per property with it (replies inherit it).
+      ...(prop ? { prop: String(prop).slice(0, 80) } : {}),
     }).catch(() => {});
     return res.status(200).json({ ok: true, from: body.from, result: data });
   } catch (e) {

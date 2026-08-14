@@ -17,7 +17,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions } from "./sms";
+import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -2624,7 +2624,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   // conversation just to check.
   const outreachLine=(ph,rowKey)=>{
     const t=showingTexts[rowKey]||{};
-    const th=smsOn?threadFor(ph):[];
+    const th=smsOn?smsThreadForProp(threadFor(ph),property.address):[];
     const lastOut=[...th].reverse().find(m=>m.direction!=="in");
     const lastIn=[...th].reverse().find(m=>m.direction==="in");
     const ev=[
@@ -2656,7 +2656,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     const tmplText=(kind)=>(bt?btMessage:showingMessage)(kind,name,address);
     if(!smsOn)return(
       <div style={{marginTop:8}}>
-        <div style={{fontSize:12,color:T.textSub,marginBottom:5,display:"flex",alignItems:"center",gap:7}}>{ph} <SmsBadge phone={ph}/></div>
+        <div style={{fontSize:12,color:T.textSub,marginBottom:5,display:"flex",alignItems:"center",gap:7}}>{ph} <SmsBadge phone={ph} prop={property.address}/></div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           <CallA phone={ph} style={{...actBtn,background:"#fff",border:`1px solid ${T.border}`,color:T.textSub}}>{emo("📞")} Call</CallA>
           <TextA phone={ph} style={{...actBtn,background:"#EDFBF1",border:`1px solid ${T.green}`,color:"#15803D"}}><SmsChatIcon size={12} color="#15803D"/> Text</TextA>
@@ -2671,7 +2671,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     return(
       <div style={{marginTop:8,display:"flex",alignItems:"center",gap:7}}>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:12.5,fontWeight:600,color:T.text,display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>{ph} <SmsBadge phone={ph}/></div>
+          <div style={{fontSize:12.5,fontWeight:600,color:T.text,display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>{ph} <SmsBadge phone={ph} prop={property.address}/></div>
           {outreachLine(ph,rowKey)}
         </div>
         <CallA phone={ph} title="Call" style={icoS}>📞</CallA>
@@ -2690,7 +2690,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const fmtD=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   const outreachMini=(ph,rowKey)=>{
     const t=showingTexts[rowKey]||{};
-    const th=smsOn?threadFor(ph):[];
+    const th=smsOn?smsThreadForProp(threadFor(ph),property.address):[];
     const lastOut=[...th].reverse().find(m=>m.direction!=="in");
     const lastIn=[...th].reverse().find(m=>m.direction==="in");
     const ev=[t.initial&&{label:"Initial",at:t.initial},t.followup&&{label:"F-up",at:t.followup},t.sweeten&&{label:"Sweeten",at:t.sweeten},lastOut&&{label:"texted",at:lastOut.at}]
@@ -2733,7 +2733,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     const first=phones[0];
     const phoneSeg=(ph)=>(
       <span style={{fontSize:isMobile?10.5:11,color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:5}}>
-        <span style={{fontWeight:600,color:T.text}}>{ph}</span> <SmsBadge phone={ph}/> <span>{outreachMini(ph,rowKey)}</span>
+        <span style={{fontWeight:600,color:T.text}}>{ph}</span> <SmsBadge phone={ph} prop={property.address}/> <span>{outreachMini(ph,rowKey)}</span>
       </span>
     );
     const removeBtn=onRemove&&<button onClick={onRemove} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>;
@@ -2903,7 +2903,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         </Card>
       );
     })()}
-    {smsPop&&<SmsThreadPopup phone={smsPop.phone} name={smsPop.name||(smsPop.bt?"Buyer":"Agent")} sub={[smsPop.bt?"🛒 Buyer":"Agent",address?`🏠 ${String(address).split(",")[0]}`:""].filter(Boolean).join(" · ")} initialKind={smsPop.kind||null}
+    {smsPop&&<SmsThreadPopup phone={smsPop.phone} name={smsPop.name||(smsPop.bt?"Buyer":"Agent")} prop={address?String(address).split(",")[0]:""} sub={[smsPop.bt?"🛒 Buyer":"Agent",address?`🏠 ${String(address).split(",")[0]}`:""].filter(Boolean).join(" · ")} initialKind={smsPop.kind||null}
       templates={showingTemplates(smsPop.bt,smsPop.name,address,smsPop.tmplOpts)}
       sentStamps={showingTexts[smsPop.rowKey]||{}}
       onClearStamp={(kind)=>smsPop.rowKey&&clearText(smsPop.rowKey,kind)}
@@ -3466,7 +3466,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
   const calSmsPopup=calSmsPop&&(()=>{
     const prop=(sharedProps||[]).find(p=>p.id===calSmsPop.propId);
     const stamps=((prop&&prop.showingTexts)||{})[calSmsPop.k]||{};
-    return <SmsThreadPopup phone={calSmsPop.phone} name={calSmsPop.name||"Agent"} sub={["Agent",calSmsPop.address?`🏠 ${String(calSmsPop.address).split(",")[0]}`:""].filter(Boolean).join(" · ")} initialKind={calSmsPop.kind||null}
+    return <SmsThreadPopup phone={calSmsPop.phone} name={calSmsPop.name||"Agent"} prop={calSmsPop.address?String(calSmsPop.address).split(",")[0]:""} sub={["Agent",calSmsPop.address?`🏠 ${String(calSmsPop.address).split(",")[0]}`:""].filter(Boolean).join(" · ")} initialKind={calSmsPop.kind||null}
       templates={showingTemplates(false,calSmsPop.name,calSmsPop.address)}
       sentStamps={stamps}
       onClearStamp={(kind)=>clearShowingText(calSmsPop.propId,calSmsPop.k,kind)}
@@ -8565,7 +8565,7 @@ function TasksPage({onNavigate}){
     );
   };
   const dashTextPopup=()=>dashText&&(
-    <SmsThreadPopup phone={dashText.phone} name={dashText.name} sub={["Agent",dashText.address?`🏠 ${dashText.address}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(false,dashText.name,dashText.address)} onClose={()=>setDashText(null)}/>
+    <SmsThreadPopup phone={dashText.phone} name={dashText.name} prop={dashText.address?String(dashText.address).split(",")[0]:""} sub={["Agent",dashText.address?`🏠 ${dashText.address}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(false,dashText.name,dashText.address)} onClose={()=>setDashText(null)}/>
   );
   const dashFupCard=()=>dashFups.length===0?null:(
     <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
@@ -16824,7 +16824,7 @@ function CrmPage({sharedProps}){
           </div>
         ))}
       </div>
-      {open&&<SmsThreadPopup phone={open.phone} name={open.name||"Agent"} sub={["Agent",open.address?`🏠 ${String(open.address).split(",")[0]}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(false,open.name,open.address)} onClose={()=>setOpen(null)}/>}
+      {open&&<SmsThreadPopup phone={open.phone} name={open.name||"Agent"} prop={open.address?String(open.address).split(",")[0]:""} sub={["Agent",open.address?`🏠 ${String(open.address).split(",")[0]}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(false,open.name,open.address)} onClose={()=>setOpen(null)}/>}
     </div>
   );
 }
@@ -17337,7 +17337,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
         </div>
       )}
       {personCrm&&<PersonCard phone={personCrm.phone} name={personCrm.name||fmtPh(personCrm.phone)} who={{name:personCrm.name||"",role:personCrm.buyer&&!personCrm.shows.length?"buyer":"agent",addr:personCrm.addrs[0]||""}} email={personCrm.email||""} broker={personCrm.broker||""} showFeed={showings||[]} onText={()=>setTextOpen({phone:personCrm.phone,name:personCrm.name,address:personCrm.addrs[0]||"",bt:!!personCrm.buyer&&!personCrm.shows.length})} onClose={()=>setPersonCrm(null)}/>}
-      {textOpen&&<SmsThreadPopup phone={textOpen.phone} name={textOpen.name||(textOpen.bt?"Buyer":"Agent")} sub={[textOpen.bt?"🛒 Buyer":"Agent",textOpen.address?`🏠 ${String(textOpen.address).split(",")[0]}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(!!textOpen.bt,textOpen.name,textOpen.address)} onClose={()=>setTextOpen(null)}/>}
+      {textOpen&&<SmsThreadPopup phone={textOpen.phone} name={textOpen.name||(textOpen.bt?"Buyer":"Agent")} prop={textOpen.address?String(textOpen.address).split(",")[0]:""} sub={[textOpen.bt?"🛒 Buyer":"Agent",textOpen.address?`🏠 ${String(textOpen.address).split(",")[0]}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(!!textOpen.bt,textOpen.name,textOpen.address)} onClose={()=>setTextOpen(null)}/>}
     </div>
   );
 }

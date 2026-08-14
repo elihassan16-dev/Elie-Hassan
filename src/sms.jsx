@@ -190,8 +190,8 @@ export function useSmsTexting() {
     const since = readMap[p] || "";
     return threadFor(p).filter((m) => m.direction === "in" && String(m.at || "") > since).length;
   };
-  const send = async (to, text, media) => {
-    await qbAuthFetch("/api/jivetel/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, message: text, ...(Array.isArray(media) && media.length ? { media } : {}) }) });
+  const send = async (to, text, media, prop) => {
+    await qbAuthFetch("/api/jivetel/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, message: text, ...(Array.isArray(media) && media.length ? { media } : {}), ...(prop ? { prop: String(prop).slice(0, 80) } : {}) }) });
     setTimeout(loadMsgs, 500);
   };
   return { connected: store.connected, from: store.from, lines: store.lines || {}, msgs, threadFor, statusFor, unreadFor, send };
@@ -201,12 +201,37 @@ export function useSmsTexting() {
 // number normalizer the store keys by.
 export const smsE164 = e164;
 
+// ─── Per-property attribution ────────────────────────────────────────────────
+// One agent = one phone = one real SMS chain, but the relationship happens per
+// PROPERTY. Outgoing texts sent from a property context carry m.prop (the
+// address); replies and calls file under whatever property was last texted
+// about. Messages from before tagging exist as "" (earlier history).
+export const smsPropKey = (s) => String(s || "").split(",")[0].trim().toLowerCase();
+export function smsPropMap(thread) {
+  const ts = (x) => { const t = new Date((x && x.at) || 0).getTime(); return isNaN(t) ? 0 : t; };
+  const sorted = [...thread].sort((a, b) => ts(a) - ts(b));
+  let cur = "";
+  const map = new Map();
+  sorted.forEach((m) => { if (m.direction !== "in" && m.prop) cur = String(m.prop); map.set(m.id, cur); });
+  return map;
+}
+export function smsThreadForProp(thread, prop) {
+  const k = smsPropKey(prop);
+  if (!k) return thread;
+  const map = smsPropMap(thread);
+  return thread.filter((m) => smsPropKey(map.get(m.id)) === k);
+}
+
 // Tiny thread-status badge for lists: ⏳ we texted, no reply yet · replied
 // (green) · NEW REPLY (red) until the conversation is opened.
-export function SmsBadge({ phone }) {
-  const { connected, statusFor, unreadFor } = useSmsTexting();
+export function SmsBadge({ phone, prop }) {
+  const { connected, statusFor, unreadFor, threadFor } = useSmsTexting();
   if (!connected) return null;
-  const st = statusFor(phone);
+  // With a property context the badge reads ONLY that property's conversation
+  // — a chain about another deal no longer shows "already texted" here.
+  let st;
+  if (prop) { const t = smsThreadForProp(threadFor(phone), prop).filter((m) => m.kind !== "call"); st = t.length ? (t[t.length - 1].direction === "in" ? "replied" : "awaiting") : ""; }
+  else st = statusFor(phone);
   if (!st) return null;
   const pill = { display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 800, borderRadius: 12, padding: "2px 7px", whiteSpace: "nowrap" };
   if (st === "replied" && unreadFor(phone) > 0)
@@ -657,7 +682,7 @@ export function TextA({ phone, style, title, onInApp, templates, onTemplate, chi
 // chips, and a composer that sends from the company line. Renders as the
 // popup card by default; `inline` makes it fill its parent (the always-open
 // conversation column in the Showings → By agent view).
-export function SmsThreadPane({ phone, name, sub = "", templates = [], events = [], initialKind = null, sentStamps = {}, onClearStamp, onSent, onClose, inline = false }) {
+export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = [], events = [], initialKind = null, sentStamps = {}, onClearStamp, onSent, onClose, inline = false }) {
   const { from, threadFor, send } = useSmsTexting();
   // Callers that only had digits get the app directory's name/role/property.
   const dir = dirFor(phone);
@@ -675,7 +700,16 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], events = 
   const fileRef = useRef(null);
   // 🤖 dismissed suggestions (per phone+message) — stay dismissed on this device.
   const [sugDis, setSugDis] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("smsSugDis") || "[]")); } catch { return new Set(); } });
-  const thread = threadFor(phone);
+  const fullThread = threadFor(phone);
+  // Per-property view: with a `prop` context the pane opens on THIS property's
+  // conversation only (attribution via smsPropMap), one tap away from the full
+  // real chain. Without a prop, everything behaves exactly as before.
+  const propK = smsPropKey(prop);
+  const [view, setView] = useState(propK ? "prop" : "all");
+  useEffect(() => { setView(propK ? "prop" : "all"); }, [phone, propK]);
+  const effMap = propK ? smsPropMap(fullThread) : null;
+  const thread = (propK && view === "prop") ? fullThread.filter((m) => smsPropKey(effMap.get(m.id)) === propK) : fullThread;
+  const otherN = propK ? fullThread.length - fullThread.filter((m) => smsPropKey(effMap.get(m.id)) === propK).length : 0;
   // 🤖 Read their latest reply and suggest a status — same classifier the CRM
   // uses, now right in the conversation.
   const lastIn = [...thread].reverse().find((m) => m.direction === "in" && m.kind !== "call");
@@ -694,13 +728,13 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], events = 
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length]);
   // Having the conversation open means you've read it — clears the red
   // "new reply" badge on every device (re-marks as new messages stream in).
-  useEffect(() => { markThreadRead(phone); }, [phone, thread.length]);
+  useEffect(() => { markThreadRead(phone); }, [phone, fullThread.length]);
   const doSend = async () => {
     const t = draft.trim();
     if ((!t && !att) || busy) return;
     setBusy(true); setErr("");
     try {
-      await send(phone, t, att ? [att.url] : undefined);
+      await send(phone, t, att ? [att.url] : undefined, prop || undefined);
       setDraft(""); setKind(null); setAtt(null);
       onSent && onSent(kind);
     } catch (ex) { setErr(ex.message || "Couldn't send — try again."); }
@@ -729,6 +763,13 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], events = 
           <CallA phone={phone} title="Call them" style={{ width: 31, height: 31, minWidth: 31, borderRadius: "50%", border: "none", background: "#0F9D58", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13.5, textDecoration: "none", flexShrink: 0, lineHeight: 1, boxSizing: "border-box" }}>📞</CallA>
           {onClose && <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>}
         </div>
+        {propK && (
+          <div style={{ display: "flex", gap: 7, padding: inline ? "7px 14px" : "8px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: "#fff", flexWrap: "wrap" }}>
+            {[["prop", `🏠 ${prop}`], ["all", `All messages (${fullThread.length})`]].map(([v, l]) => (
+              <button key={v} onClick={() => setView(v)} style={{ padding: "6px 13px", borderRadius: 16, border: `1.5px solid ${view === v ? "#C9A227" : T.border}`, background: view === v ? "#C9A22722" : "#fff", color: view === v ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{l}</button>
+            ))}
+          </div>
+        )}
         {smsActions && (
           <div style={{ padding: inline ? "6px 14px" : "7px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: "#fff" }}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -759,18 +800,48 @@ export function SmsThreadPane({ phone, name, sub = "", templates = [], events = 
           </div>
         )}
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "14px 14px", display: "flex", flexDirection: "column", gap: 8, background: T.bg }}>
-          {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 12.5, padding: "30px 10px" }}>No texts with this number yet. Pick a template below or write your own — it sends from the company line, and their replies show up right here.</div>}
+          {propK && view === "prop" && otherN > 0 && (
+            <div onClick={() => setView("all")} style={{ background: "#FBF3DD", border: "1px solid #C9A22766", borderRadius: 12, padding: "9px 12px", fontSize: 11.5, color: "#8a6d1f", fontWeight: 700, cursor: "pointer" }}>
+              💬 {otherN} earlier message{otherN !== 1 ? "s" : ""} on other properties — <span style={{ color: "#2563EB", fontWeight: 800 }}>view ›</span>
+            </div>
+          )}
+          {thread.length === 0 && (propK && view === "prop"
+            ? <div style={{ textAlign: "center", color: T.textTert, fontSize: 12.5, padding: "20px 10px", lineHeight: 1.55 }}>No texts about {prop} yet.<br />Anything you send from here files under this property.</div>
+            : <div style={{ textAlign: "center", color: T.textTert, fontSize: 12.5, padding: "30px 10px" }}>No texts with this number yet. Pick a template below or write your own — it sends from the company line, and their replies show up right here.</div>)}
           {(() => {
             // The caller can weave in timeline events (a BoldTrail inquiry, a
             // showing, a status change) — they render as centered pills in
             // true time order between the texts and calls.
             const ts = (x) => { const t = new Date(x).getTime(); return isNaN(t) ? 0 : t; };
-            const items = [
+            let items = [
               ...thread.map((m) => ({ k: "m", t: ts(m.at), m })),
               ...(events || []).map((e, i) => ({ k: "e", t: ts(e.at), e, i })),
             ].sort((a, b) => a.t - b.t);
+            // Full-chain view with a property context: quiet dividers wherever
+            // the property the conversation is about switches.
+            if (propK && view === "all") {
+              let lastEff = null; const withDivs = [];
+              items.forEach((it) => {
+                if (it.k === "m") {
+                  const effLabel = effMap.get(it.m.id) || "";
+                  const eff = smsPropKey(effLabel);
+                  if (eff !== lastEff) { withDivs.push({ k: "d", label: effLabel, t: it.t }); lastEff = eff; }
+                }
+                withDivs.push(it);
+              });
+              items = withDivs;
+            }
             const tone = { buyer: { background: "#FCE7F3", color: "#DB2777", border: "1px solid #FBCFE8" }, status: { background: "#FEF3C7", color: "#B45309", border: "1px solid #EAD9A9" }, showing: { background: "#EFEFF3", color: "#5B6470", border: `1px solid ${T.border}` } };
-            return items.map((it) => {
+            return items.map((it, ii) => {
+              if (it.k === "d") {
+                return (
+                  <div key={"dv" + ii} style={{ display: "flex", alignItems: "center", gap: 8, margin: "3px 0" }}>
+                    <span style={{ flex: 1, height: 1, background: "#D8D8DD" }} />
+                    <span style={{ fontSize: 9.5, fontWeight: 800, color: T.textTert, whiteSpace: "nowrap", maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis" }}>{it.label ? `🏠 ${it.label.toUpperCase()}` : "🕰 EARLIER MESSAGES"}</span>
+                    <span style={{ flex: 1, height: 1, background: "#D8D8DD" }} />
+                  </div>
+                );
+              }
               if (it.k === "e") {
                 return (
                   <div key={"ev" + it.i} style={{ alignSelf: "center", textAlign: "center" }}>

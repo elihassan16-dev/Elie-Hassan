@@ -207,18 +207,36 @@ export const smsE164 = e164;
 // address); replies and calls file under whatever property was last texted
 // about. Messages from before tagging exist as "" (earlier history).
 export const smsPropKey = (s) => String(s || "").split(",")[0].trim().toLowerCase();
-export function smsPropMap(thread) {
-  const ts = (x) => { const t = new Date((x && x.at) || 0).getTime(); return isNaN(t) ? 0 : t; };
-  const sorted = [...thread].sort((a, b) => ts(a) - ts(b));
-  let cur = "";
+// The app registers a per-phone timeline of property events (showings,
+// inquiries) — it lets UNTAGGED history (texts from before tagging shipped)
+// file under the property the agent was showing at the time, so old chains
+// aren't stranded in "earlier messages".
+let smsPropTl = null;
+export const setSmsPropTimeline = (fn) => { smsPropTl = fn; };
+export function smsPropMap(thread, phone) {
+  const ts = (x) => { const t = new Date(x || 0).getTime(); return isNaN(t) ? 0 : t; };
+  let evs = [];
+  try { evs = (smsPropTl && phone ? smsPropTl(phone) : []) || []; } catch { evs = []; }
+  const stream = [
+    ...evs.map((e) => ({ t: ts(e.at), ev: true, prop: String(e.prop || e.addr || "") })),
+    ...thread.map((m) => ({ t: ts(m.at), m })),
+  ].sort((a, b) => (a.t - b.t) || ((a.ev ? -1 : 1) - (b.ev ? -1 : 1)));
+  // Texts before the first known event belong to the first property shown —
+  // the lead-up conversation is about that showing.
+  let cur = evs.length ? String(evs[0].prop || evs[0].addr || "") : "";
   const map = new Map();
-  sorted.forEach((m) => { if (m.direction !== "in" && m.prop) cur = String(m.prop); map.set(m.id, cur); });
+  stream.forEach((x) => {
+    if (x.ev) { if (x.prop) cur = x.prop; return; }
+    const m = x.m;
+    if (m.direction !== "in" && m.prop) cur = String(m.prop); // explicit tag beats the calendar
+    map.set(m.id, cur);
+  });
   return map;
 }
-export function smsThreadForProp(thread, prop) {
+export function smsThreadForProp(thread, prop, phone) {
   const k = smsPropKey(prop);
   if (!k) return thread;
-  const map = smsPropMap(thread);
+  const map = smsPropMap(thread, phone);
   return thread.filter((m) => smsPropKey(map.get(m.id)) === k);
 }
 
@@ -230,7 +248,7 @@ export function SmsBadge({ phone, prop }) {
   // With a property context the badge reads ONLY that property's conversation
   // — a chain about another deal no longer shows "already texted" here.
   let st;
-  if (prop) { const t = smsThreadForProp(threadFor(phone), prop).filter((m) => m.kind !== "call"); st = t.length ? (t[t.length - 1].direction === "in" ? "replied" : "awaiting") : ""; }
+  if (prop) { const t = smsThreadForProp(threadFor(phone), prop, phone).filter((m) => m.kind !== "call"); st = t.length ? (t[t.length - 1].direction === "in" ? "replied" : "awaiting") : ""; }
   else st = statusFor(phone);
   if (!st) return null;
   const pill = { display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 800, borderRadius: 12, padding: "2px 7px", whiteSpace: "nowrap" };
@@ -707,7 +725,7 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
   const propK = smsPropKey(prop);
   const [view, setView] = useState(propK ? "prop" : "all");
   useEffect(() => { setView(propK ? "prop" : "all"); }, [phone, propK]);
-  const effMap = propK ? smsPropMap(fullThread) : null;
+  const effMap = propK ? smsPropMap(fullThread, phone) : null;
   const thread = (propK && view === "prop") ? fullThread.filter((m) => smsPropKey(effMap.get(m.id)) === propK) : fullThread;
   const otherN = propK ? fullThread.length - fullThread.filter((m) => smsPropKey(effMap.get(m.id)) === propK).length : 0;
   // 🤖 Read their latest reply and suggest a status — same classifier the CRM

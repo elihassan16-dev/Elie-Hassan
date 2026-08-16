@@ -240,6 +240,57 @@ export function smsThreadForProp(thread, prop, phone) {
   return thread.filter((m) => smsPropKey(map.get(m.id)) === k);
 }
 
+// ─── "Call me at 10" detector ────────────────────────────────────────────────
+// Reads a reply for a time they want to be called — "10am would be better",
+// "call me at 3:30", "try me in an hour", "tomorrow at 9" — and returns
+// {due:"YYYY-MM-DD", time:"HH:MM", label} for a one-tap reminder, or null.
+// A time already past today rolls to tomorrow.
+export function smsParseCallTime(text) {
+  const s = String(text || "").toLowerCase();
+  if (!s) return null;
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const out = (d, h, mi) => {
+    const when = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, mi);
+    const dayDiff = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
+    const label = `${dayDiff === 1 ? "tomorrow " : dayDiff > 1 ? when.toLocaleDateString(undefined, { weekday: "short" }) + " " : ""}${when.toLocaleTimeString(undefined, { hour: "numeric", minute: mi ? "2-digit" : undefined })}`;
+    return { due: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(h)}:${pad(mi)}`, label };
+  };
+  const callish = /\b(call|ring|reach|talk|speak|phone|touch base|try me|get back)\b/.test(s);
+  // "in 30 minutes" / "in half an hour" / "in an hour" / "in 2 hours"
+  let m = s.match(/\bin\s+(?:(a\s+half|half\s+an?|an?)|(\d+))\s*(hour|hr|minute|min)s?\b/);
+  if (m && (callish || /\bbetter|good|works\b/.test(s))) {
+    let mins;
+    if (m[1] && /half/.test(m[1])) mins = 30;
+    else { const n = m[2] ? parseInt(m[2], 10) : 1; mins = /hour|hr/.test(m[3]) ? n * 60 : n; }
+    const d = new Date(now.getTime() + mins * 60000);
+    return out(d, d.getHours(), d.getMinutes() ? d.getMinutes() : 0);
+  }
+  // Clock time — am/pm makes it a time on its own; a bare "at 3" needs a
+  // call-ish word so plain numbers ("offer 350") never trigger.
+  let hm = s.match(/\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/);
+  if (!hm && callish) hm = s.match(/\b(?:at|around|by|after)\s+(\d{1,2})(?::(\d{2}))?\b/);
+  if (!hm) return null;
+  let h = parseInt(hm[1], 10); const mi = hm[2] ? parseInt(hm[2], 10) : 0;
+  if (h > 23 || mi > 59) return null;
+  const ap = hm[3] ? hm[3][0] : "";
+  if (h >= 1 && h <= 12) {
+    if (ap === "p" && h !== 12) h += 12;
+    else if (ap === "a" && h === 12) h = 0;
+    else if (!ap) {
+      // No am/pm: the next upcoming reading of that number wins (a "3" said
+      // at 1pm means 3pm today; said at 4pm it means tomorrow).
+      const cands = [h, h + 12].filter((x) => x < 24);
+      const pick = cands.find((x) => x * 60 + mi > now.getHours() * 60 + now.getMinutes());
+      if (pick != null) h = pick;
+    }
+  }
+  const d = new Date(now);
+  if (/\btomorrow\b/.test(s)) d.setDate(d.getDate() + 1);
+  else if (h * 60 + mi <= now.getHours() * 60 + now.getMinutes()) d.setDate(d.getDate() + 1);
+  return out(d, h, mi);
+}
+
 // Tiny thread-status badge for lists: ⏳ we texted, no reply yet · replied
 // (green) · NEW REPLY (red) until the conversation is opened.
 export function SmsBadge({ phone, prop }) {
@@ -735,6 +786,10 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
   // always matches what the CRM shows.
   const curKey = smsActions && smsActions.statusFor ? smsActions.statusFor(phone) : "";
   const cur = curKey ? (smsActions.statusOptions || []).find((o) => o.key === curKey) : null;
+  // ⏰ "Call me at 10" → one-tap reminder (a follow-up with that date+time —
+  // the watcher pings the phone right at that moment).
+  const callSug = smsActions && smsActions.quickFollowUp && lastIn ? smsParseCallTime(lastIn.text) : null;
+  const callDisKey = lastIn ? `call|${e164(phone)}|${lastIn.id}` : "";
   const sugKey = smsActions && smsActions.suggest && lastIn ? smsActions.suggest(lastIn.text) : null;
   const sug = sugKey && sugKey !== curKey && !sugDis.has(lastIn ? `${e164(phone)}|${lastIn.id}` : "") ? (smsActions.statusOptions || []).find((o) => o.key === sugKey) : null;
   const sugDisKey = lastIn ? `${e164(phone)}|${lastIn.id}` : "";
@@ -808,6 +863,18 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
                 ))}
               </div>
             )}
+          </div>
+        )}
+        {callSug && !sugDis.has(callDisKey) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: "#EFF6FF", borderBottom: "1px solid #BFDBFE", flexShrink: 0 }}>
+            <span style={{ fontSize: 11.5, color: "#1D4ED8", flex: 1, minWidth: 0, lineHeight: 1.45 }}>⏰ Sounds like they want a call <b>{callSug.label}</b></span>
+            <button onClick={() => {
+              smsActions.quickFollowUp({ phone, name: shownName, addr: (dir && dir.addr) || prop || "", due: callSug.due, time: callSug.time, note: `📞 Call ${shownName}` });
+              const next = new Set(sugDis); next.add(callDisKey); setSugDis(next);
+              try { localStorage.setItem("smsSugDis", JSON.stringify([...next].slice(-300))); } catch { /* private mode */ }
+              setNote(`⏰ Reminder set — your phone pings ${callSug.label} to call ${shownName.split(" ")[0]}.`);
+            }} style={{ padding: "6px 12px", borderRadius: 13, border: "none", background: "#2563EB", color: "#fff", fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>✓ Remind me</button>
+            <button onClick={() => { const next = new Set(sugDis); next.add(callDisKey); setSugDis(next); try { localStorage.setItem("smsSugDis", JSON.stringify([...next].slice(-300))); } catch { /* private mode */ } }} title="Dismiss" style={{ background: "none", border: "none", color: T.textTert, fontSize: 17, cursor: "pointer", lineHeight: 1, flexShrink: 0, padding: "0 2px" }}>×</button>
           </div>
         )}
         {sug && (

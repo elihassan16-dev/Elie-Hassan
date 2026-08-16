@@ -19529,6 +19529,13 @@ export function GoldstoneShell(){
   setSmsPropTimeline((phone)=>{const p=smsE164(phone);return (p&&propsG.timeline&&propsG.timeline.get(p))||[];});
   setSmsThreadActions({
     followUp:(t)=>{setFupG(t);setFupGDate(isoPlusG(1));setFupGTime("");setFupGNote("");},
+    // ⏰ One-tap "call me at 10" reminder from the conversation — saves the
+    // follow-up directly (no picker); the watcher pings the phone at that time.
+    quickFollowUp:({phone,name,addr,due,time,note})=>{
+      if(!due)return;
+      const items=((appSettings||[]).find(x=>x.id==="followups")||{}).items||[];
+      setAppSettings([...(appSettings||[]).filter(x=>x.id!=="followups"),{id:"followups",items:[...items,{id:Date.now(),phone,name:name||"",addr:addr||"",due,time:time||"",note:note||"",by:CURRENT_USER||"",done:false}].slice(-300)}]);
+    },
     notInterested:(t)=>setLeadStatusG("not",t),
     setStatus:(t,key)=>setLeadStatusG(key,t),
     statusFor:leadStatusOfG,

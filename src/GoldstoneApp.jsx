@@ -17,7 +17,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp } from "./sms";
+import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp, setSmsPropTimeline } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -2624,7 +2624,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   // conversation just to check.
   const outreachLine=(ph,rowKey)=>{
     const t=showingTexts[rowKey]||{};
-    const th=smsOn?smsThreadForProp(threadFor(ph),property.address):[];
+    const th=smsOn?smsThreadForProp(threadFor(ph),property.address,ph):[];
     const lastOut=[...th].reverse().find(m=>m.direction!=="in");
     const lastIn=[...th].reverse().find(m=>m.direction==="in");
     const ev=[
@@ -2690,7 +2690,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   const fmtD=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   const outreachMini=(ph,rowKey)=>{
     const t=showingTexts[rowKey]||{};
-    const th=smsOn?smsThreadForProp(threadFor(ph),property.address):[];
+    const th=smsOn?smsThreadForProp(threadFor(ph),property.address,ph):[];
     const lastOut=[...th].reverse().find(m=>m.direction!=="in");
     const lastIn=[...th].reverse().find(m=>m.direction==="in");
     const ev=[t.initial&&{label:"Initial",at:t.initial},t.followup&&{label:"F-up",at:t.followup},t.sweeten&&{label:"Sweeten",at:t.sweeten},lastOut&&{label:"texted",at:lastOut.at}]
@@ -19079,7 +19079,8 @@ const callRel=(iso)=>{const t=new Date(iso).getTime();if(isNaN(t))return "";cons
 // recent first. Feeds the gold 🏠 line on call/text rows and thread headers.
 function buildPhoneProps(showFeed,btAll,sharedProps){
   const m=new Map();
-  const add=(ph,addr,at)=>{const e=smsE164(ph);if(!e||!addr)return;const a=String(addr).split(",")[0].trim();if(!a)return;let l=m.get(e);if(!l)m.set(e,l=[]);const key=a.toLowerCase();const hit=l.find(x=>x.key===key);const t=at?String(at):"";if(hit){if(t>hit.at)hit.at=t;}else l.push({key,addr:a,at:t});};
+  const tl=new Map(); // phone → EVERY dated property event, for text attribution
+  const add=(ph,addr,at)=>{const e=smsE164(ph);if(!e||!addr)return;const a=String(addr).split(",")[0].trim();if(!a)return;let l=m.get(e);if(!l)m.set(e,l=[]);const key=a.toLowerCase();const hit=l.find(x=>x.key===key);const t=at?String(at):"";if(hit){if(t>hit.at)hit.at=t;}else l.push({key,addr:a,at:t});if(t){let lt=tl.get(e);if(!lt)tl.set(e,lt=[]);lt.push({at:t,prop:a});}};
   (showFeed||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,s.location||s.summary||"",s.start)));
   // Saved snapshots keep people whose showings already left the live feed.
   (sharedProps||[]).forEach(pp=>Object.values(pp.showingSnapshots||{}).forEach(sn=>String(sn.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,pp.address,sn.start))));
@@ -19088,6 +19089,8 @@ function buildPhoneProps(showFeed,btAll,sharedProps){
   (btAll||[]).forEach(l=>{const pp=(sharedProps||[]).find(x=>btMatchesProperty(l,x));if(pp)add(l.phone,pp.address,l.createdAt);});
   (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,pp.address,l.at))));
   m.forEach(l=>l.sort((a,b)=>String(b.at).localeCompare(String(a.at))));
+  tl.forEach(l=>l.sort((a,b)=>String(a.at).localeCompare(String(b.at))));
+  m.timeline=tl;
   return m;
 }
 // Spelling-tolerant first-name compare (client mirror of the server's).
@@ -19523,6 +19526,7 @@ export function GoldstoneShell(){
     if(!w&&!pl.length)return null;
     return{name:(w&&w.name)||"",role:(w&&w.role)||"",addr:pl[0]?pl[0].addr:(w&&w.addr)||"",sub:whoSubLine(w,pl)};
   });
+  setSmsPropTimeline((phone)=>{const p=smsE164(phone);return (p&&propsG.timeline&&propsG.timeline.get(p))||[];});
   setSmsThreadActions({
     followUp:(t)=>{setFupG(t);setFupGDate(isoPlusG(1));setFupGTime("");setFupGNote("");},
     notInterested:(t)=>setLeadStatusG("not",t),

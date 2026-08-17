@@ -52,17 +52,32 @@ export default async function handler(req, res) {
     ev.push({ at: new Date().toISOString(), ct: req.headers["content-type"] || "", body: req.body ?? null });
     await client.from("app_settings").upsert({ id: "jivetel_events", data: { events: ev }, updated_at: new Date().toISOString() });
 
-    // Parse the Textable message shape into the app's Jivetel message log —
-    // {eventType, timestamp, data:{FromNumber,ToNumber,MessageBody,
-    //  MessageDirection, MessageID, ConversationID, ContactName, …}}.
-    const d = (req.body && req.body.data) || null;
+    // Parse the Textable message shape into the app's Jivetel message log.
+    // Two shapes arrive here: the original wrapped one —
+    //   {eventType, timestamp, data:{FromNumber,ToNumber,MessageBody,…}}
+    // — and the app-originated relay (messages typed directly in the Jivetel
+    // SMS app), which Jivetel sends FLAT: the same fields at the top level,
+    // no data envelope and no timestamp.
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const d = body.data || (body.MessageID ? body : null);
     const media = d ? mediaOf(d) : [];
+    // Which teammate owns a line (their number in JIVETEL_NUMBERS) — labels
+    // app-typed outgoing texts with the sender, keys inbound pings.
+    const lineOwner = (num) => {
+      try {
+        const nums = JSON.parse(process.env.JIVETEL_NUMBERS || "{}");
+        const d10 = (x) => { const dd = String(x || "").replace(/\D/g, ""); return dd.length === 11 && dd.startsWith("1") ? dd.slice(1) : dd; };
+        const hit = Object.entries(nums).find(([, v]) => d10(v) && d10(v) === d10(num));
+        return hit ? hit[0] : null;
+      } catch { return null; }
+    };
     // A picture with no caption has a null body — it's still a message.
     if (d && d.MessageID && (d.MessageBody != null || media.length)) {
       const dir = /out/i.test(String(d.MessageDirection || "")) ? "out" : "in";
+      const ts = body.timestamp ?? d.timestamp ?? d.Timestamp ?? null;
       const msg = {
         id: String(d.MessageID),
-        at: req.body.timestamp ? new Date(Number(req.body.timestamp)).toISOString() : new Date().toISOString(),
+        at: (() => { try { const t = new Date(isNaN(Number(ts)) ? ts : Number(ts)); return ts && !isNaN(t.getTime()) ? t.toISOString() : new Date().toISOString(); } catch { return new Date().toISOString(); } })(),
         dir,
         from: String(d.FromNumber || ""),
         to: String(d.ToNumber || ""),
@@ -79,15 +94,20 @@ export default async function handler(req, res) {
         await client.from("app_settings").upsert({ id: "jivetel_msgs", data: { msgs: msgs.slice(-2000) }, updated_at: new Date().toISOString() });
         // Into the app's conversation store too — the thread popups, badges
         // and realtime updates all read sms_messages. The other party's
-        // number keys the thread; upsert by id dedupes messages the send
-        // endpoint already logged.
-        await storeSms({
+        // number keys the thread. Skip ids the send endpoint already logged —
+        // its record is richer (author, property tag, sent status) and a
+        // relayed echo must not overwrite it.
+        const { data: exist } = await client.from("sms_messages").select("id").eq("id", msg.id).maybeSingle();
+        if (!exist) await storeSms({
           id: msg.id,
           phone: e164(dir === "in" ? msg.from : msg.to),
           direction: dir,
           text: msg.text,
           ...(media.length ? { media } : {}),
-          by: dir === "in" ? msg.name : "",
+          // Outgoing texts typed in the Jivetel app carry no author — name
+          // them after whoever owns the line they went out on, so threads
+          // and contact-ownership see them like app-sent texts.
+          by: dir === "in" ? msg.name : lineOwner(msg.from) || "",
           from: dir === "in" ? e164(msg.to) : e164(msg.from),
           at: msg.at,
           status: "",
@@ -97,13 +117,7 @@ export default async function handler(req, res) {
         if (dir === "in") {
           const { notifyFanout } = await import("../../lib/notify.js");
           const preview = msg.text.length > 90 ? msg.text.slice(0, 90) + "…" : msg.text;
-          let owner = null;
-          try {
-            const nums = JSON.parse(process.env.JIVETEL_NUMBERS || "{}");
-            const d10 = (x) => { const d = String(x || "").replace(/\D/g, ""); return d.length === 11 && d.startsWith("1") ? d.slice(1) : d; };
-            const hit = Object.entries(nums).find(([, v]) => d10(v) && d10(v) === d10(msg.to));
-            if (hit) owner = hit[0];
-          } catch { /* bad JSON → team-wide */ }
+          const owner = lineOwner(msg.to); // bad JSON / unknown line → team-wide
           let who = null; try { who = await identifyPhone(msg.from); } catch { /* number-only */ }
           // Name in the title; buyer/agent/lead + their property before the
           // message, so the banner answers "who and about what" at a glance.

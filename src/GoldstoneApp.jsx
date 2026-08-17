@@ -16936,6 +16936,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   const btAll=useBtLeads();
   const[q,setQ]=useState("");
   const[filter,setFilter]=useState("all");
+  const[who,setWho]=useState("all"); // 👥 everyone | 👤 agents | 🛒 buyers — the top-level split
   // Dismissed 🤖 suggestions (per phone+message) — stay dismissed on this device.
   const[sugDis,setSugDis]=useState(()=>{try{return new Set(JSON.parse(localStorage.getItem("crmSugDis")||"[]"));}catch{return new Set();}});
   const dismissSug=(c)=>{if(!c.sug)return;const next=new Set(sugDis);next.add(c.sug.disKey);setSugDis(next);try{localStorage.setItem("crmSugDis",JSON.stringify([...next].slice(-500)));}catch{/* private mode */}};
@@ -17031,26 +17032,39 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
       // ❌ Not interested / wrong number = off the list. Their statuses stay on
       // the properties; a name/number search still finds them if ever needed.
       const dead=c.statuses.some(st=>st.lead==="not"||st.lead==="badnum");
-      return {...c,thread:t,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,everReplied,future,contacted,dead,sug,act:lastAt>c.lastShow?lastAt:c.lastShow};
+      // 💬 A live back-and-forth: they've replied at least once and the last
+      // message either way is fresh — these pin above everyone else.
+      const activeConvo=everReplied&&!!lastAt&&Date.now()-new Date(lastAt).getTime()<7*86400000;
+      return {...c,thread:t,last,lastAt,unread,replied:!!last&&last.direction==="in",noRespDays,everReplied,future,contacted,dead,sug,activeConvo,act:lastAt>c.lastShow?lastAt:c.lastShow};
     }).sort((a,b)=>((b.unread>0)-(a.unread>0))
       ||((b.contacted?1:0)-(a.contacted?1:0))                       // reached-out people before not-contacted
       ||String(b.lastShow).localeCompare(String(a.lastShow))        // then most recent showing first
       ||String(b.act).localeCompare(String(a.act)));
   },[showings,sharedProps,connected,btAll,sugDis,textOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const term=q.trim().toLowerCase();
+  // 👤/🛒 tab membership: buyers = BoldTrail inquiries; agents = anyone who
+  // actually showed (a buyer who also toured counts on both sides).
+  const inWho=(c)=>who==="agents"?(!c.buyer||c.shows.length>0):who==="buyers"?!!c.buyer:true;
   const shown=contacts.filter(c=>{
     if(term&&![c.name,c.phone,...c.addrs].join(" ").toLowerCase().includes(term))return false;
+    if(!inWho(c))return false;
     if(c.dead)return !!term;               // removed from every pill — only an explicit search surfaces them
     if(filter==="upcoming")return c.future;
     if(c.future)return false;              // future stuff hides everywhere else
     if(filter==="replied")return c.replied;
     if(filter==="noresp")return c.noRespDays!=null&&!c.everReplied;
     if(filter==="new")return c.unread>0;
-    if(filter==="buyers")return !!c.buyer;
     return true;
   });
   const live=(c)=>!c.future&&!c.dead;
-  const counts={all:contacts.filter(live).length,new:contacts.filter(c=>c.unread>0&&live(c)).length,replied:contacts.filter(c=>c.replied&&live(c)).length,noresp:contacts.filter(c=>c.noRespDays!=null&&!c.everReplied&&live(c)).length,buyers:contacts.filter(c=>c.buyer&&live(c)).length,upcoming:contacts.filter(c=>c.future&&!c.dead).length};
+  const liveT=(c)=>live(c)&&inWho(c);
+  const counts={all:contacts.filter(liveT).length,new:contacts.filter(c=>c.unread>0&&liveT(c)).length,replied:contacts.filter(c=>c.replied&&liveT(c)).length,noresp:contacts.filter(c=>c.noRespDays!=null&&!c.everReplied&&liveT(c)).length,upcoming:contacts.filter(c=>c.future&&!c.dead&&inWho(c)).length};
+  const whoCounts={all:contacts.filter(live).length,agents:contacts.filter(c=>live(c)&&(!c.buyer||c.shows.length>0)).length,buyers:contacts.filter(c=>live(c)&&c.buyer).length};
+  // 💬 Active conversations pin on top (unread first, then freshest chat);
+  // everyone else falls in line by most recent showing / inquiry.
+  const actList=filter==="upcoming"?[]:shown.filter(c=>c.activeConvo&&!c.dead).sort((a,b)=>((b.unread>0)-(a.unread>0))||String(b.lastAt).localeCompare(String(a.lastAt)));
+  const actSet=new Set(actList.map(c=>c.key));
+  const restList=shown.filter(c=>!actSet.has(c.key)).sort((a,b)=>String(b.lastShow).localeCompare(String(a.lastShow))||String(b.act).localeCompare(String(a.act)));
   const sel=contacts.find(c=>c.key===selKey)||null;
   const chip=(bg,fg,txt)=><span style={{fontSize:8.5,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
   const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
@@ -17153,8 +17167,14 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
             {connected&&<button onClick={()=>setCampOpen(true)} title="📣 Campaign — mass text by filters, no hand-picking" style={{padding:"7px 10px",borderRadius:9,border:"1px solid #C9A227",background:"#FBF3DD",color:"#8a6d1f",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>📣</button>}
             {connected&&<button onClick={()=>{setSelMode(v=>!v);setPicks(new Set());}} title="Pick several people and text them the intro in one go" style={{padding:"7px 11px",borderRadius:9,border:selMode?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:selMode?T.goldLight:"#fff",color:selMode?"#8a6d1f":T.textSub,fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>☑ Select</button>}
           </div>
+          {/* 👥/👤/🛒 the big split — everyone, agents only, or buyers only */}
+          <div style={{display:"flex",gap:6,marginTop:8}}>
+            {[["all",`👥 All · ${whoCounts.all}`],["agents",`👤 Agents · ${whoCounts.agents}`],["buyers",`🛒 Buyers · ${whoCounts.buyers}`]].map(([k,l])=>(
+              <button key={k} onClick={()=>setWho(k)} style={{flex:1,minWidth:0,padding:"7px 2px",borderRadius:11,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",border:who===k?`1.5px solid ${T.gold}`:"1.5px solid transparent",background:who===k?T.goldLight:"#F3F3F5",color:who===k?"#8a6d1f":"#888"}}>{l}</button>
+            ))}
+          </div>
           <div style={{display:"flex",gap:5,marginTop:8,flexWrap:"wrap"}}>
-            {[["all",`All · ${counts.all}`],["new",`New replies · ${counts.new}`],["replied",`Replied · ${counts.replied}`],["noresp",`No response · ${counts.noresp}`],["buyers",`🛒 Buyers · ${counts.buyers}`],["upcoming",`📅 Upcoming · ${counts.upcoming}`]].map(([k,l])=>(
+            {[["all",`All · ${counts.all}`],["new",`New replies · ${counts.new}`],["replied",`Replied · ${counts.replied}`],["noresp",`No response · ${counts.noresp}`],["upcoming",`📅 Upcoming · ${counts.upcoming}`]].map(([k,l])=>(
               <button key={k} onClick={()=>setFilter(k)} style={{fontSize:10.5,fontWeight:800,borderRadius:12,padding:"4px 10px",border:"none",cursor:"pointer",fontFamily:"inherit",background:filter===k?T.gold:"#F3F3F5",color:filter===k?"#fff":"#888"}}>{l}</button>
             ))}
           </div>
@@ -17178,7 +17198,9 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           )}
           {showings===null&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>⏳ Loading your showings…</div>}
           {showings!==null&&shown.length===0&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing here{term?" for that search":""}.</div>}
-          {shown.map(c=>{
+          {(()=>{
+          const secHdr=(txt,fg,bg,bd)=><div style={{padding:"7px 13px 3px",fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:fg,background:bg,borderTop:`2px solid ${bd}`}}>{txt}</div>;
+          const row=(c)=>{
             const active=c.key===selKey;
             const picked=picks.has(c.key);
             return(
@@ -17213,7 +17235,14 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                 </span>
               </div>
             );
-          })}
+          };
+          return(<>
+            {actList.length>0&&secHdr(`💬 ACTIVE CONVERSATIONS · ${actList.length}`,"#0F9D58","#F2FBF5","#0F9D58")}
+            {actList.map(row)}
+            {actList.length>0&&restList.length>0&&secHdr(who==="buyers"?"🛒 BY MOST RECENT INQUIRY":who==="agents"?"👁 BY MOST RECENT SHOWING":"👁 BY MOST RECENT SHOWING / INQUIRY","#8a6d1f","#FBF7EA",T.gold)}
+            {restList.map(row)}
+          </>);
+          })()}
         </div>
         {/* ☑ Select-mode action bar */}
         {selMode&&(

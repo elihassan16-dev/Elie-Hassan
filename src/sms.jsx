@@ -233,11 +233,23 @@ export function smsPropMap(thread, phone) {
   });
   return map;
 }
+// "Clearly a different property" — the ONLY reason to hide a message from a
+// property view (Elie's rule: show this property's messages; hide only what
+// belongs to a DIFFERENT one). Compared by street number: two addresses with
+// different numbers are different properties; anything ambiguous (no number,
+// naming variations like "415 First Ave" vs "415 1st Ave") stays visible.
+const smsNumOf = (s) => { const m = String(s || "").match(/\d{1,6}/); return m ? m[0] : ""; };
+export const smsPropDiff = (a, b) => {
+  const ka = smsPropKey(a), kb = smsPropKey(b);
+  if (!ka || !kb || ka === kb) return false;
+  const na = smsNumOf(ka), nb = smsNumOf(kb);
+  return !!na && !!nb && na !== nb;
+};
 export function smsThreadForProp(thread, prop, phone) {
   const k = smsPropKey(prop);
   if (!k) return thread;
   const map = smsPropMap(thread, phone);
-  return thread.filter((m) => smsPropKey(map.get(m.id)) === k);
+  return thread.filter((m) => !smsPropDiff(map.get(m.id), prop));
 }
 
 // ─── "Call me at 10" detector ────────────────────────────────────────────────
@@ -777,8 +789,11 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
   const [view, setView] = useState(propK ? "prop" : "all");
   useEffect(() => { setView(propK ? "prop" : "all"); }, [phone, propK]);
   const effMap = propK ? smsPropMap(fullThread, phone) : null;
-  const thread = (propK && view === "prop") ? fullThread.filter((m) => smsPropKey(effMap.get(m.id)) === propK) : fullThread;
-  const otherN = propK ? fullThread.length - fullThread.filter((m) => smsPropKey(effMap.get(m.id)) === propK).length : 0;
+  // Elie's rule: this property's view shows everything EXCEPT messages that
+  // clearly belong to a different property (different street number).
+  const inProp = (m) => !smsPropDiff(effMap.get(m.id), prop);
+  const thread = (propK && view === "prop") ? fullThread.filter(inProp) : fullThread;
+  const otherN = propK ? fullThread.filter((m) => !inProp(m)).length : 0;
   // 🤖 Read their latest reply and suggest a status — same classifier the CRM
   // uses, now right in the conversation.
   const lastIn = [...thread].reverse().find((m) => m.direction === "in" && m.kind !== "call");
@@ -887,7 +902,7 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "14px 14px", display: "flex", flexDirection: "column", gap: 8, background: T.bg }}>
           {propK && view === "prop" && otherN > 0 && (
             <div onClick={() => setView("all")} style={{ background: "#FBF3DD", border: "1px solid #C9A22766", borderRadius: 12, padding: "9px 12px", fontSize: 11.5, color: "#8a6d1f", fontWeight: 700, cursor: "pointer" }}>
-              💬 {otherN} earlier message{otherN !== 1 ? "s" : ""} on other properties — <span style={{ color: "#2563EB", fontWeight: 800 }}>view ›</span>
+              💬 {otherN} message{otherN !== 1 ? "s" : ""} about other properties — <span style={{ color: "#2563EB", fontWeight: 800 }}>view ›</span>
             </div>
           )}
           {thread.length === 0 && (propK && view === "prop"

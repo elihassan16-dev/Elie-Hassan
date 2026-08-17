@@ -31,12 +31,13 @@ const mediaOf = (x) => {
 export default async function handler(req, res) {
   try {
     if (req.method === "GET") {
+      res.setHeader("Cache-Control", "no-store, max-age=0"); // status must always be live
       const { data } = await db().from("app_settings").select("data").eq("id", "jivetel_events").maybeSingle();
       const ev = (data && data.data && data.data.events) || [];
       const shapes = new Set();
       ev.forEach((e) => shapeOf(e.body, "", shapes));
       return res.status(200).json({
-        v: 2, // bump when the parser changes — proves which build is live
+        v: 3, // bump when the parser changes — proves which build is live
         configured: !!process.env.JIVETEL_WEBHOOK_SECRET,
         count: ev.length,
         lastAt: ev.length ? ev[ev.length - 1].at : null,

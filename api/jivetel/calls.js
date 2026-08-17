@@ -130,6 +130,11 @@ export default async function handler(req, res) {
         const at = e.time_start ? new Date(Number(e.time_start) * 1000).toISOString() : new Date().toISOString();
         const name = inbound ? String(e.orig_from_name || "") : "";
         const missed = inbound && !answered;
+        // One call, two CDRs: click-to-call (and some routed calls) emit a
+        // record PER LEG with distinct cdr_ids — same number, same direction,
+        // same start/duration. The second leg is the same call; skip it.
+        const atMs = new Date(at).getTime();
+        if (calls.some((c) => String(c.id) !== String(e.cdr_id) && c.phone === other && ((c.dir === "in") === inbound) && Math.abs(new Date(c.at).getTime() - atMs) < 120000 && Math.abs((c.talk || 0) - talk) <= 2)) continue;
         const text = inbound
           ? (missed ? "📞 Missed call" : `📞 Incoming call · ${fmtDur(talk)}`)
           : (answered ? `📞 Outgoing call · ${fmtDur(talk)}` : "📞 Outgoing call · no answer");

@@ -46,19 +46,19 @@ export default async function handler(req, res) {
       for (const e of ev.slice(-10)) {
         const b = e.body && typeof e.body === "object" && !Array.isArray(e.body) ? e.body : {};
         const env = b.data && typeof b.data === "object" && !Array.isArray(b.data) ? b.data : null;
-        const dd = (env && env.MessageID ? env : null) || (b.MessageID ? b : null) || env;
+        const dd = env || (b.MessageID || (b.MessageBody != null && b.MessageDirection) ? b : null);
         const media = dd ? mediaOf(dd) : [];
         const id = dd && dd.MessageID ? String(dd.MessageID) : "";
         if (id) ids.push(id);
         recent.push({
           at: e.at,
-          shape: env ? "wrapped" : b.MessageID ? "flat" : "other",
+          shape: env ? "wrapped" : dd ? "flat" : "other",
           et: String(b.eventType || b.EventType || b.event || ""),
           keys: Object.keys(b).slice(0, 24),
           dkeys: env ? Object.keys(env).slice(0, 24) : undefined,
           id,
           dir: dd ? String(dd.MessageDirection || "") : "",
-          parse: dd && dd.MessageID && (dd.MessageBody != null || media.length) ? "message" : dd && dd.MessageID ? "receipt" : "no-message",
+          parse: dd && (dd.MessageBody != null || media.length) ? (dd.MessageID ? "message" : dd.MessageDirection ? "app-message" : "no-message") : dd && dd.MessageID ? "receipt" : "no-message",
         });
       }
       if (ids.length) {
@@ -67,7 +67,7 @@ export default async function handler(req, res) {
         recent.forEach((r) => { if (r.id) r.inStore = inStore.has(r.id); });
       }
       return res.status(200).json({
-        v: 4, // bump when the parser changes — proves which build is live
+        v: 5, // bump when the parser changes — proves which build is live
         configured: !!process.env.JIVETEL_WEBHOOK_SECRET,
         count: ev.length,
         lastAt: ev.length ? ev[ev.length - 1].at : null,
@@ -98,13 +98,35 @@ export default async function handler(req, res) {
     // data can arrive as an envelope object — or as something else entirely
     // (string, array) on other event kinds; only an object envelope counts.
     const env = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : null;
-    const d = (env && env.MessageID ? env : null) || (body.MessageID ? body : null) || env;
+    // The message record: the data envelope when wrapped, or the body itself
+    // when the fields come flat — with or without a MessageID (the
+    // app-originated relay sends none).
+    const d = env || (body.MessageID || (body.MessageBody != null && body.MessageDirection) ? body : null);
     const media = d ? mediaOf(d) : [];
+    // Ping whoever OWNS the line an inbound text arrived on (their number in
+    // JIVETEL_NUMBERS); unknown line → the whole team. Shared by both the
+    // id-carrying and the app-originated (no-id) message paths.
+    const pingInbound = async (m) => {
+      const { notifyFanout } = await import("../../lib/notify.js");
+      const preview = m.text.length > 90 ? m.text.slice(0, 90) + "…" : m.text;
+      const owner = lineOwner(m.to); // bad JSON / unknown line → team-wide
+      let who = null; try { who = await identifyPhone(m.from); } catch { /* number-only */ }
+      // Name in the title; buyer/agent/lead + their property before the
+      // message, so the banner answers "who and about what" at a glance.
+      const sub = whoSub(who);
+      await notifyFanout(client, null, {
+        ...(owner ? { recipientsFirst: [owner] } : { toTeam: true }),
+        title: `💬 New text — ${(who && who.name) || m.name || m.from}`,
+        body: `${sub ? sub + " · " : ""}${preview || (m.media && m.media.length ? "📷 Photo" : "(no text)")}`,
+        tag: `jvmsg-${m.id}`.slice(0, 64),
+        url: "/",
+      }).catch(() => {});
+    };
     // Parse trail for the GET status view — decision, ids and FIELD NAMES
     // only (never values/content), so unknown shapes can be mapped from it.
     const trace = {
       at: new Date().toISOString(),
-      shape: env ? "wrapped" : body.MessageID ? "flat" : "other",
+      shape: env ? "wrapped" : d ? "flat" : "other",
       et: String(body.eventType || body.EventType || body.event || ""),
       keys: Object.keys(body).slice(0, 24),
       dkeys: env ? Object.keys(env).slice(0, 24) : (body.data != null ? "data:" + (Array.isArray(body.data) ? "array" : typeof body.data) : ""),
@@ -168,22 +190,42 @@ export default async function handler(req, res) {
         }).catch(() => {});
         // Ping whoever OWNS the line the text came in on (their number in
         // JIVETEL_NUMBERS); unknown line → the whole team.
-        if (dir === "in") {
-          const { notifyFanout } = await import("../../lib/notify.js");
-          const preview = msg.text.length > 90 ? msg.text.slice(0, 90) + "…" : msg.text;
-          const owner = lineOwner(msg.to); // bad JSON / unknown line → team-wide
-          let who = null; try { who = await identifyPhone(msg.from); } catch { /* number-only */ }
-          // Name in the title; buyer/agent/lead + their property before the
-          // message, so the banner answers "who and about what" at a glance.
-          const sub = whoSub(who);
-          await notifyFanout(client, null, {
-            ...(owner ? { recipientsFirst: [owner] } : { toTeam: true }),
-            title: `💬 New text — ${(who && who.name) || msg.name || msg.from}`,
-            body: `${sub ? sub + " · " : ""}${preview || (media.length ? "📷 Photo" : "(no text)")}`,
-            tag: `jvmsg-${msg.id}`.slice(0, 64),
-            url: "/",
-          }).catch(() => {});
-        }
+        if (dir === "in") await pingInbound(msg);
+      }
+    }
+    // ── App-originated relay: messages typed directly in the Jivetel SMS
+    // app arrive with the same fields but NO MessageID — flat, or wrapped
+    // as eventType "message.sent" — and usually in BOTH encodings seconds
+    // apart. Content+recency dedupe collapses the double delivery, and it
+    // also swallows the relay echo of texts our own send endpoint already
+    // logged (same phone + direction + text moments earlier).
+    else if (d && !d.MessageID && (d.MessageBody != null || media.length) && d.MessageDirection && (d.FromNumber || d.ToNumber)) {
+      const dir = /out/i.test(String(d.MessageDirection)) ? "out" : "in";
+      const from = String(d.FromNumber || ""), to = String(d.ToNumber || "");
+      const phone = e164(dir === "in" ? from : to);
+      const text = String(d.MessageBody || "");
+      trace.dir = dir;
+      const since = new Date(Date.now() - 10 * 60000).toISOString();
+      const { data: dupRows } = await client.from("sms_messages").select("data").eq("phone", phone).gte("updated_at", since);
+      const dup = (dupRows || []).some((r) => r.data && r.data.direction === dir && String(r.data.text || "") === text && String(((r.data.media || [])[0]) || "") === String(media[0] || ""));
+      trace.decision = dup ? "dup-recent" : "stored";
+      if (!dup) {
+        const ts = body.timestamp ?? d.timestamp ?? null;
+        const at = (() => { try { const t = new Date(isNaN(Number(ts)) ? ts : Number(ts)); return ts && !isNaN(t.getTime()) ? t.toISOString() : new Date().toISOString(); } catch { return new Date().toISOString(); } })();
+        const name = String(d.ContactName || "");
+        const id = "jvapp-" + (Number(ts) || Date.now()) + "-" + (text.length || media.length);
+        await storeSms({
+          id,
+          phone,
+          direction: dir,
+          text,
+          ...(media.length ? { media } : {}),
+          by: dir === "in" ? name : lineOwner(from) || "",
+          from: dir === "in" ? e164(to) : e164(from),
+          at,
+          status: "",
+        }).catch(() => {});
+        if (dir === "in") await pingInbound({ id, from, to, name, text });
       }
     }
     // Delivery receipts: a status-only event (MessageID, no MessageBody)

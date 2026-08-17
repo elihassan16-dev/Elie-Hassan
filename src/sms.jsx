@@ -71,7 +71,20 @@ let started = false, loadT = null;
 
 async function loadMsgs(retry = 0) {
   const { data, error } = await supabase.from("sms_messages").select("id,phone,data").order("updated_at", { ascending: true });
-  if (!error) { store = { ...store, msgs: (data || []).map((r) => ({ ...(r.data || {}), id: r.id, phone: r.phone || (r.data || {}).phone || "" })) }; emit(); loadReadMap(); }
+  if (!error) {
+    const rows = (data || []).map((r) => ({ ...(r.data || {}), id: r.id, phone: r.phone || (r.data || {}).phone || "" }));
+    // One call can arrive as two CDR legs (two ids, same number/direction/
+    // start/duration) — show it once, everywhere calls render.
+    const seenCalls = [];
+    const deduped = rows.filter((m) => {
+      if (m.kind !== "call") return true;
+      const p = e164(m.phone), t = new Date(m.at || 0).getTime(), talk = Number(m.talkSecs) || 0;
+      if (seenCalls.some((s) => s.p === p && s.d === m.direction && Math.abs(s.t - t) < 120000 && Math.abs(s.talk - talk) <= 2)) return false;
+      seenCalls.push({ p, d: m.direction, t, talk });
+      return true;
+    });
+    store = { ...store, msgs: deduped }; emit(); loadReadMap();
+  }
   // A failed load right after the phone wakes (expired token mid-refresh,
   // radio not up yet) used to leave the list stale until the next event —
   // retry a few times so desktop↔phone catch up on their own.

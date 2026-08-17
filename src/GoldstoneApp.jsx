@@ -9577,7 +9577,8 @@ function ContactsPage(){
   const { contacts, setContacts, flushContacts }=useData();
   const isMobile=useIsMobile();
   const[selId,setSelId]=useState(null);
-  const[search,setSearch]=useState("");
+  // Global search can open Contacts pre-searched for a person's name.
+  const[search,setSearch]=useState(()=>{try{const t=window.__contactsTarget;if(t){delete window.__contactsTarget;return t.q||"";}}catch{/* no window */}return "";});
   const[editing,setEditing]=useState(null); // draft contact being added/edited
   const[importMsg,setImportMsg]=useState("");
   const[csvData,setCsvData]=useState(null); // {headers,rows} awaiting column mapping
@@ -9586,8 +9587,17 @@ function ContactsPage(){
   const saveNow=()=>{if(flushContacts)setTimeout(flushContacts,0);};
   const q=search.trim().toLowerCase();
   const dir=contacts.map(normContact);
+  // 🗂 Tag folders: the page opens as one folder per tag (+ 📁 No tag).
+  // The search on top looks across ALL contacts; inside a folder it narrows.
+  const[tagSel,setTagSel]=useState(null); // null = folder view · "__none" · lowercased tag
+  const tagMap=new Map();let noTagN=0;
+  dir.forEach(c=>{const ts=(c.tags||[]).map(t=>String(t).trim()).filter(Boolean);if(!ts.length){noTagN++;return;}ts.forEach(t=>{const k=t.toLowerCase();const e=tagMap.get(k)||{key:k,label:t,n:0};e.n++;tagMap.set(k,e);});});
+  const tagFolders=[...tagMap.values()].sort((a,b)=>b.n-a.n||a.label.localeCompare(b.label));
+  const tagEmoji=(t)=>{const s=String(t).toLowerCase();if(/contract|builder|\bgc\b/.test(s))return "🔨";if(/lend|fund|bank/.test(s))return "🏦";if(/title/.test(s))return "🧾";if(/septic/.test(s))return "🚿";if(/attorn|lawyer|legal/.test(s))return "⚖️";if(/insur/.test(s))return "🛡️";if(/plumb/.test(s))return "🔧";if(/electr/.test(s))return "⚡";if(/agent|realtor|broker/.test(s))return "🏘️";if(/inspect/.test(s))return "🔎";return "🏷️";};
+  const inTag=(c)=>tagSel==="__none"?!(c.tags||[]).some(t=>String(t).trim()):(c.tags||[]).some(t=>String(t).trim().toLowerCase()===tagSel);
+  const tagLabel=tagSel==="__none"?"No tag":tagSel?((tagMap.get(tagSel)||{}).label||tagSel):"";
   const matches=(c)=>!q||[c.name,c.company,c.role,c.notes,...(c.tags||[]),...(c.phones||[]).map(p=>p.number),c.email].filter(Boolean).join(" ").toLowerCase().includes(q);
-  const list=dir.filter(matches).sort((a,b)=>(a.company||"~").toLowerCase().localeCompare((b.company||"~").toLowerCase())||(a.name||"").localeCompare(b.name||""));
+  const list=dir.filter(c=>matches(c)&&(!tagSel||inTag(c))).sort((a,b)=>(a.company||"~").toLowerCase().localeCompare((b.company||"~").toLowerCase())||(a.name||"").localeCompare(b.name||""));
   const sel=dir.find(c=>c.id===selId)||null;
   const colleagues=sel&&sel.company?dir.filter(c=>c.id!==sel.id&&sameCompany(c.company,sel.company)):[];
   const companies=[...new Set(dir.map(c=>c.company).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
@@ -9658,10 +9668,40 @@ function ContactsPage(){
           {importMsg&&<div style={{marginBottom:8,fontSize:11.5,color:T.gold,fontWeight:600}}>{importMsg}</div>}
           <div style={{position:"relative"}}>
             <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:15,pointerEvents:"none"}}>⌕</span>
-            <input placeholder="Search name, role, phone…" value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px"}}/>
+            <input placeholder={tagSel?`Search in ${tagLabel}…`:"Search all contacts…"} value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px"}}/>
           </div>
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
+          {tagSel&&(
+            <button onClick={()=>{setTagSel(null);setSearch("");}} style={{display:"flex",alignItems:"center",gap:6,width:"100%",padding:"10px 14px",background:T.goldLight+"66",border:"none",borderBottom:`1px solid ${T.border}`,color:T.blue,fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+              ‹ All tags <span style={{color:"#8a6d1f"}}>· {tagSel==="__none"?"📁":tagEmoji(tagLabel)} {tagLabel} ({list.length})</span>
+            </button>
+          )}
+          {!tagSel&&!q?(
+            <>
+              {tagFolders.length===0&&noTagN===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No contacts yet. Add one, or import a .vcf.</div>}
+              {tagFolders.map(f=>(
+                <div key={f.key} onClick={()=>{setTagSel(f.key);setSelId(null);}} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`}}>
+                  <span style={{width:36,height:36,borderRadius:11,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0}}>{tagEmoji(f.label)}</span>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontSize:13.5,fontWeight:800,color:T.text}}>{f.label}</div>
+                    <div style={{fontSize:11,color:T.textSub}}>{f.n} {f.n===1?"person":"people"}</div>
+                  </div>
+                  <span style={{fontSize:15,color:T.textTert}}>›</span>
+                </div>
+              ))}
+              {noTagN>0&&(
+                <div onClick={()=>{setTagSel("__none");setSelId(null);}} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`}}>
+                  <span style={{width:36,height:36,borderRadius:11,background:"#F1F1F4",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0}}>📁</span>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontSize:13.5,fontWeight:800,color:T.text}}>No tag</div>
+                    <div style={{fontSize:11,color:T.textSub}}>{noTagN} {noTagN===1?"person":"people"}</div>
+                  </div>
+                  <span style={{fontSize:15,color:T.textTert}}>›</span>
+                </div>
+              )}
+            </>
+          ):(<>
           {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{contacts.length===0?"No contacts yet. Add one, or import a .vcf.":"No matches."}</div>}
           {list.map(c=>{
             const active=c.id===selId;
@@ -9675,6 +9715,7 @@ function ContactsPage(){
               </div>
             );
           })}
+          </>)}
         </div>
       </div>
       <div style={{flex:1,display:isMobile&&!showDetail?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
@@ -10875,7 +10916,12 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
   const propTasks=(property.tasks||[]).filter(t=>(t.text||"").trim());
   // When not replying, route a new message to the general thread or the chosen task.
   const handleSend=async(text,attachment,mentions)=>{await onSend(text,reply,attachment,mentions,reply?null:(target?target.id:null));setReply(null);};
-  const threads=buildMessageThreads(messages);
+  // 🔍 Search this conversation — filters the thread boxes down to messages
+  // containing the words (author and task titles count too).
+  const[findQ,setFindQ]=useState(null); // null = closed
+  const findQl=(findQ||"").trim().toLowerCase();
+  const visMessages=findQl?messages.filter(m=>[m.text,m.taskText,m.author,m.by].filter(Boolean).join(" ").toLowerCase().includes(findQl)):messages;
+  const threads=buildMessageThreads(visMessages);
   const allIds=messages.map(m=>m.id);
   const toggleSel=(id)=>setSelIds(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});
   const exitSelect=()=>{setSelMode(false);setSelIds(new Set());};
@@ -10888,9 +10934,18 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
       <div style={{padding:"12px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         {isMobile&&<button onClick={onBack} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",padding:"2px 4px",flexShrink:0}}>‹</button>}
         <div style={{minWidth:0,flex:1}}><div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>{property.status&&<span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{property.status}</span>}</div>
+        {messages.length>0&&!selMode&&<button onClick={()=>setFindQ(findQ==null?"":null)} title="Search this conversation" style={{background:findQ!=null?T.goldLight:"none",border:`1px solid ${findQ!=null?T.gold:T.border}`,borderRadius:20,color:findQ!=null?"#8a6d1f":T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 11px",flexShrink:0}}>🔍</button>}
         {mediaItems.length>0&&!selMode&&<button onClick={()=>setMediaOpen(true)} title="All photos & videos in this chat" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 12px",flexShrink:0}}>🖼 {mediaItems.length}</button>}
         {messages.length>0&&!selMode&&<button onClick={()=>setSelMode(true)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 12px",flexShrink:0}}>Select</button>}
       </div>
+      {findQ!=null&&(
+        <div style={{padding:"8px 14px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+          <span style={{fontSize:13,flexShrink:0}}>🔍</span>
+          <input autoFocus={!isMobile} value={findQ} onChange={e=>setFindQ(e.target.value)} placeholder="Search this conversation…" style={{flex:1,minWidth:0,padding:"7px 11px",borderRadius:10,border:`1px solid ${T.border}`,background:T.bg,fontSize:13,outline:"none",fontFamily:"inherit",color:T.text}}/>
+          {findQl&&<span style={{fontSize:11,color:T.textSub,fontWeight:700,flexShrink:0}}>{visMessages.length} match{visMessages.length!==1?"es":""}</span>}
+          <button onClick={()=>setFindQ(null)} style={{background:"none",border:"none",fontSize:18,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+      )}
       {mediaOpen&&<MediaGallery title={addr} items={mediaItems} canDelete={!!onDeleteMedia} onDelete={(items)=>onDeleteMedia&&onDeleteMedia(items)} onClose={()=>setMediaOpen(false)}/>}
       {selMode&&(
         <div style={{padding:"8px 14px",background:T.goldLight,borderBottom:`1px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
@@ -19114,6 +19169,89 @@ const whoSubLine=(w,pl)=>{
   const more=pl&&pl.length>1?` +${pl.length-1} more`:"";
   return [role,addr?`🏠 ${addr}${more}`:""].filter(Boolean).join(" · ");
 };
+// 🔎 Global search — one bar that finds anything: properties (portal /
+// showings / financials), contacts, and team messages. Desktop renders the
+// input in the top strip (the left menu is untouched); mobile renders a 🔍
+// that opens a sheet. Tapping a result navigates straight there.
+function GlobalSearch({isMobile,go}){
+  const {sharedProps,contacts,officeMessages}=useData();
+  const[open,setOpen]=useState(false);
+  const[q,setQ]=useState("");
+  const ql=q.trim().toLowerCase();
+  const close=()=>{setOpen(false);setQ("");};
+  const res=useMemo(()=>{
+    if(ql.length<2)return null;
+    const pMatch=(p)=>[p.address,p.city,p.state].filter(Boolean).join(" ").toLowerCase().includes(ql);
+    const props=[...(sharedProps||[]).filter(p=>!p.archived&&pMatch(p)),...(sharedProps||[]).filter(p=>p.archived&&pMatch(p))].slice(0,4);
+    const cons=(contacts||[]).filter(c=>[c.name,c.company,c.role,...(c.tags||[]),...(c.phones||[]).map(x=>x.number),c.email].filter(Boolean).join(" ").toLowerCase().includes(ql)).slice(0,4);
+    const msgs=[];
+    const pushMsg=(pid,addr,m)=>{const t=String(m.text||"");if(t&&t.toLowerCase().includes(ql))msgs.push({pid,addr,by:m.author||m.by||"",text:t,at:String(m.at||"")});};
+    (sharedProps||[]).forEach(p=>{
+      (p.messages||[]).forEach(m=>pushMsg(p.id,p.address,m));
+      (p.tasks||[]).forEach(tk=>(tk.messages||[]).forEach(m=>pushMsg(p.id,p.address,m)));
+    });
+    (officeMessages||[]).forEach(m=>pushMsg("__office__","Office Chat",m));
+    msgs.sort((a,b)=>b.at.localeCompare(a.at));
+    return {props,cons,msgs:msgs.slice(0,4)};
+  },[ql,sharedProps,contacts,officeMessages]);
+  const sec=(t)=><div key={"sec"+t} style={{padding:"8px 16px 3px",fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>{t}</div>;
+  const row=(key,icon,main,side,onClick)=>(
+    <div key={key} onClick={()=>{onClick();close();}} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 16px",borderTop:`1px solid ${T.border}55`,cursor:"pointer",fontSize:12.5,color:T.text}}>
+      <span style={{flexShrink:0}}>{icon}</span>
+      <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{main}</span>
+      <span style={{flexShrink:0,fontSize:10,color:T.textTert,fontWeight:700,whiteSpace:"nowrap"}}>{side} ›</span>
+    </div>
+  );
+  const results=res&&(
+    <div style={{maxHeight:"min(480px,62vh)",overflowY:"auto"}}>
+      {res.props.length===0&&res.cons.length===0&&res.msgs.length===0&&<div style={{padding:"18px 16px",textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing matches “{q}”.</div>}
+      {res.props.length>0&&sec("🏠 PROPERTIES")}
+      {res.props.map(p=>row("p"+p.id,"🏠",<><b>{p.address}</b>{p.status?` — ${p.status}`:""}{p.archived?" · archived":""}</>,"Property portal",()=>go.prop(p.id)))}
+      {res.props.length>0&&sec("📅 SHOWINGS")}
+      {res.props.map(p=>row("s"+p.id,"📅",<b>{p.address}</b>,"Showings",()=>go.showings(p.id)))}
+      {go.fin&&res.props.length>0&&sec("💰 FINANCIALS")}
+      {go.fin&&res.props.map(p=>row("f"+p.id,"💰",<b>{p.address}</b>,"Financial Section",()=>go.fin(p.id)))}
+      {res.cons.length>0&&sec("👥 CONTACTS")}
+      {res.cons.map(c=>row("c"+c.id,"👤",<><b>{c.name||"(no name)"}</b>{c.company?` — ${c.company}`:""}</>,"Contacts",()=>go.contact(c.name||c.company||q)))}
+      {res.msgs.length>0&&sec("💬 MESSAGES")}
+      {res.msgs.map((m,i)=>row("m"+i,"💬",<>“{m.text.slice(0,70)}{m.text.length>70?"…":""}” — {String(m.by).split(" ")[0]||"team"} · {m.addr}</>,"Chat",()=>go.chat(m.pid)))}
+    </div>
+  );
+  if(isMobile){
+    return(<>
+      <button onClick={()=>setOpen(true)} title="Search everything" aria-label="Search" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",width:28,height:28,minWidth:28,flexShrink:0,background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,padding:0,lineHeight:1,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>🔍</button>
+      {open&&(
+        <div onClick={close} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:520,backdropFilter:"blur(4px)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"max(14px,env(safe-area-inset-top)) 10px 10px",boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"100%",maxWidth:520,overflow:"hidden",boxShadow:"0 18px 54px rgba(0,0,0,0.28)",display:"flex",flexDirection:"column",maxHeight:"84vh"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 13px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+              <span style={{fontSize:14}}>🔍</span>
+              <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search properties, contacts, messages…" style={{flex:1,minWidth:0,border:"none",outline:"none",fontSize:14,fontFamily:"inherit",color:T.text,background:"transparent"}}/>
+              <button onClick={close} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+            <div style={{overflowY:"auto"}}>
+              {ql.length<2?<div style={{padding:16,fontSize:12,color:T.textTert}}>Type a couple letters — an address, a name, anything.</div>:results}
+            </div>
+          </div>
+        </div>
+      )}
+    </>);
+  }
+  return(
+    <div style={{position:"relative",flexShrink:1,minWidth:130,width:290}}>
+      <div style={{display:"flex",alignItems:"center",gap:7,border:`1.5px solid ${open&&ql?T.gold:T.border}`,borderRadius:16,padding:"5px 12px",background:"#FDFBF4"}}>
+        <span style={{fontSize:12,color:T.textTert}}>🔍</span>
+        <input value={q} onFocus={()=>setOpen(true)} onChange={e=>{setQ(e.target.value);setOpen(true);}} placeholder="Search anything…" style={{flex:1,minWidth:0,border:"none",outline:"none",fontSize:12.5,fontFamily:"inherit",color:T.text,background:"transparent"}}/>
+        {q&&<button onClick={close} style={{background:"none",border:"none",fontSize:14,color:T.textTert,cursor:"pointer",lineHeight:1,padding:0}}>×</button>}
+      </div>
+      {open&&ql.length>=2&&(<>
+        <div onClick={close} style={{position:"fixed",inset:0,zIndex:519}}/>
+        <div style={{position:"absolute",top:"calc(100% + 8px)",right:0,width:"min(480px,90vw)",background:"#fff",borderRadius:16,boxShadow:"0 18px 54px rgba(0,0,0,0.22)",zIndex:520,overflow:"hidden"}}>
+          {results}
+        </div>
+      </>)}
+    </div>
+  );
+}
 function PhonePopup({onClose}){
   const{connected,msgs}=useSmsTexting();
   const jv=useJivetelCall();
@@ -19860,8 +19998,15 @@ export function GoldstoneShell(){
             {isMobile&&<button onClick={()=>setShowNavMenu(true)} title="Menu" aria-label="Open menu" style={{width:36,height:36,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer",padding:0,flexShrink:0,backgroundColor:"#fff",backgroundImage:"url(/logo.png)",backgroundRepeat:"no-repeat",backgroundSize:"185%",backgroundPosition:"50% 27%"}}/>}
             <div style={{fontWeight:700,fontSize:17,color:T.text}}>{NAV.find(n=>n.key===active)?.label}</div>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            {!isMobile&&<div style={{fontSize:13,color:T.textSub}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>}
+          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+            <GlobalSearch isMobile={isMobile} go={{
+              prop:(id)=>{pushPage("properties");setNavPropId(id);},
+              showings:(id)=>{try{window.__showingsTarget={propId:id,tab:"buyers"};}catch{/* no window */}pushPage("showings");},
+              fin:isAdmin?()=>pushPage("financials"):null,
+              chat:(id)=>{pushPage("messages");setNavChatId(id);},
+              contact:(qq)=>{try{window.__contactsTarget={q:qq};}catch{/* no window */}pushPage("contacts");},
+            }}/>
+            {!isMobile&&<div style={{fontSize:13,color:T.textSub,whiteSpace:"nowrap"}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>}
             <PhoneTopButton/>
             <button onClick={()=>setShowAiAssistant(true)} title="Goldstone Assistant — ask AI anything" aria-label="AI assistant" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:28,minWidth:28,flexShrink:0,borderRadius:14,border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,padding:isMobile?"0 7px":"0 11px",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:4}}>✨{!isMobile&&" AI"}</button>
             {isMobile&&<div role="button" onClick={()=>setShowProfileMenu(true)} title="Profile & team" aria-label="Profile and team" style={{boxSizing:"border-box",lineHeight:1,width:28,height:28,minWidth:28,maxWidth:28,flex:"0 0 28px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff",cursor:"pointer"}}>{initials}</div>}

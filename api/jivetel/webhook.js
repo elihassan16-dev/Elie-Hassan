@@ -32,16 +32,47 @@ export default async function handler(req, res) {
   try {
     if (req.method === "GET") {
       res.setHeader("Cache-Control", "no-store, max-age=0"); // status must always be live
-      const { data } = await db().from("app_settings").select("data").eq("id", "jivetel_events").maybeSingle();
+      const client0 = db();
+      const { data } = await client0.from("app_settings").select("data").eq("id", "jivetel_events").maybeSingle();
       const ev = (data && data.data && data.data.events) || [];
       const shapes = new Set();
       ev.forEach((e) => shapeOf(e.body, "", shapes));
+      // Re-analyze the last few CAPTURED events on the fly — shape, field
+      // names, how the current parser would classify each, and whether that
+      // message id actually made it into the conversation store. Ids,
+      // directions and field NAMES only — never message content.
+      const recent = [];
+      const ids = [];
+      for (const e of ev.slice(-10)) {
+        const b = e.body && typeof e.body === "object" && !Array.isArray(e.body) ? e.body : {};
+        const env = b.data && typeof b.data === "object" && !Array.isArray(b.data) ? b.data : null;
+        const dd = (env && env.MessageID ? env : null) || (b.MessageID ? b : null) || env;
+        const media = dd ? mediaOf(dd) : [];
+        const id = dd && dd.MessageID ? String(dd.MessageID) : "";
+        if (id) ids.push(id);
+        recent.push({
+          at: e.at,
+          shape: env ? "wrapped" : b.MessageID ? "flat" : "other",
+          et: String(b.eventType || b.EventType || b.event || ""),
+          keys: Object.keys(b).slice(0, 24),
+          dkeys: env ? Object.keys(env).slice(0, 24) : undefined,
+          id,
+          dir: dd ? String(dd.MessageDirection || "") : "",
+          parse: dd && dd.MessageID && (dd.MessageBody != null || media.length) ? "message" : dd && dd.MessageID ? "receipt" : "no-message",
+        });
+      }
+      if (ids.length) {
+        const { data: rows } = await client0.from("sms_messages").select("id").in("id", ids);
+        const inStore = new Set((rows || []).map((r) => String(r.id)));
+        recent.forEach((r) => { if (r.id) r.inStore = inStore.has(r.id); });
+      }
       return res.status(200).json({
-        v: 3, // bump when the parser changes — proves which build is live
+        v: 4, // bump when the parser changes — proves which build is live
         configured: !!process.env.JIVETEL_WEBHOOK_SECRET,
         count: ev.length,
         lastAt: ev.length ? ev[ev.length - 1].at : null,
         contentTypes: [...new Set(ev.map((e) => e.ct).filter(Boolean))],
+        recent,
         // What the parser DID with the last few posts — ids/direction/decision
         // only, never message content. Reads like: stored | dup | no-message.
         lastParse: (data && data.data && data.data.lastParse) || [],

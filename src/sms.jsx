@@ -812,6 +812,25 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
     const next = new Set(sugDis); next.add(sugDisKey); setSugDis(next);
     try { localStorage.setItem("smsSugDis", JSON.stringify([...next].slice(-300))); } catch { /* private mode */ }
   };
+  // 🔍 Search this conversation — filters the visible messages, highlights
+  // the matched words in place.
+  const [findQ, setFindQ] = useState(null); // null = closed
+  const findQl = (findQ || "").trim().toLowerCase();
+  const visThread = findQl ? thread.filter((m) => String(m.text || "").toLowerCase().includes(findQl)) : thread;
+  const hiText = (text) => {
+    const s = String(text || "");
+    if (!findQl) return s;
+    const out = []; let i = 0; const low = s.toLowerCase();
+    let at = low.indexOf(findQl);
+    while (at >= 0 && out.length < 60) {
+      if (at > i) out.push(s.slice(i, at));
+      out.push(<mark key={at} style={{ background: "#FDE9A8", borderRadius: 3, padding: "0 1px" }}>{s.slice(at, at + findQl.length)}</mark>);
+      i = at + findQl.length;
+      at = low.indexOf(findQl, i);
+    }
+    if (i < s.length) out.push(s.slice(i));
+    return out;
+  };
   const scrollRef = useRef(null);
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length]);
   // Having the conversation open means you've read it — clears the red
@@ -848,9 +867,17 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
             {shownSub && <div style={{ fontSize: 11, fontWeight: 700, color: "#8a6d1f", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>{shownSub}</div>}
             <div style={{ fontSize: 11, color: T.textSub }}>{phone} · from your business line {from}</div>
           </div>
+          <button onClick={() => setFindQ(findQ == null ? "" : null)} title="Search this conversation" style={{ width: 31, height: 31, minWidth: 31, borderRadius: "50%", border: `1px solid ${findQ != null ? "#C9A227" : T.border}`, background: findQ != null ? "#FBF3DD" : "#fff", color: findQ != null ? "#8a6d1f" : T.textSub, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, cursor: "pointer", flexShrink: 0, lineHeight: 1, boxSizing: "border-box", fontFamily: "inherit", padding: 0 }}>🔍</button>
           <CallA phone={phone} title="Call them" style={{ width: 31, height: 31, minWidth: 31, borderRadius: "50%", border: "none", background: "#0F9D58", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13.5, textDecoration: "none", flexShrink: 0, lineHeight: 1, boxSizing: "border-box" }}>📞</CallA>
           {onClose && <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>}
         </div>
+        {findQ != null && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: inline ? "7px 14px" : "8px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: "#fff" }}>
+            <input autoFocus value={findQ} onChange={(e) => setFindQ(e.target.value)} placeholder="Search this conversation…" style={{ flex: 1, minWidth: 0, padding: "7px 11px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, fontSize: 13, outline: "none", fontFamily: "inherit", color: T.text }} />
+            {findQl && <span style={{ fontSize: 11, color: T.textSub, fontWeight: 700, flexShrink: 0 }}>{visThread.length} match{visThread.length !== 1 ? "es" : ""}</span>}
+            <button onClick={() => setFindQ(null)} style={{ background: "none", border: "none", fontSize: 18, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+          </div>
+        )}
         {propK && (
           <div style={{ display: "flex", gap: 7, padding: inline ? "7px 14px" : "8px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: "#fff", flexWrap: "wrap" }}>
             {[["prop", `🏠 ${prop}`], ["all", `All messages (${fullThread.length})`]].map(([v, l]) => (
@@ -914,7 +941,7 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
             // true time order between the texts and calls.
             const ts = (x) => { const t = new Date(x).getTime(); return isNaN(t) ? 0 : t; };
             let items = [
-              ...thread.map((m) => ({ k: "m", t: ts(m.at), m })),
+              ...visThread.map((m) => ({ k: "m", t: ts(m.at), m })),
               ...(events || []).map((e, i) => ({ k: "e", t: ts(e.at), e, i })),
             ].sort((a, b) => a.t - b.t);
             // Full-chain view with a property context: quiet dividers wherever
@@ -973,7 +1000,7 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
                             </a>)}
                       </div>
                     )}
-                    {m.text ? linkifyText(m.text, mine) : null}
+                    {m.text ? (findQl ? hiText(m.text) : linkifyText(m.text, mine)) : null}
                   </div>
                   <div style={{ fontSize: 9.5, color: T.textTert, marginTop: 2, textAlign: mine ? "right" : "left" }}>
                     {mine ? `${(m.by || "").split(" ")[0] || "You"} · ` : ""}{fmt(m.at)}{mine ? (m.status === "delivered" ? " · ✓✓" : m.status === "failed" ? " · ⚠️ not delivered" : " · ✓") : ""}

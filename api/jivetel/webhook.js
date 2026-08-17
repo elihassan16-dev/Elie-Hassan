@@ -36,10 +36,14 @@ export default async function handler(req, res) {
       const shapes = new Set();
       ev.forEach((e) => shapeOf(e.body, "", shapes));
       return res.status(200).json({
+        v: 2, // bump when the parser changes — proves which build is live
         configured: !!process.env.JIVETEL_WEBHOOK_SECRET,
         count: ev.length,
         lastAt: ev.length ? ev[ev.length - 1].at : null,
         contentTypes: [...new Set(ev.map((e) => e.ct).filter(Boolean))],
+        // What the parser DID with the last few posts — ids/direction/decision
+        // only, never message content. Reads like: stored | dup | no-message.
+        lastParse: (data && data.data && data.data.lastParse) || [],
         shapes: [...shapes].sort(),
       });
     }
@@ -61,6 +65,8 @@ export default async function handler(req, res) {
     const body = req.body && typeof req.body === "object" ? req.body : {};
     const d = body.data || (body.MessageID ? body : null);
     const media = d ? mediaOf(d) : [];
+    // Parse trail for the GET status view — decision + ids only, no content.
+    const trace = { at: new Date().toISOString(), shape: body.data ? "wrapped" : body.MessageID ? "flat" : "other", id: d && d.MessageID ? String(d.MessageID) : "", dir: "", decision: "no-message" };
     // Which teammate owns a line (their number in JIVETEL_NUMBERS) — labels
     // app-typed outgoing texts with the sender, keys inbound pings.
     const lineOwner = (num) => {
@@ -87,6 +93,8 @@ export default async function handler(req, res) {
         convId: String(d.ConversationID || ""),
         userId: String(d.TextableUserID || ""),
       };
+      trace.dir = dir;
+      trace.decision = "dup-relay-log";
       const mrow = (await client.from("app_settings").select("data").eq("id", "jivetel_msgs").maybeSingle()).data;
       const msgs = ((mrow && mrow.data && mrow.data.msgs) || []);
       if (!msgs.some((m) => m.id === msg.id)) {
@@ -98,6 +106,7 @@ export default async function handler(req, res) {
         // its record is richer (author, property tag, sent status) and a
         // relayed echo must not overwrite it.
         const { data: exist } = await client.from("sms_messages").select("id").eq("id", msg.id).maybeSingle();
+        trace.decision = exist ? "dup-send-log" : "stored";
         if (!exist) await storeSms({
           id: msg.id,
           phone: e164(dir === "in" ? msg.from : msg.to),
@@ -140,6 +149,7 @@ export default async function handler(req, res) {
     else if (d && d.MessageID && d.MessageBody == null) {
       const st = String(d.MessageStatus || d.Status || d.DeliveryStatus || d.MessageDeliveryStatus || d.status || "").toLowerCase();
       const mapped = /deliver/.test(st) ? "delivered" : /fail|undeliver|reject|error/.test(st) ? "failed" : "";
+      trace.decision = mapped ? "receipt-" + mapped : "receipt-ignored";
       if (mapped) {
         const { data: row } = await client.from("sms_messages").select("data").eq("id", String(d.MessageID)).maybeSingle();
         if (row && row.data && row.data.status !== mapped) {
@@ -147,6 +157,11 @@ export default async function handler(req, res) {
         }
       }
     }
+    // Persist the parse trail (last 10) next to the raw capture.
+    try {
+      const prev = ((row && row.data && row.data.lastParse) || []).slice(-9);
+      await client.from("app_settings").upsert({ id: "jivetel_events", data: { events: ev, lastParse: [...prev, trace] }, updated_at: new Date().toISOString() });
+    } catch { /* diagnostics only */ }
     return res.status(200).json({ ok: true });
   } catch (e) {
     // Always 200 on our own hiccups so Jivetel doesn't disable the relay.

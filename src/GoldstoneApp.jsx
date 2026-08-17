@@ -17003,8 +17003,17 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           if(bl){const c=by[digits(bl.phone)];if(c)c.statuses.push({lead,addr:p.address,at:(lg&&lg.at)||bl.createdAt||"",by:(lg&&lg.by)||""});}
           return;
         }
-        const sn=snaps[k];if(!sn)return;
-        parseShowingPhones(sn.phone||"").forEach(ph=>{const c=by[digits(ph)];if(c)c.statuses.push({lead,addr:p.address,at:(lg&&lg.at)||sn.start||"",by:(lg&&lg.by)||""});});
+        const sn=snaps[k];
+        // Read every number the status writer can write to: the snapshot's own
+        // phone AND any hand-attached ＋ Add numbers — otherwise someone marked
+        // "Not interested" from their text thread kept showing on this list.
+        const phones=[...(sn?parseShowingPhones(sn.phone||""):[]),...((p.showingPhones||{})[k]||[])];
+        phones.forEach(ph=>{const c=by[digits(ph)];if(c)c.statuses.push({lead,addr:p.address,at:(lg&&lg.at)||(sn&&sn.start)||"",by:(lg&&lg.by)||""});});
+      });
+      // Custom leads (added by hand on a property) carry statuses too.
+      (p.customLeads||[]).forEach(l=>{
+        if(!l||!l.lead)return;
+        String(l.phone||"").split(/[\/,;]| or /i).forEach(ph=>{const c=by[digits(ph)];if(c)c.statuses.push({lead:l.lead,addr:p.address,at:l.at||"",by:""});});
       });
     });
     return Object.values(by).map(c=>{

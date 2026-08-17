@@ -63,10 +63,23 @@ export default async function handler(req, res) {
     // SMS app), which Jivetel sends FLAT: the same fields at the top level,
     // no data envelope and no timestamp.
     const body = req.body && typeof req.body === "object" ? req.body : {};
-    const d = body.data || (body.MessageID ? body : null);
+    // data can arrive as an envelope object — or as something else entirely
+    // (string, array) on other event kinds; only an object envelope counts.
+    const env = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : null;
+    const d = (env && env.MessageID ? env : null) || (body.MessageID ? body : null) || env;
     const media = d ? mediaOf(d) : [];
-    // Parse trail for the GET status view — decision + ids only, no content.
-    const trace = { at: new Date().toISOString(), shape: body.data ? "wrapped" : body.MessageID ? "flat" : "other", id: d && d.MessageID ? String(d.MessageID) : "", dir: "", decision: "no-message" };
+    // Parse trail for the GET status view — decision, ids and FIELD NAMES
+    // only (never values/content), so unknown shapes can be mapped from it.
+    const trace = {
+      at: new Date().toISOString(),
+      shape: env ? "wrapped" : body.MessageID ? "flat" : "other",
+      et: String(body.eventType || body.EventType || body.event || ""),
+      keys: Object.keys(body).slice(0, 24),
+      dkeys: env ? Object.keys(env).slice(0, 24) : (body.data != null ? "data:" + (Array.isArray(body.data) ? "array" : typeof body.data) : ""),
+      id: d && d.MessageID ? String(d.MessageID) : "",
+      dir: "",
+      decision: "no-message",
+    };
     // Which teammate owns a line (their number in JIVETEL_NUMBERS) — labels
     // app-typed outgoing texts with the sender, keys inbound pings.
     const lineOwner = (num) => {

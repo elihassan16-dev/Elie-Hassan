@@ -10167,27 +10167,178 @@ function PropertyFilesPanel(){
     </div>
   );
 }
-function SettingsModal({archived,onRestore,onDelete,onClose}){
-  const[section,setSection]=useState("archived");
-  const fmtAddr=(p)=>`${p.address}${p.city?`, ${p.city}`:""}${p.state?`, ${p.state}`:""}${p.zip?` ${p.zip}`:""}`;
-  const tab=(k,l)=>(
-    <button key={k} onClick={()=>setSection(k)} style={{padding:"8px 14px",borderRadius:20,border:`1.5px solid ${section===k?T.gold:T.border}`,background:section===k?T.goldLight:"transparent",color:section===k?T.gold:T.textSub,fontWeight:section===k?700:500,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
-  );
+// ─── ⚙️ Feature switches ──────────────────────────────────────────────────────
+// Every automation/alert the app runs on its own, with an instant off-switch
+// (admin-only). Stored in the shared app_settings row id "features" as
+// {flags:{key:false…}, who:{key:"Name"…}} — absent key = ON with the default
+// assignee. featSync mirrors the row into a module variable each shell render
+// so gates anywhere (hooks, server-ish helpers, render sites) read the latest
+// without prop-drilling.
+const FEATURES=[
+  {key:"inspFollowup",icon:"🔍",name:"Inspection follow-up task",sub:"2 days after an inspection on the calendar → one open task on the property",sec:"auto",who:"Moshe"},
+  {key:"locReconcile",icon:"🏦",name:"“Reconcile line of credit” task on new funding",sub:"Every new private-lender funding creates a reconcile task with the loan details",sec:"auto",who:"Esti"},
+  {key:"backOnMarket",icon:"🔁",name:"Back-on-market clean-up",sub:"A deal falls through → scheduled closing / inspection / commitment dates are wiped",sec:"auto"},
+  {key:"emailAutoPin",icon:"📌",name:"Auto-pin emails to properties",sub:"Emails naming an address (or from a linked contact) pin themselves to the property",sec:"email"},
+  {key:"emailAiTags",icon:"🏷",name:"AI email tags & company grouping",sub:"Reads subject + preview once → category, description, one row per company",sec:"email"},
+  {key:"replySug",icon:"🤖",name:"Reply status suggestions",sub:"A suggestion chip when an agent's reply sounds like a status (interested, offer…)",sec:"crm"},
+  {key:"callTimeBanner",icon:"⏰",name:"“Call me at 10” reminder banner",sub:"Detects a time in their text → one-tap follow-up reminder",sec:"crm"},
+  {key:"showingAlert",icon:"👁",name:"New showing booked",sub:"Ping when ShowingTime adds a showing / inspection / appraisal",sec:"alerts"},
+  {key:"fupReminders",icon:"📅",name:"Follow-up call reminders",sub:"Morning-of (or timed) ping for scheduled call-backs",sec:"alerts"},
+  {key:"callAlerts",icon:"📞",name:"Incoming & missed-call alerts",sub:"Rings / missed on a line → that person's phone",sec:"alerts"},
+  {key:"textAlert",icon:"💬",name:"New text alert",sub:"An incoming SMS pings the line's owner",sec:"alerts"},
+];
+let __feat={flags:{},who:{}};
+const featSync=(appSettings)=>{const r=(appSettings||[]).find(x=>x.id==="features");__feat={flags:(r&&r.flags)||{},who:(r&&r.who)||{}};};
+const featOn=(key)=>__feat.flags[key]!==false;
+const featWho=(key,fallback)=>__feat.who[key]||fallback;
+function FeatSwitch({on,onTap,disabled}){
   return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(640px,96vw)",maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
-        <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{fontSize:17,fontWeight:700,color:T.text}}>Settings</div>
-          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+    <button onClick={disabled?undefined:onTap} title={disabled?"Only an admin can change this":undefined} style={{width:42,height:25,borderRadius:13,border:"none",background:on?"#34C759":"#D6D6DC",position:"relative",cursor:disabled?"default":"pointer",flexShrink:0,opacity:disabled?0.55:1,padding:0}}>
+      <span style={{position:"absolute",top:2,left:on?19:2,width:21,height:21,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,0.25)",transition:"left 0.15s"}}/>
+    </button>
+  );
+}
+function SettingsModal({archived,onRestore,onDelete,onClose,team,setUserMuted,setUserSms,setUserChannels,displayName,teamMembers,onEditName,onEditEmail}){
+  const[section,setSection]=useState("features");
+  const {isAdmin}=useAuth();
+  const {appSettings,setAppSettings}=useData()||{};
+  const fmtAddr=(p)=>`${p.address}${p.city?`, ${p.city}`:""}${p.state?`, ${p.state}`:""}${p.zip?` ${p.zip}`:""}`;
+  const narrow=typeof window!=="undefined"&&window.innerWidth<700;
+  // Flip a feature flag / its assignee — writes the shared "features" row so
+  // every device picks it up. Admin-only; featSync refreshes on the re-render.
+  const saveFeat=(next)=>{if(!isAdmin)return;setAppSettings([...(appSettings||[]).filter(x=>x.id!=="features"),{id:"features",...next}]);};
+  const setFlag=(k,v)=>saveFeat({flags:{...__feat.flags,[k]:v},who:{...__feat.who}});
+  const cycleWho=(k,fallback)=>{
+    const list=(teamMembers||[]).filter(Boolean);
+    if(!list.length)return;
+    const cur=featWho(k,fallback);
+    const at=list.findIndex(n=>sameFirstName(n,cur));
+    saveFeat({flags:{...__feat.flags},who:{...__feat.who,[k]:list[(at+1)%list.length]}});
+  };
+  const featRowUi=(f)=>(
+    <div key={f.key} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:`1px solid ${T.border}55`}}>
+      <span style={{width:32,height:32,borderRadius:9,background:"#F4F1E8",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{f.icon}</span>
+      <span style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:12.5,fontWeight:700,color:T.text}}>{f.name}</div>
+        <div style={{fontSize:10.5,color:T.textSub,marginTop:1,lineHeight:1.4}}>{f.sub}</div>
+      </span>
+      {f.who&&featOn(f.key)&&(
+        <button onClick={()=>cycleWho(f.key,f.who)} title="Who this lands on — tap to change" style={{fontSize:9.5,fontWeight:800,borderRadius:9,padding:"4px 9px",border:`1px solid ${T.gold}66`,background:T.goldLight,color:"#8a6d1f",cursor:isAdmin?"pointer":"default",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap"}}>→ {String(featWho(f.key,f.who)).split(" ")[0]}</button>
+      )}
+      <FeatSwitch on={featOn(f.key)} disabled={!isAdmin} onTap={()=>setFlag(f.key,!featOn(f.key))}/>
+    </div>
+  );
+  const secHd=(txt)=><div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.06em",color:"#8a6d1f",margin:"14px 0 2px"}}>{txt}</div>;
+  // Per-person notification manager (mute + push/email/text + cell number).
+  const chanOn=(u,k)=>{const c=u.notify_channels;return !c||c[k]!==false;};
+  const[smsFor,setSmsFor]=useState(null);
+  const[smsPhone,setSmsPhone]=useState("");
+  const[smsCarrier,setSmsCarrier]=useState(SMS_GATEWAYS[0][0]);
+  const personRow=(u)=>{
+    const nm=u.name||u.email;
+    const muted=!!u.notify_muted;
+    const toggleChan=(k)=>{
+      const next={push:chanOn(u,"push"),email:chanOn(u,"email"),sms:chanOn(u,"sms")};
+      next[k]=!next[k];
+      setUserChannels&&setUserChannels(u.id,(next.push&&next.email&&next.sms)?null:next);
+    };
+    const chanChip=(k,label)=>{const on=chanOn(u,k);return(
+      <button key={k} onClick={()=>toggleChan(k)} style={{padding:"4px 9px",borderRadius:10,border:`1px solid ${on?"#b7ebc7":T.border}`,background:on?"#EDFBF1":T.bg,color:on?"#15803D":T.textTert,fontSize:9.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",textDecoration:on?"none":"line-through"}}>{label}</button>
+    );};
+    return(
+      <div key={u.id} style={{borderBottom:`1px solid ${T.border}55`,padding:"10px 0"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{width:34,height:34,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:11.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initialsOf(nm)||"?"}</span>
+          <span style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nm}{u.role?<span style={{color:T.textTert,fontWeight:500}}> · {u.role}</span>:null}</div>
+            <div style={{fontSize:10,color:T.textTert,marginTop:1}}>{muted?"Muted — gets nothing":(u.sms_email||"").includes("@")?`Texts go to ${String(u.sms_email).split("@")[0]}`:"No cell on file for texts"}</div>
+          </span>
+          {!muted&&<span style={{display:"flex",gap:4,flexShrink:0}}>{chanChip("push","📱 Push")}{chanChip("email","✉️ Email")}{chanChip("sms","💬 Text")}</span>}
+          <FeatSwitch on={!muted} onTap={()=>setUserMuted&&setUserMuted(u.id,!muted)}/>
         </div>
-        <div style={{padding:"12px 20px 0",display:"flex",gap:8,flexWrap:"wrap"}}>
-          {tab("archived","Archived Properties")}
-          {tab("automations","Automations")}
-          {tab("gates","Status Requirements")}
-          {tab("files","Property Files")}
+        <div style={{marginTop:6,marginLeft:44}}>
+          {smsFor===u.id?(
+            <span style={{display:"inline-flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+              <input value={smsPhone} onChange={e=>setSmsPhone(e.target.value)} placeholder="10-digit cell" inputMode="numeric" style={{width:120,padding:"6px 9px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",outline:"none"}}/>
+              <select value={smsCarrier} onChange={e=>setSmsCarrier(e.target.value)} style={{padding:"6px 8px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit"}}>{SMS_GATEWAYS.map(([d,n])=><option key={d} value={d}>{n}</option>)}</select>
+              <button onClick={async()=>{const digits=smsPhone.replace(/\D/g,"").replace(/^1(?=\d{10}$)/,"");if(digits.length!==10){alert("Enter a 10-digit US cell number.");return;}await setUserSms(u.id,`${digits}@${smsCarrier}`);setSmsFor(null);}} style={{padding:"6px 12px",borderRadius:9,border:"none",background:T.gold,color:"#fff",fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+              <button onClick={()=>setSmsFor(null)} style={{padding:"6px 10px",borderRadius:9,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+            </span>
+          ):(
+            <button onClick={()=>{const[num,dom]=String(u.sms_email||"").split("@");setSmsPhone(num||"");setSmsCarrier(dom&&SMS_GATEWAYS.some(([d])=>d===dom)?dom:SMS_GATEWAYS[0][0]);setSmsFor(u.id);}} style={{background:"none",border:"none",color:T.blue,fontSize:10.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:0}}>{(u.sms_email||"").includes("@")?"✎ Change text number":"＋ Add cell for texts"}</button>
+          )}
         </div>
-        <div style={{overflowY:"auto",padding:"16px 20px"}}>
-          {section==="archived"?(
+      </div>
+    );
+  };
+  const NAV=[
+    ["account","👤 My account"],
+    ...(isAdmin?[["notif","🔔 Notifications"]]:[]),
+    ["features","🤖 Automations & AI"],
+    ["alerts","📅 Alerts"],
+    ["contractors","👷 Contractors"],
+    ["archived","🗄 Archived"],
+    ["gates","✅ Status requirements"],
+    ["files","📁 Property files"],
+    ["builder","🧾 Task automations"],
+  ];
+  const me=(team||[]).find(u=>(u.name||u.email)===displayName)||null;
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:narrow?8:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(860px,96vw)",height:"min(640px,90vh)",overflow:"hidden",display:"flex",flexDirection:narrow?"column":"row",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+        <div style={narrow?{display:"flex",gap:6,overflowX:"auto",padding:"12px 12px 8px",borderBottom:`1px solid ${T.border}`,flexShrink:0,WebkitOverflowScrolling:"touch"}:{width:210,background:"#F8F8FA",borderRight:`1px solid ${T.border}`,padding:"14px 0",flexShrink:0,overflowY:"auto"}}>
+          {!narrow&&<div style={{padding:"2px 18px 12px",fontSize:16,fontWeight:800,color:T.text,display:"flex",alignItems:"center",justifyContent:"space-between"}}>⚙️ Settings</div>}
+          {NAV.map(([k,l])=>(
+            <button key={k} onClick={()=>setSection(k)} style={narrow
+              ?{flexShrink:0,padding:"7px 12px",borderRadius:14,border:section===k?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:section===k?T.goldLight:"#fff",color:section===k?"#8a6d1f":T.textSub,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}
+              :{display:"block",width:"100%",textAlign:"left",padding:"10px 18px",border:"none",background:section===k?T.goldLight:"none",color:section===k?"#8a6d1f":T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",borderRight:section===k?`3px solid ${T.gold}`:"3px solid transparent"}}>{l}</button>
+          ))}
+        </div>
+        <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{padding:"13px 20px 10px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <b style={{fontSize:14.5,color:T.text,flex:1}}>{(NAV.find(([k])=>k===section)||[])[1]||"Settings"}</b>
+            {!isAdmin&&(section==="features"||section==="alerts")&&<span style={{fontSize:10,color:T.textTert,fontWeight:700}}>view only — admin controls</span>}
+            <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+          </div>
+          <div style={{overflowY:"auto",padding:"6px 20px 20px",flex:1}}>
+          {section==="account"?(
+            <>
+              {secHd("THIS DEVICE")}
+              <NotificationToggle displayName={displayName} isAdmin={isAdmin}/>
+              {me&&<>{secHd("MY NOTIFICATIONS")}{personRow(me)}</>}
+              {secHd("MY PROFILE")}
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
+                {onEditName&&<button onClick={onEditName} style={{padding:"9px 14px",borderRadius:11,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✎ Change my name</button>}
+                {onEditEmail&&<button onClick={onEditEmail} style={{padding:"9px 14px",borderRadius:11,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✉️ Change login email</button>}
+              </div>
+            </>
+          ):section==="notif"?(
+            <>
+              <div style={{fontSize:11.5,color:T.textSub,margin:"10px 0 2px",lineHeight:1.5}}>Who gets pinged, and how. The switch mutes a person entirely (vacation mode); the chips flip individual channels.</div>
+              {(team&&team.length?team:[]).map(personRow)}
+              {(!team||!team.length)&&<div style={{padding:"18px 0",fontSize:12.5,color:T.textTert}}>Loading the team…</div>}
+            </>
+          ):section==="features"?(
+            <>
+              {secHd("AUTOMATIC TASKS")}
+              {FEATURES.filter(f=>f.sec==="auto").map(featRowUi)}
+              {secHd("EMAIL")}
+              {FEATURES.filter(f=>f.sec==="email").map(featRowUi)}
+              {secHd("TEXTING CRM")}
+              {FEATURES.filter(f=>f.sec==="crm").map(featRowUi)}
+            </>
+          ):section==="alerts"?(
+            <>
+              <div style={{fontSize:11.5,color:T.textSub,margin:"10px 0 2px",lineHeight:1.5}}>The watchers that ping phones. Flip one off and it stops instantly, for everyone. Per-person muting lives under 🔔 Notifications.</div>
+              {FEATURES.filter(f=>f.sec==="alerts").map(featRowUi)}
+            </>
+          ):section==="contractors"?(
+            <div style={{fontSize:12.5,color:T.textSub,lineHeight:1.7,padding:"12px 0"}}>
+              <b style={{color:T.text}}>👷 Contractor accounts are walled off by design.</b><br/>
+              Contractors sign into their own portal and only ever see the jobs, tasks, photos and documents you share with them — never leads, texting, financials, or team chat. That wall isn't a setting; it can't be switched off by accident.<br/><br/>
+              Companies and logins are managed on the <b>Contractors</b> page (add a company, invite logins, archive when a job ends).
+            </div>
+          ):section==="archived"?(
             <>
               <div style={{fontSize:12,color:T.textSub,marginBottom:14}}>Archived properties are hidden from your lists and are permanently deleted 60 days after archiving. Restore one to bring it back, or delete it now.</div>
               {archived.length===0
@@ -10209,6 +10360,7 @@ function SettingsModal({archived,onRestore,onDelete,onClose}){
                   })}
             </>
           ):section==="files"?<PropertyFilesPanel/>:section==="gates"?<StatusGatesPanel/>:<AutomationsPanel/>}
+          </div>
         </div>
       </div>
     </div>
@@ -17226,7 +17378,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                   <span style={{display:"block",fontSize:10.5,color:T.textSub,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.addrs.slice(0,2).join(" · ")||fmtPh(c.phone)}{c.shows.length>1?` — ${c.shows.length} showings`:""}</span>
                 </span>
                 <span style={{flexShrink:0,display:"flex",alignItems:"center",gap:4}}>
-                  {c.sug&&<span title={`🤖 Their reply suggests: ${(SHOWING_LEADS.find(x=>x.key===c.sug.key)||{}).short||c.sug.key}`} style={{fontSize:11}}>🤖</span>}
+                  {featOn("replySug")&&c.sug&&<span title={`🤖 Their reply suggests: ${(SHOWING_LEADS.find(x=>x.key===c.sug.key)||{}).short||c.sug.key}`} style={{fontSize:11}}>🤖</span>}
                   {(()=>{
                     // A set lead status shows right on the row (hottest one wins) —
                     // same chip the popup uses, so the list and popup always agree.
@@ -17488,8 +17640,9 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
     setDraws(prev=>prev.some(x=>x.id===d.id)?prev.map(x=>x.id===d.id?d:x):[...prev,d]);
     // 📋 Assigning a line of credit auto-creates the QuickBooks reconcile task —
     // a completely regular task (the loan details live in its tap popup).
-    if(isNew&&canEdit&&_mkTask!==false&&_mkTask!==undefined){
-      const esti=(teamMembers||[]).find(n=>/^esti/i.test(String(n).trim()))||"Estie Ungar";
+    if(isNew&&canEdit&&_mkTask!==false&&_mkTask!==undefined&&featOn("locReconcile")){
+      const whoName=featWho("locReconcile","Esti");
+      const esti=(teamMembers||[]).find(n=>sameFirstName(n,whoName))||(teamMembers||[]).find(n=>/^esti/i.test(String(n).trim()))||"Estie Ungar";
       const locTotal=drawBalance(d)+(draws||[]).filter(x=>!x.paybackDate&&String(x.id)!==String(d.id)&&((d.propertyId!=null&&String(x.propertyId||"")===String(d.propertyId))||sameName(x.propertyLabel,d.propertyLabel))).reduce((s,x)=>s+drawBalance(x),0);
       const task={id:Date.now()+1,text:"Reconcile line of credit",status:"Not Started",assignee:esti,delegate:"",assignedAt:Date.now(),assignedBy:currentUser||"",autoId:"loc-reconcile",
         locInfo:{funderName:d.funderName||"",amount:Number(d.amount)||0,dateFunded:d.dateFunded,ratePct:drawRatePct(d),custom:hasRate(d.rate),locTotal,drawId:d.id}};
@@ -18684,7 +18837,7 @@ function useEmailAutoPin(){
     let alive=true;
     const KEY="gs_mailSweep_"+String((mail.account&&mail.account.username)||"me").toLowerCase();
     const sweep=async()=>{
-      if(busyRef.current||document.visibilityState==="hidden")return;
+      if(busyRef.current||document.visibilityState==="hidden"||!featOn("emailAutoPin"))return;
       const {sharedProps:allProps,contacts:book,currentUser:me}=stateRef.current;
       const props=(allProps||[]).filter(p=>!p.archived);
       if(!props.length)return;
@@ -18757,7 +18910,7 @@ function useEmailAiTags(){
   const busyRef=useRef(false);
   const deadRef=useRef(false);
   useEffect(()=>{
-    if(!sharedProps||!setSharedProps||busyRef.current||deadRef.current)return;
+    if(!sharedProps||!setSharedProps||busyRef.current||deadRef.current||!featOn("emailAiTags"))return;
     const todo=[];
     sharedProps.filter(p=>!p.archived).forEach(p=>(p.pinnedEmails||[]).forEach(pe=>{if(!pe.ai||!pe.ai.party)todo.push({propId:p.id,pe});}));
     if(!todo.length)return;
@@ -19678,6 +19831,7 @@ export function GoldstoneShell(){
   // onto their properties (runs app-wide, not just on the Email page).
   useEmailAutoPin();
   useEmailAiTags();
+  featSync(appSettings); // mirror the ⚙️ feature switches for gates everywhere
 
   // ── 📖 App-wide phone directory + conversation quick-actions ───────────────
   // Registered into the sms module every render, so ANY place a number or a
@@ -19811,7 +19965,8 @@ export function GoldstoneShell(){
     setStatus:(t,key)=>setLeadStatusG(key,t),
     statusFor:leadStatusOfG,
     statusOptions:SHOWING_LEADS.map(({key,label,short,color,bg})=>({key,label,short,color,bg})),
-    suggest:(txt)=>classifySug(txt),
+    suggest:(txt)=>featOn("replySug")?classifySug(txt):null,
+    callSugOff:!featOn("callTimeBanner"),
   });
   // 🔒 Approval requests waiting on ME: someone wants to reach one of my
   // contacts. Approve unlocks that person for that contact (permanently) and
@@ -19896,7 +20051,7 @@ export function GoldstoneShell(){
   // mortgage commitment) are wiped automatically so the calendar stops nagging
   // about a contract that no longer exists.
   useEffect(()=>{
-    if(!sharedProps)return;
+    if(!sharedProps||!featOn("backOnMarket"))return;
     const DEAL_KEYS=["closingDateScheduled","inspectionDue","mortgageCommitment"];
     if(!sharedProps.some(p=>p.status==="On Market"&&DEAL_KEYS.some(k=>(p.propertyInfo||{})[k])))return;
     setSharedProps(prev=>prev.map(p=>{
@@ -19915,7 +20070,7 @@ export function GoldstoneShell(){
   // created once the previous one was completed. Only recent inspections
   // qualify — no backfill.
   useEffect(()=>{
-    if(!sharedProps||!sharedProps.length)return;
+    if(!sharedProps||!sharedProps.length||!featOn("inspFollowup"))return;
     let gone=false;
     fetchShowingsShared().then(d=>{
       if(gone||!d||!Array.isArray(d.showings))return;
@@ -19950,7 +20105,8 @@ export function GoldstoneShell(){
             .map(tk=>tk.id===keep.id?{...tk,text,autoId:key}:tk)}));
           return;
         }
-        const moshe=(teamMembers||[]).find(n=>/^moshe/i.test(String(n)))||CURRENT_USER;
+        const whoName=featWho("inspFollowup","Moshe");
+        const moshe=(teamMembers||[]).find(n=>sameFirstName(n,whoName))||(teamMembers||[]).find(n=>/^moshe/i.test(String(n)))||CURRENT_USER;
         const task={id:Date.now()+Math.floor(Math.random()*9999),text,cat:"Inspections",status:"Not Started",assignee:moshe,delegate:"",autoId:key,assignedAt:Date.now(),assignedBy:CURRENT_USER};
         setSharedProps(prev=>prev.map(pp=>pp.id===prop.id?{...pp,tasks:[...(pp.tasks||[]),task]}:pp));
       });
@@ -20219,7 +20375,9 @@ export function GoldstoneShell(){
       );})()}
       {showAiAssistant&&<GlobalAiChat onClose={()=>setShowAiAssistant(false)}/>}
       {showNavMenu&&<NavMenu items={navItems} active={active} isPinned={isPinned} onNavigate={(k)=>{pushPage(k);setShowNavMenu(false);}} onTogglePin={togglePin} onClose={()=>setShowNavMenu(false)}/>}
-      {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}/>}
+      {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}
+        team={team} setUserMuted={setUserMuted} setUserSms={setUserSms} setUserChannels={setUserChannels} displayName={displayName} teamMembers={teamMembers}
+        onEditName={()=>{setShowSettings(false);setShowProfile(true);}} onEditEmail={()=>{setShowSettings(false);setShowEmail(true);}}/>}
       {showProfileMenu&&<ProfileMenu displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted} setUserSms={setUserSms} setUserChannels={setUserChannels}
         onEditName={()=>{setShowProfileMenu(false);setShowProfile(true);}}
         onEditEmail={()=>{setShowProfileMenu(false);setShowEmail(true);}}

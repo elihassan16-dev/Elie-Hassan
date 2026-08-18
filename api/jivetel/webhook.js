@@ -107,6 +107,11 @@ export default async function handler(req, res) {
     // JIVETEL_NUMBERS); unknown line → the whole team. Shared by both the
     // id-carrying and the app-originated (no-id) message paths.
     const pingInbound = async (m) => {
+      // ⚙️ Feature switch (Settings portal): new-text alerts can be turned off.
+      try {
+        const { data: featR } = await client.from("app_settings").select("data").eq("id", "features").maybeSingle();
+        if (featR && featR.data && featR.data.flags && featR.data.flags.textAlert === false) return;
+      } catch { /* switch unreadable → alert as usual */ }
       const { notifyFanout } = await import("../../lib/notify.js");
       const preview = m.text.length > 90 ? m.text.slice(0, 90) + "…" : m.text;
       const owner = lineOwner(m.to); // bad JSON / unknown line → team-wide

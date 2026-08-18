@@ -10184,17 +10184,17 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
   const[err,setErr]=useState("");
   const[bt,setBt]=useState(null); // {running,i,total,rows:[{addr,est,actual}]}
   const{sharedProps}=useData()||{};
-  const run=async()=>{
+  const run=async(force)=>{
     if(busy)return;
     setBusy(true);setErr("");
     try{
-      const data=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(address)}`);
+      const data=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(address)}${force?"&force=1":""}`);
       if(!(data.comps||[]).length)throw new Error("RentCast found no sold comps for this address.");
       const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan,subject:data.subject,value:data.value,comps:data.comps})});
       const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
       upMany({arvAi:{at:new Date().toISOString(),plan,arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
         comps:(data.comps||[]).map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
-      setOvr({});
+      setOvr({});setPricesDirty(false);
     }catch(e){setErr(e.message||"The underwrite failed — try again.");}
     setBusy(false);
   };
@@ -10202,8 +10202,20 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
   // the AI must respect the picks and recompute the ARV around them. Uses the
   // comps already saved on the deal, so it never spends a RentCast lookup.
   const[ovr,setOvr]=useState({});
+  const[pricesDirty,setPricesDirty]=useState(false); // owner typed a sold price
   const effUsed=(c,i)=>ovr[i]!==undefined?ovr[i]:!!c.used;
-  const dirty=saved&&Object.keys(ovr).some(i=>ovr[i]!==!!((saved.comps||[])[i]||{}).used);
+  const dirty=saved&&(pricesDirty||Object.keys(ovr).some(i=>ovr[i]!==!!((saved.comps||[])[i]||{}).used));
+  // ✎ Type the sold price you see on Zillow/MLS — public deed records lag
+  // weeks behind, so the owner's number beats a "pending". Marks the comp
+  // owner-verified and the re-underwrite computes on it.
+  const editSold=(c,i)=>{
+    const raw=window.prompt(`Sold price for ${c.address} (from Zillow / the MLS):`,c.priceSrc==="sold"||c.priceSrc==="owner"?String(c.price):"");
+    if(raw==null)return;
+    const v=Math.round(parseFloat(String(raw).replace(/[^0-9.]/g,"")));
+    if(!v||v<10000){if(raw.trim())alert("Enter a full dollar amount, e.g. 580000");return;}
+    upMany({arvAi:{...saved,comps:(saved.comps||[]).map((x,j)=>j!==i?x:{...x,listPrice:x.listPrice||(x.priceSrc==="sold"||x.priceSrc==="owner"?x.listPrice:x.price),price:v,priceSrc:"owner"})}});
+    setPricesDirty(true);
+  };
   const rerun=async()=>{
     if(busy||!saved)return;
     setBusy(true);setErr("");
@@ -10215,7 +10227,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
       const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
       upMany({arvAi:{...saved,at:new Date().toISOString(),arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,
         comps:comps.map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
-      setOvr({});
+      setOvr({});setPricesDirty(false);
     }catch(e){setErr(e.message||"The re-underwrite failed — try again.");}
     setBusy(false);
   };
@@ -10254,7 +10266,8 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
           <textarea value={plan} onChange={e=>setPlan(e.target.value)} rows={2} placeholder="e.g. Full gut — new kitchen, 2 baths, flooring, roof, finish the basement"
             style={{width:"100%",boxSizing:"border-box",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",fontSize:12.5,fontFamily:"inherit",outline:"none",resize:"vertical",lineHeight:1.5,color:T.text}}/>
           <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
-            <button onClick={run} disabled={busy} style={{...chipBtn(true),opacity:busy?0.6:1}}>{busy?"⏳ Underwriting… (~20s)":"🎯 Run the underwrite"}</button>
+            <button onClick={()=>run()} disabled={busy} style={{...chipBtn(true),opacity:busy?0.6:1}}>{busy?"⏳ Underwriting… (~20s)":"🎯 Run the underwrite"}</button>
+            {saved&&<button onClick={()=>run(true)} disabled={busy} title="Re-pull everything fresh from RentCast — picks up newly recorded deeds and new sales (uses ~14 lookups)" style={chipBtn(false)}>↻ Fresh comps</button>}
             <button onClick={backtest} disabled={!!(bt&&bt.running)} style={chipBtn(false)}>🧪 Back-test on my solds</button>
           </div>
           {err&&<div style={{marginTop:8,fontSize:11.5,color:T.red,fontWeight:700}}>{err}</div>}
@@ -10281,13 +10294,14 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
                         </td>
                         {(()=>{
                           // Two price columns: what it was LISTED for, and what
-                          // the deed says it SOLD for. The AI underwrites on the
-                          // sold number whenever the record has one.
-                          const lp=c.listPrice||(c.priceSrc!=="sold"?c.price:0);
-                          const sp=c.priceSrc==="sold"?c.price:0;
+                          // it SOLD for — from the deed record, or typed in by
+                          // the owner off Zillow/MLS (✎, records lag months).
+                          const confirmed=c.priceSrc==="sold"||c.priceSrc==="owner";
+                          const lp=c.listPrice||(!confirmed?c.price:0);
+                          const sp=confirmed?c.price:0;
                           return(<>
                             <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap",color:T.textSub}}>{lp?fmtD(lp):"—"}</td>
-                            <td title={sp?"Deed-recorded closing price":"Closing price not in public records yet — the AI weighs the list price slightly upward"} style={{fontSize:11,fontWeight:800,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap",color:sp?"#0F9D58":T.textTert}}>{sp?fmtD(sp):"pending"}</td>
+                            <td onClick={()=>editSold(c,i)} title={c.priceSrc==="owner"?"Sold price you entered — tap to change":sp?"Deed-recorded closing price — tap to correct":"Public deed records lag weeks–months behind the MLS. Tap to type the sold price you see on Zillow."} style={{fontSize:11,fontWeight:800,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap",cursor:"pointer",color:sp?"#0F9D58":T.textTert}}>{sp?fmtD(sp):"pending"}{c.priceSrc==="owner"?<span style={{fontSize:8.5,fontWeight:800,color:"#7C3AED"}}> ✎you</span>:sp?null:<span style={{fontSize:9,color:T.blue,fontWeight:800}}> ✎</span>}</td>
                           </>);
                         })()}
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>{c.date||`${c.daysOld||"?"}d ago`}</td>
@@ -10312,7 +10326,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
                 {!dirty&&<button onClick={()=>upMany({salePrice:String(res.arv)})} disabled={n(f.salePrice)===res.arv} style={{...chipBtn(true),opacity:n(f.salePrice)===res.arv?0.5:1}}>
                   {n(f.salePrice)===res.arv?"✓ This is the Sale Price":`💾 Use ${fmtD(res.arv)} as Sale Price`}
                 </button>}
-                {dirty&&<span style={{fontSize:10.5,color:"#7C3AED",fontWeight:700}}>Your picks aren't in the number yet — re-underwrite to apply them.</span>}
+                {dirty&&<span style={{fontSize:10.5,color:"#7C3AED",fontWeight:700}}>Your {pricesDirty?"prices":"picks"} aren't in the number yet — re-underwrite to apply them.</span>}
               </div>
             </div>
           )}

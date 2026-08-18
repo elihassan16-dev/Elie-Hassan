@@ -65,6 +65,7 @@ export default async function handler(req, res) {
       } : null,
       comps: (Array.isArray(v.comparables) ? v.comparables : []).slice(0, 12).map((c) => ({
         address: String(c.formattedAddress || "").split(",").slice(0, 1).join(""),
+        full: String(c.formattedAddress || "").slice(0, 140),
         price: num(c.price),
         sqft: num(c.squareFootage), beds: num(c.bedrooms), baths: num(c.bathrooms),
         yearBuilt: num(c.yearBuilt),

@@ -10246,9 +10246,17 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
                 <table style={{borderCollapse:"collapse",width:"100%",minWidth:460}}>
                   <thead><tr>{["COMP","SOLD","WHEN","$/SF","DIST",""].map(h=><th key={h} style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>
                   <tbody>
-                    {(res.comps||[]).map((c,i)=>(
+                    {(res.comps||[]).map((c,i)=>{
+                      // 🔗 Comp address → its Zillow page. Older saved results
+                      // only kept the street part — borrow the subject's
+                      // city/state so Zillow still lands on the right house.
+                      const zFull=c.full||`${c.address}${String(address||"").split(",").slice(1).join(",")}`;
+                      const zUrl=`https://www.zillow.com/homes/${encodeURIComponent(zFull.replace(/,/g,""))}_rb/`;
+                      return(
                       <tr key={i} title={c.why||""} style={{opacity:c.used?1:0.55}}>
-                        <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>{c.address}</td>
+                        <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>
+                          <a href={zUrl} target="_blank" rel="noreferrer" title={`Open ${c.address} on Zillow`} style={{color:T.blue,fontWeight:700,textDecoration:"none"}}>{c.address} ↗</a>
+                        </td>
                         <td style={{fontSize:11,fontWeight:800,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{fmtD(c.price)}</td>
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>{c.date||`${c.daysOld||"?"}d ago`}</td>
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{c.sqft>0?`$${Math.round(c.price/c.sqft)}`:"—"}</td>
@@ -10257,7 +10265,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
                           ?<span style={{fontSize:8.5,fontWeight:800,background:"#EDFBF1",color:"#0F9D58",borderRadius:7,padding:"2px 6px",whiteSpace:"nowrap"}}>USED</span>
                           :<span style={{fontSize:8.5,fontWeight:800,background:"#F3F3F5",color:"#98A0AA",borderRadius:7,padding:"2px 6px",whiteSpace:"nowrap"}}>skipped</span>}</td>
                       </tr>
-                    ))}
+                    );})}
                   </tbody>
                 </table>
               </div>

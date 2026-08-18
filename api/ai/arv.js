@@ -35,14 +35,19 @@ export default async function handler(req, res) {
   const user = await requireAppUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
 
-  const { address, plan, subject, value, comps } = await readBody(req);
+  const { address, plan, subject, value, comps, mustUse, mustSkip } = await readBody(req);
   const list = (Array.isArray(comps) ? comps : []).slice(0, 12);
   if (!address || !list.length) { res.status(400).json({ error: "Need an address and at least one comp." }); return; }
 
+  // Owner overrides: comps the owner insists on using / excluding (by index).
+  // These are ORDERS — the model recomputes the ARV around the owner's set.
+  const ints = (a) => (Array.isArray(a) ? a : []).filter((x) => Number.isInteger(x) && x >= 0 && x < list.length).slice(0, 12);
+  const forceUse = ints(mustUse), forceSkip = ints(mustSkip);
   const payload = {
     subject: { address: String(address).slice(0, 120), ...(subject || {}) },
     renovationPlan: String(plan || "standard full renovation").slice(0, 600),
     automatedEstimateAsIs: value || null,
+    ...(forceUse.length || forceSkip.length ? { ownerOverrides: { mustUse: forceUse, mustSkip: forceSkip, note: "The owner has reviewed the comps. mustUse comps MUST appear in used; mustSkip comps MUST appear in skipped. Recompute the ARV around this comp set and say in the reasoning how the owner's picks moved the number." } } : {}),
     comps: list.map((c, i) => ({ i, ...c })),
   };
   try {
@@ -58,14 +63,24 @@ export default async function handler(req, res) {
     try { parsed = JSON.parse(text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "")); } catch { /* handled below */ }
     if (!parsed || !Number(parsed.arv)) { res.status(502).json({ error: "The underwriter couldn't produce a number — try again." }); return; }
     const clean = (arr) => (Array.isArray(arr) ? arr : []).filter((x) => x && Number.isInteger(x.i)).map((x) => ({ i: x.i, why: String(x.why || "").slice(0, 120) }));
+    // Enforce the owner's overrides even if the model drifted.
+    const usedArr = clean(parsed.used), skipArr = clean(parsed.skipped);
+    forceUse.forEach((i) => {
+      const at = skipArr.findIndex((x) => x.i === i); if (at >= 0) skipArr.splice(at, 1);
+      if (!usedArr.some((x) => x.i === i)) usedArr.push({ i, why: "owner's pick" });
+    });
+    forceSkip.forEach((i) => {
+      const at = usedArr.findIndex((x) => x.i === i); if (at >= 0) usedArr.splice(at, 1);
+      if (!skipArr.some((x) => x.i === i)) skipArr.push({ i, why: "excluded by owner" });
+    });
     res.status(200).json({
       arv: Math.round(Number(parsed.arv)),
       low: Math.round(Number(parsed.low) || Number(parsed.arv)),
       high: Math.round(Number(parsed.high) || Number(parsed.arv)),
       psf: Math.round(Number(parsed.psf) || 0),
       reasoning: String(parsed.reasoning || "").slice(0, 700),
-      used: clean(parsed.used),
-      skipped: clean(parsed.skipped),
+      used: usedArr,
+      skipped: skipArr,
     });
   } catch (e) {
     res.status(502).json({ error: e.message || "Underwrite failed." });

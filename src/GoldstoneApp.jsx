@@ -10192,9 +10192,31 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
       if(!(data.comps||[]).length)throw new Error("RentCast found no sold comps for this address.");
       const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan,subject:data.subject,value:data.value,comps:data.comps})});
       const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
-      upMany({arvAi:{at:new Date().toISOString(),plan,arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,
+      upMany({arvAi:{at:new Date().toISOString(),plan,arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
         comps:(data.comps||[]).map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
+      setOvr({});
     }catch(e){setErr(e.message||"The underwrite failed — try again.");}
+    setBusy(false);
+  };
+  // ✋ Owner overrides: tap a comp's badge to flip it, then re-underwrite —
+  // the AI must respect the picks and recompute the ARV around them. Uses the
+  // comps already saved on the deal, so it never spends a RentCast lookup.
+  const[ovr,setOvr]=useState({});
+  const effUsed=(c,i)=>ovr[i]!==undefined?ovr[i]:!!c.used;
+  const dirty=saved&&Object.keys(ovr).some(i=>ovr[i]!==!!((saved.comps||[])[i]||{}).used);
+  const rerun=async()=>{
+    if(busy||!saved)return;
+    setBusy(true);setErr("");
+    try{
+      const comps=(saved.comps||[]).map(({used,why,...c})=>c);
+      const mustUse=[],mustSkip=[];
+      Object.keys(ovr).forEach(k=>{const i=Number(k);(ovr[k]?mustUse:mustSkip).push(i);});
+      const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan:saved.plan||plan,subject:saved.subject||null,value:saved.asIs?{price:saved.asIs}:null,comps,mustUse,mustSkip})});
+      const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
+      upMany({arvAi:{...saved,at:new Date().toISOString(),arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,
+        comps:comps.map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
+      setOvr({});
+    }catch(e){setErr(e.message||"The re-underwrite failed — try again.");}
     setBusy(false);
   };
   const backtest=async()=>{
@@ -10253,7 +10275,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
                       const zFull=c.full||`${c.address}${String(address||"").split(",").slice(1).join(",")}`;
                       const zUrl=`https://www.zillow.com/homes/${encodeURIComponent(zFull.replace(/,/g,""))}_rb/`;
                       return(
-                      <tr key={i} title={c.why||""} style={{opacity:c.used?1:0.55}}>
+                      <tr key={i} title={c.why||""} style={{opacity:effUsed(c,i)?1:0.55}}>
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>
                           <a href={zUrl} target="_blank" rel="noreferrer" title={`Open ${c.address} on Zillow`} style={{color:T.blue,fontWeight:700,textDecoration:"none"}}>{c.address} ↗</a>
                         </td>
@@ -10261,17 +10283,27 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>{c.date||`${c.daysOld||"?"}d ago`}</td>
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{c.sqft>0?`$${Math.round(c.price/c.sqft)}`:"—"}</td>
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{c.distance} mi</td>
-                        <td style={{padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{c.used
-                          ?<span style={{fontSize:8.5,fontWeight:800,background:"#EDFBF1",color:"#0F9D58",borderRadius:7,padding:"2px 6px",whiteSpace:"nowrap"}}>USED</span>
-                          :<span style={{fontSize:8.5,fontWeight:800,background:"#F3F3F5",color:"#98A0AA",borderRadius:7,padding:"2px 6px",whiteSpace:"nowrap"}}>skipped</span>}</td>
+                        <td style={{padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>
+                          <button onClick={()=>setOvr(o=>({...o,[i]:!effUsed(c,i)}))} title={effUsed(c,i)?"Tap to EXCLUDE this comp":"Tap to USE this comp"}
+                            style={effUsed(c,i)
+                              ?{fontSize:8.5,fontWeight:800,background:"#EDFBF1",color:"#0F9D58",border:ovr[i]!==undefined?"1.5px solid #0F9D58":"1px solid #b7ebc7",borderRadius:7,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",fontFamily:"inherit"}
+                              :{fontSize:8.5,fontWeight:800,background:"#F3F3F5",color:"#98A0AA",border:ovr[i]!==undefined?"1.5px solid #98A0AA":"1px solid #E7E7EC",borderRadius:7,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",fontFamily:"inherit"}}>
+                            {effUsed(c,i)?"USED":"skipped"}{ovr[i]!==undefined?" ✋":""}
+                          </button>
+                        </td>
                       </tr>
                     );})}
                   </tbody>
                 </table>
               </div>
-              <button onClick={()=>upMany({salePrice:String(res.arv)})} disabled={n(f.salePrice)===res.arv} style={{...chipBtn(true),marginTop:10,opacity:n(f.salePrice)===res.arv?0.5:1}}>
-                {n(f.salePrice)===res.arv?"✓ This is the Sale Price":`💾 Use ${fmtD(res.arv)} as Sale Price`}
-              </button>
+              <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
+                {dirty&&<button onClick={rerun} disabled={busy} style={{...chipBtn(true),background:"#7C3AED",opacity:busy?0.6:1}}>{busy?"⏳ Re-underwriting…":"✋ Re-underwrite with my picks"}</button>}
+                {dirty&&<button onClick={()=>setOvr({})} style={chipBtn(false)}>Reset picks</button>}
+                {!dirty&&<button onClick={()=>upMany({salePrice:String(res.arv)})} disabled={n(f.salePrice)===res.arv} style={{...chipBtn(true),opacity:n(f.salePrice)===res.arv?0.5:1}}>
+                  {n(f.salePrice)===res.arv?"✓ This is the Sale Price":`💾 Use ${fmtD(res.arv)} as Sale Price`}
+                </button>}
+                {dirty&&<span style={{fontSize:10.5,color:"#7C3AED",fontWeight:700}}>Your picks aren't in the number yet — re-underwrite to apply them.</span>}
+              </div>
             </div>
           )}
           {bt&&(

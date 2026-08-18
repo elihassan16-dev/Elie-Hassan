@@ -19814,14 +19814,21 @@ export function GoldstoneShell(){
   },[sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
   // Inspection follow-ups: two days after an inspection on the ShowingTime
   // calendar, a task appears on that property assigned to Moshe (falls back to
-  // whoever's signed in if no Moshe on the team). Keyed by autoId so it's
-  // created exactly once, and only recent inspections qualify — no backfill.
+  // whoever's signed in if no Moshe on the team). ONE open follow-up per
+  // property (Elie's rule): a newer or rescheduled inspection retargets the
+  // standing open task instead of stacking another, and a fresh task is only
+  // created once the previous one was completed. Only recent inspections
+  // qualify — no backfill.
   useEffect(()=>{
     if(!sharedProps||!sharedProps.length)return;
     let gone=false;
     fetchShowingsShared().then(d=>{
       if(gone||!d||!Array.isArray(d.showings))return;
       const now=Date.now();
+      const isFup=(tk)=>String(tk.autoId||"").startsWith("insp-fup:");
+      // Newest qualifying inspection per property — that's the one the single
+      // open follow-up task should point at.
+      const newest={};
       d.showings.filter(x=>x.start).forEach(x=>{
         const iso=/[zZ]$|[+\-]\d{2}:?\d{2}$/.test(x.start)||/^\d{4}-\d{2}-\d{2}$/.test(x.start)?x.start:x.start+"Z";
         const t=new Date(iso).getTime();
@@ -19829,11 +19836,27 @@ export function GoldstoneShell(){
         const prop=sharedProps.find(pp=>!pp.archived&&showingMatchesProperty(x.location||x.summary||"",pp));
         if(!prop)return;
         if((((prop.showingKinds||{})[showingKey(x)])||x.kind||"showing")!=="inspection")return;
-        const autoKey=`insp-fup:${String(x.start).slice(0,16)}:${prop.id}`;
-        if((prop.tasks||[]).some(tk=>tk.autoId===autoKey))return;
-        const moshe=(teamMembers||[]).find(n=>/^moshe/i.test(String(n)))||CURRENT_USER;
+        const cur=newest[prop.id];
+        if(!cur||t>cur.t)newest[prop.id]={t,iso,prop,key:`insp-fup:${String(x.start).slice(0,16)}:${prop.id}`};
+      });
+      Object.values(newest).forEach(({key,iso,prop})=>{
+        const tasks=prop.tasks||[];
+        if(tasks.some(tk=>tk.autoId===key))return; // newest inspection already tracked (open or done)
         const when=(()=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}})();
-        const task={id:Date.now()+Math.floor(Math.random()*9999),text:`Follow up on the inspection at ${prop.address}${when?` (inspected ${when})`:""} — get the report / talk to the buyer's side`,cat:"Inspections",status:"Not Started",assignee:moshe,delegate:"",autoId:autoKey,assignedAt:Date.now(),assignedBy:CURRENT_USER};
+        const text=`Follow up on the inspection at ${prop.address}${when?` (inspected ${when})`:""} — get the report / talk to the buyer's side`;
+        const open=tasks.filter(tk=>isFup(tk)&&tk.status!=="Completed"&&tk.status!=="N/A");
+        if(open.length){
+          // Retarget the standing follow-up (prefer one already in progress)
+          // and absorb untouched duplicates from the old one-per-inspection
+          // rule. In-progress extras are left alone — someone's working them.
+          const keep=open.find(tk=>tk.status==="In Progress")||open[0];
+          setSharedProps(prev=>prev.map(pp=>pp.id!==prop.id?pp:{...pp,tasks:(pp.tasks||[])
+            .filter(tk=>tk.id===keep.id||!(isFup(tk)&&tk.status==="Not Started"&&tk.id!==keep.id))
+            .map(tk=>tk.id===keep.id?{...tk,text,autoId:key}:tk)}));
+          return;
+        }
+        const moshe=(teamMembers||[]).find(n=>/^moshe/i.test(String(n)))||CURRENT_USER;
+        const task={id:Date.now()+Math.floor(Math.random()*9999),text,cat:"Inspections",status:"Not Started",assignee:moshe,delegate:"",autoId:key,assignedAt:Date.now(),assignedBy:CURRENT_USER};
         setSharedProps(prev=>prev.map(pp=>pp.id===prop.id?{...pp,tasks:[...(pp.tasks||[]),task]}:pp));
       });
     }).catch(()=>{/* feed down — try next open */});

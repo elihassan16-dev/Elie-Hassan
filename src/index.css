@@ -49,3 +49,47 @@ input, select, textarea, button { font-size: 16px; }
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.35); }
   50% { box-shadow: 0 0 0 6px rgba(255, 59, 48, 0); }
 }
+
+/* ── 🫧 Liquid Glass (phase one) ──────────────────────────────────────────────
+   The lists stay flat; the glass lives in the chrome, the touch, and the
+   sheets. One structural rule glasses every popup: overlays carry an inline
+   backdrop-filter, and their white inner sheet serializes background as
+   rgb(255, 255, 255) — so we can retarget all of them without touching each. */
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  /* The dim behind every popup: darker glass, stronger blur */
+  div[style*="position: fixed"][style*="backdrop-filter"] {
+    background: rgba(28, 32, 44, 0.30) !important;
+    -webkit-backdrop-filter: blur(7px) saturate(1.15) !important;
+    backdrop-filter: blur(7px) saturate(1.15) !important;
+  }
+  /* Every white popup sheet becomes frosted glass */
+  div[style*="position: fixed"][style*="backdrop-filter"] > div[style*="rgb(255, 255, 255)"] {
+    background: rgba(255, 255, 255, 0.80) !important;
+    -webkit-backdrop-filter: blur(34px) saturate(1.8);
+    backdrop-filter: blur(34px) saturate(1.8);
+    border: 1px solid rgba(255, 255, 255, 0.92);
+  }
+  /* Mobile bottom tab bar: detached floating glass pill */
+  .gs-tabbar {
+    background: rgba(255, 255, 255, 0.62) !important;
+    -webkit-backdrop-filter: blur(26px) saturate(1.8);
+    backdrop-filter: blur(26px) saturate(1.8);
+    border: 1px solid rgba(255, 255, 255, 0.9) !important;
+    border-radius: 26px;
+    margin: 6px 10px max(8px, env(safe-area-inset-bottom));
+    padding-bottom: 6px;
+    box-shadow: 0 8px 26px rgba(35, 48, 75, 0.14);
+  }
+  /* Top strip: translucent frost (layout untouched) */
+  .gs-topbar {
+    background: rgba(255, 255, 255, 0.66) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(1.8);
+    backdrop-filter: blur(24px) saturate(1.8);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.85) !important;
+  }
+}
+/* The press: anything tappable dips into a lens while touched */
+[style*="cursor: pointer"]:active, button:active { filter: brightness(0.95) saturate(1.12); }
+@media (prefers-reduced-motion: no-preference) {
+  [style*="cursor: pointer"], button { transition: filter 0.12s ease; }
+}

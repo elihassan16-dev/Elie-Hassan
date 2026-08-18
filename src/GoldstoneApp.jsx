@@ -10193,19 +10193,21 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
       // ChatARV (MLS-fresh closed sales) is the preferred comp source when its
       // key is configured; RentCast still supplies the subject record and the
       // as-is estimate, and its deed comps carry the sheet as fallback.
-      const chatP=qbAuthFetch(`/api/chatarv/comps?address=${encodeURIComponent(address)}${force?"&force=1":""}`).catch(()=>null);
+      const chatP=qbAuthFetch(`/api/chatarv/comps?address=${encodeURIComponent(address)}${force?"&force=1":""}`).then(r=>({ok:true,r})).catch(e=>({ok:false,msg:String(e.message||"unreachable").slice(0,140)}));
       const data=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(address)}&radius=${radiusSel}&months=${monthsSel}${force?"&force=1":""}`);
       const chat=await chatP;
-      let comps=data.comps||[],provider="county records";
-      if(chat&&Array.isArray(chat.comps)&&chat.comps.length>=3){
-        const inFilter=chat.comps.filter(c=>(!c.distance||c.distance<=radiusSel+0.05)&&(!c.daysOld||c.daysOld<=monthsSel*30+15));
-        const pickFrom=inFilter.length>=3?inFilter:chat.comps;
-        comps=pickFrom.slice(0,12);provider=chat.provider||"ChatARV (MLS)";
+      let comps=data.comps||[],provider="county records",chatNote="";
+      if(chat.ok&&chat.r&&Array.isArray(chat.r.comps)&&chat.r.comps.length>=3){
+        const inFilter=chat.r.comps.filter(c=>(!c.distance||c.distance<=radiusSel+0.05)&&(!c.daysOld||c.daysOld<=monthsSel*30+15));
+        const pickFrom=inFilter.length>=3?inFilter:chat.r.comps;
+        comps=pickFrom.slice(0,12);provider=(chat.r.provider)||"ChatARV (MLS)";
+      }else{
+        chatNote=chat.ok?"ChatARV answered with too few comps — using county records":`ChatARV: ${chat.msg}`;
       }
       if(!comps.length)throw new Error(`No sold comps within ${radiusSel} mi / ${monthsSel} months — widen the filters and run again.`);
       const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan,subject:data.subject,value:data.value,comps})});
       const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
-      upMany({arvAi:{at:new Date().toISOString(),plan,provider,filters:{radius:radiusSel,months:monthsSel},arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
+      upMany({arvAi:{at:new Date().toISOString(),plan,provider,chatNote,filters:{radius:radiusSel,months:monthsSel},arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
         comps:comps.map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
       setOvr({});setPricesDirty(false);
     }catch(e){setErr(e.message||"The underwrite failed — try again.");}
@@ -10300,6 +10302,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
               <div style={{fontSize:22,fontWeight:800,color:T.text}}>{fmtD(res.arv)} <span style={{fontSize:11,color:"#8a6d1f",fontWeight:800}}>range {fmtD(res.low)} – {fmtD(res.high)}{res.psf?` · ~$${res.psf}/sf`:""}</span></div>
               <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.55,marginTop:6}}>{res.reasoning}</div>
               {res.asIs>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>Automated as-is estimate: {fmtD(res.asIs)} · comps: {res.provider||"county records"} · underwritten {new Date(res.at).toLocaleDateString()}{res.filters?` · within ${res.filters.radius} mi, sold last ${res.filters.months} mo`:""}</div>}
+              {res.chatNote&&<div style={{fontSize:10.5,color:"#B45309",fontWeight:700,marginTop:3}}>⚠ {res.chatNote}</div>}
               <div style={{overflowX:"auto",marginTop:6}}>
                 <table style={{borderCollapse:"collapse",width:"100%",minWidth:520}}>
                   <thead><tr>{["COMP","LIST","SOLD","WHEN","$/SF","DIST",""].map(h=><th key={h} style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>

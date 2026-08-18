@@ -2241,6 +2241,7 @@ function FinOverview({property,onUpdate}){
           <RowHdr label="Revenue" color={T.green} showActual={showActual}/>
           <EditGridRow label="Sale Price" pVal={n(f.salePrice)} pEdit={v=>up("salePrice",v)}
             aVal={f.actualSalePrice} aEdit={v=>up("actualSalePrice",v)} showActual={showActual} dimP={f.useActualProfit}/>
+          <ArvUnderwriter address={`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`} f={f} upMany={upMany} isMobile={isMobile}/>
 
           {/* ── Selling Costs ── */}
           <RowHdr label="Selling Costs" color={T.red} showActual={showActual}/>
@@ -6470,6 +6471,7 @@ function LeadDetail({lead,onUpdate}){
 
                 <RowHdr label="Revenue" color={T.green} showActual={false}/>
                 <EditGridRow label="Target Sale Price (ARV)" pVal={n(f.salePrice)} pEdit={v=>up("salePrice",v)} showActual={false}/>
+                <ArvUnderwriter address={full} f={f} upMany={upMany}/>
 
                 <RowHdr label="Selling Costs" color={T.red} showActual={false}/>
                 <PopupGridRow label="Commission + Transfer Tax" pVal={sellingTotal} onOpenP={()=>setShowSelling(true)} showActual={false}/>
@@ -10162,6 +10164,132 @@ function PropertyFilesPanel(){
             ))}
           </div>
           <div style={{fontSize:11,color:T.textTert,marginTop:8}}>Unmatched properties keep whatever folder you set manually. Re-scan anytime you add properties or folders.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+// ─── 🎯 AI Underwriter (Financial Overview) ───────────────────────────────────
+// Unfolds under the Sale Price (ARV) row: RentCast pulls the subject's record
+// and sold comps, Claude keeps the renovated ones and suggests an ARV with
+// reasoning. The result is stored on the deal's financials (f.arvAi) so it's
+// computed once and every device sees it; "Use as Sale Price" writes the same
+// salePrice field all the profit math already reads. Back-test runs the AVM
+// over the sold portfolio vs. the real sale prices.
+function ArvUnderwriter({address,f,upMany,isMobile}){
+  const saved=f.arvAi||null;
+  const[open,setOpen]=useState(false);
+  const[plan,setPlan]=useState((saved&&saved.plan)||"");
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
+  const[bt,setBt]=useState(null); // {running,i,total,rows:[{addr,est,actual}]}
+  const{sharedProps}=useData()||{};
+  const run=async()=>{
+    if(busy)return;
+    setBusy(true);setErr("");
+    try{
+      const data=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(address)}`);
+      if(!(data.comps||[]).length)throw new Error("RentCast found no sold comps for this address.");
+      const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan,subject:data.subject,value:data.value,comps:data.comps})});
+      const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
+      upMany({arvAi:{at:new Date().toISOString(),plan,arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,
+        comps:(data.comps||[]).map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
+    }catch(e){setErr(e.message||"The underwrite failed — try again.");}
+    setBusy(false);
+  };
+  const backtest=async()=>{
+    const solds=(sharedProps||[]).filter(p=>p.status==="Sold"&&!p.archived).map(p=>({
+      addr:`${p.address}${p.city?`, ${p.city}`:""}${p.state?`, ${p.state}`:""}${p.zip?` ${p.zip}`:""}`,
+      actual:n((p.financials||{}).actualSalePrice)||n((p.financials||{}).salePrice),
+    })).filter(x=>x.actual>0).slice(0,12);
+    if(!solds.length){setBt({rows:[],running:false,note:"No sold properties with a sale price on file."});return;}
+    setBt({running:true,i:0,total:solds.length,rows:[]});
+    const rows=[];
+    for(let i=0;i<solds.length;i++){
+      setBt({running:true,i:i+1,total:solds.length,rows:[...rows]});
+      try{
+        const d=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(solds[i].addr)}`);
+        rows.push({addr:solds[i].addr.split(",")[0],est:(d.value&&d.value.price)||0,actual:solds[i].actual});
+      }catch{rows.push({addr:solds[i].addr.split(",")[0],est:0,actual:solds[i].actual});}
+    }
+    setBt({running:false,rows,total:solds.length});
+  };
+  const chipBtn=(primary)=>({padding:"8px 13px",borderRadius:10,border:primary?"none":`1px solid ${T.border}`,background:primary?T.gold:"#fff",color:primary?"#fff":T.textSub,fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"});
+  const res=saved;
+  const btRows=(bt&&bt.rows)||[];
+  const btOk=btRows.filter(r=>r.est>0);
+  const avgMiss=btOk.length?btOk.reduce((s,r)=>s+Math.abs(r.est-r.actual)/r.actual,0)/btOk.length:0;
+  return(
+    <div style={{borderTop:`1px solid ${T.border}`,background:"#FDFBF4"}}>
+      <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,padding:isMobile?"9px 12px":"9px 18px",cursor:"pointer"}}>
+        <span style={{fontSize:12.5,fontWeight:800,color:"#8a6d1f"}}>🎯 AI underwrite the ARV</span>
+        {res&&<span style={{fontSize:10.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}66`,borderRadius:9,padding:"2px 8px"}}>{fmtD(res.arv)}</span>}
+        <span style={{marginLeft:"auto",fontSize:11,color:"#B8953F"}}>{open?"▴ close":"▾ open"}</span>
+      </div>
+      {open&&(
+        <div style={{padding:isMobile?"0 12px 14px":"0 18px 16px"}}>
+          <div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f",margin:"2px 0 5px"}}>THE PLAN FOR THIS HOUSE</div>
+          <textarea value={plan} onChange={e=>setPlan(e.target.value)} rows={2} placeholder="e.g. Full gut — new kitchen, 2 baths, flooring, roof, finish the basement"
+            style={{width:"100%",boxSizing:"border-box",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",fontSize:12.5,fontFamily:"inherit",outline:"none",resize:"vertical",lineHeight:1.5,color:T.text}}/>
+          <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+            <button onClick={run} disabled={busy} style={{...chipBtn(true),opacity:busy?0.6:1}}>{busy?"⏳ Underwriting… (~20s)":"🎯 Run the underwrite"}</button>
+            <button onClick={backtest} disabled={!!(bt&&bt.running)} style={chipBtn(false)}>🧪 Back-test on my solds</button>
+          </div>
+          {err&&<div style={{marginTop:8,fontSize:11.5,color:T.red,fontWeight:700}}>{err}</div>}
+          {res&&(
+            <div style={{marginTop:12,background:"#fff",border:`1.5px solid ${T.gold}`,borderRadius:13,padding:"12px 14px"}}>
+              <div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>SUGGESTED AFTER-REPAIR VALUE</div>
+              <div style={{fontSize:22,fontWeight:800,color:T.text}}>{fmtD(res.arv)} <span style={{fontSize:11,color:"#8a6d1f",fontWeight:800}}>range {fmtD(res.low)} – {fmtD(res.high)}{res.psf?` · ~$${res.psf}/sf`:""}</span></div>
+              <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.55,marginTop:6}}>{res.reasoning}</div>
+              {res.asIs>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>Automated as-is estimate: {fmtD(res.asIs)} · underwritten {new Date(res.at).toLocaleDateString()}</div>}
+              <div style={{overflowX:"auto",marginTop:6}}>
+                <table style={{borderCollapse:"collapse",width:"100%",minWidth:460}}>
+                  <thead><tr>{["COMP","SOLD","WHEN","$/SF","DIST",""].map(h=><th key={h} style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {(res.comps||[]).map((c,i)=>(
+                      <tr key={i} title={c.why||""} style={{opacity:c.used?1:0.55}}>
+                        <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>{c.address}</td>
+                        <td style={{fontSize:11,fontWeight:800,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{fmtD(c.price)}</td>
+                        <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>{c.date||`${c.daysOld||"?"}d ago`}</td>
+                        <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{c.sqft>0?`$${Math.round(c.price/c.sqft)}`:"—"}</td>
+                        <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{c.distance} mi</td>
+                        <td style={{padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{c.used
+                          ?<span style={{fontSize:8.5,fontWeight:800,background:"#EDFBF1",color:"#0F9D58",borderRadius:7,padding:"2px 6px",whiteSpace:"nowrap"}}>USED</span>
+                          :<span style={{fontSize:8.5,fontWeight:800,background:"#F3F3F5",color:"#98A0AA",borderRadius:7,padding:"2px 6px",whiteSpace:"nowrap"}}>skipped</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <button onClick={()=>upMany({salePrice:String(res.arv)})} disabled={n(f.salePrice)===res.arv} style={{...chipBtn(true),marginTop:10,opacity:n(f.salePrice)===res.arv?0.5:1}}>
+                {n(f.salePrice)===res.arv?"✓ This is the Sale Price":`💾 Use ${fmtD(res.arv)} as Sale Price`}
+              </button>
+            </div>
+          )}
+          {bt&&(
+            <div style={{marginTop:12,background:"#fff",border:`1px solid ${T.border}`,borderRadius:13,padding:"12px 14px"}}>
+              <div style={{fontSize:12,fontWeight:800,color:T.text}}>🧪 Back-test — estimate vs. what it really sold for</div>
+              {bt.running&&<div style={{fontSize:11.5,color:T.textSub,marginTop:6}}>Checking {bt.i} of {bt.total}…</div>}
+              {bt.note&&<div style={{fontSize:11.5,color:T.textTert,marginTop:6}}>{bt.note}</div>}
+              {btRows.length>0&&(
+                <table style={{borderCollapse:"collapse",width:"100%",marginTop:6}}>
+                  <thead><tr>{["PROPERTY","ESTIMATE","ACTUALLY SOLD","MISS"].map(h=><th key={h} style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {btRows.map((r,i)=>{const miss=r.est>0?(r.est-r.actual)/r.actual:null;return(
+                      <tr key={i}>
+                        <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>{r.addr}</td>
+                        <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{r.est>0?fmtD(r.est):"no data"}</td>
+                        <td style={{fontSize:11,fontWeight:800,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{fmtD(r.actual)}</td>
+                        <td style={{fontSize:11,fontWeight:800,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,color:miss==null?T.textTert:Math.abs(miss)<=0.05?"#0F9D58":Math.abs(miss)<=0.1?"#B45309":T.red}}>{miss==null?"—":`${miss>0?"+":""}${Math.round(miss*1000)/10}%`}</td>
+                      </tr>
+                    );})}
+                    {!bt.running&&btOk.length>0&&<tr><td colSpan={4} style={{fontSize:11,fontWeight:800,color:"#8a6d1f",padding:"7px"}}>Average miss across {btOk.length} solds: {Math.round(avgMiss*1000)/10}%</td></tr>}
+                  </tbody>
+                </table>
+              )}
+              <div style={{fontSize:10,color:T.textTert,marginTop:6,lineHeight:1.5}}>The estimate here is the automated value of each house as it sits today — for a renovated, recently sold flip that's a fair stand-in for what an ARV call would have said.</div>
+            </div>
+          )}
         </div>
       )}
     </div>

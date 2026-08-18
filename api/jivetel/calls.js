@@ -98,6 +98,11 @@ export default async function handler(req, res) {
       return null;
     };
     const notify = async (ext, payload) => {
+      // ⚙️ Feature switch (Settings portal): call alerts can be turned off.
+      try {
+        const { data: featR } = await client.from("app_settings").select("data").eq("id", "features").maybeSingle();
+        if (featR && featR.data && featR.data.flags && featR.data.flags.callAlerts === false) return;
+      } catch { /* switch unreadable → alert as usual */ }
       const { notifyFanout } = await import("../../lib/notify.js");
       const owner = extOwner(ext);
       // pushOnly: useful as a banner, pure noise as email/SMS. A truly unknown

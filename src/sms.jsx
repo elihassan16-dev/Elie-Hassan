@@ -816,7 +816,7 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
   const cur = curKey ? (smsActions.statusOptions || []).find((o) => o.key === curKey) : null;
   // ⏰ "Call me at 10" → one-tap reminder (a follow-up with that date+time —
   // the watcher pings the phone right at that moment).
-  const callSug = smsActions && smsActions.quickFollowUp && lastIn ? smsParseCallTime(lastIn.text) : null;
+  const callSug = smsActions && smsActions.quickFollowUp && !smsActions.callSugOff && lastIn ? smsParseCallTime(lastIn.text) : null;
   const callDisKey = lastIn ? `call|${e164(phone)}|${lastIn.id}` : "";
   const sugKey = smsActions && smsActions.suggest && lastIn ? smsActions.suggest(lastIn.text) : null;
   const sug = sugKey && sugKey !== curKey && !sugDis.has(lastIn ? `${e164(phone)}|${lastIn.id}` : "") ? (smsActions.statusOptions || []).find((o) => o.key === sugKey) : null;

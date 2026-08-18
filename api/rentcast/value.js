@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
   const address = String(req.query.address || "").trim();
   if (address.length < 8) { res.status(400).json({ error: "Send a full street address." }); return; }
-  const cacheKey = "v3" + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 78); // v3: deed sale prices on comps
+  const cacheKey = "v4" + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 78); // v4: throttled deed lookups + sale history
 
   const db = SERVICE ? createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } }) : null;
   const fresh = (at) => at && Date.now() - new Date(at).getTime() < 30 * 86400000;
@@ -85,18 +85,41 @@ export default async function handler(req, res) {
     // closing price lives on each comp's property record — look each one up
     // and swap it in when the recorded sale matches this listing's era, so
     // a 540-listed / 580-sold comp counts as 580 (Elie's rule).
-    await Promise.allSettled(out.comps.map(async (c, i) => {
+    // Throttled in small batches with 429 retries: a 12-wide burst tripped
+    // RentCast's rate limit and silently left most comps as "pending".
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const rcRetry = async (path) => {
+      for (let a = 0; ; a++) {
+        try { return await rc(path); }
+        catch (e) {
+          const msg = String(e.message || "");
+          if (a < 2 && (/429|rate|too many/i.test(msg))) { await sleep(700 * (a + 1)); continue; }
+          throw e;
+        }
+      }
+    };
+    const lookupSold = async (c, i) => {
       try {
-        const pr = await rc(`/properties?address=${encodeURIComponent(c.full)}`);
+        const pr = await rcRetry(`/properties?address=${encodeURIComponent(c.full)}`);
         const rec = Array.isArray(pr) ? pr[0] : pr;
-        const sp = num(rec && rec.lastSalePrice);
-        const sd = String((rec && rec.lastSaleDate) || "").slice(0, 10);
+        // Best recorded sale: the record's lastSale, or the newest Sale event
+        // in its history — whichever is most recent.
+        let sp = num(rec && rec.lastSalePrice), sd = String((rec && rec.lastSaleDate) || "").slice(0, 10);
+        Object.values((rec && rec.history) || {}).forEach((h) => {
+          if (!h || !/sale/i.test(String(h.event || ""))) return;
+          const hd = String(h.date || "").slice(0, 10);
+          if (num(h.price) > 0 && hd > sd) { sp = num(h.price); sd = hd; }
+        });
         const near = sd && (!c.date || Math.abs(new Date(sd) - new Date(c.date)) < 400 * 86400000);
         if (sp > 0 && near && new Date(sd) > new Date(Date.now() - 550 * 86400000)) {
           out.comps[i] = { ...c, listPrice: c.price, price: sp, date: sd, priceSrc: "sold" };
         } else out.comps[i] = { ...c, priceSrc: "list" };
       } catch { out.comps[i] = { ...c, priceSrc: "list" }; }
-    }));
+    };
+    for (let g = 0; g < out.comps.length; g += 4) {
+      await Promise.allSettled(out.comps.slice(g, g + 4).map((c, j) => lookupSold(c, g + j)));
+      if (g + 4 < out.comps.length) await sleep(400);
+    }
     if (db) {
       try {
         const items = (cacheRow && cacheRow.data && cacheRow.data.items) || {};

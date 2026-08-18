@@ -10265,8 +10265,8 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
               <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.55,marginTop:6}}>{res.reasoning}</div>
               {res.asIs>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>Automated as-is estimate: {fmtD(res.asIs)} · underwritten {new Date(res.at).toLocaleDateString()}</div>}
               <div style={{overflowX:"auto",marginTop:6}}>
-                <table style={{borderCollapse:"collapse",width:"100%",minWidth:460}}>
-                  <thead><tr>{["COMP","SOLD","WHEN","$/SF","DIST",""].map(h=><th key={h} style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>
+                <table style={{borderCollapse:"collapse",width:"100%",minWidth:520}}>
+                  <thead><tr>{["COMP","LIST","SOLD","WHEN","$/SF","DIST",""].map(h=><th key={h} style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>
                   <tbody>
                     {(res.comps||[]).map((c,i)=>{
                       // 🔗 Comp address → its Zillow page. Older saved results
@@ -10279,7 +10279,17 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>
                           <a href={zUrl} target="_blank" rel="noreferrer" title={`Open ${c.address} on Zillow`} style={{color:T.blue,fontWeight:700,textDecoration:"none"}}>{c.address} ↗</a>
                         </td>
-                        <td title={c.priceSrc==="sold"?`Recorded closing price${c.listPrice?` (was listed ${fmtD(c.listPrice)})`:""}`:c.priceSrc==="list"?"Final list price — recorded closing price not on file yet":""} style={{fontSize:11,fontWeight:800,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>{fmtD(c.price)}{c.priceSrc==="sold"?<span style={{fontSize:8.5,fontWeight:800,color:"#0F9D58"}}> ✓sold</span>:c.priceSrc==="list"?<span style={{fontSize:8.5,fontWeight:800,color:"#B45309"}}> ≈list</span>:null}</td>
+                        {(()=>{
+                          // Two price columns: what it was LISTED for, and what
+                          // the deed says it SOLD for. The AI underwrites on the
+                          // sold number whenever the record has one.
+                          const lp=c.listPrice||(c.priceSrc!=="sold"?c.price:0);
+                          const sp=c.priceSrc==="sold"?c.price:0;
+                          return(<>
+                            <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap",color:T.textSub}}>{lp?fmtD(lp):"—"}</td>
+                            <td title={sp?"Deed-recorded closing price":"Closing price not in public records yet — the AI weighs the list price slightly upward"} style={{fontSize:11,fontWeight:800,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap",color:sp?"#0F9D58":T.textTert}}>{sp?fmtD(sp):"pending"}</td>
+                          </>);
+                        })()}
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>{c.date||`${c.daysOld||"?"}d ago`}</td>
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{c.sqft>0?`$${Math.round(c.price/c.sqft)}`:"—"}</td>
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{c.distance} mi</td>

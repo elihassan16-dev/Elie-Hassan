@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
   const address = String(req.query.address || "").trim();
   if (address.length < 8) { res.status(400).json({ error: "Send a full street address." }); return; }
-  const cacheKey = address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 80);
+  const cacheKey = "v2" + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 78); // v2: sold-only comps + subject features
 
   const db = SERVICE ? createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } }) : null;
   const fresh = (at) => at && Date.now() - new Date(at).getTime() < 30 * 86400000;
@@ -49,12 +49,16 @@ export default async function handler(req, res) {
   try {
     const enc = encodeURIComponent(address);
     const [valR, propR] = await Promise.allSettled([
-      rc(`/avm/value?address=${enc}&compCount=12`),
+      rc(`/avm/value?address=${enc}&compCount=25`),
       rc(`/properties?address=${enc}`),
     ]);
     if (valR.status === "rejected") throw new Error(valR.reason?.message || "Value lookup failed.");
     const v = valR.value || {};
     const p0 = propR.status === "fulfilled" && Array.isArray(propR.value) ? propR.value[0] : (propR.status === "fulfilled" ? propR.value : null);
+    const feats = (p0 && p0.features) || {};
+    // SOLD comps only (Elie's rule): an active listing is an asking price,
+    // not a proven sale — drop them before anything downstream sees them.
+    const soldOnly = (Array.isArray(v.comparables) ? v.comparables : []).filter((c) => String(c.status || "").toLowerCase() !== "active" && (c.removedDate || c.lastSeenDate));
     const out = {
       at: new Date().toISOString(),
       value: { price: num(v.price), low: num(v.priceRangeLow), high: num(v.priceRangeHigh) },
@@ -62,8 +66,10 @@ export default async function handler(req, res) {
         sqft: num(p0.squareFootage), beds: num(p0.bedrooms), baths: num(p0.bathrooms),
         yearBuilt: num(p0.yearBuilt), lotSize: num(p0.lotSize), type: String(p0.propertyType || ""),
         lastSalePrice: num(p0.lastSalePrice), lastSaleDate: String(p0.lastSaleDate || "").slice(0, 10),
+        pool: !!feats.pool, garage: !!feats.garage, fireplace: !!feats.fireplace,
+        ...(feats.garageSpaces ? { garageSpaces: num(feats.garageSpaces) } : {}),
       } : null,
-      comps: (Array.isArray(v.comparables) ? v.comparables : []).slice(0, 12).map((c) => ({
+      comps: soldOnly.slice(0, 12).map((c) => ({
         address: String(c.formattedAddress || "").split(",").slice(0, 1).join(""),
         full: String(c.formattedAddress || "").slice(0, 140),
         price: num(c.price),
@@ -71,7 +77,7 @@ export default async function handler(req, res) {
         yearBuilt: num(c.yearBuilt),
         distance: Math.round(num(c.distance) * 100) / 100,
         daysOld: num(c.daysOld),
-        date: String(c.removedDate || c.listedDate || "").slice(0, 10),
+        date: String(c.removedDate || c.lastSeenDate || c.listedDate || "").slice(0, 10),
         correlation: Math.round(num(c.correlation) * 100) / 100,
       })),
     };

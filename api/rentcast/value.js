@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
   const address = String(req.query.address || "").trim();
   if (address.length < 8) { res.status(400).json({ error: "Send a full street address." }); return; }
-  const cacheKey = "v5" + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 78); // v5: per-comp deed diagnostics
+  const cacheKey = "v6" + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 78); // v6: area deed-record comps
 
   const db = SERVICE ? createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } }) : null;
   const fresh = (at) => at && Date.now() - new Date(at).getTime() < 30 * 86400000;
@@ -69,59 +69,113 @@ export default async function handler(req, res) {
         pool: !!feats.pool, garage: !!feats.garage, fireplace: !!feats.fireplace,
         ...(feats.garageSpaces ? { garageSpaces: num(feats.garageSpaces) } : {}),
       } : null,
-      comps: soldOnly.slice(0, 12).map((c) => ({
-        address: String(c.formattedAddress || "").split(",").slice(0, 1).join(""),
-        full: String(c.formattedAddress || "").slice(0, 140),
-        price: num(c.price),
-        sqft: num(c.squareFootage), beds: num(c.bedrooms), baths: num(c.bathrooms),
-        yearBuilt: num(c.yearBuilt),
-        distance: Math.round(num(c.distance) * 100) / 100,
-        daysOld: num(c.daysOld),
-        date: String(c.removedDate || c.lastSeenDate || c.listedDate || "").slice(0, 10),
-        correlation: Math.round(num(c.correlation) * 100) / 100,
-      })),
+      comps: [],
     };
-    // The comp feed's "price" is the final LIST price. The deed-recorded
-    // closing price lives on each comp's property record — look each one up
-    // and swap it in when the recorded sale matches this listing's era, so
-    // a 540-listed / 580-sold comp counts as 580 (Elie's rule).
-    // Throttled in small batches with 429 retries: a 12-wide burst tripped
-    // RentCast's rate limit and silently left most comps as "pending".
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const rcRetry = async (path) => {
-      for (let a = 0; ; a++) {
-        try { return await rc(path); }
-        catch (e) {
-          const msg = String(e.message || "");
-          if (a < 2 && (/429|rate|too many/i.test(msg))) { await sleep(700 * (a + 1)); continue; }
-          throw e;
+    const listComps = soldOnly.slice(0, 15).map((c) => ({
+      address: String(c.formattedAddress || "").split(",").slice(0, 1).join(""),
+      full: String(c.formattedAddress || "").slice(0, 140),
+      price: num(c.price),
+      sqft: num(c.squareFootage), beds: num(c.bedrooms), baths: num(c.bathrooms),
+      yearBuilt: num(c.yearBuilt),
+      distance: Math.round(num(c.distance) * 100) / 100,
+      daysOld: num(c.daysOld),
+      date: String(c.removedDate || c.lastSeenDate || c.listedDate || "").slice(0, 10),
+      correlation: Math.round(num(c.correlation) * 100) / 100,
+    }));
+    // ── Primary comp source: DEED RECORDS BY AREA (Elie's find) ──
+    // /properties supports an area query by last-sale window, so we pull
+    // every recorded sale near the subject directly — sold prices by
+    // construction, instead of starting from listings and hoping the deed
+    // matches. Listing comps then only contribute list prices for context
+    // and very fresh MLS sales the records haven't caught up with yet.
+    const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const hav = (la1, lo1, la2, lo2) => {
+      const R = 3958.8, dLa = (la2 - la1) * Math.PI / 180, dLo = (lo2 - lo1) * Math.PI / 180;
+      const a = Math.sin(dLa / 2) ** 2 + Math.cos(la1 * Math.PI / 180) * Math.cos(la2 * Math.PI / 180) * Math.sin(dLo / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+    let recComps = [];
+    const lat = num(p0 && p0.latitude), lon = num(p0 && p0.longitude);
+    if (lat && lon) {
+      const area = async (r) => {
+        const q = `/properties?latitude=${lat}&longitude=${lon}&radius=${r}&saleDateRange=540&limit=350${p0.propertyType ? `&propertyType=${encodeURIComponent(p0.propertyType)}` : ""}`;
+        const res = await rc(q);
+        return Array.isArray(res) ? res : [];
+      };
+      let recs = [];
+      try { recs = await area(0.7); } catch { /* thin/absent → listing fallback below */ }
+      if (recs.length < 8) { try { const more = await area(1.5); if (more.length > recs.length) recs = more; } catch { /* keep what we have */ } }
+      const sqft0 = num(p0 && p0.squareFootage);
+      const subjN = norm((p0 && p0.formattedAddress) || address);
+      recComps = recs
+        .filter((r) => num(r.lastSalePrice) > 0 && norm(r.formattedAddress) !== subjN)
+        .filter((r) => !sqft0 || (num(r.squareFootage) > 0 && num(r.squareFootage) > sqft0 * 0.55 && num(r.squareFootage) < sqft0 * 1.7))
+        .map((r) => {
+          const d = hav(lat, lon, num(r.latitude), num(r.longitude));
+          const daysOld = Math.max(0, Math.round((Date.now() - new Date(r.lastSaleDate).getTime()) / 86400000));
+          return {
+            address: String(r.formattedAddress || "").split(",").slice(0, 1).join(""),
+            full: String(r.formattedAddress || "").slice(0, 140),
+            price: num(r.lastSalePrice), priceSrc: "sold",
+            sqft: num(r.squareFootage), beds: num(r.bedrooms), baths: num(r.bathrooms),
+            yearBuilt: num(r.yearBuilt),
+            distance: Math.round(d * 100) / 100,
+            daysOld,
+            date: String(r.lastSaleDate || "").slice(0, 10),
+          };
+        })
+        .sort((a, b) => (a.distance + a.daysOld / 900) - (b.distance + b.daysOld / 900))
+        .slice(0, 12);
+      // A record comp that was also a listing gains its LIST price for context.
+      const byAddr = {};
+      listComps.forEach((c) => { byAddr[norm(c.full)] = c; });
+      recComps = recComps.map((c) => { const m = byAddr[norm(c.full)]; return m ? { ...c, listPrice: m.price, correlation: m.correlation } : c; });
+    }
+    if (recComps.length >= 4) {
+      // Deed records carry the comp sheet. Add a few very fresh listing
+      // sales the records haven't caught up with (MLS beats the county by
+      // weeks) — marked pending, owner can type the closing off Zillow.
+      const recSet = new Set(recComps.map((c) => norm(c.full)));
+      const extras = listComps.filter((c) => !recSet.has(norm(c.full))).slice(0, Math.max(0, Math.min(4, 15 - recComps.length)))
+        .map((c) => ({ ...c, priceSrc: "list", recNote: "not-in-records-yet" }));
+      out.comps = [...recComps, ...extras];
+    } else {
+      // Area query unavailable/thin — fall back to listing comps enriched
+      // one-by-one against their property records (throttled, 429 retries).
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const rcRetry = async (path) => {
+        for (let a = 0; ; a++) {
+          try { return await rc(path); }
+          catch (e) {
+            const msg = String(e.message || "");
+            if (a < 2 && (/429|rate|too many/i.test(msg))) { await sleep(700 * (a + 1)); continue; }
+            throw e;
+          }
         }
+      };
+      out.comps = listComps.slice(0, 12);
+      const lookupSold = async (c, i) => {
+        try {
+          const pr = await rcRetry(`/properties?address=${encodeURIComponent(c.full)}`);
+          const rec = Array.isArray(pr) ? pr[0] : pr;
+          if (!rec) { out.comps[i] = { ...c, priceSrc: "list", recNote: "no-record" }; return; }
+          let sp = num(rec.lastSalePrice), sd = String(rec.lastSaleDate || "").slice(0, 10);
+          Object.values(rec.history || {}).forEach((h) => {
+            if (!h || !/^sale$/i.test(String(h.event || "").trim())) return;
+            const hd = String(h.date || "").slice(0, 10);
+            if (num(h.price) > 0 && hd > sd) { sp = num(h.price); sd = hd; }
+          });
+          if (!(sp > 0)) { out.comps[i] = { ...c, priceSrc: "list", recNote: "no-sale-on-record" }; return; }
+          const near = !c.date || Math.abs(new Date(sd) - new Date(c.date)) < 400 * 86400000;
+          if (near && new Date(sd) > new Date(Date.now() - 550 * 86400000)) {
+            out.comps[i] = { ...c, listPrice: c.price, price: sp, date: sd, priceSrc: "sold" };
+          } else out.comps[i] = { ...c, priceSrc: "list", recNote: `sale-on-file:${sd}` };
+        } catch (e) { out.comps[i] = { ...c, priceSrc: "list", recNote: "err:" + String(e.message || "").slice(0, 40) }; }
+      };
+      for (let g = 0; g < out.comps.length; g += 4) {
+        await Promise.allSettled(out.comps.slice(g, g + 4).map((c, j) => lookupSold(c, g + j)));
+        if (g + 4 < out.comps.length) await sleep(400);
       }
-    };
-    const lookupSold = async (c, i) => {
-      try {
-        const pr = await rcRetry(`/properties?address=${encodeURIComponent(c.full)}`);
-        const rec = Array.isArray(pr) ? pr[0] : pr;
-        if (!rec) { out.comps[i] = { ...c, priceSrc: "list", recNote: "no-record" }; return; }
-        // Best recorded sale: the record's lastSale, or the newest Sale event
-        // in its history — whichever is most recent. (History listing events
-        // carry no closing price — only true Sale events with a price count.)
-        let sp = num(rec.lastSalePrice), sd = String(rec.lastSaleDate || "").slice(0, 10);
-        Object.values(rec.history || {}).forEach((h) => {
-          if (!h || !/^sale$/i.test(String(h.event || "").trim())) return;
-          const hd = String(h.date || "").slice(0, 10);
-          if (num(h.price) > 0 && hd > sd) { sp = num(h.price); sd = hd; }
-        });
-        if (!(sp > 0)) { out.comps[i] = { ...c, priceSrc: "list", recNote: "no-sale-on-record" }; return; }
-        const near = !c.date || Math.abs(new Date(sd) - new Date(c.date)) < 400 * 86400000;
-        if (near && new Date(sd) > new Date(Date.now() - 550 * 86400000)) {
-          out.comps[i] = { ...c, listPrice: c.price, price: sp, date: sd, priceSrc: "sold" };
-        } else out.comps[i] = { ...c, priceSrc: "list", recNote: `sale-on-file:${sd}` };
-      } catch (e) { out.comps[i] = { ...c, priceSrc: "list", recNote: "err:" + String(e.message || "").slice(0, 40) }; }
-    };
-    for (let g = 0; g < out.comps.length; g += 4) {
-      await Promise.allSettled(out.comps.slice(g, g + 4).map((c, j) => lookupSold(c, g + j)));
-      if (g + 4 < out.comps.length) await sleep(400);
     }
     if (db) {
       try {

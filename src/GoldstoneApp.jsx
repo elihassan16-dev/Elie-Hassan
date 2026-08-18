@@ -18598,8 +18598,10 @@ function autoMailLabel(m){
   if(/\bloan\b|lender|mortgage|appraisal|underwrit|refinanc/.test(s))return "Lender";
   if(/insurance|\bpolicy\b|premium|coverage|binder/.test(s))return "Insurance";
   if(/\bquote\b|estimate|proposal|\bbid\b|scope of work/.test(s))return "Quote";
+  if(/septic|site eval|perc test|soil (log|test)|percolation/.test(s))return "Septic";
   if(/permit|township|zoning|inspection|violation|certificate of occupancy/.test(s))return "Permits";
   if(/utilit|electric bill|gas bill|water bill|sewer|pse&g|jcp&l/.test(s))return "Utilities";
+  if(/attorney|\besq\b|contract of sale|addendum|paralegal/.test(s))return "Legal";
   return "";
 }
 // The Emails tab's buckets — pins group into these by their label note; anything
@@ -18611,20 +18613,52 @@ const MAIL_CATS=[
   {key:"Insurance",name:"Insurance",icon:"🛡",color:"#0F766E"},
   {key:"Permits",name:"Permits",icon:"🏗",color:"#EA580C"},
   {key:"Utilities",name:"Utilities",icon:"⚡",color:"#CA8A04"},
+  {key:"Septic",name:"Septic & Engineering",icon:"🚿",color:"#2563EB"},
+  {key:"Legal",name:"Attorney & Legal",icon:"⚖️",color:"#4B5563"},
   {key:"Other",name:"Other",icon:"📁",color:"#9BA0A8"},
 ];
 const mailCatOf=(p)=>{const n=p.label&&p.label.note;return MAIL_CATS.some(c=>c.key===n)?n:"Other";};
 // Group pins by WHO they're from: a company = the sender's email domain (all of
 // @limaone.com is one row); personal addresses (gmail…) group by the individual.
 const MAIL_GENERIC_DOMAINS=new Set(["gmail.com","yahoo.com","outlook.com","hotmail.com","aol.com","icloud.com","me.com","msn.com","comcast.net","verizon.net","live.com","ymail.com","proton.me","protonmail.com"]);
-const mailSenderKeyOf=(p)=>{const a=String(p.fromAddr||"").toLowerCase();const dom=a.split("@")[1]||"";if(dom&&!MAIL_GENERIC_DOMAINS.has(dom))return "d:"+dom;return a?"a:"+a:"n:"+String(p.from||"").toLowerCase();};
+// E-sign relays (Adobe Sign, DocuSign…) send FROM their own domain, but the
+// real party is in the display name — "Lisa LaScala via Adobe Acrobat Sign".
+// Group those with the vendor's normal emails, never under "Adobesign".
+const MAIL_ESIGN_DOMAINS=/(^|\.)(adobesign\.com|echosign\.com|adobe\.com|docusign\.net|docusign\.com|hellosign\.com|dropboxsign\.com|pandadoc\.com|signnow\.com|signrequest\.com)$/i;
+const mailViaName=(p)=>{
+  const dom=String(p.fromAddr||"").toLowerCase().split("@")[1]||"";
+  if(!MAIL_ESIGN_DOMAINS.test(dom))return "";
+  const m=/^(.*?)\s+via\s+/i.exec(String(p.from||""));
+  return m?m[1].trim():"";
+};
+// `all` (the property's pins) lets a relayed signature join the sender's own
+// group: match the via-name against a real pin's sender name, or a company
+// domain it abbreviates ("ICD via Adobe…" → icdconnected.com).
+const mailSenderKeyOf=(p,all)=>{
+  const via=mailViaName(p);
+  if(via){
+    const nn=via.toLowerCase();
+    const compact=nn.replace(/[^a-z0-9]/g,"");
+    const hit=(all||[]).find(x=>!mailViaName(x)&&(String(x.from||"").toLowerCase()===nn||(()=>{
+      const d=String(x.fromAddr||"").toLowerCase().split("@")[1]||"";
+      return d&&!MAIL_GENERIC_DOMAINS.has(d)&&compact.length>=3&&d.split(".")[0].startsWith(compact.slice(0,12));
+    })()));
+    if(hit)return mailSenderKeyOf(hit,null);
+    return "v:"+nn;
+  }
+  const a=String(p.fromAddr||"").toLowerCase();const dom=a.split("@")[1]||"";
+  if(dom&&!MAIL_GENERIC_DOMAINS.has(dom))return "d:"+dom;
+  return a?"a:"+a:"n:"+String(p.from||"").toLowerCase();
+};
 // A display name for the group: the one sender name if they're all the same,
-// else the company's domain prettified ("limaone.com" → "Limaone").
+// else the company's domain prettified ("limaone.com" → "Limaone"). Relayed
+// signatures count as the person named before "via" — never the relay.
 const mailSenderTitle=(pins)=>{
-  const names=[...new Set(pins.map(p=>p.from).filter(Boolean))];
+  const names=[...new Set(pins.map(p=>mailViaName(p)||p.from).filter(Boolean))];
   if(names.length===1)return names[0];
-  const dom=(String((pins[0]||{}).fromAddr||"").split("@")[1]||"").split(".")[0];
-  return dom?dom.charAt(0).toUpperCase()+dom.slice(1):(names[0]||"(unknown sender)");
+  const base=pins.find(p=>!mailViaName(p))||pins[0]||{};
+  const dom=(String(base.fromAddr||"").split("@")[1]||"").split(".")[0];
+  return dom&&!mailViaName(base)?dom.charAt(0).toUpperCase()+dom.slice(1):(names[0]||"(unknown sender)");
 };
 // "Re: Fwd: 18 Fisk St docs" → "18 fisk st docs" — cross-mailbox dedupe: two
 // teammates on one thread see different conversation/message ids, but the same
@@ -18710,6 +18744,45 @@ function useEmailAutoPin(){
     document.addEventListener("visibilitychange",onVis);
     return ()=>{alive=false;clearTimeout(t0);clearInterval(iv);document.removeEventListener("visibilitychange",onVis);};
   },[mail.signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+// ── 🤖 AI mail tags ──────────────────────────────────────────────────────────
+// Every pinned chain gets read ONCE by the AI (subject + preview only) which
+// returns a category and a tiny "what this is" description — stored on the pin
+// as pe.ai so all devices share it and it's never re-tagged. Works through the
+// existing backlog in batches of 25; auto pins also adopt the AI category as
+// their label (hand-set labels are never touched). If the endpoint fails the
+// session stops trying and the old keyword guesses stand.
+function useEmailAiTags(){
+  const {sharedProps,setSharedProps}=useData()||{};
+  const busyRef=useRef(false);
+  const deadRef=useRef(false);
+  useEffect(()=>{
+    if(!sharedProps||!setSharedProps||busyRef.current||deadRef.current)return;
+    const todo=[];
+    sharedProps.filter(p=>!p.archived).forEach(p=>(p.pinnedEmails||[]).forEach(pe=>{if(!pe.ai)todo.push({propId:p.id,pe});}));
+    if(!todo.length)return;
+    busyRef.current=true;
+    const batch=todo.slice(0,25);
+    const batchSet=new Set(batch.map(b=>`${b.propId}|${b.pe.id}`));
+    (async()=>{
+      try{
+        const d=await qbAuthFetch("/api/ai/tagmail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:batch.map(x=>({id:String(x.pe.id),from:x.pe.from||"",subject:x.pe.subject||"",preview:x.pe.preview||""}))})});
+        const byId={};(Array.isArray(d.tags)?d.tags:[]).forEach(t=>{if(t&&t.id)byId[String(t.id)]=t;});
+        setSharedProps(prev=>prev.map(p=>{
+          const pins=p.pinnedEmails||[];
+          if(!pins.some(pe=>batchSet.has(`${p.id}|${pe.id}`)))return p;
+          return {...p,pinnedEmails:pins.map(pe=>{
+            if(pe.ai||!batchSet.has(`${p.id}|${pe.id}`))return pe;
+            const t=byId[String(pe.id)]||{};
+            const cat=MAIL_CATS.some(c=>c.key===t.cat)?t.cat:(autoMailLabel({subject:pe.subject,bodyPreview:pe.preview})||"Other");
+            const relabel=pe.auto&&(!pe.label||pe.label.kind==="general");
+            return {...pe,ai:{cat,desc:String(t.desc||"").slice(0,80)},...(relabel?{label:{kind:"general",note:cat}}:{})};
+          })};
+        }));
+      }catch{deadRef.current=true;/* AI down — keyword guesses stand for now */}
+      finally{busyRef.current=false;}
+    })();
+  },[sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 function PropertyEmails({property,onUpdate,isMobile}){
   const mail=useOutlookMail();
@@ -18919,7 +18992,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
                   // who wrote last, chain count, one unread total. Tap → their
                   // page; a single-chain sender opens the thread directly.
                   const senders=[];
-                  g.items.forEach(x=>{const k=mailSenderKeyOf(x.p);let s=senders.find(y=>y.k===k);if(!s){s={k,items:[]};senders.push(s);}s.items.push(x);});
+                  g.items.forEach(x=>{const k=mailSenderKeyOf(x.p,pinned);let s=senders.find(y=>y.k===k);if(!s){s={k,items:[]};senders.push(s);}s.items.push(x);});
                   senders.forEach(s=>{
                     s.mine=s.items.some(x=>x.mine);
                     s.unread=s.items.reduce((n,x)=>n+(x.mine?(unreadMap[x.p.id]||0):0),0);
@@ -18939,7 +19012,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
                           <span style={{width:32,height:32,borderRadius:10,background:"#EEF0F4",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{g.c.icon}</span>
                           <div onClick={onOpen} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                             <div style={{fontSize:13.5,fontWeight:800,color:s.mine?T.text:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title}</div>
-                            <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.latestP.from&&s.latestP.from!==s.title?`${s.latestP.from} · `:""}{s.latestP.subject||s.latestP.preview||""} · {mailWhen(s.latestP.date)}</div>
+                            <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.latestP.ai&&s.latestP.ai.desc?<span style={{color:"#8a6d1f",fontWeight:700}}>{s.latestP.ai.desc} · </span>:null}{s.latestP.from&&s.latestP.from!==s.title?`${s.latestP.from} · `:""}{s.latestP.subject||s.latestP.preview||""} · {mailWhen(s.latestP.date)}</div>
                           </div>
                           {s.auto&&<span title="Pinned automatically" style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
                           {!s.mine&&<span title={`Matched in ${s.latestP.autoBy||"a teammate"}'s inbox`} style={{width:22,height:22,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:8.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(s.latestP.autoBy)}</span>}
@@ -18958,7 +19031,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
           })()}
       {/* A company's page: every chain with them on this property */}
       {senderOpen&&(()=>{
-        const inGroup=pinned.map(p=>({p,mine:inBox[p.id]!==false})).filter(x=>mailSenderKeyOf(x.p)===senderOpen)
+        const inGroup=pinned.map(p=>({p,mine:inBox[p.id]!==false})).filter(x=>mailSenderKeyOf(x.p,pinned)===senderOpen)
           .sort((a,b)=>String(b.p.date||"").localeCompare(String(a.p.date||"")));
         if(!inGroup.length)return null;
         const title=mailSenderTitle(inGroup.map(x=>x.p));
@@ -18980,7 +19053,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
                     <div style={{width:8,flexShrink:0}}>{unread&&<span style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
                     <div onClick={()=>mine?setViewer(p):openTeamView(p)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                       <div style={{fontSize:13,fontWeight:unread?800:700,color:mine?T.blue:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
-                      <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.from} · {mailWhen(p.date)}{mine?"":` · ${p.autoBy||"a teammate"}'s`}</div>
+                      <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.ai&&p.ai.desc?<span style={{color:"#8a6d1f",fontWeight:700}}>{p.ai.desc} · </span>:null}{p.from} · {mailWhen(p.date)}{mine?"":` · ${p.autoBy||"a teammate"}'s`}</div>
                     </div>
                     {p.auto&&<span style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
                     <button onClick={()=>setLabelPin(p)} title="Label / link this chain" style={{background:p.label?T.goldLight:"none",border:p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:"5px 8px"}}>🏷</button>
@@ -19583,6 +19656,7 @@ export function GoldstoneShell(){
   // 🤖 Auto email matcher — scans this user's inbox and pins matching chains
   // onto their properties (runs app-wide, not just on the Email page).
   useEmailAutoPin();
+  useEmailAiTags();
 
   // ── 📖 App-wide phone directory + conversation quick-actions ───────────────
   // Registered into the sms module every render, so ANY place a number or a

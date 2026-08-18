@@ -8,11 +8,12 @@ import { requireAppUser } from "../../lib/quickbooks.js";
 
 const CATS = ["Title", "Lender", "Insurance", "Quote", "Permits", "Utilities", "Septic", "Legal", "Other"];
 
-const SYSTEM = `You label emails for a New Jersey real-estate flipping company. For EACH item, pick the one best category and write a tiny plain-English description of what the email chain is about.
+const SYSTEM = `You label emails for a New Jersey real-estate flipping company. For EACH item, pick the one best category, write a tiny plain-English description of what the email chain is about, and name the party it is really with.
 Categories (use these exact words): Title (title company / escrow / closing / deed / payoff), Lender (loans, mortgages, appraisals, draws), Insurance, Quote (contractor bids, estimates, scopes, invoices for construction work), Permits (township, zoning, inspections, certificate of occupancy), Utilities, Septic (septic systems, site evaluations, perc/soil testing, septic engineering or design), Legal (attorneys, contracts of sale, addenda), Other.
-E-sign notifications (Adobe Acrobat Sign, DocuSign…) are about the DOCUMENT being signed — categorize by that document, and name the real party, never the e-sign service.
+E-sign notifications (Adobe Acrobat Sign, DocuSign…) are about the DOCUMENT being signed — categorize by that document, never as the e-sign service.
 desc: at most 8 words, plain and specific — e.g. "septic site evaluation invoice & contract", "W9 from ICD", "insurance binder for closing". No fluff, no guessing beyond what the text supports.
-Reply with ONLY a JSON array, no prose: [{"id":"...","cat":"...","desc":"..."}] — one entry per input item, same ids.`;
+party: the company (or person, if no company is evident) the chain is really with — see through e-sign services, support desks and individual employees to the ORGANIZATION: "Lisa LaScala via Adobe Acrobat Sign" from ICD paperwork → "ICD Connected"; "Support Team ICD Connected" → "ICD Connected"; "lisa@icdconnected.com" → "ICD Connected". Use the fullest form of the company name visible across the items and keep it IDENTICAL for every item that belongs to the same organization.
+Reply with ONLY a JSON array, no prose: [{"id":"...","cat":"...","desc":"...","party":"..."}] — one entry per input item, same ids.`;
 
 async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -37,6 +38,7 @@ export default async function handler(req, res) {
     .map((x) => ({
       id: String(x.id).slice(0, 60),
       from: String(x.from || "").slice(0, 80),
+      fromAddr: String(x.fromAddr || "").slice(0, 80),
       subject: String(x.subject || "").slice(0, 200),
       preview: String(x.preview || "").slice(0, 300),
     }));
@@ -59,6 +61,7 @@ export default async function handler(req, res) {
         id: String(t.id).slice(0, 60),
         cat: CATS.includes(t.cat) ? t.cat : "Other",
         desc: String(t.desc || "").slice(0, 80),
+        party: String(t.party || "").slice(0, 60),
       }));
     res.status(200).json({ tags });
   } catch (e) {

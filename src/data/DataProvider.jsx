@@ -31,6 +31,12 @@ const mapAutos = (data) => data.map((r) => rowData(r, (row) => ({ id: row.id, tr
 const mapContacts = (data) => data.map((r) => rowData(r, (row) => ({ id: Number(row.id), name: row.name, role: row.role, phone: row.phone, email: row.email })));
 const mapData = (data) => data.map((r) => (r && r.data ? r.data : r)).filter(Boolean);
 
+// app_settings rows written ONLY by the server (webhook captures, call logs,
+// comp caches). They grow to megabytes and no client screen reads them — keep
+// them out of the client sync entirely so phones never download them, never
+// re-diff them, and never reload everything because a server cache churned.
+const SERVER_ONLY_SETTINGS = ["jivetel_events", "jivetel_call_events", "jivetel_msgs", "jivetel_calls", "jivetel_alerts", "rentcast_cache", "chatarv_cache", "chatarv_cfg"];
+
 // ── A Supabase-backed collection with safe, coalesced, in-order writes ────────
 // - Edits update local state immediately, then a single debounced flush writes
 //   only the changed rows (in order, never overlapping). Rapid edits collapse to
@@ -127,7 +133,9 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
   // Load from DB, but keep any locally-dirty (unsaved) rows so a refresh can't
   // revert an edit — or resurrect a locally-deleted row — before it's saved.
   const load = useCallback(async () => {
-    const { data, error } = await supabase.from(table).select("*");
+    let q = supabase.from(table).select("*");
+    if (table === "app_settings") q = q.not("id", "in", `(${SERVER_ONLY_SETTINGS.join(",")})`);
+    const { data, error } = await q;
     if (error || !data) return;
     const rows = mapRows(data);
     const dbIds = new Set(rows.map((r) => String(r.id)));
@@ -263,7 +271,13 @@ export function DataProvider({ children }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "office_messages" }, () => debounce("o", officeC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "office_tasks" }, () => debounce("ot", officeTasksC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "bank_accounts" }, () => debounce("b", bankC.load))
-      .on("postgres_changes", { event: "*", schema: "public", table: "app_settings" }, () => debounce("s", settingsC.load))
+      .on("postgres_changes", { event: "*", schema: "public", table: "app_settings" }, (payload) => {
+        // Server-only cache rows churn constantly (webhook captures, comp
+        // caches) — don't refetch every client's settings for those.
+        const rid = String((payload && ((payload.new && payload.new.id) || (payload.old && payload.old.id))) || "");
+        if (rid && SERVER_ONLY_SETTINGS.includes(rid)) return;
+        debounce("s", settingsC.load);
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "rentals" }, () => debounce("r", rentalsC.load))
       .on("postgres_changes", { event: "*", schema: "public", table: "users" }, () => debounce("u", loadTeam))
       .subscribe();

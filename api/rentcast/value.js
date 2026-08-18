@@ -29,7 +29,7 @@ export default async function handler(req, res) {
   // Owner-tunable comp filters: radius in miles, sold-within window in months.
   const radius = Math.min(3, Math.max(0.3, num(req.query.radius) || 1));
   const months = Math.min(24, Math.max(3, Math.round(num(req.query.months)) || 12));
-  const cacheKey = `v7r${radius}m${months}` + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 70);
+  const cacheKey = `v8r${radius}m${months}` + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 70);
 
   const db = SERVICE ? createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } }) : null;
   const fresh = (at) => at && Date.now() - new Date(at).getTime() < 30 * 86400000;
@@ -131,9 +131,20 @@ export default async function handler(req, res) {
         .sort((a, b) => (a.distance + a.daysOld / 900) - (b.distance + b.daysOld / 900))
         .slice(0, 12);
       // A record comp that was also a listing gains its LIST price for context.
+      // BUT: a listing that ENDED well after the recorded sale means the house
+      // traded again and the deed hasn't caught up — the record price is the
+      // OLD transaction (often the flipper's own purchase). Showing it as the
+      // sold price would poison the ARV; demote it to pending instead.
       const byAddr = {};
       listComps.forEach((c) => { byAddr[norm(c.full)] = c; });
-      recComps = recComps.map((c) => { const m = byAddr[norm(c.full)]; return m ? { ...c, listPrice: m.price, correlation: m.correlation } : c; });
+      recComps = recComps.map((c) => {
+        const m = byAddr[norm(c.full)];
+        if (!m) return c;
+        if (m.date && c.date && new Date(m.date) - new Date(c.date) > 60 * 86400000) {
+          return { ...m, priceSrc: "list", recNote: `record-outdated:${c.date}` };
+        }
+        return { ...c, listPrice: m.price, correlation: m.correlation };
+      });
     }
     if (recComps.length >= 4) {
       // Deed records carry the comp sheet. Add a few very fresh listing

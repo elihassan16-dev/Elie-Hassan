@@ -2241,7 +2241,7 @@ function FinOverview({property,onUpdate}){
           <RowHdr label="Revenue" color={T.green} showActual={showActual}/>
           <EditGridRow label="Sale Price" pVal={n(f.salePrice)} pEdit={v=>up("salePrice",v)}
             aVal={f.actualSalePrice} aEdit={v=>up("actualSalePrice",v)} showActual={showActual} dimP={f.useActualProfit}/>
-          <ArvUnderwriter address={`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`} f={f} upMany={upMany} isMobile={isMobile}/>
+          {featOn("arvUnderwriter")&&<ArvUnderwriter address={`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`} f={f} upMany={upMany} isMobile={isMobile}/>}
 
           {/* ── Selling Costs ── */}
           <RowHdr label="Selling Costs" color={T.red} showActual={showActual}/>
@@ -6471,7 +6471,7 @@ function LeadDetail({lead,onUpdate}){
 
                 <RowHdr label="Revenue" color={T.green} showActual={false}/>
                 <EditGridRow label="Target Sale Price (ARV)" pVal={n(f.salePrice)} pEdit={v=>up("salePrice",v)} showActual={false}/>
-                <ArvUnderwriter address={full} f={f} upMany={upMany}/>
+                {featOn("arvUnderwriter")&&<ArvUnderwriter address={full} f={f} upMany={upMany}/>}
 
                 <RowHdr label="Selling Costs" color={T.red} showActual={false}/>
                 <PopupGridRow label="Commission + Transfer Tax" pVal={sellingTotal} onOpenP={()=>setShowSelling(true)} showActual={false}/>
@@ -10401,6 +10401,7 @@ const FEATURES=[
   {key:"backOnMarket",icon:"🔁",name:"Back-on-market clean-up",sub:"A deal falls through → scheduled closing / inspection / commitment dates are wiped",sec:"auto"},
   {key:"emailAutoPin",icon:"📌",name:"Auto-pin emails to properties",sub:"Emails naming an address (or from a linked contact) pin themselves to the property",sec:"email"},
   {key:"emailAiTags",icon:"🏷",name:"AI email tags & company grouping",sub:"Reads subject + preview once → category, description, one row per company",sec:"email"},
+  {key:"arvUnderwriter",icon:"🎯",name:"AI Underwriter (ARV)",sub:"The 🎯 panel under Sale Price — MLS/records comps and a suggested after-repair value",sec:"crm"},
   {key:"replySug",icon:"🤖",name:"Reply status suggestions",sub:"A suggestion chip when an agent's reply sounds like a status (interested, offer…)",sec:"crm"},
   {key:"callTimeBanner",icon:"⏰",name:"“Call me at 10” reminder banner",sub:"Detects a time in their text → one-tap follow-up reminder",sec:"crm"},
   {key:"showingAlert",icon:"👁",name:"New showing booked",sub:"Ping when ShowingTime adds a showing / inspection / appraisal",sec:"alerts"},
@@ -10545,7 +10546,7 @@ function SettingsModal({archived,onRestore,onDelete,onClose,team,setUserMuted,se
               {FEATURES.filter(f=>f.sec==="auto").map(featRowUi)}
               {secHd("EMAIL")}
               {FEATURES.filter(f=>f.sec==="email").map(featRowUi)}
-              {secHd("TEXTING CRM")}
+              {secHd("CRM & AI TOOLS")}
               {FEATURES.filter(f=>f.sec==="crm").map(featRowUi)}
             </>
           ):section==="alerts"?(

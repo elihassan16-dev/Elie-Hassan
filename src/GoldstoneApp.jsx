@@ -18759,24 +18759,27 @@ function useEmailAiTags(){
   useEffect(()=>{
     if(!sharedProps||!setSharedProps||busyRef.current||deadRef.current)return;
     const todo=[];
-    sharedProps.filter(p=>!p.archived).forEach(p=>(p.pinnedEmails||[]).forEach(pe=>{if(!pe.ai)todo.push({propId:p.id,pe});}));
+    sharedProps.filter(p=>!p.archived).forEach(p=>(p.pinnedEmails||[]).forEach(pe=>{if(!pe.ai||!pe.ai.party)todo.push({propId:p.id,pe});}));
     if(!todo.length)return;
     busyRef.current=true;
     const batch=todo.slice(0,25);
     const batchSet=new Set(batch.map(b=>`${b.propId}|${b.pe.id}`));
     (async()=>{
       try{
-        const d=await qbAuthFetch("/api/ai/tagmail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:batch.map(x=>({id:String(x.pe.id),from:x.pe.from||"",subject:x.pe.subject||"",preview:x.pe.preview||""}))})});
+        const d=await qbAuthFetch("/api/ai/tagmail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:batch.map(x=>({id:String(x.pe.id),from:x.pe.from||"",fromAddr:x.pe.fromAddr||"",subject:x.pe.subject||"",preview:x.pe.preview||""}))})});
         const byId={};(Array.isArray(d.tags)?d.tags:[]).forEach(t=>{if(t&&t.id)byId[String(t.id)]=t;});
         setSharedProps(prev=>prev.map(p=>{
           const pins=p.pinnedEmails||[];
           if(!pins.some(pe=>batchSet.has(`${p.id}|${pe.id}`)))return p;
           return {...p,pinnedEmails:pins.map(pe=>{
-            if(pe.ai||!batchSet.has(`${p.id}|${pe.id}`))return pe;
+            if((pe.ai&&pe.ai.party)||!batchSet.has(`${p.id}|${pe.id}`))return pe;
             const t=byId[String(pe.id)]||{};
-            const cat=MAIL_CATS.some(c=>c.key===t.cat)?t.cat:(autoMailLabel({subject:pe.subject,bodyPreview:pe.preview})||"Other");
+            const cat=MAIL_CATS.some(c=>c.key===t.cat)?t.cat:((pe.ai&&pe.ai.cat)||autoMailLabel({subject:pe.subject,bodyPreview:pe.preview})||"Other");
+            // Party always gets SOME value so a pin is never re-tagged forever:
+            // the AI's answer, else the via-name / sender / domain.
+            const party=String(t.party||"").trim()||mailViaName(pe)||String(pe.from||"").trim()||(String(pe.fromAddr||"").split("@")[1]||"").split(".")[0]||"?";
             const relabel=pe.auto&&(!pe.label||pe.label.kind==="general");
-            return {...pe,ai:{cat,desc:String(t.desc||"").slice(0,80)},...(relabel?{label:{kind:"general",note:cat}}:{})};
+            return {...pe,ai:{cat,desc:String(t.desc||(pe.ai&&pe.ai.desc)||"").slice(0,80),party:party.slice(0,60)},...(relabel?{label:{kind:"general",note:cat}}:{})};
           })};
         }));
       }catch{deadRef.current=true;/* AI down — keyword guesses stand for now */}
@@ -18791,6 +18794,18 @@ function PropertyEmails({property,onUpdate,isMobile}){
   const appPeople=useMailPeople(); // contacts book + everyone from pinned chains
   const filesFolder=property.filesFolder||null; // OneDrive/SharePoint folder for this property's Files
   const pinned=property.pinnedEmails||[];
+  // One row per PARTY (Elie's rule): the AI names who a chain is really with
+  // ("ICD Connected" — through e-sign relays, support desks, employees), and
+  // every chain with that party rolls into one row no matter the bucket. An
+  // untagged pin borrows the party of a tagged pin from the same sender;
+  // otherwise the sender-key fallback keeps today's behavior.
+  const partyKeyOf=(p)=>{
+    const pk=(x)=>"p:"+String(x).toLowerCase().replace(/[^a-z0-9]/g,"");
+    if(p.ai&&p.ai.party)return pk(p.ai.party);
+    const sk=mailSenderKeyOf(p,pinned);
+    const mate=pinned.find(q=>q.ai&&q.ai.party&&mailSenderKeyOf(q,pinned)===sk);
+    return mate?pk(mate.ai.party):sk;
+  };
   const[picker,setPicker]=useState(false);
   const[chains,setChains]=useState(null);
   const[pickErr,setPickErr]=useState("");
@@ -18974,7 +18989,6 @@ function PropertyEmails({property,onUpdate,isMobile}){
             const counts={all:pinned.length,mine:withCat.filter(x=>x.mine).length};
             MAIL_CATS.forEach(c=>{counts[c.key]=withCat.filter(x=>x.cat===c.key).length;});
             const shownPins=withCat.filter(x=>mailFilter==="all"?true:mailFilter==="mine"?x.mine:x.cat===mailFilter);
-            const groups=MAIL_CATS.map(c=>({c,items:shownPins.filter(x=>x.cat===c.key).sort((a,b)=>((b.mine?1:0)-(a.mine?1:0))||String(b.p.date||"").localeCompare(String(a.p.date||"")))})).filter(g=>g.items.length);
             const chipB=(key,label)=>(
               <button key={key} onClick={()=>setMailFilter(key)} style={{flexShrink:0,padding:"6px 12px",borderRadius:16,border:mailFilter===key?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:mailFilter===key?T.goldLight:"#fff",color:mailFilter===key?"#8a6d1f":T.textSub,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{label}</button>
             );
@@ -18987,23 +19001,29 @@ function PropertyEmails({property,onUpdate,isMobile}){
               </div>
               <div style={{background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden"}}>
                 {shownPins.length===0&&<div style={{padding:"18px 16px",fontSize:12.5,color:T.textTert}}>Nothing in this bucket.</div>}
-                {groups.map((g,gi)=>{
-                  // One row per COMPANY / PERSON: all their chains roll up —
-                  // who wrote last, chain count, one unread total. Tap → their
-                  // page; a single-chain sender opens the thread directly.
+                {(()=>{
+                  // One row per PARTY across ALL buckets: every chain with a
+                  // company rolls into a single row — who wrote last, chain
+                  // count, one unread total — filed under the bucket most of
+                  // their chains belong to. Tap → their page; a single-chain
+                  // party opens the thread directly.
                   const senders=[];
-                  g.items.forEach(x=>{const k=mailSenderKeyOf(x.p,pinned);let s=senders.find(y=>y.k===k);if(!s){s={k,items:[]};senders.push(s);}s.items.push(x);});
+                  shownPins.forEach(x=>{const k=partyKeyOf(x.p);let s=senders.find(y=>y.k===k);if(!s){s={k,items:[]};senders.push(s);}s.items.push(x);});
                   senders.forEach(s=>{
                     s.mine=s.items.some(x=>x.mine);
                     s.unread=s.items.reduce((n,x)=>n+(x.mine?(unreadMap[x.p.id]||0):0),0);
                     s.latestP=[...s.items].sort((a,b)=>String(b.p.date||"").localeCompare(String(a.p.date||"")))[0].p;
-                    s.title=mailSenderTitle(s.items.map(x=>x.p));
+                    const withParty=s.items.find(x=>x.p.ai&&x.p.ai.party);
+                    s.title=(withParty&&withParty.p.ai.party)||mailSenderTitle(s.items.map(x=>x.p));
                     s.auto=s.items.every(x=>x.p.auto);
+                    const tally={};s.items.forEach(x=>{tally[x.cat]=(tally[x.cat]||0)+1;});
+                    s.cat=Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0]||"Other";
                   });
                   senders.sort((a,b)=>((b.mine?1:0)-(a.mine?1:0))||String(b.latestP.date||"").localeCompare(String(a.latestP.date||"")));
-                  return(<Fragment key={g.c.key}>
+                  const sGroups=MAIL_CATS.map(c=>({c,senders:senders.filter(s=>s.cat===c.key)})).filter(g=>g.senders.length);
+                  return sGroups.map((g,gi)=>(<Fragment key={g.c.key}>
                     <div style={{padding:"7px 16px 4px",fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:g.c.color,borderTop:gi===0?"none":`1px solid ${T.border}`}}>{g.c.icon} {g.c.name.toUpperCase()}</div>
-                    {senders.map(s=>{
+                    {g.senders.map(s=>{
                       const single=s.items.length===1;
                       const onOpen=()=>{if(single){const x=s.items[0];x.mine?setViewer(x.p):openTeamView(x.p);}else setSenderOpen(s.k);};
                       return(
@@ -19024,17 +19044,18 @@ function PropertyEmails({property,onUpdate,isMobile}){
                         </div>
                       );
                     })}
-                  </Fragment>);
-                })}
+                  </Fragment>));
+                })()}
               </div>
             </>);
           })()}
       {/* A company's page: every chain with them on this property */}
       {senderOpen&&(()=>{
-        const inGroup=pinned.map(p=>({p,mine:inBox[p.id]!==false})).filter(x=>mailSenderKeyOf(x.p,pinned)===senderOpen)
+        const inGroup=pinned.map(p=>({p,mine:inBox[p.id]!==false})).filter(x=>partyKeyOf(x.p)===senderOpen)
           .sort((a,b)=>String(b.p.date||"").localeCompare(String(a.p.date||"")));
         if(!inGroup.length)return null;
-        const title=mailSenderTitle(inGroup.map(x=>x.p));
+        const withParty=inGroup.find(x=>x.p.ai&&x.p.ai.party);
+        const title=(withParty&&withParty.p.ai.party)||mailSenderTitle(inGroup.map(x=>x.p));
         const cat=MAIL_CATS.find(c=>c.key===mailCatOf(inGroup[0].p))||MAIL_CATS[MAIL_CATS.length-1];
         return(
           <div onClick={()=>setSenderOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>

@@ -26,7 +26,10 @@ export default async function handler(req, res) {
 
   const address = String(req.query.address || "").trim();
   if (address.length < 8) { res.status(400).json({ error: "Send a full street address." }); return; }
-  const cacheKey = "v6" + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 78); // v6: area deed-record comps
+  // Owner-tunable comp filters: radius in miles, sold-within window in months.
+  const radius = Math.min(3, Math.max(0.3, num(req.query.radius) || 1));
+  const months = Math.min(24, Math.max(3, Math.round(num(req.query.months)) || 12));
+  const cacheKey = `v7r${radius}m${months}` + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 70);
 
   const db = SERVICE ? createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } }) : null;
   const fresh = (at) => at && Date.now() - new Date(at).getTime() < 30 * 86400000;
@@ -61,6 +64,7 @@ export default async function handler(req, res) {
     const soldOnly = (Array.isArray(v.comparables) ? v.comparables : []).filter((c) => String(c.status || "").toLowerCase() !== "active" && (c.removedDate || c.lastSeenDate));
     const out = {
       at: new Date().toISOString(),
+      filters: { radius, months },
       value: { price: num(v.price), low: num(v.priceRangeLow), high: num(v.priceRangeHigh) },
       subject: p0 ? {
         sqft: num(p0.squareFootage), beds: num(p0.bedrooms), baths: num(p0.bathrooms),
@@ -98,13 +102,12 @@ export default async function handler(req, res) {
     const lat = num(p0 && p0.latitude), lon = num(p0 && p0.longitude);
     if (lat && lon) {
       const area = async (r) => {
-        const q = `/properties?latitude=${lat}&longitude=${lon}&radius=${r}&saleDateRange=540&limit=350${p0.propertyType ? `&propertyType=${encodeURIComponent(p0.propertyType)}` : ""}`;
+        const q = `/properties?latitude=${lat}&longitude=${lon}&radius=${r}&saleDateRange=${months * 30}&limit=350${p0.propertyType ? `&propertyType=${encodeURIComponent(p0.propertyType)}` : ""}`;
         const res = await rc(q);
         return Array.isArray(res) ? res : [];
       };
       let recs = [];
-      try { recs = await area(0.7); } catch { /* thin/absent → listing fallback below */ }
-      if (recs.length < 8) { try { const more = await area(1.5); if (more.length > recs.length) recs = more; } catch { /* keep what we have */ } }
+      try { recs = await area(radius); } catch { /* thin/absent → listing fallback below */ }
       const sqft0 = num(p0 && p0.squareFootage);
       const subjN = norm((p0 && p0.formattedAddress) || address);
       recComps = recs
@@ -124,6 +127,7 @@ export default async function handler(req, res) {
             date: String(r.lastSaleDate || "").slice(0, 10),
           };
         })
+        .filter((c) => c.distance <= radius + 0.05 && c.daysOld <= months * 30 + 15)
         .sort((a, b) => (a.distance + a.daysOld / 900) - (b.distance + b.daysOld / 900))
         .slice(0, 12);
       // A record comp that was also a listing gains its LIST price for context.
@@ -136,7 +140,8 @@ export default async function handler(req, res) {
       // sales the records haven't caught up with (MLS beats the county by
       // weeks) — marked pending, owner can type the closing off Zillow.
       const recSet = new Set(recComps.map((c) => norm(c.full)));
-      const extras = listComps.filter((c) => !recSet.has(norm(c.full))).slice(0, Math.max(0, Math.min(4, 15 - recComps.length)))
+      const extras = listComps.filter((c) => !recSet.has(norm(c.full)) && (!c.distance || c.distance <= radius + 0.05) && (!c.daysOld || c.daysOld <= months * 30))
+        .slice(0, Math.max(0, Math.min(4, 15 - recComps.length)))
         .map((c) => ({ ...c, priceSrc: "list", recNote: "not-in-records-yet" }));
       out.comps = [...recComps, ...extras];
     } else {

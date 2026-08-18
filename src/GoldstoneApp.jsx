@@ -10180,6 +10180,8 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
   const saved=f.arvAi||null;
   const[open,setOpen]=useState(false);
   const[plan,setPlan]=useState((saved&&saved.plan)||"");
+  const[radiusSel,setRadiusSel]=useState((saved&&saved.filters&&saved.filters.radius)||1);
+  const[monthsSel,setMonthsSel]=useState((saved&&saved.filters&&saved.filters.months)||12);
   const[busy,setBusy]=useState(false);
   const[err,setErr]=useState("");
   const[bt,setBt]=useState(null); // {running,i,total,rows:[{addr,est,actual}]}
@@ -10188,11 +10190,11 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
     if(busy)return;
     setBusy(true);setErr("");
     try{
-      const data=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(address)}${force?"&force=1":""}`);
-      if(!(data.comps||[]).length)throw new Error("RentCast found no sold comps for this address.");
+      const data=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(address)}&radius=${radiusSel}&months=${monthsSel}${force?"&force=1":""}`);
+      if(!(data.comps||[]).length)throw new Error(`No sold comps within ${radiusSel} mi / ${monthsSel} months — widen the filters and run again.`);
       const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan,subject:data.subject,value:data.value,comps:data.comps})});
       const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
-      upMany({arvAi:{at:new Date().toISOString(),plan,arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
+      upMany({arvAi:{at:new Date().toISOString(),plan,filters:{radius:radiusSel,months:monthsSel},arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
         comps:(data.comps||[]).map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
       setOvr({});setPricesDirty(false);
     }catch(e){setErr(e.message||"The underwrite failed — try again.");}
@@ -10265,6 +10267,16 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
           <div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f",margin:"2px 0 5px"}}>THE PLAN FOR THIS HOUSE</div>
           <textarea value={plan} onChange={e=>setPlan(e.target.value)} rows={2} placeholder="e.g. Full gut — new kitchen, 2 baths, flooring, roof, finish the basement"
             style={{width:"100%",boxSizing:"border-box",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",fontSize:12.5,fontFamily:"inherit",outline:"none",resize:"vertical",lineHeight:1.5,color:T.text}}/>
+          <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap",alignItems:"center"}}>
+            <span style={{fontSize:10.5,fontWeight:800,color:"#8a6d1f"}}>📍 Within</span>
+            <select value={radiusSel} onChange={e=>setRadiusSel(Number(e.target.value))} style={{padding:"6px 8px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text}}>
+              {[0.5,0.75,1,1.5,2,3].map(r=><option key={r} value={r}>{r} mi</option>)}
+            </select>
+            <span style={{fontSize:10.5,fontWeight:800,color:"#8a6d1f"}}>🗓 Sold last</span>
+            <select value={monthsSel} onChange={e=>setMonthsSel(Number(e.target.value))} style={{padding:"6px 8px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text}}>
+              {[6,9,12,18,24].map(m=><option key={m} value={m}>{m} mo</option>)}
+            </select>
+          </div>
           <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
             <button onClick={()=>run()} disabled={busy} style={{...chipBtn(true),opacity:busy?0.6:1}}>{busy?"⏳ Underwriting… (~20s)":"🎯 Run the underwrite"}</button>
             {saved&&<button onClick={()=>run(true)} disabled={busy} title="Re-pull everything fresh from RentCast — picks up newly recorded deeds and new sales (uses ~14 lookups)" style={chipBtn(false)}>↻ Fresh comps</button>}
@@ -10276,7 +10288,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
               <div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>SUGGESTED AFTER-REPAIR VALUE</div>
               <div style={{fontSize:22,fontWeight:800,color:T.text}}>{fmtD(res.arv)} <span style={{fontSize:11,color:"#8a6d1f",fontWeight:800}}>range {fmtD(res.low)} – {fmtD(res.high)}{res.psf?` · ~$${res.psf}/sf`:""}</span></div>
               <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.55,marginTop:6}}>{res.reasoning}</div>
-              {res.asIs>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>Automated as-is estimate: {fmtD(res.asIs)} · underwritten {new Date(res.at).toLocaleDateString()}</div>}
+              {res.asIs>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>Automated as-is estimate: {fmtD(res.asIs)} · underwritten {new Date(res.at).toLocaleDateString()}{res.filters?` · comps within ${res.filters.radius} mi, sold last ${res.filters.months} mo`:""}</div>}
               <div style={{overflowX:"auto",marginTop:6}}>
                 <table style={{borderCollapse:"collapse",width:"100%",minWidth:520}}>
                   <thead><tr>{["COMP","LIST","SOLD","WHEN","$/SF","DIST",""].map(h=><th key={h} style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>

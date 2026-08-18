@@ -10193,17 +10193,20 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
       // ChatARV (MLS-fresh closed sales) is the preferred comp source when its
       // key is configured; RentCast still supplies the subject record and the
       // as-is estimate, and its deed comps carry the sheet as fallback.
-      const chatP=qbAuthFetch(`/api/chatarv/comps?address=${encodeURIComponent(address)}${force?"&force=1":""}`).then(r=>({ok:true,r})).catch(e=>({ok:false,msg:String(e.message||"unreachable").slice(0,140)}));
       const data=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(address)}&radius=${radiusSel}&months=${monthsSel}${force?"&force=1":""}`);
-      const chat=await chatP;
-      let comps=data.comps||[],provider="county records",chatNote="";
-      if(chat.ok&&chat.r&&Array.isArray(chat.r.comps)&&chat.r.comps.length>=3){
-        const inFilter=chat.r.comps.filter(c=>(!c.distance||c.distance<=radiusSel+0.05)&&(!c.daysOld||c.daysOld<=monthsSel*30+15));
-        const pickFrom=inFilter.length>=3?inFilter:chat.r.comps;
-        comps=pickFrom.slice(0,12);provider=(chat.r.provider)||"ChatARV (MLS)";
-      }else{
-        chatNote=chat.ok?"ChatARV answered with too few comps — using county records":`ChatARV: ${chat.msg}`;
+      // ── Preferred: MCP underwrite — the AI pulls MLS comps from ChatARV
+      // itself (their MCP server) and returns comps + ARV in one pass. ──
+      let mcpRes=null,chatNote="";
+      try{mcpRes=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan,subject:data.subject,value:data.value,mcp:true})});}
+      catch(e){chatNote=`ChatARV: ${String(e.message||"unreachable").slice(0,140)}`;}
+      if(mcpRes&&mcpRes.arv&&Array.isArray(mcpRes.comps)&&mcpRes.comps.length>=3){
+        upMany({arvAi:{at:new Date().toISOString(),plan,provider:mcpRes.provider||"ChatARV (MLS)",filters:{radius:radiusSel,months:monthsSel},arv:mcpRes.arv,low:mcpRes.low,high:mcpRes.high,psf:mcpRes.psf,reasoning:mcpRes.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
+          comps:mcpRes.comps}});
+        setOvr({});setPricesDirty(false);setBusy(false);return;
       }
+      if(!chatNote)chatNote="ChatARV came back thin — using county records";
+      // ── Fallback: county-record comps + the classic underwrite. ──
+      let comps=data.comps||[],provider="county records";
       if(!comps.length)throw new Error(`No sold comps within ${radiusSel} mi / ${monthsSel} months — widen the filters and run again.`);
       const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan,subject:data.subject,value:data.value,comps})});
       const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});

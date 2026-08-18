@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
   const address = String(req.query.address || "").trim();
   if (address.length < 8) { res.status(400).json({ error: "Send a full street address." }); return; }
-  const cacheKey = "v4" + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 78); // v4: throttled deed lookups + sale history
+  const cacheKey = "v5" + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 78); // v5: per-comp deed diagnostics
 
   const db = SERVICE ? createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } }) : null;
   const fresh = (at) => at && Date.now() - new Date(at).getTime() < 30 * 86400000;
@@ -102,19 +102,22 @@ export default async function handler(req, res) {
       try {
         const pr = await rcRetry(`/properties?address=${encodeURIComponent(c.full)}`);
         const rec = Array.isArray(pr) ? pr[0] : pr;
+        if (!rec) { out.comps[i] = { ...c, priceSrc: "list", recNote: "no-record" }; return; }
         // Best recorded sale: the record's lastSale, or the newest Sale event
-        // in its history — whichever is most recent.
-        let sp = num(rec && rec.lastSalePrice), sd = String((rec && rec.lastSaleDate) || "").slice(0, 10);
-        Object.values((rec && rec.history) || {}).forEach((h) => {
-          if (!h || !/sale/i.test(String(h.event || ""))) return;
+        // in its history — whichever is most recent. (History listing events
+        // carry no closing price — only true Sale events with a price count.)
+        let sp = num(rec.lastSalePrice), sd = String(rec.lastSaleDate || "").slice(0, 10);
+        Object.values(rec.history || {}).forEach((h) => {
+          if (!h || !/^sale$/i.test(String(h.event || "").trim())) return;
           const hd = String(h.date || "").slice(0, 10);
           if (num(h.price) > 0 && hd > sd) { sp = num(h.price); sd = hd; }
         });
-        const near = sd && (!c.date || Math.abs(new Date(sd) - new Date(c.date)) < 400 * 86400000);
-        if (sp > 0 && near && new Date(sd) > new Date(Date.now() - 550 * 86400000)) {
+        if (!(sp > 0)) { out.comps[i] = { ...c, priceSrc: "list", recNote: "no-sale-on-record" }; return; }
+        const near = !c.date || Math.abs(new Date(sd) - new Date(c.date)) < 400 * 86400000;
+        if (near && new Date(sd) > new Date(Date.now() - 550 * 86400000)) {
           out.comps[i] = { ...c, listPrice: c.price, price: sp, date: sd, priceSrc: "sold" };
-        } else out.comps[i] = { ...c, priceSrc: "list" };
-      } catch { out.comps[i] = { ...c, priceSrc: "list" }; }
+        } else out.comps[i] = { ...c, priceSrc: "list", recNote: `sale-on-file:${sd}` };
+      } catch (e) { out.comps[i] = { ...c, priceSrc: "list", recNote: "err:" + String(e.message || "").slice(0, 40) }; }
     };
     for (let g = 0; g < out.comps.length; g += 4) {
       await Promise.allSettled(out.comps.slice(g, g + 4).map((c, j) => lookupSold(c, g + j)));

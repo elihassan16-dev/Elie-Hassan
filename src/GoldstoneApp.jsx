@@ -10279,7 +10279,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>
                           <a href={zUrl} target="_blank" rel="noreferrer" title={`Open ${c.address} on Zillow`} style={{color:T.blue,fontWeight:700,textDecoration:"none"}}>{c.address} ↗</a>
                         </td>
-                        <td style={{fontSize:11,fontWeight:800,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{fmtD(c.price)}</td>
+                        <td title={c.priceSrc==="sold"?`Recorded closing price${c.listPrice?` (was listed ${fmtD(c.listPrice)})`:""}`:c.priceSrc==="list"?"Final list price — recorded closing price not on file yet":""} style={{fontSize:11,fontWeight:800,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>{fmtD(c.price)}{c.priceSrc==="list"?<span style={{fontSize:8.5,fontWeight:800,color:"#B45309"}}> ≈list</span>:null}</td>
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>{c.date||`${c.daysOld||"?"}d ago`}</td>
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{c.sqft>0?`$${Math.round(c.price/c.sqft)}`:"—"}</td>
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>{c.distance} mi</td>

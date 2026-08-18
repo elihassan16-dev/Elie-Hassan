@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
   const address = String(req.query.address || "").trim();
   if (address.length < 8) { res.status(400).json({ error: "Send a full street address." }); return; }
-  const cacheKey = "v2" + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 78); // v2: sold-only comps + subject features
+  const cacheKey = "v3" + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 78); // v3: deed sale prices on comps
 
   const db = SERVICE ? createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } }) : null;
   const fresh = (at) => at && Date.now() - new Date(at).getTime() < 30 * 86400000;
@@ -81,6 +81,22 @@ export default async function handler(req, res) {
         correlation: Math.round(num(c.correlation) * 100) / 100,
       })),
     };
+    // The comp feed's "price" is the final LIST price. The deed-recorded
+    // closing price lives on each comp's property record — look each one up
+    // and swap it in when the recorded sale matches this listing's era, so
+    // a 540-listed / 580-sold comp counts as 580 (Elie's rule).
+    await Promise.allSettled(out.comps.map(async (c, i) => {
+      try {
+        const pr = await rc(`/properties?address=${encodeURIComponent(c.full)}`);
+        const rec = Array.isArray(pr) ? pr[0] : pr;
+        const sp = num(rec && rec.lastSalePrice);
+        const sd = String((rec && rec.lastSaleDate) || "").slice(0, 10);
+        const near = sd && (!c.date || Math.abs(new Date(sd) - new Date(c.date)) < 400 * 86400000);
+        if (sp > 0 && near && new Date(sd) > new Date(Date.now() - 550 * 86400000)) {
+          out.comps[i] = { ...c, listPrice: c.price, price: sp, date: sd, priceSrc: "sold" };
+        } else out.comps[i] = { ...c, priceSrc: "list" };
+      } catch { out.comps[i] = { ...c, priceSrc: "list" }; }
+    }));
     if (db) {
       try {
         const items = (cacheRow && cacheRow.data && cacheRow.data.items) || {};

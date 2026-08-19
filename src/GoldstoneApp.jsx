@@ -2241,7 +2241,7 @@ function FinOverview({property,onUpdate}){
           <RowHdr label="Revenue" color={T.green} showActual={showActual}/>
           <EditGridRow label="Sale Price" pVal={n(f.salePrice)} pEdit={v=>up("salePrice",v)}
             aVal={f.actualSalePrice} aEdit={v=>up("actualSalePrice",v)} showActual={showActual} dimP={f.useActualProfit}/>
-          {featOn("arvUnderwriter")&&<ArvUnderwriter address={`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`} f={f} upMany={upMany} isMobile={isMobile}/>}
+          {featOn("arvUnderwriter")&&<ArvUnderwriter address={`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`} f={f} upMany={upMany} isMobile={isMobile} pinfo={property.propertyInfo} onInfo={(patch)=>onUpdate(property.id,"propertyInfo",{...(property.propertyInfo||{}),...patch})}/>}
 
           {/* ── Selling Costs ── */}
           <RowHdr label="Selling Costs" color={T.red} showActual={showActual}/>
@@ -4988,9 +4988,9 @@ function NJDetailsCard({entity, onUpdate}){
           <button onClick={()=>njAutofill(false)} disabled={njLoad} style={{width:"100%",padding:"11px",borderRadius:T.radiusSm,background:njLoad?T.border:T.blue,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:njLoad?"default":"pointer",fontFamily:"inherit"}}>{njLoad?"Looking up NJ records…":"⬇ Refresh from NJ tax records"}</button>
           {njMsg&&<div style={{marginTop:8,fontSize:12,lineHeight:1.45,color:njMsg.ok?T.green:T.red}}>{njMsg.text}</div>}
           {pi.njSourceUrl&&<a href={pi.njSourceUrl} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:9,padding:"7px 14px",borderRadius:20,border:`1px solid ${T.blue}`,color:T.blue,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>🔗 View source record (NJParcels.com)</a>}
-          <div style={{fontSize:11,color:T.textTert,marginTop:8}}>Free NJ Office of GIS / MOD-IV data — block &amp; lot, year built, lot size, assessed value and taxes. Beds &amp; baths aren't in state records.</div>
+          <div style={{fontSize:11,color:T.textTert,marginTop:8}}>NJ records fill block &amp; lot, year built, lot size, assessed value and taxes. Running the 🎯 AI Underwriter fills beds, baths, sqft, heating/cooling, garage, pool, county, zoning and the owner from county property records. Basement and utilities are yours to fill after the walkthrough.</div>
         </div>
-        {[["Beds","beds","e.g. 3"],["Baths","baths","e.g. 2"],["Sq Ft","sqft","—"],["Year Built","yearBuilt","—"],["Lot Size (acres)","lotAcres","—"],["Block & Lot","blockLot","—"],["Property Class","propClass","—"],["Assessed Value","assessedValue","—"]].map(([label,key,ph])=>(
+        {[["Beds","beds","e.g. 3"],["Baths","baths","e.g. 2"],["Sq Ft","sqft","—"],["Year Built","yearBuilt","—"],["Lot Size (acres)","lotAcres","—"],["Block & Lot","blockLot","—"],["Township / County","county","—"],["Zoning","zoning","—"],["Property Class","propClass","—"],["Assessed Value","assessedValue","—"],["Heating","heating","e.g. Forced Air"],["Cooling","cooling","e.g. Central"],["Garage","garage","e.g. 2-car"],["Pool","pool","Yes / No"],["Basement","basement","Yes / No / Finished"],["Utilities","utilities","e.g. Gas · Sewer"],["Owner on record","owner","—"]].map(([label,key,ph])=>(
           <div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
             <span style={{fontSize:13,color:T.textSub,flexShrink:0}}>{label}</span>
             <input value={pi[key]||""} onChange={e=>upP(key,e.target.value)} placeholder={ph} style={rowInput}/>
@@ -6480,7 +6480,7 @@ function LeadDetail({lead,onUpdate}){
 
                 <RowHdr label="Revenue" color={T.green} showActual={false}/>
                 <EditGridRow label="Target Sale Price (ARV)" pVal={n(f.salePrice)} pEdit={v=>up("salePrice",v)} showActual={false}/>
-                {featOn("arvUnderwriter")&&<ArvUnderwriter address={full} f={f} upMany={upMany}/>}
+                {featOn("arvUnderwriter")&&<ArvUnderwriter address={full} f={f} upMany={upMany} pinfo={lead.propertyInfo} onInfo={(patch)=>onUpdate(lead.id,"propertyInfo",{...(lead.propertyInfo||{}),...patch})}/>}
 
                 <RowHdr label="Selling Costs" color={T.red} showActual={false}/>
                 <PopupGridRow label="Commission + Transfer Tax" pVal={sellingTotal} onOpenP={()=>setShowSelling(true)} showActual={false}/>
@@ -10185,7 +10185,7 @@ function PropertyFilesPanel(){
 // computed once and every device sees it; "Use as Sale Price" writes the same
 // salePrice field all the profit math already reads. Back-test runs the AVM
 // over the sold portfolio vs. the real sale prices.
-function ArvUnderwriter({address,f,upMany,isMobile}){
+function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
   const saved=f.arvAi||null;
   const[open,setOpen]=useState(false);
   const[plan,setPlan]=useState((saved&&saved.plan)||"");
@@ -10228,20 +10228,67 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
   const[err,setErr]=useState("");
   const[bt,setBt]=useState(null); // {running,i,total,rows:[{addr,est,actual}]}
   const{sharedProps}=useData()||{};
-  const run=async(force)=>{
+  // ── Two-step flow (Elie's design): step 1 pulls & TAGS the comps for review,
+  // step 2 underwrites around exactly the ones he checked. ──
+  const[cand,setCand]=useState(null);   // {data, comps:[…tagged…]} awaiting picks
+  const[picks,setPicks]=useState(new Set());
+  const[infoNote,setInfoNote]=useState(0); // property-details fields auto-filled
+  const tagComps=(data)=>{
+    const subj=(data&&data.subject)||{};
+    const psfs=(data.comps||[]).filter(c=>c.priceSrc!=="list"&&c.price>0&&c.sqft>0).map(c=>c.price/c.sqft).sort((a,b)=>a-b);
+    const med=psfs.length?psfs[Math.floor(psfs.length/2)]:0;
+    return (data.comps||[]).map(c=>{
+      const tags=[];
+      if(subj.sqft&&c.sqft){const r=c.sqft/subj.sqft;tags.push(r>1.12?"larger":r<0.88?"smaller":"≈ size");}
+      const psf=c.sqft>0?c.price/c.sqft:0;
+      if(med&&psf){if(psf>=med*1.15)tags.push("updated?");else if(psf<=med*0.8)tags.push("as-is?");}
+      if(c.daysOld!=null&&c.daysOld<=90)tags.push("recent");
+      if(c.priceSrc==="list")tags.push("pending");
+      return {...c,tags};
+    }).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))); // most recent sale first
+  };
+  // 📋 While the record is in hand, fill any BLANK Property Details fields —
+  // never overwrites something the team already typed.
+  const fillInfo=(s)=>{
+    if(!s||!onInfo)return;
+    const cur=pinfo||{};
+    const patch={};
+    const put=(k,v)=>{if(v==null||v===""||v===0)return;if(String(cur[k]??"").trim()!=="")return;patch[k]=String(v);};
+    put("beds",s.beds);put("baths",s.baths);put("sqft",s.sqft);put("yearBuilt",s.yearBuilt);
+    put("type",s.type);put("county",s.county);put("zoning",s.zoning);
+    put("heating",s.heating);put("cooling",s.cooling);
+    if(s.garage)put("garage",s.garageSpaces?`${s.garageSpaces}-car`:"Yes");
+    if(s.pool)put("pool","Yes");
+    put("owner",s.owner);
+    if(s.lotSize&&!String(cur.lotAcres??"").trim())patch.lotAcres=String(parseFloat((s.lotSize/43560).toFixed(3)));
+    const nFilled=Object.keys(patch).length;
+    if(nFilled){onInfo(patch);setInfoNote(nFilled);}
+  };
+  const run=async(force)=>{ // step 1: pull + tag, then wait for his picks
     if(busy)return;
+    setBusy(true);setErr("");setCand(null);
+    try{
+      const data=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(address)}&radius=${radiusSel}&months=${monthsSel}${force?"&force=1":""}`);
+      if(!(data.comps||[]).length)throw new Error(`No sold comps within ${radiusSel} mi / ${monthsSel} months — widen the filters and run again.`);
+      const tagged=tagComps(data);
+      setCand({data,comps:tagged});
+      setPicks(new Set(tagged.map((c,i)=>(c.tags||[]).includes("as-is?")?null:i).filter(x=>x!=null)));
+      fillInfo(data.subject);
+    }catch(e){setErr(e.message||"The comp pull failed — try again.");}
+    setBusy(false);
+  };
+  const evalNow=async()=>{ // step 2: underwrite around the checked comps
+    if(busy||!cand)return;
     setBusy(true);setErr("");
     try{
-      // RentCast supplies the subject record, the as-is estimate, and the
-      // deed-recorded sold comps that carry the underwrite.
-      const data=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(address)}&radius=${radiusSel}&months=${monthsSel}${force?"&force=1":""}`);
-      let comps=data.comps||[],provider="county records";
-      if(!comps.length)throw new Error(`No sold comps within ${radiusSel} mi / ${monthsSel} months — widen the filters and run again.`);
-      const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan:planFull(),after:afterCfg(),subject:data.subject,value:data.value,comps})});
+      const comps=cand.comps.map(({tags,...c})=>c);
+      const mustUse=[],mustSkip=[];
+      cand.comps.forEach((c,i)=>(picks.has(i)?mustUse:mustSkip).push(i));
+      const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan:planFull(),after:afterCfg(),subject:cand.data.subject,value:cand.data.value,comps,mustUse,mustSkip})});
       const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
-      upMany({arvAi:{at:new Date().toISOString(),plan,after:afterCfg(),provider,filters:{radius:radiusSel,months:monthsSel},arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
+      upMany({arvAi:{at:new Date().toISOString(),plan,after:afterCfg(),provider:"county records",filters:{radius:radiusSel,months:monthsSel},arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:cand.data.value?cand.data.value.price:0,subject:cand.data.subject||null,
         comps:comps.map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
-      setOvr({});setPricesDirty(false);
+      setOvr({});setPricesDirty(false);setCand(null);
     }catch(e){setErr(e.message||"The underwrite failed — try again.");}
     setBusy(false);
   };
@@ -10357,12 +10404,49 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
             </select>
           </div>
           <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
-            <button onClick={()=>run()} disabled={busy} style={{...chipBtn(true),opacity:busy?0.6:1}}>{busy?"⏳ Underwriting… (~20s)":"🎯 Run the underwrite"}</button>
-            {saved&&<button onClick={()=>run(true)} disabled={busy} title="Re-pull everything fresh from RentCast — picks up newly recorded deeds and new sales (uses ~14 lookups)" style={chipBtn(false)}>↻ Fresh comps</button>}
+            {!cand&&<button onClick={()=>run()} disabled={busy} style={{...chipBtn(true),opacity:busy?0.6:1}}>{busy?"⏳ Pulling the comps…":"🔍 Get the comps"}</button>}
+            {!cand&&saved&&<button onClick={()=>run(true)} disabled={busy} title="Re-pull everything fresh from RentCast — picks up newly recorded deeds and new sales" style={chipBtn(false)}>↻ Fresh comps</button>}
             <button onClick={backtest} disabled={!!(bt&&bt.running)} style={chipBtn(false)}>🧪 Back-test on my solds</button>
           </div>
           {err&&<div style={{marginTop:8,fontSize:11.5,color:T.red,fontWeight:700}}>{err}</div>}
-          {res&&(
+          {infoNote>0&&<div style={{marginTop:6,fontSize:11,color:"#15803D",fontWeight:600}}>📋 Filled {infoNote} blank field{infoNote===1?"":"s"} in Property Details from the county record.</div>}
+          {cand&&(()=>{
+            const subj=cand.data.subject||{};
+            const zHref=(c)=>`https://www.zillow.com/homes/${encodeURIComponent(String(c.full||c.address||"").replace(/\s+/g," "))}_rb/`;
+            const tagSt=(t)=>({fontSize:8.5,fontWeight:700,letterSpacing:"0.03em",borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap",
+              ...(t==="updated?"?{background:"#EDFBF1",color:"#15803D"}:t==="as-is?"?{background:"#FFF0EF",color:T.red}:t==="recent"?{background:"#EBF4FF",color:T.blue}:t==="pending"?{background:"#FFF4E5",color:"#B45309"}:t==="≈ size"?{background:T.goldLight,color:"#8a6d1f"}:{background:"#F1F1F4",color:T.textSub})});
+            return(
+              <div style={{marginTop:12,background:"#fff",border:`1.5px solid ${T.gold}`,borderRadius:13,overflow:"hidden"}}>
+                <div style={{padding:"11px 14px 9px",borderBottom:`1px solid ${T.border}`}}>
+                  <div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>STEP 2 · CHECK THE COMPS TO USE</div>
+                  <div style={{fontSize:11,color:T.textSub,marginTop:3}}>Newest sales first · {picks.size} of {cand.comps.length} checked{subj.sqft?` · your house: ${subj.sqft} sf${subj.beds?` · ${subj.beds}bd/${subj.baths||"?"}ba`:""}`:""}</div>
+                </div>
+                {cand.comps.map((c,i)=>{
+                  const on=picks.has(i);
+                  return(
+                    <div key={i} onClick={()=>setPicks(p=>{const n=new Set(p);n.has(i)?n.delete(i):n.add(i);return n;})}
+                      style={{display:"flex",alignItems:"center",gap:9,padding:"9px 13px",borderTop:`1px solid ${T.border}55`,cursor:"pointer",background:on?"transparent":"#FAFAFB",opacity:on?1:0.62}}>
+                      <span style={{fontSize:16,color:on?T.gold:T.textTert,flexShrink:0,lineHeight:1}}>{on?"☑":"☐"}</span>
+                      <span style={{flex:1,minWidth:0}}>
+                        <span style={{fontSize:12.5,fontWeight:650,color:T.text}}>{c.address} <a href={zHref(c)} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} title="Check it on Zillow" style={{color:T.blue,textDecoration:"none",fontSize:11}}>↗</a></span>
+                        <span style={{display:"block",fontSize:10.5,color:T.textSub}}>{[c.beds?`${c.beds}bd`:"",c.baths?`${c.baths}ba`:"",c.sqft?`${c.sqft} sf`:"",c.distance!=null?`${c.distance} mi`:""].filter(Boolean).join(" · ")}</span>
+                        <span style={{display:"flex",gap:4,marginTop:3,flexWrap:"wrap"}}>{(c.tags||[]).map(t=><span key={t} style={tagSt(t)}>{t}</span>)}</span>
+                      </span>
+                      <span style={{flexShrink:0,textAlign:"right"}}>
+                        <span style={{display:"block",fontSize:12.5,fontWeight:700,color:c.priceSrc==="list"?"#B45309":"#15803D"}}>{c.priceSrc==="list"?`list ${fmtD(c.price)}`:fmtD(c.price)}</span>
+                        <span style={{display:"block",fontSize:10,color:T.textTert}}>{c.date||""}{c.sqft&&c.price?` · $${Math.round(c.price/c.sqft)}/sf`:""}</span>
+                      </span>
+                    </div>
+                  );
+                })}
+                <div style={{display:"flex",gap:8,padding:"11px 13px",borderTop:`1px solid ${T.border}`,flexWrap:"wrap"}}>
+                  <button onClick={evalNow} disabled={busy||picks.size<2} style={{...chipBtn(true),opacity:busy||picks.size<2?0.6:1}}>{busy?"⏳ Underwriting… (~20s)":`🎯 Value it with my ${picks.size} pick${picks.size===1?"":"s"}`}</button>
+                  <button onClick={()=>setCand(null)} disabled={busy} style={chipBtn(false)}>✕ Cancel</button>
+                </div>
+              </div>
+            );
+          })()}
+          {res&&!cand&&(
             <div style={{marginTop:12,background:"#fff",border:`1.5px solid ${T.gold}`,borderRadius:13,padding:"12px 14px"}}>
               <div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>SUGGESTED AFTER-REPAIR VALUE</div>
               <div style={{fontSize:22,fontWeight:800,color:T.text}}>{fmtD(res.arv)} <span style={{fontSize:11,color:"#8a6d1f",fontWeight:800}}>range {fmtD(res.low)} – {fmtD(res.high)}{res.psf?` · ~$${res.psf}/sf`:""}</span></div>

@@ -14,14 +14,14 @@ html, body, #root {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  font-family: "Inter Variable", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overscroll-behavior-y: none;
 }
 
 /* Prevent iOS auto-zoom on focus by keeping inputs at >=16px */
-input, select, textarea, button { font-size: 16px; }
+input, select, textarea, button { font-size: 16px; font-family: inherit; }
 
 /* Touch-friendly: ensure interactive controls are at least 44px on touch devices */
 @media (pointer: coarse) {

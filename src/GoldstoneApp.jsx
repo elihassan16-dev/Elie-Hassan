@@ -19751,17 +19751,40 @@ const whoSubLine=(w,pl)=>{
 // showings / financials), contacts, and team messages. Desktop renders the
 // input in the top strip (the left menu is untouched); mobile renders a 🔍
 // that opens a sheet. Tapping a result navigates straight there.
-function GlobalSearch({isMobile,go}){
-  const {sharedProps,contacts,officeMessages}=useData();
+function GlobalSearch({isMobile,go,who}){
+  const {sharedProps,contacts,officeMessages,officeTasks}=useData();
   const[open,setOpen]=useState(false);
   const[q,setQ]=useState("");
+  const[txFor,setTxFor]=useState(null); // {phone,name,sub} → conversation popup
   const ql=q.trim().toLowerCase();
+  // Digits of the query — 4+ digits means "find this phone number anywhere".
+  const qd=(()=>{const d=q.replace(/\D/g,"");return d.length>=4?(d.length===11&&d.startsWith("1")?d.slice(1):d):"";})();
   const close=()=>{setOpen(false);setQ("");};
   const res=useMemo(()=>{
     if(ql.length<2)return null;
+    const digOf=(x)=>{const d=String(x||"").replace(/\D/g,"");return d.length===11&&d.startsWith("1")?d.slice(1):d;};
     const pMatch=(p)=>[p.address,p.city,p.state].filter(Boolean).join(" ").toLowerCase().includes(ql);
     const props=[...(sharedProps||[]).filter(p=>!p.archived&&pMatch(p)),...(sharedProps||[]).filter(p=>p.archived&&pMatch(p))].slice(0,4);
-    const cons=(contacts||[]).filter(c=>[c.name,c.company,c.role,...(c.tags||[]),...(c.phones||[]).map(x=>x.number),c.email].filter(Boolean).join(" ").toLowerCase().includes(ql)).slice(0,4);
+    const cons=(contacts||[]).filter(c=>{
+      const hay=[c.name,c.company,c.role,...(c.tags||[]),...(Array.isArray(c.phones)?c.phones.map(x=>x.number||x):[]),c.phone,c.email].filter(Boolean).join(" ");
+      return hay.toLowerCase().includes(ql)||(qd&&digOf(hay).includes(qd));
+    }).slice(0,4);
+    // 👥 Everyone the app knows by phone — showing agents, buyers, hand-added
+    // leads, BoldTrail — searchable by name OR number, tagged with their
+    // property so the result says who they are and what they're relevant to.
+    const people=[];
+    if(who)who.forEach((v,phone)=>{
+      if(v.role==="contact")return; // the Contacts section already covers them
+      const nameHit=v.name&&v.name.toLowerCase().includes(ql);
+      const phoneHit=qd&&digOf(phone).includes(qd);
+      const addrHit=v.addr&&v.addr.toLowerCase().includes(ql)&&qd; // number+addr queries only
+      if(nameHit||phoneHit||addrHit)people.push({phone,...v});
+    });
+    people.sort((a,b)=>String(a.name||"~").localeCompare(String(b.name||"~")));
+    // ☑ Tasks — anywhere a task's text mentions it.
+    const tasks=[];
+    (sharedProps||[]).forEach(p=>(p.tasks||[]).forEach(tk=>{if(!tk.deleted&&String(tk.text||"").toLowerCase().includes(ql))tasks.push({pid:p.id,addr:String(p.address||"").split(",")[0],text:tk.text,status:tk.status||"Not Started"});}));
+    (officeTasks||[]).forEach(tk=>{if(!tk.deleted&&String(tk.text||"").toLowerCase().includes(ql))tasks.push({pid:null,addr:"Company",text:tk.text,status:tk.status||"Not Started"});});
     const msgs=[];
     const pushMsg=(pid,addr,m)=>{const t=String(m.text||"");if(t&&t.toLowerCase().includes(ql))msgs.push({pid,addr,by:m.author||m.by||"",text:t,at:String(m.at||"")});};
     (sharedProps||[]).forEach(p=>{
@@ -19770,8 +19793,8 @@ function GlobalSearch({isMobile,go}){
     });
     (officeMessages||[]).forEach(m=>pushMsg("__office__","Office Chat",m));
     msgs.sort((a,b)=>b.at.localeCompare(a.at));
-    return {props,cons,msgs:msgs.slice(0,4)};
-  },[ql,sharedProps,contacts,officeMessages]);
+    return {props,cons,people:people.slice(0,6),tasks:tasks.slice(0,5),msgs:msgs.slice(0,4)};
+  },[ql,qd,sharedProps,contacts,officeMessages,officeTasks,who]);
   const sec=(t)=><div key={"sec"+t} style={{padding:"8px 16px 3px",fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>{t}</div>;
   const row=(key,icon,main,side,onClick)=>(
     <div key={key} onClick={()=>{onClick();close();}} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 16px",borderTop:`1px solid ${T.border}55`,cursor:"pointer",fontSize:12.5,color:T.text}}>
@@ -19780,9 +19803,16 @@ function GlobalSearch({isMobile,go}){
       <span style={{flexShrink:0,fontSize:10,color:T.textTert,fontWeight:700,whiteSpace:"nowrap"}}>{side} ›</span>
     </div>
   );
+  const roleTag=(r)=>r==="buyer"?"🔥 Buyer":r==="agent"?"👤 Agent":r==="lead"?"📞 Lead":"👤";
+  const fmtPhQ=(p)=>{const d=String(p||"").replace(/\D/g,"").replace(/^1/,"");return d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:p;};
   const results=res&&(
     <div style={{maxHeight:"min(480px,62vh)",overflowY:"auto"}}>
-      {res.props.length===0&&res.cons.length===0&&res.msgs.length===0&&<div style={{padding:"18px 16px",textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing matches “{q}”.</div>}
+      {res.props.length===0&&res.cons.length===0&&res.msgs.length===0&&res.people.length===0&&res.tasks.length===0&&<div style={{padding:"18px 16px",textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing matches “{q}”.</div>}
+      {res.people.length>0&&sec("👥 AGENTS, BUYERS & LEADS")}
+      {res.people.map(pe=>row("pe"+pe.phone,pe.role==="buyer"?"🔥":"👤",
+        <><b>{pe.name||fmtPhQ(pe.phone)}</b>{pe.name?` · ${fmtPhQ(pe.phone)}`:""}{pe.addr?` — 🏠 ${pe.addr}`:""}</>,
+        roleTag(pe.role),
+        ()=>setTxFor({phone:pe.phone,name:pe.name||fmtPhQ(pe.phone),sub:[roleTag(pe.role),pe.addr?`🏠 ${pe.addr}`:""].filter(Boolean).join(" · "),prop:pe.addr||""})))}
       {res.props.length>0&&sec("🏠 PROPERTIES")}
       {res.props.map(p=>row("p"+p.id,"🏠",<><b>{p.address}</b>{p.status?` — ${p.status}`:""}{p.archived?" · archived":""}</>,"Property portal",()=>go.prop(p.id)))}
       {res.props.length>0&&sec("📅 SHOWINGS")}
@@ -19791,19 +19821,25 @@ function GlobalSearch({isMobile,go}){
       {go.fin&&res.props.map(p=>row("f"+p.id,"💰",<b>{p.address}</b>,"Financial Section",()=>go.fin(p.id)))}
       {res.cons.length>0&&sec("👥 CONTACTS")}
       {res.cons.map(c=>row("c"+c.id,"👤",<><b>{c.name||"(no name)"}</b>{c.company?` — ${c.company}`:""}</>,"Contacts",()=>go.contact(c.name||c.company||q)))}
+      {res.tasks.length>0&&sec("☑ TASKS")}
+      {res.tasks.map((tk,i)=>row("t"+i,"☑",<><b>{tk.text.slice(0,60)}{tk.text.length>60?"…":""}</b> — {tk.addr}{tk.status!=="Not Started"?` · ${tk.status}`:""}</>,"Dashboard",()=>tk.pid?go.prop(tk.pid):go.chat("__office__")))}
       {res.msgs.length>0&&sec("💬 MESSAGES")}
       {res.msgs.map((m,i)=>row("m"+i,"💬",<>“{m.text.slice(0,70)}{m.text.length>70?"…":""}” — {String(m.by).split(" ")[0]||"team"} · {m.addr}</>,"Chat",()=>go.chat(m.pid)))}
     </div>
   );
+  // Tapping a person opens their conversation right here — timeline, identity
+  // and templates — no matter which page you searched from.
+  const txPopup=txFor&&<SmsThreadPopup phone={txFor.phone} name={txFor.name} prop={txFor.prop} sub={txFor.sub} onClose={()=>setTxFor(null)}/>;
   if(isMobile){
     return(<>
       <button onClick={()=>setOpen(true)} title="Search everything" aria-label="Search" style={TOPBAR_SEG}><SearchIcon/></button>
+      {txPopup}
       {open&&(
         <div onClick={close} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:520,backdropFilter:"blur(4px)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"max(14px,env(safe-area-inset-top)) 10px 10px",boxSizing:"border-box"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"100%",maxWidth:520,overflow:"hidden",boxShadow:"0 18px 54px rgba(0,0,0,0.28)",display:"flex",flexDirection:"column",maxHeight:"84vh"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 13px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
               <span style={{fontSize:14}}>🔍</span>
-              <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search properties, contacts, messages…" style={{flex:1,minWidth:0,border:"none",outline:"none",fontSize:14,fontFamily:"inherit",color:T.text,background:"transparent"}}/>
+              <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search anything — a name, a number, an address…" style={{flex:1,minWidth:0,border:"none",outline:"none",fontSize:14,fontFamily:"inherit",color:T.text,background:"transparent"}}/>
               <button onClick={close} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
             </div>
             <div style={{overflowY:"auto"}}>
@@ -19816,6 +19852,7 @@ function GlobalSearch({isMobile,go}){
   }
   return(
     <div style={{position:"relative",flexShrink:1,minWidth:130,width:290}}>
+      {txPopup}
       <div style={{display:"flex",alignItems:"center",gap:7,border:`1.5px solid ${open&&ql?T.gold:T.border}`,borderRadius:16,padding:"5px 12px",background:"#FDFBF4"}}>
         <span style={{fontSize:12,color:T.textTert}}>🔍</span>
         <input value={q} onFocus={()=>setOpen(true)} onChange={e=>{setQ(e.target.value);setOpen(true);}} placeholder="Search anything…" style={{flex:1,minWidth:0,border:"none",outline:"none",fontSize:12.5,fontFamily:"inherit",color:T.text,background:"transparent"}}/>
@@ -20621,7 +20658,7 @@ export function GoldstoneShell(){
               // Option B toolbar: everything lives in ONE glass capsule — no
               // backdrop-filter here (overlays are DOM children of these
               // buttons; a filter would trap them — see index.css note).
-              const searchEl=<GlobalSearch isMobile={isMobile} go={{
+              const searchEl=<GlobalSearch isMobile={isMobile} who={whoG} go={{
                 prop:(id)=>{pushPage("properties");setNavPropId(id);},
                 showings:(id)=>{try{window.__showingsTarget={propId:id,tab:"buyers"};}catch{/* no window */}pushPage("showings");},
                 fin:isAdmin?()=>pushPage("financials"):null,

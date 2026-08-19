@@ -62,3 +62,31 @@ export function SmsChatIcon({ size = 15, color = "currentColor", strokeWidth = 2
     </svg>
   );
 }
+
+// Top-bar glass-capsule icons (Option B toolbar) — thin-line, currentColor.
+export function SearchIcon({ size = 17, color = "currentColor", strokeWidth = 1.7 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" aria-hidden="true" style={{ display: "block" }}>
+      <circle cx="7" cy="7" r="4.4" />
+      <path d="M10.4 10.4 L14 14" />
+    </svg>
+  );
+}
+
+export function SparkleIcon({ size = 17, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill={color} aria-hidden="true" style={{ display: "block" }}>
+      <path d="M8 1.5 l1.4 3.9 3.9 1.4 -3.9 1.4 -1.4 3.9 -1.4-3.9 -3.9-1.4 3.9-1.4z" />
+      <path d="M13 10.6 l.6 1.7 1.7.6 -1.7.6 -.6 1.7 -.6-1.7 -1.7-.6 1.7-.6z" opacity=".7" />
+    </svg>
+  );
+}
+
+export function GearIcon({ size = 18, color = "currentColor", strokeWidth = 1.5 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 17 17" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" aria-hidden="true" style={{ display: "block" }}>
+      <circle cx="8.5" cy="8.5" r="2.4" />
+      <path d="M8.5 1.6 v2 M8.5 13.4 v2 M1.6 8.5 h2 M13.4 8.5 h2 M3.6 3.6 l1.4 1.4 M12 12 l1.4 1.4 M13.4 3.6 L12 5 M5 12 l-1.4 1.4" />
+    </svg>
+  );
+}

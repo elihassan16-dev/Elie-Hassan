@@ -15,7 +15,7 @@ import { usePersistentDraft } from "./useDraft";
 import { ContractorsAdminPage, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
-import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon } from "./icons";
+import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
 import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp, setSmsPropTimeline } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
@@ -19780,7 +19780,7 @@ function GlobalSearch({isMobile,go}){
   );
   if(isMobile){
     return(<>
-      <button onClick={()=>setOpen(true)} title="Search everything" aria-label="Search" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",width:28,height:28,minWidth:28,flexShrink:0,background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,padding:0,lineHeight:1,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>🔍</button>
+      <button onClick={()=>setOpen(true)} title="Search everything" aria-label="Search" style={TOPBAR_SEG}><SearchIcon/></button>
       {open&&(
         <div onClick={close} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:520,backdropFilter:"blur(4px)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"max(14px,env(safe-area-inset-top)) 10px 10px",boxSizing:"border-box"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"100%",maxWidth:520,overflow:"hidden",boxShadow:"0 18px 54px rgba(0,0,0,0.28)",display:"flex",flexDirection:"column",maxHeight:"84vh"}}>
@@ -20079,6 +20079,10 @@ function PersonCard({phone,name,who,showFeed,onText,onClose,email="",broker=""})
     </div>
   );
 }
+// One segment of the top bar's glass capsule (Option B toolbar): fixed slot,
+// no chrome of its own — the capsule supplies the pill; icons are line SVGs.
+const TOPBAR_SEG={width:38,height:36,minHeight:36,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"none",border:"none",cursor:"pointer",color:"#6E6E73",padding:0,fontFamily:"inherit",position:"relative",flexShrink:0,boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1};
+
 function PhoneTopButton(){
   const{connected,msgs}=useSmsTexting();
   const jv=useJivetelCall();
@@ -20092,8 +20096,8 @@ function PhoneTopButton(){
   const missedN=(msgs||[]).filter(m=>m.kind==="call"&&m.missed&&m.direction==="call-in"&&String(m.at||"")>seen&&String(m.at||"")>weekAgo).length;
   const openUp=()=>{setOpen(true);if(savePrefs)Promise.resolve(savePrefs({callsSeenAt:new Date().toISOString()})).catch(()=>{/* badge just stays */});};
   return(<>
-    <button onClick={openUp} title="Phone — dialer & call history" aria-label="Phone" style={{position:"relative",boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:"1px solid #3BA55D",background:"#EDFBF1",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0}}>📞
-      {missedN>0&&<UnreadBadge count={missedN} style={{position:"absolute",top:-6,right:-6,minWidth:16,height:16,fontSize:9.5}}/>}
+    <button onClick={openUp} title="Phone — dialer & call history" aria-label="Phone" style={TOPBAR_SEG}><PhoneIcon size={17} strokeWidth={1.6}/>
+      {missedN>0&&<UnreadBadge count={missedN} style={{position:"absolute",top:1,right:1,minWidth:15,height:15,fontSize:9}}/>}
     </button>
     {open&&<PhonePopup onClose={()=>setOpen(false)}/>}
   </>);
@@ -20587,19 +20591,29 @@ export function GoldstoneShell(){
             <div style={{fontWeight:700,fontSize:17,color:T.text}}>{NAV.find(n=>n.key===active)?.label}</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
-            <GlobalSearch isMobile={isMobile} go={{
-              prop:(id)=>{pushPage("properties");setNavPropId(id);},
-              showings:(id)=>{try{window.__showingsTarget={propId:id,tab:"buyers"};}catch{/* no window */}pushPage("showings");},
-              fin:isAdmin?()=>pushPage("financials"):null,
-              chat:(id)=>{pushPage("messages");setNavChatId(id);},
-              contact:(qq)=>{try{window.__contactsTarget={q:qq};}catch{/* no window */}pushPage("contacts");},
-            }}/>
-            {!isMobile&&<div style={{fontSize:13,color:T.textSub,whiteSpace:"nowrap"}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>}
-            <PhoneTopButton/>
-            <button onClick={()=>setShowAiAssistant(true)} title="Goldstone Assistant — ask AI anything" aria-label="AI assistant" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:28,minWidth:28,flexShrink:0,borderRadius:14,border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,padding:isMobile?"0 7px":"0 11px",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:4}}>✨{!isMobile&&" AI"}</button>
-            {isMobile&&<div role="button" onClick={()=>setShowProfileMenu(true)} title="Profile & team" aria-label="Profile and team" style={{boxSizing:"border-box",lineHeight:1,width:28,height:28,minWidth:28,maxWidth:28,flex:"0 0 28px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff",cursor:"pointer"}}>{initials}</div>}
-            {isAdmin&&<button onClick={()=>setShowSettings(true)} title="Settings" aria-label="Settings" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",width:28,height:28,minWidth:28,flexShrink:0,background:"none",border:`1px solid ${T.border}`,borderRadius:"50%",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14,padding:0,lineHeight:1,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>⚙</button>}
-            {isMobile&&<button onClick={signOut} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",height:28,flexShrink:0,background:"none",border:`1px solid ${T.border}`,borderRadius:14,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:600,padding:"0 11px",lineHeight:1,whiteSpace:"nowrap",display:"inline-flex",alignItems:"center"}}>Sign out</button>}
+            {(()=>{
+              // Option B toolbar: everything lives in ONE glass capsule — no
+              // backdrop-filter here (overlays are DOM children of these
+              // buttons; a filter would trap them — see index.css note).
+              const searchEl=<GlobalSearch isMobile={isMobile} go={{
+                prop:(id)=>{pushPage("properties");setNavPropId(id);},
+                showings:(id)=>{try{window.__showingsTarget={propId:id,tab:"buyers"};}catch{/* no window */}pushPage("showings");},
+                fin:isAdmin?()=>pushPage("financials"):null,
+                chat:(id)=>{pushPage("messages");setNavChatId(id);},
+                contact:(qq)=>{try{window.__contactsTarget={q:qq};}catch{/* no window */}pushPage("contacts");},
+              }}/>;
+              return(<>
+                {!isMobile&&searchEl}
+                {!isMobile&&<div style={{fontSize:13,color:T.textSub,whiteSpace:"nowrap"}}>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>}
+                <div style={{display:"flex",alignItems:"center",height:38,borderRadius:19,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:"0 3px",flexShrink:0,minWidth:0}}>
+                  {isMobile&&searchEl}
+                  <PhoneTopButton/>
+                  <button onClick={()=>setShowAiAssistant(true)} title="Goldstone Assistant — ask AI anything" aria-label="AI assistant" style={{...TOPBAR_SEG,color:T.gold}}><SparkleIcon/></button>
+                  {isAdmin&&<button onClick={()=>setShowSettings(true)} title="Settings" aria-label="Settings" style={TOPBAR_SEG}><GearIcon/></button>}
+                  {isMobile&&<div role="button" onClick={()=>setShowProfileMenu(true)} title="Profile & team — sign out lives here" aria-label="Profile and team" style={{boxSizing:"border-box",lineHeight:1,width:30,height:30,minWidth:30,flex:"0 0 30px",margin:"0 3px 0 2px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#fff",cursor:"pointer"}}>{initials}</div>}
+                </div>
+              </>);
+            })()}
           </div>
         </div>
         <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>

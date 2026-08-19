@@ -10220,27 +10220,14 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
     if(busy)return;
     setBusy(true);setErr("");
     try{
-      // ChatARV (MLS-fresh closed sales) is the preferred comp source when its
-      // key is configured; RentCast still supplies the subject record and the
-      // as-is estimate, and its deed comps carry the sheet as fallback.
+      // RentCast supplies the subject record, the as-is estimate, and the
+      // deed-recorded sold comps that carry the underwrite.
       const data=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(address)}&radius=${radiusSel}&months=${monthsSel}${force?"&force=1":""}`);
-      // ── Preferred: MCP underwrite — the AI pulls MLS comps from ChatARV
-      // itself (their MCP server) and returns comps + ARV in one pass. ──
-      let mcpRes=null,chatNote="";
-      try{mcpRes=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan:planFull(),after:afterCfg(),subject:data.subject,value:data.value,mcp:true})});}
-      catch(e){chatNote=`ChatARV: ${String(e.message||"unreachable").slice(0,140)}`;}
-      if(mcpRes&&mcpRes.arv&&Array.isArray(mcpRes.comps)&&mcpRes.comps.length>=3){
-        upMany({arvAi:{at:new Date().toISOString(),plan,after:afterCfg(),provider:mcpRes.provider||"ChatARV (MLS)",filters:{radius:radiusSel,months:monthsSel},arv:mcpRes.arv,low:mcpRes.low,high:mcpRes.high,psf:mcpRes.psf,reasoning:mcpRes.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
-          comps:mcpRes.comps}});
-        setOvr({});setPricesDirty(false);setBusy(false);return;
-      }
-      if(!chatNote)chatNote="ChatARV came back thin — using county records";
-      // ── Fallback: county-record comps + the classic underwrite. ──
       let comps=data.comps||[],provider="county records";
       if(!comps.length)throw new Error(`No sold comps within ${radiusSel} mi / ${monthsSel} months — widen the filters and run again.`);
       const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan:planFull(),after:afterCfg(),subject:data.subject,value:data.value,comps})});
       const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
-      upMany({arvAi:{at:new Date().toISOString(),plan,after:afterCfg(),provider,chatNote,filters:{radius:radiusSel,months:monthsSel},arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
+      upMany({arvAi:{at:new Date().toISOString(),plan,after:afterCfg(),provider,filters:{radius:radiusSel,months:monthsSel},arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
         comps:comps.map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
       setOvr({});setPricesDirty(false);
     }catch(e){setErr(e.message||"The underwrite failed — try again.");}
@@ -10370,7 +10357,6 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
               <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.55,marginTop:6}}>{res.reasoning}</div>
               {res.asIs>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>Automated as-is estimate: {fmtD(res.asIs)} · comps: {res.provider||"county records"} · underwritten {new Date(res.at).toLocaleDateString()}{res.filters?` · within ${res.filters.radius} mi, sold last ${res.filters.months} mo`:""}</div>}
               {res.after&&<div style={{fontSize:10.5,color:"#8a6d1f",fontWeight:700,marginTop:3}}>🏗 Valued as finished: {[res.after.scope?({light:"light rehab",mid:"mid rehab",gut:"full gut"})[res.after.scope]:"",res.after.sqftAdd?`+${res.after.sqftAdd} sf`:"",res.after.beds?`${res.after.beds} bd`:"",(res.after.bathsFull||res.after.bathsHalf)?`${res.after.bathsFull||0} full${res.after.bathsHalf?` + ${res.after.bathsHalf} half`:""} ba`:""].filter(Boolean).join(" · ")}</div>}
-              {res.chatNote&&<div style={{fontSize:10.5,color:"#B45309",fontWeight:700,marginTop:3}}>⚠ {res.chatNote}</div>}
               <div style={{overflowX:"auto",marginTop:6}}>
                 <table style={{borderCollapse:"collapse",width:"100%",minWidth:520}}>
                   <thead><tr>{["COMP","LIST","SOLD","WHEN","$/SF","DIST",""].map(h=><th key={h} style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>

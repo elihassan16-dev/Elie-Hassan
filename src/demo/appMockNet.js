@@ -20,7 +20,6 @@ export async function qbAuthFetch(path) {
   if (p.includes("/api/quickbooks")) return { connected: false, rows: [], income: 0, cogs: 0, expenses: 0, netIncome: 0 };
   if (p.includes("/api/boldtrail")) return { leads: [] };
   if (p.includes("/api/rentcast")) throw new Error("Preview mode — RentCast runs on the live site.");
-  if (p.includes("/api/chatarv")) throw new Error("Preview mode — ChatARV runs on the live site.");
   if (p.includes("/api/ai/")) throw new Error("Preview mode — AI runs on the live site.");
   return { ok: true };
 }

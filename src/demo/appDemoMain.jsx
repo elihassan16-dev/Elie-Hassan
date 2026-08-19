@@ -4,6 +4,10 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import "../index.css";
+// Font candidates for preview A/B shots (self-hosted, harness-only imports —
+// the real app pulls in only the face Elie picks).
+import "@fontsource-variable/inter";
+import "@fontsource-variable/manrope";
 import { AuthProvider } from "../auth/AuthProvider";
 import { DataProvider } from "../data/DataProvider";
 import { GoldstoneShell } from "../GoldstoneApp";

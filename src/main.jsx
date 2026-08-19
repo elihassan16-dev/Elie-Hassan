@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import "@fontsource-variable/inter";
 import "./index.css";
 import { AuthProvider } from "./auth/AuthProvider";
 import Root from "./App.jsx";

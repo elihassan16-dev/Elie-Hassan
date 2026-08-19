@@ -8543,7 +8543,7 @@ function TasksPage({onNavigate}){
   };
   const[dashText,setDashText]=useState(null); // {phone,name,address} → showing-agent conversation
   const dashCardHd=(icon,label,n,bg,fg,bd)=>(
-    <div style={{padding:"11px 14px 9px",borderBottom:`1px solid ${T.border}`,fontSize:12,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:6}}>{icon} {label}{n!=null&&<span style={{marginLeft:"auto",fontSize:10,fontWeight:800,background:bg,color:fg,border:`1px solid ${bd}`,borderRadius:10,padding:"2px 8px"}}>{n}</span>}</div>
+    <div style={{padding:"12px 15px 10px",borderBottom:`1px solid ${T.border}`,fontSize:13,fontWeight:650,letterSpacing:"-0.01em",color:T.text,display:"flex",alignItems:"center",gap:6}}>{icon} {label}{n!=null&&<span style={{marginLeft:"auto",fontSize:10,fontWeight:650,background:bg,color:fg,border:`1px solid ${bd}`,borderRadius:10,padding:"2px 8px"}}>{n}</span>}</div>
   );
   const dashTodayCard=()=>{
     const today=dashTodayList();
@@ -8586,9 +8586,9 @@ function TasksPage({onNavigate}){
   );
   const dashScrollTo=(id)=>{const el=document.getElementById(id);if(el)el.scrollIntoView({behavior:"smooth",block:"start"});};
   const dashTile=(icon,bg,n,label,color,target)=>(
-    <div key={label} onClick={()=>dashScrollTo(target)} style={{background:T.card,borderRadius:14,padding:isMobile?"11px 13px":"12px 15px",boxShadow:T.shadow,display:"flex",alignItems:"center",gap:10,cursor:"pointer",minWidth:0}}>
-      <span style={{width:34,height:34,borderRadius:10,background:bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{icon}</span>
-      <span style={{minWidth:0}}><div style={{fontSize:19,fontWeight:800,color:color||T.text,lineHeight:1.1}}>{n}</div><div style={{fontSize:9.5,fontWeight:700,color:T.textSub,letterSpacing:"0.03em",whiteSpace:"nowrap"}}>{label}</div></span>
+    <div key={label} onClick={()=>dashScrollTo(target)} style={{background:T.card,borderRadius:16,padding:isMobile?"12px 14px":"15px 18px",boxShadow:T.shadow,display:"flex",alignItems:"center",gap:12,cursor:"pointer",minWidth:0}}>
+      <span style={{width:isMobile?34:40,height:isMobile?34:40,borderRadius:12,background:bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMobile?16:18,flexShrink:0}}>{icon}</span>
+      <span style={{minWidth:0}}><div style={{fontSize:isMobile?22:28,fontWeight:650,letterSpacing:"-0.025em",fontVariantNumeric:"tabular-nums",color:color||T.text,lineHeight:1.05}}>{n}</div><div style={{fontSize:10,fontWeight:600,color:"#8E8E93",letterSpacing:"0.08em",whiteSpace:"nowrap",marginTop:2}}>{label}</div></span>
     </div>
   );
   const dashTiles=()=>(
@@ -8931,10 +8931,10 @@ function TasksPage({onNavigate}){
         return <TaskContactCard task={liveTask} contacts={dir} onAssign={(val)=>setTaskContact(taskContactTarget.propId,liveTask.id,val)} onCreateContact={addContactToDir} onClose={()=>setTaskContactTarget(null)}/>;
       })()}
       {/* Header */}
-      <div style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>
+      <div className="gs-dash-hd" style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-          <div style={{fontSize:isMobile?19:22,fontWeight:700,color:T.text}}>Dashboard</div>
-          <button onClick={()=>setShowAddTasks(true)} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,padding:isMobile?"8px 12px":"9px 16px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:isMobile?13:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}><span style={{fontSize:16,lineHeight:1}}>＋</span>{isMobile?"Add":"Add Tasks"}</button>
+          <div style={{fontSize:isMobile?21:27,fontWeight:700,letterSpacing:"-0.022em",color:T.text}}>Dashboard</div>
+          <button onClick={()=>setShowAddTasks(true)} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,padding:isMobile?"8px 12px":"9px 16px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:isMobile?13:14,letterSpacing:"-0.01em",cursor:"pointer",fontFamily:"inherit",flexShrink:0}}><span style={{fontSize:16,lineHeight:1}}>＋</span>{isMobile?"Add":"Add Tasks"}</button>
         </div>
         {isMobile?(()=>{
           // Compact filter bar for mobile — multi-select dropdowns instead of chip rows.
@@ -8968,9 +8968,9 @@ function TasksPage({onNavigate}){
         <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
           {Object.entries(summaryByStatus).filter(([,v])=>v>0).map(([s,v])=>{
             const sc=statusColors[s]||statusColors["Not Started"];
-            return <div key={s} style={{background:sc.bg,color:sc.color,fontSize:12,fontWeight:700,padding:"5px 14px",borderRadius:20}}>{v} {s}</div>;
+            return <div key={s} style={{background:sc.bg,color:sc.color,fontSize:12.5,fontWeight:600,padding:"5px 14px",borderRadius:20}}><span style={{fontWeight:650,fontVariantNumeric:"tabular-nums"}}>{v}</span> {s}</div>;
           })}
-          <div style={{background:T.bg,color:T.textSub,fontSize:12,fontWeight:700,padding:"5px 14px",borderRadius:20,border:bdr}}>{allTasks.length} Total Tasks</div>
+          <div style={{background:T.bg,color:T.textSub,fontSize:12.5,fontWeight:600,padding:"5px 14px",borderRadius:20,border:bdr}}><span style={{fontWeight:650,fontVariantNumeric:"tabular-nums"}}>{allTasks.length}</span> Total Tasks</div>
         </div>
         {/* View tabs — the By-property list shows everything, so they hide there */}
         {!byProp&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -8978,7 +8978,7 @@ function TasksPage({onNavigate}){
             const active=views.has(k);
             return(
               <button key={k} onClick={()=>setViews(prev=>{const n=new Set(prev);active?n.delete(k):n.add(k);return n;})}
-                style={{padding:"7px 16px",borderRadius:20,border:`1.5px solid ${active?T.gold:T.border}`,background:active?T.goldLight:"transparent",color:active?T.gold:T.textSub,fontWeight:active?700:400,fontSize:13,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5}}>
+                style={{padding:"7px 16px",borderRadius:20,border:`1px solid ${active?T.gold:T.border}`,background:active?T.goldLight:"transparent",color:active?T.gold:T.textSub,fontWeight:active?600:450,fontSize:13,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5}}>
                 {active&&<span style={{fontSize:10}}>✓</span>}{l}{k==="my"&&myTasks.length>0?` (${myTasks.length})`:k==="unassigned"?` (${unassignedTasks.length})`:""}
               </button>
             );
@@ -8987,7 +8987,7 @@ function TasksPage({onNavigate}){
         </>)}
       </div>
 
-      <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
+      <div className="gs-dash" style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
       {/* 🏠 Dashboard tiles — tap one to jump to its card */}
       {!showAutomations&&dashTiles()}
       {dashTextPopup()}
@@ -8999,7 +8999,7 @@ function TasksPage({onNavigate}){
         {/* One tidy chip row replaces the old stack of banners: 🔔 new · ✓ done ·
             👷 external · ☑ select. In select mode it becomes the bulk toolbar. */}
         {!showAutomations&&(()=>{
-          const chip=(fg,bg,on=true)=>({display:"inline-flex",alignItems:"center",gap:6,padding:"8px 13px",borderRadius:20,border:`1px solid ${on?fg:T.border}`,background:on?bg:T.card,color:on?fg:T.textSub,fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,whiteSpace:"nowrap"});
+          const chip=(fg,bg,on=true)=>({display:"inline-flex",alignItems:"center",gap:6,padding:"8px 13px",borderRadius:20,border:`1px solid ${on?`${fg}55`:T.border}`,background:on?bg:T.card,color:on?fg:T.textSub,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,whiteSpace:"nowrap"});
           const cnt=(n,bg)=><span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:9,background:bg,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>{n}</span>;
           return(
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14,maxWidth:840}}>
@@ -9214,17 +9214,17 @@ function TasksPage({onNavigate}){
               const openProps=rows.filter(r=>r.open>0&&!r.office).length;
               return(
                 <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14,maxWidth:840}}>
-                  <div style={{padding:"11px 15px 9px",borderBottom:bdr,fontSize:12,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:6}}>🏠 Properties with open tasks
+                  <div style={{padding:"12px 16px 10px",borderBottom:bdr,fontSize:13,fontWeight:650,letterSpacing:"-0.01em",color:T.text,display:"flex",alignItems:"center",gap:6}}>🏠 Properties with open tasks
                     <span style={{marginLeft:"auto",fontSize:10,fontWeight:800,background:"#FFF4E5",color:"#B45309",border:"1px solid #F6C9B2",borderRadius:10,padding:"2px 8px"}}>{openProps}</span>
                   </div>
                   {rows.map((r,i)=>{
                     const sc=r.office?{color:T.textSub,bg:"#F1F1F4"}:(SC[r.status]||{});
                     const pct=r.total?Math.round(r.done/r.total*100):0;
-                    const chipEl=(r.office||r.status)?<span style={{fontSize:9,fontWeight:800,color:sc.color,background:sc.bg,padding:"3px 9px",borderRadius:8,whiteSpace:"nowrap",flexShrink:0}}>{r.office?"GENERAL":String(r.status).toUpperCase()}</span>:null;
+                    const chipEl=(r.office||r.status)?<span style={{fontSize:9,fontWeight:650,letterSpacing:"0.05em",color:sc.color,background:sc.bg,padding:"3px 9px",borderRadius:8,whiteSpace:"nowrap",flexShrink:0}}>{r.office?"GENERAL":String(r.status).toUpperCase()}</span>:null;
                     const barEl=<span style={{flex:1,height:7,borderRadius:4,background:"#F1F1F4",overflow:"hidden",minWidth:36}}><span style={{display:"block",height:"100%",width:`${pct}%`,background:"#34C759"}}/></span>;
                     // One number per row — YOUR open tasks. No team tallies (those
                     // live in the popup); the bar alone shows overall progress.
-                    const mineEl=r.mine>0?<span style={{fontSize:11,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:"1px solid #E5D9A9",borderRadius:10,padding:"3px 10px",whiteSpace:"nowrap"}}>👤 {r.mine} for you</span>:null;
+                    const mineEl=r.mine>0?<span style={{fontSize:11,fontWeight:600,color:"#8a6d1f",background:T.goldLight,borderRadius:10,padding:"4px 10px",whiteSpace:"nowrap"}}>👤 {r.mine} for you</span>:null;
                     // 💬 Unread task-chat messages, totaled across the property's
                     // tasks — its own fixed slot on desktop so nothing shifts.
                     const msgEl=(sz)=>r.msgs>0?(
@@ -9239,10 +9239,7 @@ function TasksPage({onNavigate}){
                         onMouseEnter={e=>e.currentTarget.style.background="#FBFAF6"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                         {isMobile?(<>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            {/* Weight 700, not 800 — Windows renders heavier weights of its
-                                system font cramped and fuzzy at this size; 700 is crisp on
-                                every platform and looks the same on iPhone/iPad. */}
-                            <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
+                            <span style={{flex:1,minWidth:0,fontSize:14,fontWeight:600,letterSpacing:"-0.01em",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
                             {msgEl(24)}{mineEl}<span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:8,marginTop:7}}>{chipEl}{barEl}</div>
@@ -9250,7 +9247,7 @@ function TasksPage({onNavigate}){
                           /* Fixed-width slots for the status chip, 💬 bubble and
                              "for you" pill keep every progress bar the exact same length. */
                           <div style={{display:"flex",alignItems:"center",gap:12}}>
-                            <span style={{width:235,flexShrink:0,fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
+                            <span style={{width:235,flexShrink:0,fontSize:14,fontWeight:600,letterSpacing:"-0.01em",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
                             <span style={{width:150,flexShrink:0,display:"flex",justifyContent:"center"}}>{chipEl}</span>
                             {barEl}
                             <span style={{width:34,flexShrink:0,display:"flex",justifyContent:"center"}}>{msgEl(27)}</span>
@@ -20527,7 +20524,7 @@ export function GoldstoneShell(){
         </div>
       </aside>
       <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <div style={{minHeight:54,padding:isMobile?"max(8px,env(safe-area-inset-top)) 16px 8px":"0 24px",borderBottom:`1px solid ${T.border}`,background:T.card,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+        <div className="gs-topbar" style={{minHeight:54,padding:isMobile?"max(8px,env(safe-area-inset-top)) 16px 8px":"0 24px",borderBottom:`1px solid ${T.border}`,background:T.card,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             {isMobile&&<button onClick={()=>setShowNavMenu(true)} title="Menu" aria-label="Open menu" style={{width:36,height:36,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer",padding:0,flexShrink:0,backgroundColor:"#fff",backgroundImage:"url(/logo.png)",backgroundRepeat:"no-repeat",backgroundSize:"185%",backgroundPosition:"50% 27%"}}/>}
             <div style={{fontWeight:700,fontSize:17,color:T.text}}>{NAV.find(n=>n.key===active)?.label}</div>

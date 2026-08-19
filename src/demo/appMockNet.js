@@ -15,7 +15,7 @@ export async function uploadStreamVideo(file) { return uploadAttachment(file); }
 export async function qbAuthFetch(path) {
   const p = String(path);
   if (p.includes("/api/showings")) return { configured: true, showings: [] };
-  if (p.includes("/api/jivetel/send")) return { connected: false, from: "", lines: {} };
+  if (p.includes("/api/jivetel/send")) return { connected: true, from: "+17325550100", lines: {} };
   if (p.includes("/api/team/roster")) return { names: ["Elie Hassan", "Moshe Hamaoui", "Esti Ungar"] };
   if (p.includes("/api/quickbooks")) return { connected: false, rows: [], income: 0, cogs: 0, expenses: 0, netIncome: 0 };
   if (p.includes("/api/boldtrail")) return { leads: [] };

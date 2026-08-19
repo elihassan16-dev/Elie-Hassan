@@ -42,6 +42,8 @@ const PROPS = [
       { id: 2, text: "Follow up on the inspection at 417 Lakeview Ter — get the report / talk to the buyer's side", cat: "Inspections", status: "Not Started", assignee: "Moshe Hamaoui", delegate: "", autoId: "insp-fup:demo", assignedAt: Date.now(), assignedBy: "Elie Hassan" },
     ],
     contacts: [2001],
+    customLeads: [{ id: 1, name: "Papa Pay", phone: "(908) 555-0142", buyer: true, at: days(-2) }],
+    showingSnapshots: { "sh-1": { agent: "Dominique Bell", phone: "(609) 555-0177" } },
   },
   {
     id: 1002, address: "32 Oakland Ave", city: "Newfield", state: "NJ", zip: "08344", status: "Under Contract",

@@ -10177,6 +10177,39 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
   const saved=f.arvAi||null;
   const[open,setOpen]=useState(false);
   const[plan,setPlan]=useState((saved&&saved.plan)||"");
+  // 📋 The questionnaire: what will the FINISHED house be? Scope + sqft/bed/
+  // bath changes ride to the underwriter so it values the finished product,
+  // not the county record. "keep" answers send nothing — records stand.
+  const sa=(saved&&saved.after)||{};
+  const[scope,setScope]=useState(sa.scope||"");
+  const[sqMode,setSqMode]=useState(sa.sqftAdd?"add":"keep");
+  const[sqftAdd,setSqftAdd]=useState(sa.sqftAdd||"");
+  const[bedMode,setBedMode]=useState(sa.beds?"set":"keep");
+  const[bedsAfter,setBedsAfter]=useState(sa.beds||"");
+  const[bathMode,setBathMode]=useState((sa.bathsFull||sa.bathsHalf)?"set":"keep");
+  const[bathsFull,setBathsFull]=useState(sa.bathsFull||"");
+  const[bathsHalf,setBathsHalf]=useState(sa.bathsHalf||"");
+  const SCOPE_TXT={light:"Light cosmetic rehab (paint, floors, fixtures)",mid:"Mid rehab (kitchen or baths + some systems)",gut:"Full gut renovation"};
+  const afterCfg=()=>{
+    const a={};
+    if(scope)a.scope=scope;
+    if(sqMode==="add"&&Number(sqftAdd)>0)a.sqftAdd=Number(sqftAdd);
+    if(bedMode==="set"&&Number(bedsAfter)>0)a.beds=Number(bedsAfter);
+    if(bathMode==="set"&&(Number(bathsFull)>0||Number(bathsHalf)>0)){a.bathsFull=Number(bathsFull)||0;a.bathsHalf=Number(bathsHalf)||0;}
+    return Object.keys(a).length?a:null;
+  };
+  // One plain-English plan string built from the answers + free notes — the
+  // prompt's plan-scaling rules key off it in both underwrite modes.
+  const planFull=()=>{
+    const a=afterCfg()||{};
+    return[
+      a.scope?SCOPE_TXT[a.scope]:"",
+      a.sqftAdd?`adding ~${a.sqftAdd} finished sf`:"",
+      a.beds?`finished bedroom count: ${a.beds}`:"",
+      (a.bathsFull||a.bathsHalf)?`finished baths: ${a.bathsFull||0} full${a.bathsHalf?` + ${a.bathsHalf} half`:""}`:"",
+      plan,
+    ].filter(Boolean).join(". ");
+  };
   const[radiusSel,setRadiusSel]=useState((saved&&saved.filters&&saved.filters.radius)||1);
   const[monthsSel,setMonthsSel]=useState((saved&&saved.filters&&saved.filters.months)||12);
   const[busy,setBusy]=useState(false);
@@ -10194,10 +10227,10 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
       // ── Preferred: MCP underwrite — the AI pulls MLS comps from ChatARV
       // itself (their MCP server) and returns comps + ARV in one pass. ──
       let mcpRes=null,chatNote="";
-      try{mcpRes=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan,subject:data.subject,value:data.value,mcp:true})});}
+      try{mcpRes=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan:planFull(),after:afterCfg(),subject:data.subject,value:data.value,mcp:true})});}
       catch(e){chatNote=`ChatARV: ${String(e.message||"unreachable").slice(0,140)}`;}
       if(mcpRes&&mcpRes.arv&&Array.isArray(mcpRes.comps)&&mcpRes.comps.length>=3){
-        upMany({arvAi:{at:new Date().toISOString(),plan,provider:mcpRes.provider||"ChatARV (MLS)",filters:{radius:radiusSel,months:monthsSel},arv:mcpRes.arv,low:mcpRes.low,high:mcpRes.high,psf:mcpRes.psf,reasoning:mcpRes.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
+        upMany({arvAi:{at:new Date().toISOString(),plan,after:afterCfg(),provider:mcpRes.provider||"ChatARV (MLS)",filters:{radius:radiusSel,months:monthsSel},arv:mcpRes.arv,low:mcpRes.low,high:mcpRes.high,psf:mcpRes.psf,reasoning:mcpRes.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
           comps:mcpRes.comps}});
         setOvr({});setPricesDirty(false);setBusy(false);return;
       }
@@ -10205,9 +10238,9 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
       // ── Fallback: county-record comps + the classic underwrite. ──
       let comps=data.comps||[],provider="county records";
       if(!comps.length)throw new Error(`No sold comps within ${radiusSel} mi / ${monthsSel} months — widen the filters and run again.`);
-      const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan,subject:data.subject,value:data.value,comps})});
+      const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan:planFull(),after:afterCfg(),subject:data.subject,value:data.value,comps})});
       const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
-      upMany({arvAi:{at:new Date().toISOString(),plan,provider,chatNote,filters:{radius:radiusSel,months:monthsSel},arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
+      upMany({arvAi:{at:new Date().toISOString(),plan,after:afterCfg(),provider,chatNote,filters:{radius:radiusSel,months:monthsSel},arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
         comps:comps.map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
       setOvr({});setPricesDirty(false);
     }catch(e){setErr(e.message||"The underwrite failed — try again.");}
@@ -10238,7 +10271,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
       const comps=(saved.comps||[]).map(({used,why,...c})=>c);
       const mustUse=[],mustSkip=[];
       Object.keys(ovr).forEach(k=>{const i=Number(k);(ovr[k]?mustUse:mustSkip).push(i);});
-      const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan:saved.plan||plan,subject:saved.subject||null,value:saved.asIs?{price:saved.asIs}:null,comps,mustUse,mustSkip})});
+      const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan:planFull()||saved.plan,after:afterCfg()||saved.after||null,subject:saved.subject||null,value:saved.asIs?{price:saved.asIs}:null,comps,mustUse,mustSkip})});
       const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
       upMany({arvAi:{...saved,at:new Date().toISOString(),arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,
         comps:comps.map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
@@ -10277,9 +10310,43 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
       </div>
       {open&&(
         <div style={{padding:isMobile?"0 12px 14px":"0 18px 16px"}}>
-          <div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f",margin:"2px 0 5px"}}>THE PLAN FOR THIS HOUSE</div>
-          <textarea value={plan} onChange={e=>setPlan(e.target.value)} rows={2} placeholder="e.g. Full gut — new kitchen, 2 baths, flooring, roof, finish the basement"
-            style={{width:"100%",boxSizing:"border-box",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",fontSize:12.5,fontFamily:"inherit",outline:"none",resize:"vertical",lineHeight:1.5,color:T.text}}/>
+          {(()=>{
+            const subj=(saved&&saved.subject)||null;
+            const qHdr=(t)=><div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f",margin:"8px 0 4px"}}>{t}</div>;
+            const qChip=(on)=>({padding:"6px 11px",borderRadius:9,border:`1px solid ${on?T.gold:T.border}`,background:on?T.goldLight:"#fff",color:on?"#8a6d1f":T.textSub,fontWeight:on?700:500,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"});
+            const selSt={padding:"6px 8px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text};
+            return(<>
+              {qHdr("1 · SCOPE OF WORK")}
+              <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                {[["light","🧹 Light rehab"],["mid","🔨 Mid rehab"],["gut","🧱 Full gut"]].map(([k,l])=>
+                  <button key={k} onClick={()=>setScope(scope===k?"":k)} style={qChip(scope===k)}>{l}</button>)}
+              </div>
+              {qHdr("2 · SQUARE FOOTAGE")}
+              <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+                <button onClick={()=>setSqMode("keep")} style={qChip(sqMode==="keep")}>Keep{subj&&subj.sqft?` · ${subj.sqft} sf`:" as records show"}</button>
+                <button onClick={()=>setSqMode("add")} style={qChip(sqMode==="add")}>➕ Adding sqft</button>
+                {sqMode==="add"&&<><input type="number" value={sqftAdd} onChange={e=>setSqftAdd(e.target.value)} placeholder="e.g. 400" style={{width:70,...selSt,outline:"none"}}/><span style={{fontSize:10.5,color:T.textSub}}>sf added{subj&&subj.sqft&&Number(sqftAdd)>0?` → ~${Number(subj.sqft)+Number(sqftAdd)} sf finished`:""}</span></>}
+              </div>
+              {qHdr("3 · BEDROOMS")}
+              <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+                <button onClick={()=>setBedMode("keep")} style={qChip(bedMode==="keep")}>Keep{subj&&subj.beds?` · ${subj.beds} bd`:" as records show"}</button>
+                <button onClick={()=>setBedMode("set")} style={qChip(bedMode==="set")}>Changing</button>
+                {bedMode==="set"&&<select value={bedsAfter} onChange={e=>setBedsAfter(e.target.value)} style={selSt}><option value="">finished count…</option>{[1,2,3,4,5,6,7,8].map(x=><option key={x} value={x}>{x} bedrooms</option>)}</select>}
+              </div>
+              {qHdr("4 · BATHROOMS")}
+              <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+                <button onClick={()=>setBathMode("keep")} style={qChip(bathMode==="keep")}>Keep{subj&&subj.baths?` · ${subj.baths} ba`:" as records show"}</button>
+                <button onClick={()=>setBathMode("set")} style={qChip(bathMode==="set")}>Changing</button>
+                {bathMode==="set"&&<>
+                  <select value={bathsFull} onChange={e=>setBathsFull(e.target.value)} style={selSt}><option value="">full…</option>{[1,2,3,4,5,6].map(x=><option key={x} value={x}>{x} full</option>)}</select>
+                  <select value={bathsHalf} onChange={e=>setBathsHalf(e.target.value)} style={selSt}><option value="">half…</option>{[0,1,2,3].map(x=><option key={x} value={x}>{x} half</option>)}</select>
+                </>}
+              </div>
+              {qHdr("5 · ANYTHING ELSE? (OPTIONAL)")}
+              <textarea value={plan} onChange={e=>setPlan(e.target.value)} rows={2} placeholder="e.g. finishing the basement, new roof, in-ground pool, corner lot"
+                style={{width:"100%",boxSizing:"border-box",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",fontSize:12.5,fontFamily:"inherit",outline:"none",resize:"vertical",lineHeight:1.5,color:T.text}}/>
+            </>);
+          })()}
           <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap",alignItems:"center"}}>
             <span style={{fontSize:10.5,fontWeight:800,color:"#8a6d1f"}}>📍 Within</span>
             <select value={radiusSel} onChange={e=>setRadiusSel(Number(e.target.value))} style={{padding:"6px 8px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text}}>
@@ -10302,6 +10369,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
               <div style={{fontSize:22,fontWeight:800,color:T.text}}>{fmtD(res.arv)} <span style={{fontSize:11,color:"#8a6d1f",fontWeight:800}}>range {fmtD(res.low)} – {fmtD(res.high)}{res.psf?` · ~$${res.psf}/sf`:""}</span></div>
               <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.55,marginTop:6}}>{res.reasoning}</div>
               {res.asIs>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>Automated as-is estimate: {fmtD(res.asIs)} · comps: {res.provider||"county records"} · underwritten {new Date(res.at).toLocaleDateString()}{res.filters?` · within ${res.filters.radius} mi, sold last ${res.filters.months} mo`:""}</div>}
+              {res.after&&<div style={{fontSize:10.5,color:"#8a6d1f",fontWeight:700,marginTop:3}}>🏗 Valued as finished: {[res.after.scope?({light:"light rehab",mid:"mid rehab",gut:"full gut"})[res.after.scope]:"",res.after.sqftAdd?`+${res.after.sqftAdd} sf`:"",res.after.beds?`${res.after.beds} bd`:"",(res.after.bathsFull||res.after.bathsHalf)?`${res.after.bathsFull||0} full${res.after.bathsHalf?` + ${res.after.bathsHalf} half`:""} ba`:""].filter(Boolean).join(" · ")}</div>}
               {res.chatNote&&<div style={{fontSize:10.5,color:"#B45309",fontWeight:700,marginTop:3}}>⚠ {res.chatNote}</div>}
               <div style={{overflowX:"auto",marginTop:6}}>
                 <table style={{borderCollapse:"collapse",width:"100%",minWidth:520}}>

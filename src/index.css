@@ -143,6 +143,19 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
     box-shadow: 0 1px 1px rgba(255, 255, 255, 0.55) inset;
     pointer-events: none;
   }
+  /* Popups that open from the dashboard render INSIDE .gs-dash, so the card
+     rule above frosts their inner white rows too — and translucent task rows
+     let the swipe-to-delete red layer bleed through as a pink wash. Anything
+     deeper than the popup sheet goes back to solid white (the sheet itself is
+     the dim's direct child, so its frost survives this). */
+  .gs-dash div[style*="position: fixed"] > * [style*="background: rgb(255, 255, 255)"] {
+    background: rgb(255, 255, 255) !important;
+    box-shadow: none !important;
+    z-index: auto;
+  }
+  .gs-dash div[style*="position: fixed"] > * [style*="background: rgb(255, 255, 255)"]::before {
+    content: none;
+  }
   /* Dashboard header strip: translucent like the top bar — same rule, same
      reasons (static strip, overlays open from inside it). */
   .gs-dash-hd {

@@ -62,12 +62,30 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
     -webkit-backdrop-filter: blur(7px) saturate(1.15) !important;
     backdrop-filter: blur(7px) saturate(1.15) !important;
   }
-  /* Every white popup sheet becomes frosted glass */
+  /* Every white popup sheet becomes frosted glass.
+     ⚠ The frost lives on a ::before layer, never on the container itself:
+     backdrop-filter on a container turns it into the containing block for
+     position:fixed descendants, which strands full-screen overlays and
+     dropdown menus inside the sheet (clipped, invisible). position:relative +
+     z-index:0 keeps the negative-z layer inside the element without that side
+     effect — do NOT use isolation:isolate here, it forms a backdrop root and
+     the frost stops sampling the page behind it. */
   div[style*="position: fixed"][style*="backdrop-filter"] > div[style*="rgb(255, 255, 255)"] {
-    background: rgba(255, 255, 255, 0.86) !important;
+    background: transparent !important;
+    position: relative;
+    z-index: 0;
+  }
+  div[style*="position: fixed"][style*="backdrop-filter"] > div[style*="rgb(255, 255, 255)"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: rgba(255, 255, 255, 0.86);
     -webkit-backdrop-filter: blur(34px) saturate(1.45);
     backdrop-filter: blur(34px) saturate(1.45);
     border: 1px solid rgba(255, 255, 255, 0.92);
+    pointer-events: none;
   }
   /* Mobile bottom tab bar: detached floating glass pill */
   .gs-tabbar {
@@ -80,11 +98,12 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
     padding-bottom: 6px;
     box-shadow: 0 8px 26px rgba(35, 48, 75, 0.14);
   }
-  /* Top strip: translucent frost (layout untouched) */
+  /* Top strip: translucent white, NO backdrop-filter and NO stacking context.
+     Nothing scrolls under this bar, so a frost here blurs nothing anyway —
+     and search/phone/assistant/profile overlays are DOM children of the bar,
+     so any filter or z-index on it strands them under the page. */
   .gs-topbar {
-    background: rgba(255, 255, 255, 0.66) !important;
-    -webkit-backdrop-filter: blur(24px) saturate(1.8);
-    backdrop-filter: blur(24px) saturate(1.8);
+    background: rgba(255, 255, 255, 0.72) !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.85) !important;
   }
 }
@@ -102,19 +121,32 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
       radial-gradient(46rem 34rem at 50% 118%, rgba(184, 149, 63, 0.12), transparent 64%),
       linear-gradient(#F7F5F0, #F2EFE8);
   }
-  /* Every white card / tile / chip on the dashboard becomes glass */
+  /* Every white card / tile / chip on the dashboard becomes glass — frost on
+     a ::before layer so cards never become containing blocks for the fixed
+     menus and viewers that open from inside them. */
   .gs-dash [style*="background: rgb(255, 255, 255)"] {
-    background: rgba(255, 255, 255, 0.52) !important;
+    background: transparent !important;
+    position: relative;
+    z-index: 0;
+    box-shadow: 0 6px 22px rgba(35, 48, 75, 0.10) !important;
+  }
+  .gs-dash [style*="background: rgb(255, 255, 255)"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: rgba(255, 255, 255, 0.52);
     -webkit-backdrop-filter: blur(20px) saturate(1.75);
     backdrop-filter: blur(20px) saturate(1.75);
     border: 1px solid rgba(255, 255, 255, 0.80);
-    box-shadow: 0 1px 1px rgba(255, 255, 255, 0.55) inset, 0 6px 22px rgba(35, 48, 75, 0.10) !important;
+    box-shadow: 0 1px 1px rgba(255, 255, 255, 0.55) inset;
+    pointer-events: none;
   }
-  /* Dashboard header strip: same frost as the top bar, hairline seam */
+  /* Dashboard header strip: translucent like the top bar — same rule, same
+     reasons (static strip, overlays open from inside it). */
   .gs-dash-hd {
-    background: rgba(255, 255, 255, 0.60) !important;
-    -webkit-backdrop-filter: blur(24px) saturate(1.8);
-    backdrop-filter: blur(24px) saturate(1.8);
+    background: rgba(255, 255, 255, 0.66) !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.85) !important;
   }
 }

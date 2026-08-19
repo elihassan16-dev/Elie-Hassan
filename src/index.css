@@ -114,12 +114,12 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
    authored radius and layout — only surface + depth change. */
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .gs-dash {
-    /* All-gold wash — brand gold, champagne, soft bronze on warm ivory. */
+    /* Neutral wash (owner's pick over the gold one): soft white glow on the
+       classic iOS gray, so the frosted cards still read as glass. */
     background:
-      radial-gradient(56rem 30rem at 10% -6%, rgba(212, 168, 67, 0.22), transparent 62%),
-      radial-gradient(50rem 30rem at 92% 4%, rgba(232, 200, 122, 0.16), transparent 60%),
-      radial-gradient(46rem 34rem at 50% 118%, rgba(184, 149, 63, 0.12), transparent 64%),
-      linear-gradient(#F7F5F0, #F2EFE8);
+      radial-gradient(52rem 30rem at 20% -8%, rgba(255, 255, 255, 0.85), transparent 60%),
+      radial-gradient(46rem 28rem at 88% 108%, rgba(255, 255, 255, 0.45), transparent 62%),
+      linear-gradient(#F3F3F6, #ECECF1);
   }
   /* Every white card / tile / chip on the dashboard becomes glass — frost on
      a ::before layer so cards never become containing blocks for the fixed

@@ -29,7 +29,7 @@ export default async function handler(req, res) {
   // Owner-tunable comp filters: radius in miles, sold-within window in months.
   const radius = Math.min(3, Math.max(0.3, num(req.query.radius) || 1));
   const months = Math.min(24, Math.max(3, Math.round(num(req.query.months)) || 12));
-  const cacheKey = `v8r${radius}m${months}` + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 70);
+  const cacheKey = `v9r${radius}m${months}` + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 70);
 
   const db = SERVICE ? createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } }) : null;
   const fresh = (at) => at && Date.now() - new Date(at).getTime() < 30 * 86400000;
@@ -99,8 +99,34 @@ export default async function handler(req, res) {
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     };
     let recComps = [];
+    // ── MLS-fresh signal: listings that RECENTLY WENT OFF-MARKET nearby.
+    // A removed sale listing usually means the house just sold — weeks
+    // before the county records the deed. These carry the final list price,
+    // the removal date, and days-on-market. (/listings/sale, status=Inactive)
+    let offMkt = [];
     const lat = num(p0 && p0.latitude), lon = num(p0 && p0.longitude);
     if (lat && lon) {
+      try {
+        const li = await rc(`/listings/sale?latitude=${lat}&longitude=${lon}&radius=${radius}&status=Inactive&limit=200${p0.propertyType ? `&propertyType=${encodeURIComponent(p0.propertyType)}` : ""}`);
+        const sqft0i = num(p0 && p0.squareFootage);
+        offMkt = (Array.isArray(li) ? li : [])
+          .filter((l) => num(l.price) > 0 && l.removedDate && Date.now() - new Date(l.removedDate).getTime() < months * 30 * 86400000)
+          .filter((l) => !sqft0i || (num(l.squareFootage) > 0 && num(l.squareFootage) > sqft0i * 0.55 && num(l.squareFootage) < sqft0i * 1.7))
+          .map((l) => ({
+            address: String(l.formattedAddress || "").split(",").slice(0, 1).join(""),
+            full: String(l.formattedAddress || "").slice(0, 140),
+            price: num(l.price), priceSrc: "list",
+            sqft: num(l.squareFootage), beds: num(l.bedrooms), baths: num(l.bathrooms),
+            yearBuilt: num(l.yearBuilt),
+            distance: Math.round(hav(lat, lon, num(l.latitude), num(l.longitude)) * 100) / 100,
+            daysOld: Math.max(0, Math.round((Date.now() - new Date(l.removedDate).getTime()) / 86400000)),
+            date: String(l.removedDate).slice(0, 10),
+            ...(num(l.daysOnMarket) ? { dom: num(l.daysOnMarket) } : {}),
+            recNote: `off-market:${String(l.removedDate).slice(0, 10)}${num(l.daysOnMarket) ? `·${num(l.daysOnMarket)}dom` : ""}`,
+          }))
+          .sort((a, b) => a.daysOld - b.daysOld)
+          .slice(0, 10);
+      } catch { /* endpoint thin/unavailable → records + AVM comps still carry it */ }
       const area = async (r) => {
         const q = `/properties?latitude=${lat}&longitude=${lon}&radius=${r}&saleDateRange=${months * 30}&limit=350${p0.propertyType ? `&propertyType=${encodeURIComponent(p0.propertyType)}` : ""}`;
         const res = await rc(q);
@@ -137,6 +163,7 @@ export default async function handler(req, res) {
       // sold price would poison the ARV; demote it to pending instead.
       const byAddr = {};
       listComps.forEach((c) => { byAddr[norm(c.full)] = c; });
+      offMkt.forEach((c) => { byAddr[norm(c.full)] = c; }); // fresher than AVM comps
       recComps = recComps.map((c) => {
         const m = byAddr[norm(c.full)];
         if (!m) return c;
@@ -147,14 +174,16 @@ export default async function handler(req, res) {
       });
     }
     if (recComps.length >= 4) {
-      // Deed records carry the comp sheet. Add a few very fresh listing
-      // sales the records haven't caught up with (MLS beats the county by
-      // weeks) — marked pending, owner can type the closing off Zillow.
+      // Deed records carry the comp sheet. Add the freshest MLS signals the
+      // records haven't caught up with — recently off-market listings first
+      // (they likely JUST sold), then any leftover AVM listing comps. All
+      // marked pending; the owner can type the closing off Zillow.
       const recSet = new Set(recComps.map((c) => norm(c.full)));
-      const extras = listComps.filter((c) => !recSet.has(norm(c.full)) && (!c.distance || c.distance <= radius + 0.05) && (!c.daysOld || c.daysOld <= months * 30))
-        .slice(0, Math.max(0, Math.min(4, 15 - recComps.length)))
-        .map((c) => ({ ...c, priceSrc: "list", recNote: "not-in-records-yet" }));
-      out.comps = [...recComps, ...extras];
+      const seen = new Set();
+      const pool = [...offMkt, ...listComps.map((c) => ({ ...c, priceSrc: "list", recNote: "not-in-records-yet" }))]
+        .filter((c) => { const k = norm(c.full); if (recSet.has(k) || seen.has(k)) return false; seen.add(k); return true; })
+        .filter((c) => (!c.distance || c.distance <= radius + 0.05) && (!c.daysOld || c.daysOld <= months * 30));
+      out.comps = [...recComps, ...pool.slice(0, Math.max(0, Math.min(4, 15 - recComps.length)))];
     } else {
       // Area query unavailable/thin — fall back to listing comps enriched
       // one-by-one against their property records (throttled, 429 retries).
@@ -169,7 +198,8 @@ export default async function handler(req, res) {
           }
         }
       };
-      out.comps = listComps.slice(0, 12);
+      const seenF = new Set();
+      out.comps = [...offMkt, ...listComps].filter((c) => { const k = norm(c.full); if (seenF.has(k)) return false; seenF.add(k); return true; }).slice(0, 12);
       const lookupSold = async (c, i) => {
         try {
           const pr = await rcRetry(`/properties?address=${encodeURIComponent(c.full)}`);

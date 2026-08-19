@@ -10272,7 +10272,9 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
       if(!(data.comps||[]).length)throw new Error(`No sold comps within ${radiusSel} mi / ${monthsSel} months — widen the filters and run again.`);
       const tagged=tagComps(data);
       setCand({data,comps:tagged});
-      setPicks(new Set(tagged.map((c,i)=>(c.tags||[]).includes("as-is?")?null:i).filter(x=>x!=null)));
+      // SOLDs (minus likely as-is) start checked; pendings start UNCHECKED —
+      // the sold analysis is the default, pendings are a deliberate add.
+      setPicks(new Set(tagged.map((c,i)=>c.priceSrc!=="list"&&!(c.tags||[]).includes("as-is?")?i:null).filter(x=>x!=null)));
       fillInfo(data.subject);
     }catch(e){setErr(e.message||"The comp pull failed — try again.");}
     setBusy(false);
@@ -10419,26 +10421,38 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
               <div style={{marginTop:12,background:"#fff",border:`1.5px solid ${T.gold}`,borderRadius:13,overflow:"hidden"}}>
                 <div style={{padding:"11px 14px 9px",borderBottom:`1px solid ${T.border}`}}>
                   <div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>STEP 2 · CHECK THE COMPS TO USE</div>
-                  <div style={{fontSize:11,color:T.textSub,marginTop:3}}>Newest sales first · {picks.size} of {cand.comps.length} checked{subj.sqft?` · your house: ${subj.sqft} sf${subj.beds?` · ${subj.beds}bd/${subj.baths||"?"}ba`:""}`:""}</div>
+                  <div style={{fontSize:11,color:T.textSub,marginTop:3}}>Newest first · {picks.size} of {cand.comps.length} checked{subj.sqft?` · your house: ${subj.sqft} sf${subj.beds?` · ${subj.beds}bd/${subj.baths||"?"}ba`:""}`:""}</div>
                 </div>
-                {cand.comps.map((c,i)=>{
-                  const on=picks.has(i);
-                  return(
-                    <div key={i} onClick={()=>setPicks(p=>{const n=new Set(p);n.has(i)?n.delete(i):n.add(i);return n;})}
-                      style={{display:"flex",alignItems:"center",gap:9,padding:"9px 13px",borderTop:`1px solid ${T.border}55`,cursor:"pointer",background:on?"transparent":"#FAFAFB",opacity:on?1:0.62}}>
-                      <span style={{fontSize:16,color:on?T.gold:T.textTert,flexShrink:0,lineHeight:1}}>{on?"☑":"☐"}</span>
-                      <span style={{flex:1,minWidth:0}}>
-                        <span style={{fontSize:12.5,fontWeight:650,color:T.text}}>{c.address} <a href={zHref(c)} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} title="Check it on Zillow" style={{color:T.blue,textDecoration:"none",fontSize:11}}>↗</a></span>
-                        <span style={{display:"block",fontSize:10.5,color:T.textSub}}>{[c.beds?`${c.beds}bd`:"",c.baths?`${c.baths}ba`:"",c.sqft?`${c.sqft} sf`:"",c.distance!=null?`${c.distance} mi`:""].filter(Boolean).join(" · ")}</span>
-                        <span style={{display:"flex",gap:4,marginTop:3,flexWrap:"wrap"}}>{(c.tags||[]).map(t=><span key={t} style={tagSt(t)}>{t}</span>)}</span>
-                      </span>
-                      <span style={{flexShrink:0,textAlign:"right"}}>
-                        <span style={{display:"block",fontSize:12.5,fontWeight:700,color:c.priceSrc==="list"?"#B45309":"#15803D"}}>{c.priceSrc==="list"?`list ${fmtD(c.price)}`:fmtD(c.price)}</span>
-                        <span style={{display:"block",fontSize:10,color:T.textTert}}>{c.date||""}{c.sqft&&c.price?` · $${Math.round(c.price/c.sqft)}/sf`:""}</span>
-                      </span>
-                    </div>
-                  );
-                })}
+                {(()=>{
+                  const rowEl=(c,i)=>{
+                    const on=picks.has(i);
+                    return(
+                      <div key={i} onClick={()=>setPicks(p=>{const n=new Set(p);n.has(i)?n.delete(i):n.add(i);return n;})}
+                        style={{display:"flex",alignItems:"center",gap:9,padding:"9px 13px",borderTop:`1px solid ${T.border}55`,cursor:"pointer",background:on?"transparent":"#FAFAFB",opacity:on?1:0.62}}>
+                        <span style={{fontSize:16,color:on?T.gold:T.textTert,flexShrink:0,lineHeight:1}}>{on?"☑":"☐"}</span>
+                        <span style={{flex:1,minWidth:0}}>
+                          <span style={{fontSize:12.5,fontWeight:650,color:T.text}}>{c.address} <a href={zHref(c)} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} title="Check it on Zillow" style={{color:T.blue,textDecoration:"none",fontSize:11}}>↗</a></span>
+                          <span style={{display:"block",fontSize:10.5,color:T.textSub}}>{[c.beds?`${c.beds}bd`:"",c.baths?`${c.baths}ba`:"",c.sqft?`${c.sqft} sf`:"",c.distance!=null?`${c.distance} mi`:""].filter(Boolean).join(" · ")}</span>
+                          <span style={{display:"flex",gap:4,marginTop:3,flexWrap:"wrap"}}>{(c.tags||[]).map(t=><span key={t} style={tagSt(t)}>{t}</span>)}</span>
+                        </span>
+                        <span style={{flexShrink:0,textAlign:"right"}}>
+                          <span style={{display:"block",fontSize:12.5,fontWeight:700,color:c.priceSrc==="list"?"#B45309":"#15803D"}}>{c.priceSrc==="list"?`list ${fmtD(c.price)}`:fmtD(c.price)}</span>
+                          <span style={{display:"block",fontSize:10,color:T.textTert}}>{c.date||""}{c.sqft&&c.price?` · $${Math.round(c.price/c.sqft)}/sf`:""}</span>
+                        </span>
+                      </div>
+                    );
+                  };
+                  const rows=cand.comps.map((c,i)=>({c,i}));
+                  const solds=rows.filter(r=>r.c.priceSrc!=="list"),pends=rows.filter(r=>r.c.priceSrc==="list");
+                  const secHd=(t,sub)=><div key={t} style={{padding:"8px 13px 4px",fontSize:9,fontWeight:800,letterSpacing:"0.05em",color:T.textTert,background:T.bg}}>{t}<span style={{fontWeight:500,letterSpacing:0}}> — {sub}</span></div>;
+                  return(<>
+                    {solds.length>0&&secHd("✅ SOLD — DEED RECORDED",`${solds.length} confirmed sale${solds.length===1?"":"s"}, checked by default`)}
+                    {solds.map(r=>rowEl(r.c,r.i))}
+                    {pends.length>0&&secHd("🏷 PENDING / ON MARKET",`${pends.length} not closed yet — check any you trust`)}
+                    {pends.map(r=>rowEl(r.c,r.i))}
+                    {solds.length===0&&<div style={{padding:"10px 13px",fontSize:11,color:"#B45309",fontWeight:600}}>⚠ No deed-recorded sales found in this radius/window — widen the filters, or check pendings you can verify on Zillow.</div>}
+                  </>);
+                })()}
                 <div style={{display:"flex",gap:8,padding:"11px 13px",borderTop:`1px solid ${T.border}`,flexWrap:"wrap"}}>
                   <button onClick={evalNow} disabled={busy||picks.size<2} style={{...chipBtn(true),opacity:busy||picks.size<2?0.6:1}}>{busy?"⏳ Underwriting… (~20s)":`🎯 Value it with my ${picks.size} pick${picks.size===1?"":"s"}`}</button>
                   <button onClick={()=>setCand(null)} disabled={busy} style={chipBtn(false)}>✕ Cancel</button>
@@ -10450,6 +10464,17 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
             <div style={{marginTop:12,background:"#fff",border:`1.5px solid ${T.gold}`,borderRadius:13,padding:"12px 14px"}}>
               <div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>SUGGESTED AFTER-REPAIR VALUE</div>
               <div style={{fontSize:22,fontWeight:800,color:T.text}}>{fmtD(res.arv)} <span style={{fontSize:11,color:"#8a6d1f",fontWeight:800}}>range {fmtD(res.low)} – {fmtD(res.high)}{res.psf?` · ~$${res.psf}/sf`:""}</span></div>
+              {(()=>{
+                // The second read (Elie's ask): what the ASKING market says —
+                // median $/sf of the pending/on-market comps × subject sqft.
+                const sq=res.subject&&res.subject.sqft;
+                const pend=(res.comps||[]).filter(c=>c.priceSrc==="list"&&c.price>0&&c.sqft>0);
+                if(!sq||pend.length<2)return null;
+                const psfs=pend.map(c=>c.price/c.sqft).sort((a,b)=>a-b);
+                const med=psfs[Math.floor(psfs.length/2)];
+                const est=Math.round(med*sq/1000)*1000;
+                return <div style={{fontSize:11.5,color:"#B45309",fontWeight:700,marginTop:4}}>🏷 On-market read: {pend.length} pending/active listings point to ≈ {fmtD(est)} at ~${Math.round(med)}/sf asking.</div>;
+              })()}
               <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.55,marginTop:6}}>{res.reasoning}</div>
               {res.asIs>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>Automated as-is estimate: {fmtD(res.asIs)} · comps: {res.provider||"county records"} · underwritten {new Date(res.at).toLocaleDateString()}{res.filters?` · within ${res.filters.radius} mi, sold last ${res.filters.months} mo`:""}</div>}
               {res.after&&<div style={{fontSize:10.5,color:"#8a6d1f",fontWeight:700,marginTop:3}}>🏗 Valued as finished: {[res.after.scope?({light:"light rehab",mid:"mid rehab",gut:"full gut"})[res.after.scope]:"",res.after.sqftAdd?`+${res.after.sqftAdd} sf`:"",res.after.beds?`${res.after.beds} bd`:"",(res.after.bathsFull||res.after.bathsHalf)?`${res.after.bathsFull||0} full${res.after.bathsHalf?` + ${res.after.bathsHalf} half`:""} ba`:""].filter(Boolean).join(" · ")}</div>}

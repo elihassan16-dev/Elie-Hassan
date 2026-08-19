@@ -2618,7 +2618,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   // "last outreach" line on the left, three round icon buttons on the right —
   // 📞 call · 💬 text (templates live inside the conversation) · 🗨 team note.
   // Without texting (members), the old labeled pills incl. template links stay.
-  const icoS={width:32,height:32,borderRadius:16,border:`1px solid ${T.border}`,background:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",textDecoration:"none",flexShrink:0,position:"relative",boxSizing:"border-box",lineHeight:1,fontFamily:"inherit",padding:0};
+  const icoS={width:32,height:32,borderRadius:16,border:"none",background:"none",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",textDecoration:"none",flexShrink:0,position:"relative",boxSizing:"border-box",lineHeight:1,fontFamily:"inherit",padding:0,minHeight:32};
   const fmtDT=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   // When did we last reach out to this number, and how? Newest of the template
   // stamps and the business-line thread — on the row, so nobody has to open the
@@ -2648,7 +2648,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     const msgs=threadMsgs(meta.key);
     const unread=msgs.some(m=>isUnreadForUser(m,CURRENT_USER));
     return(
-      <button onClick={()=>openThread(meta.key,meta.label,meta.snap)} title="Message your team about this person" style={{...icoS,border:`1px solid ${msgs.length?T.gold:T.border}`,background:msgs.length?T.goldLight:"#fff"}}>
+      <button onClick={()=>openThread(meta.key,meta.label,meta.snap)} title="Message your team about this person" style={icoS}>
         <TeamChatIcon size={15} color="#8a6d1f"/>{msgs.length>0&&<span style={{position:"absolute",top:-4,right:-4,minWidth:14,height:14,borderRadius:7,background:unread?T.red:T.gold,color:"#fff",fontSize:8.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px",boxSizing:"border-box"}}>{msgs.length}</span>}
       </button>
     );
@@ -2675,14 +2675,16 @@ function PropertyShowings({property,showings,onUpdate,flush}){
           <div style={{fontSize:12.5,fontWeight:600,color:T.text,display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>{ph} <SmsBadge phone={ph} prop={property.address}/></div>
           {outreachLine(ph,rowKey)}
         </div>
-        <CallA phone={ph} title="Call" style={icoS}>📞</CallA>
-        <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setSmsPop({phone:ph,name,rowKey,bt,kind:kind||null})}
-          templates={showingTemplates(bt,name,address)}
-          onTemplate={(kind)=>markText(rowKey,kind)}
-          style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
-          <SmsChatIcon size={15} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:8,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
-        </TextA>
-        {msgMeta&&msgIco(msgMeta)}
+        <span style={{...CAPS_ROW,height:36}}>
+          <CallA phone={ph} title="Call" style={icoS}>📞</CallA>
+          <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setSmsPop({phone:ph,name,rowKey,bt,kind:kind||null})}
+            templates={showingTemplates(bt,name,address)}
+            onTemplate={(kind)=>markText(rowKey,kind)}
+            style={icoS}>
+            <SmsChatIcon size={15} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:8,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
+          </TextA>
+          {msgMeta&&msgIco(msgMeta)}
+        </span>
       </div>
     );
   };
@@ -2711,18 +2713,18 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     const anySent=!!(t.initial||t.followup||t.sweeten);
     const tmplText=(kind)=>(bt?btMessage:showingMessage)(kind,name,address,tmplOpts);
     return(
-      <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+      <div style={{...CAPS_ROW,height:32,flexShrink:0}}>
         <CallA phone={ph} title="Call" style={icoC}><PhoneIcon size={13} color={T.text}/></CallA>
         <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setSmsPop({phone:ph,name,rowKey,bt,kind:kind||null,tmplOpts})}
           templates={showingTemplates(bt,name,address,tmplOpts)}
           onTemplate={(kind)=>markText(rowKey,kind)}
-          style={{...icoC,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
+          style={icoC}>
           <SmsChatIcon size={13} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:12,height:12,borderRadius:6,background:T.green,color:"#fff",fontSize:7.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
         </TextA>
-        {email&&<a href={`mailto:${email}`} title={`Email ${email}`} style={{...icoC,border:`1px solid ${T.blue}`,background:"#EBF4FF"}}><MailIcon size={13} color={T.blue}/></a>}
+        {email&&<a href={`mailto:${email}`} title={`Email ${email}`} style={icoC}><MailIcon size={13} color={T.blue}/></a>}
         {msgMeta&&msgIco(msgMeta)}
-        {!smsOn&&<a href={showingSms(ph,tmplText("initial"))} onClick={()=>markText(rowKey,"initial")} title="Send the initial text" style={{...icoC,width:"auto",padding:"0 8px",fontSize:10,fontWeight:800,color:"#8a6d1f",border:`1px solid ${T.gold}`,background:T.goldLight,display:"inline-flex",alignItems:"center"}}>{t.initial?"\u2713 ":""}In</a>}
-        {!smsOn&&<a href={showingSms(ph,tmplText("followup"))} onClick={()=>markText(rowKey,"followup")} title="Send the follow-up text" style={{...icoC,width:"auto",padding:"0 8px",fontSize:10,fontWeight:800,color:T.blue,border:`1px solid ${T.blue}`,background:"#EBF4FF",display:"inline-flex",alignItems:"center"}}>{t.followup?"\u2713 ":""}F-up</a>}
+        {!smsOn&&<a href={showingSms(ph,tmplText("initial"))} onClick={()=>markText(rowKey,"initial")} title="Send the initial text" style={{...icoC,width:"auto",padding:"0 8px",fontSize:10,fontWeight:800,color:"#8a6d1f",display:"inline-flex",alignItems:"center"}}>{t.initial?"\u2713 ":""}In</a>}
+        {!smsOn&&<a href={showingSms(ph,tmplText("followup"))} onClick={()=>markText(rowKey,"followup")} title="Send the follow-up text" style={{...icoC,width:"auto",padding:"0 8px",fontSize:10,fontWeight:800,color:T.blue,display:"inline-flex",alignItems:"center"}}>{t.followup?"\u2713 ":""}F-up</a>}
       </div>
     );
   };
@@ -2833,10 +2835,10 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         style={{width:"100%",padding:"9px 12px 9px 30px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,fontSize:13.5,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}}/>
       {agentSearch&&<button onClick={()=>setAgentSearch("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>}
     </div>
-    <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+    <div style={{...SEG_WRAP,marginBottom:10}}>
       {[["all","All dates"],["3d","Last 3 days"],["7d","Last 7 days"],["custom","Custom"]].map(([k,label])=>{
         const on=dateMode===k;
-        return <button key={k} onClick={()=>setDateMode(k)} style={{padding:"6px 12px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub}}>{label}</button>;
+        return <button key={k} onClick={()=>setDateMode(k)} style={{...segTab(on),padding:"6px 12px",fontSize:12,...(on?{color:T.gold}:{})}}>{label}</button>;
       })}
     </div>
     {dateMode==="custom"&&(
@@ -2875,12 +2877,14 @@ function PropertyShowings({property,showings,onUpdate,flush}){
       const phonesOf=(x)=>x.t==="s"?[...parseShowingPhones(x.item.phone),...extraPhones(x.item)]:parseShowingPhones(x.item.phone);
       const newAg=smsOn?agentItems.filter(x=>phonesOf(x).some(ph=>unreadFor(ph)>0)).length:0;
       const newBt=smsOn?buyerItems.filter(x=>parseShowingPhones(x.l.phone).some(ph=>unreadFor(ph)>0)).length:0;
-      const pill=(on,color)=>({padding:"6px 13px",borderRadius:16,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${on?color:T.border}`,background:on?color:"#fff",color:on?"#fff":T.textSub});
+      const pill=(on,color)=>({...segTab(on),padding:"6px 13px",fontSize:11.5,...(on?{color}:{})});
       return(
         <Card>
           <div style={{display:"flex",alignItems:"center",gap:7,padding:"10px 14px",flexWrap:"wrap"}}>
-            <button onClick={()=>setLeadTab("agents")} style={pill(tab==="agents",T.gold)}>🏠 Agents · {agentItems.length}{newAg?` (${newAg} new)`:""}</button>
-            {btActive&&<button onClick={()=>setLeadTab("buyers")} style={pill(tab==="buyers","#DB2777")}>🔥 Buyers · {buyerItems.length}{newBt?` (${newBt} new)`:""}</button>}
+            <div style={SEG_WRAP}>
+              <button onClick={()=>setLeadTab("agents")} style={pill(tab==="agents",T.gold)}>🏠 Agents · {agentItems.length}{newAg?` (${newAg} new)`:""}</button>
+              {btActive&&<button onClick={()=>setLeadTab("buyers")} style={pill(tab==="buyers","#DB2777")}>🔥 Buyers · {buyerItems.length}{newBt?` (${newBt} new)`:""}</button>}
+            </div>
             <div style={{flex:1}}/>
             {!showAdd&&<button onClick={()=>setShowAdd(true)} style={{padding:"5px 12px",borderRadius:20,background:tab==="buyers"?"#DB2777":T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add {tab==="buyers"?"buyer":"lead"}</button>}
           </div>
@@ -3125,11 +3129,13 @@ function ShowingsPage(){
   })();
   return(
     <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
-    <div style={{display:"flex",gap:6,padding:"10px 14px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
-      {[["props","🏠 By property"],["hot",`🔥 Hot leads${hotRows.length?` (${hotRows.length})`:""}`],["agents","👤 By agent"]].map(([k,l])=>{
-        const on=view===k;
-        return <button key={k} onClick={()=>setView(k)} style={{padding:"7px 14px",borderRadius:20,fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub}}>{l}</button>;
-      })}
+    <div style={{padding:"10px 14px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+      <div style={SEG_WRAP}>
+        {[["props","🏠 By property"],["hot",`🔥 Hot leads${hotRows.length?` (${hotRows.length})`:""}`],["agents","👤 By agent"]].map(([k,l])=>{
+          const on=view===k;
+          return <button key={k} onClick={()=>setView(k)} style={{...segTab(on),fontSize:12.5,...(on?{color:T.gold}:{})}}>{l}</button>;
+        })}
+      </div>
     </div>
     {view==="agents"?(
       <AgentsCrmView sharedProps={sharedProps} showings={showings} isMobile={isMobile}/>
@@ -9005,7 +9011,7 @@ function TasksPage({onNavigate}){
         {/* One tidy chip row replaces the old stack of banners: 🔔 new · ✓ done ·
             👷 external · ☑ select. In select mode it becomes the bulk toolbar. */}
         {!showAutomations&&(()=>{
-          const chip=(fg,bg,on=true)=>({display:"inline-flex",alignItems:"center",gap:6,padding:"8px 13px",borderRadius:20,border:`1px solid ${on?`${fg}55`:T.border}`,background:on?bg:T.card,color:on?fg:T.textSub,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",boxShadow:T.shadow,whiteSpace:"nowrap"});
+          const chip=(fg,bg,on=true)=>({display:"inline-flex",alignItems:"center",gap:6,padding:"8px 13px",borderRadius:16,border:"1px solid rgba(0,0,0,0.05)",background:on?"#fff":"rgba(118,118,128,0.08)",color:on?fg:T.textSub,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",boxShadow:on?"0 1px 4px rgba(0,0,0,0.10)":"none",whiteSpace:"nowrap"});
           const cnt=(n,bg)=><span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:9,background:bg,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>{n}</span>;
           return(
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14,maxWidth:840}}>
@@ -17305,9 +17311,9 @@ function CrmPage({sharedProps}){
                 {!c.last&&connected&&chip("#FBF7EC","#8a6d1f","NOT CONTACTED")}
               </span>
             </span>
-            <span style={{display:"flex",gap:6,flexShrink:0,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
-              <CallA phone={c.phone} title="Call" style={{...icoS,border:`1px solid ${T.border}`,background:"#fff"}}><PhoneIcon size={13} color={T.text}/></CallA>
-              <button onClick={()=>setOpen({phone:c.phone,name:c.name,address:c.addrs[0]||""})} title="Conversation & templates" style={{...icoS,border:`1px solid ${T.green}`,background:"#EDFBF1"}}><SmsChatIcon size={13} color="#15803D"/></button>
+            <span style={{...CAPS_ROW,height:32,flexShrink:0}} onClick={e=>e.stopPropagation()}>
+              <CallA phone={c.phone} title="Call" style={{...icoS,border:"none",background:"none"}}><PhoneIcon size={13} color={T.text}/></CallA>
+              <button onClick={()=>setOpen({phone:c.phone,name:c.name,address:c.addrs[0]||""})} title="Conversation & templates" style={{...icoS,border:"none",background:"none"}}><SmsChatIcon size={13} color="#15803D"/></button>
             </span>
           </div>
         ))}
@@ -17610,14 +17616,14 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
             {connected&&<button onClick={()=>{setSelMode(v=>!v);setPicks(new Set());}} title="Pick several people and text them the intro in one go" style={{padding:"7px 11px",borderRadius:9,border:selMode?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:selMode?T.goldLight:"#fff",color:selMode?"#8a6d1f":T.textSub,fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>☑ Select</button>}
           </div>
           {/* 👥/👤/🛒 the big split — everyone, agents only, or buyers only */}
-          <div style={{display:"flex",gap:6,marginTop:8}}>
+          <div style={{display:"flex",gap:2,marginTop:8,borderRadius:16,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:3}}>
             {[["all",`👥 All · ${whoCounts.all}`],["agents",`👤 Agents · ${whoCounts.agents}`],["buyers",`🛒 Buyers · ${whoCounts.buyers}`]].map(([k,l])=>(
-              <button key={k} onClick={()=>setWho(k)} style={{flex:1,minWidth:0,padding:"7px 2px",borderRadius:11,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",border:who===k?`1.5px solid ${T.gold}`:"1.5px solid transparent",background:who===k?T.goldLight:"#F3F3F5",color:who===k?"#8a6d1f":"#888"}}>{l}</button>
+              <button key={k} onClick={()=>setWho(k)} style={{...segTab(who===k),flex:1,minWidth:0,padding:"7px 2px",fontSize:11,overflow:"hidden",textOverflow:"ellipsis",...(who===k?{color:"#8a6d1f"}:{})}}>{l}</button>
             ))}
           </div>
           <div style={{display:"flex",gap:5,marginTop:8,flexWrap:"wrap"}}>
             {[["all",`All · ${counts.all}`],["new",`New replies · ${counts.new}`],["replied",`Replied · ${counts.replied}`],["noresp",`No response · ${counts.noresp}`],["upcoming",`📅 Upcoming · ${counts.upcoming}`]].map(([k,l])=>(
-              <button key={k} onClick={()=>setFilter(k)} style={{fontSize:10.5,fontWeight:800,borderRadius:12,padding:"4px 10px",border:"none",cursor:"pointer",fontFamily:"inherit",background:filter===k?T.gold:"#F3F3F5",color:filter===k?"#fff":"#888"}}>{l}</button>
+              <button key={k} onClick={()=>setFilter(k)} style={{...segTab(filter===k),fontSize:10.5,padding:"4px 10px",borderRadius:12,background:filter===k?"#fff":"rgba(118,118,128,0.08)",...(filter===k?{color:T.gold}:{})}}>{l}</button>
             ))}
           </div>
         </div>
@@ -17632,8 +17638,10 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                     <b style={{fontSize:12.5,color:T.text,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name||f.phone}</b>
                     <span style={{fontSize:10.5,color:T.textSub,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[f.addr,(f.due<todayIso?`was due ${fmtDue(f.due)}`:"due today")+(f.time?` ${fmtFupTime(f.time)}`:""),f.note].filter(Boolean).join(" · ")}</span>
                   </span>
-                  <CallA phone={f.phone} title="Call now" style={{...icoS,width:28,height:28,border:"1px solid #7C3AED",background:"#fff"}}><PhoneIcon size={12} color="#7C3AED"/></CallA>
-                  <button onClick={()=>saveFollowups(followups.map(x=>x.id===f.id?{...x,done:true}:x))} title="Done — clear it" style={{...icoS,width:28,height:28,border:`1px solid ${T.green}`,background:"#EDFBF1",fontSize:12,color:"#15803D"}}>✓</button>
+                  <span style={{...CAPS_ROW,height:30,flexShrink:0}}>
+                    <CallA phone={f.phone} title="Call now" style={{...icoS,width:28,height:28,border:"none",background:"none"}}><PhoneIcon size={12} color="#7C3AED"/></CallA>
+                    <button onClick={()=>saveFollowups(followups.map(x=>x.id===f.id?{...x,done:true}:x))} title="Done — clear it" style={{...icoS,width:28,height:28,border:"none",background:"none",fontSize:12,color:"#15803D"}}>✓</button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -17795,10 +17803,10 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                 <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.name||fmtPh(sel.phone)}</div>
                 <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[sel.broker,fmtPh(sel.phone),`${sel.shows.length} showing${sel.shows.length===1?"":"s"} across ${sel.addrs.length} propert${sel.addrs.length===1?"y":"ies"}`].filter(Boolean).join(" · ")}</div>
               </div>
-              <span style={{display:"flex",gap:6,flexShrink:0}}>
-                <button onClick={()=>{setFupFor(sel);setFupDate(isoPlus(1));setFupTime("");setFupNote("");}} title="📅 Schedule a follow-up call — it pins here when due and pings your phone that morning (or at the time you pick)" style={{...icoS,border:"1px solid #7C3AED",background:"#F5F3FF",fontSize:13}}>📅</button>
-                <CallA phone={sel.phone} title="Call" style={{...icoS,border:`1px solid ${T.border}`,background:"#fff"}}><PhoneIcon size={13} color={T.text}/></CallA>
-                {sel.email&&<a href={`mailto:${sel.email}`} title={`Email ${sel.email}`} style={{...icoS,border:`1px solid ${T.blue}`,background:"#EBF4FF",fontSize:13}}>✉️</a>}
+              <span style={{...CAPS_ROW,height:34,flexShrink:0}}>
+                <button onClick={()=>{setFupFor(sel);setFupDate(isoPlus(1));setFupTime("");setFupNote("");}} title="📅 Schedule a follow-up call — it pins here when due and pings your phone that morning (or at the time you pick)" style={{...icoS,border:"none",background:"none",fontSize:13}}>📅</button>
+                <CallA phone={sel.phone} title="Call" style={{...icoS,border:"none",background:"none"}}><PhoneIcon size={13} color={T.text}/></CallA>
+                {sel.email&&<a href={`mailto:${sel.email}`} title={`Email ${sel.email}`} style={{...icoS,border:"none",background:"none",fontSize:13}}>✉️</a>}
               </span>
             </div>
             {/* One combined timeline (Elie-approved): the BoldTrail inquiry,

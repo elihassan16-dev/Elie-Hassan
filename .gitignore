@@ -6,6 +6,7 @@ node_modules
 # build output
 dist
 dist-ssr
+dist-appdemo
 
 # local env (secrets stay out of git; set these in Vercel instead)
 .env

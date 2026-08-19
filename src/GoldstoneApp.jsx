@@ -5957,11 +5957,13 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:10}}>
           <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
             <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis"}}>{full}</div>
-            <button onClick={()=>setShowInfo(true)} title="Property info" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,cursor:"pointer",fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>i</button>
-            {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}><TeamChatIcon size={13}/></button>}
-            <button onClick={()=>setAiChat(true)} title="Ask AI about this property" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.gold}`,background:T.goldLight,color:"#b8912e",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✨</button>
-            <button onClick={()=>setStatusBoard(true)} title="Property status — utilities & permits (contractors see this too)" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.green}`,background:"#EDFBF1",color:"#15803D",cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>🏗</button>
-            <button onClick={()=>setEditAddr(true)} title="Edit the address" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✎</button>
+            <div style={CAPS_ROW}>
+              <button onClick={()=>setShowInfo(true)} title="Property info" style={{...capsSeg(T.blue),fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic"}}>i</button>
+              {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={capsSeg()}><TeamChatIcon size={14}/></button>}
+              <button onClick={()=>setAiChat(true)} title="Ask AI about this property" style={capsSeg(T.gold)}><SparkleIcon size={15}/></button>
+              <button onClick={()=>setStatusBoard(true)} title="Property status — utilities & permits (contractors see this too)" style={capsSeg()}>🏗</button>
+              <button onClick={()=>setEditAddr(true)} title="Edit the address" style={capsSeg()}>✎</button>
+            </div>
           </div>
           {editAddr&&<AddressEditPopup rec={property} onSave={(v)=>{onUpdate(property.id,"address",v.address);onUpdate(property.id,"city",v.city);onUpdate(property.id,"state",v.state);onUpdate(property.id,"zip",v.zip);}} onClose={()=>setEditAddr(false)}/>}
           {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
@@ -5976,10 +5978,9 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
               onUpdate(property.id,"statusGates",{...(property.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}});
             }}/>
         </div>
-        <div style={{display:"flex",background:T.bg,borderRadius:10,padding:3,gap:2,maxWidth:"100%",overflowX:"auto",WebkitOverflowScrolling:"touch",scrollbarWidth:"none"}}>
+        <div style={{...SEG_WRAP,width:"auto"}}>
           {tabs.map(t=>(
-            <button key={t} onClick={()=>setTab(t)}
-              style={{flex:"0 0 auto",whiteSpace:"nowrap",padding:"7px 16px",borderRadius:8,border:"none",background:tab===t?T.card:"transparent",color:tab===t?T.text:T.textSub,fontWeight:tab===t?600:400,fontSize:13,cursor:"pointer",fontFamily:"inherit",boxShadow:tab===t?"0 1px 3px rgba(0,0,0,0.12)":"none",transition:"all 0.15s"}}>
+            <button key={t} onClick={()=>setTab(t)} style={segTab(tab===t)}>
               {t}
             </button>
           ))}
@@ -6425,17 +6426,19 @@ function LeadDetail({lead,onUpdate}){
       <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"18px 24px 0",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:6,minWidth:0}}>
           <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis"}}>{full}</div>
-          <button onClick={()=>setShowInfo(true)} title="Property info" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.blue}`,background:"#EBF4FF",color:T.blue,cursor:"pointer",fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>i</button>
-          <button onClick={()=>setEditAddr(true)} title="Edit the address" style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,width:28,height:28,minWidth:28,flexShrink:0,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:13,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✎</button>
+          <div style={CAPS_ROW}>
+            <button onClick={()=>setShowInfo(true)} title="Property info" style={{...capsSeg(T.blue),fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic"}}>i</button>
+            <button onClick={()=>setEditAddr(true)} title="Edit the address" style={capsSeg()}>✎</button>
+          </div>
         </div>
         {editAddr&&<AddressEditPopup rec={lead} onSave={(v)=>{onUpdate(lead.id,"address",v.address);onUpdate(lead.id,"city",v.city);onUpdate(lead.id,"state",v.state);onUpdate(lead.id,"zip",v.zip);}} onClose={()=>setEditAddr(false)}/>}
         <div style={{fontSize:13,color:T.textSub,marginBottom:10}}>Lead added {lead.dateAdded||"—"}</div>
         <div style={{marginBottom:14}}>
           <span style={{padding:"6px 14px",borderRadius:20,background:"#FFF0EF",color:T.red,border:"1.5px solid #FF3B3033",fontWeight:700,fontSize:12}}>New Leads</span>
         </div>
-        <div style={{display:"flex",background:T.bg,borderRadius:10,padding:3,gap:2,width:"fit-content"}}>
+        <div style={SEG_WRAP}>
           {["Financial Overview","Tasks","Contacts"].map(t=>(
-            <button key={t} onClick={()=>setTab(t)} style={{padding:"7px 18px",borderRadius:8,border:"none",background:tab===t?T.card:"transparent",color:tab===t?T.text:T.textSub,fontWeight:tab===t?600:400,fontSize:13,cursor:"pointer",fontFamily:"inherit",boxShadow:tab===t?"0 1px 3px rgba(0,0,0,0.12)":"none",transition:"all 0.15s"}}>{t}</button>
+            <button key={t} onClick={()=>setTab(t)} style={segTab(tab===t)}>{t}</button>
           ))}
         </div>
       </div>
@@ -11886,7 +11889,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const modePill=(m,label,activeStyle,badge)=>{
     const on=mode===m;
     return(
-      <button key={m} onClick={()=>setMode(m)} style={{flex:1,padding:"7px 0",borderRadius:16,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,...(on?activeStyle:{border:`1px solid ${T.border}`,background:"#fff",color:T.textSub})}}>
+      <button key={m} onClick={()=>setMode(m)} style={{...segTab(on),flex:1,padding:"7px 0",fontSize:11.5}}>
         {label}{badge>0&&<span style={{minWidth:16,height:16,borderRadius:8,background:T.red,color:"#fff",fontSize:9.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{badge}</span>}
       </button>
     );
@@ -11898,10 +11901,10 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
           <div style={{fontWeight:700,fontSize:15,color:T.text,marginBottom:10}}>Messages</div>
           {/* Team / Texts / All — only once the business texting line is connected */}
           {smsOn&&(
-            <div style={{display:"flex",gap:5,marginBottom:8}}>
-              {modePill("team","💬 Team",{border:`1.5px solid ${T.gold}`,background:T.goldLight,color:"#8a6d1f"},0)}
-              {modePill("texts","📱 Texts",{border:"1.5px solid #15803D",background:"#EDFBF1",color:"#15803D"},textsUnreadTotal)}
-              {modePill("all","⊞ All",{border:"1.5px solid #475569",background:"#F1F5F9",color:"#334155"},0)}
+            <div style={{...SEG_WRAP,width:"auto",marginBottom:8}}>
+              {modePill("team","💬 Team",null,0)}
+              {modePill("texts","📱 Texts",null,textsUnreadTotal)}
+              {modePill("all","⊞ All",null,0)}
             </div>
           )}
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
@@ -11909,7 +11912,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
               <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:15,pointerEvents:"none"}}>⌕</span>
               <input placeholder={mode==="team"||!smsOn?"Search properties…":"Search names, numbers, properties…"} value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px"}}/>
             </div>
-            {smsOn&&mode!=="team"&&<button onClick={()=>{setNewTx(true);setNewTxQ("");}} title="✏️ New text — pick a contact or type a number; it sends from your office line" style={{width:33,height:33,minWidth:33,borderRadius:"50%",border:"1.5px solid #15803D",background:"#EDFBF1",fontSize:13.5,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>✏️</button>}
+            {smsOn&&mode!=="team"&&<button onClick={()=>{setNewTx(true);setNewTxQ("");}} title="✏️ New text — pick a contact or type a number; it sends from your office line" style={{width:33,height:33,minWidth:33,borderRadius:"50%",border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",fontSize:13.5,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>✏️</button>}
           </div>
         </div>
         {/* Buyer/agent/lead texts stay in the Showings CRM unless invited in */}
@@ -15259,9 +15262,11 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           <div style={{padding:"13px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <div style={{fontWeight:800,fontSize:15,color:T.text,flex:1,minWidth:0}}>Property Balance Sheet</div>
-              {canEdit&&<button onClick={()=>setDsOpen(true)} title="🏦 Debt service — covered or short, borrow in one tap" style={{position:"relative",width:30,height:30,borderRadius:"50%",background:"#fff",border:"1.5px dashed #C9A227",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>🏦{dsShortCount>0&&<span style={{position:"absolute",top:-5,right:-5,minWidth:16,height:16,borderRadius:8,background:T.red,color:"#fff",fontSize:9.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px",boxSizing:"border-box"}}>{dsShortCount}</span>}</button>}
-              {canEdit&&<button onClick={()=>setDrawIn({propId:(selP&&selP.id)||"",amt:""})} title="💸 Bank sent a draw — the reimburse/transfer split" style={{width:30,height:30,borderRadius:"50%",background:"#FBF7EC",border:"1.5px dashed #C9A227",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>💸</button>}
-              {canEdit&&<button onClick={()=>setBulkOpen(true)} title="⚙ Bank accounts — every property at once" style={{width:30,height:30,borderRadius:"50%",background:"#fff",border:"1.5px dashed #C9A227",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>⚙</button>}
+              {canEdit&&<div style={CAPS_ROW}>
+                <button onClick={()=>setDsOpen(true)} title="🏦 Debt service — covered or short, borrow in one tap" style={capsSeg()}>🏦{dsShortCount>0&&<span style={{position:"absolute",top:0,right:0,minWidth:15,height:15,borderRadius:8,background:T.red,color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px",boxSizing:"border-box"}}>{dsShortCount}</span>}</button>
+                <button onClick={()=>setDrawIn({propId:(selP&&selP.id)||"",amt:""})} title="💸 Bank sent a draw — the reimburse/transfer split" style={capsSeg()}>💸</button>
+                <button onClick={()=>setBulkOpen(true)} title="⚙ Bank accounts — every property at once" style={capsSeg()}><GearIcon size={16}/></button>
+              </div>}
             </div>
             <div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>Live from QuickBooks — tap a deal</div>
             <input value={listQ} onChange={e=>setListQ(e.target.value)} placeholder="🔍 Search properties…" style={{width:"100%",marginTop:9,padding:"7px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
@@ -18173,13 +18178,17 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
             <button onClick={()=>setDrawModal({})} style={{...finBtn(true),padding:"8px 14px"}}>+ Draw</button>
           </div>}
         </div>
-        <div style={{display:"flex",gap:4,marginTop:12,overflowX:"auto",alignItems:"center"}}>
-          {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["reports","Report Center"],["sold","🏷 Sold Properties"],["docs","Document Creator"]].map(([k,l])=>(
-            <button key={k} onClick={()=>{if(k!==subTab)navPush(((st,bp)=>()=>{setSubTab(st);setBsSel(bp);})(subTab,bsSel));setSubTab(k);setBsSel(null);}} style={{padding:"9px 14px",border:"none",borderBottom:subTab===k?`2.5px solid ${T.gold}`:"2.5px solid transparent",background:"none",color:subTab===k?T.gold:T.textSub,fontWeight:subTab===k?800:600,fontSize:isMobile?12.5:13.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
-          ))}
-          <span style={{marginLeft:"auto",display:"flex",gap:6,flexShrink:0,paddingLeft:8}}>
-            <button onClick={()=>navBack()} title="Back — the screen you were on before" style={{padding:"6px 12px",borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>‹ Back</button>
-            <button onClick={()=>{setBsSel(null);setSelId(null);setSubTab("loc");}} title="Start — the front of the Financial Section" style={{padding:"6px 12px",borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>⌂</button>
+        <div style={{display:"flex",gap:8,marginTop:12,alignItems:"center"}}>
+          <div style={SEG_WRAP}>
+            {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["reports","Report Center"],["sold","🏷 Sold Properties"],["docs","Document Creator"]].map(([k,l])=>(
+              <button key={k} onClick={()=>{if(k!==subTab)navPush(((st,bp)=>()=>{setSubTab(st);setBsSel(bp);})(subTab,bsSel));setSubTab(k);setBsSel(null);}} style={{...segTab(subTab===k),fontSize:isMobile?12:12.5,...(subTab===k?{color:T.gold}:{})}}>{l}</button>
+            ))}
+          </div>
+          <span style={{marginLeft:"auto",flexShrink:0,paddingLeft:4}}>
+            <span style={CAPS_ROW}>
+              <button onClick={()=>navBack()} title="Back — the screen you were on before" style={{...capsSeg(),width:"auto",padding:"0 11px",fontSize:12,fontWeight:600}}>‹ Back</button>
+              <button onClick={()=>{setBsSel(null);setSelId(null);setSubTab("loc");}} title="Start — the front of the Financial Section" style={{...capsSeg(),fontSize:13}}>⌂</button>
+            </span>
           </span>
         </div>
       </div>
@@ -20082,6 +20091,12 @@ function PersonCard({phone,name,who,showFeed,onText,onClose,email="",broker=""})
 // One segment of the top bar's glass capsule (Option B toolbar): fixed slot,
 // no chrome of its own — the capsule supplies the pill; icons are line SVGs.
 const TOPBAR_SEG={width:38,height:36,minHeight:36,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"none",border:"none",cursor:"pointer",color:"#6E6E73",padding:0,fontFamily:"inherit",position:"relative",flexShrink:0,boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1};
+// The same capsule language, app-wide: icon clusters share one pill…
+const CAPS_ROW={display:"inline-flex",alignItems:"center",height:34,borderRadius:17,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:"0 2px",flexShrink:0};
+const capsSeg=(color)=>({...TOPBAR_SEG,width:34,height:32,minHeight:32,fontSize:13.5,...(color?{color}:{})});
+// …and tab rows are iOS segmented controls (white pill slides to the choice).
+const SEG_WRAP={display:"flex",alignItems:"center",borderRadius:18,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:3,gap:2,width:"fit-content",maxWidth:"100%",overflowX:"auto",WebkitOverflowScrolling:"touch",scrollbarWidth:"none"};
+const segTab=(on)=>({flex:"0 0 auto",whiteSpace:"nowrap",padding:"7px 15px",borderRadius:14,border:"none",minHeight:0,background:on?"#fff":"transparent",color:on?T.text:T.textSub,fontWeight:on?650:450,fontSize:13,cursor:"pointer",fontFamily:"inherit",boxShadow:on?"0 1px 4px rgba(0,0,0,0.14)":"none",transition:"all 0.15s",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5});
 
 function PhoneTopButton(){
   const{connected,msgs}=useSmsTexting();

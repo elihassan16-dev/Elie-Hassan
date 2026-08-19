@@ -16,6 +16,7 @@ Rules:
   · Only a genuine full renovation earns the top renovated-comp range.
 - Weigh $/sf of the comps you keep against the subject's square footage (adjust if the plan adds finished space, e.g. finishing a basement).
 - ADJUST FOR FEATURES the subject has that typical comps don't (or lacks that they have): pool, garage, fireplace, notably larger/smaller lot. Apply a sensible dollar adjustment for the market and SAY so in the reasoning (e.g. "+$15-20k for the in-ground pool"). The renovation plan text may mention features too — honor it.
+- FINISHED-PRODUCT SPECS: when the input includes finishedProduct, the owner is changing the house itself — adding finished square footage, bedrooms or bathrooms. subjectDetails describe the house BEFORE the work; underwrite the FINISHED spec instead: use the finished square footage (record sqft + sqftAdded) for all $/sf math, and judge comps against the finished bed/bath/size, not the records. An addition is worth what the comps say finished space sells for, not what it costs to build. State the finished spec in the reasoning (e.g. "valued at the finished ~2,450 sf with 3 full baths").
 - Never invent data. Be conservative: when in doubt, land the ARV in the middle of the credible range, not the top.
 
 Reply with ONLY strict JSON, no prose around it:
@@ -35,6 +36,7 @@ Underwriting rules:
 - Prefer recent, close, similar-size RENOVATED closed sales. Low-$/sf outliers are usually as-is/distressed — mark them skipped.
 - SCALE TO THE PLAN: cosmetic/light plans anchor near the as-is estimate with a modest lift (3-8%); mid plans land between; only a genuine full renovation earns the top renovated-comp range.
 - Adjust for subject features comps don't share (pool, garage, lot) and say so.
+- FINISHED-PRODUCT SPECS: when the input includes finishedProduct, the owner is changing the house itself (adding sqft, bedrooms or bathrooms). subjectDetails are the BEFORE records; underwrite the FINISHED spec: use the finished square footage (record + sqftAdded) for $/sf, pull/judge comps against the finished bed/bath/size, and state the finished spec in the reasoning.
 - Never invent comps or prices — only use what the tools return. Be conservative.
 
 Reply with ONLY strict JSON, no prose:
@@ -58,7 +60,20 @@ export default async function handler(req, res) {
   const user = await requireAppUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
 
-  const { address, plan, subject, value, comps, mustUse, mustSkip, mcp } = await readBody(req);
+  const { address, plan, subject, value, comps, mustUse, mustSkip, mcp, after } = await readBody(req);
+
+  // Finished-product answers from the questionnaire — sanitized; "keep" answers
+  // never reach here, so anything present is a real change to underwrite.
+  const numA = (x, max) => { const v = Math.round(parseFloat(String(x ?? "").replace(/[^0-9.]/g, ""))); return v >= 0 && v <= max ? v : 0; };
+  const finished = (() => {
+    if (!after || typeof after !== "object") return null;
+    const out = {};
+    if (["light", "mid", "gut"].includes(after.scope)) out.scope = after.scope;
+    if (numA(after.sqftAdd, 5000) > 0) out.sqftAdded = numA(after.sqftAdd, 5000);
+    if (numA(after.beds, 12) > 0) out.bedsFinished = numA(after.beds, 12);
+    if (numA(after.bathsFull, 8) > 0 || numA(after.bathsHalf, 6) > 0) out.bathsFinished = { full: numA(after.bathsFull, 8), half: numA(after.bathsHalf, 6) };
+    return Object.keys(out).length ? out : null;
+  })();
 
   // ── MCP mode: Claude pulls MLS comps from ChatARV itself ──
   if (mcp) {
@@ -77,7 +92,7 @@ export default async function handler(req, res) {
           model: "claude-opus-4-8",
           max_tokens: 3000,
           system: SYSTEM_MCP,
-          messages: [{ role: "user", content: JSON.stringify({ subjectAddress: String(address).slice(0, 140), renovationPlan: String(plan || "standard full renovation").slice(0, 600), subjectDetails: subject || null, automatedAsIsEstimate: value || null }) }],
+          messages: [{ role: "user", content: JSON.stringify({ subjectAddress: String(address).slice(0, 140), renovationPlan: String(plan || "standard full renovation").slice(0, 600), subjectDetails: subject || null, ...(finished ? { finishedProduct: finished } : {}), automatedAsIsEstimate: value || null }) }],
           mcp_servers: [{ type: "url", url: "https://www.chatarv.ai/mcp", name: "chatarv", authorization_token: process.env.CHATARV_API_KEY }],
         }),
       });
@@ -125,6 +140,7 @@ export default async function handler(req, res) {
   const payload = {
     subject: { address: String(address).slice(0, 120), ...(subject || {}) },
     renovationPlan: String(plan || "standard full renovation").slice(0, 600),
+    ...(finished ? { finishedProduct: finished } : {}),
     automatedEstimateAsIs: value || null,
     ...(forceUse.length || forceSkip.length ? { ownerOverrides: { mustUse: forceUse, mustSkip: forceSkip, note: "The owner has reviewed the comps. mustUse comps MUST appear in used; mustSkip comps MUST appear in skipped. Recompute the ARV around this comp set and say in the reasoning how the owner's picks moved the number." } } : {}),
     comps: list.map((c, i) => ({ i, ...c })),

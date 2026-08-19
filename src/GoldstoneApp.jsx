@@ -7137,10 +7137,13 @@ function TaskStatusPicker({value,onChange,onDelete,small,dim}){
       {/* dim fades ONLY the pill — the fixed menu below must never inherit
           opacity (an ancestor's opacity ghosts it gray and glitchy). */}
       <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:small?20:22,padding:small?"0 9px":"0 11px",background:sc.bg,color:sc.color,border:"none",borderRadius:20,fontSize:small?10.5:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap",opacity:dim?0.55:1}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
-      {open&&(<>
-        {/* fixed positioning so the menu isn't clipped by the property card's overflow:hidden */}
-        <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:290}}/>
-        <div style={{position:"fixed",top:pos.top,left:pos.left,width:MENU_W,zIndex:300,background:"#fff",border:`1px solid ${T.border}`,borderRadius:T.radiusSm,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",padding:4,maxHeight:MENU_H,overflowY:"auto"}}>
+      {open&&createPortal(<>
+        {/* Portaled to <body>: position:fixed breaks inside glassed popups —
+            backdrop-filter turns the sheet into the containing block, so a
+            nested fixed menu lands inside the card (clipped, invisible).
+            Rendering at the body keeps viewport coordinates honest. */}
+        <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:490}}/>
+        <div style={{position:"fixed",top:pos.top,left:pos.left,width:MENU_W,zIndex:500,background:"#fff",border:`1px solid ${T.border}`,borderRadius:T.radiusSm,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",padding:4,maxHeight:MENU_H,overflowY:"auto"}}>
           {TASK_STATUSES.map(s=>{const c=TASK_STATUS_COLORS[s];return(
             <button key={s} onClick={()=>{onChange(s);setOpen(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:7,border:"none",background:s===value?c.bg:"transparent",color:c.color,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
               <span style={{width:8,height:8,borderRadius:"50%",background:c.color,flexShrink:0}}/>{s}
@@ -7149,7 +7152,7 @@ function TaskStatusPicker({value,onChange,onDelete,small,dim}){
           <div style={{borderTop:`1px solid ${T.border}`,margin:"4px 6px"}}/>
           <button onClick={()=>{setOpen(false);onDelete();}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:7,border:"none",background:"transparent",color:T.red,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>🗑 Delete</button>
         </div>
-      </>)}
+      </>,document.body)}
     </div>
   );
 }

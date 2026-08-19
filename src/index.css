@@ -64,9 +64,9 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
   }
   /* Every white popup sheet becomes frosted glass */
   div[style*="position: fixed"][style*="backdrop-filter"] > div[style*="rgb(255, 255, 255)"] {
-    background: rgba(255, 255, 255, 0.80) !important;
-    -webkit-backdrop-filter: blur(34px) saturate(1.8);
-    backdrop-filter: blur(34px) saturate(1.8);
+    background: rgba(255, 255, 255, 0.86) !important;
+    -webkit-backdrop-filter: blur(34px) saturate(1.45);
+    backdrop-filter: blur(34px) saturate(1.45);
     border: 1px solid rgba(255, 255, 255, 0.92);
   }
   /* Mobile bottom tab bar: detached floating glass pill */
@@ -95,11 +95,12 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
    authored radius and layout — only surface + depth change. */
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .gs-dash {
+    /* All-gold wash — brand gold, champagne, soft bronze on warm ivory. */
     background:
-      radial-gradient(56rem 30rem at 10% -6%, rgba(212, 168, 67, 0.20), transparent 62%),
-      radial-gradient(50rem 30rem at 92% 4%, rgba(90, 200, 250, 0.18), transparent 60%),
-      radial-gradient(46rem 34rem at 50% 118%, rgba(175, 82, 222, 0.12), transparent 64%),
-      linear-gradient(#F4F4F8, #EFEFF5);
+      radial-gradient(56rem 30rem at 10% -6%, rgba(212, 168, 67, 0.22), transparent 62%),
+      radial-gradient(50rem 30rem at 92% 4%, rgba(232, 200, 122, 0.16), transparent 60%),
+      radial-gradient(46rem 34rem at 50% 118%, rgba(184, 149, 63, 0.12), transparent 64%),
+      linear-gradient(#F7F5F0, #F2EFE8);
   }
   /* Every white card / tile / chip on the dashboard becomes glass */
   .gs-dash [style*="background: rgb(255, 255, 255)"] {

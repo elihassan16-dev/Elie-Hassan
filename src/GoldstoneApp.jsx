@@ -8931,7 +8931,7 @@ function TasksPage({onNavigate}){
         return <TaskContactCard task={liveTask} contacts={dir} onAssign={(val)=>setTaskContact(taskContactTarget.propId,liveTask.id,val)} onCreateContact={addContactToDir} onClose={()=>setTaskContactTarget(null)}/>;
       })()}
       {/* Header */}
-      <div style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>
+      <div className="gs-dash-hd" style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
           <div style={{fontSize:isMobile?21:27,fontWeight:700,letterSpacing:"-0.022em",color:T.text}}>Dashboard</div>
           <button onClick={()=>setShowAddTasks(true)} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,padding:isMobile?"8px 12px":"9px 16px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:isMobile?13:14,letterSpacing:"-0.01em",cursor:"pointer",fontFamily:"inherit",flexShrink:0}}><span style={{fontSize:16,lineHeight:1}}>＋</span>{isMobile?"Add":"Add Tasks"}</button>
@@ -8987,7 +8987,7 @@ function TasksPage({onNavigate}){
         </>)}
       </div>
 
-      <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
+      <div className="gs-dash" style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
       {/* 🏠 Dashboard tiles — tap one to jump to its card */}
       {!showAutomations&&dashTiles()}
       {dashTextPopup()}

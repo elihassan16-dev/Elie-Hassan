@@ -88,6 +88,35 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
     border-bottom: 1px solid rgba(255, 255, 255, 0.85) !important;
   }
 }
+/* ── 🫧 Liquid Glass (phase two: the dashboard itself) ───────────────────────
+   Glass only reads when there's light behind it. The dashboard canvas gets a
+   soft ambient wash (gold / sky / lilac blobs), and every white card on it
+   turns into a frosted panel that refracts that wash. Cards keep their own
+   authored radius and layout — only surface + depth change. */
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .gs-dash {
+    background:
+      radial-gradient(56rem 30rem at 10% -6%, rgba(212, 168, 67, 0.20), transparent 62%),
+      radial-gradient(50rem 30rem at 92% 4%, rgba(90, 200, 250, 0.18), transparent 60%),
+      radial-gradient(46rem 34rem at 50% 118%, rgba(175, 82, 222, 0.12), transparent 64%),
+      linear-gradient(#F4F4F8, #EFEFF5);
+  }
+  /* Every white card / tile / chip on the dashboard becomes glass */
+  .gs-dash [style*="background: rgb(255, 255, 255)"] {
+    background: rgba(255, 255, 255, 0.52) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(1.75);
+    backdrop-filter: blur(20px) saturate(1.75);
+    border: 1px solid rgba(255, 255, 255, 0.80);
+    box-shadow: 0 1px 1px rgba(255, 255, 255, 0.55) inset, 0 6px 22px rgba(35, 48, 75, 0.10) !important;
+  }
+  /* Dashboard header strip: same frost as the top bar, hairline seam */
+  .gs-dash-hd {
+    background: rgba(255, 255, 255, 0.60) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(1.8);
+    backdrop-filter: blur(24px) saturate(1.8);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.85) !important;
+  }
+}
 /* The press: anything tappable dips into a lens while touched */
 [style*="cursor: pointer"]:active, button:active { filter: brightness(0.95) saturate(1.12); }
 @media (prefers-reduced-motion: no-preference) {

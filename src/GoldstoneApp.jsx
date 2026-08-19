@@ -2157,7 +2157,7 @@ function FinOverview({property,onUpdate}){
       {/* Toggle bar */}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,justifyContent:"center",flexWrap:"wrap"}}>
         <div onClick={()=>setShowActual(v=>!v)}
-          style={{display:"inline-flex",alignItems:"center",gap:10,background:showActual?T.green+"22":T.bg,border:`1.5px solid ${showActual?T.green:T.border}`,borderRadius:20,padding:"7px 18px",cursor:"pointer"}}>
+          style={{...TOGGLE_CHIP(showActual,T.green),gap:10,padding:"7px 18px",fontSize:13}}>
           <div style={{width:18,height:18,borderRadius:9,background:showActual?T.green:"#ccc",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
             {showActual&&<span style={{color:"#fff",fontSize:12,lineHeight:1}}>✓</span>}
           </div>
@@ -2166,12 +2166,12 @@ function FinOverview({property,onUpdate}){
           </span>
         </div>
         <div onClick={()=>setWhatIf(true)}
-          style={{display:"inline-flex",alignItems:"center",gap:8,background:T.bg,border:`1.5px dashed ${T.gold}`,borderRadius:20,padding:"7px 18px",cursor:"pointer"}}>
+          style={{...TOGGLE_CHIP(false),gap:8,padding:"7px 18px",fontSize:13}}>
           <span style={{fontSize:14,lineHeight:1}}>⚖️</span>
           <span style={{fontSize:13,fontWeight:600,color:"#8a6d1f"}}>Quick what-if</span>
         </div>
         {showActual&&<div onClick={()=>up("useActualProfit",!f.useActualProfit)}
-          style={{display:"inline-flex",alignItems:"center",gap:10,background:f.useActualProfit?T.gold+"22":T.bg,border:`1.5px solid ${f.useActualProfit?T.gold:T.border}`,borderRadius:20,padding:"7px 18px",cursor:"pointer"}}>
+          style={{...TOGGLE_CHIP(f.useActualProfit,"#8a6d1f"),gap:10,padding:"7px 18px",fontSize:13}}>
           <div style={{width:18,height:18,borderRadius:9,background:f.useActualProfit?T.gold:"#ccc",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
             {f.useActualProfit&&<span style={{color:"#fff",fontSize:12,lineHeight:1}}>✓</span>}
           </div>
@@ -7549,7 +7549,7 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
             <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:8,padding:"0 2px"}}>
               <span style={{fontSize:11,color:T.textTert,fontWeight:700}}>Template addresses:</span>
               {involved.map(n=>{const on=n===recipient;return(
-                <button key={n} onClick={()=>setRecipient(n)} style={{fontSize:12,fontWeight:on?700:600,color:on?"#fff":T.textSub,background:on?T.gold:"transparent",border:`1px solid ${on?T.gold:T.border}`,borderRadius:16,padding:"4px 11px",cursor:"pointer",fontFamily:"inherit"}}>{on?"✓ ":""}{n.split(" ")[0]}{n===delegate&&n!==assignee?" (doing it)":n===assignee&&delegate&&n!==delegate?" (owner)":""}</button>
+                <button key={n} onClick={()=>setRecipient(n)} style={{...TOGGLE_CHIP(on,"#8a6d1f"),padding:"4px 11px",fontSize:12}}>{on?"✓ ":""}{n.split(" ")[0]}{n===delegate&&n!==assignee?" (doing it)":n===assignee&&delegate&&n!==delegate?" (owner)":""}</button>
               );})}
             </div>
           )}
@@ -8990,7 +8990,7 @@ function TasksPage({onNavigate}){
             const active=views.has(k);
             return(
               <button key={k} onClick={()=>setViews(prev=>{const n=new Set(prev);active?n.delete(k):n.add(k);return n;})}
-                style={{padding:"7px 16px",borderRadius:20,border:`1px solid ${active?T.gold:T.border}`,background:active?T.goldLight:"transparent",color:active?T.gold:T.textSub,fontWeight:active?600:450,fontSize:13,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5}}>
+                style={{...TOGGLE_CHIP(active),padding:"7px 16px",fontSize:13}}>
                 {active&&<span style={{fontSize:10}}>✓</span>}{l}{k==="my"&&myTasks.length>0?` (${myTasks.length})`:k==="unassigned"?` (${unassignedTasks.length})`:""}
               </button>
             );
@@ -10039,7 +10039,7 @@ function StatusGatesPanel(){
       {/* Status selector */}
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16}}>
         {GATE_STATUSES.map(s=>{const on=s===status;const ssc=SC[s]||{color:T.gold,bg:T.goldLight};const n=(cfg[s]||[]).length;return(
-          <button key={s} onClick={()=>setStatus(s)} style={{padding:"6px 12px",borderRadius:20,border:`1.5px solid ${on?ssc.color:T.border}`,background:on?ssc.bg:"transparent",color:on?ssc.color:T.textSub,fontWeight:on?700:500,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{s}{n?` · ${n}`:""}</button>
+          <button key={s} onClick={()=>setStatus(s)} style={{...TOGGLE_CHIP(on,ssc.color),fontSize:12.5}}>{s}{n?` · ${n}`:""}</button>
         );})}
       </div>
       {/* Requirements for the selected status */}
@@ -10312,7 +10312,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
           {(()=>{
             const subj=(saved&&saved.subject)||null;
             const qHdr=(t)=><div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f",margin:"8px 0 4px"}}>{t}</div>;
-            const qChip=(on)=>({padding:"6px 11px",borderRadius:9,border:`1px solid ${on?T.gold:T.border}`,background:on?T.goldLight:"#fff",color:on?"#8a6d1f":T.textSub,fontWeight:on?700:500,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"});
+            const qChip=(on)=>({...TOGGLE_CHIP(on,"#8a6d1f"),padding:"6px 11px",fontSize:11.5});
             const selSt={padding:"6px 8px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text};
             return(<>
               {qHdr("1 · SCOPE OF WORK")}
@@ -10528,7 +10528,7 @@ function SettingsModal({archived,onRestore,onDelete,onClose,team,setUserMuted,se
       setUserChannels&&setUserChannels(u.id,(next.push&&next.email&&next.sms)?null:next);
     };
     const chanChip=(k,label)=>{const on=chanOn(u,k);return(
-      <button key={k} onClick={()=>toggleChan(k)} style={{padding:"4px 9px",borderRadius:10,border:`1px solid ${on?"#b7ebc7":T.border}`,background:on?"#EDFBF1":T.bg,color:on?"#15803D":T.textTert,fontSize:9.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",textDecoration:on?"none":"line-through"}}>{label}</button>
+      <button key={k} onClick={()=>toggleChan(k)} style={{...TOGGLE_CHIP(on,"#15803D"),padding:"4px 9px",fontSize:9.5,textDecoration:on?"none":"line-through"}}>{label}</button>
     );};
     return(
       <div key={u.id} style={{borderBottom:`1px solid ${T.border}55`,padding:"10px 0"}}>
@@ -11032,7 +11032,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
           {showTag&&(
             <div style={{display:"flex",gap:6,flexWrap:"wrap",width:"100%",marginTop:2,background:T.bg,border:`1px solid ${T.border}`,borderRadius:12,padding:8}}>
               {tagOptions.map(n=>{const on=mentions.includes(n);return(
-                <button key={n} onClick={()=>toggleMention(n)} style={{fontSize:12,fontWeight:on?700:500,color:on?"#fff":T.textSub,background:on?T.gold:"transparent",border:`1px solid ${on?T.gold:T.border}`,borderRadius:20,padding:"5px 11px",cursor:"pointer",fontFamily:"inherit"}}>{on?"✓ ":""}{n}</button>
+                <button key={n} onClick={()=>toggleMention(n)} style={{...TOGGLE_CHIP(on,"#8a6d1f"),padding:"5px 11px",fontSize:12}}>{on?"✓ ":""}{n}</button>
               );})}
             </div>
           )}
@@ -12174,7 +12174,7 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,set
   const chanChip=(u,k,icon,label)=>{
     const on=chanOn(u,k);
     return(
-      <button onClick={()=>toggleChan(u,k)} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:16,border:`1px solid ${on?T.green:T.border}`,background:on?"#EDFBF1":T.bg,color:on?"#15803D":T.textTert,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+      <button onClick={()=>toggleChan(u,k)} style={{...TOGGLE_CHIP(on,"#15803D"),fontSize:12}}>
         {icon} {label} {on?"✓":"✕"}
       </button>
     );
@@ -12723,7 +12723,7 @@ function FinDrawModal({draw,funders,properties,defaultFunderId,onSave,onClose}){
         <div style={finLabel}>Terms for this loan</div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {[[false,`${selFunder?.name||"Lender"}'s default — ${defRate}%/yr`],[true,"✎ Custom for this loan"]].map(([v,l])=>{const on=customRate===v;return(
-            <button key={String(v)} onClick={()=>setCustomRate(v)} style={{padding:"7px 12px",borderRadius:16,border:on?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:on?T.goldLight:"#fff",color:on?"#8a6d1f":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+            <button key={String(v)} onClick={()=>setCustomRate(v)} style={{...TOGGLE_CHIP(on,"#8a6d1f"),padding:"7px 12px",fontSize:11.5}}>{l}</button>
           );})}
         </div>
         {customRate&&<div style={{marginTop:8}}><input value={rate} onChange={e=>setRate(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" placeholder={`${defRate}`} style={finInput}/><div style={{fontSize:11,color:T.textTert,marginTop:4}}>%/yr — only this loan runs at this rate; his other loans stay at his default.</div></div>}
@@ -12947,7 +12947,7 @@ function FinPaybackModal({draw,funder,onConfirm,onPartial,onClose}){
           ["both","💵 Principal + interest back",()=>{setPrincipal("withdraw");setInterest("distribute");}],
           ["hold","🏦 Hold it with us",()=>applyHold(holdWhat)],
           ...(onPartial&&!draw.paybackDate?[["part","✂️ Partial — some of it",()=>{}]]:[])].map(([m,l,fn])=>{const on=mode===m;return(
-          <button key={m} onClick={()=>{setMode(m);fn();}} style={{padding:"8px 13px",borderRadius:20,border:on?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:on?T.goldLight:"#fff",color:on?"#8a6d1f":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+          <button key={m} onClick={()=>{setMode(m);fn();}} style={{...TOGGLE_CHIP(on,"#8a6d1f"),padding:"8px 13px",fontSize:11.5}}>{l}</button>
         );})}
       </div>
       {mode==="part"&&(
@@ -12962,7 +12962,7 @@ function FinPaybackModal({draw,funder,onConfirm,onPartial,onClose}){
           <div style={{fontSize:10.5,fontWeight:800,color:T.textTert,letterSpacing:"0.04em",textTransform:"uppercase"}}>What are we holding?</div>
           <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
             {[["prin","Principal only",pr],["int","Interest only",int],["both",`Both — ${fmtD(pr+int)}`,0]].map(([w,l])=>{const on=holdWhat===w;return(
-              <button key={w} onClick={()=>applyHold(w)} style={{padding:"6px 11px",borderRadius:16,border:on?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:on?T.goldLight:"#fff",color:on?"#8a6d1f":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+              <button key={w} onClick={()=>applyHold(w)} style={{...TOGGLE_CHIP(on,"#8a6d1f"),padding:"6px 11px",fontSize:11.5}}>{l}</button>
             );})}
           </div>
         </div>
@@ -13554,7 +13554,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
         <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 16px",flexWrap:"wrap"}}>
           <span style={{fontSize:12,fontWeight:700,color:T.textSub,flexShrink:0}}>Calculate</span>
           {[["reserve","Interest Reserve"],["equity","Personal Equity"]].map(([k,l])=>{const on=calcMode===k;return(
-            <button key={k} onClick={canEdit?()=>onUpdate(property.id,"bsCalcMode",k):undefined} style={{padding:"4px 11px",borderRadius:20,fontSize:11.5,fontWeight:700,cursor:canEdit?"pointer":"default",fontFamily:"inherit",border:`1px solid ${on?T.gold:T.border}`,background:on?T.gold:"#fff",color:on?"#fff":T.textSub,opacity:canEdit||on?1:0.6}}>{l}</button>
+            <button key={k} onClick={canEdit?()=>onUpdate(property.id,"bsCalcMode",k):undefined} style={{...TOGGLE_CHIP(on,"#8a6d1f"),padding:"4px 11px",fontSize:11.5,cursor:canEdit?"pointer":"default",opacity:canEdit||on?1:0.6}}>{l}</button>
           );})}
         </div>
       </Card>
@@ -14619,7 +14619,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               {accounts==null&&<div style={{margin:"12px 18px 0",fontSize:12,color:"#8a6d1f",background:T.goldLight+"66",border:`1px solid ${T.gold}`,borderRadius:10,padding:"8px 12px"}}>⏳ Loading your QuickBooks balances — figures fill in as soon as they arrive.</div>}
               <div style={{display:"flex",gap:6,alignItems:"center",padding:"12px 18px 10px",flexWrap:"wrap"}}>
                 {[["draws","🏦 Draws as you build"],["upfront","💼 Funded up front (full LOC)"]].map(([k,label])=>{const on=(sel.dmFinType||"draws")===k;return(
-                  <button key={k} onClick={canEdit?()=>updateProp(sel.id,"dmFinType",k):undefined} style={{padding:"5px 12px",borderRadius:14,fontSize:11,fontWeight:800,cursor:canEdit?"pointer":"default",fontFamily:"inherit",border:"none",background:on?T.gold:"#F3F3F5",color:on?"#fff":"#888"}}>{label}</button>
+                  <button key={k} onClick={canEdit?()=>updateProp(sel.id,"dmFinType",k):undefined} style={{...TOGGLE_CHIP(on,"#8a6d1f"),padding:"5px 12px",fontSize:11,cursor:canEdit?"pointer":"default"}}>{label}</button>
                 );})}
               </div>
               {steps.map((st,i)=>(<Fragment key={st.k}>
@@ -15330,7 +15330,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 {bsProps.map((p,i)=>{const up=(p.dmFinType||"draws")==="upfront";
                   const aChip=(on,label,key,disabled,title)=>(
                     <button key={label} onClick={()=>!disabled&&updateProp(p.id,key,!p[key])} disabled={disabled} title={title}
-                      style={{padding:"3px 7px",borderRadius:9,border:`1px solid ${on?T.gold:T.border}`,background:on?T.goldLight:"#fff",color:on?"#8a6d1f":T.textSub,fontWeight:800,fontSize:9.5,cursor:disabled?"default":"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:disabled?0.45:1}}>{label} {on?"✓":"–"}</button>
+                      style={{...TOGGLE_CHIP(on,"#8a6d1f"),padding:"3px 7px",fontSize:9.5,cursor:disabled?"default":"pointer",opacity:disabled?0.45:1}}>{label} {on?"✓":"–"}</button>
                   );
                   return(
                   <div key={p.id} style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 165px 165px 185px",gap:8,alignItems:"center",padding:"8px 18px",borderTop:`1px solid ${T.border}55`,background:i%2?T.goldLight+"33":"transparent"}}>
@@ -17286,7 +17286,7 @@ function CrmPage({sharedProps}){
           <input value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 Search name, number, property…" style={{width:"100%",marginTop:9,padding:"7px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
           <div style={{display:"flex",gap:5,marginTop:8,flexWrap:"wrap"}}>
             {[["all",`All · ${counts.all}`],["new",`New replies · ${counts.new}`],["replied",`Replied · ${counts.replied}`],["noresp",`No response · ${counts.noresp}`]].map(([k,l])=>(
-              <button key={k} onClick={()=>setFilter(k)} style={{fontSize:10.5,fontWeight:800,borderRadius:12,padding:"4px 10px",border:"none",cursor:"pointer",fontFamily:"inherit",background:filter===k?T.gold:"#F3F3F5",color:filter===k?"#fff":"#888"}}>{l}</button>
+              <button key={k} onClick={()=>setFilter(k)} style={{...TOGGLE_CHIP(filter===k),padding:"4px 10px",fontSize:10.5}}>{l}</button>
             ))}
           </div>
         </div>
@@ -18381,7 +18381,7 @@ function MailLabelPopover({current,onSet,onClose,tasks,centered}){
       <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>{tasks?"Label (optional)":"Label this chain"}</div>
       <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
         {Object.entries(MAIL_LABELS).map(([k,v])=>{const on=kind===k;return(
-          <button key={k} onClick={()=>setKind(on?"":k)} style={{padding:"5px 10px",borderRadius:14,border:`1px solid ${on?v.color:T.border}`,background:on?v.bg:"transparent",color:on?v.color:T.textSub,fontWeight:on?700:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{v.icon} {v.name}</button>
+          <button key={k} onClick={()=>setKind(on?"":k)} style={{...TOGGLE_CHIP(on,v.color),padding:"5px 10px",fontSize:12}}>{v.icon} {v.name}</button>
         );})}
       </div>
       <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (e.g. name / what it's about)" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
@@ -18769,7 +18769,7 @@ function EmailPage({isMobile}){
           {/* Label filter */}
           {chains&&chains.length>0&&<div style={{display:"flex",gap:6,padding:"9px 12px",borderBottom:`1px solid ${T.border}`,overflowX:"auto",flexShrink:0,scrollbarWidth:"none"}}>
             {[["all","All"],...Object.entries(MAIL_LABELS).map(([k,v])=>[k,`${v.icon} ${v.name}`])].map(([k,l])=>{const on=filterKind===k;return(
-              <button key={k} onClick={()=>setFilterKind(k)} style={{flexShrink:0,padding:"4px 11px",borderRadius:16,border:`1px solid ${on?T.gold:T.border}`,background:on?T.goldLight:"transparent",color:on?T.gold:T.textSub,fontWeight:on?700:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
+              <button key={k} onClick={()=>setFilterKind(k)} style={{...TOGGLE_CHIP(on),flexShrink:0,padding:"4px 11px",fontSize:12}}>{l}</button>
             );})}
           </div>}
           <div style={{flex:1,overflowY:"auto"}}>
@@ -19897,7 +19897,7 @@ function PhonePopup({onClose}){
     try{await sendToMyPhone({phone:dial.trim(),mode:"call"});setCalling("sent");}
     catch(e){setCalling("err:"+(e.message||"Couldn't reach your phone."));}
   };
-  const tabBtn=(on)=>({padding:"6px 13px",borderRadius:15,border:`1px solid ${on?"#3BA55D":T.border}`,background:on?"#EDFBF1":"#fff",color:on?"#15803D":T.textSub,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0});
+  const tabBtn=(on)=>({...TOGGLE_CHIP(on,"#15803D"),padding:"6px 13px",fontSize:11.5,flexShrink:0});
   const ico={width:29,height:29,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:12.5,cursor:"pointer",flexShrink:0,padding:0,fontFamily:"inherit",textDecoration:"none",boxSizing:"border-box"};
   const key=(k)=>(
     <button key={k} onClick={()=>setDial(d=>d+k)} style={{height:52,borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",fontSize:21,fontWeight:700,color:T.text,cursor:"pointer",fontFamily:"inherit"}}>{k}</button>
@@ -20105,6 +20105,9 @@ const capsSeg=(color)=>({...TOPBAR_SEG,width:34,height:32,minHeight:32,fontSize:
 // …and tab rows are iOS segmented controls (white pill slides to the choice).
 const SEG_WRAP={display:"flex",alignItems:"center",borderRadius:18,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:3,gap:2,width:"fit-content",maxWidth:"100%",overflowX:"auto",WebkitOverflowScrolling:"touch",scrollbarWidth:"none"};
 const segTab=(on)=>({flex:"0 0 auto",whiteSpace:"nowrap",padding:"7px 15px",borderRadius:14,border:"none",minHeight:0,background:on?"#fff":"transparent",color:on?T.text:T.textSub,fontWeight:on?650:450,fontSize:13,cursor:"pointer",fontFamily:"inherit",boxShadow:on?"0 1px 4px rgba(0,0,0,0.14)":"none",transition:"all 0.15s",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5});
+// Standalone on/off chips (multi-select filters, quick toggles) — same chrome
+// as a segmented tab, carrying its own gray well when off.
+const TOGGLE_CHIP=(on,accent)=>({display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:14,border:"1px solid rgba(0,0,0,0.05)",background:on?"#fff":"rgba(118,118,128,0.08)",color:on?(accent||T.gold):T.textSub,fontWeight:on?650:500,fontSize:12,cursor:"pointer",fontFamily:"inherit",boxShadow:on?"0 1px 4px rgba(0,0,0,0.12)":"none",whiteSpace:"nowrap",transition:"all 0.15s"});
 
 function PhoneTopButton(){
   const{connected,msgs}=useSmsTexting();
@@ -20658,7 +20661,7 @@ export function GoldstoneShell(){
       )}
       {fupG&&(()=>{
         const inG={width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",outline:"none",minHeight:44,background:"#fff",color:T.text};
-        const chipG=(on)=>({padding:"7px 12px",borderRadius:16,border:on?"1.5px solid #7C3AED":`1px solid ${T.border}`,background:on?"#F5F3FF":"#fff",color:on?"#7C3AED":T.textSub,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"});
+        const chipG=(on)=>({...TOGGLE_CHIP(on,"#7C3AED"),padding:"7px 12px",fontSize:11.5});
         return(
         <div onClick={()=>setFupG(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:480,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(380px,96vw)",boxShadow:"0 14px 44px rgba(0,0,0,0.25)",overflow:"hidden"}}>

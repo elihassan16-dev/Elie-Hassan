@@ -43,13 +43,14 @@ const linkBtn = (label, onClick) => <button onClick={onClick} style={{ backgroun
 const numIn = (v) => String(v).replace(/[^0-9.\-]/g, "");
 const today = () => new Date().toISOString().slice(0, 10);
 
-function Modal({ title, sub, onClose, children, footer, width = 520, tone, headEnd }) {
+function Modal({ title, sub, onClose, children, footer, width = 520, tone, headEnd, external }) {
+  const EXT_BADGE = <span style={{ fontSize: 10, fontWeight: 800, color: "#B45309", background: "#FDE9C8", border: "1px solid #E8B45A", borderRadius: 20, padding: "2px 8px", letterSpacing: "0.05em", flexShrink: 0 }}>EXTERNAL</span>;
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: tone === "bg" ? T.bg : "#fff", borderRadius: 20, width: `min(${width}px,94vw)`, maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 18px 60px rgba(0,0,0,0.28)", overflow: "hidden" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: external ? "#F7F1E4" : tone === "bg" ? T.bg : "#fff", borderRadius: 20, width: `min(${width}px,94vw)`, maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 18px 60px rgba(0,0,0,0.28)", overflow: "hidden", border: external ? `1.5px solid ${T.gold}99` : "none", boxSizing: "border-box" }}>
         <div style={{ padding: "14px 18px 12px", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: 10, background: "#fff", flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, letterSpacing: -0.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><span style={{ fontSize: 15, fontWeight: 700, color: T.text, letterSpacing: -0.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{title}</span>{external ? EXT_BADGE : null}</div>
             {sub && <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
           </div>
           {headEnd || null}
@@ -367,7 +368,7 @@ function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
 // Lists the property's QB project transactions (expense side), searchable —
 // prefiltered to the contractor's name — and pins the picked ones onto the job
 // as payments. Already-pinned transactions are marked and can't double-apply.
-export function QBPayPicker({ qbProjectId, orgName, existingQbIds, onAdd, onClose }) {
+export function QBPayPicker({ qbProjectId, orgName, existingQbIds, excludedQbIds = [], onAdd, onClose }) {
   const [items, setItems] = useState(null);
   const [err, setErr] = useState("");
   // Prefilter with the org's FIRST word, not the full legal name — a wire whose
@@ -410,12 +411,13 @@ export function QBPayPicker({ qbProjectId, orgName, existingQbIds, onAdd, onClos
         {shown.map((t) => {
           const k = keyOf(t);
           const already = have.has(k);
+          const excluded = !already && (excludedQbIds || []).includes(k);
           const on = sel.has(k);
           return (
             <div key={k} onClick={() => !already && toggle(k)} style={{ display: "flex", gap: 10, alignItems: "center", padding: "9px 12px", borderTop: `1px solid ${T.border}`, cursor: already ? "default" : "pointer", opacity: already ? 0.5 : 1, background: on ? T.goldLight : "transparent" }}>
               <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", border: `2px solid ${on ? T.gold : T.border}`, background: on ? T.gold : "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{already ? "✓" : on ? "✓" : ""}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.vendor || t.type || "Transaction"}{already ? " · already applied" : ""}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.vendor || t.type || "Transaction"}{already ? " · already applied" : ""}{excluded ? <span style={{ color: "#B45309" }}> · excluded — tap to re-add</span> : ""}</div>
                 <div style={{ fontSize: 11, color: T.textTert, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[t.date, t.account, t.memo].filter(Boolean).join(" · ")}</div>
               </div>
               <b style={{ fontSize: 13, flexShrink: 0 }}>{money(Math.abs(Number(t.amount) || 0))}</b>
@@ -585,9 +587,43 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   const applyQb = async (rows) => {
     const have = new Set((j.payments || []).map((p) => p.qbId).filter(Boolean));
     const add = rows.filter((t) => !have.has(t.id || `${t.date}|${t.vendor}|${t.amount}`)).map((t, i) => ({ id: Date.now() + i, amount: Math.abs(Number(t.amount) || 0), date: t.date || today(), note: [t.vendor, t.memo].filter(Boolean).join(" — ") || "QuickBooks", qbId: t.id || `${t.date}|${t.vendor}|${t.amount}` }));
-    if (add.length) { await save("contractor_jobs", { ...j, payments: [...(j.payments || []), ...add] }); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(add.reduce((s, p) => s + p.amount, 0))} — ${j.propertyAddress}`, url: `/?goto=job:${j.id}` }); }
+    // Hand-applying a wire un-excludes it — the pick is explicit.
+    const appliedIds = add.map((x) => x.qbId);
+    if (add.length) { await save("contractor_jobs", { ...j, payments: [...(j.payments || []), ...add], qbExcluded: (j.qbExcluded || []).filter((id) => !appliedIds.includes(id)) }); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(add.reduce((s, p) => s + p.amount, 0))} — ${j.propertyAddress}`, url: `/?goto=job:${j.id}` }); }
     setQbPick(false);
   };
+  // ⚡ Auto-pin — Elie 8/20/26: QuickBooks expenses on this property that carry
+  // the contractor's name pin themselves as payments when the job opens.
+  // Removing one (×) remembers that wire in j.qbExcluded so it never re-pins;
+  // the picker can re-include it later. Runs once per open, admin only.
+  const [autoPinned, setAutoPinned] = useState(0);
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRan.current || !isAdmin || !qbProjectId || isRemoved || j.status === "complete") return;
+    autoRan.current = true;
+    let alive = true;
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(qbProjectId)}`).then(async (d) => {
+      if (!alive) return;
+      const items = (d.items || []).filter((t) => (t.section || "").toLowerCase() !== "income" && Math.abs(Number(t.amount) || 0) > 0);
+      // Same match the picker prefilters with: the company's FIRST word, so a
+      // wire whose memo says "A/C: SHIA POLAK CONST" still catches.
+      const word = ((org?.name || "").trim().split(/\s+/)[0] || "").toLowerCase();
+      if (word.length < 3) return;
+      const kOf = (t) => t.id || `${t.date}|${t.vendor}|${t.amount}`;
+      const have = new Set((j.payments || []).map((pp) => pp.qbId).filter(Boolean));
+      const excl = new Set(j.qbExcluded || []);
+      const fresh = items.filter((t) => [t.vendor, t.memo].filter(Boolean).join(" ").toLowerCase().includes(word) && !have.has(kOf(t)) && !excl.has(kOf(t)));
+      if (!fresh.length) return;
+      const add = fresh.map((t, i) => ({ id: Date.now() + i, amount: Math.abs(Number(t.amount) || 0), date: t.date || today(), note: [t.vendor, t.memo].filter(Boolean).join(" — ") || "QuickBooks", qbId: kOf(t), auto: true }));
+      try {
+        await save("contractor_jobs", { ...j, payments: [...(j.payments || []), ...add] });
+        if (!alive) return;
+        setAutoPinned(add.length);
+        notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(add.reduce((s2, pp) => s2 + pp.amount, 0))} — ${j.propertyAddress}`, url: `/?goto=job:${j.id}` });
+      } catch { /* the next open retries */ }
+    }).catch(() => { /* QuickBooks unreachable — the picker still works by hand */ });
+    return () => { alive = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [taskDraft, setTaskDraft] = useState("");
   const [msgDraft, setMsgDraft] = useState("");
   const [pending, setPending] = useState(null);
@@ -610,6 +646,22 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
     notify(null, { toOrg: j.orgId, title: "Change order requested by Goldstone", body: `${label} — please send your price · ${j.propertyAddress}`, url: `/?goto=job:${j.id}` });
     save("contractor_messages", { id: Date.now() + 1, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: `🧾 Change order requested: ${label} — please send a price.`, at: new Date().toISOString(), readBy: [displayName], taskRefId: `co:${r.id}`, taskRefText: `🧾 ${label}` }).catch(() => {});
     setAskDraft(null);
+  };
+  // They told you the number (phone, text, in person) — type it in yourself:
+  // the request is approved at that price and becomes a real change order.
+  const [priceFor, setPriceFor] = useState(null); // {id, amount} for an awaiting_price request
+  const priceAsk = async (r) => {
+    const a = Number(numIn(priceFor?.amount || ""));
+    if (!a) return;
+    const upd = {
+      ...j,
+      coRequests: (j.coRequests || []).map((x) => x.id === r.id ? { ...x, status: "approved", amount: a, decidedBy: displayName, decidedAt: new Date().toISOString(), pricedBy: "team" } : x),
+      changeOrders: [...(j.changeOrders || []), { id: Date.now(), label: r.label, amount: a, date: today(), by: displayName, fromRequest: r.id }],
+    };
+    await save("contractor_jobs", upd);
+    setPriceFor(null);
+    notify(null, { toOrg: j.orgId, title: "Change order priced & approved ✓", body: `${r.label} — ${money(a)} · new contract total ${money(jobTotal(upd))} · ${j.propertyAddress}`, url: `/?goto=job:${j.id}` });
+    save("contractor_messages", { id: Date.now() + 2, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: `🧾 Change order priced & approved: ${r.label} — ${money(a)}`, at: new Date().toISOString(), readBy: [displayName] }).catch(() => {});
   };
   const cancelAsk = async (r) => {
     await save("contractor_jobs", { ...j, coRequests: (j.coRequests || []).filter((x) => x.id !== r.id) });
@@ -741,7 +793,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   const rowCss = { display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderTop: HAIR };
   const totCss = { ...rowCss, background: T.cardAlt };
   return (
-    <Modal title={j.propertyAddress} sub={`${org?.name || ""}${j.title ? ` · ${j.title}` : ""}`} width={680} tone="bg" onClose={onClose}
+    <Modal title={j.propertyAddress} sub={`${org?.name || ""}${j.title ? ` · ${j.title}` : ""} — their team sees this job`} width={680} tone="bg" external onClose={onClose}
       headEnd={isAdmin && !isRemoved ? <button onClick={() => save("contractor_jobs", { ...j, status: j.status === "complete" ? "active" : "complete" })} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 13px", borderRadius: 100, border: "none", background: j.status === "complete" ? "rgba(118,118,128,0.08)" : "#EAF7EE", color: j.status === "complete" ? T.textSub : "#248A3D", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>{j.status === "complete" ? "Reopen job" : "✓ Mark Complete"}</button> : null}>
       <div style={{ display: "flex", justifyContent: "center" }}>
         <div style={{ display: "inline-flex", alignItems: "center", borderRadius: 18, background: "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.05)", padding: 3, gap: 2, maxWidth: "100%", overflowX: "auto", overflowY: "hidden", overscrollBehavior: "contain" }}>
@@ -763,13 +815,13 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           <SecHd color={T.gold}>Contract</SecHd>
           <div style={{ ...CARD, padding: "13px 16px", marginTop: 7 }}>
             <div style={{ display: "flex", alignItems: "stretch" }}>
-              {heroCol("TOTAL", money(total), T.text, heroSub((j.changeOrders || []).length ? `incl. ${(j.changeOrders || []).length} change order${(j.changeOrders || []).length !== 1 ? "s" : ""} ›` : "contract price", (j.changeOrders || []).length ? () => setPricePop(true) : undefined), true)}
+              {heroCol("TOTAL", total > 0 ? money(total) : "—", T.text, heroSub(total > 0 ? ((j.changeOrders || []).length ? `incl. ${(j.changeOrders || []).length} change order${(j.changeOrders || []).length !== 1 ? "s" : ""} ›` : "contract price") : (isAdmin && onEditBasics ? "no price yet — set it ›" : "no contract price yet"), total > 0 ? ((j.changeOrders || []).length ? () => setPricePop(true) : undefined) : (isAdmin && onEditBasics ? onEditBasics : undefined)), true)}
               {heroCol("PAID SO FAR", money(paid), "#248A3D", heroSub(`${(j.payments || []).length} payment${(j.payments || []).length !== 1 ? "s" : ""}`))}
-              {heroCol("LEFT", money(left), "#B8912E", heroSub(days != null && j.status !== "complete" ? `day ${days} of the job` : j.status === "complete" ? "job complete" : ""))}
+              {heroCol("LEFT", total > 0 ? money(left) : "—", "#B8912E", heroSub(days != null && j.status !== "complete" ? `day ${days} of the job` : j.status === "complete" ? "job complete" : ""))}
             </div>
-            <div style={{ marginTop: 11, height: 6, borderRadius: 3, background: "rgba(118,118,128,0.14)", overflow: "hidden" }}>
-              <div style={{ width: `${Math.min(100, Math.round((total > 0 ? paid / total : 0) * 100))}%`, height: "100%", background: T.green, borderRadius: 3 }} />
-            </div>
+            {total > 0 && <div style={{ marginTop: 11, height: 6, borderRadius: 3, background: "rgba(118,118,128,0.14)", overflow: "hidden" }}>
+              <div style={{ width: `${Math.min(100, Math.round((paid / total) * 100))}%`, height: "100%", background: T.green, borderRadius: 3 }} />
+            </div>}
           </div>
         </div>
         {pricePop && (
@@ -810,13 +862,23 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
                 </div>
               ))}
               {waitingReqs.map((r, i) => (
-                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderTop: (i || pendingReqs.length) ? HAIR : "none", flexWrap: "wrap" }}>
-                  <div style={{ flex: 1, minWidth: 150 }}>
-                    <div style={{ fontSize: 13, fontWeight: 650, color: T.text }}>{r.label}</div>
-                    <div style={{ fontSize: 11, color: T.textSub, marginTop: 1 }}>You asked for their price{r.askedBy ? ` · ${r.askedBy.split(" ")[0]}` : ""}{r.at ? ` · ${fmtDate(r.at)}` : ""}</div>
+                <div key={r.id} style={{ borderTop: (i || pendingReqs.length) ? HAIR : "none" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: 150 }}>
+                      <div style={{ fontSize: 13, fontWeight: 650, color: T.text }}>{r.label}</div>
+                      <div style={{ fontSize: 11, color: T.textSub, marginTop: 1 }}>You asked for their price{r.askedBy ? ` · ${r.askedBy.split(" ")[0]}` : ""}{r.at ? ` · ${fmtDate(r.at)}` : ""}</div>
+                    </div>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: "#B45309", background: "#FDE9C8", borderRadius: 100, padding: "4px 10px", flexShrink: 0 }}>waiting on their price</span>
+                    {isAdmin && <button onClick={() => setPriceFor(priceFor && priceFor.id === r.id ? null : { id: r.id, amount: "" })} title="They told you the number? Type it in yourself" style={{ padding: "6px 12px", borderRadius: 100, border: "1px solid rgba(0,0,0,0.05)", background: priceFor && priceFor.id === r.id ? T.goldLight : "#fff", color: "#8a6d1f", fontWeight: 700, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, boxShadow: "0 1px 3px rgba(0,0,0,0.07)" }}>✎ Price It</button>}
+                    {isAdmin && <button onClick={() => cancelAsk(r)} title="Withdraw this request" style={CIRC}>✕</button>}
                   </div>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: "#B45309", background: "#FDE9C8", borderRadius: 100, padding: "4px 10px", flexShrink: 0 }}>waiting on their price</span>
-                  {isAdmin && <button onClick={() => cancelAsk(r)} title="Withdraw this request" style={CIRC}>✕</button>}
+                  {isAdmin && priceFor && priceFor.id === r.id && (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "9px 14px 11px", background: T.cardAlt, flexWrap: "wrap" }}>
+                      <input autoFocus value={priceFor.amount} onChange={(e) => setPriceFor({ ...priceFor, amount: numIn(e.target.value) })} onKeyDown={(e) => e.key === "Enter" && priceAsk(r)} inputMode="decimal" placeholder="Their price — e.g. 8400" style={{ ...inp, flex: 1, minWidth: 140, background: "#fff" }} />
+                      <button onClick={() => priceAsk(r)} style={goldBtn(!!Number(numIn(priceFor.amount)))}>Approve at This Price</button>
+                      <span style={{ flexBasis: "100%", fontSize: 10.5, color: T.textTert, lineHeight: 1.45 }}>Becomes a change order on the contract — they're notified of the approved price.</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -862,10 +924,11 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
                   {pm.qbId && <span title="Pinned from QuickBooks" style={{ fontSize: 9, fontWeight: 800, color: "#248A3D", background: "#EAF7EE", borderRadius: 100, padding: "2px 6px", flexShrink: 0 }}>QB</span>}
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pm.note || "Payment"}</span>
                   <span style={{ color: T.textTert, fontSize: 11 }}>{fmtDate(pm.date)}</span><b style={{ fontSize: 12.5, color: "#248A3D", fontVariantNumeric: "tabular-nums" }}>{money(pm.amount)}</b>
-                  {isAdmin && <button onClick={() => save("contractor_jobs", { ...j, payments: (j.payments || []).filter((x) => x.id !== pm.id) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
+                  {isAdmin && <button title={pm.qbId ? "Remove — this wire stays excluded from auto-pinning" : "Remove this payment"} onClick={() => save("contractor_jobs", { ...j, payments: (j.payments || []).filter((x) => x.id !== pm.id), ...(pm.qbId ? { qbExcluded: [...(j.qbExcluded || []), pm.qbId] } : {}) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
                 </div>
               ))}
               {(j.payments || []).length === 0 && !payDraft && <div style={{ padding: "12px 14px", fontSize: 12, color: T.textTert }}>Nothing paid on this job yet.</div>}
+              {autoPinned > 0 && <div style={{ padding: "8px 14px", borderTop: HAIR, background: "#FDF6E4", fontSize: 11, color: "#8a6d1f", fontWeight: 600, lineHeight: 1.45 }}>⚡ {autoPinned} wire{autoPinned !== 1 ? "s" : ""} pinned automatically from QuickBooks. Not theirs? Tap × — it stays excluded.</div>}
               {(j.payments || []).length > 0 && <div style={{ ...totCss, borderTop: HAIR }}><span style={{ flex: 1, fontSize: 12, color: T.textSub }}>Paid so far</span><b style={{ fontSize: 12.5, color: "#248A3D", fontVariantNumeric: "tabular-nums" }}>{money(paid)}</b></div>}
               {payDraft && (
                 <div style={{ padding: "10px 12px", borderTop: HAIR, background: T.cardAlt, display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -920,6 +983,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
             </button>
           </div>
         )}
+        <div style={{ fontSize: 10.5, color: "#B45309", fontWeight: 600, textAlign: "center", padding: "0 8px 2px", lineHeight: 1.5 }}>👁 {org?.name || "Their"}'s team sees this job in their portal — contract, change orders, payments, scope, tasks & messages. Your internal chat stays hidden from them.</div>
       </>)}
 
       {tab2 === "tasks" && (<>
@@ -1007,7 +1071,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
         </div>}
       </>)}
       {scopeEdit && <ScopeEditModal j={j} save={save} displayName={displayName} onClose={() => setScopeEdit(false)} />}
-      {qbPick && qbProjectId && <QBPayPicker qbProjectId={qbProjectId} orgName={org?.name || ""} existingQbIds={(j.payments || []).map((p) => p.qbId).filter(Boolean)} onAdd={applyQb} onClose={() => setQbPick(false)} />}
+      {qbPick && qbProjectId && <QBPayPicker qbProjectId={qbProjectId} orgName={org?.name || ""} existingQbIds={(j.payments || []).map((p) => p.qbId).filter(Boolean)} excludedQbIds={j.qbExcluded || []} onAdd={applyQb} onClose={() => setQbPick(false)} />}
     </Modal>
   );
 }

@@ -54,7 +54,7 @@ const PROPS = [
     contacts: [2002],
   },
   {
-    id: 1003, address: "1030 Hanover Blvd", city: "Browns Mills", state: "NJ", zip: "08015", status: "On Market",
+    id: 1003, address: "1030 Hanover Blvd", city: "Browns Mills", state: "NJ", zip: "08015", status: "On Market", qbProjectId: "qb-1003",
     financials: FIN({ purchasePrice: "150000", rehabCosts: "72000", salePrice: "329900", holdPeriod: "7" }),
     propertyInfo: { type: "Single Family", beds: "3", baths: "1.5", sqft: "1290", yearBuilt: "1958", lot: "", parcel: "", lockboxCode: "1030", lockboxLocation: "Side rail", notes: "" },
     tasks: [{ id: 4, text: "Sign and lock box pickup", status: "Not Started", assignee: "Moshe Hamaoui", delegate: "", assignedAt: Date.now(), assignedBy: "Elie Hassan" }],

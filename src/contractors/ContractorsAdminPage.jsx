@@ -612,6 +612,22 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
     save("contractor_messages", { id: Date.now() + 1, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: `🧾 Change order requested: ${label} — please send a price.`, at: new Date().toISOString(), readBy: [displayName], taskRefId: `co:${r.id}`, taskRefText: `🧾 ${label}` }).catch(() => {});
     setAskDraft(null);
   };
+  // They told you the number (phone, text, in person) — type it in yourself:
+  // the request is approved at that price and becomes a real change order.
+  const [priceFor, setPriceFor] = useState(null); // {id, amount} for an awaiting_price request
+  const priceAsk = async (r) => {
+    const a = Number(numIn(priceFor?.amount || ""));
+    if (!a) return;
+    const upd = {
+      ...j,
+      coRequests: (j.coRequests || []).map((x) => x.id === r.id ? { ...x, status: "approved", amount: a, decidedBy: displayName, decidedAt: new Date().toISOString(), pricedBy: "team" } : x),
+      changeOrders: [...(j.changeOrders || []), { id: Date.now(), label: r.label, amount: a, date: today(), by: displayName, fromRequest: r.id }],
+    };
+    await save("contractor_jobs", upd);
+    setPriceFor(null);
+    notify(null, { toOrg: j.orgId, title: "Change order priced & approved ✓", body: `${r.label} — ${money(a)} · new contract total ${money(jobTotal(upd))} · ${j.propertyAddress}`, url: `/?goto=job:${j.id}` });
+    save("contractor_messages", { id: Date.now() + 2, jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: `🧾 Change order priced & approved: ${r.label} — ${money(a)}`, at: new Date().toISOString(), readBy: [displayName] }).catch(() => {});
+  };
   const cancelAsk = async (r) => {
     await save("contractor_jobs", { ...j, coRequests: (j.coRequests || []).filter((x) => x.id !== r.id) });
     notify(null, { toOrg: j.orgId, title: "Change order request withdrawn", body: `${r.label} · ${j.propertyAddress}`, url: `/?goto=job:${j.id}` });
@@ -811,13 +827,23 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
                 </div>
               ))}
               {waitingReqs.map((r, i) => (
-                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderTop: (i || pendingReqs.length) ? HAIR : "none", flexWrap: "wrap" }}>
-                  <div style={{ flex: 1, minWidth: 150 }}>
-                    <div style={{ fontSize: 13, fontWeight: 650, color: T.text }}>{r.label}</div>
-                    <div style={{ fontSize: 11, color: T.textSub, marginTop: 1 }}>You asked for their price{r.askedBy ? ` · ${r.askedBy.split(" ")[0]}` : ""}{r.at ? ` · ${fmtDate(r.at)}` : ""}</div>
+                <div key={r.id} style={{ borderTop: (i || pendingReqs.length) ? HAIR : "none" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: 150 }}>
+                      <div style={{ fontSize: 13, fontWeight: 650, color: T.text }}>{r.label}</div>
+                      <div style={{ fontSize: 11, color: T.textSub, marginTop: 1 }}>You asked for their price{r.askedBy ? ` · ${r.askedBy.split(" ")[0]}` : ""}{r.at ? ` · ${fmtDate(r.at)}` : ""}</div>
+                    </div>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: "#B45309", background: "#FDE9C8", borderRadius: 100, padding: "4px 10px", flexShrink: 0 }}>waiting on their price</span>
+                    {isAdmin && <button onClick={() => setPriceFor(priceFor && priceFor.id === r.id ? null : { id: r.id, amount: "" })} title="They told you the number? Type it in yourself" style={{ padding: "6px 12px", borderRadius: 100, border: "1px solid rgba(0,0,0,0.05)", background: priceFor && priceFor.id === r.id ? T.goldLight : "#fff", color: "#8a6d1f", fontWeight: 700, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, boxShadow: "0 1px 3px rgba(0,0,0,0.07)" }}>✎ Price It</button>}
+                    {isAdmin && <button onClick={() => cancelAsk(r)} title="Withdraw this request" style={CIRC}>✕</button>}
                   </div>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: "#B45309", background: "#FDE9C8", borderRadius: 100, padding: "4px 10px", flexShrink: 0 }}>waiting on their price</span>
-                  {isAdmin && <button onClick={() => cancelAsk(r)} title="Withdraw this request" style={CIRC}>✕</button>}
+                  {isAdmin && priceFor && priceFor.id === r.id && (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "9px 14px 11px", background: T.cardAlt, flexWrap: "wrap" }}>
+                      <input autoFocus value={priceFor.amount} onChange={(e) => setPriceFor({ ...priceFor, amount: numIn(e.target.value) })} onKeyDown={(e) => e.key === "Enter" && priceAsk(r)} inputMode="decimal" placeholder="Their price — e.g. 8400" style={{ ...inp, flex: 1, minWidth: 140, background: "#fff" }} />
+                      <button onClick={() => priceAsk(r)} style={goldBtn(!!Number(numIn(priceFor.amount)))}>Approve at This Price</button>
+                      <span style={{ flexBasis: "100%", fontSize: 10.5, color: T.textTert, lineHeight: 1.45 }}>Becomes a change order on the contract — they're notified of the approved price.</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

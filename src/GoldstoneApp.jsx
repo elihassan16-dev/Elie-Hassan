@@ -20231,6 +20231,18 @@ function PhonePopup({onClose}){
   const rows=filter==="all"?calls:calls.filter(m=>extOwner[String(m.ext||"").split("@")[0]]===filter);
   const digitsOf=(s)=>String(s||"").replace(/\D/g,"");
   const canDial=digitsOf(dial).length>=7;
+  // The field formats as you type, iOS-style — (609) 555-0177 — but anything
+  // with +, * or # (or a foreign length) stays raw so nothing fights the user.
+  const fmtDial=(v)=>{
+    const raw=String(v||"");
+    if(/[+*#]/.test(raw)||raw.length>11)return raw;
+    const n=raw.length===11&&raw.startsWith("1")?raw.slice(1):raw;
+    if(n.length>10)return raw;
+    const pre=raw.length===11?"1 ":"";
+    if(n.length<4)return pre+n;
+    if(n.length<7)return `${pre}(${n.slice(0,3)}) ${n.slice(3)}`;
+    return `${pre}(${n.slice(0,3)}) ${n.slice(3,6)}-${n.slice(6)}`;
+  };
   const placeDesk=async()=>{
     if(!canDial)return;
     setCalling("busy");
@@ -20243,24 +20255,26 @@ function PhonePopup({onClose}){
     try{await sendToMyPhone({phone:dial.trim(),mode:"call"});setCalling("sent");}
     catch(e){setCalling("err:"+(e.message||"Couldn't reach your phone."));}
   };
-  const tabBtn=(on)=>({...TOGGLE_CHIP(on,"#15803D"),padding:"6px 13px",fontSize:11.5,flexShrink:0});
-  const ico={width:29,height:29,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:12.5,cursor:"pointer",flexShrink:0,padding:0,fontFamily:"inherit",textDecoration:"none",boxSizing:"border-box"};
+  const ico={width:32,height:32,borderRadius:"50%",border:"none",background:"rgba(118,118,128,0.08)",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:13,cursor:"pointer",flexShrink:0,padding:0,fontFamily:"inherit",textDecoration:"none",boxSizing:"border-box"};
   const key=(k)=>(
-    <button key={k} onClick={()=>setDial(d=>d+k)} style={{height:52,borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",fontSize:21,fontWeight:700,color:T.text,cursor:"pointer",fontFamily:"inherit"}}>{k}</button>
+    <button key={k} onClick={()=>setDial(d=>d+k)} style={{height:54,borderRadius:16,border:"1px solid rgba(0,0,0,0.05)",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",fontSize:22,fontWeight:600,color:T.text,cursor:"pointer",fontFamily:"inherit"}}>{k}</button>
   );
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
       <div onClick={(e)=>e.stopPropagation()} style={{background:T.bg,borderRadius:18,width:"min(440px,96vw)",height:"min(660px,92vh)",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
-        <div style={{padding:"13px 16px 10px",background:"#fff",borderBottom:`2px solid #3BA55D`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:15,fontWeight:800,color:T.text}}>📞 Phone</div>
-            <div style={{fontSize:11,color:T.textSub}}>{jv.enabled?`Your line ${fmtCallPhone(jv.from)} — calls & history for all office lines`:"Call history for all office lines"}</div>
+        <div style={{padding:"13px 16px 11px",background:"#fff",borderBottom:"1px solid rgba(0,0,0,0.08)",flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:T.green,flexShrink:0}}/>
+              <span style={{fontSize:16,fontWeight:700,color:T.text,letterSpacing:-0.2}}>Phone</span>
+            </div>
+            <div style={{...SEG_WRAP,padding:2,flexShrink:0}}>
+              <button onClick={()=>setView("recents")} style={{...segTab(view==="recents"),padding:"6px 14px",fontSize:12.5}}>Recents</button>
+              <button onClick={()=>{setView("keypad");setCalling("");}} style={{...segTab(view==="keypad"),padding:"6px 14px",fontSize:12.5}}>Keypad</button>
+            </div>
+            <button onClick={onClose} aria-label="Close" style={{width:28,height:28,borderRadius:"50%",background:"rgba(118,118,128,0.08)",border:"none",fontSize:13,color:T.textSub,cursor:"pointer",lineHeight:1,flexShrink:0,padding:0,fontFamily:"inherit"}}>✕</button>
           </div>
-          <div style={{display:"flex",gap:5,flexShrink:0}}>
-            <button onClick={()=>setView("recents")} style={tabBtn(view==="recents")}>🕘 Recent</button>
-            <button onClick={()=>{setView("keypad");setCalling("");}} style={tabBtn(view==="keypad")}>⌨️ Keypad</button>
-          </div>
-          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0,padding:0}}>×</button>
+          <div style={{fontSize:11,color:T.textSub,marginTop:4,paddingLeft:16}}>{jv.enabled?`Your line ${fmtCallPhone(jv.from)} — calls & history for all office lines`:"Call history for all office lines"}</div>
         </div>
         {view==="keypad"?(
           <div style={{flex:1,overflowY:"auto",padding:"18px 20px",display:"flex",flexDirection:"column",gap:12}}>
@@ -20271,30 +20285,32 @@ function PhonePopup({onClose}){
                   :calling==="sent"?<><b>📲 Check your phone</b><div style={{fontSize:12,color:T.textSub,marginTop:4}}>Tap the notification and the dialer opens with {fmtCallPhone(dial)}.</div></>
                   :<><span style={{color:T.red,fontWeight:700}}>{calling.slice(4)}</span>
                     <div style={{fontSize:11.5,color:T.textSub,marginTop:10,lineHeight:1.55}}>The desk line couldn't start this call — that's usually the extension or desk-phone setup on Jivetel's side, not the number you dialed. Your cell still works:</div>
-                    <div style={{marginTop:12}}><button onClick={sendCell} style={{padding:"11px 18px",borderRadius:12,border:"1.5px solid #2563EB",background:"#EFF6FF",color:"#2563EB",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>📲 Send to my cell instead</button></div></>}
-                <div><button onClick={()=>setCalling("")} style={{marginTop:16,padding:"9px 20px",borderRadius:10,border:`1px solid ${T.border}`,background:"#fff",cursor:"pointer",fontFamily:"inherit",fontSize:12.5,fontWeight:700}}>‹ Back to keypad</button></div>
+                    <div style={{marginTop:12}}><button onClick={sendCell} style={{padding:"12px 18px",borderRadius:16,border:"1px solid rgba(0,0,0,0.05)",background:"#fff",color:"#2563EB",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 1px 3px rgba(0,0,0,0.08)"}}>📲 Send to my cell instead</button></div></>}
+                <div><button onClick={()=>setCalling("")} style={{marginTop:16,padding:"9px 20px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",cursor:"pointer",fontFamily:"inherit",fontSize:12.5,fontWeight:650,color:T.text}}>‹ Back to keypad</button></div>
               </div>
             ):(<>
               <div style={{display:"flex",gap:7,alignItems:"center"}}>
-                <input type="tel" value={dial} onChange={(e)=>setDial(e.target.value.replace(/[^\d+*#]/g,""))} placeholder="Enter a number…" autoFocus
-                  style={{flex:1,minWidth:0,padding:"12px 14px",borderRadius:12,border:`1px solid ${T.border}`,background:"#fff",fontSize:19,fontWeight:700,letterSpacing:0.5,color:T.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box",textAlign:"center"}}/>
+                <input type="tel" value={fmtDial(dial)} onChange={(e)=>setDial(e.target.value.replace(/[^\d+*#]/g,""))} placeholder="Enter a number…" autoFocus
+                  style={{flex:1,minWidth:0,padding:"12px 16px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",fontSize:19,fontWeight:700,letterSpacing:0.5,color:T.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box",textAlign:"center"}}/>
                 {dial&&<button onClick={()=>setDial(d=>d.slice(0,-1))} title="Delete" style={{...ico,width:42,height:42,fontSize:16}}>⌫</button>}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
                 {["1","2","3","4","5","6","7","8","9","+","0","#"].map(key)}
               </div>
-              <button onClick={placeDesk} disabled={!canDial||!jv.enabled} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"13px",borderRadius:14,border:"none",background:canDial&&jv.enabled?"#0F9D58":T.border,color:"#fff",fontWeight:800,fontSize:14.5,cursor:canDial&&jv.enabled?"pointer":"default",fontFamily:"inherit"}}>☎️ Call from my desk</button>
+              <button onClick={placeDesk} disabled={!canDial||!jv.enabled} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"14px",borderRadius:16,border:"none",background:canDial&&jv.enabled?T.green:"rgba(118,118,128,0.16)",color:"#fff",fontWeight:700,fontSize:14.5,cursor:canDial&&jv.enabled?"pointer":"default",fontFamily:"inherit",boxShadow:canDial&&jv.enabled?"0 1px 4px rgba(0,0,0,0.12)":"none"}}>☎️ Call from my desk</button>
               {!jv.enabled&&jv.why&&<div style={{fontSize:10.5,color:T.textTert,textAlign:"center",lineHeight:1.5}}>☎️ Desk calling unavailable — {jv.why}</div>}
               {jv.enabled&&<div style={{fontSize:10.5,color:T.textTert,textAlign:"center"}}>Your Jivetel phone rings first — answer, and we connect them.</div>}
-              <button onClick={sendCell} disabled={!canDial} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"12px",borderRadius:14,border:"1.5px solid #2563EB",background:canDial?"#EFF6FF":T.bg,color:canDial?"#2563EB":T.textTert,fontWeight:800,fontSize:13.5,cursor:canDial?"pointer":"default",fontFamily:"inherit"}}>📲 Send to my cell</button>
+              <button onClick={sendCell} disabled={!canDial} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"13px",borderRadius:16,border:"1px solid rgba(0,0,0,0.05)",background:canDial?"#fff":"rgba(118,118,128,0.08)",color:canDial?"#2563EB":T.textTert,fontWeight:700,fontSize:13.5,cursor:canDial?"pointer":"default",fontFamily:"inherit",boxShadow:canDial?"0 1px 3px rgba(0,0,0,0.08)":"none"}}>📲 Send to my cell</button>
             </>)}
           </div>
         ):(
           <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column"}}>
-            <div style={{display:"flex",gap:6,padding:"10px 14px",overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",flexShrink:0,background:"#fff",borderBottom:`1px solid ${T.border}`}}>
-              {tabs.map(([k,label])=><button key={k} onClick={()=>setFilter(k)} style={tabBtn(filter===k)}>{label}</button>)}
+            <div style={{padding:"10px 14px",flexShrink:0,background:"#fff",borderBottom:"1px solid rgba(0,0,0,0.055)"}}>
+              <div style={SEG_WRAP}>
+                {tabs.map(([k,label])=><button key={k} onClick={()=>setFilter(k)} style={{...segTab(filter===k),padding:"6px 15px",fontSize:12.5}}>{label}</button>)}
+              </div>
             </div>
-            <div style={{flex:1,overflowY:"auto"}}>
+            <div style={{flex:1,overflowY:"auto",background:"#fff"}}>
               {rows.length===0&&<div style={{padding:"40px 20px",textAlign:"center",color:T.textTert,fontSize:12.5,lineHeight:1.6}}>{connected?"No calls here yet — calls on the office lines show up as they happen.":"Call history loads once your line is connected."}</div>}
               {rows.map(m=>{
                 const p=smsE164(m.phone);
@@ -20306,15 +20322,15 @@ function PhonePopup({onClose}){
                 const owner=extOwner[String(m.ext||"").split("@")[0]];
                 const status=missed?"Missed":out?(m.talkSecs?`Outgoing · ${fmtTalk(m.talkSecs)}`:"Outgoing · no answer"):`Answered · ${fmtTalk(m.talkSecs||0)}`;
                 return(
-                  <div key={m.id} style={{display:"flex",gap:9,alignItems:"center",padding:"9px 14px",borderBottom:`1px solid ${T.border}55`}}>
+                  <div key={m.id} style={{display:"flex",gap:10,alignItems:"center",padding:"10px 16px",borderBottom:"1px solid rgba(0,0,0,0.055)"}}>
                     <span title={missed?"Missed call":out?"Outgoing call":"Incoming call"} style={{width:31,height:31,borderRadius:"50%",background:missed?"#FFE4D6":out?"#EFF6FF":"#EDFBF1",color:missed?"#C2410C":out?"#2563EB":"#15803D",fontSize:13,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{out?"↗":"↙"}</span>
                     <span onClick={()=>setPerson({phone:m.phone,name,who:w})} title="See who this is" style={{flex:1,minWidth:0,cursor:"pointer"}}>
                       <b style={{display:"block",fontSize:12.5,color:missed?"#C2410C":T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}{w&&w.role==="agent"?" · agent":w&&w.role==="buyer"?" · buyer":w&&w.role==="lead"?" · lead":""}</b>
                       {pl.length>0&&<span style={{display:"block",fontSize:10.5,fontWeight:700,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>🏠 {pl[0].addr}{pl.length>1&&<b style={{color:"#C9A227"}}> +{pl.length-1} more</b>}</span>}
                       <span style={{display:"block",fontSize:10,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{status} · {callRel(m.at)}{name!==fmtCallPhone(m.phone)?` · ${fmtCallPhone(m.phone)}`:""}</span>
                     </span>
-                    {(owner||m.ext)&&<span title={`Rang ${owner?cap(owner)+"'s":"ext "+m.ext} line`} style={{fontSize:10.5,fontWeight:800,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:9,padding:"2px 7px",flexShrink:0}}>{owner?cap(owner):`ext ${m.ext}`}</span>}
-                    <CallA phone={m.phone} title="Call back" style={{...ico,background:"#0F9D58",border:"none",color:"#fff"}}>📞</CallA>
+                    {(owner||m.ext)&&<span title={`Rang ${owner?cap(owner)+"'s":"ext "+m.ext} line`} style={{fontSize:10.5,fontWeight:700,color:T.textSub,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",borderRadius:100,padding:"3px 9px",flexShrink:0}}>{owner?cap(owner):`ext ${m.ext}`}</span>}
+                    <CallA phone={m.phone} title="Call back" style={{...ico,background:T.green,color:"#fff"}}>📞</CallA>
                     <button onClick={()=>setTextTo({phone:m.phone,name})} title="Text them" style={ico}>💬</button>
                   </div>
                 );
@@ -20377,62 +20393,73 @@ function PersonCard({phone,name,who,showFeed,onText,onClose,email="",broker=""})
   // A name that's really just the number has no initials — show a phone, not "(7".
   const initials=String(name||"").replace(/[^a-zA-Z\s]/g,"").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"📞";
   const roleLabel=who&&who.role==="buyer"?"Buyer lead":who&&who.role==="agent"?"Showing agent":who&&who.role==="lead"?"Lead":contact?"In your contacts":"";
-  const sect={fontSize:11,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:0.4,padding:"12px 16px 6px"};
-  const row={padding:"8px 16px",borderBottom:`1px solid ${T.border}55`};
+  const secHd=(color,label)=>(<div style={{display:"flex",alignItems:"center",gap:7,padding:"14px 16px 7px"}}><span style={{width:7,height:7,borderRadius:"50%",background:color,flexShrink:0}}/><span style={{fontSize:12.5,fontWeight:700,color:T.text,letterSpacing:-0.1}}>{label}</span></div>);
+  const card={background:"#fff",borderRadius:14,margin:"0 12px",boxShadow:T.shadow,overflow:"hidden"};
+  const row={padding:"9px 14px",borderTop:"1px solid rgba(0,0,0,0.055)"};
   return(
     <div onClick={(e)=>{e.stopPropagation();onClose();}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:455,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
       <div onClick={(e)=>e.stopPropagation()} style={{background:T.bg,borderRadius:18,width:"min(400px,94vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.3)"}}>
-        <div style={{padding:"16px 16px 12px",background:"#fff",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-          <span style={{width:46,height:46,borderRadius:"50%",background:"#EDFBF1",color:"#15803D",fontSize:16,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials}</span>
+        <div style={{padding:"16px 16px 12px",background:"#fff",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+          <span style={{width:46,height:46,borderRadius:"50%",background:"#EAF7EE",color:GREEN_TXT,fontSize:16,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials}</span>
           <span style={{flex:1,minWidth:0}}>
             <div style={{fontSize:16,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}</div>
             <div style={{fontSize:11.5,color:T.textSub}}>{roleLabel?`${roleLabel} · `:""}{fmtCallPhone(phone)}</div>
           </span>
-          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0,padding:0}}>×</button>
+          <button onClick={onClose} aria-label="Close" style={{width:28,height:28,borderRadius:"50%",background:"rgba(118,118,128,0.08)",border:"none",fontSize:13,color:T.textSub,cursor:"pointer",lineHeight:1,flexShrink:0,padding:0,fontFamily:"inherit"}}>✕</button>
         </div>
-        <div style={{display:"flex",gap:8,padding:"10px 16px",background:"#fff",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
-          <CallA phone={phone} title="Call" style={{flex:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:12,border:"none",background:"#0F9D58",color:"#fff",fontWeight:800,fontSize:13,textDecoration:"none",boxSizing:"border-box"}}>📞 Call</CallA>
-          <button onClick={onText} style={{flex:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:12,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>💬 Text</button>
+        <div style={{display:"flex",gap:8,padding:"10px 16px 12px",background:"#fff",borderBottom:"1px solid rgba(0,0,0,0.08)",flexShrink:0}}>
+          <CallA phone={phone} title="Call" style={{flex:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6,padding:"11px",borderRadius:14,border:"none",background:T.green,color:"#fff",fontWeight:700,fontSize:13,textDecoration:"none",boxSizing:"border-box",boxShadow:"0 1px 4px rgba(0,0,0,0.12)"}}>📞 Call</CallA>
+          <button onClick={onText} style={{flex:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:6,padding:"11px",borderRadius:14,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",color:T.text,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>💬 Text</button>
         </div>
-        <div style={{flex:1,minHeight:0,overflowY:"auto",paddingBottom:8}}>
+        <div style={{flex:1,minHeight:0,overflowY:"auto",paddingBottom:14,background:T.bg}}>
           {(email||broker||contact&&contact.email)&&(<>
-            <div style={sect}>📇 Details</div>
+            {secHd("#8E8E93","Details")}
+            <div className="fin-card" style={card}>
             <div style={row}>
               <span style={{display:"block",fontSize:12.5,color:T.text}}>📞 {fmtCallPhone(phone)}</span>
               {(email||contact&&contact.email)&&<a href={`mailto:${email||contact.email}`} style={{display:"block",fontSize:12.5,color:"#2563EB",textDecoration:"none",marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>✉️ {email||contact.email}</a>}
               {broker&&<span style={{display:"block",fontSize:12.5,color:T.text,marginTop:4}}>🏢 {broker}</span>}
             </div>
+            </div>
           </>)}
           {manual.length>0&&(<>
-            <div style={sect}>🏷 Lead on your properties</div>
+            {secHd(T.gold,"Lead on Your Properties")}
+            <div className="fin-card" style={card}>
             {manual.map((r,i)=>(
               <div key={i} style={row}>
                 <b style={{display:"block",fontSize:13,color:T.text}}>{r.addr}</b>
                 <span style={{display:"block",fontSize:11,color:T.textSub,marginTop:1}}>{r.buyer?"Buyer":"Lead"}{r.when?` · added ${fmtD(r.when)}`:""}{r.status?` · ${r.status}`:""}</span>
               </div>
             ))}
+            </div>
           </>)}
           {reqs.length>0&&(<>
-            <div style={sect}>🏠 Property requests</div>
+            {secHd("#0EA5C5","Property Requests")}
+            <div className="fin-card" style={card}>
             {reqs.map((r,i)=>(
               <div key={i} style={row}>
                 <b style={{display:"block",fontSize:13,color:T.text}}>{r.addr}</b>
                 <span style={{display:"block",fontSize:11,color:T.textSub,marginTop:1}}>{r.when?`Requested ${fmtD(r.when)}`:"Request date not on file"}{r.status?` · ${r.status}`:""}</span>
               </div>
             ))}
+            </div>
           </>)}
           {shows.length>0&&(<>
-            <div style={sect}>📅 Showings with us</div>
+            {secHd("#AF52DE","Showings with Us")}
+            <div className="fin-card" style={card}>
             {shows.map((s,i)=>(
               <div key={i} style={row}>
                 <b style={{display:"block",fontSize:13,color:T.text}}>{s.addr}</b>
                 <span style={{display:"block",fontSize:11,color:T.textSub,marginTop:1}}>{s.when?fmtDT(s.when):""}</span>
               </div>
             ))}
+            </div>
           </>)}
           {contact&&(contact.company||contact.role||contact.title)&&(<>
-            <div style={sect}>📇 Contacts</div>
+            {secHd("#8E8E93","Contacts")}
+            <div className="fin-card" style={card}>
             <div style={row}><span style={{fontSize:12.5,color:T.text}}>{[contact.company,contact.role||contact.title].filter(Boolean).join(" · ")}</span></div>
+            </div>
           </>)}
           {manual.length===0&&reqs.length===0&&shows.length===0&&!contact&&(
             <div style={{padding:"22px 18px",textAlign:"center",color:T.textTert,fontSize:12.5,lineHeight:1.6}}>Nothing else on file for this number — no leads, property requests or showings, just the calls and texts.</div>
@@ -20471,7 +20498,7 @@ function PhoneTopButton(){
   const missedN=(msgs||[]).filter(m=>m.kind==="call"&&m.missed&&m.direction==="call-in"&&String(m.at||"")>seen&&String(m.at||"")>weekAgo).length;
   const openUp=()=>{setOpen(true);if(savePrefs)Promise.resolve(savePrefs({callsSeenAt:new Date().toISOString()})).catch(()=>{/* badge just stays */});};
   return(<>
-    <button onClick={openUp} title="Phone — dialer & call history" aria-label="Phone" style={TOPBAR_SEG}><PhoneIcon size={17} strokeWidth={1.6}/>
+    <button onClick={openUp} title="Phone — dialer & call history" aria-label="Phone" style={{...TOPBAR_SEG,color:GREEN_TXT}}><PhoneIcon size={17} strokeWidth={1.6}/>
       {missedN>0&&<UnreadBadge count={missedN} style={{position:"absolute",top:1,right:1,minWidth:15,height:15,fontSize:10}}/>}
     </button>
     {open&&<PhonePopup onClose={()=>setOpen(false)}/>}

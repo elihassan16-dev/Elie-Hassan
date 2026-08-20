@@ -1,6 +1,7 @@
 // Preview-harness stand-in for supabaseClient — inert, offline, chainable.
-// Every query resolves to empty data; realtime is a no-op. Aliased in by
-// vite.appdemo.config.js only — never bundled into the real app.
+// Every query resolves to empty data (except sms_messages → demo call log);
+// realtime is a no-op. Aliased in by vite.appdemo.config.js — never production.
+import { DEMO_CALLS } from "./appMockNet.js";
 class Q {
   constructor() { this.res = { data: [], error: null, count: 0 }; }
   select() { return this; }
@@ -37,7 +38,13 @@ const channel = {
 };
 
 export const supabase = {
-  from() { return new Q(); },
+  // The texting store reads call/text history from sms_messages — hand the
+  // phone popup its demo call log; every other table stays empty.
+  from(table) {
+    const q = new Q();
+    if (table === "sms_messages") q.res = { data: DEMO_CALLS, error: null, count: DEMO_CALLS.length };
+    return q;
+  },
   rpc() { return new Q(); },
   channel() { return channel; },
   removeChannel() {},

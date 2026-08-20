@@ -26,12 +26,32 @@ export const DEMO_SHOWINGS = [
 ].map((s, i) => ({ uid: `demo-sh-${i}`, start: shAt(s.d, s.h), end: shAt(s.d, s.h + 1), summary: `Showing — ${HANOVER}`, location: HANOVER, status: "CONFIRMED", agent: s.agent, phone: s.phone, broker: s.broker, email: "" }));
 export const demoShowingKey = (s) => `${String(s.start).slice(0, 16)}|${s.agent.trim().toLowerCase().replace(/\s+/g, " ")}`;
 
+// Demo call history for the 📞 phone popup — numbers match the showing agents
+// and the Papa Pay buyer above so names/roles/properties resolve. Rows carry
+// the same shape the webhook writes to sms_messages (kind:"call").
+const cAt = (mins) => new Date(Date.now() - mins * 60000).toISOString();
+export const DEMO_CALLS = [
+  { phone: "(609) 555-0177", dir: "call-in", m: 95, missed: true, ext: "101" },            // Dominique Bell — missed, Elie's line
+  { phone: "(609) 555-0123", dir: "call-in", m: 260, missed: true, ext: "102" },           // unknown number — missed, Moshe's line
+  { phone: "(908) 555-0142", dir: "call-in", m: 320, talk: 312, ext: "101" },              // Papa Pay (buyer) — answered
+  { phone: "(732) 555-0164", dir: "call-out", m: 1500, talk: 233, ext: "101" },            // Marc Rivera — outgoing
+  { phone: "(848) 555-0102", dir: "call-in", m: 1560, talk: 141, ext: "103" },             // Sarah Chen — Esti answered
+  { phone: "(917) 555-0139", dir: "call-out", m: 1720, talk: 0, ext: "102" },              // Yosef Adler — out, no answer
+  { phone: "(609) 555-0155", dir: "call-in", m: 2890, talk: 372, ext: "101" },             // Tanya Brooks — answered
+  { phone: "(609) 555-0177", dir: "call-out", m: 3050, talk: 64, ext: "101" },             // Dominique Bell — call back
+  { phone: "(732) 555-0198", dir: "call-in", m: 11000, missed: true, ext: "103" },         // unknown — missed on Esti's line (old, off the badge)
+].map((c, i) => ({ id: "demo-call-" + i, phone: c.phone, data: { kind: "call", direction: c.dir, at: cAt(c.m), talkSecs: c.talk || 0, missed: !!c.missed, ext: c.ext } }));
+
 export async function qbAuthFetch(path) {
   const p = String(path);
   if (p.includes("/api/showings/status")) return { configured: true, feeds: [{ id: 1, label: "ShowingTime" }] };
   if (p.includes("/api/showings/save")) return { ok: true };
   if (p.includes("/api/showings")) return { configured: true, showings: DEMO_SHOWINGS };
   if (p.includes("/api/jivetel/send")) return { connected: true, from: "+17325550100", lines: {} };
+  if (p.includes("/api/jivetel/call")) {
+    if (p.includes("cap=1")) return { enabled: true, from: "+17325550100", me: "Elie", exts: { elie: "101", moshe: "102", esti: "103" } };
+    return { ok: true };
+  }
   if (p.includes("/api/team/roster")) return { names: ["Elie Hassan", "Moshe Hamaoui", "Esti Ungar"] };
   if (p.includes("/api/quickbooks")) return { connected: false, rows: [], income: 0, cogs: 0, expenses: 0, netIncome: 0 };
   if (p.includes("/api/boldtrail")) return { leads: [] };

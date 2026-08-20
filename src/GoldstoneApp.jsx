@@ -678,9 +678,9 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
 }
 
 function GHeader({label,color=T.gold}){
-  return <div style={{padding:"13px 16px 7px",display:"flex",alignItems:"center",gap:8}}>
-    <span style={{width:3,height:13,borderRadius:2,background:color,display:"inline-block"}}/>
-    <span style={{fontSize:11,fontWeight:700,color:T.textSub,letterSpacing:"0.06em",textTransform:"uppercase"}}>{label}</span>
+  return <div style={{padding:"13px 16px 7px",display:"flex",alignItems:"center",gap:7}}>
+    <span style={{width:7,height:7,borderRadius:4,background:color,display:"inline-block"}}/>
+    <span style={{fontSize:13,fontWeight:650,color:T.text}}>{label}</span>
   </div>;
 }
 function ERow({label,value,editable,onChange,isTotal,suffix=""}){
@@ -865,7 +865,7 @@ function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}
                 <span style={{fontSize:14,fontWeight:600,color:item.auto?T.gold:T.text}}>{fmtD(item.computedAmt)}</span>
               </div>
             ))}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:`2px solid ${T.gold}`,paddingTop:12,marginTop:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid rgba(0,0,0,0.08)",paddingTop:12,marginTop:4}}>
               <span style={{fontSize:16,fontWeight:700,color:T.text}}>Total Buying Costs</span>
               <span style={{fontSize:20,fontWeight:800,color:T.gold}}>{fmtD(total)}</span>
             </div>
@@ -997,7 +997,7 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
                 <span style={{fontSize:14,fontWeight:600,color:item.auto?T.gold:T.text}}>{fmtD(item.computedAmt)}</span>
               </div>
             ))}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:`2px solid ${T.gold}`,paddingTop:12,marginTop:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid rgba(0,0,0,0.08)",paddingTop:12,marginTop:4}}>
               <span style={{fontSize:16,fontWeight:700,color:T.text}}>Total Selling Costs</span>
               <span style={{fontSize:20,fontWeight:800,color:T.gold}}>{fmtD(total)}</span>
             </div>
@@ -1122,7 +1122,7 @@ function HoldingCostsPopup({items, holdPeriod, onChange, onClose}){
                 <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{fmtD(totalForPeriod(item))}</span>
               </div>
             ))}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:`2px solid ${T.gold}`,paddingTop:12,marginTop:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid rgba(0,0,0,0.08)",paddingTop:12,marginTop:4}}>
               <span style={{fontSize:16,fontWeight:700,color:T.text}}>Total Holding Costs ({months} months)</span>
               <span style={{fontSize:20,fontWeight:800,color:T.gold}}>{fmtD(grandTotal)}</span>
             </div>
@@ -1305,10 +1305,12 @@ function PopupRow({label,value,onOpen}){
 // All section headers use the company gold theme (branded), ignoring any legacy
 // per-card color that used to be passed in.
 function SectionHdr({icon,label}){
+  // Labels arrive in legacy ALL-CAPS — render them title-case per the HIG.
+  const t=String(label||"").toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()).replace("Quickbooks","QuickBooks");
   return(
-    <div style={{padding:"10px 18px",background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",gap:7,borderRadius:`${T.radius}px ${T.radius}px 0 0`,borderBottom:`1px solid ${T.gold}33`}}>
+    <div style={{padding:"11px 18px",background:T.cardAlt,display:"flex",alignItems:"center",gap:8,borderRadius:`${T.radius}px ${T.radius}px 0 0`,borderBottom:"1px solid rgba(0,0,0,0.055)"}}>
       <span style={{fontSize:13}}>{icon}</span>
-      <span style={{fontSize:11,fontWeight:700,color:T.gold,letterSpacing:"0.06em"}}>{label}</span>
+      <span style={{fontSize:13,fontWeight:650,color:T.text}}>{t}</span>
     </div>
   );
 }
@@ -3914,9 +3916,9 @@ function RentalPortfolioPage(){
           {/* Type toggle */}
           <div style={{...card,marginBottom:16,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:13,color:T.textSub,fontWeight:600}}>Type</span>
-            <div style={{display:"flex",gap:4,background:T.bg,borderRadius:9,padding:3}}>
+            <div style={SEG_WRAP}>
               {[["single","Single Family"],["multi","Multi-Unit"]].map(([k,l])=>(
-                <button key={k} onClick={()=>upd(sel.id,{type:k})} style={{padding:"6px 12px",borderRadius:7,border:"none",background:sel.type===k?T.gold:"transparent",color:sel.type===k?"#fff":T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                <button key={k} onClick={()=>upd(sel.id,{type:k})} style={{...segTab(sel.type===k),padding:"6px 12px",fontSize:12.5}}>{l}</button>
               ))}
             </div>
             <span style={{marginLeft:"auto",fontSize:12.5,color:T.textSub}}>{units.length} unit{units.length!==1?"s":""} · {fmtD(rentExpected(sel))}/mo expected</span>
@@ -5068,9 +5070,9 @@ function NJDetailsCard({entity, onUpdate}){
   const rowInput={fontSize:14,fontWeight:600,color:T.text,padding:"5px 10px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,outline:"none",textAlign:"right",width:140,maxWidth:"55%"};
   return(
     <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
-      <button onClick={()=>setOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:7,padding:"11px 16px",background:T.goldLight,border:"none",borderBottom:open?`1px solid ${T.gold}33`:"none",cursor:"pointer",fontFamily:"inherit"}}>
+      <button onClick={()=>setOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"11px 16px",background:T.cardAlt,border:"none",borderBottom:open?"1px solid rgba(0,0,0,0.055)":"none",cursor:"pointer",fontFamily:"inherit"}}>
         <span style={{fontSize:13}}>📐</span>
-        <span style={{fontSize:11,fontWeight:700,color:T.gold,letterSpacing:"0.06em"}}>PROPERTY DETAILS</span>
+        <span style={{fontSize:13,fontWeight:650,color:T.text}}>Property Details</span>
         {!open&&pi.blockLot&&<span style={{fontSize:11,color:T.textSub,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>· {pi.blockLot}</span>}
         <span style={{marginLeft:"auto",fontSize:11,color:T.gold,fontWeight:700,flexShrink:0}}>{open?"▾ Hide":"▸ Show"}</span>
       </button>

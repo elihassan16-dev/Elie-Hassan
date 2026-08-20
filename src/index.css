@@ -190,8 +190,16 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
    ≥44pt via an invisible halo — visuals unchanged. Buttons that position
    their own children already carry inline position; the guard leaves them be. */
 @media (pointer: coarse) {
+  /* ⚠ the :not() guard must gate the ::after too — a button excluded from
+     position:relative (e.g. one styling background-position) but still given
+     an absolute ::after would anchor that halo to an ANCESTOR and swallow
+     taps across half the screen. Halo only where we set (or inline sets)
+     the positioning context. */
   button:not([style*="position"]), [role="button"]:not([style*="position"]) { position: relative; }
-  button::after, [role="button"]::after { content: ""; position: absolute; inset: -5px; border-radius: inherit; }
+  button:not([style*="position"])::after, [role="button"]:not([style*="position"])::after,
+  button[style*="position: relative"]::after, [role="button"][style*="position: relative"]::after {
+    content: ""; position: absolute; inset: -5px; border-radius: inherit;
+  }
 }
 /* The press: anything tappable dips into a lens while touched */
 [style*="cursor: pointer"]:active, button:active { filter: brightness(0.95) saturate(1.12); }

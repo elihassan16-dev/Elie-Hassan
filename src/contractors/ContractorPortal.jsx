@@ -991,18 +991,20 @@ export function ContractorPortal() {
                                 const readers = (m.readBy || []).filter((n) => n && n !== m.author).map((n) => String(n).split(" ")[0]);
                                 return (
                                   <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "88%", display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start" }}>
-                                    <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2 }}>
-                                      {mine ? "You" : m.author || "Goldstone"}{sameCo && !mine ? " (your team)" : ""}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)}
+                                    {!mine && <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2, paddingLeft: 4 }}>
+                                      {m.author || "Goldstone"}{sameCo ? " (your team)" : ""}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)}
+                                    </div>}
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexDirection: mine ? "row-reverse" : "row" }}>
+                                      <div style={{ background: mine ? T.gold : sameCo ? "#FBF3DD" : T.bg, color: mine ? "#fff" : T.text, borderRadius: 18, padding: "9px 14px", fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", border: mine ? "none" : `1px solid ${sameCo ? "#EAD9A9" : "rgba(0,0,0,0.055)"}` }}>
+                                        {m.replyTo && <div style={{ fontSize: 11.5, marginBottom: 5, padding: "5px 9px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 6, background: mine ? "rgba(255,255,255,0.15)" : "#fff", color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
+                                        {linkifyText(m.text, mine)}
+                                        <Att att={m.attachment} />
+                                      </div>
+                                      <button onClick={() => setReplyTo(m)} title="Reply to this message" style={{ width: 26, height: 26, minHeight: 26, borderRadius: 13, flexShrink: 0, background: replyTo && replyTo.id === m.id ? T.goldLight : "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.04)", color: replyTo && replyTo.id === m.id ? "#8a6d1f" : T.textTert, cursor: "pointer", fontSize: 12, fontFamily: "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}>↩</button>
                                     </div>
-                                    <div style={{ background: mine ? T.gold : sameCo ? "#FBF3DD" : T.bg, color: mine ? "#fff" : T.text, borderRadius: 14, padding: "9px 13px", fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", border: mine ? "none" : `1px solid ${sameCo ? "#EAD9A9" : T.border}` }}>
-                                      {m.replyTo && <div style={{ fontSize: 11.5, marginBottom: 5, padding: "5px 9px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 6, background: mine ? "rgba(255,255,255,0.15)" : "#fff", color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
-                                      {linkifyText(m.text, mine)}
-                                      <Att att={m.attachment} />
-                                    </div>
-                                    <button onClick={() => setReplyTo(m)} style={{ background: "none", border: "none", color: replyTo && replyTo.id === m.id ? T.gold : T.textTert, cursor: "pointer", fontSize: 11, fontFamily: "inherit", padding: "3px 2px 0", fontWeight: 600 }}>↩ Reply</button>
                                     {mine && (
-                                      <div title={readers.length ? `Read by ${readers.join(", ")}` : "Delivered — not read yet"} style={{ fontSize: 10, fontWeight: 600, color: readers.length ? T.blue : T.textTert, marginTop: 1 }}>
-                                        {readers.length === 0 ? "✓ Sent" : `✓✓ Read${readers.length <= 2 ? " by " + readers.join(", ") : ` by ${readers.length}`}`}
+                                      <div title={readers.length ? `Read by ${readers.join(", ")}` : "Delivered — not read yet"} style={{ fontSize: 10, fontWeight: 600, color: T.textTert, marginTop: 2 }}>
+                                        {fmtWhen(m.at)} · {readers.length === 0 ? "Delivered" : `Read${readers.length <= 2 ? " by " + readers.join(", ") : ` by ${readers.length}`}`}
                                       </div>
                                     )}
                                   </div>

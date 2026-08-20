@@ -44,6 +44,11 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
 }
 .gs-scroll-x::-webkit-scrollbar { display: none; }
 
+/* Inset-grouped financial cards: rows carry a hairline top border so they
+   divide each other, but the first row of a card must not draw one under the
+   card's rounded top edge. */
+.fin-card > :first-child { border-top: none !important; }
+
 /* Recording-indicator pulse (Goldstone Assistant voice capture) */
 @keyframes gsPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.35); }

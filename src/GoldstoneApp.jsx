@@ -1398,29 +1398,44 @@ function TaskContactPopup({role, contact, allContacts, onSet, onClose}){
 const finCols=(showActual,isMobile)=>isMobile
   ?(showActual?"minmax(0,1fr) 31% 31%":"minmax(0,1fr) 42%")
   :(showActual?"1fr 160px 160px":"1fr 160px");
-function RowHdr({label,color,showActual}){
+// Deep green for actual-dollar TEXT — T.green (#34C759) is a fill color and
+// fails the 4.5:1 contrast floor as small text on white.
+const GREEN_TXT="#248A3D";
+const FIN_CARD={background:T.card,borderRadius:16,boxShadow:T.shadow,overflow:"hidden"};
+const FIN_HAIR="1px solid rgba(0,0,0,0.055)";
+const finChev=<span style={{color:"#C7C7CC",fontWeight:600,marginLeft:3}}>›</span>;
+// Section header ABOVE its card (iOS inset-grouped style). The caps labels ride
+// the same grid as the card rows so PROJECTED / ACTUAL align with the numbers.
+function FinSecHd({label,color,showActual,cols}){
   const isMobile=useIsMobile();
+  const capS={padding:isMobile?"0 8px":"0 14px",fontSize:10,fontWeight:700,color:T.textTert,letterSpacing:"0.05em",textAlign:"right"};
+  // caps block width mirrors the card rows' number columns so the labels align
+  const colw=isMobile?(showActual?"62%":"42%"):(showActual?320:160);
   return(
-    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`,background:T.bg}}>
-      <div style={{gridColumn:showActual?"1 / span 3":"1 / span 2",padding:isMobile?"9px 12px 5px":"9px 18px 5px",display:"flex",alignItems:"center",gap:7}}>
-        <span style={{width:3,height:12,borderRadius:2,background:color,display:"inline-block"}}/>
-        <span style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.07em"}}>{label}</span>
+    <div style={{display:"flex",alignItems:"baseline",margin:"18px 0 7px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0,flex:1,paddingLeft:isMobile?6:8}}>
+        <span style={{width:7,height:7,borderRadius:4,background:color,flexShrink:0,display:"inline-block"}}/>
+        <span style={{fontSize:13.5,fontWeight:650,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
       </div>
+      {cols&&<div style={{display:"grid",gridTemplateColumns:showActual?"1fr 1fr":"1fr",width:colw,flexShrink:0}}>
+        <div style={capS}>{isMobile?"PROJ":"PROJECTED"}</div>
+        {showActual&&<div style={capS}>ACTUAL</div>}
+      </div>}
     </div>
   );
 }
 function DateGridRow({label,value,onChange,showActual}){
   const isMobile=useIsMobile();
   return(
-    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`}}>
-      <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:13,color:T.text}}>{label}</div>
+    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46}}>
+      <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:isMobile?13.5:14,color:T.text}}>{label}</div>
       {!isMobile&&<div/>}
       {/* The date has no separate Projected/Actual value, so it spans both number
           columns but sits compact on the right — aligned with the dollar rows'
           right edge rather than stretching into a full-width empty bar. */}
       <div style={{gridColumn:isMobile?"2 / span 2":"auto",padding:isMobile?"6px 8px":"6px 14px",textAlign:"right",minWidth:0,overflow:"hidden"}}>
         <input type="date" value={value||""} onChange={e=>onChange(e.target.value)}
-          style={{fontSize:12,padding:"4px 7px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,color:T.text,outline:"none",fontFamily:"inherit",cursor:"pointer",width:"auto",minWidth:0,maxWidth:"100%",boxSizing:"border-box"}}/>
+          style={{fontSize:12.5,padding:"6px 12px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",color:value?T.text:T.textTert,outline:"none",fontFamily:"inherit",cursor:"pointer",width:"auto",minWidth:0,maxWidth:"100%",boxSizing:"border-box"}}/>
       </div>
     </div>
   );
@@ -1431,17 +1446,17 @@ function EditGridRow({label,pVal,pEdit,aVal,aEdit,showActual,readOnlyActual,suff
   const[editingA,setEditingA]=useState(false);
   const[rawP,setRawP]=useState("");
   const[rawA,setRawA]=useState("");
-  const inS={width:"100%",padding:"5px 8px",borderRadius:6,border:`1.5px solid ${T.gold}`,background:T.goldLight,color:T.text,fontSize:13,outline:"none",textAlign:"right",fontFamily:"inherit",boxSizing:"border-box"};
-  const pColor=dimP?T.textTert:(dim?T.textTert:T.text);
+  const inS={width:"100%",padding:"5px 8px",borderRadius:8,border:`1.5px solid ${T.gold}`,background:T.goldLight,color:T.text,fontSize:13,outline:"none",textAlign:"right",fontFamily:"inherit",boxSizing:"border-box"};
+  const pColor=(dimP||dim)?T.textTert:(showActual?T.textSub:T.text);
   return(
-    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`}}>
-      <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:13,color:dim?T.textTert:T.text}}>{label}</div>
+    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46}}>
+      <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:isMobile?13.5:14,color:dim?T.textTert:T.text}}>{label}</div>
       <div style={{padding:isMobile?"6px 8px":"6px 14px",textAlign:"right"}}>
         {editingP
           ?<input autoFocus value={rawP} onChange={e=>setRawP(e.target.value.replace(/[^\d.]/g,""))}
               onBlur={()=>{setEditingP(false);pEdit(rawP);}} onKeyDown={e=>e.key==="Enter"&&e.target.blur()}
               style={inS}/>
-          :<span onClick={()=>{setRawP(String(pVal||""));setEditingP(true);}} style={{fontSize:13,color:pColor,cursor:"pointer"}}>{suffix?`${pVal||0} ${suffix}`:fmtD(n(pVal))}</span>}
+          :<span onClick={()=>{setRawP(String(pVal||""));setEditingP(true);}} style={{fontSize:isMobile?13:13.5,color:pColor,cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>{suffix?`${pVal||0} ${suffix}`:fmtD(n(pVal))}</span>}
       </div>
       {showActual&&<div style={{padding:isMobile?"6px 8px":"6px 14px",textAlign:"right"}}>
         {readOnlyActual?<span style={{fontSize:13,color:T.textTert}}>—</span>:
@@ -1449,7 +1464,7 @@ function EditGridRow({label,pVal,pEdit,aVal,aEdit,showActual,readOnlyActual,suff
           ?<input autoFocus value={rawA} onChange={e=>setRawA(numIn(e.target.value))}
               onBlur={()=>{setEditingA(false);aEdit(rawA);}} onKeyDown={e=>e.key==="Enter"&&e.target.blur()}
               style={inS}/>
-          :<span onClick={()=>{setRawA(String(aVal??""));setEditingA(true);}} style={{fontSize:13,fontWeight:hasVal(aVal)?600:400,color:hasVal(aVal)?T.green:T.textTert,cursor:"pointer"}}>{hasVal(aVal)?(suffix?`${aVal} ${suffix}`:fmtD(n(aVal))):"tap to enter"}</span>}
+          :<span onClick={()=>{setRawA(String(aVal??""));setEditingA(true);}} style={{fontSize:hasVal(aVal)?(isMobile?13:13.5):12.5,fontWeight:hasVal(aVal)?650:450,color:hasVal(aVal)?GREEN_TXT:T.textTert,cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>{hasVal(aVal)?(suffix?`${aVal} ${suffix}`:fmtD(n(aVal))):<>Enter{finChev}</>}</span>}
       </div>}
     </div>
   );
@@ -1458,31 +1473,30 @@ function PopupGridRow({label,pVal,onOpenP,aVal,aEdit,onOpenA,showActual,aIsPopup
   const isMobile=useIsMobile();
   const[editingA,setEditingA]=useState(false);
   const[rawA,setRawA]=useState("");
-  const inS={width:"100%",padding:"5px 8px",borderRadius:6,border:`1.5px solid ${T.gold}`,background:T.goldLight,color:T.text,fontSize:13,outline:"none",textAlign:"right",fontFamily:"inherit",boxSizing:"border-box"};
+  const inS={width:"100%",padding:"5px 8px",borderRadius:8,border:`1.5px solid ${T.gold}`,background:T.goldLight,color:T.text,fontSize:13,outline:"none",textAlign:"right",fontFamily:"inherit",boxSizing:"border-box"};
   return(
-    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`}}>
-      <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:13,color:T.text}}>{label}</div>
-      <div onClick={onOpenP} style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:13,color:dimP?T.textTert:T.blue,fontWeight:500,cursor:"pointer"}}>{fmtD(pVal)} ›</div>
+    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46}}>
+      <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:isMobile?13.5:14,color:T.text}}>{label}</div>
+      <div onClick={onOpenP} style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:isMobile?13:13.5,color:dimP?T.textTert:T.textSub,fontWeight:500,cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>{fmtD(pVal)}{finChev}</div>
       {showActual&&<div style={{padding:aIsPopup?(isMobile?"9px 8px":"9px 14px"):(isMobile?"6px 8px":"6px 14px"),textAlign:"right"}}>
         {aIsPopup
-          ? <span onClick={onOpenA} style={{fontSize:13,fontWeight:500,color:T.green,cursor:"pointer"}}>{n(aVal)!==0?fmtD(n(aVal))+" ›":"tap to enter ›"}</span>
+          ? <span onClick={onOpenA} style={{fontSize:n(aVal)!==0?(isMobile?13:13.5):12.5,fontWeight:n(aVal)!==0?650:450,color:n(aVal)!==0?GREEN_TXT:T.textTert,cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>{n(aVal)!==0?<>{fmtD(n(aVal))}{finChev}</>:<>Enter{finChev}</>}</span>
           : editingA
             ?<input autoFocus value={rawA} onChange={e=>setRawA(numIn(e.target.value))}
                 onBlur={()=>{setEditingA(false);aEdit(rawA);}} onKeyDown={e=>e.key==="Enter"&&e.target.blur()}
                 style={inS}/>
-            :<span onClick={()=>{setRawA(String(aVal??""));setEditingA(true);}} style={{fontSize:13,fontWeight:hasVal(aVal)?600:400,color:hasVal(aVal)?T.green:T.textTert,cursor:"pointer"}}>{hasVal(aVal)?fmtD(n(aVal)):"tap to enter"}</span>}
+            :<span onClick={()=>{setRawA(String(aVal??""));setEditingA(true);}} style={{fontSize:hasVal(aVal)?(isMobile?13:13.5):12.5,fontWeight:hasVal(aVal)?650:450,color:hasVal(aVal)?GREEN_TXT:T.textTert,cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>{hasVal(aVal)?fmtD(n(aVal)):<>Enter{finChev}</>}</span>}
       </div>}
     </div>
   );
 }
-function TotalGridRow({label,pVal,aVal,showActual,color,dimP}){
+function TotalGridRow({label,pVal,aVal,showActual,dimP}){
   const isMobile=useIsMobile();
-  const c=color||T.gold;
   return(
-    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`2px solid ${c}`,background:c+"14"}}>
-      <div style={{padding:isMobile?"11px 12px":"11px 18px",fontSize:14,fontWeight:700,color:dimP?T.textTert:c}}>{label}</div>
-      <div style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:14,fontWeight:700,color:dimP?T.textTert:c,textAlign:"right"}}>{fmtD(pVal)}</div>
-      {showActual&&<div style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:14,fontWeight:700,color:aVal!==null?c:T.textTert,textAlign:"right"}}>{aVal!==null?fmtD(aVal):"—"}</div>}
+    <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,background:T.cardAlt,minHeight:46}}>
+      <div style={{padding:isMobile?"11px 12px":"11px 18px",fontSize:isMobile?13.5:14,fontWeight:700,color:dimP?T.textTert:T.text}}>{label}</div>
+      <div style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:isMobile?13.5:14,fontWeight:700,color:dimP?T.textTert:(showActual?T.textSub:T.text),textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(pVal)}</div>
+      {showActual&&<div style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:isMobile?13.5:14,fontWeight:700,color:aVal!==null?GREEN_TXT:T.textTert,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{aVal!==null?fmtD(aVal):"—"}</div>}
     </div>
   );
 }
@@ -1946,30 +1960,53 @@ function WhatIfPopup({property,onClose}){
   const planVals={purchasePrice:String(f.purchasePrice??""),rehabCosts:String(f.rehabCosts??""),salePrice:String(f.salePrice??""),holdPeriod:String(f.holdPeriod??"")};
   const base=run(planVals);
   const what=run({purchasePrice:val("purchasePrice"),rehabCosts:val("rehabCosts"),salePrice:val("salePrice"),holdPeriod:val("holdPeriod")},draft.sellingCosts!==""?draft.sellingCosts:null);
+  // Same Total Costs definition as the overview grid: purchase + buying + rehab + holding.
+  const baseTotalCosts=n(f.purchasePrice)+base.buyingTotal+n(f.rehabCosts)+base.holdingTotal;
+  const whatTotalCosts=n(val("purchasePrice"))+what.buyingTotal+n(val("rehabCosts"))+what.holdingTotal;
+  const isMobile=useIsMobile();
   const fmt=(v)=>`$${Math.round(n(v)).toLocaleString()}`;
-  const delta=(a,b,invert)=>{const d=Math.round(n(b)-n(a));if(!d)return <span style={{color:T.textTert,fontWeight:600}}>—</span>;const good=invert?d<0:d>0;return <span style={{color:good?T.green:T.red,fontWeight:800}}>{d>0?"+":"−"}${Math.abs(d).toLocaleString()}</span>;};
-  const row=(label,a,b,{strong,invert}={})=>(
-    <div key={label} style={{display:"grid",gridTemplateColumns:"1.25fr 1fr 1fr 0.9fr",gap:6,padding:strong?"12px 0":"8px 0",borderTop:strong?`2px solid ${T.border}`:`1px solid ${T.border}`,alignItems:"center"}}>
-      <span style={{fontSize:12.5,fontWeight:strong?800:600,color:strong?T.text:T.textSub}}>{label}</span>
-      <span style={{fontSize:strong?15:12.5,fontWeight:strong?700:500,color:T.textTert,textAlign:"right"}}>{fmt(a)}</span>
-      <span style={{fontSize:strong?15:12.5,fontWeight:strong?800:600,color:strong?(n(b)>=0?T.green:T.red):T.text,textAlign:"right"}}>{fmt(b)}</span>
-      <span style={{fontSize:strong?13:11.5,textAlign:"right"}}>{delta(a,b,invert)}</span>
-    </div>
-  );
-  const FIELDS=[
-    {k:"purchasePrice",label:"Purchase price",plan:n(f.purchasePrice)||0},
-    {k:"rehabCosts",label:"Rehab / scope budget",plan:n(f.rehabCosts)||0},
-    {k:"salePrice",label:"Sale price (ARV)",plan:n(f.salePrice)||0},
-    {k:"holdPeriod",label:"Hold period (months)",plan:n(f.holdPeriod)||0,mo:true},
-    // Prefilled with the DERIVED plan total; untouched it keeps auto-scaling
-    // with the sale price, typed-over it becomes a flat override.
-    {k:"sellingCosts",label:"Selling costs (total)",plan:Math.round(base.sellingTotal)},
-  ];
-  const inpW={padding:"9px 11px",borderRadius:10,border:`1.5px solid ${T.gold}`,background:"#fff",fontSize:13.5,fontWeight:700,color:T.text,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box",textAlign:"right"};
-  const changed=FIELDS.some(({k,plan})=>draft[k]!==""&&String(draft[k]).trim()!==String(plan));
+  const delta=(a,b,invert)=>{const d=Math.round(n(b)-n(a));if(!d)return <span style={{color:T.textTert,fontWeight:600}}>—</span>;const good=invert?d<0:d>0;return <span style={{color:good?GREEN_TXT:T.red,fontWeight:800}}>{d>0?"+":"−"}${Math.abs(d).toLocaleString()}</span>;};
+  // The popup mirrors the Financial Overview exactly — same grouped section
+  // cards, same rows, same formulas — with columns Plan | What-if | Diff.
+  const wCols=isMobile?"minmax(0,1fr) 19% 27% 17%":"1.25fr 100px 120px 86px";
+  const cell={textAlign:"right",fontVariantNumeric:"tabular-nums"};
+  const secHd=(label,color)=>(
+    <div style={{display:"flex",alignItems:"center",gap:7,margin:"16px 2px 6px"}}>
+      <span style={{width:7,height:7,borderRadius:4,background:color,display:"inline-block"}}/>
+      <span style={{fontSize:13,fontWeight:650,color:T.text}}>{label}</span>
+    </div>);
+  const dRow=(label,a,b,{invert,total}={})=>(
+    <div style={{display:"grid",gridTemplateColumns:wCols,gap:isMobile?4:8,alignItems:"center",minHeight:42,padding:isMobile?"0 10px":"0 12px",borderTop:FIN_HAIR,background:total?T.cardAlt:"transparent",boxSizing:"border-box"}}>
+      <span style={{fontSize:isMobile?12.5:13,fontWeight:total?700:400,color:T.text,minWidth:0}}>{label}</span>
+      <span style={{...cell,fontSize:isMobile?11.5:12.5,fontWeight:total?650:450,color:T.textSub}}>{fmt(a)}</span>
+      <span style={{...cell,fontSize:isMobile?11.5:12.5,fontWeight:total?700:600,color:T.text}}>{fmt(b)}</span>
+      <span style={{...cell,fontSize:isMobile?10.5:11.5}}>{delta(a,b,invert)}</span>
+    </div>);
+  const inpW={padding:isMobile?"8px 7px":"8px 10px",borderRadius:10,border:`1.5px solid ${T.gold}`,background:"#fff",fontSize:isMobile?12.5:13,fontWeight:700,color:T.text,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box",textAlign:"right"};
+  // liveVal: a lever whose untouched value still moves with the other levers
+  // (selling costs auto-scale with the sale price until typed over) — show the
+  // live derived number in the field and diff against it.
+  const iRow=(label,k,plan,{mo,invert,liveVal}={})=>{
+    const dmo=Math.round(n(draft[k])-plan);
+    const shown=draft[k]!==""?draft[k]:String(liveVal!=null?Math.round(liveVal):(plan||""));
+    return(
+    <div style={{display:"grid",gridTemplateColumns:wCols,gap:isMobile?4:8,alignItems:"center",minHeight:48,padding:isMobile?"0 10px":"0 12px",borderTop:FIN_HAIR,boxSizing:"border-box"}}>
+      <span style={{fontSize:isMobile?12.5:13,color:T.text,minWidth:0}}>{label}</span>
+      <span style={{...cell,fontSize:isMobile?11.5:12.5,color:T.textSub}}>{mo?`${plan} mo`:fmt(plan)}</span>
+      <span style={cell}>
+        <input value={shown} onChange={e=>{const v=e.target.value.replace(/[^0-9.]/g,"");setDraft(d=>({...d,[k]:v===String(plan||"")?"":v||" "}));}} onFocus={e=>e.target.select()} inputMode="decimal" placeholder={mo?String(plan):Math.round(plan).toLocaleString()} style={inpW}/>
+      </span>
+      <span style={{...cell,fontSize:isMobile?10.5:11.5}}>
+        {draft[k]===""?(liveVal!=null?delta(plan,liveVal,invert):<span style={{color:T.textTert,fontWeight:600}}>—</span>)
+          :mo?(dmo?<span style={{color:(invert?dmo<0:dmo>0)?GREEN_TXT:T.red,fontWeight:800}}>{dmo>0?"+":"−"}{Math.abs(dmo)} mo</span>:<span style={{color:T.textTert,fontWeight:600}}>—</span>)
+          :delta(plan,draft[k],invert)}
+      </span>
+    </div>);};
+  const LEVERS=[["purchasePrice",n(f.purchasePrice)||0],["rehabCosts",n(f.rehabCosts)||0],["salePrice",n(f.salePrice)||0],["holdPeriod",n(f.holdPeriod)||0],["sellingCosts",Math.round(base.sellingTotal)]];
+  const changed=LEVERS.some(([k,plan])=>draft[k]!==""&&String(draft[k]).trim()!==String(plan));
   return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:460,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(560px,96vw)",maxHeight:"92vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:460,backdropFilter:"blur(6px)",padding:isMobile?"12px 8px":16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(640px,96vw)",maxHeight:"92vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
         <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,background:T.goldLight,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:15,fontWeight:800,color:T.text}}>⚖️ Quick what-if</div>
@@ -1977,32 +2014,66 @@ function WhatIfPopup({property,onClose}){
           </div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
         </div>
-        <div style={{padding:"12px 18px 16px",overflowY:"auto",flex:1}}>
-          {FIELDS.map(({k,label,plan,mo})=>(
-            <div key={k} style={{display:"grid",gridTemplateColumns:"1.25fr 1fr 1fr 0.9fr",gap:6,alignItems:"center",padding:"6px 0"}}>
-              <span style={{fontSize:12.5,fontWeight:700,color:T.text}}>{label}</span>
-              <span style={{fontSize:12,color:T.textTert,textAlign:"right"}}>{mo?`${plan} mo`:fmt(plan)}</span>
-              <input value={draft[k]!==""?draft[k]:String(plan||"")} onChange={e=>{const v=e.target.value.replace(/[^0-9.]/g,"");setDraft(d=>({...d,[k]:v===String(plan||"")?"":v||" "}));}} onFocus={e=>e.target.select()} inputMode="decimal" placeholder={mo?String(plan):Math.round(plan).toLocaleString()} style={inpW}/>
-              <span/>
+        <div style={{padding:isMobile?"2px 10px 14px":"2px 16px 16px",overflowY:"auto",flex:1,background:T.bg}}>
+
+          {/* Net Profit hero — plan vs what-if, live */}
+          <div style={{...FIN_CARD,marginTop:12,padding:isMobile?"12px 14px 10px":"14px 18px 12px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
+              <span style={{width:8,height:8,borderRadius:4,background:what.netProfit>=0?T.green:T.red,display:"inline-block"}}/>
+              <span style={{fontSize:12.5,fontWeight:650,color:T.textSub}}>Net Profit</span>
+              <span style={{marginLeft:"auto",fontSize:isMobile?11:12}}>{delta(base.netProfit,what.netProfit)}</span>
             </div>
-          ))}
-          <div style={{display:"grid",gridTemplateColumns:"1.25fr 1fr 1fr 0.9fr",gap:6,padding:"10px 0 4px"}}>
-            <span/>
-            <span style={{fontSize:10,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",textAlign:"right"}}>Current plan</span>
-            <span style={{fontSize:10,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em",textAlign:"right"}}>What-if</span>
-            <span style={{fontSize:10,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",textAlign:"right"}}>Difference</span>
+            <div style={{display:"flex",alignItems:"stretch"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:10.5,fontWeight:650,color:T.textTert,letterSpacing:"0.02em",marginBottom:2}}>CURRENT PLAN</div>
+                <div style={{fontSize:isMobile?20:24,fontWeight:700,letterSpacing:"-0.02em",color:T.textSub,fontVariantNumeric:"tabular-nums"}}>{fmt(base.netProfit)}</div>
+              </div>
+              <div style={{flex:1,minWidth:0,borderLeft:`1px solid ${T.border}`,paddingLeft:isMobile?12:18,marginLeft:isMobile?12:18}}>
+                <div style={{fontSize:10.5,fontWeight:650,color:"#8a6d1f",letterSpacing:"0.02em",marginBottom:2}}>WHAT-IF</div>
+                <div style={{fontSize:isMobile?20:24,fontWeight:750,letterSpacing:"-0.02em",color:what.netProfit>=0?GREEN_TXT:T.red,fontVariantNumeric:"tabular-nums"}}>{fmt(what.netProfit)}</div>
+              </div>
+            </div>
           </div>
-          {row("Buying costs",base.buyingTotal,what.buyingTotal,{invert:true})}
-          {row("Selling costs",base.sellingTotal,what.sellingTotal,{invert:true})}
-          {row("Holding costs",base.holdingTotal,what.holdingTotal,{invert:true})}
-          {row("Financing / interest",base.debtService,what.debtService,{invert:true})}
-          {row("Cash you'd need in",base.equityRequired,what.equityRequired,{invert:true})}
-          {row("Net profit",base.netProfit,what.netProfit,{strong:true})}
-          <div style={{fontSize:11,color:T.textTert,marginTop:10,lineHeight:1.5}}>Everything re-runs live off each column's numbers — commission, transfer tax, holding, financing, and cash-in — using the plan's rates and terms (hand-entered overrides on the grid are set aside here so the levers actually move the results). Tap a field and type over it. Your scenario is remembered on this device only.</div>
+
+          {/* column caps — same grid as the rows below */}
+          <div style={{display:"grid",gridTemplateColumns:wCols,gap:isMobile?4:8,padding:isMobile?"14px 10px 0":"14px 12px 0"}}>
+            <span/>
+            <span style={{...cell,fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>PLAN</span>
+            <span style={{...cell,fontSize:10,fontWeight:800,color:"#8a6d1f",letterSpacing:"0.05em"}}>WHAT-IF</span>
+            <span style={{...cell,fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>DIFF</span>
+          </div>
+
+          {secHd("Acquisition & Costs",T.gold)}
+          <div className="fin-card" style={FIN_CARD}>
+            {iRow("Purchase Price","purchasePrice",n(f.purchasePrice)||0,{invert:true})}
+            {dRow("Buying Costs",base.buyingTotal,what.buyingTotal,{invert:true})}
+            {iRow("Rehab Costs","rehabCosts",n(f.rehabCosts)||0,{invert:true})}
+            {dRow("Holding Costs",base.holdingTotal,what.holdingTotal,{invert:true})}
+            {dRow("Total Costs",baseTotalCosts,whatTotalCosts,{invert:true,total:true})}
+          </div>
+
+          {secHd("Financing",T.blue)}
+          <div className="fin-card" style={FIN_CARD}>
+            {iRow("Hold Period","holdPeriod",n(f.holdPeriod)||0,{mo:true,invert:true})}
+            {dRow("Total Debt Service",base.debtService,what.debtService,{invert:true})}
+            {dRow("Cash You'd Need In",base.equityRequired,what.equityRequired,{invert:true,total:true})}
+          </div>
+
+          {secHd("Revenue",T.green)}
+          <div className="fin-card" style={FIN_CARD}>
+            {iRow("Sale Price (ARV)","salePrice",n(f.salePrice)||0)}
+          </div>
+
+          {secHd("Selling Costs",T.red)}
+          <div className="fin-card" style={FIN_CARD}>
+            {iRow("Commission + Transfer Tax","sellingCosts",Math.round(base.sellingTotal),{invert:true,liveVal:what.sellingTotal})}
+          </div>
+
+          <div style={{fontSize:11,color:T.textTert,marginTop:12,lineHeight:1.5,padding:"0 2px"}}>Everything re-runs live off each column's numbers — commission, transfer tax, holding, financing, and cash-in — using the plan's rates and terms (hand-entered overrides on the grid are set aside here so the levers actually move the results). Tap a gold field and type over it. Your scenario is remembered on this device only.</div>
         </div>
-        <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0}}>
-          {changed&&<button onClick={()=>clearDraft(true)} style={{marginRight:"auto",padding:"10px 16px",borderRadius:10,background:T.bg,border:"none",color:T.textSub,fontWeight:600,cursor:"pointer",fontFamily:"inherit",fontSize:13.5}}>↺ Reset to plan</button>}
-          <button onClick={onClose} style={{padding:"10px 22px",borderRadius:10,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Done</button>
+        <div style={{padding:"12px 18px",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0,background:"#fff"}}>
+          {changed&&<button onClick={()=>clearDraft(true)} style={{marginRight:"auto",padding:"10px 16px",borderRadius:100,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",color:T.textSub,fontWeight:600,cursor:"pointer",fontFamily:"inherit",fontSize:13.5}}>↺ Reset to plan</button>}
+          <button onClick={onClose} style={{padding:"10px 24px",borderRadius:100,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Done</button>
         </div>
       </div>
     </div>
@@ -2154,61 +2225,69 @@ function FinOverview({property,onUpdate}){
         bsHm={bsHm} bsLoc={bsLoc} bsAvailable={bsAvailable} hmPaidSoFar={qbPaidInt?qbPaidInt.paid:null} hmPaidThrough={qbPaidInt?qbPaidInt.paidThrough:null}
         onSave={(vals)=>upMany(vals)} onClose={()=>setShowActualFinancing(false)}/>}
 
-      {/* Toggle bar */}
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,justifyContent:"center",flexWrap:"wrap"}}>
-        <div onClick={()=>setShowActual(v=>!v)}
-          style={{...TOGGLE_CHIP(showActual,T.green),gap:10,padding:"7px 18px",fontSize:13}}>
-          <div style={{width:18,height:18,borderRadius:9,background:showActual?T.green:"#ccc",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            {showActual&&<span style={{color:"#fff",fontSize:12,lineHeight:1}}>✓</span>}
-          </div>
-          <span style={{fontSize:13,fontWeight:600,color:showActual?T.green:T.textSub}}>
-            {showActual?"Showing Actual Column":"Show Actual Column"}
-          </span>
+      {/* Control bar — segmented Projected / +Actual, icon-only what-if, portfolio toggle */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4,justifyContent:"center",flexWrap:"wrap"}}>
+        <div style={SEG_WRAP}>
+          <button onClick={()=>setShowActual(false)} style={segTab(!showActual)}>Projected</button>
+          <button onClick={()=>setShowActual(true)} style={segTab(showActual)}>{isMobile?"+ Actual":"Projected + Actual"}</button>
         </div>
-        <div onClick={()=>setWhatIf(true)}
-          style={{...TOGGLE_CHIP(false),gap:8,padding:"7px 18px",fontSize:13}}>
-          <span style={{fontSize:14,lineHeight:1}}>⚖️</span>
-          <span style={{fontSize:13,fontWeight:600,color:"#8a6d1f"}}>Quick what-if</span>
-        </div>
+        <div onClick={()=>setWhatIf(true)} title="Quick what-if — scratch copy, the real plan is never touched"
+          style={{...TOGGLE_CHIP(false),width:40,height:32,padding:0,justifyContent:"center",fontSize:15,borderRadius:16}}>⚖️</div>
         {showActual&&<div onClick={()=>up("useActualProfit",!f.useActualProfit)}
-          style={{...TOGGLE_CHIP(f.useActualProfit,"#8a6d1f"),gap:10,padding:"7px 18px",fontSize:13}}>
-          <div style={{width:18,height:18,borderRadius:9,background:f.useActualProfit?T.gold:"#ccc",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            {f.useActualProfit&&<span style={{color:"#fff",fontSize:12,lineHeight:1}}>✓</span>}
-          </div>
-          <span style={{fontSize:13,fontWeight:600,color:f.useActualProfit?T.gold:T.textSub}}>
-            {f.useActualProfit?"Using Actual in Portfolio":"Use Actual in Portfolio"}
-          </span>
+          style={{...TOGGLE_CHIP(f.useActualProfit),padding:"7px 14px",fontSize:12.5,gap:6}}>
+          {f.useActualProfit&&<span style={{fontSize:12,lineHeight:1}}>✓</span>}
+          Actual Feeds Portfolio
         </div>}
       </div>
-      {f.useActualProfit&&<div style={{textAlign:"center",fontSize:12,color:T.gold,marginBottom:14,marginTop:-12}}>Actual net profit now feeds Portfolio Overview totals · projected numbers shown faded for reference</div>}
+      {f.useActualProfit&&<div style={{textAlign:"center",fontSize:11.5,color:T.gold,marginBottom:2}}>Actual net profit feeds Portfolio Overview · projected shown faded for reference</div>}
       {whatIf&&<WhatIfPopup property={property} onClose={()=>setWhatIf(false)}/>}
 
-      <div style={{maxWidth:showActual?900:520,margin:"0 auto"}}>
-        <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
+      <div style={{maxWidth:showActual?900:560,margin:"0 auto"}}>
 
-          {/* Column headers */}
-          <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderBottom:`1px solid ${T.border}`,background:"#FAFAFA"}}>
-            <div style={{padding:isMobile?"12px 12px":"12px 18px",fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.06em"}}>Line Item</div>
-            <div style={{padding:isMobile?"12px 8px":"12px 14px",fontSize:11,fontWeight:700,color:T.blue,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Projected</div>
-            {showActual&&<div style={{padding:isMobile?"12px 8px":"12px 14px",fontSize:11,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Actual</div>}
-          </div>
+        {/* ── Net Profit hero — the bottom line, first ── */}
+        {(()=>{const dim=f.useActualProfit;
+          const roc=equityRequired>0?Math.round(netProfit/equityRequired*1000)/10:null;
+          const pc=dim?T.textTert:(netProfit>=0?GREEN_TXT:T.red);
+          const hasAc=acSalePrice>0;
+          return(
+          <div style={{...FIN_CARD,marginTop:14,padding:isMobile?"14px 16px 12px":"16px 22px 14px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10}}>
+              <span style={{width:8,height:8,borderRadius:4,background:netProfit>=0?T.green:T.red,display:"inline-block"}}/>
+              <span style={{fontSize:12.5,fontWeight:650,color:T.textSub}}>Net Profit</span>
+            </div>
+            <div style={{display:"flex",alignItems:"stretch"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:11,fontWeight:650,color:T.textTert,letterSpacing:"0.02em",marginBottom:3}}>PROJECTED</div>
+                <div style={{fontSize:isMobile?24:30,fontWeight:750,letterSpacing:"-0.02em",color:pc,fontVariantNumeric:"tabular-nums"}}>{fmtD(netProfit)}</div>
+                {roc!=null&&<div style={{fontSize:11.5,color:T.textTert,marginTop:3}}>{roc}% return on cash in</div>}
+              </div>
+              {showActual&&<div style={{flex:1,minWidth:0,borderLeft:`1px solid ${T.border}`,paddingLeft:isMobile?14:22,marginLeft:isMobile?14:22}}>
+                <div style={{fontSize:11,fontWeight:650,color:T.textTert,letterSpacing:"0.02em",marginBottom:3}}>ACTUAL</div>
+                <div style={{fontSize:isMobile?24:30,fontWeight:750,letterSpacing:"-0.02em",color:hasAc?(acNet>=0?GREEN_TXT:T.red):T.textTert,fontVariantNumeric:"tabular-nums"}}>{hasAc?fmtD(acNet):"—"}</div>
+                <div style={{fontSize:11.5,color:T.textTert,marginTop:3}}>{hasAc?"from your entered actuals":"enter an actual sale price to see it"}</div>
+              </div>}
+            </div>
+          </div>);})()}
 
-          {/* ── Transaction Dates (only matters for actual, but shown when actual is on) ── */}
-          {showActual&&(<>
-            <RowHdr label="Transaction Dates" color={T.purple} showActual={showActual}/>
+        {/* ── Transaction Dates (only matters for actual, but shown when actual is on) ── */}
+        {showActual&&(<>
+          <FinSecHd label={isMobile?"Dates":"Transaction Dates"} color={T.purple} showActual={showActual} cols/>
+          <div className="fin-card" style={FIN_CARD}>
             <DateGridRow label="Purchase Date" value={f.purchaseDate} onChange={v=>up("purchaseDate",v)} showActual={showActual}/>
             <DateGridRow label="Sell Date" value={f.sellingDate} onChange={v=>up("sellingDate",v)} showActual={showActual}/>
             {f.purchaseDate&&f.sellingDate&&(
-              <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`,background:T.goldLight}}>
-                <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:13,fontWeight:600,color:T.gold}}>Hold Period</div>
-                <div style={{padding:isMobile?"9px 8px":"9px 14px",fontSize:13,fontWeight:600,color:T.gold,textAlign:"right"}}>{holdPeriodMonths} mo</div>
-                <div style={{padding:isMobile?"9px 8px":"9px 14px",fontSize:13,fontWeight:700,color:T.gold,textAlign:"right"}}>{actualHoldMonths} mo</div>
+              <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,background:T.cardAlt,minHeight:44}}>
+                <div style={{padding:isMobile?"10px 12px":"10px 18px",fontSize:isMobile?13.5:14,fontWeight:700,color:T.text}}>Hold Period</div>
+                <div style={{padding:isMobile?"10px 8px":"10px 14px",fontSize:isMobile?13.5:14,fontWeight:700,color:T.textSub,textAlign:"right"}}>{holdPeriodMonths} mo</div>
+                <div style={{padding:isMobile?"10px 8px":"10px 14px",fontSize:isMobile?13.5:14,fontWeight:700,color:GREEN_TXT,textAlign:"right"}}>{actualHoldMonths} mo</div>
               </div>
             )}
-          </>)}
+          </div>
+        </>)}
 
-          {/* ── Acquisition & Costs ── */}
-          <RowHdr label="Acquisition & Costs" color={T.gold} showActual={showActual}/>
+        {/* ── Acquisition & Costs ── */}
+        <FinSecHd label="Acquisition & Costs" color={T.gold} showActual={showActual} cols={!showActual}/>
+        <div className="fin-card" style={FIN_CARD}>
           <EditGridRow label="Purchase Price" pVal={n(f.purchasePrice)} pEdit={v=>up("purchasePrice",v)}
             aVal={f.actualPurchasePrice} aEdit={v=>up("actualPurchasePrice",v)} showActual={showActual} dimP={f.useActualProfit}/>
           <PopupGridRow label="Buying Costs" pVal={buyingTotal} onOpenP={()=>setShowBuying(true)}
@@ -2218,44 +2297,43 @@ function FinOverview({property,onUpdate}){
           <PopupGridRow label="Holding Costs" pVal={holdingTotal} onOpenP={()=>setShowHolding(true)}
             aVal={f.actualHoldingCosts} aEdit={v=>up("actualHoldingCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
           <TotalGridRow label="Total Costs" pVal={totalCosts} aVal={showActual&&acCosts!==0?acCosts:null} showActual={showActual} dimP={f.useActualProfit}/>
+        </div>
 
-          {/* ── Financing ── */}
-          <RowHdr label="Financing" color={T.blue} showActual={showActual}/>
+        {/* ── Financing ── */}
+        <FinSecHd label="Financing" color={T.blue} showActual={showActual}/>
+        <div className="fin-card" style={FIN_CARD}>
           <EditGridRow label="Hold Period" pVal={f.holdPeriod||"0"} pEdit={v=>up("holdPeriod",v.replace(/[^\d.]/g,""))}
             aVal={null} showActual={showActual} readOnlyActual suffix="months" dimP={f.useActualProfit}/>
-          <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`1px solid ${T.border}`}}>
-            <div onClick={()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 12px":"11px 18px",fontSize:14,color:f.useActualProfit?T.textTert:T.text,cursor:"pointer"}}
-              onMouseEnter={e=>e.currentTarget.parentElement.style.background="#FAFAFA"} onMouseLeave={e=>e.currentTarget.parentElement.style.background="transparent"}>
+          <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46}}>
+            <div onClick={()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 12px":"11px 18px",fontSize:isMobile?13.5:14,color:f.useActualProfit?T.textTert:T.text,cursor:"pointer"}}>
               Financing Details
             </div>
-            <div onClick={()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:13,color:f.useActualProfit?T.textTert:T.blue,fontWeight:500,textAlign:"right",cursor:"pointer"}}>
-              HM {fmtD(liveHmTotal)} · Gap {fmtD(equityRequired)} ›
+            <div onClick={()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:isMobile?12.5:13,color:f.useActualProfit?T.textTert:T.textSub,fontWeight:500,textAlign:"right",cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>
+              HM {fmtD(liveHmTotal)} · Gap {fmtD(equityRequired)}{finChev}
             </div>
-            {showActual&&<div onClick={()=>setShowActualFinancing(true)} style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:13,color:T.green,fontWeight:500,textAlign:"right",cursor:"pointer"}}>
-              {f.acHmLoanAmt||f.acGapLoanAmt?`HM ${fmtD(acHmLoanAmt)} · Gap ${fmtD(acGapLoanAmt)} ›`:"Tap to enter ›"}
+            {showActual&&<div onClick={()=>setShowActualFinancing(true)} style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:f.acHmLoanAmt||f.acGapLoanAmt?(isMobile?12.5:13):12.5,fontWeight:f.acHmLoanAmt||f.acGapLoanAmt?650:450,color:f.acHmLoanAmt||f.acGapLoanAmt?GREEN_TXT:T.textTert,textAlign:"right",cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>
+              {f.acHmLoanAmt||f.acGapLoanAmt?<>HM {fmtD(acHmLoanAmt)} · Gap {fmtD(acGapLoanAmt)}{finChev}</>:<>Enter{finChev}</>}
             </div>}
           </div>
-          <TotalGridRow label="Total Debt Service" pVal={debtService} aVal={showActual&&(f.acHmLoanAmt||f.acGapLoanAmt)?acDebt:null} showActual={showActual} color={T.gold} dimP={f.useActualProfit}/>
+          <TotalGridRow label="Total Debt Service" pVal={debtService} aVal={showActual&&(f.acHmLoanAmt||f.acGapLoanAmt)?acDebt:null} showActual={showActual} dimP={f.useActualProfit}/>
+        </div>
 
-          {/* ── Revenue ── */}
-          <RowHdr label="Revenue" color={T.green} showActual={showActual}/>
+        {/* ── Revenue ── */}
+        <FinSecHd label="Revenue" color={T.green} showActual={showActual}/>
+        <div className="fin-card" style={FIN_CARD}>
           <EditGridRow label="Sale Price" pVal={n(f.salePrice)} pEdit={v=>up("salePrice",v)}
             aVal={f.actualSalePrice} aEdit={v=>up("actualSalePrice",v)} showActual={showActual} dimP={f.useActualProfit}/>
           {featOn("arvUnderwriter")&&<ArvUnderwriter address={`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`} f={f} upMany={upMany} isMobile={isMobile} pinfo={property.propertyInfo} onInfo={(patch)=>onUpdate(property.id,"propertyInfo",{...(property.propertyInfo||{}),...patch})}/>}
+        </div>
 
-          {/* ── Selling Costs ── */}
-          <RowHdr label="Selling Costs" color={T.red} showActual={showActual}/>
+        {/* ── Selling Costs ── */}
+        <FinSecHd label="Selling Costs" color={T.red} showActual={showActual}/>
+        <div className="fin-card" style={FIN_CARD}>
           <PopupGridRow label="Commission + Transfer Tax" pVal={sellingTotal} onOpenP={()=>setShowSelling(true)}
             aVal={acSelling} onOpenA={()=>setShowActualSelling(true)} showActual={showActual} aIsPopup dimP={f.useActualProfit}/>
-
-          {/* ── Net Profit ── */}
-          <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),borderTop:`2px solid ${netProfit>=0?T.green:T.red}`,background:netProfit>=0?"#EDFBF1":"#FFF0EF"}}>
-            <div style={{padding:isMobile?"15px 12px":"15px 18px",fontSize:15,fontWeight:700,color:f.useActualProfit?T.textTert:(netProfit>=0?T.green:T.red)}}>Net Profit</div>
-            <div style={{padding:isMobile?"15px 8px":"15px 14px",fontSize:isMobile?15:17,fontWeight:800,color:f.useActualProfit?T.textTert:(netProfit>=0?T.green:T.red),textAlign:"right"}}>{fmtD(netProfit)}</div>
-            {showActual&&<div style={{padding:isMobile?"15px 8px":"15px 14px",fontSize:isMobile?15:17,fontWeight:800,color:acSalePrice>0?(acNet>=0?T.green:T.red):T.textTert,textAlign:"right"}}>{acSalePrice>0?fmtD(acNet):"—"}</div>}
-          </div>
-
         </div>
+        {showActual&&<div style={{fontSize:11.5,color:T.textTert,margin:"7px 8px 0",lineHeight:1.5}}>Commission recalculates automatically from the actual sale price once it's entered.</div>}
+
       </div>
     </div>
   );
@@ -6451,45 +6529,52 @@ function LeadDetail({lead,onUpdate}){
       <div style={{flex:1,overflowY:"auto"}}>
         {tab==="Financial Overview"&&(
           <div style={{background:T.bg,minHeight:"100%",padding:"24px 28px"}}>
-            <div style={{maxWidth:520,margin:"0 auto"}}>
-              <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 160px",borderBottom:`1px solid ${T.border}`,background:"#FAFAFA"}}>
-                  <div style={{padding:"12px 18px",fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.06em"}}>Line Item</div>
-                  <div style={{padding:"12px 14px",fontSize:11,fontWeight:700,color:T.blue,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Projected</div>
-                </div>
+            <div style={{maxWidth:560,margin:"0 auto"}}>
 
-                <RowHdr label="Acquisition & Costs" color={T.gold} showActual={false}/>
+              {/* Projected Profit hero */}
+              <div style={{...FIN_CARD,padding:"16px 22px 14px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
+                  <span style={{width:8,height:8,borderRadius:4,background:netProfit>=0?T.green:T.red,display:"inline-block"}}/>
+                  <span style={{fontSize:12.5,fontWeight:650,color:T.textSub}}>Projected Profit</span>
+                </div>
+                <div style={{fontSize:28,fontWeight:750,letterSpacing:"-0.02em",color:netProfit>=0?GREEN_TXT:T.red,fontVariantNumeric:"tabular-nums"}}>{fmtD(netProfit)}</div>
+                {equityRequired>0&&<div style={{fontSize:11.5,color:T.textTert,marginTop:3}}>{Math.round(netProfit/equityRequired*1000)/10}% return on cash in</div>}
+              </div>
+
+              <FinSecHd label="Acquisition & Costs" color={T.gold} showActual={false} cols/>
+              <div className="fin-card" style={FIN_CARD}>
                 <EditGridRow label="Purchase Price (Offer)" pVal={n(f.purchasePrice)} pEdit={v=>up("purchasePrice",v)} showActual={false}/>
                 <PopupGridRow label="Buying Costs" pVal={buyingTotal} onOpenP={()=>setShowBuying(true)} showActual={false}/>
                 <EditGridRow label="Rehab Costs (Est.)" pVal={n(f.rehabCosts)} pEdit={v=>up("rehabCosts",v)} showActual={false}/>
                 <PopupGridRow label="Holding Costs" pVal={holdingTotal} onOpenP={()=>setShowHolding(true)} showActual={false}/>
                 <TotalGridRow label="Total Costs" pVal={totalCosts} showActual={false}/>
+              </div>
 
-                <RowHdr label="Financing" color={T.blue} showActual={false}/>
+              <FinSecHd label="Financing" color={T.blue} showActual={false}/>
+              <div className="fin-card" style={FIN_CARD}>
                 <EditGridRow label="Hold Period" pVal={f.holdPeriod||"0"} pEdit={v=>up("holdPeriod",v.replace(/[^\d.]/g,""))} showActual={false} suffix="months"/>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 160px",borderTop:`1px solid ${T.border}`}}>
-                  <div onClick={()=>setShowFinancingP(true)} style={{padding:"11px 18px",fontSize:14,color:T.text,cursor:"pointer"}}
-                    onMouseEnter={e=>e.currentTarget.parentElement.style.background="#FAFAFA"} onMouseLeave={e=>e.currentTarget.parentElement.style.background="transparent"}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 160px",alignItems:"center",borderTop:FIN_HAIR,minHeight:46}}>
+                  <div onClick={()=>setShowFinancingP(true)} style={{padding:"11px 18px",fontSize:14,color:T.text,cursor:"pointer"}}>
                     Financing Details
                   </div>
-                  <div onClick={()=>setShowFinancingP(true)} style={{padding:"11px 14px",fontSize:13,color:T.blue,fontWeight:500,textAlign:"right",cursor:"pointer"}}>
-                    HM {fmtD(liveHmTotal)} · Gap {fmtD(equityRequired)} ›
+                  <div onClick={()=>setShowFinancingP(true)} style={{padding:"11px 14px",fontSize:13,color:T.textSub,fontWeight:500,textAlign:"right",cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>
+                    HM {fmtD(liveHmTotal)} · Gap {fmtD(equityRequired)}{finChev}
                   </div>
                 </div>
-                <TotalGridRow label="Total Debt Service" pVal={debtService} showActual={false} color={T.gold}/>
+                <TotalGridRow label="Total Debt Service" pVal={debtService} showActual={false}/>
+              </div>
 
-                <RowHdr label="Revenue" color={T.green} showActual={false}/>
+              <FinSecHd label="Revenue" color={T.green} showActual={false}/>
+              <div className="fin-card" style={FIN_CARD}>
                 <EditGridRow label="Target Sale Price (ARV)" pVal={n(f.salePrice)} pEdit={v=>up("salePrice",v)} showActual={false}/>
                 {featOn("arvUnderwriter")&&<ArvUnderwriter address={full} f={f} upMany={upMany} pinfo={lead.propertyInfo} onInfo={(patch)=>onUpdate(lead.id,"propertyInfo",{...(lead.propertyInfo||{}),...patch})}/>}
-
-                <RowHdr label="Selling Costs" color={T.red} showActual={false}/>
-                <PopupGridRow label="Commission + Transfer Tax" pVal={sellingTotal} onOpenP={()=>setShowSelling(true)} showActual={false}/>
-
-                <div style={{display:"grid",gridTemplateColumns:"1fr 160px",borderTop:`2px solid ${netProfit>=0?T.green:T.red}`,background:netProfit>=0?"#EDFBF1":"#FFF0EF"}}>
-                  <div style={{padding:"15px 18px",fontSize:15,fontWeight:700,color:netProfit>=0?T.green:T.red}}>Projected Profit</div>
-                  <div style={{padding:"15px 14px",fontSize:17,fontWeight:800,color:netProfit>=0?T.green:T.red,textAlign:"right"}}>{fmtD(netProfit)}</div>
-                </div>
               </div>
+
+              <FinSecHd label="Selling Costs" color={T.red} showActual={false}/>
+              <div className="fin-card" style={FIN_CARD}>
+                <PopupGridRow label="Commission + Transfer Tax" pVal={sellingTotal} onOpenP={()=>setShowSelling(true)} showActual={false}/>
+              </div>
+
             </div>
           </div>
         )}

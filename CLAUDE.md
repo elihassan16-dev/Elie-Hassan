@@ -19,6 +19,7 @@ Production real-estate PWA for Elie Hassan (non-technical; voice-dictated messag
 ## Standing rules
 - Preview-before-build for UI; production hotfixes same side-branch flow.
 - EVERY design/UI change must pass the `.claude/skills/apple-design` review checklist (iOS 26 HIG / Liquid Glass) before shipping — Elie's rule 8/20/26. Key web translations: glass (backdrop-filter) ONLY in chrome (tab bar, top-bar capsule, popup sheets) never on content cards; chrome monochrome with ONE gold accent; segmented capsules for tabs/toggles (SEG_WRAP/segTab/TOGGLE_CHIP/CAPS_ROW in GoldstoneApp.jsx); ≥44pt touch targets (coarse-pointer halo in index.css); no text under ~10px; textSub/textTert contrast floors in theme.js; honor prefers-reduced-transparency + prefers-reduced-motion (blocks in index.css). Load the skill when reviewing.
+- Chat-bubble convention (ALL messaging: SMS panes/popups in sms.jsx, team/office/task chats, contractor portal, AI chats) — Elie approved 8/20/26: bubbles radius 18 w/ hairline borders; name+time (tiny, first name) ONLY over other people's bubbles, never your own; own bubbles get gray "time · Delivered/Read by …" underneath (never blue ✓✓); reply = small ghost ↩ circle beside the bubble, not a labeled button; contractor threads keep gold outline + EXTERNAL badge.
 - Do NOT cancel Quo subscription decision = Elie's alone. PR #502 preview shipped (CRM). Tasks "By property" third view previewed but NOT approved/built.
 - Sort/behavior decisions Elie made are in git history — read recent commit messages for rationale.
 

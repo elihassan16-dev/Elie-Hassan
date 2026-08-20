@@ -136,9 +136,10 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
     inset: 0;
     z-index: -1;
     border-radius: inherit;
-    background: rgba(255, 255, 255, 0.52);
-    -webkit-backdrop-filter: blur(20px) saturate(1.75);
-    backdrop-filter: blur(20px) saturate(1.75);
+    /* HIG: content-layer cards are standard translucent material, NOT glass —
+       no backdrop-filter here (blur adds nothing over the flat wash and costs
+       GPU). True glass stays in the chrome: tab bar, capsule, popup sheets. */
+    background: rgba(255, 255, 255, 0.62);
     border: 1px solid rgba(255, 255, 255, 0.80);
     box-shadow: 0 1px 1px rgba(255, 255, 255, 0.55) inset;
     pointer-events: none;
@@ -162,6 +163,35 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
     background: rgba(255, 255, 255, 0.66) !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.85) !important;
   }
+}
+/* ♿ HIG accessibility: honor Reduce Transparency — every glass surface goes
+   opaque, blur off, so text never sits on a shifting background. */
+@media (prefers-reduced-transparency: reduce) {
+  .gs-tabbar, .gs-topbar, .gs-dash-hd {
+    background: #FFFFFF !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  div[style*="position: fixed"][style*="backdrop-filter"] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background: rgba(28, 32, 44, 0.55) !important;
+  }
+  div[style*="position: fixed"][style*="backdrop-filter"] > div[style*="rgb(255, 255, 255)"]::before {
+    background: #FFFFFF;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .gs-dash [style*="background: rgb(255, 255, 255)"]::before {
+    background: #FFFFFF;
+  }
+}
+/* ♿ HIG hit targets: on touch screens, every button's tappable area grows to
+   ≥44pt via an invisible halo — visuals unchanged. Buttons that position
+   their own children already carry inline position; the guard leaves them be. */
+@media (pointer: coarse) {
+  button:not([style*="position"]), [role="button"]:not([style*="position"]) { position: relative; }
+  button::after, [role="button"]::after { content: ""; position: absolute; inset: -5px; border-radius: inherit; }
 }
 /* The press: anything tappable dips into a lens while touched */
 [style*="cursor: pointer"]:active, button:active { filter: brightness(0.95) saturate(1.12); }

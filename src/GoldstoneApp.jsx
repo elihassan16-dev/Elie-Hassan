@@ -1687,7 +1687,7 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
                   <input type="date" value={assumedSell} onChange={e=>setAssumedSell(e.target.value)} style={{padding:"3px 6px",borderRadius:6,border:bdr,background:"#fff",fontSize:12,fontFamily:"inherit",color:T.text}}/>
                 </label>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:gcol,gap:10,padding:"7px 14px 4px",fontSize:9,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+              <div style={{display:"grid",gridTemplateColumns:gcol,gap:10,padding:"7px 14px 4px",fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>
                 <span>Lender · Funded</span><span style={{textAlign:"right"}}>Amount</span><span style={{textAlign:"right"}}>Interest</span>
               </div>
               {locRows.map((r,i)=>(
@@ -2241,7 +2241,7 @@ function FinOverview({property,onUpdate}){
           <RowHdr label="Revenue" color={T.green} showActual={showActual}/>
           <EditGridRow label="Sale Price" pVal={n(f.salePrice)} pEdit={v=>up("salePrice",v)}
             aVal={f.actualSalePrice} aEdit={v=>up("actualSalePrice",v)} showActual={showActual} dimP={f.useActualProfit}/>
-          {featOn("arvUnderwriter")&&<ArvUnderwriter address={`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`} f={f} upMany={upMany} isMobile={isMobile}/>}
+          {featOn("arvUnderwriter")&&<ArvUnderwriter address={`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`} f={f} upMany={upMany} isMobile={isMobile} pinfo={property.propertyInfo} onInfo={(patch)=>onUpdate(property.id,"propertyInfo",{...(property.propertyInfo||{}),...patch})}/>}
 
           {/* ── Selling Costs ── */}
           <RowHdr label="Selling Costs" color={T.red} showActual={showActual}/>
@@ -2649,7 +2649,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     const unread=msgs.some(m=>isUnreadForUser(m,CURRENT_USER));
     return(
       <button onClick={()=>openThread(meta.key,meta.label,meta.snap)} title="Message your team about this person" style={icoS}>
-        <TeamChatIcon size={15} color="#8a6d1f"/>{msgs.length>0&&<span style={{position:"absolute",top:-4,right:-4,minWidth:14,height:14,borderRadius:7,background:unread?T.red:T.gold,color:"#fff",fontSize:8.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px",boxSizing:"border-box"}}>{msgs.length}</span>}
+        <TeamChatIcon size={15} color="#8a6d1f"/>{msgs.length>0&&<span style={{position:"absolute",top:-4,right:-4,minWidth:14,height:14,borderRadius:7,background:unread?T.red:T.gold,color:"#fff",fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px",boxSizing:"border-box"}}>{msgs.length}</span>}
       </button>
     );
   };
@@ -2681,7 +2681,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
             templates={showingTemplates(bt,name,address)}
             onTemplate={(kind)=>markText(rowKey,kind)}
             style={icoS}>
-            <SmsChatIcon size={15} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:8,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
+            <SmsChatIcon size={15} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:10.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
           </TextA>
           {msgMeta&&msgIco(msgMeta)}
         </span>
@@ -2745,8 +2745,8 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         <div style={{display:"flex",alignItems:"center",gap:7}}>
           <span style={{width:7,height:7,borderRadius:4,background:dot,flexShrink:0}}/>
           <span title={nameTitle||name} style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...(isMobile?{flex:1,minWidth:0}:{flex:"0 0 150px"})}}>{name}</span>
-          {srcTag&&<span title={`From the ${srcTag} ShowingTime calendar`} style={{fontSize:8,fontWeight:800,background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap",flexShrink:0,textTransform:"uppercase"}}>{srcTag}</span>}
-          <span style={{fontSize:9.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0,...(isMobile?{}:{width:100,overflow:"hidden",textOverflow:"ellipsis"})}}>{meta}</span>
+          {srcTag&&<span title={`From the ${srcTag} ShowingTime calendar`} style={{fontSize:10.5,fontWeight:800,background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap",flexShrink:0,textTransform:"uppercase"}}>{srcTag}</span>}
+          <span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0,...(isMobile?{}:{width:100,overflow:"hidden",textOverflow:"ellipsis"})}}>{meta}</span>
           {!isMobile&&<span style={{flex:1,minWidth:0,display:"flex"}}>{first?phoneSeg(first):<span style={{fontSize:11,color:T.textTert}}>No phone number.</span>}</span>}
           {leadSelect(leadVal||"",onLead,lead)}
           {!isMobile&&first&&iconCluster(first,name,rowKey,msgMeta,bt,email,tmplOpts)}
@@ -3215,7 +3215,7 @@ function ShowingsPage(){
                   {upcoming>0&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:9,background:T.gold,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{upcoming}</span>}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3}}>
-                  {p.status&&<span style={{fontSize:9,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 7px",borderRadius:20}}>{p.status}</span>}
+                  {p.status&&<span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 7px",borderRadius:20}}>{p.status}</span>}
                   <span style={{fontSize:11,color:T.textSub}}>{upcoming>0?`${upcoming} upcoming`:total>0?"No upcoming":"No showings yet"}{total>0?` · ${total} total`:""}</span>
                 </div>
               </div>
@@ -3263,7 +3263,7 @@ function ShowingsPage(){
                 <div style={{minWidth:0,flex:1}}>
                   <div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
-                    {sel.status&&<span style={{fontSize:9.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{sel.status}</span>}
+                    {sel.status&&<span style={{fontSize:10.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{sel.status}</span>}
                     <span style={{fontSize:11.5,color:T.textSub}}>{selMeta.upcoming} upcoming · {selMeta.total} total</span>
                   </div>
                 </div>
@@ -3422,7 +3422,7 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
               templates={isSales?showingTemplates(false,name,address):[]}
               onTemplate={(kind)=>markShowingText(prop.id,k,kind)}
               style={{...calIco,border:`1px solid ${T.green}`,background:"#EDFBF1"}}>
-              <SmsChatIcon size={14} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:8,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
+              <SmsChatIcon size={14} color="#15803D"/>{anySent&&<span style={{position:"absolute",bottom:-3,right:-3,width:13,height:13,borderRadius:7,background:T.green,color:"#fff",fontSize:10.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #fff",boxSizing:"border-box"}}>✓</span>}
             </TextA>
             {s.email&&<a href={`mailto:${s.email}`} title={`Email ${s.email}`} style={{...calIco,border:`1px solid ${T.blue}`,background:"#EBF4FF"}}><MailIcon size={14} color={T.blue}/></a>}
           </div>
@@ -4988,9 +4988,9 @@ function NJDetailsCard({entity, onUpdate}){
           <button onClick={()=>njAutofill(false)} disabled={njLoad} style={{width:"100%",padding:"11px",borderRadius:T.radiusSm,background:njLoad?T.border:T.blue,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:njLoad?"default":"pointer",fontFamily:"inherit"}}>{njLoad?"Looking up NJ records…":"⬇ Refresh from NJ tax records"}</button>
           {njMsg&&<div style={{marginTop:8,fontSize:12,lineHeight:1.45,color:njMsg.ok?T.green:T.red}}>{njMsg.text}</div>}
           {pi.njSourceUrl&&<a href={pi.njSourceUrl} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:9,padding:"7px 14px",borderRadius:20,border:`1px solid ${T.blue}`,color:T.blue,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>🔗 View source record (NJParcels.com)</a>}
-          <div style={{fontSize:11,color:T.textTert,marginTop:8}}>Free NJ Office of GIS / MOD-IV data — block &amp; lot, year built, lot size, assessed value and taxes. Beds &amp; baths aren't in state records.</div>
+          <div style={{fontSize:11,color:T.textTert,marginTop:8}}>NJ records fill block &amp; lot, year built, lot size, assessed value and taxes. Running the 🎯 AI Underwriter fills beds, baths, sqft, heating/cooling, garage, pool, county, zoning and the owner from county property records. Basement and utilities are yours to fill after the walkthrough.</div>
         </div>
-        {[["Beds","beds","e.g. 3"],["Baths","baths","e.g. 2"],["Sq Ft","sqft","—"],["Year Built","yearBuilt","—"],["Lot Size (acres)","lotAcres","—"],["Block & Lot","blockLot","—"],["Property Class","propClass","—"],["Assessed Value","assessedValue","—"]].map(([label,key,ph])=>(
+        {[["Beds","beds","e.g. 3"],["Baths","baths","e.g. 2"],["Sq Ft","sqft","—"],["Year Built","yearBuilt","—"],["Lot Size (acres)","lotAcres","—"],["Block & Lot","blockLot","—"],["Township / County","county","—"],["Zoning","zoning","—"],["Property Class","propClass","—"],["Assessed Value","assessedValue","—"],["Heating","heating","e.g. Forced Air"],["Cooling","cooling","e.g. Central"],["Garage","garage","e.g. 2-car"],["Pool","pool","Yes / No"],["Basement","basement","Yes / No / Finished"],["Utilities","utilities","e.g. Gas · Sewer"],["Owner on record","owner","—"]].map(([label,key,ph])=>(
           <div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
             <span style={{fontSize:13,color:T.textSub,flexShrink:0}}>{label}</span>
             <input value={pi[key]||""} onChange={e=>upP(key,e.target.value)} placeholder={ph} style={rowInput}/>
@@ -5417,8 +5417,8 @@ function PropertyStatusBoard({property,onClose}){
                   <span style={{fontSize:24,filter:on?"none":"grayscale(1)",opacity:on?1:0.55}}>{icon}</span>
                   <span style={{fontSize:12.5,fontWeight:700,color:T.text}}>{label}</span>
                   <span style={{fontSize:10.5,fontWeight:800,color:on?"#15803D":T.textSub,background:on?"#D3F3DD":"#E9E9EE",borderRadius:12,padding:"2px 10px",letterSpacing:"0.04em"}}>{on?"ON":"OFF"}</span>
-                  {auto&&<span title="Flipped on automatically because a completed task mentioned it" style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,borderRadius:10,padding:"1px 7px"}}>auto ✓ task</span>}
-                  {!auto&&byCap((st.utilitiesBy||{})[u])&&<span style={{fontSize:8.5,fontWeight:700,color:T.textTert}}>{byCap((st.utilitiesBy||{})[u])}</span>}
+                  {auto&&<span title="Flipped on automatically because a completed task mentioned it" style={{fontSize:10,fontWeight:800,color:"#8a6d1f",background:T.goldLight,borderRadius:10,padding:"1px 7px"}}>auto ✓ task</span>}
+                  {!auto&&byCap((st.utilitiesBy||{})[u])&&<span style={{fontSize:10,fontWeight:700,color:T.textTert}}>{byCap((st.utilitiesBy||{})[u])}</span>}
                 </button>
               );
             })}
@@ -5434,7 +5434,7 @@ function PropertyStatusBoard({property,onClose}){
                   <span style={{fontSize:17,flexShrink:0}}>{icon}</span>
                   <span style={{width:86,flexShrink:0}}>
                     <span style={{display:"block",fontSize:13,fontWeight:700,color:T.text}}>{label}</span>
-                    {byCap(latest)&&<span style={{display:"block",fontSize:9,fontWeight:700,color:T.textTert}}>{byCap(latest)}</span>}
+                    {byCap(latest)&&<span style={{display:"block",fontSize:10,fontWeight:700,color:T.textTert}}>{byCap(latest)}</span>}
                   </span>
                   <div style={{flex:1,display:"flex",gap:6,minWidth:250}}>
                     {PERMIT_COLS.map(([field,byField,opts])=>{
@@ -5458,7 +5458,7 @@ function PropertyStatusBoard({property,onClose}){
             <span style={{fontSize:17,flexShrink:0}}>🏛</span>
             <span style={{flex:1,minWidth:0}}>
               <span style={{display:"block",fontSize:13,fontWeight:700,color:T.text}}>CO</span>
-              {byCap(st.coBy)&&<span style={{display:"block",fontSize:9,fontWeight:700,color:T.textTert}}>{byCap(st.coBy)}</span>}
+              {byCap(st.coBy)&&<span style={{display:"block",fontSize:10,fontWeight:700,color:T.textTert}}>{byCap(st.coBy)}</span>}
             </span>
             {(()=>{const v=st.co||"";const[fg,bg]=CO_COLOR[v]||[T.textSub,"#fff"];return(
               <select value={v} onChange={e=>setCo(e.target.value)} style={{flex:1,maxWidth:220,minWidth:0,padding:"7px 6px",borderRadius:10,border:`1px solid ${v?fg:T.border}`,background:bg,color:v?fg:T.textTert,fontWeight:700,fontSize:11.5,fontFamily:"inherit",cursor:"pointer"}}>
@@ -5760,7 +5760,7 @@ function PropertyContractorsCard({property}){
       <Card style={{marginBottom:16,border:`1.5px solid ${T.gold}`}}>
         <div style={{padding:"12px 16px 10px",display:"flex",alignItems:"center",gap:8,background:"#FFF9EC",flexWrap:"wrap"}}>
           <span style={{fontSize:12,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em"}}>👷 Contractors on this property</span>
-          <span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
+          <span style={{fontSize:10,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
           <span style={{flex:1}}/>
           {isAdmin&&allOrgs.length>0&&<button onClick={()=>setAddJobOpen(true)} style={{padding:"6px 13px",borderRadius:16,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>＋ Add a job</button>}
           {isAdmin&&allOrgs.length>0&&<button onClick={()=>setBidOpen(true)} style={{padding:"6px 13px",borderRadius:16,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🧾 Request a bid</button>}
@@ -5777,7 +5777,7 @@ function PropertyContractorsCard({property}){
           const pct=m.bid>0?Math.min(100,100*m.paid/m.bid):(m.paid>0?100:0);
           const ic=(emoji,badge,title,onClick)=>(
             <button onClick={e=>{e.stopPropagation();onClick();}} title={title} style={{position:"relative",width:32,height:32,borderRadius:"50%",background:"#fff",border:"1px solid #E5D9B0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0,padding:0}}>
-              {emoji}{badge>0&&<span style={{position:"absolute",top:-4,right:-4,background:T.red,color:"#fff",fontSize:8.5,fontWeight:800,borderRadius:9,padding:"1px 5px",lineHeight:1.3}}>{badge}</span>}
+              {emoji}{badge>0&&<span style={{position:"absolute",top:-4,right:-4,background:T.red,color:"#fff",fontSize:10,fontWeight:800,borderRadius:9,padding:"1px 5px",lineHeight:1.3}}>{badge}</span>}
             </button>
           );
           return(
@@ -5807,9 +5807,9 @@ function PropertyContractorsCard({property}){
               {(m.bid>0||m.paid>0)&&(
                 <span style={{display:"flex",gap:14,flexShrink:0,alignItems:"center"}} onClick={e=>{e.stopPropagation();setPayFor(j.id);}}>
                   <span style={{width:90,height:6,borderRadius:3,background:"#ECE5D2",overflow:"hidden",display:"flex"}}><span style={{display:"block",height:"100%",width:`${pct}%`,background:over?T.red:"#C9A227"}}/></span>
-                  <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>BID</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:T.text}}>{fm(m.bid)}</span></span>
-                  <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>PAID</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:"#0F9D58"}}>{fm(m.paid)}</span></span>
-                  <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:8.5,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>LEFT</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:m.left<0?T.red:"#B8953F"}}>{fm(m.left)}</span></span>
+                  <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:10,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>BID</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:T.text}}>{fm(m.bid)}</span></span>
+                  <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:10,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>PAID</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:"#0F9D58"}}>{fm(m.paid)}</span></span>
+                  <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:10,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>LEFT</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:m.left<0?T.red:"#B8953F"}}>{fm(m.left)}</span></span>
                 </span>
               )}
               {isAdmin&&(isBid?!j.bidAmount:!(Number(j.price)>0)&&j.status!=="complete")&&(
@@ -5885,7 +5885,7 @@ function PropertyContractorsCard({property}){
               {m.excluded.map(t=>(
                 <div key={"x"+pkey(t)} style={{...prS,opacity:.55}}>
                   <span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"line-through"}}>{t.date} · {t.vendor||t.type||"payment"}</span>
-                  <button onClick={()=>ctrSave("contractor_jobs",{...j,qbPayExcluded:(j.qbPayExcluded||[]).filter(k=>k!==pkey(t))})} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:9.5,fontWeight:800,padding:"3px 8px",cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button>
+                  <button onClick={()=>ctrSave("contractor_jobs",{...j,qbPayExcluded:(j.qbPayExcluded||[]).filter(k=>k!==pkey(t))})} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:10.5,fontWeight:800,padding:"3px 8px",cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button>
                 </div>
               ))}
               {m.auto.length===0&&m.excluded.length===0&&pTxns!==null&&<div style={{padding:"6px 18px 10px",fontSize:11.5,color:T.textTert}}>{property.qbProjectId?"No QuickBooks payments match this contractor's name yet — 📌 Pin one if it was paid under a different payee.":"Link the property to its QuickBooks project to auto-match payments."}</div>}
@@ -6480,7 +6480,7 @@ function LeadDetail({lead,onUpdate}){
 
                 <RowHdr label="Revenue" color={T.green} showActual={false}/>
                 <EditGridRow label="Target Sale Price (ARV)" pVal={n(f.salePrice)} pEdit={v=>up("salePrice",v)} showActual={false}/>
-                {featOn("arvUnderwriter")&&<ArvUnderwriter address={full} f={f} upMany={upMany}/>}
+                {featOn("arvUnderwriter")&&<ArvUnderwriter address={full} f={f} upMany={upMany} pinfo={lead.propertyInfo} onInfo={(patch)=>onUpdate(lead.id,"propertyInfo",{...(lead.propertyInfo||{}),...patch})}/>}
 
                 <RowHdr label="Selling Costs" color={T.red} showActual={false}/>
                 <PopupGridRow label="Commission + Transfer Tax" pVal={sellingTotal} onOpenP={()=>setShowSelling(true)} showActual={false}/>
@@ -6994,7 +6994,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
           <div>
             {/* Column headers — same grid template as each row's data line so the
                 Equity / Profit / Funded columns line up vertically down the list. */}
-            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 78px 78px 34px",gap:8,padding:"10px 16px 8px",fontSize:9.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em",borderBottom:`1px solid ${T.border}`}}>
+            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 78px 78px 34px",gap:8,padding:"10px 16px 8px",fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em",borderBottom:`1px solid ${T.border}`}}>
               <span>Property</span>
               <span style={{textAlign:"right",color:T.gold}}>Cash to Close</span>
               <span style={{textAlign:"right",color:T.green}}>Profit</span>
@@ -7011,7 +7011,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
                     <span onClick={()=>onNavigate&&onNavigate(p.id)} style={{fontSize:14,fontWeight:600,color:T.blue,cursor:"pointer",flex:1,minWidth:0}}>{addr}</span>
                     {emailBadge(p.id)}
-                    {p.financials.useActualProfit&&<span style={{fontSize:9,fontWeight:700,background:T.green,color:"#fff",borderRadius:10,padding:"2px 8px",textTransform:"uppercase",flexShrink:0}}>actual</span>}
+                    {p.financials.useActualProfit&&<span style={{fontSize:10,fontWeight:700,background:T.green,color:"#fff",borderRadius:10,padding:"2px 8px",textTransform:"uppercase",flexShrink:0}}>actual</span>}
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 78px 78px 34px",alignItems:"center",gap:8}}>
                     <div style={{minWidth:0,overflow:"hidden",display:"flex"}}>
@@ -7073,7 +7073,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                     </td>
                     <td style={{...tdS,textAlign:"right",fontWeight:600,color:equity>0?T.gold:T.textTert}}>{equity>0?fmtD(equity):"—"}</td>
                     <td style={{...tdS,textAlign:"center"}}>
-                      {p.financials.useActualProfit&&<span style={{fontSize:9,fontWeight:700,background:T.green,color:"#fff",borderRadius:10,padding:"2px 8px",textTransform:"uppercase"}}>actual</span>}
+                      {p.financials.useActualProfit&&<span style={{fontSize:10,fontWeight:700,background:T.green,color:"#fff",borderRadius:10,padding:"2px 8px",textTransform:"uppercase"}}>actual</span>}
                     </td>
                     <td style={{...tdS,textAlign:"right",fontWeight:700,color:profit>0?T.green:profit<0?T.red:T.textTert}}>{profit!==0?fmtD(profit):"—"}</td>
                     <td style={{...tdS,textAlign:"center"}}>
@@ -7145,7 +7145,7 @@ function TaskStatusPicker({value,onChange,onDelete,small,dim}){
     <div style={{flexShrink:0}}>
       {/* dim fades ONLY the pill — the fixed menu below must never inherit
           opacity (an ancestor's opacity ghosts it gray and glitchy). */}
-      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:small?20:22,padding:small?"0 9px":"0 11px",background:sc.bg,color:sc.color,border:"none",borderRadius:20,fontSize:small?10.5:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap",opacity:dim?0.55:1}}>{value||"Not Started"}<span style={{fontSize:8,opacity:0.7}}>▾</span></button>
+      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:small?20:22,padding:small?"0 9px":"0 11px",background:sc.bg,color:sc.color,border:"none",borderRadius:20,fontSize:small?10.5:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap",opacity:dim?0.55:1}}>{value||"Not Started"}<span style={{fontSize:10.5,opacity:0.7}}>▾</span></button>
       {open&&createPortal(<>
         {/* Portaled to <body>: position:fixed breaks inside glassed popups —
             backdrop-filter turns the sheet into the containing block, so a
@@ -7244,7 +7244,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       style={{...circleBtn(!!t.taskContact),...fadeBit}}>{t.taskContact?.kind==="company"?"🏢":(t.taskContact?.name?.[0]||"👤")}</div>
   );
   const msgBtnEl=(
-    <div role="button" onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",...circleBtn(!!msgCount),...fadeBit}}><TeamChatIcon size={13}/>{msgUnread>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgUnread}</span>}</div>
+    <div role="button" onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",...circleBtn(!!msgCount),...fadeBit}}><TeamChatIcon size={13}/>{msgUnread>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:10.5,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgUnread}</span>}</div>
   );
   const selBox=selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:18,height:18,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>;
   // Address + property status are already shown in the group header above, so the
@@ -7312,7 +7312,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
         {selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>}
         <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
           <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
-          {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
+          {t.autoId&&<span style={{flexShrink:0,fontSize:10.5,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
         </span>
         <span onClick={()=>!isOfficeRow&&onNavigate&&t.propId&&onNavigate(t.propId)} title={isOfficeRow?undefined:"Open this property"} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11.5,color:T.textSub,cursor:isOfficeRow?"default":"pointer"}}>{isOfficeRow?"Company":(t.propAddr||"")}</span>
         <span style={{display:"flex",alignItems:"center",justifyContent:"center",whiteSpace:"nowrap",minWidth:0}}>
@@ -7340,7 +7340,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       {/* The AUTO pill sits OUTSIDE the truncating text so a long title can't clip it. */}
       <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
         <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:emph?700:500,color:(dim||faded)?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
-        {t.autoId&&<span style={{flexShrink:0,fontSize:8,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
+        {t.autoId&&<span style={{flexShrink:0,fontSize:10.5,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
       </span>
       {t.delegate&&t.delegate===currentUser&&t.assignee
         ? <span title={`You're doing this for ${t.assignee}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>for {t.assignee.split(" ")[0]}</span>
@@ -8199,7 +8199,7 @@ function CompletedTasksPopup({items,onRestore,onDelete,onClose}){
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:13.5,color:T.text,lineHeight:1.4}}>{it.text}</div>
                 <div style={{fontSize:11,color:T.textSub,marginTop:2,display:"flex",flexWrap:"wrap",gap:"2px 10px"}}>
-                  {it.external&&<span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"1px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>}
+                  {it.external&&<span style={{fontSize:10,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"1px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>}
                   {it.propAddr&&<span style={{fontWeight:700}}>{it.propAddr}</span>}
                   {it.orgName&&<span style={{fontWeight:700,color:"#8a6d1f"}}>👷 {it.orgName}</span>}
                   {it.assignee&&<span>for {it.assignee.split(" ")[0]}{it.delegate?` → ${it.delegate.split(" ")[0]}`:""}</span>}
@@ -8432,7 +8432,7 @@ function PropertyTaskList({property}){
           <div key={j.id} style={{marginTop:14,background:"#FFF9EC",borderRadius:T.radius,border:`1.5px solid ${T.gold}`,boxShadow:T.shadow,overflow:"hidden"}}>
             <div style={{padding:"11px 14px 9px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
               <span style={{fontSize:12.5,fontWeight:800,color:"#8a6d1f"}}>👷 {name}{j.title?` — ${j.title}`:""}</span>
-              <span style={{fontSize:9,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 8px",letterSpacing:"0.05em"}}>EXTERNAL</span>
+              <span style={{fontSize:10,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 8px",letterSpacing:"0.05em"}}>EXTERNAL</span>
               <span style={{fontSize:10.5,color:"#B45309",fontWeight:600}}>tasks here go to their portal</span>
             </div>
             {jt.map(t=>(
@@ -9046,7 +9046,7 @@ function TasksPage({onNavigate}){
               {compact?(
                 <div style={{padding:"7px 12px",background:"#FAFAFA",borderBottom:bdr,display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:13,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>🏢 Company Tasks</span>
-                  <span style={{fontSize:9.5,fontWeight:700,color:T.gold,background:T.goldLight,padding:"2px 8px",borderRadius:20,whiteSpace:"nowrap"}}>General</span>
+                  <span style={{fontSize:10.5,fontWeight:700,color:T.gold,background:T.goldLight,padding:"2px 8px",borderRadius:20,whiteSpace:"nowrap"}}>General</span>
                   <span style={{fontSize:10.5,color:T.textSub,whiteSpace:"nowrap"}}>{doneCount}/{oTasks.length} done</span>
                 </div>
               ):(
@@ -9232,7 +9232,7 @@ function TasksPage({onNavigate}){
                   {rows.map((r,i)=>{
                     const sc=r.office?{color:T.textSub,bg:"#F1F1F4"}:(SC[r.status]||{});
                     const pct=r.total?Math.round(r.done/r.total*100):0;
-                    const chipEl=(r.office||r.status)?<span style={{fontSize:9,fontWeight:650,letterSpacing:"0.05em",color:sc.color,background:sc.bg,padding:"3px 9px",borderRadius:8,whiteSpace:"nowrap",flexShrink:0}}>{r.office?"GENERAL":String(r.status).toUpperCase()}</span>:null;
+                    const chipEl=(r.office||r.status)?<span style={{fontSize:10,fontWeight:650,letterSpacing:"0.05em",color:sc.color,background:sc.bg,padding:"3px 9px",borderRadius:8,whiteSpace:"nowrap",flexShrink:0}}>{r.office?"GENERAL":String(r.status).toUpperCase()}</span>:null;
                     const barEl=<span style={{flex:1,height:7,borderRadius:4,background:"#F1F1F4",overflow:"hidden",minWidth:36}}><span style={{display:"block",height:"100%",width:`${pct}%`,background:"#34C759"}}/></span>;
                     // One number per row — YOUR open tasks. No team tallies (those
                     // live in the popup); the bar alone shows overall progress.
@@ -9242,7 +9242,7 @@ function TasksPage({onNavigate}){
                     const msgEl=(sz)=>r.msgs>0?(
                       <span title={`${r.msgs} unread task message${r.msgs===1?"":"s"}`} style={{position:"relative",width:sz,height:sz,borderRadius:"50%",background:"#EBF4FF",border:`1px solid ${T.blue}`,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxSizing:"border-box"}}>
                         <TeamChatIcon size={sz<26?11:13}/>
-                        <span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:8,fontWeight:800,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{r.msgs}</span>
+                        <span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:10.5,fontWeight:800,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{r.msgs}</span>
                       </span>
                     ):null;
                     return(
@@ -9296,7 +9296,7 @@ function TasksPage({onNavigate}){
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
                         <div style={{display:"flex",alignItems:"center",gap:7,marginTop:3}}>
-                          {(office||status)&&<span style={{fontSize:9,fontWeight:800,color:office?T.textSub:sc.color,background:office?"#F1F1F4":sc.bg,padding:"2px 8px",borderRadius:8,whiteSpace:"nowrap"}}>{office?"GENERAL":status.toUpperCase()}</span>}
+                          {(office||status)&&<span style={{fontSize:10,fontWeight:800,color:office?T.textSub:sc.color,background:office?"#F1F1F4":sc.bg,padding:"2px 8px",borderRadius:8,whiteSpace:"nowrap"}}>{office?"GENERAL":status.toUpperCase()}</span>}
                           <span style={{fontSize:11,color:T.textSub,whiteSpace:"nowrap"}}>{openTs.length} open · {done}/{list.length} done</span>
                         </div>
                       </div>
@@ -9313,9 +9313,9 @@ function TasksPage({onNavigate}){
                         const row=(t,mine)=><TaskRow key={t.id} t={t} emph={mine} faded={!mine&&mineTs.length>0&&otherTs.length>0} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER}/>;
                         if(!mineTs.length||!otherTs.length)return openTs.map(t=>row(t,isMineT(t)));
                         return(<>
-                          <div style={{padding:"8px 16px 3px",fontSize:9.5,fontWeight:800,color:"#8a6d1f",letterSpacing:"0.05em"}}>👤 YOUR TASKS</div>
+                          <div style={{padding:"8px 16px 3px",fontSize:10.5,fontWeight:800,color:"#8a6d1f",letterSpacing:"0.05em"}}>👤 YOUR TASKS</div>
                           {mineTs.map(t=>row(t,true))}
-                          <div style={{padding:"8px 16px 3px",fontSize:9.5,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>EVERYONE ELSE</div>
+                          <div style={{padding:"8px 16px 3px",fontSize:10.5,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>EVERYONE ELSE</div>
                           {otherTs.map(t=>row(t,false))}
                         </>);
                       })()}
@@ -9323,7 +9323,7 @@ function TasksPage({onNavigate}){
                         <div key={"ext-"+job.id} style={{background:"#FFF9EC",borderTop:`1.5px solid ${T.gold}`}}>
                           <div style={{padding:"8px 14px 5px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                             <span style={{fontSize:11.5,fontWeight:800,color:"#8a6d1f"}}>👷 {ctrOrgName(job.orgId)}{job.title?` — ${job.title}`:""}</span>
-                            <span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
+                            <span style={{fontSize:10,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
                           </div>
                           {xr.filter(t=>t.status!=="Completed").map(t=>(
                             <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)"}}>
@@ -9371,7 +9371,7 @@ function TasksPage({onNavigate}){
                   g.ptasks.filter(t=>!hideDone(t)).forEach(t=>rows.push({kind:"task",t}));
                   (extByPid[String(g.pid)]||[]).forEach(({job,rows:xr})=>xr.filter(t=>t.status!=="Completed").forEach(t=>rows.push({kind:"ext",t,job,addr:g.addr})));
                 });
-                const th={fontSize:9.5,letterSpacing:"0.06em",textTransform:"uppercase",color:T.gold,fontWeight:800,whiteSpace:"nowrap"};
+                const th={fontSize:10.5,letterSpacing:"0.06em",textTransform:"uppercase",color:T.gold,fontWeight:800,whiteSpace:"nowrap"};
                 return(
                   <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14,maxWidth:860}}>
                     <div style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"7px 12px",background:T.goldLight,borderBottom:`1.5px solid ${T.gold}55`}}>
@@ -9401,7 +9401,7 @@ function TasksPage({onNavigate}){
                   /* Excel-style one-line header: address · status · done ······ ⤓ */
                   <div style={{padding:"7px 12px",background:"#FAFAFA",borderBottom:bdr,display:"flex",alignItems:"center",gap:8}}>
                     <span onClick={()=>onNavigate&&pid&&onNavigate(pid)} title="Open this property" style={{fontSize:13,fontWeight:700,color:T.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:onNavigate?"pointer":"default"}}>{addr}</span>
-                    {(()=>{const ps=ptasks[0]?.propStatus||propStatus;const sc=SC[ps]||{};return ps?<span style={{flexShrink:0,fontSize:9.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20,whiteSpace:"nowrap"}}>{ps}</span>:null;})()}
+                    {(()=>{const ps=ptasks[0]?.propStatus||propStatus;const sc=SC[ps]||{};return ps?<span style={{flexShrink:0,fontSize:10.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20,whiteSpace:"nowrap"}}>{ps}</span>:null;})()}
                     <span style={{flexShrink:0,fontSize:10.5,color:T.textSub,whiteSpace:"nowrap"}}>{ptasks.length?`${ptasks.filter(t=>t.status==="Completed").length}/${ptasks.length} done`:"external only"}</span>
                     <div style={{flex:1}}/>
                     <button onClick={()=>pushPropToBottom(pid)} title="Send this property to the bottom of my list"
@@ -9434,7 +9434,7 @@ function TasksPage({onNavigate}){
                   <div key={"ext-"+job.id} style={{background:"#FFF9EC",borderTop:`1.5px solid ${T.gold}`}}>
                     <div style={{padding:"8px 14px 5px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                       <span style={{fontSize:11.5,fontWeight:800,color:"#8a6d1f"}}>👷 {ctrOrgName(job.orgId)}{job.title?` — ${job.title}`:""}</span>
-                      <span style={{fontSize:8.5,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
+                      <span style={{fontSize:10,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
                     </div>
                     {rows.filter(t=>t.status!=="Completed").map(t=>(
                       <SwipeToDelete key={t.id} onDelete={()=>ctrRemove("contractor_tasks",t.id).catch(()=>{})} confirm={`Delete "${t.text}"? The contractor loses it from their portal too.`} style={{background:"#FFF9EC"}}>
@@ -10185,7 +10185,7 @@ function PropertyFilesPanel(){
 // computed once and every device sees it; "Use as Sale Price" writes the same
 // salePrice field all the profit math already reads. Back-test runs the AVM
 // over the sold portfolio vs. the real sale prices.
-function ArvUnderwriter({address,f,upMany,isMobile}){
+function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
   const saved=f.arvAi||null;
   const[open,setOpen]=useState(false);
   const[plan,setPlan]=useState((saved&&saved.plan)||"");
@@ -10228,20 +10228,69 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
   const[err,setErr]=useState("");
   const[bt,setBt]=useState(null); // {running,i,total,rows:[{addr,est,actual}]}
   const{sharedProps}=useData()||{};
-  const run=async(force)=>{
+  // ── Two-step flow (Elie's design): step 1 pulls & TAGS the comps for review,
+  // step 2 underwrites around exactly the ones he checked. ──
+  const[cand,setCand]=useState(null);   // {data, comps:[…tagged…]} awaiting picks
+  const[picks,setPicks]=useState(new Set());
+  const[infoNote,setInfoNote]=useState(0); // property-details fields auto-filled
+  const tagComps=(data)=>{
+    const subj=(data&&data.subject)||{};
+    const psfs=(data.comps||[]).filter(c=>c.priceSrc!=="list"&&c.price>0&&c.sqft>0).map(c=>c.price/c.sqft).sort((a,b)=>a-b);
+    const med=psfs.length?psfs[Math.floor(psfs.length/2)]:0;
+    return (data.comps||[]).map(c=>{
+      const tags=[];
+      if(subj.sqft&&c.sqft){const r=c.sqft/subj.sqft;tags.push(r>1.12?"larger":r<0.88?"smaller":"≈ size");}
+      const psf=c.sqft>0?c.price/c.sqft:0;
+      if(med&&psf){if(psf>=med*1.15)tags.push("updated?");else if(psf<=med*0.8)tags.push("as-is?");}
+      if(c.daysOld!=null&&c.daysOld<=90)tags.push("recent");
+      if(c.priceSrc==="list")tags.push("pending");
+      return {...c,tags};
+    }).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))); // most recent sale first
+  };
+  // 📋 While the record is in hand, fill any BLANK Property Details fields —
+  // never overwrites something the team already typed.
+  const fillInfo=(s)=>{
+    if(!s||!onInfo)return;
+    const cur=pinfo||{};
+    const patch={};
+    const put=(k,v)=>{if(v==null||v===""||v===0)return;if(String(cur[k]??"").trim()!=="")return;patch[k]=String(v);};
+    put("beds",s.beds);put("baths",s.baths);put("sqft",s.sqft);put("yearBuilt",s.yearBuilt);
+    put("type",s.type);put("county",s.county);put("zoning",s.zoning);
+    put("heating",s.heating);put("cooling",s.cooling);
+    if(s.garage)put("garage",s.garageSpaces?`${s.garageSpaces}-car`:"Yes");
+    if(s.pool)put("pool","Yes");
+    put("owner",s.owner);
+    if(s.lotSize&&!String(cur.lotAcres??"").trim())patch.lotAcres=String(parseFloat((s.lotSize/43560).toFixed(3)));
+    const nFilled=Object.keys(patch).length;
+    if(nFilled){onInfo(patch);setInfoNote(nFilled);}
+  };
+  const run=async(force)=>{ // step 1: pull + tag, then wait for his picks
     if(busy)return;
+    setBusy(true);setErr("");setCand(null);
+    try{
+      const data=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(address)}&radius=${radiusSel}&months=${monthsSel}${force?"&force=1":""}`);
+      if(!(data.comps||[]).length)throw new Error(`No sold comps within ${radiusSel} mi / ${monthsSel} months — widen the filters and run again.`);
+      const tagged=tagComps(data);
+      setCand({data,comps:tagged});
+      // SOLDs (minus likely as-is) start checked; pendings start UNCHECKED —
+      // the sold analysis is the default, pendings are a deliberate add.
+      setPicks(new Set(tagged.map((c,i)=>c.priceSrc!=="list"&&!(c.tags||[]).includes("as-is?")?i:null).filter(x=>x!=null)));
+      fillInfo(data.subject);
+    }catch(e){setErr(e.message||"The comp pull failed — try again.");}
+    setBusy(false);
+  };
+  const evalNow=async()=>{ // step 2: underwrite around the checked comps
+    if(busy||!cand)return;
     setBusy(true);setErr("");
     try{
-      // RentCast supplies the subject record, the as-is estimate, and the
-      // deed-recorded sold comps that carry the underwrite.
-      const data=await qbAuthFetch(`/api/rentcast/value?address=${encodeURIComponent(address)}&radius=${radiusSel}&months=${monthsSel}${force?"&force=1":""}`);
-      let comps=data.comps||[],provider="county records";
-      if(!comps.length)throw new Error(`No sold comps within ${radiusSel} mi / ${monthsSel} months — widen the filters and run again.`);
-      const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan:planFull(),after:afterCfg(),subject:data.subject,value:data.value,comps})});
+      const comps=cand.comps.map(({tags,...c})=>c);
+      const mustUse=[],mustSkip=[];
+      cand.comps.forEach((c,i)=>(picks.has(i)?mustUse:mustSkip).push(i));
+      const ai=await qbAuthFetch("/api/ai/arv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({address,plan:planFull(),after:afterCfg(),subject:cand.data.subject,value:cand.data.value,comps,mustUse,mustSkip})});
       const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
-      upMany({arvAi:{at:new Date().toISOString(),plan,after:afterCfg(),provider,filters:{radius:radiusSel,months:monthsSel},arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:data.value?data.value.price:0,subject:data.subject||null,
+      upMany({arvAi:{at:new Date().toISOString(),plan,after:afterCfg(),provider:"county records",filters:{radius:radiusSel,months:monthsSel},arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:cand.data.value?cand.data.value.price:0,subject:cand.data.subject||null,
         comps:comps.map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
-      setOvr({});setPricesDirty(false);
+      setOvr({});setPricesDirty(false);setCand(null);
     }catch(e){setErr(e.message||"The underwrite failed — try again.");}
     setBusy(false);
   };
@@ -10311,7 +10360,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
         <div style={{padding:isMobile?"0 12px 14px":"0 18px 16px"}}>
           {(()=>{
             const subj=(saved&&saved.subject)||null;
-            const qHdr=(t)=><div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f",margin:"8px 0 4px"}}>{t}</div>;
+            const qHdr=(t)=><div style={{fontSize:10.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f",margin:"8px 0 4px"}}>{t}</div>;
             const qChip=(on)=>({...TOGGLE_CHIP(on,"#8a6d1f"),padding:"6px 11px",fontSize:11.5});
             const selSt={padding:"6px 8px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:11.5,fontFamily:"inherit",background:"#fff",color:T.text};
             return(<>
@@ -10357,21 +10406,81 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
             </select>
           </div>
           <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
-            <button onClick={()=>run()} disabled={busy} style={{...chipBtn(true),opacity:busy?0.6:1}}>{busy?"⏳ Underwriting… (~20s)":"🎯 Run the underwrite"}</button>
-            {saved&&<button onClick={()=>run(true)} disabled={busy} title="Re-pull everything fresh from RentCast — picks up newly recorded deeds and new sales (uses ~14 lookups)" style={chipBtn(false)}>↻ Fresh comps</button>}
+            {!cand&&<button onClick={()=>run()} disabled={busy} style={{...chipBtn(true),opacity:busy?0.6:1}}>{busy?"⏳ Pulling the comps…":"🔍 Get the comps"}</button>}
+            {!cand&&saved&&<button onClick={()=>run(true)} disabled={busy} title="Re-pull everything fresh from RentCast — picks up newly recorded deeds and new sales" style={chipBtn(false)}>↻ Fresh comps</button>}
             <button onClick={backtest} disabled={!!(bt&&bt.running)} style={chipBtn(false)}>🧪 Back-test on my solds</button>
           </div>
           {err&&<div style={{marginTop:8,fontSize:11.5,color:T.red,fontWeight:700}}>{err}</div>}
-          {res&&(
+          {infoNote>0&&<div style={{marginTop:6,fontSize:11,color:"#15803D",fontWeight:600}}>📋 Filled {infoNote} blank field{infoNote===1?"":"s"} in Property Details from the county record.</div>}
+          {cand&&(()=>{
+            const subj=cand.data.subject||{};
+            const zHref=(c)=>`https://www.zillow.com/homes/${encodeURIComponent(String(c.full||c.address||"").replace(/\s+/g," "))}_rb/`;
+            const tagSt=(t)=>({fontSize:10,fontWeight:700,letterSpacing:"0.03em",borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap",
+              ...(t==="updated?"?{background:"#EDFBF1",color:"#15803D"}:t==="as-is?"?{background:"#FFF0EF",color:T.red}:t==="recent"?{background:"#EBF4FF",color:T.blue}:t==="pending"?{background:"#FFF4E5",color:"#B45309"}:t==="≈ size"?{background:T.goldLight,color:"#8a6d1f"}:{background:"#F1F1F4",color:T.textSub})});
+            return(
+              <div style={{marginTop:12,background:"#fff",border:`1.5px solid ${T.gold}`,borderRadius:13,overflow:"hidden"}}>
+                <div style={{padding:"11px 14px 9px",borderBottom:`1px solid ${T.border}`}}>
+                  <div style={{fontSize:10.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>STEP 2 · CHECK THE COMPS TO USE</div>
+                  <div style={{fontSize:11,color:T.textSub,marginTop:3}}>Newest first · {picks.size} of {cand.comps.length} checked{subj.sqft?` · your house: ${subj.sqft} sf${subj.beds?` · ${subj.beds}bd/${subj.baths||"?"}ba`:""}`:""}</div>
+                </div>
+                {(()=>{
+                  const rowEl=(c,i)=>{
+                    const on=picks.has(i);
+                    return(
+                      <div key={i} onClick={()=>setPicks(p=>{const n=new Set(p);n.has(i)?n.delete(i):n.add(i);return n;})}
+                        style={{display:"flex",alignItems:"center",gap:9,padding:"9px 13px",borderTop:`1px solid ${T.border}55`,cursor:"pointer",background:on?"transparent":"#FAFAFB",opacity:on?1:0.62}}>
+                        <span style={{fontSize:16,color:on?T.gold:T.textTert,flexShrink:0,lineHeight:1}}>{on?"☑":"☐"}</span>
+                        <span style={{flex:1,minWidth:0}}>
+                          <span style={{fontSize:12.5,fontWeight:650,color:T.text}}>{c.address} <a href={zHref(c)} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} title="Check it on Zillow" style={{color:T.blue,textDecoration:"none",fontSize:11}}>↗</a></span>
+                          <span style={{display:"block",fontSize:10.5,color:T.textSub}}>{[c.beds?`${c.beds}bd`:"",c.baths?`${c.baths}ba`:"",c.sqft?`${c.sqft} sf`:"",c.distance!=null?`${c.distance} mi`:""].filter(Boolean).join(" · ")}</span>
+                          <span style={{display:"flex",gap:4,marginTop:3,flexWrap:"wrap"}}>{(c.tags||[]).map(t=><span key={t} style={tagSt(t)}>{t}</span>)}</span>
+                        </span>
+                        <span style={{flexShrink:0,textAlign:"right"}}>
+                          <span style={{display:"block",fontSize:12.5,fontWeight:700,color:c.priceSrc==="list"?"#B45309":"#15803D"}}>{c.priceSrc==="list"?`list ${fmtD(c.price)}`:fmtD(c.price)}</span>
+                          <span style={{display:"block",fontSize:10,color:T.textTert}}>{c.date||""}{c.sqft&&c.price?` · $${Math.round(c.price/c.sqft)}/sf`:""}</span>
+                        </span>
+                      </div>
+                    );
+                  };
+                  const rows=cand.comps.map((c,i)=>({c,i}));
+                  const solds=rows.filter(r=>r.c.priceSrc!=="list"),pends=rows.filter(r=>r.c.priceSrc==="list");
+                  const secHd=(t,sub)=><div key={t} style={{padding:"8px 13px 4px",fontSize:10,fontWeight:800,letterSpacing:"0.05em",color:T.textTert,background:T.bg}}>{t}<span style={{fontWeight:500,letterSpacing:0}}> — {sub}</span></div>;
+                  return(<>
+                    {solds.length>0&&secHd("✅ SOLD — DEED RECORDED",`${solds.length} confirmed sale${solds.length===1?"":"s"}, checked by default`)}
+                    {solds.map(r=>rowEl(r.c,r.i))}
+                    {pends.length>0&&secHd("🏷 PENDING / ON MARKET",`${pends.length} not closed yet — check any you trust`)}
+                    {pends.map(r=>rowEl(r.c,r.i))}
+                    {solds.length===0&&<div style={{padding:"10px 13px",fontSize:11,color:"#B45309",fontWeight:600}}>⚠ No deed-recorded sales found in this radius/window — widen the filters, or check pendings you can verify on Zillow.</div>}
+                  </>);
+                })()}
+                <div style={{display:"flex",gap:8,padding:"11px 13px",borderTop:`1px solid ${T.border}`,flexWrap:"wrap"}}>
+                  <button onClick={evalNow} disabled={busy||picks.size<2} style={{...chipBtn(true),opacity:busy||picks.size<2?0.6:1}}>{busy?"⏳ Underwriting… (~20s)":`🎯 Value it with my ${picks.size} pick${picks.size===1?"":"s"}`}</button>
+                  <button onClick={()=>setCand(null)} disabled={busy} style={chipBtn(false)}>✕ Cancel</button>
+                </div>
+              </div>
+            );
+          })()}
+          {res&&!cand&&(
             <div style={{marginTop:12,background:"#fff",border:`1.5px solid ${T.gold}`,borderRadius:13,padding:"12px 14px"}}>
-              <div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>SUGGESTED AFTER-REPAIR VALUE</div>
+              <div style={{fontSize:10.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>SUGGESTED AFTER-REPAIR VALUE</div>
               <div style={{fontSize:22,fontWeight:800,color:T.text}}>{fmtD(res.arv)} <span style={{fontSize:11,color:"#8a6d1f",fontWeight:800}}>range {fmtD(res.low)} – {fmtD(res.high)}{res.psf?` · ~$${res.psf}/sf`:""}</span></div>
+              {(()=>{
+                // The second read (Elie's ask): what the ASKING market says —
+                // median $/sf of the pending/on-market comps × subject sqft.
+                const sq=res.subject&&res.subject.sqft;
+                const pend=(res.comps||[]).filter(c=>c.priceSrc==="list"&&c.price>0&&c.sqft>0);
+                if(!sq||pend.length<2)return null;
+                const psfs=pend.map(c=>c.price/c.sqft).sort((a,b)=>a-b);
+                const med=psfs[Math.floor(psfs.length/2)];
+                const est=Math.round(med*sq/1000)*1000;
+                return <div style={{fontSize:11.5,color:"#B45309",fontWeight:700,marginTop:4}}>🏷 On-market read: {pend.length} pending/active listings point to ≈ {fmtD(est)} at ~${Math.round(med)}/sf asking.</div>;
+              })()}
               <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.55,marginTop:6}}>{res.reasoning}</div>
               {res.asIs>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>Automated as-is estimate: {fmtD(res.asIs)} · comps: {res.provider||"county records"} · underwritten {new Date(res.at).toLocaleDateString()}{res.filters?` · within ${res.filters.radius} mi, sold last ${res.filters.months} mo`:""}</div>}
               {res.after&&<div style={{fontSize:10.5,color:"#8a6d1f",fontWeight:700,marginTop:3}}>🏗 Valued as finished: {[res.after.scope?({light:"light rehab",mid:"mid rehab",gut:"full gut"})[res.after.scope]:"",res.after.sqftAdd?`+${res.after.sqftAdd} sf`:"",res.after.beds?`${res.after.beds} bd`:"",(res.after.bathsFull||res.after.bathsHalf)?`${res.after.bathsFull||0} full${res.after.bathsHalf?` + ${res.after.bathsHalf} half`:""} ba`:""].filter(Boolean).join(" · ")}</div>}
               <div style={{overflowX:"auto",marginTop:6}}>
                 <table style={{borderCollapse:"collapse",width:"100%",minWidth:520}}>
-                  <thead><tr>{["COMP","LIST","SOLD","WHEN","$/SF","DIST",""].map(h=><th key={h} style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["COMP","LIST","SOLD","WHEN","$/SF","DIST",""].map(h=><th key={h} style={{fontSize:10,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>
                   <tbody>
                     {(res.comps||[]).map((c,i)=>{
                       // 🔗 Comp address → its Zillow page. Older saved results
@@ -10393,7 +10502,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
                           const sp=confirmed?c.price:0;
                           return(<>
                             <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap",color:T.textSub}}>{lp?fmtD(lp):"—"}</td>
-                            <td onClick={()=>editSold(c,i)} title={c.priceSrc==="owner"?"Sold price you entered — tap to change":sp?"Deed-recorded closing price — tap to correct":`${c.recNote||"no recorded sale found"} — tap to type the sold price you see on Zillow.`} style={{fontSize:11,fontWeight:800,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap",cursor:"pointer",color:sp?"#0F9D58":T.textTert}}>{sp?fmtD(sp):"pending"}{c.priceSrc==="owner"?<span style={{fontSize:8.5,fontWeight:800,color:"#7C3AED"}}> ✎you</span>:sp?null:<span style={{fontSize:8,color:"#B45309",fontWeight:800}}> {String(c.recNote||"").startsWith("sale-on-file:")?c.recNote.slice(13):String(c.recNote||"").startsWith("record-outdated:")?"resold — deed lag":String(c.recNote||"").startsWith("err")?"lookup err":c.recNote==="no-record"?"no rec":c.recNote==="no-sale-on-record"?"no sale":"✎"}</span>}</td>
+                            <td onClick={()=>editSold(c,i)} title={c.priceSrc==="owner"?"Sold price you entered — tap to change":sp?"Deed-recorded closing price — tap to correct":`${c.recNote||"no recorded sale found"} — tap to type the sold price you see on Zillow.`} style={{fontSize:11,fontWeight:800,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap",cursor:"pointer",color:sp?"#0F9D58":T.textTert}}>{sp?fmtD(sp):"pending"}{c.priceSrc==="owner"?<span style={{fontSize:10,fontWeight:800,color:"#7C3AED"}}> ✎you</span>:sp?null:<span style={{fontSize:10.5,color:"#B45309",fontWeight:800}}> {String(c.recNote||"").startsWith("sale-on-file:")?c.recNote.slice(13):String(c.recNote||"").startsWith("record-outdated:")?"resold — deed lag":String(c.recNote||"").startsWith("err")?"lookup err":c.recNote==="no-record"?"no rec":c.recNote==="no-sale-on-record"?"no sale":"✎"}</span>}</td>
                           </>);
                         })()}
                         <td style={{fontSize:11,padding:"6px 7px",borderBottom:`1px solid ${T.border}55`,whiteSpace:"nowrap"}}>{c.date||`${c.daysOld||"?"}d ago`}</td>
@@ -10402,8 +10511,8 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
                         <td style={{padding:"6px 7px",borderBottom:`1px solid ${T.border}55`}}>
                           <button onClick={()=>setOvr(o=>({...o,[i]:!effUsed(c,i)}))} title={effUsed(c,i)?"Tap to EXCLUDE this comp":"Tap to USE this comp"}
                             style={effUsed(c,i)
-                              ?{fontSize:8.5,fontWeight:800,background:"#EDFBF1",color:"#0F9D58",border:ovr[i]!==undefined?"1.5px solid #0F9D58":"1px solid #b7ebc7",borderRadius:7,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",fontFamily:"inherit"}
-                              :{fontSize:8.5,fontWeight:800,background:"#F3F3F5",color:"#98A0AA",border:ovr[i]!==undefined?"1.5px solid #98A0AA":"1px solid #E7E7EC",borderRadius:7,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",fontFamily:"inherit"}}>
+                              ?{fontSize:10,fontWeight:800,background:"#EDFBF1",color:"#0F9D58",border:ovr[i]!==undefined?"1.5px solid #0F9D58":"1px solid #b7ebc7",borderRadius:7,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",fontFamily:"inherit"}
+                              :{fontSize:10,fontWeight:800,background:"#F3F3F5",color:"#98A0AA",border:ovr[i]!==undefined?"1.5px solid #98A0AA":"1px solid #E7E7EC",borderRadius:7,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",fontFamily:"inherit"}}>
                             {effUsed(c,i)?"USED":"skipped"}{ovr[i]!==undefined?" ✋":""}
                           </button>
                         </td>
@@ -10429,7 +10538,7 @@ function ArvUnderwriter({address,f,upMany,isMobile}){
               {bt.note&&<div style={{fontSize:11.5,color:T.textTert,marginTop:6}}>{bt.note}</div>}
               {btRows.length>0&&(
                 <table style={{borderCollapse:"collapse",width:"100%",marginTop:6}}>
-                  <thead><tr>{["PROPERTY","ESTIMATE","ACTUALLY SOLD","MISS"].map(h=><th key={h} style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["PROPERTY","ESTIMATE","ACTUALLY SOLD","MISS"].map(h=><th key={h} style={{fontSize:10,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>
                   <tbody>
                     {btRows.map((r,i)=>{const miss=r.est>0?(r.est-r.actual)/r.actual:null;return(
                       <tr key={i}>
@@ -10508,12 +10617,12 @@ function SettingsModal({archived,onRestore,onDelete,onClose,team,setUserMuted,se
         <div style={{fontSize:10.5,color:T.textSub,marginTop:1,lineHeight:1.4}}>{f.sub}</div>
       </span>
       {f.who&&featOn(f.key)&&(
-        <button onClick={()=>cycleWho(f.key,f.who)} title="Who this lands on — tap to change" style={{fontSize:9.5,fontWeight:800,borderRadius:9,padding:"4px 9px",border:`1px solid ${T.gold}66`,background:T.goldLight,color:"#8a6d1f",cursor:isAdmin?"pointer":"default",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap"}}>→ {String(featWho(f.key,f.who)).split(" ")[0]}</button>
+        <button onClick={()=>cycleWho(f.key,f.who)} title="Who this lands on — tap to change" style={{fontSize:10.5,fontWeight:800,borderRadius:9,padding:"4px 9px",border:`1px solid ${T.gold}66`,background:T.goldLight,color:"#8a6d1f",cursor:isAdmin?"pointer":"default",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap"}}>→ {String(featWho(f.key,f.who)).split(" ")[0]}</button>
       )}
       <FeatSwitch on={featOn(f.key)} disabled={!isAdmin} onTap={()=>setFlag(f.key,!featOn(f.key))}/>
     </div>
   );
-  const secHd=(txt)=><div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.06em",color:"#8a6d1f",margin:"14px 0 2px"}}>{txt}</div>;
+  const secHd=(txt)=><div style={{fontSize:10.5,fontWeight:800,letterSpacing:"0.06em",color:"#8a6d1f",margin:"14px 0 2px"}}>{txt}</div>;
   // Per-person notification manager (mute + push/email/text + cell number).
   const chanOn=(u,k)=>{const c=u.notify_channels;return !c||c[k]!==false;};
   const[smsFor,setSmsFor]=useState(null);
@@ -10528,7 +10637,7 @@ function SettingsModal({archived,onRestore,onDelete,onClose,team,setUserMuted,se
       setUserChannels&&setUserChannels(u.id,(next.push&&next.email&&next.sms)?null:next);
     };
     const chanChip=(k,label)=>{const on=chanOn(u,k);return(
-      <button key={k} onClick={()=>toggleChan(k)} style={{...TOGGLE_CHIP(on,"#15803D"),padding:"4px 9px",fontSize:9.5,textDecoration:on?"none":"line-through"}}>{label}</button>
+      <button key={k} onClick={()=>toggleChan(k)} style={{...TOGGLE_CHIP(on,"#15803D"),padding:"4px 9px",fontSize:10.5,textDecoration:on?"none":"line-through"}}>{label}</button>
     );};
     return(
       <div key={u.id} style={{borderBottom:`1px solid ${T.border}55`,padding:"10px 0"}}>
@@ -11398,13 +11507,13 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
         {threads.map(th=>{
           const{root,replies}=th;
           const rootMine=root.author===currentUser;
-          const taskTag=(txt,state)=><span title={state==="deleted"?"This task was deleted — the conversation is kept here":"This message is on a task"} style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {txt}{state==="deleted"?<span style={{color:T.red,fontWeight:800}}> · deleted task</span>:state==="Completed"?<span style={{color:"#15803D",fontWeight:800}}> · ✓ completed</span>:null}</span>;
+          const taskTag=(txt,state)=><span title={state==="deleted"?"This task was deleted — the conversation is kept here":"This message is on a task"} style={{fontSize:10,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {txt}{state==="deleted"?<span style={{color:T.red,fontWeight:800}}> · deleted task</span>:state==="Completed"?<span style={{color:"#15803D",fontWeight:800}}> · ✓ completed</span>:null}</span>;
           // Showing-thread tag — tap for the agent's info + lead status popup.
-          const showTag=()=><button onClick={()=>onUpdateProp&&setShowInfo(root.showingKey)} title="This thread is about a showing — tap for the agent's info & lead status" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block",cursor:onUpdateProp?"pointer":"default",fontFamily:"inherit"}}>👥 {root.showingLabel} ›</button>;
+          const showTag=()=><button onClick={()=>onUpdateProp&&setShowInfo(root.showingKey)} title="This thread is about a showing — tap for the agent's info & lead status" style={{fontSize:10,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block",cursor:onUpdateProp?"pointer":"default",fontFamily:"inherit"}}>👥 {root.showingLabel} ›</button>;
           // Contractor-portal thread tag — replies here go to the contractor's portal.
-          const ctrTag=()=><span title="This thread is with a contractor — replies go to their portal" style={{fontSize:9,fontWeight:700,color:"#fff",background:T.gold,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>👷 {root.ctrLabel}</span>;
+          const ctrTag=()=><span title="This thread is with a contractor — replies go to their portal" style={{fontSize:10,fontWeight:700,color:"#fff",background:T.gold,borderRadius:20,padding:"2px 8px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>👷 {root.ctrLabel}</span>;
           // Internal notes ABOUT a contractor task — team-only, contractors never see these.
-          const ctrNoteTag=()=><span title="Internal notes about a contractor task — the contractor can NOT see this" style={{fontSize:9,fontWeight:700,color:"#b8912e",background:"#fff",border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>🔒 {root.ctrTaskLabel} · internal</span>;
+          const ctrNoteTag=()=><span title="Internal notes about a contractor task — the contractor can NOT see this" style={{fontSize:10,fontWeight:700,color:"#b8912e",background:"#fff",border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>🔒 {root.ctrTaskLabel} · internal</span>;
           const bubble=(m,{small,onCard}={})=>{
             const mine=m.author===currentUser;
             const theirBg=onCard?T.bg:T.card;
@@ -11459,8 +11568,8 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           return(
             <div key={root.id} style={{alignSelf:"stretch",border:isCtr?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,borderRadius:16,background:isCtr?"#FFF9EC":T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                {isCtr?ctrTag():root.ctrTaskLabel?ctrNoteTag():root.showingLabel?showTag():root.taskText?taskTag(root.taskText,root.taskDeleted?"deleted":root.taskStatus):<span style={{fontSize:9,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
-                {isCtr&&<span style={{fontSize:9,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 8px",letterSpacing:"0.05em"}}>EXTERNAL</span>}
+                {isCtr?ctrTag():root.ctrTaskLabel?ctrNoteTag():root.showingLabel?showTag():root.taskText?taskTag(root.taskText,root.taskDeleted?"deleted":root.taskStatus):<span style={{fontSize:10,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
+                {isCtr&&<span style={{fontSize:10,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 8px",letterSpacing:"0.05em"}}>EXTERNAL</span>}
                 <span style={{fontSize:10,color:T.textTert}}>{replies.length+1} message{replies.length?"s":""}</span>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -11819,9 +11928,9 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const fmtShort=(iso)=>{if(!iso)return "";try{const d=new Date(iso),now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   // Row tags for the ⊞ All view — every row says what it is.
-  const tagTeam={flexShrink:0,fontSize:8,fontWeight:800,background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap"};
-  const tagText={flexShrink:0,fontSize:8,fontWeight:800,background:"#EDFBF1",color:"#15803D",border:"1px solid #BFE8CD",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap"};
-  const tagLine={flexShrink:0,fontSize:8,fontWeight:800,background:"#EBF4FF",color:"#2563EB",border:"1px solid #C7DDF8",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap"};
+  const tagTeam={flexShrink:0,fontSize:10.5,fontWeight:800,background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap"};
+  const tagText={flexShrink:0,fontSize:10.5,fontWeight:800,background:"#EDFBF1",color:"#15803D",border:"1px solid #BFE8CD",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap"};
+  const tagLine={flexShrink:0,fontSize:10.5,fontWeight:800,background:"#EBF4FF",color:"#2563EB",border:"1px solid #C7DDF8",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap"};
   const officeRow=(showTag)=>{
     const isActive=selId===OFFICE_ID;
     const last=officeSorted[officeSorted.length-1];
@@ -11896,7 +12005,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     const on=mode===m;
     return(
       <button key={m} onClick={()=>setMode(m)} style={{...segTab(on),flex:1,padding:"7px 0",fontSize:11.5}}>
-        {label}{badge>0&&<span style={{minWidth:16,height:16,borderRadius:8,background:T.red,color:"#fff",fontSize:9.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{badge}</span>}
+        {label}{badge>0&&<span style={{minWidth:16,height:16,borderRadius:8,background:T.red,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{badge}</span>}
       </button>
     );
   };
@@ -13049,7 +13158,7 @@ function FinPaybackPick({funder,draws,onPick,onClose}){
               <span style={{fontSize:13.5,fontWeight:800,color:T.text,flexShrink:0}}>{fmtD(pr+it)}</span>
             </div>
             <div style={{display:"flex",gap:"3px 12px",fontSize:11,color:T.textSub,marginTop:3,flexWrap:"wrap",alignItems:"center"}}>
-              <span style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",whiteSpace:"nowrap",...(hasRate(d.rate)?{background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9"}:{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0"})}}>{hasRate(d.rate)?`✎ ${drawRatePct(d)}% custom`:`${drawRatePct(d)}%`}</span>
+              <span style={{fontSize:10,fontWeight:800,borderRadius:9,padding:"2px 7px",whiteSpace:"nowrap",...(hasRate(d.rate)?{background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9"}:{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0"})}}>{hasRate(d.rate)?`✎ ${drawRatePct(d)}% custom`:`${drawRatePct(d)}%`}</span>
               <span>principal <b style={{color:T.text}}>{fmtD(pr)}</b></span>
               <span>interest <b style={{color:T.gold}}>{fmtD(it)}</b></span>
               <span>{drawDays(d)} day{drawDays(d)===1?"":"s"}</span>
@@ -13087,7 +13196,7 @@ function FinPaybackAllPick({funders,draws,onPick,onClose}){
             </div>
             <div style={{display:"flex",gap:"3px 12px",fontSize:11,color:T.textSub,marginTop:3,flexWrap:"wrap",alignItems:"center"}}>
               <span style={{fontSize:10,fontWeight:800,background:T.goldLight,color:"#8a6d1f",borderRadius:9,padding:"2px 8px",whiteSpace:"nowrap"}}>{f.name}</span>
-              <span style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",whiteSpace:"nowrap",...(hasRate(d.rate)?{background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9"}:{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0"})}}>{hasRate(d.rate)?`✎ ${drawRatePct(d)}% custom`:`${drawRatePct(d)}%`}</span>
+              <span style={{fontSize:10,fontWeight:800,borderRadius:9,padding:"2px 7px",whiteSpace:"nowrap",...(hasRate(d.rate)?{background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9"}:{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0"})}}>{hasRate(d.rate)?`✎ ${drawRatePct(d)}% custom`:`${drawRatePct(d)}%`}</span>
               <span>principal <b style={{color:T.text}}>{fmtD(pr)}</b></span>
               <span>interest <b style={{color:T.gold}}>{fmtD(it)}</b></span>
               <span>{drawDays(d)} day{drawDays(d)===1?"":"s"}</span>
@@ -13892,8 +14001,8 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
             </div>
             {!isCol&&<>
             {list.map((x,i)=>(<Fragment key={x.p.id+"|"+x.kind}>
-              {i===0&&x.kind!=="🔨 Construction"&&<div style={{padding:"7px 16px 4px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",background:T.bg,borderTop:`1px solid ${T.border}`}}>⏳ Interest reserve / funds</div>}
-              {x.kind==="🔨 Construction"&&(i===0||list[i-1].kind!=="🔨 Construction")&&<div style={{padding:"7px 16px 4px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",background:T.bg,borderTop:`1px solid ${T.border}`}}>🔨 Construction</div>}
+              {i===0&&x.kind!=="🔨 Construction"&&<div style={{padding:"7px 16px 4px",fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",background:T.bg,borderTop:`1px solid ${T.border}`}}>⏳ Interest reserve / funds</div>}
+              {x.kind==="🔨 Construction"&&(i===0||list[i-1].kind!=="🔨 Construction")&&<div style={{padding:"7px 16px 4px",fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",background:T.bg,borderTop:`1px solid ${T.border}`}}>🔨 Construction</div>}
               <div onClick={()=>onOpenProperty&&onOpenProperty(x.p.id)} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 16px",cursor:onOpenProperty?"pointer":"default",background:i%2?T.goldLight+"55":"transparent"}}>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:12.5,color:onOpenProperty?T.blue:T.text,fontWeight:onOpenProperty?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.p.address}</div>
@@ -13902,7 +14011,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
                 <span style={{textAlign:"right",fontSize:12.5,fontWeight:600,color:T.text,whiteSpace:"nowrap",flexShrink:0,paddingRight:canEdit?24:0}}>{fmtD(x.amt)}</span>
               </div>
             </Fragment>))}
-            {adjustments.length>0&&<div style={{padding:"7px 16px 4px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",background:T.bg,borderTop:`1px solid ${T.border}`}}>✎ Loans & floats — adjustments</div>}
+            {adjustments.length>0&&<div style={{padding:"7px 16px 4px",fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",background:T.bg,borderTop:`1px solid ${T.border}`}}>✎ Loans & floats — adjustments</div>}
             {adjustments.map((a,ai)=>{
               const neg=(Number(a.amount)||0)<0;
               const editLbl=<span onClick={canEdit?()=>{setAdjDraft({label:a.label,amount:String(a.amount)});setEditAdjId(a.id);setAddAdjFor(b.id);}:undefined} title={canEdit?"Tap to edit":undefined} style={{flex:1,minWidth:0,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>{a.label}{canEdit&&!isMobile&&<span style={{fontSize:10,color:T.textTert}}> · tap to edit</span>}</span>;
@@ -13917,7 +14026,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
                   <option value="none">not a loan — just tracked</option>
                 </select>;
               const held=isHeldAdj(a);
-              const tagChip=(a.tag||a.linkKind==="bridge"||held)&&<span style={{fontSize:8.5,fontWeight:800,borderRadius:8,padding:"2px 7px",background:(a.linkKind==="bridge"||held)?"#FDF9EE":a.tag==="Debt service"?"#EDE9FE":"#DBEAFE",color:(a.linkKind==="bridge"||held)?"#8a6d1f":a.tag==="Debt service"?"#6D28D9":"#2563EB",border:(a.linkKind==="bridge"||held)?"1px solid #EAD9A9":"none",whiteSpace:"nowrap",flexShrink:0}}>{a.linkKind==="bridge"?"🌉 BRIDGE":held?"🏦 HELD":`${a.tag==="Debt service"?"🏦":"🏗"} ${a.tag.toUpperCase()}`}</span>;
+              const tagChip=(a.tag||a.linkKind==="bridge"||held)&&<span style={{fontSize:10,fontWeight:800,borderRadius:8,padding:"2px 7px",background:(a.linkKind==="bridge"||held)?"#FDF9EE":a.tag==="Debt service"?"#EDE9FE":"#DBEAFE",color:(a.linkKind==="bridge"||held)?"#8a6d1f":a.tag==="Debt service"?"#6D28D9":"#2563EB",border:(a.linkKind==="bridge"||held)?"1px solid #EAD9A9":"none",whiteSpace:"nowrap",flexShrink:0}}>{a.linkKind==="bridge"?"🌉 BRIDGE":held?"🏦 HELD":`${a.tag==="Debt service"?"🏦":"🏗"} ${a.tag.toUpperCase()}`}</span>;
               // The held line's in-and-out history — every hold adds, every deployment subtracts.
               const heldHist=held&&(a.borrows||[]).length>0&&(
                 <div style={{padding:"0 16px 8px",fontSize:10.5,color:T.textTert,lineHeight:1.8,background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
@@ -14536,7 +14645,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const j=jobOf(p,key);
     const st=j==="constr"?{background:"#FFEDD5",color:"#C2410C"}:j==="pot"?{background:"#F3E8FF",color:"#9333EA"}:{background:"#DBEAFE",color:T.blue};
     const label=j==="constr"?"🔨 CONSTRUCTION":j==="pot"?"LINE OF CREDIT":"BANK";
-    return <button onClick={canEdit?()=>setJob(bsProps.find(x=>x.id===p.id)||p,key,JOB_NEXT[j]):undefined} title="Tap to switch — BANK ↔ LINE OF CREDIT" style={{...st,fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",border:"none",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{label}</button>;
+    return <button onClick={canEdit?()=>setJob(bsProps.find(x=>x.id===p.id)||p,key,JOB_NEXT[j]):undefined} title="Tap to switch — BANK ↔ LINE OF CREDIT" style={{...st,fontSize:10,fontWeight:800,borderRadius:9,padding:"2px 7px",border:"none",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{label}</button>;
   };
   const sec={padding:"0 0 7px"};
   const totRow={display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:800,color:T.text,padding:"7px 0 0",marginTop:6,borderTop:`1px dashed ${T.border}`};
@@ -14630,7 +14739,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 {c.entries.map(e=>(
                   <div key={e.key} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",fontSize:12}}>
                     <span style={{...pinTag,maxWidth:"none",flex:1,minWidth:0}}>{e.adj?"🏦":e.custom?"✎":"📌"} {e.name}</span>
-                    {e.adj?<span title="Linked from a Bank Recon adjustment — unlink it there" style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2px 7px",background:"#FBF7EC",color:"#8a6d1f",flexShrink:0}}>BANK RECON</span>:jobTag(sel,e.key)}
+                    {e.adj?<span title="Linked from a Bank Recon adjustment — unlink it there" style={{fontSize:10,fontWeight:800,borderRadius:9,padding:"2px 7px",background:"#FBF7EC",color:"#8a6d1f",flexShrink:0}}>BANK RECON</span>:jobTag(sel,e.key)}
                     <span style={vS}>{money(e.bal)}</span>
                     {canEdit&&!e.adj&&removeChip(()=>removeEntry(sel,e))}
                   </div>
@@ -14909,7 +15018,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               </div>
               <span style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
                 <b style={{fontSize:13,color:x.sign>0?"#0F9D58":T.red}}>{x.sign>0?"+":"−"}{money(Math.abs(Number(x.t.amount)||0)).slice(1)}</b>
-                <span style={{fontSize:9,fontWeight:800,background:tg.bg,color:tg.fg,borderRadius:8,padding:"2px 7px"}}>{tg.label}</span>
+                <span style={{fontSize:10,fontWeight:800,background:tg.bg,color:tg.fg,borderRadius:8,padding:"2px 7px"}}>{tg.label}</span>
                 {canEdit&&<button onClick={()=>exclFeed(x)} title={isAuto?"Exclude — auto will skip it":"Remove"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>⊘</button>}
               </span>
             </div>
@@ -14949,7 +15058,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           <div key={txKey(t)+(ex?"x":"")} style={{...pr,...(ex?{opacity:.55}:{})}}>
             <span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:ex?"line-through":"none"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"payment"}</span>
             {ex
-              ?<button onClick={()=>canEdit&&updateProp(sel.id,"qbDebtExcluded",(sel.qbDebtExcluded||[]).filter(k=>k!==txKey(t)))} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:9.5,fontWeight:800,padding:"3px 8px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button>
+              ?<button onClick={()=>canEdit&&updateProp(sel.id,"qbDebtExcluded",(sel.qbDebtExcluded||[]).filter(k=>k!==txKey(t)))} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:10.5,fontWeight:800,padding:"3px 8px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button>
               :<b>−{money(Math.abs(Number(t.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>sel.qbDebtAuto?updateProp(sel.id,"qbDebtExcluded",[...(sel.qbDebtExcluded||[]),txKey(t)]):updateProp(sel.id,"qbDebtTxns",(sel.qbDebtTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title={sel.qbDebtAuto?"Exclude — auto will skip it":"Unpin"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button>}</b>}
           </div>
         ))}
@@ -14997,8 +15106,8 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         {(sel.qbDrawTxns||[]).map(t=>(<div key={txKey(t)} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(t.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>sel.dmDrawAuto?updateProp(sel.id,"dmDrawExcluded",[...(sel.dmDrawExcluded||[]),txKey(t)]):updateProp(sel.id,"qbDrawTxns",(sel.qbDrawTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title={sel.dmDrawAuto?"Exclude — auto will skip it":"Unpin"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button>}</b></div>))}
         {(sel.dmDrawCustom||[]).map(l=>(<div key={l.id} style={pr}><span style={{color:T.textSub}}>✎ {l.label||"Manual draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(l.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>×</button>}</b></div>))}
         {(c.adjDraws||[]).map(a=>(<div key={"adj"+a.id} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title="Linked from a Bank Recon adjustment — unlink it there">🏦 {a.label||"Borrowed"} — from {a.bankName}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(a.amount)||0)).slice(1)}</b></div>))}
-        {(c.pending||[]).map(x=>(<div key={"pd"+x.id} style={{...pr,background:"#FBF7EC"}}><span style={{color:"#8a6d1f",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>⏳ {fmtDay(x.date)} · Bank draw — waiting on QuickBooks</span><span style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(x.amount)||0)).slice(1)}</b><span style={{fontSize:8.5,fontWeight:800,background:"#FDE9C8",color:"#B45309",borderRadius:8,padding:"2px 7px"}}>PENDING</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmPendingDraws",(sel.dmPendingDraws||[]).filter(y=>y.id!==x.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>×</button>}</span></div>))}
-        {dExRows.map(t=>(<div key={"x"+txKey(t)} style={{...pr,opacity:.55}}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"line-through"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><button onClick={()=>canEdit&&updateProp(sel.id,"dmDrawExcluded",(sel.dmDrawExcluded||[]).filter(k=>k!==txKey(t)))} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:9.5,fontWeight:800,padding:"3px 8px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button></div>))}
+        {(c.pending||[]).map(x=>(<div key={"pd"+x.id} style={{...pr,background:"#FBF7EC"}}><span style={{color:"#8a6d1f",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>⏳ {fmtDay(x.date)} · Bank draw — waiting on QuickBooks</span><span style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(x.amount)||0)).slice(1)}</b><span style={{fontSize:10,fontWeight:800,background:"#FDE9C8",color:"#B45309",borderRadius:8,padding:"2px 7px"}}>PENDING</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmPendingDraws",(sel.dmPendingDraws||[]).filter(y=>y.id!==x.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>×</button>}</span></div>))}
+        {dExRows.map(t=>(<div key={"x"+txKey(t)} style={{...pr,opacity:.55}}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"line-through"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><button onClick={()=>canEdit&&updateProp(sel.id,"dmDrawExcluded",(sel.dmDrawExcluded||[]).filter(k=>k!==txKey(t)))} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:10.5,fontWeight:800,padding:"3px 8px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button></div>))}
         {(sel.qbDrawTxns||[]).length===0&&(sel.dmDrawCustom||[]).length===0&&dExRows.length===0&&<div style={{padding:"4px 18px 10px",fontSize:11.5,color:T.textTert}}>None yet.</div>}
         {c.rehabLive==null&&(<>
           <div style={{padding:"8px 18px 2px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>REHAB PAID OUT{sel.dmRehabAuto?" — AUTO-PINNED":""}</div>
@@ -15167,7 +15276,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   };
   const dsPop=dsOpen&&(()=>{
     const mName=new Date().toLocaleDateString(undefined,{month:"long"});
-    const chip=(bg,fg,txt,bd)=><span style={{fontSize:9,fontWeight:800,borderRadius:9,padding:"2.5px 8px",background:bg,color:fg,border:bd?`1px solid ${bd}`:"none",whiteSpace:"nowrap",flexShrink:0}}>{txt}</span>;
+    const chip=(bg,fg,txt,bd)=><span style={{fontSize:10,fontWeight:800,borderRadius:9,padding:"2.5px 8px",background:bg,color:fg,border:bd?`1px solid ${bd}`:"none",whiteSpace:"nowrap",flexShrink:0}}>{txt}</span>;
     const bkList=[...(bankAccounts||[])].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
     const hMonth=(iso)=>{try{return new Date(iso).toLocaleDateString(undefined,{month:"short",year:"2-digit"});}catch{return"";}};
     const b=dsBorrow;
@@ -15269,7 +15378,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <div style={{fontWeight:800,fontSize:15,color:T.text,flex:1,minWidth:0}}>Property Balance Sheet</div>
               {canEdit&&<div style={CAPS_ROW}>
-                <button onClick={()=>setDsOpen(true)} title="🏦 Debt service — covered or short, borrow in one tap" style={capsSeg()}>🏦{dsShortCount>0&&<span style={{position:"absolute",top:0,right:0,minWidth:15,height:15,borderRadius:8,background:T.red,color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px",boxSizing:"border-box"}}>{dsShortCount}</span>}</button>
+                <button onClick={()=>setDsOpen(true)} title="🏦 Debt service — covered or short, borrow in one tap" style={capsSeg()}>🏦{dsShortCount>0&&<span style={{position:"absolute",top:0,right:0,minWidth:15,height:15,borderRadius:8,background:T.red,color:"#fff",fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px",boxSizing:"border-box"}}>{dsShortCount}</span>}</button>
                 <button onClick={()=>setDrawIn({propId:(selP&&selP.id)||"",amt:""})} title="💸 Bank sent a draw — the reimburse/transfer split" style={capsSeg()}>💸</button>
                 <button onClick={()=>setBulkOpen(true)} title="⚙ Bank accounts — every property at once" style={capsSeg()}><GearIcon size={16}/></button>
               </div>}
@@ -15288,9 +15397,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                     <span style={{display:"block",fontSize:13,fontWeight:active?800:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</span>
                   </span>
                   <span style={{flexShrink:0,textAlign:"right"}}>
-                    <span style={{display:"block",fontSize:8.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>{c.upfront?"Funds left":"Int. reserve"}</span>
+                    <span style={{display:"block",fontSize:10,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>{c.upfront?"Funds left":"Int. reserve"}</span>
                     <span style={{display:"block",fontSize:12.5,fontWeight:800,color:(c.upfront?(c.leftover||0):c.left)>=0?"#15803D":T.red}}>{c.upfront?money(c.leftover==null?0:c.leftover):money(c.left)}</span>
-                    {!c.upfront&&c.monthlyInt>0&&<span style={{display:"block",fontSize:9.5,color:T.textTert}}>(≈ {(Math.max(0,c.left)/c.monthlyInt).toFixed(1)} mo)</span>}
+                    {!c.upfront&&c.monthlyInt>0&&<span style={{display:"block",fontSize:10.5,color:T.textTert}}>(≈ {(Math.max(0,c.left)/c.monthlyInt).toFixed(1)} mo)</span>}
                   </span>
                 </button>
               </Fragment>);
@@ -15324,13 +15433,13 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 <button onClick={()=>setBulkOpen(false)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
               </div>
               <div style={{overflowY:"auto",flex:1}}>
-                <div style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 165px 165px 185px",gap:8,padding:"10px 18px 6px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>
+                <div style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 165px 165px 185px",gap:8,padding:"10px 18px 6px",fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>
                   <span>Property</span><span>⏳ Reserve / 💼 funds held in</span><span>🔨 Construction sits</span><span>⚡ Auto-pull from QuickBooks</span>
                 </div>
                 {bsProps.map((p,i)=>{const up=(p.dmFinType||"draws")==="upfront";
                   const aChip=(on,label,key,disabled,title)=>(
                     <button key={label} onClick={()=>!disabled&&updateProp(p.id,key,!p[key])} disabled={disabled} title={title}
-                      style={{...TOGGLE_CHIP(on,"#8a6d1f"),padding:"3px 7px",fontSize:9.5,cursor:disabled?"default":"pointer",opacity:disabled?0.45:1}}>{label} {on?"✓":"–"}</button>
+                      style={{...TOGGLE_CHIP(on,"#8a6d1f"),padding:"3px 7px",fontSize:10.5,cursor:disabled?"default":"pointer",opacity:disabled?0.45:1}}>{label} {on?"✓":"–"}</button>
                   );
                   return(
                   <div key={p.id} style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 165px 165px 185px",gap:8,alignItems:"center",padding:"8px 18px",borderTop:`1px solid ${T.border}55`,background:i%2?T.goldLight+"33":"transparent"}}>
@@ -15386,7 +15495,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         <div style={{overflowY:"auto",flex:1}}>
           {!sel?(
             <div>
-              <div style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 90px 90px 90px 90px",gap:6,padding:"10px 16px 6px",fontSize:9.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>
+              <div style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) 90px 90px 90px 90px",gap:6,padding:"10px 16px 6px",fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.04em"}}>
                 <span>Property</span><span style={{textAlign:"right"}}>Constr. gap</span><span style={{textAlign:"right"}}>Borrowed</span><span style={{textAlign:"right"}}>Reserve left</span><span style={{textAlign:"right"}}>Equity</span>
               </div>
               {bsProps.map((p,i)=>{const c=calc(p);return(
@@ -16695,7 +16804,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                 </>)}
                 {saleDraft.qbId&&(
                   <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",border:`1.5px solid #2CA01C`,borderRadius:10,background:"#EAF7E8"}}>
-                    <span style={{fontSize:9,fontWeight:800,color:"#2CA01C",background:"#fff",border:"1px solid #BFE5BA",borderRadius:8,padding:"1px 6px",flexShrink:0}}>QB</span>
+                    <span style={{fontSize:10,fontWeight:800,color:"#2CA01C",background:"#fff",border:"1px solid #BFE5BA",borderRadius:8,padding:"1px 6px",flexShrink:0}}>QB</span>
                     <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{saleDraft.addr}</span>
                     <button onClick={()=>setSaleDraft(d=>({...d,qbId:"",addr:""}))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
                   </div>
@@ -16955,7 +17064,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                 <div style={{display:"flex",gap:10,padding:"12px 18px",borderBottom:`1px solid ${T.border}`,background:T.bg+"66"}}>
                   {[["Sale price",fmtD(sale),T.text],["All-in cost",fmtD(allIn),T.text],["Profit",fmtD(profit),profit<0?T.red:T.green]].map(([l,v,c])=>(
                     <div key={l} style={{flex:1,background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"9px 12px",minWidth:0}}>
-                      <div style={{fontSize:9.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em",whiteSpace:"nowrap"}}>{l}</div>
+                      <div style={{fontSize:10.5,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em",whiteSpace:"nowrap"}}>{l}</div>
                       <div style={{fontSize:isMobile?14.5:16,fontWeight:800,color:c,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v}</div>
                     </div>
                   ))}
@@ -17273,7 +17382,7 @@ function CrmPage({sharedProps}){
     return true;
   });
   const counts={all:contacts.length,new:contacts.filter(c=>c.unread>0).length,replied:contacts.filter(c=>c.replied).length,noresp:contacts.filter(c=>c.noRespDays!=null&&!c.everReplied).length};
-  const chip=(bg,fg,txt)=><span style={{fontSize:8.5,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
+  const chip=(bg,fg,txt)=><span style={{fontSize:10,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
   const fmtT=(iso)=>{if(!iso)return"";try{const d=new Date(iso.length===10?iso+"T12:00:00":iso);return new Date().toDateString()===d.toDateString()?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return"";}};
   const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
   const icoS={width:30,height:30,minWidth:30,borderRadius:"50%",display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none",padding:0,boxSizing:"border-box",cursor:"pointer",fontFamily:"inherit",flexShrink:0,lineHeight:1,fontSize:13,WebkitAppearance:"none",appearance:"none"};
@@ -17300,7 +17409,7 @@ function CrmPage({sharedProps}){
               <span style={{display:"flex",gap:6,alignItems:"center"}}>
                 <b style={{fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{c.name||fmtPh(c.phone)}</b>
                 {c.insp&&<span title="Inspection / appraisal / walk-through" style={{flexShrink:0,fontSize:10}}>🔍</span>}
-                <span style={{marginLeft:"auto",fontSize:9.5,color:T.textTert,flexShrink:0}}>{fmtT(c.act)}</span>
+                <span style={{marginLeft:"auto",fontSize:10.5,color:T.textTert,flexShrink:0}}>{fmtT(c.act)}</span>
               </span>
               <span style={{display:"block",fontSize:10.5,color:T.textSub,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.addrs.slice(0,2).join(" · ")||fmtPh(c.phone)}</span>
               {c.last&&<span style={{display:"block",fontSize:10.5,color:T.textTert,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.last.direction==="in"?"":"You: "}{String(c.last.text||"").slice(0,64)}</span>}
@@ -17514,7 +17623,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   const actSet=new Set(actList.map(c=>c.key));
   const restList=shown.filter(c=>!actSet.has(c.key)).sort((a,b)=>String(b.lastShow).localeCompare(String(a.lastShow))||String(b.act).localeCompare(String(a.act)));
   const sel=contacts.find(c=>c.key===selKey)||null;
-  const chip=(bg,fg,txt)=><span style={{fontSize:8.5,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
+  const chip=(bg,fg,txt)=><span style={{fontSize:10,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
   const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
   const fmtT=(iso)=>{if(!iso)return"";try{const d=new Date(iso.length===10?iso+"T12:00:00":iso);return d.toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return"";}};
   const fmtShort2=(iso)=>{if(!iso)return"";try{const d=new Date(iso.length===10?iso+"T12:00:00":iso);return new Date().toDateString()===d.toDateString()?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return"";}}
@@ -17631,7 +17740,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           {/* 📅 Follow-up calls due — pinned on top until checked off */}
           {myDue.length>0&&!selMode&&(
             <div style={{borderBottom:`2px solid #7C3AED`,background:"#F5F3FF"}}>
-              <div style={{padding:"7px 13px 3px",fontSize:9.5,fontWeight:800,color:"#7C3AED",letterSpacing:"0.05em"}}>📅 FOLLOW-UP CALLS DUE</div>
+              <div style={{padding:"7px 13px 3px",fontSize:10.5,fontWeight:800,color:"#7C3AED",letterSpacing:"0.05em"}}>📅 FOLLOW-UP CALLS DUE</div>
               {myDue.map(f=>(
                 <div key={f.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 13px"}}>
                   <span style={{flex:1,minWidth:0}}>
@@ -17649,7 +17758,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           {showings===null&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>⏳ Loading your showings…</div>}
           {showings!==null&&shown.length===0&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing here{term?" for that search":""}.</div>}
           {(()=>{
-          const secHdr=(txt,fg,bg,bd)=><div style={{padding:"7px 13px 3px",fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:fg,background:bg,borderTop:`2px solid ${bd}`}}>{txt}</div>;
+          const secHdr=(txt,fg,bg,bd)=><div style={{padding:"7px 13px 3px",fontSize:10.5,fontWeight:800,letterSpacing:"0.05em",color:fg,background:bg,borderTop:`2px solid ${bd}`}}>{txt}</div>;
           const row=(c)=>{
             const active=c.key===selKey;
             const picked=picks.has(c.key);
@@ -17660,9 +17769,9 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                 <span style={{flex:1,minWidth:0}}>
                   <span style={{display:"flex",gap:5,alignItems:"baseline"}}>
                     <b style={{fontSize:13,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{c.name||fmtPh(c.phone)}</b>
-                    {c.buyer&&<span title="BoldTrail buyer" style={{flexShrink:0,fontSize:8.5,fontWeight:800,background:"#FCE7F3",color:"#DB2777",border:"1px solid #FBCFE8",borderRadius:8,padding:"1px 6px"}}>🛒 BUYER</span>}
+                    {c.buyer&&<span title="BoldTrail buyer" style={{flexShrink:0,fontSize:10,fontWeight:800,background:"#FCE7F3",color:"#DB2777",border:"1px solid #FBCFE8",borderRadius:8,padding:"1px 6px"}}>🛒 BUYER</span>}
                     {c.insp&&<span title="Inspection / appraisal / walk-through" style={{flexShrink:0,fontSize:10}}>🔍</span>}
-                    <span style={{marginLeft:"auto",fontSize:9.5,color:T.textTert,flexShrink:0}}>{fmtShort2(c.act)}</span>
+                    <span style={{marginLeft:"auto",fontSize:10.5,color:T.textTert,flexShrink:0}}>{fmtShort2(c.act)}</span>
                   </span>
                   <span style={{display:"block",fontSize:10.5,color:T.textSub,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.addrs.slice(0,2).join(" · ")||fmtPh(c.phone)}{c.shows.length>1?` — ${c.shows.length} showings`:""}</span>
                 </span>
@@ -17825,7 +17934,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
                     <span style={{minWidth:0,paddingTop:1}}>
                       <span style={{display:"block",fontSize:12.5,fontWeight:700,color:T.text}}>{e.title}</span>
                       {e.sub&&<span style={{display:"block",fontSize:11,color:T.textSub,marginTop:1,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.sub}</span>}
-                      <span style={{display:"block",fontSize:9.5,color:T.textTert,marginTop:1}}>{fmtT(e.at)}</span>
+                      <span style={{display:"block",fontSize:10.5,color:T.textTert,marginTop:1}}>{fmtT(e.at)}</span>
                     </span>
                   </div>
                 ))}
@@ -18130,14 +18239,14 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           {reg.map((e,ri)=>{const m=kindMeta(e);const set=e.kind==="payback"&&e.draw&&(e.draw.principalHandling||e.draw.interestHandling);
             const rowBg=ri%2?T.gold+"12":T.card;return(
             <div key={e.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px 6px 12px",background:rowBg,borderTop:ri?`1px solid ${T.border}`:"none"}}>
-              <div style={{width:44,fontSize:9.5,color:T.textTert,flexShrink:0,lineHeight:1.15}}>{finFmtDate(e.date)||"—"}</div>
+              <div style={{width:44,fontSize:10.5,color:T.textTert,flexShrink:0,lineHeight:1.15}}>{finFmtDate(e.date)||"—"}</div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.label}</div>
-                {(m.extra||set)&&<div style={{fontSize:9.5,color:set?T.textTert:"#16A34A",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{set?`${e.draw.principalHandling==="withdraw"?"principal out":"principal kept"} · ${e.draw.interestHandling==="reinvest"?"interest reinvested":e.draw.interestHandling==="distribute"?"interest paid out":"no interest entry"}`:m.extra}</div>}
+                {(m.extra||set)&&<div style={{fontSize:10.5,color:set?T.textTert:"#16A34A",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{set?`${e.draw.principalHandling==="withdraw"?"principal out":"principal kept"} · ${e.draw.interestHandling==="reinvest"?"interest reinvested":e.draw.interestHandling==="distribute"?"interest paid out":"no interest entry"}`:m.extra}</div>}
               </div>
               <div style={{flexShrink:0,textAlign:"right",fontVariantNumeric:"tabular-nums",minWidth:isMobile?76:94}}>
                 <div style={{fontSize:12.5,fontWeight:700,color:m.color,whiteSpace:"nowrap"}}>{((m.sign<0)!==(e.amount<0))?"−":"+"}{fmtD(Math.abs(e.amount))}</div>
-                <div style={{fontSize:9,color:T.textTert,whiteSpace:"nowrap"}}>bal {fmtD(e.balance)}</div>
+                <div style={{fontSize:10,color:T.textTert,whiteSpace:"nowrap"}}>bal {fmtD(e.balance)}</div>
               </div>
               <button onClick={(evt)=>openRowMenu(e,evt)} title="Actions" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:17,lineHeight:1,flexShrink:0,padding:"2px 4px",fontWeight:800}}>⋯</button>
             </div>
@@ -18177,8 +18286,8 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"12px 14px 0":"14px 24px 0",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <div style={{fontSize:isMobile?19:22,fontWeight:800,color:T.text}}>Financial Section</div>
-          <span style={{fontSize:9,fontWeight:800,background:T.gold,color:"#fff",borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>Private</span>
-          {!canEdit&&<span style={{fontSize:9,fontWeight:800,background:T.bg,color:T.textSub,border:`1px solid ${T.border}`,borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>View only</span>}
+          <span style={{fontSize:10,fontWeight:800,background:T.gold,color:"#fff",borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>Private</span>
+          {!canEdit&&<span style={{fontSize:10,fontWeight:800,background:T.bg,color:T.textSub,border:`1px solid ${T.border}`,borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>View only</span>}
           {canEdit&&subTab==="loc"&&<div style={{marginLeft:"auto",display:"flex",gap:8}}>
             <button onClick={()=>setPaybackAll(true)} title="Pay back a loan — pick the property, the lender's tagged on each" style={{...finBtn(false),padding:"8px 12px",border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#8a6d1f"}}>↩ Payback</button>
             <button onClick={downloadBackup} title="Download a backup file of all financial data" style={{...finBtn(false),padding:"8px 12px"}}>⬇ Backup</button>
@@ -19468,7 +19577,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
                   senders.sort((a,b)=>((b.mine?1:0)-(a.mine?1:0))||String(b.latestP.date||"").localeCompare(String(a.latestP.date||"")));
                   const sGroups=MAIL_CATS.map(c=>({c,senders:senders.filter(s=>s.cat===c.key)})).filter(g=>g.senders.length);
                   return sGroups.map((g,gi)=>(<Fragment key={g.c.key}>
-                    <div style={{padding:"7px 16px 4px",fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:g.c.color,borderTop:gi===0?"none":`1px solid ${T.border}`}}>{g.c.icon} {g.c.name.toUpperCase()}</div>
+                    <div style={{padding:"7px 16px 4px",fontSize:10.5,fontWeight:800,letterSpacing:"0.05em",color:g.c.color,borderTop:gi===0?"none":`1px solid ${T.border}`}}>{g.c.icon} {g.c.name.toUpperCase()}</div>
                     {g.senders.map(s=>{
                       const single=s.items.length===1;
                       const onOpen=()=>{if(single){const x=s.items[0];x.mine?setViewer(x.p):openTeamView(x.p);}else setSenderOpen(s.k);};
@@ -19480,8 +19589,8 @@ function PropertyEmails({property,onUpdate,isMobile}){
                             <div style={{fontSize:13.5,fontWeight:800,color:s.mine?T.text:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title}</div>
                             <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.latestP.ai&&s.latestP.ai.desc?<span style={{color:"#8a6d1f",fontWeight:700}}>{s.latestP.ai.desc} · </span>:null}{s.latestP.from&&s.latestP.from!==s.title?`${s.latestP.from} · `:""}{s.latestP.subject||s.latestP.preview||""} · {mailWhen(s.latestP.date)}</div>
                           </div>
-                          {s.auto&&<span title="Pinned automatically" style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
-                          {!s.mine&&<span title={`Matched in ${s.latestP.autoBy||"a teammate"}'s inbox`} style={{width:22,height:22,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:8.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(s.latestP.autoBy)}</span>}
+                          {s.auto&&<span title="Pinned automatically" style={{fontSize:10,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
+                          {!s.mine&&<span title={`Matched in ${s.latestP.autoBy||"a teammate"}'s inbox`} style={{width:22,height:22,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:10,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(s.latestP.autoBy)}</span>}
                           {s.unread>0&&<span style={{fontSize:10.5,fontWeight:800,color:"#fff",background:T.red,borderRadius:10,padding:"3px 9px",flexShrink:0,whiteSpace:"nowrap"}}>{s.unread} new</span>}
                           <span style={{fontSize:10.5,fontWeight:800,color:T.textSub,background:"#F1F1F4",borderRadius:10,padding:"3px 9px",flexShrink:0,whiteSpace:"nowrap"}}>{s.items.length} chain{s.items.length>1?"s":""}</span>
                           {single&&<button onClick={()=>setLabelPin(s.items[0].p)} title="Label / link this chain" style={{background:s.items[0].p.label?T.goldLight:"none",border:s.items[0].p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:s.items[0].p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:"5px 8px"}}>🏷</button>}
@@ -19522,7 +19631,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
                       <div style={{fontSize:13,fontWeight:unread?800:700,color:mine?T.blue:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
                       <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.ai&&p.ai.desc?<span style={{color:"#8a6d1f",fontWeight:700}}>{p.ai.desc} · </span>:null}{p.from} · {mailWhen(p.date)}{mine?"":` · ${p.autoBy||"a teammate"}'s`}</div>
                     </div>
-                    {p.auto&&<span style={{fontSize:8.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
+                    {p.auto&&<span style={{fontSize:10,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
                     <button onClick={()=>setLabelPin(p)} title="Label / link this chain" style={{background:p.label?T.goldLight:"none",border:p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:"5px 8px"}}>🏷</button>
                     <button onClick={()=>unpin(p.id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
                   </div>
@@ -19795,7 +19904,7 @@ function GlobalSearch({isMobile,go,who}){
     msgs.sort((a,b)=>b.at.localeCompare(a.at));
     return {props,cons,people:people.slice(0,6),tasks:tasks.slice(0,5),msgs:msgs.slice(0,4)};
   },[ql,qd,sharedProps,contacts,officeMessages,officeTasks,who]);
-  const sec=(t)=><div key={"sec"+t} style={{padding:"8px 16px 3px",fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>{t}</div>;
+  const sec=(t)=><div key={"sec"+t} style={{padding:"8px 16px 3px",fontSize:10.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>{t}</div>;
   const row=(key,icon,main,side,onClick)=>(
     <div key={key} onClick={()=>{onClick();close();}} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 16px",borderTop:`1px solid ${T.border}55`,cursor:"pointer",fontSize:12.5,color:T.text}}>
       <span style={{flexShrink:0}}>{icon}</span>
@@ -20004,7 +20113,7 @@ function PhonePopup({onClose}){
                       {pl.length>0&&<span style={{display:"block",fontSize:10.5,fontWeight:700,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>🏠 {pl[0].addr}{pl.length>1&&<b style={{color:"#C9A227"}}> +{pl.length-1} more</b>}</span>}
                       <span style={{display:"block",fontSize:10,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{status} · {callRel(m.at)}{name!==fmtCallPhone(m.phone)?` · ${fmtCallPhone(m.phone)}`:""}</span>
                     </span>
-                    {(owner||m.ext)&&<span title={`Rang ${owner?cap(owner)+"'s":"ext "+m.ext} line`} style={{fontSize:9.5,fontWeight:800,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:9,padding:"2px 7px",flexShrink:0}}>{owner?cap(owner):`ext ${m.ext}`}</span>}
+                    {(owner||m.ext)&&<span title={`Rang ${owner?cap(owner)+"'s":"ext "+m.ext} line`} style={{fontSize:10.5,fontWeight:800,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:9,padding:"2px 7px",flexShrink:0}}>{owner?cap(owner):`ext ${m.ext}`}</span>}
                     <CallA phone={m.phone} title="Call back" style={{...ico,background:"#0F9D58",border:"none",color:"#fff"}}>📞</CallA>
                     <button onClick={()=>setTextTo({phone:m.phone,name})} title="Text them" style={ico}>💬</button>
                   </div>
@@ -20160,7 +20269,7 @@ function PhoneTopButton(){
   const openUp=()=>{setOpen(true);if(savePrefs)Promise.resolve(savePrefs({callsSeenAt:new Date().toISOString()})).catch(()=>{/* badge just stays */});};
   return(<>
     <button onClick={openUp} title="Phone — dialer & call history" aria-label="Phone" style={TOPBAR_SEG}><PhoneIcon size={17} strokeWidth={1.6}/>
-      {missedN>0&&<UnreadBadge count={missedN} style={{position:"absolute",top:1,right:1,minWidth:15,height:15,fontSize:9}}/>}
+      {missedN>0&&<UnreadBadge count={missedN} style={{position:"absolute",top:1,right:1,minWidth:15,height:15,fontSize:10}}/>}
     </button>
     {open&&<PhonePopup onClose={()=>setOpen(false)}/>}
   </>);

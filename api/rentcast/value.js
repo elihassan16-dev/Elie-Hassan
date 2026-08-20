@@ -29,7 +29,7 @@ export default async function handler(req, res) {
   // Owner-tunable comp filters: radius in miles, sold-within window in months.
   const radius = Math.min(3, Math.max(0.3, num(req.query.radius) || 1));
   const months = Math.min(24, Math.max(3, Math.round(num(req.query.months)) || 12));
-  const cacheKey = `v9r${radius}m${months}` + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 70);
+  const cacheKey = `v11r${radius}m${months}` + address.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 70);
 
   const db = SERVICE ? createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } }) : null;
   const fresh = (at) => at && Date.now() - new Date(at).getTime() < 30 * 86400000;
@@ -72,6 +72,14 @@ export default async function handler(req, res) {
         lastSalePrice: num(p0.lastSalePrice), lastSaleDate: String(p0.lastSaleDate || "").slice(0, 10),
         pool: !!feats.pool, garage: !!feats.garage, fireplace: !!feats.fireplace,
         ...(feats.garageSpaces ? { garageSpaces: num(feats.garageSpaces) } : {}),
+        // Record details for the Property Details card auto-fill.
+        county: String(p0.county || ""), zoning: String(p0.zoning || ""),
+        apn: String(p0.assessorID || ""),
+        heating: String(feats.heatingType || (feats.heating ? "Yes" : "")),
+        cooling: String(feats.coolingType || (feats.cooling ? "Yes" : "")),
+        architecture: String(feats.architectureType || ""),
+        ...(num(feats.floorCount) ? { floors: num(feats.floorCount) } : {}),
+        owner: (p0.owner && Array.isArray(p0.owner.names) ? p0.owner.names.join(", ") : "").slice(0, 90),
       } : null,
       comps: [],
     };
@@ -198,9 +206,12 @@ export default async function handler(req, res) {
           }
         }
       };
+      // Confirmed-sale candidates lead; off-market pendings are capped extras
+      // so they can never flood the sheet when deed records run thin.
       const seenF = new Set();
-      out.comps = [...offMkt, ...listComps].filter((c) => { const k = norm(c.full); if (seenF.has(k)) return false; seenF.add(k); return true; }).slice(0, 12);
+      out.comps = [...listComps, ...offMkt.slice(0, 4)].filter((c) => { const k = norm(c.full); if (seenF.has(k)) return false; seenF.add(k); return true; }).slice(0, 14);
       const lookupSold = async (c, i) => {
+        if (String(c.recNote || "").startsWith("off-market:")) return; // already the freshest info we have
         try {
           const pr = await rcRetry(`/properties?address=${encodeURIComponent(c.full)}`);
           const rec = Array.isArray(pr) ? pr[0] : pr;

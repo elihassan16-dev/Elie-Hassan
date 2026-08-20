@@ -10187,7 +10187,10 @@ function PropertyFilesPanel(){
 // over the sold portfolio vs. the real sale prices.
 function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
   const saved=f.arvAi||null;
-  const[open,setOpen]=useState(false);
+  // The whole underwriter lives in full-screen sheets now (Elie's ask):
+  // "ask" = questionnaire, the comp picker shows while cand is set, and
+  // "result" = the verdict. The Financial Overview keeps a slim trigger row.
+  const[sheet,setSheet]=useState(null); // null | "ask" | "result"
   const[plan,setPlan]=useState((saved&&saved.plan)||"");
   // 📋 The questionnaire: what will the FINISHED house be? Scope + sqft/bed/
   // bath changes ride to the underwriter so it values the finished product,
@@ -10293,7 +10296,7 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
       const usedBy={};(ai.used||[]).forEach(u=>{usedBy[u.i]={used:true,why:u.why};});(ai.skipped||[]).forEach(u=>{usedBy[u.i]=usedBy[u.i]||{used:false,why:u.why};});
       upMany({arvAi:{at:new Date().toISOString(),plan,after:afterCfg(),provider:"county records",filters:{radius:radiusSel,months:monthsSel},arv:ai.arv,low:ai.low,high:ai.high,psf:ai.psf,reasoning:ai.reasoning,asIs:cand.data.value?cand.data.value.price:0,subject:cand.data.subject||null,
         comps:comps.map((c,i)=>({...c,used:!!(usedBy[i]&&usedBy[i].used),why:(usedBy[i]&&usedBy[i].why)||""}))}});
-      setOvr({});setPricesDirty(false);setCand(null);
+      setOvr({});setPricesDirty(false);setCand(null);setSheet("result");
     }catch(e){setErr(e.message||"The underwrite failed — try again.");}
     setBusy(false);
   };
@@ -10352,15 +10355,32 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
   const btRows=(bt&&bt.rows)||[];
   const btOk=btRows.filter(r=>r.est>0);
   const avgMiss=btOk.length?btOk.reduce((s,r)=>s+Math.abs(r.est-r.actual)/r.actual,0)/btOk.length:0;
+  const street=String(address||"").split(",")[0];
+  const dimSt=(mob)=>({position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:460,backdropFilter:"blur(5px)",display:"flex",alignItems:mob?"flex-end":"center",justifyContent:"center",padding:mob?"12px 0 0":16,boxSizing:"border-box"});
+  const shSt=(mob)=>({background:"#fff",borderRadius:mob?"22px 22px 0 0":22,width:mob?"100%":"min(680px,96vw)",maxHeight:mob?"96%":"88vh",height:mob?"96%":undefined,display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 24px 70px rgba(0,0,0,0.28)"});
+  const shHd=(title,sub)=>(
+    <div style={{padding:"14px 18px 10px",borderBottom:`2px solid ${T.gold}`,flexShrink:0}}>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <div style={{flex:1,minWidth:0,fontSize:16,fontWeight:700,letterSpacing:"-0.015em",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
+        <button onClick={()=>setSheet(null)} style={{width:30,height:30,minHeight:30,borderRadius:15,background:"rgba(118,118,128,0.08)",border:"none",color:T.textSub,fontSize:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0,padding:0}}>✕</button>
+      </div>
+      {sub?<div style={{fontSize:11,color:T.textSub,marginTop:3}}>{sub}</div>:null}
+    </div>
+  );
   return(
     <div style={{borderTop:`1px solid ${T.border}`,background:"#FDFBF4"}}>
-      <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,padding:isMobile?"9px 12px":"9px 18px",cursor:"pointer"}}>
+      {/* The slim trigger row — everything else happens in the sheets. */}
+      <div onClick={()=>setSheet(res?"result":"ask")} style={{display:"flex",alignItems:"center",gap:8,padding:isMobile?"10px 12px":"10px 18px",cursor:"pointer"}}>
         <span style={{fontSize:12.5,fontWeight:800,color:"#8a6d1f"}}>🎯 AI underwrite the ARV</span>
         {res&&<span style={{fontSize:10.5,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}66`,borderRadius:9,padding:"2px 8px"}}>{fmtD(res.arv)}</span>}
-        <span style={{marginLeft:"auto",fontSize:11,color:"#B8953F"}}>{open?"▴ close":"▾ open"}</span>
+        <span style={{marginLeft:"auto",fontSize:11,color:"#B8953F",fontWeight:600}}>{res?"open ↗":"start ↗"}</span>
       </div>
-      {open&&(
-        <div style={{padding:isMobile?"0 12px 14px":"0 18px 16px"}}>
+      {/* Stage 1 · the questionnaire sheet */}
+      {sheet==="ask"&&!cand&&createPortal(
+        <div onClick={()=>!busy&&setSheet(null)} style={dimSt(!!isMobile)}>
+          <div onClick={e=>e.stopPropagation()} style={shSt(!!isMobile)}>
+            {shHd(`🎯 AI underwrite${isMobile?"":` — ${street}`}`,"Tell it the plan, then pull the comps")}
+            <div style={{flex:1,overflowY:"auto",minHeight:0,padding:"4px 18px 16px"}}>
           {(()=>{
             const subj=(saved&&saved.subject)||null;
             const qHdr=(t)=><div style={{fontSize:10.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f",margin:"8px 0 4px"}}>{t}</div>;
@@ -10415,6 +10435,10 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
           </div>
           {err&&<div style={{marginTop:8,fontSize:11.5,color:T.red,fontWeight:700}}>{err}</div>}
           {infoNote>0&&<div style={{marginTop:6,fontSize:11,color:"#15803D",fontWeight:600}}>📋 Filled {infoNote} blank field{infoNote===1?"":"s"} in Property Details from the county record.</div>}
+            </div>
+          </div>
+        </div>,document.body)}
+      {/* Stage 2 · the Comp Room (shows while cand is set) */}
           {cand&&(()=>{
             const subj=cand.data.subject||{};
             const mob=!!isMobile;
@@ -10463,7 +10487,7 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
                   <div style={{padding:"14px 18px 10px",borderBottom:`2px solid ${T.gold}`,flexShrink:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
                       <div style={{flex:1,minWidth:0,fontSize:16,fontWeight:700,letterSpacing:"-0.015em",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🎯 Pick the comps{mob?"":` — ${String(address).split(",")[0]}`}</div>
-                      <button onClick={()=>setCand(null)} style={{width:30,height:30,minHeight:30,borderRadius:15,background:"rgba(118,118,128,0.08)",border:"none",color:T.textSub,fontSize:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0,padding:0}}>✕</button>
+                      <button onClick={()=>{setCand(null);setSheet(null);}} style={{width:30,height:30,minHeight:30,borderRadius:15,background:"rgba(118,118,128,0.08)",border:"none",color:T.textSub,fontSize:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0,padding:0}}>✕</button>
                     </div>
                     <div style={{fontSize:11,color:T.textSub,marginTop:3}}>{[subj.sqft?`Your house: ${Number(subj.sqft).toLocaleString()} sf`:"",subj.beds?`${subj.beds}bd/${subj.baths||"?"}ba`:"",scope?({light:"light rehab",mid:"mid rehab",gut:"full gut"})[scope]:"",`${cand.comps.length} found · ${picks.size} checked`].filter(Boolean).join(" · ")}</div>
                   </div>
@@ -10492,6 +10516,12 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
                 </div>
               </div>,document.body);
           })()}
+      {/* Stage 3 · the verdict sheet */}
+      {sheet==="result"&&!cand&&res&&createPortal(
+        <div onClick={()=>!busy&&setSheet(null)} style={dimSt(!!isMobile)}>
+          <div onClick={e=>e.stopPropagation()} style={shSt(!!isMobile)}>
+            {shHd(`🎯 Suggested ARV${isMobile?"":` — ${street}`}`,`Underwritten ${new Date(res.at).toLocaleDateString()} · ${(res.comps||[]).length} comps`)}
+            <div style={{flex:1,overflowY:"auto",minHeight:0,padding:"10px 18px 14px"}}>
           {res&&!cand&&(
             <div style={{marginTop:12,background:"#fff",border:`1.5px solid ${T.gold}`,borderRadius:13,padding:"12px 14px"}}>
               <div style={{fontSize:10.5,fontWeight:800,letterSpacing:"0.05em",color:"#8a6d1f"}}>SUGGESTED AFTER-REPAIR VALUE</div>
@@ -10587,8 +10617,13 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
               <div style={{fontSize:10,color:T.textTert,marginTop:6,lineHeight:1.5}}>The estimate here is the automated value of each house as it sits today — for a renovated, recently sold flip that's a fair stand-in for what an ARV call would have said.</div>
             </div>
           )}
-        </div>
-      )}
+            </div>
+            <div style={{display:"flex",gap:8,padding:isMobile?"11px 16px max(14px, env(safe-area-inset-bottom))":"11px 16px",borderTop:`1px solid ${T.border}`,flexShrink:0,background:"#fff",flexWrap:"wrap"}}>
+              <button onClick={()=>setSheet("ask")} style={chipBtn(false)}>✎ Plan & filters</button>
+              <button onClick={()=>run(true)} disabled={busy} style={chipBtn(false)}>{busy?"⏳ Pulling…":"↻ Fresh comps"}</button>
+            </div>
+          </div>
+        </div>,document.body)}
     </div>
   );
 }

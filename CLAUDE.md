@@ -23,5 +23,5 @@ Production real-estate PWA for Elie Hassan (non-technical; voice-dictated messag
 - Do NOT cancel Quo subscription decision = Elie's alone. PR #502 preview shipped (CRM). Tasks "By property" third view previewed but NOT approved/built.
 - Sort/behavior decisions Elie made are in git history — read recent commit messages for rationale.
 
-## NEXT TASK (approved, not yet built)
-📞 Phone popup: green 📞 icon in the top bar next to the ✨ assistant (desktop + PWA), red missed-call badge (clears on open). Popup = dial pad ("Call from my desk" via Jivetel click-to-call + "📲 Send to my cell" handoff) + named call history for all office lines (identifyPhone-style names/roles/property, missed/answered/outgoing + durations from the calls data in sms_messages kind:"call" and api/jivetel/calls.js store, filter tabs All/Mine/Moshe/Esti, per-row call-back + text). Admin/team only. Mockups approved: scratchpad fin-mock/dialer.html + dialtop.html.
+## Recently shipped (context, no open next task)
+📞 Phone popup DONE (PR #728): green 📞 top-bar icon + missed badge, dial pad w/ Jivetel desk call + send-to-cell, named call history for all office lines w/ All/Mine/Moshe/Esti tabs, person card — all in the iOS design language. App-wide iOS redesign complete (dashboard untouched by request); contractor portal redesigned (PR #727); preview harnesses: appdemo.html (admin) + ctrdemo.html (contractor portal) via vite.appdemo.config.js.

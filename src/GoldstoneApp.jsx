@@ -483,7 +483,6 @@ const ICONS={
 };
 const NAV=[
   {key:"tasks",label:"Dashboard",short:"Dashboard",icon:ICONS.tasks},
-  {key:"routes",label:"Route Planner",short:"Routes",icon:ICONS.routes},
   {key:"messages",label:"Messages",short:"Messages",icon:ICONS.messages},
   {key:"portfolio",label:"Portfolio Overview",short:"Portfolio",icon:ICONS.portfolio},
   {key:"leads",label:"New Leads",short:"Leads",icon:ICONS.leads},
@@ -494,6 +493,7 @@ const NAV=[
   {key:"contacts",label:"People",short:"People",icon:ICONS.contacts},
   {key:"email",label:"Email",short:"Email",icon:ICONS.email},
   {key:"financials",label:"Financial Section",short:"Financials",icon:ICONS.financials},
+  {key:"routes",label:"Route Planner",short:"Routes",icon:ICONS.routes},
 ];
 // Sections only the admin (Elie) can see. Everyone else never gets these nav items.
 const ADMIN_ONLY_KEYS=new Set(["financials"]);

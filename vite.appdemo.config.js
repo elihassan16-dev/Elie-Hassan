@@ -19,6 +19,7 @@ export default defineConfig({
       // to an in-memory sample so the REAL portal renders offline too. Only the
       // two contractors/ pages import exactly "./data".
       { find: /^\.\/data$/, replacement: r("src/demo/ctrMockData.js") },
+      { find: /^\.\/contractors\/data$/, replacement: r("src/demo/ctrMockData.js") },
     ],
   },
   server: { port: 5188, strictPort: true },

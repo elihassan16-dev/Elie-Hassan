@@ -43,6 +43,15 @@ export const supabase = {
   from(table) {
     const q = new Q();
     if (table === "sms_messages") q.res = { data: DEMO_CALLS, error: null, count: DEMO_CALLS.length };
+    if (table === "users") {
+      const U = [
+        { id: "cu1", name: "Shia Polak", email: "shia@polakconstruction.com", notify_muted: false, notify_channels: null, _org: "org1" },
+        { id: "cu2", name: "Moti Polak", email: "moti@polakconstruction.com", notify_muted: false, notify_channels: null, _org: "org1" },
+        { id: "cu3", name: "Mendel Davids", email: "mendel@mcdbuilds.com", notify_muted: false, notify_channels: null, _org: "org2" },
+      ];
+      q.res = { data: U, error: null, count: U.length };
+      q.eq = (col, val) => { if (col === "contractor_org_id") q.res = { ...q.res, data: U.filter(r => r._org === String(val)) }; return q; };
+    }
     return q;
   },
   rpc() { return new Q(); },

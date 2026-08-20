@@ -4151,7 +4151,7 @@ function RentalPortfolioPage(){
             </div>
             {ledger.length===0
               ?<div style={{padding:"22px 16px",textAlign:"center",fontSize:13,color:T.textTert}}>No months logged yet. Add one — it pre-fills expected rent, mortgage & management.</div>
-              :<div style={{overflowX:"auto"}}>
+              :<div style={{overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                   <thead><tr>
                     <th style={{textAlign:"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"9px 16px",borderBottom:`1px solid ${T.border}`}}>Month</th>
@@ -4276,11 +4276,11 @@ function RentalPortfolioPage(){
 
         {/* Date range */}
         <div style={{...card,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <span style={{fontSize:12.5,color:T.textSub,fontWeight:600}}>Range</span>
-          <input type="month" value={from} onChange={e=>setFrom(e.target.value)} style={{...iS,width:"auto"}}/>
-          <span style={{color:T.textTert}}>→</span>
-          <input type="month" value={to} onChange={e=>setTo(e.target.value)} style={{...iS,width:"auto"}}/>
-          <span style={{marginLeft:"auto",fontSize:12,color:T.textTert}}>{months.length} month{months.length!==1?"s":""}</span>
+          <span style={{fontSize:12.5,color:T.textSub,fontWeight:600,flexShrink:0}}>Range</span>
+          <input type="month" value={from} onChange={e=>setFrom(e.target.value)} style={{...iS,width:"auto",flex:"1 1 118px",minWidth:0,fontSize:13}}/>
+          <span style={{color:T.textTert,flexShrink:0}}>→</span>
+          <input type="month" value={to} onChange={e=>setTo(e.target.value)} style={{...iS,width:"auto",flex:"1 1 118px",minWidth:0,fontSize:13}}/>
+          <span style={{marginLeft:"auto",fontSize:12,color:T.textTert,flexShrink:0}}>{months.length} month{months.length!==1?"s":""}</span>
         </div>
 
         {/* Metrics */}
@@ -6061,20 +6061,29 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
     const label=days<60?`${days} day${days===1?"":"s"}`:`${(days/30.44).toFixed(1)} months (${days} days)`;
     return {label,sold:!!soldIso};
   })();
+  // The header's icon capsule — one definition, placed inline with the address
+  // on desktop and on its own row (next to Archive) on phones.
+  const iconCaps=()=>(
+    <div style={CAPS_ROW}>
+      <button onClick={()=>setShowInfo(true)} title="Property info" style={{...capsSeg(T.blue),fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic"}}>i</button>
+      {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={capsSeg()}><TeamChatIcon size={14}/></button>}
+      <button onClick={()=>setAiChat(true)} title="Ask AI about this property" style={capsSeg(T.gold)}><SparkleIcon size={15}/></button>
+      <button onClick={()=>setStatusBoard(true)} title="Property status — utilities & permits (contractors see this too)" style={capsSeg()}>🏗</button>
+      <button onClick={()=>setEditAddr(true)} title="Edit the address" style={capsSeg()}>✎</button>
+    </div>
+  );
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
-      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"18px 24px 0",flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:10}}>
-          <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
-            <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis"}}>{full}</div>
-            <div style={CAPS_ROW}>
-              <button onClick={()=>setShowInfo(true)} title="Property info" style={{...capsSeg(T.blue),fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic"}}>i</button>
-              {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={capsSeg()}><TeamChatIcon size={14}/></button>}
-              <button onClick={()=>setAiChat(true)} title="Ask AI about this property" style={capsSeg(T.gold)}><SparkleIcon size={15}/></button>
-              <button onClick={()=>setStatusBoard(true)} title="Property status — utilities & permits (contractors see this too)" style={capsSeg()}>🏗</button>
-              <button onClick={()=>setEditAddr(true)} title="Edit the address" style={capsSeg()}>✎</button>
-            </div>
+      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"14px 16px 0":"18px 24px 0",flexShrink:0}}>
+        {/* On phones the address takes its own full-width line (it was being
+            squeezed to ~50px between the icon capsule and Archive, wrapping
+            one word per line); the icons + Archive wrap onto the next row. */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"8px 12px",marginBottom:10,flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0,flex:isMobile?"1 1 100%":"1 1 auto"}}>
+            <div style={{fontSize:isMobile?17:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0,flex:isMobile?"1 1 auto":"0 1 auto"}}>{full}</div>
+            {!isMobile&&iconCaps()}
           </div>
+          {isMobile&&iconCaps()}
           {editAddr&&<AddressEditPopup rec={property} onSave={(v)=>{onUpdate(property.id,"address",v.address);onUpdate(property.id,"city",v.city);onUpdate(property.id,"state",v.state);onUpdate(property.id,"zip",v.zip);}} onClose={()=>setEditAddr(false)}/>}
           {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
@@ -6537,8 +6546,8 @@ function LeadDetail({lead,onUpdate}){
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
 
       <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"18px 24px 0",flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:6,minWidth:0}}>
-          <div style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis"}}>{full}</div>
+        <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:6,minWidth:0,flexWrap:"wrap"}}>
+          <div style={{fontSize:18,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0,flex:"0 1 auto"}}>{full}</div>
           <div style={CAPS_ROW}>
             <button onClick={()=>setShowInfo(true)} title="Property info" style={{...capsSeg(T.blue),fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic"}}>i</button>
             <button onClick={()=>setEditAddr(true)} title="Edit the address" style={capsSeg()}>✎</button>
@@ -7153,7 +7162,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
             })}
           </div>
         ) : (
-        <div style={{overflowX:"auto"}}>
+        <div style={{overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain"}}>
           <table style={{width:"100%",borderCollapse:"collapse"}}>
             <thead>
               <tr>
@@ -10654,7 +10663,7 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
               <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.55,marginTop:6}}>{res.reasoning}</div>
               {res.asIs>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>Automated as-is estimate: {fmtD(res.asIs)} · comps: {res.provider||"county records"} · underwritten {new Date(res.at).toLocaleDateString()}{res.filters?` · within ${res.filters.radius} mi, sold last ${res.filters.months} mo`:""}</div>}
               {res.after&&<div style={{fontSize:10.5,color:"#8a6d1f",fontWeight:700,marginTop:3}}>🏗 Valued as finished: {[res.after.scope?({light:"light rehab",mid:"mid rehab",gut:"full gut"})[res.after.scope]:"",res.after.sqftAdd?`+${res.after.sqftAdd} sf`:"",res.after.beds?`${res.after.beds} bd`:"",(res.after.bathsFull||res.after.bathsHalf)?`${res.after.bathsFull||0} full${res.after.bathsHalf?` + ${res.after.bathsHalf} half`:""} ba`:""].filter(Boolean).join(" · ")}</div>}
-              <div style={{overflowX:"auto",marginTop:6}}>
+              <div style={{overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",marginTop:6}}>
                 <table style={{borderCollapse:"collapse",width:"100%",minWidth:520}}>
                   <thead><tr>{["COMP","LIST","SOLD","WHEN","$/SF","DIST",""].map(h=><th key={h} style={{fontSize:10,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>
                   <tbody>
@@ -11356,7 +11365,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
       )}
       {/* Quick message templates (prefill the box, review, Send) */}
       {!recording&&templates.length>0&&(
-        <div style={{display:"flex",gap:6,overflowX:"auto",padding:"0 2px 1px",WebkitOverflowScrolling:"touch"}}>
+        <div style={{display:"flex",gap:6,overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",padding:"0 2px 1px",WebkitOverflowScrolling:"touch"}}>
           {templates.map((tpl,i)=>(
             <button key={"t"+i} onClick={()=>insertTemplate(tpl.text||tpl)} title={tpl.text||tpl}
               style={{whiteSpace:"nowrap",flexShrink:0,fontSize:12,fontWeight:600,padding:"5px 11px",borderRadius:16,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,cursor:"pointer",fontFamily:"inherit"}}>{tpl.label||tpl}</button>
@@ -19062,7 +19071,7 @@ function EmailPage({isMobile}){
             </div>
           )}
           {/* Label filter */}
-          {chains&&chains.length>0&&<div style={{display:"flex",gap:6,padding:"9px 12px",borderBottom:`1px solid ${T.border}`,overflowX:"auto",flexShrink:0,scrollbarWidth:"none"}}>
+          {chains&&chains.length>0&&<div style={{display:"flex",gap:6,padding:"9px 12px",borderBottom:`1px solid ${T.border}`,overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",flexShrink:0,scrollbarWidth:"none"}}>
             {[["all","All"],...Object.entries(MAIL_LABELS).map(([k,v])=>[k,`${v.icon} ${v.name}`])].map(([k,l])=>{const on=filterKind===k;return(
               <button key={k} onClick={()=>setFilterKind(k)} style={{...TOGGLE_CHIP(on),flexShrink:0,padding:"4px 11px",fontSize:12}}>{l}</button>
             );})}
@@ -19735,7 +19744,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
             );
             const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"👥";
             return(<>
-              <div style={{display:"flex",gap:6,marginBottom:10,overflowX:"auto",paddingBottom:2,WebkitOverflowScrolling:"touch"}}>
+              <div style={{display:"flex",gap:6,marginBottom:10,overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",paddingBottom:2,WebkitOverflowScrolling:"touch"}}>
                 {chipB("all",`All · ${counts.all}`)}
                 {chipB("mine",`👤 Yours · ${counts.mine}`)}
                 {MAIL_CATS.filter(c=>counts[c.key]>0).map(c=>chipB(c.key,`${c.icon} ${c.key==="Quote"?"Quotes":c.name} · ${counts[c.key]}`))}
@@ -20277,7 +20286,7 @@ function PhonePopup({onClose}){
           </div>
         ):(
           <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column"}}>
-            <div style={{display:"flex",gap:6,padding:"10px 14px",overflowX:"auto",flexShrink:0,background:"#fff",borderBottom:`1px solid ${T.border}`}}>
+            <div style={{display:"flex",gap:6,padding:"10px 14px",overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",flexShrink:0,background:"#fff",borderBottom:`1px solid ${T.border}`}}>
               {tabs.map(([k,label])=><button key={k} onClick={()=>setFilter(k)} style={tabBtn(filter===k)}>{label}</button>)}
             </div>
             <div style={{flex:1,overflowY:"auto"}}>

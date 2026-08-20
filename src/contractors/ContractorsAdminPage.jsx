@@ -368,7 +368,7 @@ function JobModal({ org, jobModal, properties, save, onSaved, onClose }) {
 // Lists the property's QB project transactions (expense side), searchable —
 // prefiltered to the contractor's name — and pins the picked ones onto the job
 // as payments. Already-pinned transactions are marked and can't double-apply.
-export function QBPayPicker({ qbProjectId, orgName, existingQbIds, onAdd, onClose }) {
+export function QBPayPicker({ qbProjectId, orgName, existingQbIds, excludedQbIds = [], onAdd, onClose }) {
   const [items, setItems] = useState(null);
   const [err, setErr] = useState("");
   // Prefilter with the org's FIRST word, not the full legal name — a wire whose
@@ -411,12 +411,13 @@ export function QBPayPicker({ qbProjectId, orgName, existingQbIds, onAdd, onClos
         {shown.map((t) => {
           const k = keyOf(t);
           const already = have.has(k);
+          const excluded = !already && (excludedQbIds || []).includes(k);
           const on = sel.has(k);
           return (
             <div key={k} onClick={() => !already && toggle(k)} style={{ display: "flex", gap: 10, alignItems: "center", padding: "9px 12px", borderTop: `1px solid ${T.border}`, cursor: already ? "default" : "pointer", opacity: already ? 0.5 : 1, background: on ? T.goldLight : "transparent" }}>
               <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", border: `2px solid ${on ? T.gold : T.border}`, background: on ? T.gold : "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{already ? "✓" : on ? "✓" : ""}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.vendor || t.type || "Transaction"}{already ? " · already applied" : ""}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.vendor || t.type || "Transaction"}{already ? " · already applied" : ""}{excluded ? <span style={{ color: "#B45309" }}> · excluded — tap to re-add</span> : ""}</div>
                 <div style={{ fontSize: 11, color: T.textTert, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[t.date, t.account, t.memo].filter(Boolean).join(" · ")}</div>
               </div>
               <b style={{ fontSize: 13, flexShrink: 0 }}>{money(Math.abs(Number(t.amount) || 0))}</b>
@@ -586,9 +587,43 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   const applyQb = async (rows) => {
     const have = new Set((j.payments || []).map((p) => p.qbId).filter(Boolean));
     const add = rows.filter((t) => !have.has(t.id || `${t.date}|${t.vendor}|${t.amount}`)).map((t, i) => ({ id: Date.now() + i, amount: Math.abs(Number(t.amount) || 0), date: t.date || today(), note: [t.vendor, t.memo].filter(Boolean).join(" — ") || "QuickBooks", qbId: t.id || `${t.date}|${t.vendor}|${t.amount}` }));
-    if (add.length) { await save("contractor_jobs", { ...j, payments: [...(j.payments || []), ...add] }); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(add.reduce((s, p) => s + p.amount, 0))} — ${j.propertyAddress}`, url: `/?goto=job:${j.id}` }); }
+    // Hand-applying a wire un-excludes it — the pick is explicit.
+    const appliedIds = add.map((x) => x.qbId);
+    if (add.length) { await save("contractor_jobs", { ...j, payments: [...(j.payments || []), ...add], qbExcluded: (j.qbExcluded || []).filter((id) => !appliedIds.includes(id)) }); notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(add.reduce((s, p) => s + p.amount, 0))} — ${j.propertyAddress}`, url: `/?goto=job:${j.id}` }); }
     setQbPick(false);
   };
+  // ⚡ Auto-pin — Elie 8/20/26: QuickBooks expenses on this property that carry
+  // the contractor's name pin themselves as payments when the job opens.
+  // Removing one (×) remembers that wire in j.qbExcluded so it never re-pins;
+  // the picker can re-include it later. Runs once per open, admin only.
+  const [autoPinned, setAutoPinned] = useState(0);
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRan.current || !isAdmin || !qbProjectId || isRemoved || j.status === "complete") return;
+    autoRan.current = true;
+    let alive = true;
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(qbProjectId)}`).then(async (d) => {
+      if (!alive) return;
+      const items = (d.items || []).filter((t) => (t.section || "").toLowerCase() !== "income" && Math.abs(Number(t.amount) || 0) > 0);
+      // Same match the picker prefilters with: the company's FIRST word, so a
+      // wire whose memo says "A/C: SHIA POLAK CONST" still catches.
+      const word = ((org?.name || "").trim().split(/\s+/)[0] || "").toLowerCase();
+      if (word.length < 3) return;
+      const kOf = (t) => t.id || `${t.date}|${t.vendor}|${t.amount}`;
+      const have = new Set((j.payments || []).map((pp) => pp.qbId).filter(Boolean));
+      const excl = new Set(j.qbExcluded || []);
+      const fresh = items.filter((t) => [t.vendor, t.memo].filter(Boolean).join(" ").toLowerCase().includes(word) && !have.has(kOf(t)) && !excl.has(kOf(t)));
+      if (!fresh.length) return;
+      const add = fresh.map((t, i) => ({ id: Date.now() + i, amount: Math.abs(Number(t.amount) || 0), date: t.date || today(), note: [t.vendor, t.memo].filter(Boolean).join(" — ") || "QuickBooks", qbId: kOf(t), auto: true }));
+      try {
+        await save("contractor_jobs", { ...j, payments: [...(j.payments || []), ...add] });
+        if (!alive) return;
+        setAutoPinned(add.length);
+        notify(null, { toOrg: j.orgId, title: "Payment recorded", body: `${money(add.reduce((s2, pp) => s2 + pp.amount, 0))} — ${j.propertyAddress}`, url: `/?goto=job:${j.id}` });
+      } catch { /* the next open retries */ }
+    }).catch(() => { /* QuickBooks unreachable — the picker still works by hand */ });
+    return () => { alive = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [taskDraft, setTaskDraft] = useState("");
   const [msgDraft, setMsgDraft] = useState("");
   const [pending, setPending] = useState(null);
@@ -889,10 +924,11 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
                   {pm.qbId && <span title="Pinned from QuickBooks" style={{ fontSize: 9, fontWeight: 800, color: "#248A3D", background: "#EAF7EE", borderRadius: 100, padding: "2px 6px", flexShrink: 0 }}>QB</span>}
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pm.note || "Payment"}</span>
                   <span style={{ color: T.textTert, fontSize: 11 }}>{fmtDate(pm.date)}</span><b style={{ fontSize: 12.5, color: "#248A3D", fontVariantNumeric: "tabular-nums" }}>{money(pm.amount)}</b>
-                  {isAdmin && <button onClick={() => save("contractor_jobs", { ...j, payments: (j.payments || []).filter((x) => x.id !== pm.id) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
+                  {isAdmin && <button title={pm.qbId ? "Remove — this wire stays excluded from auto-pinning" : "Remove this payment"} onClick={() => save("contractor_jobs", { ...j, payments: (j.payments || []).filter((x) => x.id !== pm.id), ...(pm.qbId ? { qbExcluded: [...(j.qbExcluded || []), pm.qbId] } : {}) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
                 </div>
               ))}
               {(j.payments || []).length === 0 && !payDraft && <div style={{ padding: "12px 14px", fontSize: 12, color: T.textTert }}>Nothing paid on this job yet.</div>}
+              {autoPinned > 0 && <div style={{ padding: "8px 14px", borderTop: HAIR, background: "#FDF6E4", fontSize: 11, color: "#8a6d1f", fontWeight: 600, lineHeight: 1.45 }}>⚡ {autoPinned} wire{autoPinned !== 1 ? "s" : ""} pinned automatically from QuickBooks. Not theirs? Tap × — it stays excluded.</div>}
               {(j.payments || []).length > 0 && <div style={{ ...totCss, borderTop: HAIR }}><span style={{ flex: 1, fontSize: 12, color: T.textSub }}>Paid so far</span><b style={{ fontSize: 12.5, color: "#248A3D", fontVariantNumeric: "tabular-nums" }}>{money(paid)}</b></div>}
               {payDraft && (
                 <div style={{ padding: "10px 12px", borderTop: HAIR, background: T.cardAlt, display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1035,7 +1071,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
         </div>}
       </>)}
       {scopeEdit && <ScopeEditModal j={j} save={save} displayName={displayName} onClose={() => setScopeEdit(false)} />}
-      {qbPick && qbProjectId && <QBPayPicker qbProjectId={qbProjectId} orgName={org?.name || ""} existingQbIds={(j.payments || []).map((p) => p.qbId).filter(Boolean)} onAdd={applyQb} onClose={() => setQbPick(false)} />}
+      {qbPick && qbProjectId && <QBPayPicker qbProjectId={qbProjectId} orgName={org?.name || ""} existingQbIds={(j.payments || []).map((p) => p.qbId).filter(Boolean)} excludedQbIds={j.qbExcluded || []} onAdd={applyQb} onClose={() => setQbPick(false)} />}
     </Modal>
   );
 }

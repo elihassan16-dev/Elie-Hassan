@@ -5167,7 +5167,7 @@ function PropertyAiChat({property,onClose}){
           )}
           {msgs.map((m,i)=>(
             <div key={i} style={{alignSelf:m.role==="user"?"flex-end":"flex-start",maxWidth:"88%"}}>
-              <div style={{background:m.role==="user"?T.gold:T.bg,color:m.role==="user"?"#fff":T.text,borderRadius:14,padding:"9px 13px",fontSize:14,lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{m.content}</div>
+              <div style={{background:m.role==="user"?T.gold:T.bg,color:m.role==="user"?"#fff":T.text,borderRadius:18,padding:"9px 14px",fontSize:14,lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{m.content}</div>
             </div>
           ))}
           {busy&&<div style={{alignSelf:"flex-start",background:T.bg,borderRadius:14,padding:"9px 13px",fontSize:13,color:T.textSub}}>Thinking…</div>}
@@ -5349,7 +5349,7 @@ function GlobalAiChat({onClose}){
           )}
           {msgs.map((m,i)=>(
             <div key={i} style={{alignSelf:m.role==="user"?"flex-end":"flex-start",maxWidth:"90%",display:"flex",flexDirection:"column",gap:8}}>
-              {m.content&&<div style={{background:m.role==="user"?T.gold:T.bg,color:m.role==="user"?"#fff":T.text,borderRadius:14,padding:"9px 13px",fontSize:14,lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{m.content}</div>}
+              {m.content&&<div style={{background:m.role==="user"?T.gold:T.bg,color:m.role==="user"?"#fff":T.text,borderRadius:18,padding:"9px 14px",fontSize:14,lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{m.content}</div>}
               {m.action&&m.action.type==="tasks"&&(
                 <div style={{border:`1.5px solid ${T.gold}`,borderRadius:14,background:T.goldLight,padding:"11px 13px"}}>
                   <div style={{fontSize:12,fontWeight:800,color:"#b8912e",marginBottom:7}}>📋 {m.action.tasks.length} task{m.action.tasks.length===1?"":"s"} → {m.action.propertyAddress}</div>
@@ -7656,14 +7656,14 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
           {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"24px 0"}}>No messages yet. Leave a note for your team below.</div>}
           {messages.map(m=>{const mine=m.author===currentUser;return(
             <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
-              <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"} · {fmt(m.at)}</div>
-              <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+              {!mine&&<div style={{fontSize:10,color:T.textTert,marginBottom:2,paddingLeft:4}}>{(m.author||"—").split(" ")[0]} · {fmt(m.at)}</div>}
+              <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:18,padding:"8px 13px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
                 {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.55)":T.gold}`,paddingLeft:8,marginBottom:5,opacity:0.9,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}><b>{m.replyTo.author?m.replyTo.author.split(" ")[0]:"—"}:</b> {m.replyTo.text}</div>}
                 {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                 {linkifyText(m.text,mine)}
                 {m.attachment&&<MessageAttachment att={m.attachment} mine={mine} saveFolder={saveFolder}/>}
               </div>
-              {mine&&<div style={{textAlign:"right"}}><ReadReceipt readBy={m.readBy} author={m.author}/></div>}
+              {mine&&<div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:5,marginTop:2}}><span style={{fontSize:10,color:T.textTert}}>{fmt(m.at)} ·</span><ReadReceipt readBy={m.readBy} author={m.author}/></div>}
             </div>
           );})}
         </div>

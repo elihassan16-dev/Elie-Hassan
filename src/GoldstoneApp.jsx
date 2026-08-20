@@ -9,7 +9,7 @@ import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
 import { T } from "./theme";
-import { qbAuthFetch, notify, uploadAttachment, attachmentKind, STREAM_VIDEO_CAP } from "./net";
+import { qbAuthFetch, notify, uploadAttachment, attachmentKind, STREAM_VIDEO_CAP, geocodeAddress } from "./net";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { usePersistentDraft } from "./useDraft";
 import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
@@ -479,9 +479,11 @@ const ICONS={
   financials:<Ico p="M12 1v22" p2="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>,
   email:<Ico r={[2,4,20,16,2]} p2="M22 6l-10 7L2 6"/>,
   rentals:<Ico p="M3 21h18" p2="M5 21V7l7-4 7 4v14" lines={[[10,21,10,14],[14,21,14,14],[10,14,14,14]]}/>,
+  routes:<Ico p="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0118 0z" c={[12,10,3]}/>,
 };
 const NAV=[
   {key:"tasks",label:"Dashboard",short:"Dashboard",icon:ICONS.tasks},
+  {key:"routes",label:"Route Planner",short:"Routes",icon:ICONS.routes},
   {key:"messages",label:"Messages",short:"Messages",icon:ICONS.messages},
   {key:"portfolio",label:"Portfolio Overview",short:"Portfolio",icon:ICONS.portfolio},
   {key:"leads",label:"New Leads",short:"Leads",icon:ICONS.leads},
@@ -9702,6 +9704,325 @@ const normContact=(c)=>({
 });
 const sameCompany=(a,b)=>a&&b&&a.trim().toLowerCase()===b.trim().toLowerCase();
 // ─── Contacts — company directory (search, add/edit, import from iPhone) ───────
+// ─── 🗺 Route Planner — plan a road day, split it, hand it to Google Maps ────
+// Places (Elie's house / Moshe's house / office) live in app_settings
+// "routePlaces"; the day's plan in "routePlan" so both phones see it live.
+const RP_PLACES_DEFAULT=[{id:"elie",label:"Elie's House",addr:""},{id:"moshe",label:"Moshe's House",addr:""},{id:"office",label:"Office",addr:""}];
+const rpHav=(a,b)=>{const R=3958.8,toR=(x)=>x*Math.PI/180;const dLa=toR(b.lat-a.lat),dLo=toR(b.lng-a.lng);const q=Math.sin(dLa/2)**2+Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(dLo/2)**2;return 2*R*Math.asin(Math.sqrt(q));};
+// Best order between a fixed start and end, honoring "go to X first" chains:
+// nearest-neighbor that only takes eligible stops, then 2-opt kept chain-legal.
+function rpOrder(start,end,stops){
+  const visited=new Set();const route=[];let cur=start;
+  while(route.length<stops.length){
+    let best=null,bd=Infinity;
+    for(const st of stops){
+      if(visited.has(st.id))continue;
+      if(st.afterId&&stops.some(x=>x.id===st.afterId)&&!visited.has(st.afterId))continue;
+      const d=rpHav(cur,st);
+      if(d<bd){bd=d;best=st;}
+    }
+    if(!best)break; // circular chain — fall back to listed order below
+    route.push(best);visited.add(best.id);cur=best;
+  }
+  stops.forEach(st=>{if(!visited.has(st.id)){route.push(st);visited.add(st.id);}});
+  const legal=(arr)=>arr.every((st,i)=>!st.afterId||!arr.some(x=>x.id===st.afterId)||arr.findIndex(x=>x.id===st.afterId)<i);
+  const cost=(arr)=>{let c=0,prev=start;for(const st of arr){c+=rpHav(prev,st);prev=st;}return c+rpHav(prev,end);};
+  let bestArr=route,bestC=cost(route),improved=true;
+  while(improved){
+    improved=false;
+    for(let i=0;i<bestArr.length-1;i++)for(let k=i+1;k<bestArr.length;k++){
+      const cand=[...bestArr.slice(0,i),...bestArr.slice(i,k+1).reverse(),...bestArr.slice(k+1)];
+      if(!legal(cand))continue;
+      const c=cost(cand);
+      if(c<bestC-1e-9){bestArr=cand;bestC=c;improved=true;}
+    }
+  }
+  return {order:bestArr,miles:bestC};
+}
+let rpGeoCache=null;
+async function rpGeocode(addr){
+  if(!rpGeoCache){try{rpGeoCache=JSON.parse(localStorage.getItem("gs-geo-cache")||"{}");}catch{rpGeoCache={};}}
+  const k=String(addr).trim().toLowerCase();
+  if(rpGeoCache[k])return rpGeoCache[k];
+  let g=null;
+  try{g=await geocodeAddress(addr);}catch{/* retry below */}
+  if(!g){try{g=await geocodeAddress(addr+", NJ");}catch{/* not found */}}
+  if(g){rpGeoCache[k]=g;try{localStorage.setItem("gs-geo-cache",JSON.stringify(rpGeoCache));}catch{/* cache full */}}
+  return g;
+}
+const rpGmapLink=(addrs)=>{
+  const o=addrs[0],d=addrs[addrs.length-1],w=addrs.slice(1,-1);
+  return `https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=${encodeURIComponent(o)}&destination=${encodeURIComponent(d)}${w.length?`&waypoints=${encodeURIComponent(w.join("|"))}`:""}`;
+};
+function RoutePlannerPage(){
+  const {sharedProps,appSettings,setAppSettings,flushAppSettings}=useData();
+  const isMobile=useIsMobile();
+  const setting=(id)=>(appSettings||[]).find(x=>x.id===id)||null;
+  const saveSetting=(id,obj)=>{setAppSettings([...(appSettings||[]).filter(x=>x.id!==id),{id,...obj}]);if(flushAppSettings)setTimeout(flushAppSettings,0);};
+  const places=(setting("routePlaces")||{}).items||RP_PLACES_DEFAULT;
+  const placeOf=(id)=>places.find(x=>x.id===id)||places[0];
+  const savedPlan=setting("routePlan")||{};
+  const [mode,setMode]=useState(savedPlan.mode||"elie");                  // elie | moshe | split
+  const [se,setSe]=useState(savedPlan.se||{elie:{start:"elie",end:"elie"},moshe:{start:"moshe",end:"moshe"}});
+  const [stops,setStops]=useState(savedPlan.stops||[]);
+  const [routes,setRoutes]=useState(savedPlan.routes||null);
+  const [editPlaces,setEditPlaces]=useState(null); // draft places array while editing
+  const [pickProp,setPickProp]=useState(false);
+  const [propQ,setPropQ]=useState("");
+  const [typeAddr,setTypeAddr]=useState(null); // {addr,note}
+  const [chainFor,setChainFor]=useState(null); // stop being chained
+  const [busy,setBusy]=useState("");
+  const [err,setErr]=useState("");
+  const persist=(patch)=>saveSetting("routePlan",{mode,se,stops,routes,at:new Date().toISOString(),...patch});
+  const setStops2=(next)=>{setStops(next);setRoutes(null);persist({stops:next,routes:null});};
+  const drivers=mode==="split"?["elie","moshe"]:[mode];
+  const cap=(k)=>k==="elie"?"Elie":"Moshe";
+  const dCol=(k)=>k==="elie"?{bg:"#F5E9C8",fg:"#8a6d1f"}:{bg:"#E2F2F7",fg:"#0E7490"};
+  const activeProps=(sharedProps||[]).filter(pp=>!pp.archived);
+  const fullAddr=(pp)=>`${pp.address}${pp.city?`, ${pp.city}`:""}${pp.state?`, ${pp.state}`:""}${pp.zip?` ${pp.zip}`:""}`;
+  const addStop=(st)=>setStops2([...stops,st]);
+  const rmStop=(id)=>setStops2(stops.filter(x=>x.id!==id).map(x=>x.afterId===id?{...x,afterId:null,note:""}:x));
+  const stopById=(id)=>stops.find(x=>x.id===id)||null;
+  const shortA=(a)=>String(a||"").split(",")[0];
+
+  const generate=async()=>{
+    setErr("");
+    if(stops.length===0){setErr("Add at least one stop first.");return;}
+    const needPlaces=[...new Set(drivers.flatMap(d=>[se[d].start,se[d].end]))].map(placeOf);
+    const noAddr=needPlaces.filter(pl=>!String(pl.addr||"").trim());
+    if(noAddr.length){setErr(`Set the address for ${noAddr.map(pl=>pl.label).join(" and ")} first — tap ✎ Edit Places.`);return;}
+    setBusy("Locating addresses…");
+    try{
+      const located={};const missing=[];
+      for(const pl of needPlaces){const g=await rpGeocode(pl.addr);if(!g){missing.push(pl.label);}else located["pl:"+pl.id]=g;}
+      const gStops=[];
+      for(const st of stops){
+        const g=await rpGeocode(st.addr);
+        if(!g){missing.push(st.addr);}else gStops.push({...st,...g});
+      }
+      if(missing.length){setErr(`Couldn't locate: ${missing.join(" · ")}. Check the spelling (street, town, zip) and try again.`);setBusy("");return;}
+      setBusy("Planning the best order…");
+      // Chains ride together: group stops by their chain, assign groups whole.
+      const groupOf={};
+      gStops.forEach(st=>{groupOf[st.id]=st.id;});
+      gStops.forEach(st=>{if(st.afterId&&groupOf[st.afterId]!=null){const g0=groupOf[st.afterId];Object.keys(groupOf).forEach(k=>{if(groupOf[k]===groupOf[st.id])groupOf[k]=g0;});}});
+      const groups={};gStops.forEach(st=>{(groups[groupOf[st.id]]=groups[groupOf[st.id]]||[]).push(st);});
+      const gList=Object.values(groups);
+      const routeFor=(dk,list)=>{const st0=located["pl:"+se[dk].start],en0=located["pl:"+se[dk].end];const r=rpOrder(st0,en0,list);return {dk,order:r.order,miles:r.miles};};
+      let result={};
+      if(mode!=="split"){
+        const r=routeFor(mode,gStops);
+        result[mode]={addrs:[placeOf(se[mode].start).addr,...r.order.map(x=>x.addr),placeOf(se[mode].end).addr],labels:r.order.map(x=>({addr:x.addr,sub:x.sub||"",chain:!!x.afterId||gStops.some(y=>y.afterId===x.id)})),miles:Math.round(r.miles),startId:se[mode].start,endId:se[mode].end};
+      }else{
+        // try every group split (small counts) — lowest combined mileage wins;
+        // both drivers keep at least one stop when there's enough to share.
+        let best=null;
+        const n=gList.length;
+        for(let mask=0;mask<(1<<n);mask++){
+          const a=[],b=[];
+          gList.forEach((grp,i)=>((mask>>i)&1?a:b).push(...grp));
+          if(n>1&&(a.length===0||b.length===0))continue;
+          const ra=routeFor("elie",a),rb=routeFor("moshe",b);
+          const tot=ra.miles+rb.miles;
+          if(!best||tot<best.tot)best={tot,a:ra,b:rb};
+        }
+        const pack=(dk,r)=>({addrs:[placeOf(se[dk].start).addr,...r.order.map(x=>x.addr),placeOf(se[dk].end).addr],labels:r.order.map(x=>({addr:x.addr,sub:x.sub||"",chain:!!x.afterId||gStops.some(y=>y.afterId===x.id)})),miles:Math.round(r.miles),startId:se[dk].start,endId:se[dk].end});
+        result={elie:pack("elie",best.a),moshe:pack("moshe",best.b)};
+      }
+      setRoutes(result);
+      persist({routes:result});
+    }catch(ex){setErr(ex.message||"Couldn't plan the route — try again.");}
+    setBusy("");
+  };
+
+  const share=async(url)=>{
+    try{if(navigator.share){await navigator.share({title:"Today's route",url});return;}}catch{return;}
+    try{await navigator.clipboard.writeText(url);setErr("Link copied — paste it in a text.");}catch{/* clipboard blocked */}
+  };
+
+  const secHd=(color,label,action)=>(
+    <div style={{display:"flex",alignItems:"center",gap:7,padding:"18px 6px 8px"}}>
+      <span style={{width:7,height:7,borderRadius:"50%",background:color,flexShrink:0}}/>
+      <span style={{fontSize:13.5,fontWeight:700,color:T.text,letterSpacing:-0.1,flex:1,minWidth:0}}>{label}</span>
+      {action||null}
+    </div>
+  );
+  const chipS=(on)=>({display:"inline-flex",alignItems:"center",gap:5,padding:"7px 13px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:on?"#fff":"rgba(118,118,128,0.08)",color:on?"#8a6d1f":T.textSub,fontWeight:on?700:500,fontSize:12,cursor:"pointer",fontFamily:"inherit",boxShadow:on?"0 1px 4px rgba(0,0,0,0.12)":"none",whiteSpace:"nowrap"});
+  const popWrap={position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:460,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(5px)"};
+  const popCard={background:"#fff",borderRadius:18,width:"min(440px,96vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 18px 60px rgba(0,0,0,0.28)"};
+  const popHd=(title,onClose)=>(
+    <div style={{padding:"13px 16px 11px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+      <span style={{flex:1,fontSize:15,fontWeight:700,color:T.text,letterSpacing:-0.2}}>{title}</span>
+      <button onClick={onClose} aria-label="Close" style={{width:28,height:28,borderRadius:"50%",background:"rgba(118,118,128,0.08)",border:"none",fontSize:13,color:T.textSub,cursor:"pointer",lineHeight:1,padding:0,fontFamily:"inherit"}}>✕</button>
+    </div>
+  );
+  const inpS={width:"100%",padding:"11px 13px",borderRadius:12,border:"1px solid rgba(0,0,0,0.06)",background:"rgba(118,118,128,0.06)",color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
+
+  return(
+    <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+      <div style={{maxWidth:640,margin:"0 auto",padding:isMobile?"10px 12px 30px":"18px 20px 40px"}}>
+        <div style={{fontSize:12.5,color:T.textSub,padding:"4px 6px 0"}}>{new Date().toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"})} — plan the day's drive</div>
+
+        {secHd(T.gold,"Who's Driving")}
+        <div style={{...SEG_WRAP,width:"100%"}}>
+          {[["elie","Elie"],["moshe","Moshe"],["split","Split Between Both"]].map(([k,l])=>(
+            <button key={k} onClick={()=>{setMode(k);setRoutes(null);persist({mode:k,routes:null});}} style={{...segTab(mode===k),flex:1}}>{l}</button>
+          ))}
+        </div>
+
+        {secHd("#0EA5C5","Start & End",<button onClick={()=>setEditPlaces(places.map(x=>({...x})))} style={{background:"none",border:"none",color:"#8a6d1f",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:0}}>✎ Edit Places</button>)}
+        <div className="fin-card" style={{background:"#fff",borderRadius:16,boxShadow:T.shadow,overflow:"hidden"}}>
+          {drivers.map((dk,i)=>(
+            <div key={dk} style={{padding:"11px 14px",borderTop:i?"1px solid rgba(0,0,0,0.055)":"none"}}>
+              <div style={{fontSize:11,fontWeight:800,color:dCol(dk).fg,letterSpacing:"0.04em",marginBottom:7}}>{cap(dk).toUpperCase()}</div>
+              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                <span style={{fontSize:10.5,fontWeight:650,color:T.textTert}}>From</span>
+                {places.map(pl=><button key={pl.id} onClick={()=>{const next={...se,[dk]:{...se[dk],start:pl.id}};setSe(next);setRoutes(null);persist({se:next,routes:null});}} style={chipS(se[dk].start===pl.id)}>{pl.id==="office"?"🏢":"🏠"} {pl.label}</button>)}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginTop:7}}>
+                <span style={{fontSize:10.5,fontWeight:650,color:T.textTert,paddingRight:8}}>To</span>
+                {places.map(pl=><button key={pl.id} onClick={()=>{const next={...se,[dk]:{...se[dk],end:pl.id}};setSe(next);setRoutes(null);persist({se:next,routes:null});}} style={chipS(se[dk].end===pl.id)}>{pl.id==="office"?"🏢":"🏠"} {pl.label}</button>)}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {secHd(T.green,<>Stops Today <span style={{color:T.textTert,fontWeight:500}}>· {stops.length}</span></>)}
+        <div className="fin-card" style={{background:"#fff",borderRadius:16,boxShadow:T.shadow,overflow:"hidden"}}>
+          {stops.length===0&&<div style={{padding:"16px 14px",fontSize:12.5,color:T.textTert,textAlign:"center"}}>No stops yet — add properties or type an address.</div>}
+          {stops.map((st,i)=>(
+            <div key={st.id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderTop:i?"1px solid rgba(0,0,0,0.055)":"none"}}>
+              <span onClick={()=>setChainFor(st)} title="Chain — go somewhere first before this stop" style={{flex:1,minWidth:0,cursor:"pointer"}}>
+                <span style={{display:"block",fontSize:14,fontWeight:650,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st.addr}</span>
+                {st.afterId&&stopById(st.afterId)
+                  ?<span style={{display:"inline-flex",alignItems:"center",gap:4,marginTop:3,padding:"3px 9px",borderRadius:100,background:"#FDE9C8",color:"#B45309",fontSize:10.5,fontWeight:700}}>⛓ After {shortA(stopById(st.afterId).addr)}{st.note?` — ${st.note}`:""}</span>
+                  :<span style={{display:"block",fontSize:11,color:T.textSub,marginTop:1}}>{st.sub||"Typed address"} · tap to chain</span>}
+              </span>
+              <button onClick={()=>rmStop(st.id)} aria-label="Remove stop" style={{background:"none",border:"none",color:"#C7C7CC",cursor:"pointer",fontSize:16,lineHeight:1,padding:"4px 2px"}}>✕</button>
+            </div>
+          ))}
+          <div style={{display:"flex",justifyContent:"center",gap:20,padding:"12px 14px",borderTop:stops.length?"1px solid rgba(0,0,0,0.055)":"none",background:T.cardAlt}}>
+            <button onClick={()=>{setPickProp(true);setPropQ("");}} style={{background:"none",border:"none",color:"#8a6d1f",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"6px 0"}}>🏠 From My Properties</button>
+            <button onClick={()=>setTypeAddr({addr:"",note:""})} style={{background:"none",border:"none",color:"#8a6d1f",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"6px 0"}}>⌨️ Type an Address</button>
+          </div>
+        </div>
+
+        {err&&<div onClick={()=>setErr("")} style={{marginTop:12,padding:"10px 14px",borderRadius:12,background:"#FFF0EF",color:T.red,fontSize:12.5,fontWeight:600,lineHeight:1.5,cursor:"pointer"}}>{err}</div>}
+        <button onClick={generate} disabled={!!busy} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",marginTop:14,padding:"15px",borderRadius:16,border:"none",background:busy?"rgba(118,118,128,0.16)":T.gold,color:"#fff",fontWeight:700,fontSize:15,cursor:busy?"default":"pointer",fontFamily:"inherit",boxShadow:busy?"none":"0 1px 5px rgba(0,0,0,0.15)"}}>{busy||"⚡ Plan the Best Route"}</button>
+
+        {routes&&drivers.filter(dk=>routes[dk]).map(dk=>{
+          const r=routes[dk];
+          const url=rpGmapLink(r.addrs);
+          return(
+            <div key={dk}>
+              {secHd(dCol(dk).fg,<>{cap(dk)}'s Route <span style={{color:T.textTert,fontWeight:500}}>· {r.labels.length} stop{r.labels.length!==1?"s":""} · ≈ {r.miles} mi</span></>)}
+              <div className="fin-card" style={{background:"#fff",borderRadius:16,boxShadow:T.shadow,overflow:"hidden"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px"}}>
+                  <span style={{width:26,height:26,borderRadius:"50%",background:dCol(dk).bg,color:dCol(dk).fg,fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>A</span>
+                  <span style={{flex:1,fontSize:13.5,fontWeight:650}}>{placeOf(r.startId).id==="office"?"🏢":"🏠"} {placeOf(r.startId).label}</span>
+                  <span style={{fontSize:11,color:T.textTert}}>start</span>
+                </div>
+                {r.labels.map((st,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderTop:"1px solid rgba(0,0,0,0.055)"}}>
+                    <span style={{width:26,height:26,borderRadius:"50%",background:"rgba(118,118,128,0.1)",color:T.text,fontSize:12.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</span>
+                    <span style={{flex:1,minWidth:0,fontSize:13.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st.addr}{st.chain&&<span style={{color:"#B45309",fontSize:10.5,fontWeight:700}}> ⛓</span>}</span>
+                  </div>
+                ))}
+                <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderTop:"1px solid rgba(0,0,0,0.055)"}}>
+                  <span style={{width:26,height:26,borderRadius:"50%",background:dCol(dk).bg,color:dCol(dk).fg,fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>B</span>
+                  <span style={{flex:1,fontSize:13.5,fontWeight:650}}>{placeOf(r.endId).id==="office"?"🏢":"🏠"} {placeOf(r.endId).label}</span>
+                  <span style={{fontSize:11,color:T.textTert}}>end</span>
+                </div>
+                <div style={{padding:"12px 14px",borderTop:"1px solid rgba(0,0,0,0.055)",display:"flex",flexDirection:"column",gap:8}}>
+                  <a href={url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"13px",borderRadius:14,background:T.green,color:"#fff",fontWeight:700,fontSize:14,textDecoration:"none",boxShadow:"0 1px 4px rgba(0,0,0,0.12)"}}>📍 Open in Google Maps</a>
+                  <button onClick={()=>share(url)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"12px",borderRadius:14,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",color:T.text,fontWeight:650,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>💬 Share {cap(dk)}'s Route</button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {routes&&<div style={{textAlign:"center",fontSize:11.5,color:T.textTert,marginTop:14,lineHeight:1.5}}>⛓ Chained stops always ride together and in order.<br/>The plan is saved — {mode==="split"?"Moshe sees his route right here in his app too.":"edit any stop and plan again."}</div>}
+        {routes&&<button onClick={()=>{setStops([]);setRoutes(null);persist({stops:[],routes:null});}} style={{display:"block",margin:"14px auto 0",padding:"10px 18px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",color:T.textSub,fontWeight:650,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Start a New Day</button>}
+      </div>
+
+      {editPlaces&&(
+        <div onClick={()=>setEditPlaces(null)} style={popWrap}>
+          <div onClick={e=>e.stopPropagation()} style={popCard}>
+            {popHd("Your Places",()=>setEditPlaces(null))}
+            <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:12,overflowY:"auto"}}>
+              <div style={{fontSize:12,color:T.textSub,lineHeight:1.5}}>The three home bases every route can start or end at. Set them once — full street addresses work best.</div>
+              {editPlaces.map((pl,i)=>(
+                <div key={pl.id}>
+                  <input value={pl.label} onChange={e=>setEditPlaces(editPlaces.map((x,j)=>j===i?{...x,label:e.target.value}:x))} style={{...inpS,fontWeight:700,marginBottom:6}}/>
+                  <input value={pl.addr} onChange={e=>setEditPlaces(editPlaces.map((x,j)=>j===i?{...x,addr:e.target.value}:x))} placeholder="Street, Town, NJ ZIP" style={inpS}/>
+                </div>
+              ))}
+              <button onClick={()=>{saveSetting("routePlaces",{items:editPlaces});setEditPlaces(null);setRoutes(null);}} style={{padding:"13px",borderRadius:14,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Save Places</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pickProp&&(
+        <div onClick={()=>setPickProp(false)} style={popWrap}>
+          <div onClick={e=>e.stopPropagation()} style={popCard}>
+            {popHd("Add From My Properties",()=>setPickProp(false))}
+            <input autoFocus value={propQ} onChange={e=>setPropQ(e.target.value)} placeholder="Search an address…" style={{...inpS,border:"none",borderBottom:"1px solid rgba(0,0,0,0.055)",borderRadius:0,background:"#fff",flexShrink:0}}/>
+            <div style={{flex:1,minHeight:0,overflowY:"auto"}}>
+              {activeProps.filter(pp=>!propQ.trim()||fullAddr(pp).toLowerCase().includes(propQ.trim().toLowerCase())).map(pp=>{
+                const added=stops.some(x=>x.propId===pp.id);
+                return(
+                  <div key={pp.id} onClick={()=>{if(added)return;addStop({id:Date.now(),addr:fullAddr(pp),sub:pp.status||"",propId:pp.id,afterId:null,note:""});setPickProp(false);}} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:"1px solid rgba(0,0,0,0.055)",cursor:added?"default":"pointer",opacity:added?0.45:1}}>
+                    <span style={{flex:1,minWidth:0}}>
+                      <span style={{display:"block",fontSize:13.5,fontWeight:650,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fullAddr(pp)}</span>
+                      <span style={{display:"block",fontSize:11,color:T.textSub,marginTop:1}}>{pp.status||""}{added?" · already on the list":""}</span>
+                    </span>
+                    {!added&&<span style={{color:"#8a6d1f",fontSize:13,fontWeight:800}}>＋</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {typeAddr&&(
+        <div onClick={()=>setTypeAddr(null)} style={popWrap}>
+          <div onClick={e=>e.stopPropagation()} style={popCard}>
+            {popHd("Type an Address",()=>setTypeAddr(null))}
+            <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+              <input autoFocus value={typeAddr.addr} onChange={e=>setTypeAddr({...typeAddr,addr:e.target.value})} placeholder="Street, Town, NJ ZIP" style={inpS}/>
+              <input value={typeAddr.note} onChange={e=>setTypeAddr({...typeAddr,note:e.target.value})} placeholder="Note (optional) — e.g. Home Depot pickup" style={inpS}/>
+              <button onClick={()=>{if(!typeAddr.addr.trim())return;addStop({id:Date.now(),addr:typeAddr.addr.trim(),sub:typeAddr.note.trim()||"Typed address",propId:null,afterId:null,note:""});setTypeAddr(null);}} style={{padding:"13px",borderRadius:14,border:"none",background:typeAddr.addr.trim()?T.gold:"rgba(118,118,128,0.16)",color:"#fff",fontWeight:700,fontSize:14,cursor:typeAddr.addr.trim()?"pointer":"default",fontFamily:"inherit"}}>Add Stop</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {chainFor&&(
+        <div onClick={()=>setChainFor(null)} style={popWrap}>
+          <div onClick={e=>e.stopPropagation()} style={popCard}>
+            {popHd(`Chain — ${shortA(chainFor.addr)}`,()=>setChainFor(null))}
+            <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:10,overflowY:"auto"}}>
+              <div style={{fontSize:12.5,color:T.textSub,lineHeight:1.5}}>Need to go somewhere FIRST — picking something up before this stop? Choose where:</div>
+              {stops.filter(x=>x.id!==chainFor.id&&x.afterId!==chainFor.id).map(x=>{
+                const on=chainFor.afterId===x.id;
+                return <button key={x.id} onClick={()=>setChainFor({...chainFor,afterId:on?null:x.id})} style={{...chipS(on),width:"100%",justifyContent:"flex-start",padding:"11px 14px",fontSize:13}}>{on?"✓ ":""}{x.addr}</button>;
+              })}
+              {stops.length<2&&<div style={{fontSize:12,color:T.textTert}}>Add another stop first, then chain them.</div>}
+              {chainFor.afterId&&<input value={chainFor.note||""} onChange={e=>setChainFor({...chainFor,note:e.target.value})} placeholder="Why? (optional) — e.g. picking up the lockbox" style={inpS}/>}
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>{setStops2(stops.map(x=>x.id===chainFor.id?{...x,afterId:chainFor.afterId||null,note:chainFor.afterId?(chainFor.note||""):""}:x));setChainFor(null);}} style={{flex:1,padding:"12px",borderRadius:14,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:13.5,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+                <button onClick={()=>setChainFor(null)} style={{flex:1,padding:"12px",borderRadius:14,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",color:T.text,fontWeight:650,fontSize:13.5,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ContactsPage(){
   const { contacts, setContacts, flushContacts }=useData();
   const { isAdmin }=useAuth();
@@ -20971,6 +21292,7 @@ export function GoldstoneShell(){
     : active==="calendar" ? <CalendarPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage onNavigate={navigateToProperty}/>
+    : active==="routes" ? <RoutePlannerPage/>
     : active==="contacts" ? <ContactsPage/>
     : active==="email" ? <EmailPage isMobile={isMobile}/>
     : active==="financials" ? <FinancialSectionPage onNavigate={navigateToProperty} canEdit={isAdmin}/>

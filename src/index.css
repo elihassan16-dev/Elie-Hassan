@@ -36,9 +36,13 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
   padding-bottom: max(6px, env(safe-area-inset-bottom));
 }
 
-/* Hide scrollbars on the horizontal pill rows but keep scrollability */
+/* Hide scrollbars on the horizontal pill rows but keep scrollability.
+   overflow-y:hidden + overscroll contain: without them iOS treats the row as
+   a vertical scroller too and rubber-bands its content when pushed upward. */
 .gs-scroll-x {
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }

@@ -1905,7 +1905,7 @@ function InvestorPacketModal({property,onUpdate,onClose}){
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:420,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(460px,96vw)",maxHeight:"88vh",overflowY:"auto",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
-        <div style={{padding:"15px 20px",borderBottom:`2px solid ${T.gold}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{padding:"15px 20px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div><div style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:T.gold}}>Goldstone Properties</div><div style={{fontSize:16,fontWeight:800,color:T.text}}>Investor Packet</div></div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
@@ -2484,7 +2484,7 @@ function ShowingInfoPopup({property,skey,onUpdate,onClose}){
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:450,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(440px,94vw)",maxHeight:"84vh",overflowY:"auto",boxShadow:"0 8px 40px rgba(0,0,0,0.2)"}}>
-        <div style={{padding:"14px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+        <div style={{padding:"14px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
           <div style={{minWidth:0}}>
             <div style={{fontSize:16,fontWeight:800,color:T.text}}>👥 {agent}</div>
             <div style={{fontSize:12,color:T.textSub,marginTop:2}}>{isLead?"Added lead":"Showing"} · {property.address}{property.city?`, ${property.city}`:""}</div>
@@ -4183,7 +4183,7 @@ function RentalPortfolioPage(){
             return(
               <div onClick={()=>setPnlFor(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:440,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
                 <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(560px,96vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
-                  <div style={{padding:"14px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{padding:"14px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div><div style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:T.gold}}>{sel.address}</div><div style={{fontSize:16,fontWeight:800,color:T.text}}>{mlab} · Profit &amp; Loss</div></div>
                     <button onClick={()=>setPnlFor(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
                   </div>
@@ -9420,7 +9420,7 @@ function TasksPage({onNavigate}){
                 // a row's buttons open, so those land on top of this one.
                 <div onClick={()=>setByPropOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:290,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
                   <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(560px,94vw)",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:"0 18px 60px rgba(0,0,0,0.3)",overflow:"hidden"}}>
-                    <div style={{padding:"14px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+                    <div style={{padding:"14px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
                         <div style={{display:"flex",alignItems:"center",gap:7,marginTop:3}}>
@@ -10487,7 +10487,7 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
   const dimSt=(mob)=>({position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:460,backdropFilter:"blur(5px)",display:"flex",alignItems:mob?"flex-end":"center",justifyContent:"center",padding:mob?"12px 0 0":16,boxSizing:"border-box"});
   const shSt=(mob)=>({background:"#fff",borderRadius:mob?"22px 22px 0 0":22,width:mob?"100%":"min(680px,96vw)",maxHeight:mob?"96%":"88vh",height:mob?"96%":undefined,display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 24px 70px rgba(0,0,0,0.28)"});
   const shHd=(title,sub)=>(
-    <div style={{padding:"14px 18px 10px",borderBottom:`2px solid ${T.gold}`,flexShrink:0}}>
+    <div style={{padding:"14px 18px 10px",borderBottom:"1px solid rgba(0,0,0,0.08)",flexShrink:0}}>
       <div style={{display:"flex",alignItems:"center",gap:8}}>
         <div style={{flex:1,minWidth:0,fontSize:16,fontWeight:700,letterSpacing:"-0.015em",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
         <button onClick={()=>setSheet(null)} style={{width:30,height:30,minHeight:30,borderRadius:15,background:"rgba(118,118,128,0.08)",border:"none",color:T.textSub,fontSize:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0,padding:0}}>✕</button>
@@ -10612,7 +10612,7 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
             return createPortal(
               <div onClick={()=>!busy&&setCand(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:460,backdropFilter:"blur(5px)",display:"flex",alignItems:mob?"flex-end":"center",justifyContent:"center",padding:mob?"12px 0 0":16,boxSizing:"border-box"}}>
                 <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:mob?"22px 22px 0 0":22,width:mob?"100%":"min(680px,96vw)",maxHeight:mob?"96%":"88vh",height:mob?"96%":undefined,display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 24px 70px rgba(0,0,0,0.28)"}}>
-                  <div style={{padding:"14px 18px 10px",borderBottom:`2px solid ${T.gold}`,flexShrink:0}}>
+                  <div style={{padding:"14px 18px 10px",borderBottom:"1px solid rgba(0,0,0,0.08)",flexShrink:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
                       <div style={{flex:1,minWidth:0,fontSize:16,fontWeight:700,letterSpacing:"-0.015em",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🎯 Pick the comps{mob?"":` — ${String(address).split(",")[0]}`}</div>
                       <button onClick={()=>{setCand(null);setSheet(null);}} style={{width:30,height:30,minHeight:30,borderRadius:15,background:"rgba(118,118,128,0.08)",border:"none",color:T.textSub,fontSize:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0,padding:0}}>✕</button>
@@ -10884,7 +10884,7 @@ function SettingsModal({archived,onRestore,onDelete,onClose,team,setUserMuted,se
           ))}
         </div>
         <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-          <div style={{padding:"13px 20px 10px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div style={{padding:"13px 20px 10px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
             <b style={{fontSize:14.5,color:T.text,flex:1}}>{(NAV.find(([k])=>k===section)||[])[1]||"Settings"}</b>
             {!isAdmin&&(section==="features"||section==="alerts")&&<span style={{fontSize:10,color:T.textTert,fontWeight:700}}>view only — admin controls</span>}
             <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
@@ -10995,7 +10995,7 @@ function MessageAttachment({att,mine,saveFolder}){
   };
   const saveBtn=canSave?(
     <button onClick={doSave} title={`Save into the property's Files folder${saveFolder.name?` (${saveFolder.name})`:""}`}
-      style={{marginTop:4,display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:12,border:`1px solid ${mine?"rgba(255,255,255,0.4)":T.gold}`,background:mine?"rgba(255,255,255,0.15)":T.goldLight,color:mine?"#fff":"#b8912e",fontSize:10.5,fontWeight:700,cursor:sv==="saving"||sv==="done"?"default":"pointer",fontFamily:"inherit"}}>
+      style={{marginTop:4,display:"inline-flex",alignItems:"center",gap:4,padding:"5px 11px",borderRadius:12,border:"1px solid rgba(0,0,0,0.05)",background:mine?"rgba(255,255,255,0.15)":"rgba(118,118,128,0.08)",color:mine?"#fff":"#8a6d1f",fontSize:10.5,fontWeight:700,cursor:sv==="saving"||sv==="done"?"default":"pointer",fontFamily:"inherit"}}>
       {sv==="done"?"✓ Saved to Files":sv==="saving"?"Saving…":sv?`⚠ ${sv}`:"💾 Save to Files"}
     </button>
   ):null;
@@ -11076,7 +11076,7 @@ function SpFilePicker({folder,onPick,onClose}){
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:620,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(440px,96vw)",maxHeight:"78vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 44px rgba(0,0,0,0.25)"}}>
-        <div style={{padding:"12px 15px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+        <div style={{padding:"12px 15px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
           <span style={{fontSize:16}}>📁</span>
           <b style={{flex:1,minWidth:0,fontSize:14}}>Attach from the property's files</b>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:19,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
@@ -11761,7 +11761,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           // border, EXTERNAL badge, and a "their team sees this" footer.
           const isCtr=!!root.ctrLabel;
           return(
-            <div key={root.id} style={{alignSelf:"stretch",border:isCtr?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,borderRadius:16,background:isCtr?"#FFF9EC":T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
+            <div key={root.id} style={{alignSelf:"stretch",border:isCtr?`1.5px solid ${T.gold}99`:"1px solid rgba(0,0,0,0.055)",borderRadius:16,background:T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                 {isCtr?ctrTag():root.ctrTaskLabel?ctrNoteTag():root.showingLabel?showTag():root.taskText?taskTag(root.taskText,root.taskDeleted?"deleted":root.taskStatus):<span style={{fontSize:10,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
                 {isCtr&&<span style={{fontSize:10,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 8px",letterSpacing:"0.05em"}}>EXTERNAL</span>}
@@ -14480,7 +14480,7 @@ function JVAgreementModal({property,onClose}){
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:420,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(470px,96vw)",maxHeight:"88vh",overflowY:"auto",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
-        <div style={{padding:"15px 20px",borderBottom:`2px solid ${T.gold}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{padding:"15px 20px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div><div style={{fontFamily:"Georgia,serif",fontSize:13,fontWeight:700,color:T.gold}}>Goldstone Properties</div><div style={{fontSize:16,fontWeight:800,color:T.text}}>Joint Venture Agreement</div></div>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
@@ -15335,7 +15335,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const setupSheet=(sel)=>setupOpen&&sel&&(
     <div onClick={()=>setSetupOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:465,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(600px,97vw)",maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
-        <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+        <div style={{padding:"13px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
           <b style={{flex:1,fontSize:15}}>⚙ Deal setup — {sel.address}</b>
           <button onClick={()=>setSetupOpen(false)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
@@ -15480,7 +15480,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     return(
       <div onClick={()=>{setDsOpen(false);setDsBorrow(null);setDsHist(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:472,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
         <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(460px,97vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.22)"}}>
-          <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`,flexShrink:0,display:"flex",alignItems:"center",gap:8}}>
+          <div style={{padding:"13px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)",flexShrink:0,display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:17}}>🏦</span>
             <div style={{flex:1,minWidth:0}}>
               <b style={{fontSize:15}}>{b?`Borrow for ${b.p.address}`:`Debt service — ${mName}`}</b>
@@ -15608,7 +15608,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
             <div style={{maxWidth:980,margin:"0 auto",padding:isMobile?"10px 10px 40px":"16px 18px 40px",boxSizing:"border-box"}}>
               {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:"2px 0 8px"}}>‹ All properties</button>}
               <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:16,boxShadow:T.shadow,overflow:"hidden"}}>
-                <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`,fontSize:15,fontWeight:800,color:T.text}}>{selP.address} — Balance Sheet</div>
+                <div style={{padding:"13px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)",fontSize:15,fontWeight:800,color:T.text}}>{selP.address} — Balance Sheet</div>
                 {renderDetail(selP)}
               </div>
             </div>
@@ -15622,7 +15622,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         {bulkOpen&&(
           <div onClick={()=>setBulkOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:460,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
             <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(860px,97vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
-              <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+              <div style={{padding:"13px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
                 <div style={{flex:1,minWidth:0}}>
                   <b style={{fontSize:15}}>⚙ Where the money sits — every property</b>
                   <div style={{fontSize:11,color:T.textTert,marginTop:2}}>Each pick becomes its own line item in Bank Recon · ⚡ tap a chip to flip auto-pull — it refreshes each time that deal is opened.</div>
@@ -15681,7 +15681,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:430,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(5px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:sel?"min(940px,97vw)":"min(680px,97vw)",maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.3)"}}>
-        <div style={{padding:"14px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+        <div style={{padding:"14px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           {sel&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flexShrink:0}}>‹ Back</button>}
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:16,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📊 {sel?`${sel.address} — Balance Sheet`:"Property Balance Sheet"}</div>
@@ -16966,7 +16966,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
         return(
           <div onClick={()=>setSaleDraft(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:256,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
             <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:460,maxWidth:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-              <div style={{padding:"16px 18px 10px",borderBottom:`2px solid ${T.gold}`,flexShrink:0}}>
+              <div style={{padding:"16px 18px 10px",borderBottom:"1px solid rgba(0,0,0,0.08)",flexShrink:0}}>
                 <div style={{fontSize:16,fontWeight:800,color:T.text}}>＋ Add a past sale</div>
                 <div style={{fontSize:11.5,color:T.textSub,marginTop:2,lineHeight:1.5}}>{saleDraft.manual?"Typing the address by hand — no QuickBooks link (add costs as adjustments later).":"Pick the deal's QuickBooks project — the address AND live numbers come with it."}</div>
               </div>
@@ -17043,7 +17043,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
         return(
         <div onClick={()=>setCfSel(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:257,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-            <div style={{padding:"14px 16px 10px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <div style={{padding:"14px 16px 10px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
               <span style={{minWidth:0,flex:1}}>
                 <div style={{fontSize:15,fontWeight:800,color:T.text}}>🏠 Cash from closings — deal by deal</div>
                 <div style={{fontSize:11,color:T.textSub}}>{cfLabel} · wire in − LOC payback − interest = net per closing</div>
@@ -17160,7 +17160,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
         return(
         <div onClick={()=>setCfSel(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:257,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:540,maxWidth:"100%",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-            <div style={{padding:"14px 16px 10px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <div style={{padding:"14px 16px 10px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
               <span style={{minWidth:0,flex:1}}>
                 <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cfSel.title}</div>
                 <div style={{fontSize:11,color:T.textSub}}>{cfLabel}</div>
@@ -17370,7 +17370,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
             return(
               <div onClick={()=>setBucketOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:257,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
                 <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:540,maxWidth:"100%",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-                  <div style={{padding:"14px 16px 10px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+                  <div style={{padding:"14px 16px 10px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
                     <span style={{minWidth:0,flex:1}}>
                       <div style={{fontSize:15,fontWeight:800,color:T.text}}>{catMeta[cat]||"📁"} {cat==="Holding"?"Holding costs":cat} — line items</div>
                       <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{soldSel.address}{soldSel.qbProjectId?" · live from QuickBooks":""}</div>
@@ -18020,7 +18020,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
         return(
         <div onClick={()=>setCampOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:470,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(440px,96vw)",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
-            <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`}}><b style={{fontSize:15}}>📣 New campaign</b><div style={{fontSize:11,color:T.textTert,marginTop:2}}>Mass text by filters — not-interested and wrong numbers are always skipped.</div></div>
+            <div style={{padding:"13px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)"}}><b style={{fontSize:15}}>📣 New campaign</b><div style={{fontSize:11,color:T.textTert,marginTop:2}}>Mass text by filters — not-interested and wrong numbers are always skipped.</div></div>
             <div style={lbl}>1 · WHO</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 18px"}}>{[["buyers","🛒 Buyers"],["agents","👤 Agents"],["all","Everyone"]].map(([k,l])=><button key={k} onClick={()=>setCamp({...camp,who:k})} style={chipB(camp.who===k)}>{l}</button>)}</div>
             <div style={lbl}>2 · WHICH PROPERTY</div>
@@ -18062,7 +18062,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
       {blast&&(
         <div onClick={()=>{if(!blast.sending)setBlast(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:470,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(460px,96vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
-            <div style={{padding:"13px 18px",borderBottom:`2px solid ${T.gold}`}}>
+            <div style={{padding:"13px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)"}}>
               <b style={{fontSize:15}}>💬 Mass text — the intro</b>
               <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{blast.sending?`Sending ${blast.i} of ${blast.total}…`:blast.done?`Done — ${blast.total-(blast.errors||[]).length} of ${blast.total} sent.`:`${(blast.list||[]).length-blastOff.size} of ${(blast.list||[]).length} will get it — untick anyone to skip them. Each message is personalized; buyers get the buyer version.`}</div>
             </div>
@@ -18105,7 +18105,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
         {sel?(
           <>
-            <div style={{padding:"12px 16px",background:T.card,borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <div style={{padding:"12px 16px",background:T.card,borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
               {isMobile&&<button onClick={()=>setSelKey(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:16,cursor:"pointer",padding:"2px 4px",flexShrink:0}}>‹</button>}
               <span style={{width:38,height:38,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:13,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(sel.name)}</span>
               <div onClick={()=>setPersonCrm(sel)} title="See everything about them — number, email, properties" style={{minWidth:0,flex:1,cursor:"pointer"}}>
@@ -19815,7 +19815,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
         return(
           <div onClick={()=>setSenderOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
             <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-              <div style={{padding:"13px 16px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+              <div style={{padding:"13px 16px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
                 <span style={{width:30,height:30,borderRadius:9,background:"#EEF0F4",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{cat.icon}</span>
                 <span style={{minWidth:0,flex:1}}>
                   <div style={{fontSize:14.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
@@ -19884,7 +19884,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
         return(
         <div onClick={()=>!composeP.sending&&setComposeP(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:253,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-            <div style={{padding:"14px 18px",borderBottom:`2px solid ${T.gold}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <div style={{padding:"14px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
               <div style={{minWidth:0,flex:1}}>
                 <div style={{fontSize:15,fontWeight:800,color:T.text}}>✉️ New email</div>
                 <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Starts a chain pinned to {property.address} — add the topic after the address</div>

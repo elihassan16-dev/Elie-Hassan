@@ -874,15 +874,17 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
       <div onClick={(e) => e.stopPropagation()} style={inline
         ? { background: "#fff", height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }
         : { background: "#fff", borderRadius: 18, width: "min(480px,96vw)", height: "min(640px,90vh)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 48px rgba(0,0,0,0.25)" }}>
-        <div style={{ padding: inline ? "10px 14px" : "13px 16px", borderBottom: `2px solid ${T.gold}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+        <div style={{ padding: inline ? "10px 14px" : "13px 16px", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: inline ? 13.5 : 15, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 7 }}><SmsChatIcon size={15} color="#15803D" /> {shownName}</div>
             {shownSub && <div style={{ fontSize: 11, fontWeight: 700, color: "#8a6d1f", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>{shownSub}</div>}
             <div style={{ fontSize: 11, color: T.textSub }}>{phone} · from your business line {from}</div>
           </div>
-          <button onClick={() => setFindQ(findQ == null ? "" : null)} title="Search this conversation" style={{ width: 31, height: 31, minWidth: 31, borderRadius: "50%", border: `1px solid ${findQ != null ? "#C9A227" : T.border}`, background: findQ != null ? "#FBF3DD" : "#fff", color: findQ != null ? "#8a6d1f" : T.textSub, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, cursor: "pointer", flexShrink: 0, lineHeight: 1, boxSizing: "border-box", fontFamily: "inherit", padding: 0 }}>🔍</button>
-          <CallA phone={phone} title="Call them" style={{ width: 31, height: 31, minWidth: 31, borderRadius: "50%", border: "none", background: "#0F9D58", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13.5, textDecoration: "none", flexShrink: 0, lineHeight: 1, boxSizing: "border-box" }}>📞</CallA>
-          {onClose && <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>}
+          <div style={{ display: "inline-flex", alignItems: "center", height: 34, borderRadius: 17, background: "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.05)", padding: "0 2px", flexShrink: 0 }}>
+            <button onClick={() => setFindQ(findQ == null ? "" : null)} title="Search this conversation" style={{ width: 34, height: 30, background: findQ != null ? "#fff" : "none", borderRadius: 15, boxShadow: findQ != null ? "0 1px 4px rgba(0,0,0,0.12)" : "none", border: "none", color: findQ != null ? "#8a6d1f" : T.textSub, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, cursor: "pointer", lineHeight: 1, fontFamily: "inherit", padding: 0 }}>🔍</button>
+            <CallA phone={phone} title="Call them" style={{ width: 34, height: 30, background: "none", borderRadius: 15, border: "none", color: "#0F9D58", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15, textDecoration: "none", lineHeight: 1 }}>📞</CallA>
+            {onClose && <button onClick={onClose} style={{ width: 34, height: 30, background: "none", border: "none", borderRadius: 15, fontSize: 19, color: T.textTert, cursor: "pointer", lineHeight: 1, fontFamily: "inherit", padding: 0 }}>×</button>}
+          </div>
         </div>
         {findQ != null && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: inline ? "7px 14px" : "8px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: "#fff" }}>
@@ -893,22 +895,24 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
         )}
         {propK && (
           <div style={{ display: "flex", gap: 7, padding: inline ? "7px 14px" : "8px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: "#fff", flexWrap: "wrap" }}>
-            {[["prop", `🏠 ${prop}`], ["all", `All messages (${fullThread.length})`]].map(([v, l]) => (
-              <button key={v} onClick={() => setView(v)} style={{ padding: "6px 13px", borderRadius: 16, border: `1.5px solid ${view === v ? "#C9A227" : T.border}`, background: view === v ? "#C9A22722" : "#fff", color: view === v ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{l}</button>
-            ))}
+            <div style={{ display: "flex", alignItems: "center", borderRadius: 16, background: "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.05)", padding: 3, gap: 2, maxWidth: "100%", overflow: "hidden" }}>
+              {[["prop", `🏠 ${prop}`], ["all", `All messages (${fullThread.length})`]].map(([v, l]) => (
+                <button key={v} onClick={() => setView(v)} style={{ padding: "5px 12px", borderRadius: 13, border: "none", background: view === v ? "#fff" : "transparent", color: view === v ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: view === v ? 700 : 500, boxShadow: view === v ? "0 1px 4px rgba(0,0,0,0.14)" : "none", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>{l}</button>
+              ))}
+            </div>
           </div>
         )}
         {smsActions && (
           <div style={{ padding: inline ? "6px 14px" : "7px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, background: "#fff" }}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <button onClick={() => smsActions.followUp({ phone, name: shownName, addr: (dir && dir.addr) || "" })} title="Set a follow-up reminder — pick the day, and a time if you want one" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: "1px solid #DDD6FE", background: "#F5F3FF", color: "#7C3AED", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>📅 Follow-up</button>
+              <button onClick={() => smsActions.followUp({ phone, name: shownName, addr: (dir && dir.addr) || "" })} title="Set a follow-up reminder — pick the day, and a time if you want one" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 13px", borderRadius: 14, border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", color: "#7C3AED", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>📅 Follow-up</button>
               {smsActions.setStatus && (
                 <button onClick={() => setStOpen((v) => !v)} title="Their lead status — same as the Showings page; tap to change it" style={cur
-                  ? { display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: "none", background: cur.bg, color: cur.color, fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }
-                  : { display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: `1px solid ${stOpen ? "#C9A227" : T.border}`, background: stOpen ? "#FBF3DD" : "#fff", color: stOpen ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🏷 {cur ? (cur.short || cur.label) : "Set status"} {stOpen ? "▴" : "▾"}</button>
+                  ? { display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 13px", borderRadius: 14, border: "1px solid rgba(0,0,0,0.05)", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.12)", color: cur.color, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }
+                  : { display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 13px", borderRadius: 14, border: "1px solid rgba(0,0,0,0.05)", background: stOpen ? "#fff" : "rgba(118,118,128,0.08)", boxShadow: stOpen ? "0 1px 4px rgba(0,0,0,0.12)" : "none", color: stOpen ? "#8a6d1f" : T.textSub, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>🏷 {cur ? (cur.short || cur.label) : "Set status"} {stOpen ? "▴" : "▾"}</button>
               )}
               {!smsActions.setStatus && (
-                <button onClick={() => smsActions.notInterested({ phone, name: shownName })} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 14, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🚫 Not interested</button>
+                <button onClick={() => smsActions.notInterested({ phone, name: shownName })} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 13px", borderRadius: 14, border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", color: "#B91C1C", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>🚫 Not interested</button>
               )}
             </div>
             {stOpen && (
@@ -1002,7 +1006,7 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
               const mine = m.direction !== "in";
               return (
                 <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "82%" }}>
-                  <div style={{ background: mine ? T.gold : "#fff", color: mine ? "#fff" : T.text, border: mine ? "none" : `1px solid ${T.border}`, borderRadius: 14, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                  <div style={{ background: mine ? T.gold : "#fff", color: mine ? "#fff" : T.text, border: mine ? "none" : "1px solid rgba(0,0,0,0.055)", borderRadius: 18, padding: "8px 13px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", boxShadow: mine ? "none" : "0 1px 2px rgba(0,0,0,0.04)" }}>
                     {Array.isArray(m.media) && m.media.length > 0 && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: m.text ? 7 : 0 }}>
                         {m.media.map((u, i) => /\.(mp4|mov|3gp2?|webm|m4v)(\?|$)/i.test(u)
@@ -1036,7 +1040,7 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
                   <span key={t.kind} style={{ display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
                     <button onClick={() => { setDraft(t.text); setKind(t.kind); }}
                       title={sent ? `${t.label} sent ${sentD} — tap to load it again` : `Load the ${t.label.toLowerCase()} text`}
-                      style={{ whiteSpace: "nowrap", fontSize: 11.5, fontWeight: 700, padding: "5px 11px", borderRadius: 16, border: `1px solid ${sent ? "#3BA55D" : active ? T.gold : T.border}`, background: sent ? "#EDFBF1" : active ? T.goldLight : "#fff", color: sent ? "#15803D" : active ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit" }}>
+                      style={{ whiteSpace: "nowrap", fontSize: 11.5, fontWeight: active || sent ? 700 : 500, padding: "6px 13px", borderRadius: 16, border: "1px solid rgba(0,0,0,0.05)", background: sent ? "#EDFBF1" : active ? "#fff" : "rgba(118,118,128,0.08)", boxShadow: active ? "0 1px 4px rgba(0,0,0,0.14)" : "none", color: sent ? "#15803D" : active ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit" }}>
                       {sent ? `✓ ${t.label} · sent ${sentD}` : t.label}
                     </button>
                     {sent && onClearStamp && <button onClick={() => { if (window.confirm(`Clear the "${t.label} sent" mark?`)) onClearStamp(t.kind); }} title="Clear the sent mark" style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "0 2px" }}>×</button>}
@@ -1054,15 +1058,15 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
           )}
           <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
             <input ref={fileRef} type="file" accept="image/*,video/*" onChange={pickFile} style={{ display: "none" }} />
-            <button onClick={() => fileRef.current && fileRef.current.click()} disabled={attBusy} title="Attach a photo or video — sends as a picture message (MMS)" style={{ padding: "10px 12px", borderRadius: 12, border: `1.5px solid ${att ? "#0F9D58" : T.border}`, background: att ? "#EDFBF1" : "#fff", color: att ? "#0F9D58" : T.textSub, fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>{attBusy ? "…" : "📎"}</button>
+            <button onClick={() => fileRef.current && fileRef.current.click()} disabled={attBusy} title="Attach a photo or video — sends as a picture message (MMS)" style={{ width: 38, height: 38, borderRadius: 19, border: "1px solid rgba(0,0,0,0.05)", background: att ? "#EDFBF1" : "rgba(118,118,128,0.08)", color: att ? "#0F9D58" : T.textSub, fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}>{attBusy ? "…" : "📎"}</button>
             <textarea rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Write a text…"
               onPaste={(e) => { const fixed = rescuePastedLink(e); if (fixed != null) { e.preventDefault(); const el = e.target, st = el.selectionStart ?? draft.length, en = el.selectionEnd ?? draft.length; setDraft(draft.slice(0, st) + fixed + draft.slice(en)); } }}
-              style={{ flex: 1, minWidth: 0, padding: "9px 12px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg, fontSize: 13.5, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, boxSizing: "border-box" }} />
+              style={{ flex: 1, minWidth: 0, padding: "9px 14px", borderRadius: 18, border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", fontSize: 13.5, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, boxSizing: "border-box" }} />
             {!IS_PHONE && <button onClick={async () => {
               try { await sendToMyPhone({ phone, message: draft.trim() }); setNote("📲 Sent to your phone — tap the notification (or just open the app there: the bar waits for you)."); }
               catch (ex) { setErr(ex.message || "Couldn't reach your phone."); }
-            }} title="Send this text from your cell instead — your phone gets a notification that opens Messages prefilled" style={{ padding: "10px 12px", borderRadius: 12, border: "1.5px solid #2563EB", background: "#EFF6FF", color: "#2563EB", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>📲</button>}
-            <button onClick={doSend} disabled={(!draft.trim() && !att) || busy} style={{ padding: "10px 16px", borderRadius: 12, border: "none", background: (draft.trim() || att) && !busy ? T.gold : T.border, color: "#fff", fontWeight: 800, fontSize: 13, cursor: (draft.trim() || att) && !busy ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>{busy ? "Sending…" : "Send"}</button>
+            }} title="Send this text from your cell instead — your phone gets a notification that opens Messages prefilled" style={{ width: 38, height: 38, borderRadius: 19, border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", color: "#2563EB", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}>📲</button>}
+            <button onClick={doSend} disabled={(!draft.trim() && !att) || busy} style={{ height: 38, padding: "0 18px", borderRadius: 19, border: "none", background: (draft.trim() || att) && !busy ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 13, cursor: (draft.trim() || att) && !busy ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>{busy ? "Sending…" : "Send"}</button>
           </div>
         </div>
       </div>

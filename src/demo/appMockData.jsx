@@ -59,6 +59,12 @@ const PROPS = [
     propertyInfo: { type: "Single Family", beds: "3", baths: "1.5", sqft: "1290", yearBuilt: "1958", lot: "", parcel: "", lockboxCode: "1030", lockboxLocation: "Side rail", notes: "" },
     tasks: [{ id: 4, text: "Sign and lock box pickup", status: "Not Started", assignee: "Moshe Hamaoui", delegate: "", assignedAt: Date.now(), assignedBy: "Elie Hassan" }],
     contacts: [],
+    // Internal chat next to the contractor's EXTERNAL thread — the messages
+    // preview shows both languages side by side.
+    messages: [
+      { id: 9101, author: "Moshe Hamaoui", text: "Sign went up this morning — showings start Thursday.", at: days(-0.6), readBy: ["Elie Hassan"] },
+      { id: 9102, author: "Elie Hassan", text: "Beautiful. Keep me posted on the open house numbers.", at: days(-0.5), readBy: ["Moshe Hamaoui", "Esti Ungar"] },
+    ],
     // Live ShowingTime demo data (mock feed in appMockNet) with saved lead
     // statuses so By property / Hot leads / By agent all render populated.
     showingSnapshots: Object.fromEntries(DEMO_SHOWINGS.map((s) => [demoShowingKey(s), { uid: s.uid, start: s.start, summary: s.summary, location: s.location, agent: s.agent, broker: s.broker, phone: s.phone, email: "", status: s.status }])),

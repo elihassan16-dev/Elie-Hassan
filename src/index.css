@@ -92,6 +92,16 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
     border: 1px solid rgba(255, 255, 255, 0.92);
     pointer-events: none;
   }
+  /* ⚠ Sheets that scroll THEMSELVES (overflow-y on the sheet, not an inner
+     div) can't carry the ::before frost: absolute inset:0 anchors to the
+     content origin, so the frost scrolls away and the bottom rows render
+     naked on the dim. Those sheets stay opaque white instead. */
+  div[style*="position: fixed"][style*="backdrop-filter"] > div[style*="rgb(255, 255, 255)"][style*="overflow-y: auto"] {
+    background: rgb(255, 255, 255) !important;
+  }
+  div[style*="position: fixed"][style*="backdrop-filter"] > div[style*="rgb(255, 255, 255)"][style*="overflow-y: auto"]::before {
+    content: none;
+  }
   /* Mobile bottom tab bar: detached floating glass pill */
   .gs-tabbar {
     background: rgba(255, 255, 255, 0.62) !important;

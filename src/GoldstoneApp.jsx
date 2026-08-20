@@ -18482,18 +18482,15 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
             <button onClick={()=>setDrawModal({})} style={{...finBtn(true),padding:"8px 14px"}}>+ Draw</button>
           </div>}
         </div>
-        <div style={{display:"flex",gap:8,marginTop:12,alignItems:"center"}}>
+        {/* Sub-tabs — full-width scrollable capsule. (The old ‹ Back / ⌂ capsule
+            that shared this row collided with the scrolling tabs on phones and
+            was removed at Elie's request — the tabs themselves are the nav.) */}
+        <div style={{marginTop:12}}>
           <div style={SEG_WRAP}>
             {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["reports","Report Center"],["sold","🏷 Sold Properties"],["docs","Document Creator"]].map(([k,l])=>(
               <button key={k} onClick={()=>{if(k!==subTab)navPush(((st,bp)=>()=>{setSubTab(st);setBsSel(bp);})(subTab,bsSel));setSubTab(k);setBsSel(null);}} style={{...segTab(subTab===k),fontSize:isMobile?12:12.5,...(subTab===k?{color:T.gold}:{})}}>{l}</button>
             ))}
           </div>
-          <span style={{marginLeft:"auto",flexShrink:0,paddingLeft:4}}>
-            <span style={CAPS_ROW}>
-              <button onClick={()=>navBack()} title="Back — the screen you were on before" style={{...capsSeg(),width:"auto",padding:"0 11px",fontSize:12,fontWeight:600}}>‹ Back</button>
-              <button onClick={()=>{setBsSel(null);setSelId(null);setSubTab("loc");}} title="Start — the front of the Financial Section" style={{...capsSeg(),fontSize:13}}>⌂</button>
-            </span>
-          </span>
         </div>
       </div>
 

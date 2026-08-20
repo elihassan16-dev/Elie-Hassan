@@ -4,6 +4,7 @@
 // (setX are real state setters); nothing persists. Aliased in by
 // vite.appdemo.config.js only — never bundled into the real app.
 import { useState } from "react";
+import { DEMO_SHOWINGS, demoShowingKey } from "./appMockNet.js";
 
 const days = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString(); };
 
@@ -58,6 +59,16 @@ const PROPS = [
     propertyInfo: { type: "Single Family", beds: "3", baths: "1.5", sqft: "1290", yearBuilt: "1958", lot: "", parcel: "", lockboxCode: "1030", lockboxLocation: "Side rail", notes: "" },
     tasks: [{ id: 4, text: "Sign and lock box pickup", status: "Not Started", assignee: "Moshe Hamaoui", delegate: "", assignedAt: Date.now(), assignedBy: "Elie Hassan" }],
     contacts: [],
+    // Live ShowingTime demo data (mock feed in appMockNet) with saved lead
+    // statuses so By property / Hot leads / By agent all render populated.
+    showingSnapshots: Object.fromEntries(DEMO_SHOWINGS.map((s) => [demoShowingKey(s), { uid: s.uid, start: s.start, summary: s.summary, location: s.location, agent: s.agent, broker: s.broker, phone: s.phone, email: "", status: s.status }])),
+    showingLeads: {
+      [demoShowingKey(DEMO_SHOWINGS[0])]: "offer",
+      [demoShowingKey(DEMO_SHOWINGS[1])]: "interest",
+      [demoShowingKey(DEMO_SHOWINGS[2])]: "not",
+      [demoShowingKey(DEMO_SHOWINGS[4])]: "received",
+    },
+    customLeads: [{ id: 2, name: "Papa Pay", phone: "(908) 555-0142", buyer: true, at: days(-2), lead: "interest" }],
   },
   {
     id: 1004, address: "19 Orchard St", city: "South Amboy", state: "NJ", zip: "08879", status: "Sold",

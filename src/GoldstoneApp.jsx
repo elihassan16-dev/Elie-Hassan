@@ -9377,7 +9377,12 @@ function TasksPage({onNavigate}){
                             <span style={{flex:1,minWidth:0,fontSize:14,fontWeight:600,letterSpacing:"-0.01em",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr}</span>
                             {msgEl(24)}{mineEl}<span style={{color:"#C7CBD1",fontSize:15,flexShrink:0}}>›</span>
                           </div>
-                          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:7}}>{chipEl}{barEl}</div>
+                          {/* Fixed-width chip slot so every progress bar starts at the
+                              same x no matter how long the status name is. */}
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:7}}>
+                            <span style={{width:148,flexShrink:0,display:"flex"}}>{chipEl}</span>
+                            {barEl}
+                          </div>
                         </>):(
                           /* Fixed-width slots for the status chip, 💬 bubble and
                              "for you" pill keep every progress bar the exact same length. */

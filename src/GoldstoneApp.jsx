@@ -12687,7 +12687,9 @@ function NavMenu({items,active,isPinned,onNavigate,onTogglePin,onClose}){
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:400,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(4px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderTopLeftRadius:20,borderTopRightRadius:20,width:"100%",maxWidth:520,maxHeight:"82vh",overflowY:"auto",boxShadow:"0 -8px 40px rgba(0,0,0,0.2)",paddingBottom:"max(12px,env(safe-area-inset-bottom))"}}>
-        <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"#fff"}}>
+        {/* zIndex:2 — the tap-halo CSS gives row buttons position:relative, which
+            otherwise paints them ABOVE this sticky header while scrolling. */}
+        <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"#fff",zIndex:2}}>
           <div>
             <div style={{fontSize:16,fontWeight:700,color:T.text}}>Menu</div>
             <div style={{fontSize:12,color:T.textSub,marginTop:1}}>Tap to open · pin the ones you want on the bottom bar</div>
@@ -20433,7 +20435,10 @@ const TOPBAR_SEG={width:38,height:36,minHeight:36,display:"inline-flex",alignIte
 const CAPS_ROW={display:"inline-flex",alignItems:"center",height:34,borderRadius:17,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:"0 2px",flexShrink:0};
 const capsSeg=(color)=>({...TOPBAR_SEG,width:34,height:32,minHeight:32,fontSize:13.5,...(color?{color}:{})});
 // …and tab rows are iOS segmented controls (white pill slides to the choice).
-const SEG_WRAP={display:"flex",alignItems:"center",borderRadius:18,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:3,gap:2,width:"fit-content",maxWidth:"100%",overflowX:"auto",WebkitOverflowScrolling:"touch",scrollbarWidth:"none"};
+// overflowY hidden + overscroll contain: overflow-x:auto alone makes iOS treat
+// the capsule as a vertical scroller too, so "pushing up" on it rubber-banded
+// the tabs inside the pill (clipped text). Locked to horizontal only.
+const SEG_WRAP={display:"flex",alignItems:"center",borderRadius:18,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:3,gap:2,width:"fit-content",maxWidth:"100%",overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",WebkitOverflowScrolling:"touch",scrollbarWidth:"none"};
 const segTab=(on)=>({flex:"0 0 auto",whiteSpace:"nowrap",padding:"7px 15px",borderRadius:14,border:"none",minHeight:0,background:on?"#fff":"transparent",color:on?T.text:T.textSub,fontWeight:on?650:450,fontSize:13,cursor:"pointer",fontFamily:"inherit",boxShadow:on?"0 1px 4px rgba(0,0,0,0.14)":"none",transition:"all 0.15s",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5});
 // Standalone on/off chips (multi-select filters, quick toggles) — same chrome
 // as a segmented tab, carrying its own gray well when off.

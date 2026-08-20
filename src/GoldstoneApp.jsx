@@ -678,9 +678,9 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
 }
 
 function GHeader({label,color=T.gold}){
-  return <div style={{padding:"13px 16px 7px",display:"flex",alignItems:"center",gap:8}}>
-    <span style={{width:3,height:13,borderRadius:2,background:color,display:"inline-block"}}/>
-    <span style={{fontSize:11,fontWeight:700,color:T.textSub,letterSpacing:"0.06em",textTransform:"uppercase"}}>{label}</span>
+  return <div style={{padding:"13px 16px 7px",display:"flex",alignItems:"center",gap:7}}>
+    <span style={{width:7,height:7,borderRadius:4,background:color,display:"inline-block"}}/>
+    <span style={{fontSize:13,fontWeight:650,color:T.text}}>{label}</span>
   </div>;
 }
 function ERow({label,value,editable,onChange,isTotal,suffix=""}){
@@ -865,7 +865,7 @@ function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}
                 <span style={{fontSize:14,fontWeight:600,color:item.auto?T.gold:T.text}}>{fmtD(item.computedAmt)}</span>
               </div>
             ))}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:`2px solid ${T.gold}`,paddingTop:12,marginTop:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid rgba(0,0,0,0.08)",paddingTop:12,marginTop:4}}>
               <span style={{fontSize:16,fontWeight:700,color:T.text}}>Total Buying Costs</span>
               <span style={{fontSize:20,fontWeight:800,color:T.gold}}>{fmtD(total)}</span>
             </div>
@@ -997,7 +997,7 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
                 <span style={{fontSize:14,fontWeight:600,color:item.auto?T.gold:T.text}}>{fmtD(item.computedAmt)}</span>
               </div>
             ))}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:`2px solid ${T.gold}`,paddingTop:12,marginTop:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid rgba(0,0,0,0.08)",paddingTop:12,marginTop:4}}>
               <span style={{fontSize:16,fontWeight:700,color:T.text}}>Total Selling Costs</span>
               <span style={{fontSize:20,fontWeight:800,color:T.gold}}>{fmtD(total)}</span>
             </div>
@@ -1122,7 +1122,7 @@ function HoldingCostsPopup({items, holdPeriod, onChange, onClose}){
                 <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{fmtD(totalForPeriod(item))}</span>
               </div>
             ))}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:`2px solid ${T.gold}`,paddingTop:12,marginTop:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid rgba(0,0,0,0.08)",paddingTop:12,marginTop:4}}>
               <span style={{fontSize:16,fontWeight:700,color:T.text}}>Total Holding Costs ({months} months)</span>
               <span style={{fontSize:20,fontWeight:800,color:T.gold}}>{fmtD(grandTotal)}</span>
             </div>
@@ -1228,8 +1228,9 @@ function FinancingPopup({fin, onSave, onClose}){
 
         <div style={{flex:1,overflowY:"auto"}}>
           {/* HM section */}
-          <div style={{padding:"10px 18px 4px",background:T.card,marginTop:1}}>
-            <div style={{fontSize:11,fontWeight:700,color:T.blue,textTransform:"uppercase",letterSpacing:"0.07em"}}>Hard Money Loan</div>
+          <div style={{padding:"12px 18px 4px",background:T.card,marginTop:1,display:"flex",alignItems:"center",gap:7}}>
+            <span style={{width:7,height:7,borderRadius:4,background:T.blue,display:"inline-block"}}/>
+            <span style={{fontSize:13,fontWeight:650,color:T.text}}>Hard Money Loan</span>
           </div>
           <div style={{background:T.card}}>
             {iField("Loan % of Purchase",hmPct,setHmPct,"%")}
@@ -1243,8 +1244,9 @@ function FinancingPopup({fin, onSave, onClose}){
           </div>
 
           {/* Gap section */}
-          <div style={{padding:"12px 18px 4px",background:T.card}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#5AC8FA",textTransform:"uppercase",letterSpacing:"0.07em"}}>Gap / Outside Capital</div>
+          <div style={{padding:"12px 18px 4px",background:T.card,display:"flex",alignItems:"center",gap:7}}>
+            <span style={{width:7,height:7,borderRadius:4,background:"#5AC8FA",display:"inline-block"}}/>
+            <span style={{fontSize:13,fontWeight:650,color:T.text}}>Gap / Outside Capital</span>
           </div>
           <div style={{background:T.card}}>
             {iField("Gap Rate (balloon at exit)",gapRate,setGapRate,"% / yr")}
@@ -1261,8 +1263,9 @@ function FinancingPopup({fin, onSave, onClose}){
           </div>
 
           {/* Summary */}
-          <div style={{padding:"12px 18px 4px",background:T.card}}>
-            <div style={{fontSize:11,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:"0.07em"}}>Summary</div>
+          <div style={{padding:"12px 18px 4px",background:T.card,display:"flex",alignItems:"center",gap:7}}>
+            <span style={{width:7,height:7,borderRadius:4,background:T.gold,display:"inline-block"}}/>
+            <span style={{fontSize:13,fontWeight:650,color:T.text}}>Summary</span>
           </div>
           <div style={{background:T.card,paddingBottom:6}}>
             <div style={{...iRow,background:T.goldLight,borderTop:`2px solid ${T.gold}`}}>
@@ -1302,10 +1305,12 @@ function PopupRow({label,value,onOpen}){
 // All section headers use the company gold theme (branded), ignoring any legacy
 // per-card color that used to be passed in.
 function SectionHdr({icon,label}){
+  // Labels arrive in legacy ALL-CAPS — render them title-case per the HIG.
+  const t=String(label||"").toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()).replace("Quickbooks","QuickBooks");
   return(
-    <div style={{padding:"10px 18px",background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",gap:7,borderRadius:`${T.radius}px ${T.radius}px 0 0`,borderBottom:`1px solid ${T.gold}33`}}>
+    <div style={{padding:"11px 18px",background:T.cardAlt,display:"flex",alignItems:"center",gap:8,borderRadius:`${T.radius}px ${T.radius}px 0 0`,borderBottom:"1px solid rgba(0,0,0,0.055)"}}>
       <span style={{fontSize:13}}>{icon}</span>
-      <span style={{fontSize:11,fontWeight:700,color:T.gold,letterSpacing:"0.06em"}}>{label}</span>
+      <span style={{fontSize:13,fontWeight:650,color:T.text}}>{t}</span>
     </div>
   );
 }
@@ -1662,8 +1667,9 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
         </div>
 
         <div style={{flex:1,overflowY:"auto"}}>
-          <div style={{padding:"10px 18px 4px",background:T.card,marginTop:1}}>
-            <div style={{fontSize:11,fontWeight:700,color:T.blue,textTransform:"uppercase",letterSpacing:"0.07em"}}>Hard Money Loan</div>
+          <div style={{padding:"12px 18px 4px",background:T.card,marginTop:1,display:"flex",alignItems:"center",gap:7}}>
+            <span style={{width:7,height:7,borderRadius:4,background:T.blue,display:"inline-block"}}/>
+            <span style={{fontSize:13,fontWeight:650,color:T.text}}>Hard Money Loan</span>
           </div>
           <div style={{background:T.card}}>
             {iField("Loan Amount",hmLoanAmt,setHmLoanAmt,"$","defaults to projected")}
@@ -1689,8 +1695,9 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
             {iField("Override Total HM Interest",hmIntOverride,setHmIntOverride,"$","leave blank to use calculated")}
           </div>
 
-          <div style={{padding:"12px 18px 4px",background:T.card}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#5AC8FA",textTransform:"uppercase",letterSpacing:"0.07em"}}>Gap / Outside Capital</div>
+          <div style={{padding:"12px 18px 4px",background:T.card,display:"flex",alignItems:"center",gap:7}}>
+            <span style={{width:7,height:7,borderRadius:4,background:"#5AC8FA",display:"inline-block"}}/>
+            <span style={{fontSize:13,fontWeight:650,color:T.text}}>Gap / Outside Capital</span>
           </div>
           {/* Auto-matched private line of credit for this property (from the Financial Section) */}
           {locDraws.length>0&&(()=>{const gcol="1fr 84px 84px";return(
@@ -3603,11 +3610,13 @@ function CalendarPage({sharedProps,setSharedProps,onNavigate}){
     <div style={{flex:1,overflowY:"auto",background:T.bg}}>
       {calSmsPopup}
       <div style={wrap}>
-        {/* Segmented control */}
-        <div style={{display:"flex",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:3,gap:3,marginBottom:16}}>
-          {[["dates","🗓 Key Dates"],["month","📅 Calendar"]].map(([k,l])=>(
-            <button key={k} onClick={()=>setView(k)} style={{flex:1,padding:"9px 8px",borderRadius:9,border:"none",background:view===k?T.gold:"transparent",color:view===k?"#fff":T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
-          ))}
+        {/* Segmented control — app-wide capsule language */}
+        <div style={{display:"flex",justifyContent:"center",marginBottom:16}}>
+          <div style={SEG_WRAP}>
+            {[["dates","🗓 Key Dates"],["month","📅 Calendar"]].map(([k,l])=>(
+              <button key={k} onClick={()=>setView(k)} style={{...segTab(view===k),padding:"7px 22px"}}>{l}</button>
+            ))}
+          </div>
         </div>
 
         {/* Needs attention — overdue key dates, shown on all views */}
@@ -3907,9 +3916,9 @@ function RentalPortfolioPage(){
           {/* Type toggle */}
           <div style={{...card,marginBottom:16,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:13,color:T.textSub,fontWeight:600}}>Type</span>
-            <div style={{display:"flex",gap:4,background:T.bg,borderRadius:9,padding:3}}>
+            <div style={SEG_WRAP}>
               {[["single","Single Family"],["multi","Multi-Unit"]].map(([k,l])=>(
-                <button key={k} onClick={()=>upd(sel.id,{type:k})} style={{padding:"6px 12px",borderRadius:7,border:"none",background:sel.type===k?T.gold:"transparent",color:sel.type===k?"#fff":T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                <button key={k} onClick={()=>upd(sel.id,{type:k})} style={{...segTab(sel.type===k),padding:"6px 12px",fontSize:12.5}}>{l}</button>
               ))}
             </div>
             <span style={{marginLeft:"auto",fontSize:12.5,color:T.textSub}}>{units.length} unit{units.length!==1?"s":""} · {fmtD(rentExpected(sel))}/mo expected</span>
@@ -4234,10 +4243,13 @@ function RentalPortfolioPage(){
     if(L){receivedRange+=bAmt(L,"rent","rentReceived");netRange+=ledgerNet(L);}
   });});
   const collectedPct=expectedRange>0?Math.round(receivedRange/expectedRange*100):0;
-  const stat=(label,val,color)=>(
-    <div style={{...card,padding:"14px 16px",flex:"1 1 140px",minWidth:0}}>
-      <div style={{fontSize:20,fontWeight:800,color:color||T.text}}>{val}</div>
-      <div style={{fontSize:11,color:T.textSub,fontWeight:600,marginTop:2}}>{label}</div>
+  const stat=(label,val,color,dot)=>(
+    <div style={{...card,borderRadius:14,padding:"12px 16px 11px",flex:"1 1 140px",minWidth:0}}>
+      <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0,marginBottom:4}}>
+        <span style={{width:6,height:6,borderRadius:3,background:dot||color||T.textTert,flexShrink:0,display:"inline-block"}}/>
+        <span style={{fontSize:11.5,color:T.textSub,fontWeight:650,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+      </div>
+      <div style={{fontSize:19,fontWeight:750,letterSpacing:"-0.01em",color:color||T.text,fontVariantNumeric:"tabular-nums"}}>{val}</div>
     </div>
   );
   return(
@@ -4264,26 +4276,29 @@ function RentalPortfolioPage(){
         <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
           {stat("Properties",list.length)}
           {stat("Units",totalUnits)}
-          {stat("Expected / mo",fmtD(expectedMo),T.gold)}
-          {stat(`Collected (${collectedPct}%)`,fmtD(receivedRange),T.green)}
-          {stat("Net (range)",(netRange>=0?"+":"")+fmtD(netRange),netRange>=0?T.green:T.red)}
+          {stat("Expected / Mo",fmtD(expectedMo),T.gold)}
+          {stat(`Collected (${collectedPct}%)`,fmtD(receivedRange),GREEN_TXT)}
+          {stat("Net (Range)",(netRange>=0?"+":"")+fmtD(netRange),netRange>=0?GREEN_TXT:T.red)}
         </div>
 
-        {/* Property list */}
+        {/* Property list — inset-grouped: title above the card */}
+        <div style={{display:"flex",alignItems:"center",gap:7,margin:"0 6px 7px"}}>
+          <span style={{width:7,height:7,borderRadius:4,background:T.gold,flexShrink:0}}/>
+          <span style={{fontSize:13.5,fontWeight:650,color:T.text}}>Properties</span>
+        </div>
         <div style={card}>
-          <div style={{padding:"11px 16px",borderBottom:list.length?`1px solid ${T.border}`:"none",fontSize:13,fontWeight:800,color:T.text,textTransform:"uppercase",letterSpacing:"0.04em"}}>Properties</div>
           {list.length===0&&<div style={{padding:"26px 16px",textAlign:"center",fontSize:13.5,color:T.textTert}}>No rentals yet. Tap “+ Add rental” to start your portfolio.</div>}
           {list.map((r,i)=>{
             const exp=rentExpected(r);
             const rec=months.reduce((s,mo)=>{const L=rentLedgerFor(r,mo);return s+(L?bAmt(L,"rent","rentReceived"):0);},0);
             return(
-              <div key={r.id} onClick={()=>setSelId(r.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderTop:i?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
+              <div key={r.id} onClick={()=>setSelId(r.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderTop:i?FIN_HAIR:"none",cursor:"pointer",minHeight:46,boxSizing:"border-box"}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:14.5,fontWeight:600,color:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}{r.city?`, ${r.city}`:""}</div>
+                  <div style={{fontSize:14.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}{r.city?`, ${r.city}`:""}{finChev}</div>
                   <div style={{fontSize:12,color:T.textSub}}>{r.type==="multi"?`${(r.units||[]).length} units`:"Single family"} · {fmtD(exp)}/mo</div>
                 </div>
                 <div style={{textAlign:"right",flexShrink:0}}>
-                  <div style={{fontSize:13,fontWeight:700,color:T.green}}>{fmtD(rec)}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{fmtD(rec)}</div>
                   <div style={{fontSize:10.5,color:T.textTert}}>collected · range</div>
                 </div>
               </div>
@@ -4303,9 +4318,9 @@ function RentalPortfolioPage(){
                 <input style={iS} value={form.state} onChange={e=>setForm(f=>({...f,state:e.target.value}))} placeholder="State"/>
                 <input style={iS} value={form.zip} onChange={e=>setForm(f=>({...f,zip:e.target.value}))} placeholder="Zip"/>
               </div>
-              <div style={{display:"flex",gap:4,background:T.bg,borderRadius:9,padding:3,width:"fit-content"}}>
+              <div style={SEG_WRAP}>
                 {[["single","Single Family"],["multi","Multi-Unit"]].map(([k,l])=>(
-                  <button key={k} onClick={()=>setForm(f=>({...f,type:k}))} style={{padding:"7px 13px",borderRadius:7,border:"none",background:form.type===k?T.gold:"transparent",color:form.type===k?"#fff":T.textSub,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                  <button key={k} onClick={()=>setForm(f=>({...f,type:k}))} style={segTab(form.type===k)}>{l}</button>
                 ))}
               </div>
             </div>
@@ -5055,9 +5070,9 @@ function NJDetailsCard({entity, onUpdate}){
   const rowInput={fontSize:14,fontWeight:600,color:T.text,padding:"5px 10px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,outline:"none",textAlign:"right",width:140,maxWidth:"55%"};
   return(
     <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:16}}>
-      <button onClick={()=>setOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:7,padding:"11px 16px",background:T.goldLight,border:"none",borderBottom:open?`1px solid ${T.gold}33`:"none",cursor:"pointer",fontFamily:"inherit"}}>
+      <button onClick={()=>setOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"11px 16px",background:T.cardAlt,border:"none",borderBottom:open?"1px solid rgba(0,0,0,0.055)":"none",cursor:"pointer",fontFamily:"inherit"}}>
         <span style={{fontSize:13}}>📐</span>
-        <span style={{fontSize:11,fontWeight:700,color:T.gold,letterSpacing:"0.06em"}}>PROPERTY DETAILS</span>
+        <span style={{fontSize:13,fontWeight:650,color:T.text}}>Property Details</span>
         {!open&&pi.blockLot&&<span style={{fontSize:11,color:T.textSub,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>· {pi.blockLot}</span>}
         <span style={{marginLeft:"auto",fontSize:11,color:T.gold,fontWeight:700,flexShrink:0}}>{open?"▾ Hide":"▸ Show"}</span>
       </button>
@@ -6178,8 +6193,11 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
               {/* Progress bar */}
               <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,padding:"18px 22px",marginBottom:20}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <div style={{fontSize:15,fontWeight:700,color:T.text}}>Task Progress</div>
-                  <div style={{fontSize:20,fontWeight:800,color:T.green}}>{pct}%</div>
+                  <div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <span style={{width:7,height:7,borderRadius:4,background:T.green,display:"inline-block"}}/>
+                    <span style={{fontSize:13.5,fontWeight:650,color:T.text}}>Task Progress</span>
+                  </div>
+                  <div style={{fontSize:20,fontWeight:750,color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{pct}%</div>
                 </div>
                 <div style={{height:10,borderRadius:5,background:T.bg,overflow:"hidden",marginBottom:10}}>
                   <div style={{height:"100%",borderRadius:5,background:`linear-gradient(90deg,${T.green},#22C55E)`,width:`${pct}%`,transition:"width 0.4s"}}/>
@@ -6346,7 +6364,7 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
           {grouped.map((item,i)=>{
-            if(item.type==="h"){const s=SC[item.status]||{color:"#64748B"};const cnt=sorted.filter(p=>p.status===item.status).length;return <div key={`h${i}`} style={{padding:"9px 14px 4px",background:T.bg,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8}}><span style={{width:7,height:7,borderRadius:"50%",background:s.color,flexShrink:0}}/><span style={{fontSize:10,fontWeight:700,color:s.color,textTransform:"uppercase",letterSpacing:"0.07em",flex:1}}>{item.status}</span><span style={{fontSize:10,color:T.textTert,fontWeight:600}}>{cnt}</span></div>;}
+            if(item.type==="h"){const s=SC[item.status]||{color:"#64748B"};const cnt=sorted.filter(p=>p.status===item.status).length;return <div key={`h${i}`} style={{padding:"9px 14px 5px",background:T.bg,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:7}}><span style={{width:7,height:7,borderRadius:4,background:s.color,flexShrink:0}}/><span style={{fontSize:11.5,fontWeight:650,color:T.textSub,flex:1}}>{item.status}</span><span style={{fontSize:10.5,color:T.textTert,fontWeight:600}}>{cnt}</span></div>;}
             const isActive=item.id===selId;
             return <div key={item.id} onClick={()=>setSelId(item.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:isActive?T.goldLight:"transparent",borderLeft:isActive?`3px solid ${T.gold}`:"3px solid transparent",transition:"background 0.12s"}}><div style={{display:"flex",alignItems:"center",gap:7}}><span style={{flex:1,minWidth:0,fontWeight:isActive?600:400,fontSize:13,color:isActive?T.gold:T.text,lineHeight:1.3}}>{item.address}</span>{emailBadge(item.id)}</div><div style={{fontSize:12,color:T.textSub,marginTop:3}}>{item.city}{item.city&&item.state?", ":""}{item.state}{item.zip?" "+item.zip:""}</div></div>;
           })}
@@ -6965,41 +6983,59 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
     return ACTIVE_STATUSES.indexOf(a.status)-ACTIVE_STATUSES.indexOf(b.status);
   });
 
-  const thS={padding:"10px 14px",fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"left",borderBottom:`1px solid ${T.border}`,background:"#FAFAFA",cursor:"pointer",userSelect:"none",whiteSpace:"nowrap"};
-  const tdS={padding:"12px 14px",fontSize:13,color:T.text,borderBottom:`1px solid ${T.border}`};
+  const thS={padding:"11px 14px",fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",textAlign:"left",borderBottom:FIN_HAIR,background:T.cardAlt,cursor:"pointer",userSelect:"none",whiteSpace:"nowrap"};
+  const tdS={padding:"13px 14px",fontSize:13.5,color:T.text,borderBottom:FIN_HAIR};
+  // iOS-style funded mark — replaces the native checkbox
+  const FundedMark=({on,disabled,onToggle,title})=>(
+    <span onClick={disabled?undefined:onToggle} title={title}
+      style={{width:22,height:22,borderRadius:11,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:disabled?"default":"pointer",background:on?T.gold:"rgba(118,118,128,0.12)",border:on?"none":"1px solid rgba(0,0,0,0.06)",opacity:disabled&&!on?0.5:1}}>
+      {on&&<span style={{color:"#fff",fontSize:13,lineHeight:1,fontWeight:700}}>✓</span>}
+    </span>
+  );
 
   return(
     <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"28px 32px",background:T.bg,position:"relative"}}>
 
-      {/* Profit Analysis card */}
-      <div style={{background:T.card,borderRadius:16,boxShadow:T.shadow,padding:isMobile?"18px 16px":"28px 32px",marginBottom:isMobile?16:24}}>
-        <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Consolidated Yield</div>
-        <div style={{fontSize:26,fontWeight:700,color:T.text,marginBottom:24}}>Profit Analysis</div>
-        <div style={{display:"flex",alignItems:"flex-start",gap:20,flexWrap:"wrap"}}>
-          {/* Status breakdown cards */}
-          <div style={{display:"flex",gap:14,flexWrap:"wrap",flex:1}}>
-            {byStatus.map(({st,count,profit})=>{
-              const sc=STATUS_COLORS[st]||{bg:T.goldLight,badge:T.gold};
-              return(
-                <div key={st} onClick={()=>setListPopup({type:"status",status:st})}
-                  style={{background:sc.bg,borderRadius:12,padding:"16px 20px",minWidth:140,flex:1,cursor:"pointer",transition:"transform 0.1s"}}
-                  onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
-                  onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
-                  <div style={{marginBottom:10}}>
-                    <span style={{display:"inline-block",maxWidth:"100%",background:sc.badge,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:20,textTransform:"uppercase",letterSpacing:"0.03em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",boxSizing:"border-box"}}>{st}</span>
-                  </div>
-                  <div style={{fontSize:22,fontWeight:700,color:T.text,marginBottom:4}}>{fmtD(profit)}</div>
-                  <div style={{fontSize:12,color:T.textSub}}>{count} Active</div>
-                </div>
-              );
-            })}
+      {/* ── Portfolio hero — the two numbers that matter, first ── */}
+      {(()=>{
+        const needFunding=props.filter(p=>!isFunded(p)&&calcEquity(p)>0);
+        const totalNeeded=needFunding.reduce((s,p)=>s+calcEquity(p),0);
+        return(
+        <div style={{...FIN_CARD,padding:isMobile?"14px 16px 12px":"16px 22px 14px",marginBottom:6}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10}}>
+            <span style={{width:8,height:8,borderRadius:4,background:T.green,display:"inline-block"}}/>
+            <span style={{fontSize:12.5,fontWeight:650,color:T.textSub}}>Consolidated Yield</span>
           </div>
-          {/* Total yield */}
-          <div style={{background:"#EDFBF1",borderRadius:14,padding:"20px 28px",textAlign:"right",minWidth:200}}>
-            <div style={{fontSize:32,fontWeight:800,color:T.green}}>{fmtD(totalYield)}</div>
-            <div style={{fontSize:11,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:"0.08em",marginTop:4}}>Total Active Yield</div>
+          <div style={{display:"flex",alignItems:"stretch"}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:11,fontWeight:650,color:T.textTert,letterSpacing:"0.02em",marginBottom:3}}>TOTAL ACTIVE YIELD</div>
+              <div style={{fontSize:isMobile?24:30,fontWeight:750,letterSpacing:"-0.02em",color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{fmtD(totalYield)}</div>
+              <div style={{fontSize:11.5,color:T.textTert,marginTop:3}}>across {props.length} active {props.length===1?"property":"properties"}</div>
+            </div>
+            {totalNeeded>0&&<div onClick={()=>setListPopup({type:"equity"})} style={{flex:1,minWidth:0,borderLeft:`1px solid ${T.border}`,paddingLeft:isMobile?14:22,marginLeft:isMobile?14:22,cursor:"pointer"}}>
+              <div style={{fontSize:11,fontWeight:650,color:"#8a6d1f",letterSpacing:"0.02em",marginBottom:3}}>CASH TO CLOSE NEEDED</div>
+              <div style={{fontSize:isMobile?24:30,fontWeight:750,letterSpacing:"-0.02em",color:T.gold,fontVariantNumeric:"tabular-nums"}}>{fmtD(totalNeeded)}</div>
+              <div style={{fontSize:11.5,color:T.textTert,marginTop:3}}>{needFunding.length} {needFunding.length===1?"property needs":"properties need"} funding{finChev}</div>
+            </div>}
           </div>
-        </div>
+        </div>);})()}
+
+      {/* ── Status breakdown — tappable stat cards, color kept to the dot ── */}
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.max(byStatus.length,1)},1fr)`,gap:isMobile?8:10,margin:"12px 0 18px"}}>
+        {byStatus.map(({st,count,profit})=>{
+          const sc=STATUS_COLORS[st]||{bg:T.goldLight,badge:T.gold};
+          return(
+            <div key={st} onClick={()=>setListPopup({type:"status",status:st})}
+              style={{...FIN_CARD,padding:isMobile?"12px 14px 10px":"14px 18px 12px",cursor:"pointer"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:7,minWidth:0}}>
+                <span style={{width:7,height:7,borderRadius:4,background:sc.badge,flexShrink:0}}/>
+                <span style={{fontSize:12,fontWeight:650,color:T.textSub,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{st}</span>
+              </div>
+              <div style={{fontSize:isMobile?17:20,fontWeight:750,letterSpacing:"-0.01em",color:T.text,fontVariantNumeric:"tabular-nums"}}>{fmtD(profit)}</div>
+              <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{count} active{finChev}</div>
+            </div>
+          );
+        })}
       </div>
 
       {/* List popup — inline overlay, not position:fixed, to avoid iframe clipping */}
@@ -7028,9 +7064,9 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                   const equity=calcEquity(p);
                   return(
                     <div key={p.id} onClick={()=>{onNavigate&&onNavigate(p.id);setListPopup(null);}}
-                      style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 22px",borderTop:`1px solid ${T.border}`,cursor:"pointer"}}
+                      style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 22px",borderTop:FIN_HAIR,cursor:"pointer",minHeight:46,boxSizing:"border-box"}}
                       onMouseEnter={e=>e.currentTarget.style.background="#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                      <span style={{fontSize:13,color:T.blue,fontWeight:500,textDecoration:"underline"}}>{addr}</span>
+                      <span style={{fontSize:13.5,color:T.text,fontWeight:600}}>{addr}{finChev}</span>
                       <div style={{display:"flex",gap:18,alignItems:"center"}}>
                         {isStatus
                           ?<span style={{fontSize:13,fontWeight:700,color:profit>0?T.green:profit<0?T.red:T.textTert}}>{profit!==0?fmtD(profit):"—"}</span>
@@ -7045,35 +7081,20 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
         );
       })()}
 
-      {/* Properties table */}
-      <div style={{background:T.card,borderRadius:16,boxShadow:T.shadow,overflow:"hidden"}}>
-        <div style={{padding:"18px 24px 14px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
-          <div>
-            <div style={{fontWeight:700,fontSize:16,color:T.text}}>All Properties</div>
-            <div style={{fontSize:12,color:T.textSub,marginTop:2}}>{props.length} active properties</div>
-          </div>
-          <select value={sortKey} onChange={e=>setSortKey(e.target.value)}
-            style={{fontSize:12,padding:"5px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:T.bg,color:T.text,outline:"none",fontFamily:"inherit",cursor:"pointer"}}>
-            <option value="status">Sort by Status</option>
-            <option value="profit">Sort by Profit</option>
-            <option value="equity">Sort by Cash to Close</option>
-          </select>
+      {/* Properties table — inset-grouped: header above the card */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,margin:"0 6px 7px",flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+          <span style={{width:7,height:7,borderRadius:4,background:T.gold,flexShrink:0}}/>
+          <span style={{fontSize:13.5,fontWeight:650,color:T.text,whiteSpace:"nowrap"}}>All Properties</span>
+          <span style={{fontSize:12,color:T.textTert,whiteSpace:"nowrap"}}>· {props.length} active</span>
         </div>
-
-        {/* Total Cash-to-Close summary — only properties still needing funding */}
-        {(()=>{
-          const needFunding=props.filter(p=>!isFunded(p)&&calcEquity(p)>0);
-          const totalNeeded=needFunding.reduce((s,p)=>s+calcEquity(p),0);
-          return needFunding.length>0&&(
-            <div onClick={()=>setListPopup({type:"equity"})} style={{margin:"14px 24px",background:T.goldLight,border:`1.5px solid ${T.gold}`,borderRadius:12,padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
-              <div>
-                <div style={{fontSize:11,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:"0.06em"}}>Total Cash to Close Needed</div>
-                <div style={{fontSize:12,color:T.textSub,marginTop:2}}>across {needFunding.length} {needFunding.length===1?"property":"properties"}</div>
-              </div>
-              <div style={{fontSize:24,fontWeight:800,color:T.gold}}>{fmtD(totalNeeded)}</div>
-            </div>
-          );
-        })()}
+        <div style={SEG_WRAP}>
+          {[["status","Status"],["profit","Profit"],["equity","Cash to Close"]].map(([k,l])=>(
+            <button key={k} onClick={()=>setSortKey(k)} style={{...segTab(sortKey===k),padding:"6px 12px",fontSize:12}}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div className="fin-card" style={FIN_CARD}>
 
         {isMobile ? (
           <div>
@@ -7092,11 +7113,11 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
               const funded=isFunded(p);
               const autoFunded=p.status!=="Under Contract";
               return(
-                <div key={p.id} style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`}}>
+                <div key={p.id} style={{padding:"12px 16px",borderTop:FIN_HAIR}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
-                    <span onClick={()=>onNavigate&&onNavigate(p.id)} style={{fontSize:14,fontWeight:600,color:T.blue,cursor:"pointer",flex:1,minWidth:0}}>{addr}</span>
+                    <span onClick={()=>onNavigate&&onNavigate(p.id)} style={{fontSize:14,fontWeight:600,color:T.text,cursor:"pointer",flex:1,minWidth:0}}>{addr}{finChev}</span>
                     {emailBadge(p.id)}
-                    {p.financials.useActualProfit&&<span style={{fontSize:10,fontWeight:700,background:T.green,color:"#fff",borderRadius:10,padding:"2px 8px",textTransform:"uppercase",flexShrink:0}}>actual</span>}
+                    {p.financials.useActualProfit&&<span style={{fontSize:10,fontWeight:700,background:"#EAF7EE",color:GREEN_TXT,border:"1px solid rgba(36,138,61,0.25)",borderRadius:10,padding:"2px 8px",textTransform:"uppercase",flexShrink:0}}>actual</span>}
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 78px 78px 34px",alignItems:"center",gap:8}}>
                     <div style={{minWidth:0,overflow:"hidden",display:"flex"}}>
@@ -7110,12 +7131,10 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                         }))}/>
                     </div>
                     <span style={{textAlign:"right",fontSize:13,fontWeight:700,color:equity>0?T.gold:T.textTert,whiteSpace:"nowrap"}}>{equity>0?fmtD(Math.round(equity)):"—"}</span>
-                    <span style={{textAlign:"right",fontSize:13,fontWeight:800,color:profit>0?T.green:profit<0?T.red:T.textTert,whiteSpace:"nowrap"}}>{profit!==0?fmtD(Math.round(profit)):"—"}</span>
+                    <span style={{textAlign:"right",fontSize:13,fontWeight:800,color:profit>0?GREEN_TXT:profit<0?T.red:T.textTert,whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{profit!==0?fmtD(Math.round(profit)):"—"}</span>
                     <div style={{display:"flex",justifyContent:"center"}}>
-                      <input type="checkbox" checked={funded} disabled={autoFunded}
-                        onChange={e=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,hasFunder:e.target.checked}:x))}
-                        title={funded?"Funded":"Not funded"}
-                        style={{width:20,height:20,accentColor:T.gold,cursor:autoFunded?"default":"pointer",opacity:autoFunded?0.6:1,flexShrink:0}}/>
+                      <FundedMark on={funded} disabled={autoFunded} title={funded?"Funded":"Not funded"}
+                        onToggle={()=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,hasFunder:!funded}:x))}/>
                     </div>
                   </div>
                 </div>
@@ -7145,7 +7164,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                 const autoFunded=p.status!=="Under Contract";
                 return(
                   <tr key={p.id} style={{cursor:"default"}} onMouseEnter={e=>e.currentTarget.style.background="#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                    <td style={{...tdS}}><span onClick={()=>onNavigate&&onNavigate(p.id)} style={{color:T.blue,cursor:"pointer",textDecoration:"underline",fontWeight:500}}>{addr}</span>{unreadByProp[p.id]>0&&<span style={{marginLeft:8}}>{emailBadge(p.id)}</span>}</td>
+                    <td style={{...tdS}}><span onClick={()=>onNavigate&&onNavigate(p.id)} style={{color:T.text,cursor:"pointer",fontWeight:600}}>{addr}{finChev}</span>{unreadByProp[p.id]>0&&<span style={{marginLeft:8}}>{emailBadge(p.id)}</span>}</td>
                     <td style={{...tdS,textAlign:"center"}}>
                       <StatusPicker value={p.status} size="sm" property={p} onChange={v=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,status:v}:x))}
                         onGateSave={(to,answers,note,fieldValues)=>setSharedProps(prev=>prev.map(x=>{
@@ -7158,13 +7177,12 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                     </td>
                     <td style={{...tdS,textAlign:"right",fontWeight:600,color:equity>0?T.gold:T.textTert}}>{equity>0?fmtD(equity):"—"}</td>
                     <td style={{...tdS,textAlign:"center"}}>
-                      {p.financials.useActualProfit&&<span style={{fontSize:10,fontWeight:700,background:T.green,color:"#fff",borderRadius:10,padding:"2px 8px",textTransform:"uppercase"}}>actual</span>}
+                      {p.financials.useActualProfit&&<span style={{fontSize:10,fontWeight:700,background:"#EAF7EE",color:GREEN_TXT,border:"1px solid rgba(36,138,61,0.25)",borderRadius:10,padding:"2px 8px",textTransform:"uppercase"}}>actual</span>}
                     </td>
-                    <td style={{...tdS,textAlign:"right",fontWeight:700,color:profit>0?T.green:profit<0?T.red:T.textTert}}>{profit!==0?fmtD(profit):"—"}</td>
+                    <td style={{...tdS,textAlign:"right",fontWeight:700,color:profit>0?GREEN_TXT:profit<0?T.red:T.textTert,fontVariantNumeric:"tabular-nums"}}>{profit!==0?fmtD(profit):"—"}</td>
                     <td style={{...tdS,textAlign:"center"}}>
-                      <input type="checkbox" checked={funded} disabled={autoFunded}
-                        onChange={e=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,hasFunder:e.target.checked}:x))}
-                        style={{width:16,height:16,accentColor:T.gold,cursor:autoFunded?"default":"pointer",opacity:autoFunded?0.6:1}}/>
+                      <FundedMark on={funded} disabled={autoFunded} title={funded?"Funded":"Not funded"}
+                        onToggle={()=>setSharedProps(prev=>prev.map(x=>x.id===p.id?{...x,hasFunder:!funded}:x))}/>
                     </td>
                   </tr>
                 );
@@ -18294,9 +18312,12 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   };
 
   const stat=(label,val,color)=>(
-    <div style={{background:T.bg,borderRadius:10,padding:"10px 12px",minWidth:0}}>
-      <div style={{fontSize:10,color:T.textSub,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</div>
-      <div style={{fontSize:isMobile?15:17,fontWeight:800,color:color||T.text,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontVariantNumeric:"tabular-nums"}}>{fmtD(val)}</div>
+    <div style={{background:"rgba(118,118,128,0.06)",border:"1px solid rgba(0,0,0,0.04)",borderRadius:14,padding:"11px 14px",minWidth:0}}>
+      <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+        <span style={{width:6,height:6,borderRadius:3,background:color||T.textTert,flexShrink:0,display:"inline-block"}}/>
+        <span style={{fontSize:11.5,color:T.textSub,fontWeight:650,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+      </div>
+      <div style={{fontSize:isMobile?16:18,fontWeight:750,letterSpacing:"-0.01em",color:color||T.text,marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontVariantNumeric:"tabular-nums"}}>{fmtD(val)}</div>
     </div>
   );
 
@@ -18359,12 +18380,12 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
         </div>}
         {f.notes&&<div style={{fontSize:13,color:T.textSub,marginBottom:14,whiteSpace:"pre-wrap"}}>{f.notes}</div>}
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:8,marginBottom:16}}>
-          {stat("Available balance",s.available,s.available<0?T.red:T.green)}
+          {stat("Available Balance",s.available,s.available<0?T.red:GREEN_TXT)}
           {stat("Deployed",s.deployed,T.blue)}
-          {stat("Capital (owed)",s.capital)}
-          {stat("Interest earned",s.interestEarned,"#16A34A")}
-          {stat("Paid out to him",s.distribution,T.red)}
-          {stat("Interest owed",s.interestOwed,s.interestOwed<0?T.red:T.gold)}
+          {stat("Capital (Owed)",s.capital)}
+          {stat("Interest Earned",s.interestEarned,GREEN_TXT)}
+          {stat("Paid Out to Him",s.distribution,T.red)}
+          {stat("Interest Owed",s.interestOwed,s.interestOwed<0?T.red:T.gold)}
         </div>
         {/* How interest owed is derived — negative means he's been overpaid. */}
         <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:10,padding:"9px 12px",marginBottom:16,fontSize:12,color:T.textSub,display:"flex",flexWrap:"wrap",alignItems:"center",gap:6}}>
@@ -18389,8 +18410,8 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
         <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden"}}>
           {reg.length===0&&<div style={{padding:"18px",textAlign:"center",color:T.textTert,fontSize:13}}>Nothing yet. Start with <b>+ Wire / entry</b> for money he sent you, then <b>+ Funding</b> when you deploy it into a deal.</div>}
           {reg.map((e,ri)=>{const m=kindMeta(e);const set=e.kind==="payback"&&e.draw&&(e.draw.principalHandling||e.draw.interestHandling);
-            const rowBg=ri%2?T.gold+"12":T.card;return(
-            <div key={e.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px 6px 12px",background:rowBg,borderTop:ri?`1px solid ${T.border}`:"none"}}>
+            const rowBg=ri%2?T.cardAlt:T.card;return(
+            <div key={e.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px 6px 12px",background:rowBg,borderTop:ri?FIN_HAIR:"none"}}>
               <div style={{width:44,fontSize:10.5,color:T.textTert,flexShrink:0,lineHeight:1.15}}>{finFmtDate(e.date)||"—"}</div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:12.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.label}</div>
@@ -18465,10 +18486,10 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       {subTab==="loc"&&<>
         <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"10px 14px":"12px 24px",flexShrink:0}}>
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:8}}>
-            {stat("Total capital",totals.capital)}
+            {stat("Total Capital",totals.capital)}
             {stat("Deployed",totals.deployed,T.blue)}
-            {stat("Available",totals.available,totals.available<0?T.red:T.green)}
-            {stat("Interest owed",totals.interest,T.gold)}
+            {stat("Available",totals.available,totals.available<0?T.red:GREEN_TXT)}
+            {stat("Interest Owed",totals.interest,T.gold)}
           </div>
         </div>
         <div style={{flex:1,display:"flex",overflow:"hidden"}}>

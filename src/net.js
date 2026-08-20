@@ -172,3 +172,13 @@ export async function uploadAttachment(rawFile, folder = "chat") {
   const { data } = supabase.storage.from("attachments").getPublicUrl(path);
   return { url: data.publicUrl, name: file.name || base, mime: file.type || "", kind };
 }
+
+// ── Geocode one address (Route Planner) — OpenStreetMap Nominatim, no key.
+// Callers cache and pace requests (their usage policy asks ~1/sec).
+export async function geocodeAddress(q) {
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=${encodeURIComponent(q)}`, { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error("Address lookup failed.");
+  const d = await r.json();
+  if (!Array.isArray(d) || !d[0]) return null;
+  return { lat: Number(d[0].lat), lng: Number(d[0].lon) };
+}

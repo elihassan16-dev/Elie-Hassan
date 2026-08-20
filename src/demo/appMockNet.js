@@ -88,3 +88,11 @@ export async function qbAuthFetch(path) {
   if (p.includes("/api/ai/")) throw new Error("Preview mode — AI runs on the live site.");
   return { ok: true };
 }
+
+// Route Planner preview: deterministic fake coordinates around Burlington
+// County so routes render offline — same address always lands the same spot.
+export async function geocodeAddress(q) {
+  let h = 0;
+  for (const ch of String(q)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return { lat: 39.85 + ((h % 1000) / 1000) * 0.45, lng: -75.05 + (((h >> 10) % 1000) / 1000) * 0.55 };
+}

@@ -9,7 +9,7 @@ import { supabase } from "../supabaseClient";
 import { useAuth } from "../auth/AuthProvider";
 import { useData } from "../data/DataProvider";
 import { T } from "../theme";
-import { linkifyText, rescuePastedLink } from "../sms";
+import { linkifyText, rescuePastedLink, SmsThreadPopup } from "../sms";
 import { notify, qbAuthFetch, uploadAttachment, STREAM_VIDEO_CAP } from "../net";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble } from "../videoUpload";
 import { usePersistentDraft } from "../useDraft";
@@ -21,30 +21,49 @@ import { MicIcon, TeamChatIcon } from "../icons";
 import { ContactCardBubble } from "../contactShare";
 import { CallA } from "../sms";
 
-const inp = { width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" };
-const lbl = { display: "block", fontSize: 11, fontWeight: 700, color: T.textSub, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 };
-const goldBtn = (on = true) => ({ padding: "10px 18px", borderRadius: T.radiusSm, border: "none", background: on ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 13.5, cursor: on ? "pointer" : "default", fontFamily: "inherit" });
-const ghostBtn = { padding: "10px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "#fff", color: T.textSub, fontWeight: 600, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" };
+const inp = { width: "100%", padding: "10px 13px", borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)", background: "rgba(118,118,128,0.06)", color: T.text, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" };
+const lbl = { display: "block", fontSize: 12, fontWeight: 650, color: T.textSub, marginBottom: 5 };
+const goldBtn = (on = true) => ({ padding: "10px 18px", borderRadius: 14, border: "none", background: on ? T.gold : "rgba(118,118,128,0.16)", color: "#fff", fontWeight: 700, fontSize: 13.5, cursor: on ? "pointer" : "default", fontFamily: "inherit", boxShadow: on ? "0 1px 4px rgba(0,0,0,0.12)" : "none" });
+const ghostBtn = { padding: "10px 16px", borderRadius: 14, border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", color: T.text, fontWeight: 650, fontSize: 13, cursor: "pointer", fontFamily: "inherit" };
+// The section grammar the whole app speaks: hairline rows inside white cards,
+// with a dot + title-case header above each card.
+const HAIR = "1px solid rgba(0,0,0,0.055)";
+const CARD = { background: "#fff", borderRadius: 14, boxShadow: "0 1px 4px rgba(0,0,0,0.07)", overflow: "hidden" };
+const CIRC = { width: 28, height: 28, borderRadius: "50%", background: "rgba(118,118,128,0.08)", border: "none", fontSize: 13, color: T.textSub, cursor: "pointer", lineHeight: 1, flexShrink: 0, padding: 0, fontFamily: "inherit" };
+function SecHd({ color, action, children }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "2px 4px 0" }}>
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
+      <span style={{ fontSize: 13, fontWeight: 700, color: T.text, letterSpacing: -0.1, flex: 1, minWidth: 0 }}>{children}</span>
+      {action || null}
+    </div>
+  );
+}
+const linkBtn = (label, onClick) => <button onClick={onClick} style={{ background: "none", border: "none", color: "#8a6d1f", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "2px 4px", whiteSpace: "nowrap" }}>{label}</button>;
 const numIn = (v) => String(v).replace(/[^0-9.\-]/g, "");
 const today = () => new Date().toISOString().slice(0, 10);
 
-function Modal({ title, onClose, children, footer, width = 520 }) {
+function Modal({ title, sub, onClose, children, footer, width = 520, tone, headEnd }) {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, width: `min(${width}px,94vw)`, maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,0.2)", overflow: "hidden" }}>
-        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: T.goldLight, flexShrink: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: T.gold, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: tone === "bg" ? T.bg : "#fff", borderRadius: 20, width: `min(${width}px,94vw)`, maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 18px 60px rgba(0,0,0,0.28)", overflow: "hidden" }}>
+        <div style={{ padding: "14px 18px 12px", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: 10, background: "#fff", flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, letterSpacing: -0.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+            {sub && <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
+          </div>
+          {headEnd || null}
+          <button onClick={onClose} aria-label="Close" style={CIRC}>✕</button>
         </div>
-        <div style={{ padding: "16px 18px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>{children}</div>
-        {footer && <div style={{ padding: "12px 18px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, justifyContent: "flex-end", flexShrink: 0 }}>{footer}</div>}
+        <div style={{ padding: "14px 16px 16px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>{children}</div>
+        {footer && <div style={{ padding: "12px 18px", borderTop: "1px solid rgba(0,0,0,0.08)", display: "flex", gap: 10, justifyContent: "flex-end", flexShrink: 0, background: "#fff" }}>{footer}</div>}
       </div>
     </div>
   );
 }
 
 // ── Company create/edit ────────────────────────────────────────────────────────
-function OrgModal({ orgModal, contacts = [], save, onSaved, onClose }) {
+export function OrgModal({ orgModal, contacts = [], save, onSaved, onClose }) {
   const editing = !!orgModal?.id;
   const [f, setF] = useState({ name: orgModal?.name || "", contactName: orgModal?.contactName || "", phone: orgModal?.phone || "", email: orgModal?.email || "", address: orgModal?.address || "", notes: orgModal?.notes || "" });
   const [e2, setE2] = useState("");
@@ -108,64 +127,104 @@ const genPassword = () => {
   for (let i = 0; i < 10; i++) p += chars[Math.floor(Math.random() * chars.length)];
   return p;
 };
-function LoginModal({ org, contacts = [], existingEmails = [], onClose }) {
-  const [f, setF] = useState({ name: "", email: "", password: genPassword() });
+// ── Add a member to a company — contact row + optional portal login, and a
+// one-tap "text them their invite" so nobody has to copy passwords around. ────
+function AddMemberModal({ org, contacts = [], existingEmails = [], prefill = null, onSaved, onClose }) {
+  const { setContacts, flushContacts } = useData() || {};
+  const [f, setF] = useState({ name: prefill?.name || "", phone: prefill?.phone || "", role: prefill?.role || "", email: prefill?.email || "", password: genPassword() });
+  const [withLogin, setWithLogin] = useState(prefill ? true : true);
   const [busy, setBusy] = useState(false);
   const [e2, setE2] = useState("");
   const [pick, setPick] = useState(false);
   const [q, setQ] = useState("");
   const have = new Set((existingEmails || []).map((e) => String(e).toLowerCase()));
-  // The company's main contact — the obvious first login.
-  const mainSuggestion = org?.contactName && org?.email && !have.has(String(org.email).toLowerCase()) ? { name: org.contactName, email: org.email } : null;
+  const cPhone = (c) => c.phone || (c.phones && c.phones[0] && c.phones[0].number) || "";
   const ql = q.trim().toLowerCase();
-  // Any contact can be picked — no email on file just means you type it after.
-  const pickable = (contacts || []).filter((c) => c && c.name && !(c.email && have.has(String(c.email).toLowerCase())));
-  const matches = pickable.filter((c) => !ql || [c.name, c.company, c.role, c.email].filter(Boolean).join(" ").toLowerCase().includes(ql)).sort((a, b) => (a.name || "").localeCompare(b.name || "")).slice(0, 30);
-  const useSuggestion = (s) => { setF((prev) => ({ ...prev, name: s.name, email: s.email })); setPick(false); setQ(""); };
-  const create = async () => {
+  const matches = (contacts || []).filter((c) => c && c.name && !(c.email && have.has(String(c.email).toLowerCase())))
+    .filter((c) => !ql || [c.name, c.company, c.role, c.email, cPhone(c)].filter(Boolean).join(" ").toLowerCase().includes(ql))
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "")).slice(0, 30);
+  const fromContact = useRef(prefill?.contactId || null);
+  const useContact = (c) => { fromContact.current = c.id; setF((p) => ({ ...p, name: c.name || "", phone: cPhone(c), email: c.email || "", role: c.role || "" })); setPick(false); setQ(""); };
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim());
+  const canSave = f.name.trim() && (!withLogin || (emailOk && f.password.length >= 8));
+  const inviteText = `You're set up on the Goldstone Properties portal — sign in at gpflips.com\nEmail: ${f.email.trim()}\nPassword: ${f.password}`;
+  const saveMember = async (sendText) => {
+    if (!canSave || busy) return;
     setBusy(true); setE2("");
     try {
-      await qbAuthFetch("/api/team/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, role: "contractor", contractorOrgId: String(org.id) }) });
+      if (!fromContact.current && setContacts) {
+        const id = Date.now();
+        setContacts((prev) => [...prev, { id, name: f.name.trim(), company: org?.name || "", role: f.role.trim(), email: f.email.trim(), phone: f.phone.trim(), phones: f.phone.trim() ? [{ label: "Mobile", number: f.phone.trim() }] : [], tags: [] }]);
+        if (flushContacts) setTimeout(flushContacts, 0);
+      }
+      if (withLogin) {
+        await qbAuthFetch("/api/team/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: f.name.trim(), email: f.email.trim(), password: f.password, role: "contractor", contractorOrgId: String(org.id) }) });
+      }
+      if (sendText && withLogin && f.phone.trim()) {
+        try { await qbAuthFetch("/api/jivetel/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: f.phone.trim(), message: inviteText }) }); }
+        catch { setE2("Saved — but the invite text didn't go through. Text them their email + password yourself."); setBusy(false); if (onSaved) onSaved(); return; }
+      }
+      if (onSaved) onSaved();
       onClose();
-    } catch (ex) { setE2(ex.message || "Couldn't create the login."); }
+    } catch (ex) { setE2(ex.message || "Couldn't save the member."); }
     setBusy(false);
   };
-  const ok = f.name.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email) && f.password.length >= 8;
+  const frow = (label, node) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: HAIR }}>
+      <span style={{ width: 76, flexShrink: 0, fontSize: 12, fontWeight: 650, color: T.textSub }}>{label}</span>
+      {node}
+    </div>
+  );
+  const bare = { flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontSize: 14, fontFamily: "inherit", color: T.text, padding: 0 };
   return (
-    <Modal title={`New login — ${org?.name}`} onClose={onClose}
-      footer={<><button onClick={onClose} style={ghostBtn}>Cancel</button><button onClick={create} disabled={!ok || busy} style={goldBtn(ok && !busy)}>{busy ? "Creating…" : "Create login"}</button></>}>
-      <div style={{ fontSize: 12.5, color: T.textSub, lineHeight: 1.5 }}>They sign in at <b>gpflips.com</b> with this email + password and see ONLY their company's portal — jobs, tasks, and messages. Share the password with them directly.</div>
-      {mainSuggestion && (
-        <button onClick={() => useSuggestion(mainSuggestion)} style={{ textAlign: "left", padding: "10px 13px", borderRadius: T.radiusSm, border: `1px solid ${T.gold}`, background: T.goldLight, cursor: "pointer", fontFamily: "inherit" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#8a6d1f" }}>⭐ Use their main contact</div>
-          <div style={{ fontSize: 12, color: T.textSub, marginTop: 1 }}>{mainSuggestion.name} · {mainSuggestion.email}</div>
-        </button>
-      )}
-      <div>
-        <button onClick={() => setPick(v => !v)} style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusSm, border: `1.5px dashed ${T.gold}`, background: pick ? T.goldLight : "transparent", color: "#8a6d1f", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>👤 Pick from your contacts{pick ? " ▴" : " ▾"}</button>
-        {pick && (
-          <div style={{ marginTop: 8, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, overflow: "hidden" }}>
-            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your contacts…" style={{ ...inp, border: "none", borderBottom: `1px solid ${T.border}`, borderRadius: 0 }} />
-            <div style={{ maxHeight: 180, overflowY: "auto" }}>
-              {matches.length === 0 && <div style={{ padding: "14px 12px", fontSize: 12.5, color: T.textTert, textAlign: "center" }}>No contacts match.</div>}
-              {matches.map((c) => (
-                <div key={c.id} onClick={() => useSuggestion({ name: c.name, email: c.email || "" })} style={{ padding: "9px 12px", borderTop: `1px solid ${T.border}`, cursor: "pointer" }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{c.name}</div>
-                  <div style={{ fontSize: 11.5, color: c.email ? T.textSub : "#B45309", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.email ? [c.email, c.company || c.role].filter(Boolean).join(" · ") : `no email on file — you'll type one · ${c.company || c.role || ""}`}</div>
-                </div>
-              ))}
+    <Modal title="Add a Member" sub={org?.name || ""} onClose={onClose}
+      footer={<div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+        {withLogin && <button onClick={() => saveMember(true)} disabled={!canSave || !f.phone.trim() || busy} style={{ ...goldBtn(canSave && !!f.phone.trim() && !busy), width: "100%", padding: "13px", borderRadius: 16, fontSize: 14 }}>{busy ? "Saving…" : "Save & Text Them Their Invite"}</button>}
+        {withLogin && f.phone.trim() && canSave && <div style={{ fontSize: 11, color: T.textTert, textAlign: "center", lineHeight: 1.5 }}>Texts {f.phone.trim()}: “You're set up on the Goldstone portal — sign in at gpflips.com · {f.email.trim() || "their email"} · {f.password}”</div>}
+        <button onClick={() => saveMember(false)} disabled={!canSave || busy} style={{ ...ghostBtn, width: "100%", padding: "12px", borderRadius: 16, textAlign: "center", justifyContent: "center", display: "inline-flex", opacity: canSave && !busy ? 1 : 0.5 }}>{withLogin ? "Save Without Sending" : "Save Member"}</button>
+      </div>}>
+      {!prefill && (
+        <div>
+          <button onClick={() => setPick(v => !v)} style={{ ...ghostBtn, width: "100%", justifyContent: "center", display: "inline-flex" }}>👤 Pick from your contacts{pick ? " ▴" : " ▾"}</button>
+          {pick && (
+            <div style={{ marginTop: 8, ...CARD }}>
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your contacts…" style={{ ...inp, border: "none", borderBottom: HAIR, borderRadius: 0, background: "#fff" }} />
+              <div style={{ maxHeight: 180, overflowY: "auto" }}>
+                {matches.length === 0 && <div style={{ padding: "14px 12px", fontSize: 12.5, color: T.textTert, textAlign: "center" }}>No contacts match.</div>}
+                {matches.map((c) => (
+                  <div key={c.id} onClick={() => useContact(c)} style={{ padding: "9px 12px", borderTop: HAIR, cursor: "pointer" }}>
+                    <div style={{ fontSize: 13, fontWeight: 650, color: T.text }}>{c.name}</div>
+                    <div style={{ fontSize: 11.5, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[c.company, c.role, cPhone(c), c.email].filter(Boolean).join(" · ")}</div>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
-      <div><label style={lbl}>Name</label><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Tom Rivera" style={inp} /></div>
-      <div><label style={lbl}>Email (their login)</label><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} type="email" style={inp} /></div>
-      <div><label style={lbl}>Password (min 8 characters)</label>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} style={{ ...inp, flex: 1 }} />
-          <button onClick={() => setF({ ...f, password: genPassword() })} title="Generate a fresh password" style={{ ...ghostBtn, padding: "10px 13px", flexShrink: 0 }}>🎲 New</button>
+          )}
         </div>
-        <div style={{ fontSize: 11, color: T.textTert, marginTop: 4 }}>Copy it before saving — text it to them so they can sign in.</div>
+      )}
+      <div style={CARD}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px" }}>
+          <span style={{ width: 76, flexShrink: 0, fontSize: 12, fontWeight: 650, color: T.textSub }}>Name</span>
+          <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Yanky Polak" style={bare} />
+        </div>
+        {frow("Phone", <input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} type="tel" placeholder="(848) 555-0102" style={bare} />)}
+        {frow("Role", <input value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} placeholder="Foreman" style={bare} />)}
+      </div>
+      <div>
+        <SecHd color="#0EA5C5">Portal Login</SecHd>
+        <div style={{ ...CARD, marginTop: 7 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px" }}>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 650, color: T.text }}>Give them a login</div>
+              <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>They'll see only their company's portal — jobs, tasks, messages</div>
+            </span>
+            <button onClick={() => setWithLogin(v => !v)} aria-label="Toggle portal login" style={{ width: 51, height: 31, borderRadius: 16, border: "none", background: withLogin ? T.green : "rgba(118,118,128,0.16)", position: "relative", cursor: "pointer", padding: 0, flexShrink: 0, transition: "background 0.15s" }}>
+              <span style={{ position: "absolute", top: 2, left: withLogin ? 22 : 2, width: 27, height: 27, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.25)", transition: "left 0.15s" }} />
+            </button>
+          </div>
+          {withLogin && frow("Email", <input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} type="email" placeholder="their sign-in email" style={bare} />)}
+          {withLogin && frow("Password", <><input value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} style={{ ...bare, letterSpacing: 0.5 }} /><button onClick={() => setF({ ...f, password: genPassword() })} title="Generate a fresh password" style={{ ...ghostBtn, padding: "6px 11px", fontSize: 11.5, flexShrink: 0 }}>🎲 New</button></>)}
+        </div>
       </div>
       {e2 && <div style={{ fontSize: 12.5, color: T.red }}>{e2}</div>}
     </Modal>
@@ -667,158 +726,197 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   const secHdr = (t, right) => <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 0 8px" }}><div style={{ fontSize: 11, fontWeight: 800, color: T.textSub, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t}</div>{right}</div>;
   const miniBtn = (label, onClick) => <button onClick={onClick} style={{ padding: "5px 12px", borderRadius: 16, border: `1px solid ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{label}</button>;
 
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const pendingReqs = (j.coRequests || []).filter((r) => r.status === "pending");
+  const waitingReqs = (j.coRequests || []).filter((r) => r.status === "awaiting_price");
+  const needsOk = pendingReqs.length + waitingReqs.length;
+  const heroCol = (label, val, valColor, subEl, first) => (
+    <div style={{ flex: 1, minWidth: 0, ...(first ? {} : { borderLeft: "1px solid rgba(0,0,0,0.07)", paddingLeft: isMobile ? 12 : 18 }) }}>
+      <div style={{ fontSize: 10.5, fontWeight: 650, color: T.textTert, letterSpacing: "0.02em" }}>{label}</div>
+      <div style={{ fontSize: isMobile ? 19 : 23, fontWeight: 750, letterSpacing: "-0.4px", color: valColor, marginTop: 2, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{val}</div>
+      {subEl}
+    </div>
+  );
+  const heroSub = (txt, onClick) => <div onClick={onClick} style={{ fontSize: 10.5, color: onClick ? "#8a6d1f" : T.textTert, marginTop: 2, cursor: onClick ? "pointer" : "default", fontWeight: onClick ? 650 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{txt}</div>;
+  const rowCss = { display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderTop: HAIR };
+  const totCss = { ...rowCss, background: T.cardAlt };
   return (
-    <Modal title={`${j.propertyAddress}${j.title ? ` — ${j.title}` : ""}`} width={640} onClose={onClose}>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {[["overview", "Overview"], ["tasks", `Tasks${jTasks.length ? ` (${jTasks.filter(t => !closed(t.status)).length})` : ""}`], ["messages", `Messages${thread.length ? ` (${thread.length})` : ""}`]].map(([k, l]) => (
-          <button key={k} onClick={() => setTab2(k)} style={{ padding: "7px 15px", borderRadius: 18, border: `1px solid ${tab2 === k ? T.gold : T.border}`, background: tab2 === k ? T.goldLight : "#fff", color: tab2 === k ? "#8a6d1f" : T.textSub, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
-        ))}
-        <div style={{ flex: 1 }} />
-        {isAdmin && !isRemoved && <button onClick={() => save("contractor_jobs", { ...j, status: j.status === "complete" ? "active" : "complete" })} style={{ padding: "7px 13px", borderRadius: 18, border: `1px solid ${j.status === "complete" ? T.border : T.green}`, background: j.status === "complete" ? T.bg : "#EDFBF1", color: j.status === "complete" ? T.textSub : "#15803D", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{j.status === "complete" ? "Reopen job" : "✓ Mark complete"}</button>}
+    <Modal title={j.propertyAddress} sub={`${org?.name || ""}${j.title ? ` · ${j.title}` : ""}`} width={680} tone="bg" onClose={onClose}
+      headEnd={isAdmin && !isRemoved ? <button onClick={() => save("contractor_jobs", { ...j, status: j.status === "complete" ? "active" : "complete" })} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 13px", borderRadius: 100, border: "none", background: j.status === "complete" ? "rgba(118,118,128,0.08)" : "#EAF7EE", color: j.status === "complete" ? T.textSub : "#248A3D", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>{j.status === "complete" ? "Reopen job" : "✓ Mark Complete"}</button> : null}>
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        <div style={{ display: "inline-flex", alignItems: "center", borderRadius: 18, background: "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.05)", padding: 3, gap: 2, maxWidth: "100%", overflowX: "auto", overflowY: "hidden", overscrollBehavior: "contain" }}>
+          {[["overview", "Overview"], ["tasks", `Tasks${jTasks.length ? ` · ${jTasks.filter(t => !closed(t.status)).length}` : ""}`], ["messages", `Messages${thread.length ? ` · ${thread.length}` : ""}`]].map(([k, l]) => (
+            <button key={k} onClick={() => setTab2(k)} style={{ flex: "0 0 auto", whiteSpace: "nowrap", padding: "7px 16px", borderRadius: 14, border: "none", background: tab2 === k ? "#fff" : "transparent", color: tab2 === k ? T.text : T.textSub, fontWeight: tab2 === k ? 650 : 450, fontSize: 13, cursor: "pointer", fontFamily: "inherit", boxShadow: tab2 === k ? "0 1px 4px rgba(0,0,0,0.14)" : "none", transition: "all 0.15s" }}>{l}</button>
+          ))}
+        </div>
       </div>
       {isRemoved && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#FFF0EF", border: `1px solid ${T.red}`, borderRadius: 10, padding: "9px 12px" }}>
-          <div style={{ flex: 1, fontSize: 12.5, color: T.red, fontWeight: 700 }}>🚫 {org?.name || "The contractor"} was removed from this job{j.removedAt ? ` ${fmtDate(j.removedAt)}` : ""}{j.removedBy ? ` by ${j.removedBy}` : ""}. All records are kept — their portal no longer shows it.</div>
-          {isAdmin && <button onClick={restoreContractor} style={{ padding: "6px 12px", borderRadius: 14, border: `1px solid ${T.red}`, background: "#fff", color: T.red, fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Restore</button>}
+        <div style={{ ...CARD, border: `1.5px solid ${T.red}55`, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, fontSize: 12.5, color: T.red, fontWeight: 650 }}>🚫 {org?.name || "The contractor"} was removed from this job{j.removedAt ? ` ${fmtDate(j.removedAt)}` : ""}{j.removedBy ? ` by ${j.removedBy}` : ""}. All records are kept — their portal no longer shows it.</div>
+          {isAdmin && <button onClick={restoreContractor} style={{ padding: "7px 14px", borderRadius: 100, border: `1px solid ${T.red}44`, background: "#fff", color: T.red, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Restore</button>}
         </div>
       )}
       {err2 && <div onClick={() => setErr2("")} style={{ fontSize: 12.5, color: T.red, cursor: "pointer" }}>{err2}</div>}
 
       {tab2 === "overview" && (<>
-        <div style={{ display: "flex", gap: 8 }}>
-          {[["Contract", money(total)], ["Paid", money(paid)], ["Remaining", money(left)], ["Days", days == null ? "—" : days]].map(([l, v]) => {
-            const priceClick = l === "Contract" && (j.changeOrders || []).length > 0;
-            return (
-              <div key={l} onClick={priceClick ? () => setPricePop(true) : undefined} title={priceClick ? "See the original price + change orders" : undefined} style={{ flex: 1, background: T.bg, borderRadius: 10, padding: "9px 8px", textAlign: "center", cursor: priceClick ? "pointer" : "default" }}>
-                <div style={{ fontSize: 9.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase" }}>{l}</div>
-                <div style={{ fontSize: 15, fontWeight: 800, color: T.text, textDecoration: priceClick ? "underline dotted" : "none", textUnderlineOffset: 3 }}>{v}</div>
-              </div>
-            );
-          })}
+        <div>
+          <SecHd color={T.gold}>Contract</SecHd>
+          <div style={{ ...CARD, padding: "13px 16px", marginTop: 7 }}>
+            <div style={{ display: "flex", alignItems: "stretch" }}>
+              {heroCol("TOTAL", money(total), T.text, heroSub((j.changeOrders || []).length ? `incl. ${(j.changeOrders || []).length} change order${(j.changeOrders || []).length !== 1 ? "s" : ""} ›` : "contract price", (j.changeOrders || []).length ? () => setPricePop(true) : undefined), true)}
+              {heroCol("PAID SO FAR", money(paid), "#248A3D", heroSub(`${(j.payments || []).length} payment${(j.payments || []).length !== 1 ? "s" : ""}`))}
+              {heroCol("LEFT", money(left), "#B8912E", heroSub(days != null && j.status !== "complete" ? `day ${days} of the job` : j.status === "complete" ? "job complete" : ""))}
+            </div>
+            <div style={{ marginTop: 11, height: 6, borderRadius: 3, background: "rgba(118,118,128,0.14)", overflow: "hidden" }}>
+              <div style={{ width: `${Math.min(100, Math.round((total > 0 ? paid / total : 0) * 100))}%`, height: "100%", background: T.green, borderRadius: 3 }} />
+            </div>
+          </div>
         </div>
         {pricePop && (
           <div onClick={() => setPricePop(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 460, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: "min(400px,94vw)", boxShadow: "0 8px 40px rgba(0,0,0,0.2)", overflow: "hidden" }}>
-              <div style={{ padding: "13px 17px", borderBottom: `1px solid ${T.border}`, background: T.goldLight, display: "flex", alignItems: "center" }}>
-                <div style={{ flex: 1, fontSize: 14, fontWeight: 800, color: T.text }}>Contract price breakdown</div>
-                <button onClick={() => setPricePop(false)} style={{ background: "none", border: "none", fontSize: 20, color: T.textTert, cursor: "pointer", lineHeight: 1 }}>×</button>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: "min(400px,94vw)", boxShadow: "0 18px 60px rgba(0,0,0,0.28)", overflow: "hidden" }}>
+              <div style={{ padding: "13px 17px", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1, fontSize: 14.5, fontWeight: 700, color: T.text }}>Contract Price Breakdown</div>
+                <button onClick={() => setPricePop(false)} aria-label="Close" style={CIRC}>✕</button>
               </div>
-              <div style={{ padding: "14px 17px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}><span style={{ color: T.textSub }}>Original contract</span><b>{money(j.price)}</b></div>
+              <div style={{ padding: "4px 0 0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, padding: "10px 17px" }}><span style={{ color: T.textSub }}>Original contract</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{money(j.price)}</b></div>
                 {(j.changeOrders || []).map((c) => (
-                  <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
-                    <span style={{ color: T.textSub, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>+ {c.label || "Change order"}{c.date ? ` · ${fmtDate(c.date)}` : ""}{c.by ? ` · ${c.by.split(" ")[0]}` : ""}</span><b style={{ flexShrink: 0 }}>{money(c.amount)}</b>
+                  <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, padding: "10px 17px", borderTop: HAIR }}>
+                    <span style={{ color: T.textSub, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>+ {c.label || "Change order"}{c.date ? ` · ${fmtDate(c.date)}` : ""}{c.by ? ` · ${c.by.split(" ")[0]}` : ""}</span><b style={{ flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{money(c.amount)}</b>
                   </div>
                 ))}
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14.5, padding: "9px 0 2px" }}><b>Total</b><b style={{ color: T.gold }}>{money(total)}</b></div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "11px 17px", borderTop: HAIR, background: T.cardAlt }}><b>Total</b><b style={{ color: "#B8912E", fontVariantNumeric: "tabular-nums" }}>{money(total)}</b></div>
               </div>
             </div>
           </div>
         )}
-        {(j.coRequests || []).filter((r) => r.status === "awaiting_price").map((r) => (
-          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#FFF9EC", border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: "10px 13px", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 16, flexShrink: 0 }}>🧾</span>
-            <div style={{ flex: 1, minWidth: 160 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{r.label}</div>
-              <div style={{ fontSize: 10.5, color: "#8a6d1f" }}>Asked by {r.askedBy}{r.at ? ` · ${fmtDate(r.at)}` : ""}</div>
+
+        {needsOk > 0 && (
+          <div>
+            <SecHd color="#FF9500">Needs Your OK <span style={{ color: T.textTert, fontWeight: 500 }}>· {needsOk}</span></SecHd>
+            <div style={{ ...CARD, border: `1.5px solid ${T.gold}88`, marginTop: 7 }}>
+              {pendingReqs.map((r, i) => (
+                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", borderTop: i ? HAIR : "none", flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: 170 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>{r.label} — <span style={{ fontVariantNumeric: "tabular-nums" }}>{money(r.amount)}</span></div>
+                    <div style={{ fontSize: 11, color: T.textSub, marginTop: 1 }}>Change order request · {r.by}{r.at ? ` · ${fmtDate(r.at)}` : ""}{r.note ? ` · “${r.note}”` : ""}</div>
+                  </div>
+                  <button onClick={() => setTab2("messages")} title="Open this job's messages" style={{ ...CIRC, display: "inline-flex", alignItems: "center", justifyContent: "center" }}><TeamChatIcon size={13} /></button>
+                  {isAdmin ? (<>
+                    <button onClick={() => decideCoReq(r, true)} style={{ padding: "8px 15px", borderRadius: 100, border: "none", background: T.green, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 1px 4px rgba(0,0,0,0.12)", flexShrink: 0 }}>✓ Approve</button>
+                    <button onClick={() => decideCoReq(r, false)} style={{ padding: "8px 14px", borderRadius: 100, border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", color: "#D70015", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Deny</button>
+                  </>) : <span style={{ fontSize: 10.5, fontWeight: 700, color: "#B45309", background: "#FDE9C8", borderRadius: 100, padding: "4px 10px", flexShrink: 0 }}>pending — admin decides</span>}
+                </div>
+              ))}
+              {waitingReqs.map((r, i) => (
+                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderTop: (i || pendingReqs.length) ? HAIR : "none", flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: 150 }}>
+                    <div style={{ fontSize: 13, fontWeight: 650, color: T.text }}>{r.label}</div>
+                    <div style={{ fontSize: 11, color: T.textSub, marginTop: 1 }}>You asked for their price{r.askedBy ? ` · ${r.askedBy.split(" ")[0]}` : ""}{r.at ? ` · ${fmtDate(r.at)}` : ""}</div>
+                  </div>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: "#B45309", background: "#FDE9C8", borderRadius: 100, padding: "4px 10px", flexShrink: 0 }}>waiting on their price</span>
+                  {isAdmin && <button onClick={() => cancelAsk(r)} title="Withdraw this request" style={CIRC}>✕</button>}
+                </div>
+              ))}
             </div>
-            <span style={{ fontSize: 10.5, fontWeight: 800, color: "#B45309", background: "#FDE9C8", borderRadius: 12, padding: "3px 9px", flexShrink: 0 }}>WAITING ON THEIR PRICE</span>
-            {isAdmin && <button onClick={() => cancelAsk(r)} title="Withdraw this request" style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>}
           </div>
-        ))}
-        {(j.coRequests || []).filter((r) => r.status === "pending").map((r) => (
-          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#FFF9EC", border: `1.5px solid ${T.gold}`, borderRadius: 12, padding: "10px 13px", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 16, flexShrink: 0 }}>🧾</span>
-            <div style={{ flex: 1, minWidth: 160 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{r.label} — {money(r.amount)}</div>
-              <div style={{ fontSize: 10.5, color: "#8a6d1f" }}>Change order request · {r.by}{r.at ? ` · ${fmtDate(r.at)}` : ""}{r.note ? ` · ${r.note}` : ""}</div>
+        )}
+
+        <div style={{ display: "flex", gap: 14, flexDirection: isMobile ? "column" : "row" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <SecHd color="#AF52DE" action={isAdmin && !isRemoved ? <span style={{ whiteSpace: "nowrap" }}>{linkBtn("＋ Add", () => setCoDraft({ label: "", amount: "", date: today() }))}{linkBtn("🧾 Ask price", () => setAskDraft({ label: "" }))}</span> : null}>Change Orders</SecHd>
+            <div style={{ ...CARD, marginTop: 7 }}>
+              {(j.changeOrders || []).map((c, i) => (
+                <div key={c.id} style={{ ...rowCss, borderTop: i ? HAIR : "none" }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</span>
+                  <span style={{ color: T.textTert, fontSize: 11 }}>{fmtDate(c.date)}</span><b style={{ fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>{money(c.amount)}</b>
+                  {isAdmin && <button onClick={() => save("contractor_jobs", { ...j, changeOrders: (j.changeOrders || []).filter((x) => x.id !== c.id) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
+                </div>
+              ))}
+              {(j.changeOrders || []).length === 0 && !coDraft && <div style={{ padding: "12px 14px", fontSize: 12, color: T.textTert }}>No change orders yet.</div>}
+              {(j.changeOrders || []).length > 0 && <div style={{ ...totCss, borderTop: HAIR }}><span style={{ flex: 1, fontSize: 12, color: T.textSub }}>Original contract</span><b style={{ fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>{money(j.price)}</b></div>}
+              {coDraft && (
+                <div style={{ padding: "10px 12px", borderTop: HAIR, background: T.cardAlt, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <input autoFocus value={coDraft.label} onChange={(e) => setCoDraft({ ...coDraft, label: e.target.value })} placeholder="What's added? e.g. 2nd bathroom" style={{ ...inp, flex: 2, minWidth: 130, background: "#fff" }} />
+                  <input value={coDraft.amount} onChange={(e) => setCoDraft({ ...coDraft, amount: numIn(e.target.value) })} inputMode="decimal" placeholder="$" style={{ ...inp, flex: 1, minWidth: 70, background: "#fff" }} />
+                  <input type="date" value={coDraft.date} onChange={(e) => setCoDraft({ ...coDraft, date: e.target.value })} style={{ ...inp, flex: 1, minWidth: 115, background: "#fff", borderRadius: 100 }} />
+                  <button onClick={addCO} style={goldBtn(!!Number(numIn(coDraft.amount)))}>Add</button>
+                  <button onClick={() => setCoDraft(null)} style={{ ...ghostBtn, padding: "10px 13px" }}>Cancel</button>
+                </div>
+              )}
+              {askDraft && (
+                <div style={{ padding: "10px 12px", borderTop: HAIR, background: T.cardAlt, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <input autoFocus value={askDraft.label} onChange={(e) => setAskDraft({ label: e.target.value })} onKeyDown={(e) => e.key === "Enter" && sendAsk()} placeholder="Work you want priced — e.g. Frame out the basement bath" style={{ ...inp, flex: 1, minWidth: 170, background: "#fff" }} />
+                  <button onClick={sendAsk} style={goldBtn(!!(askDraft.label || "").trim())}>Send</button>
+                  <button onClick={() => setAskDraft(null)} style={{ ...ghostBtn, padding: "10px 13px" }}>Cancel</button>
+                </div>
+              )}
             </div>
-            <button onClick={() => setTab2("messages")} title="Open this job's messages" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 14, color: "#8a6d1f", cursor: "pointer", fontSize: 13, padding: "4px 9px", flexShrink: 0, fontFamily: "inherit", display: "inline-flex", alignItems: "center" }}><TeamChatIcon size={13}/></button>
-            {isAdmin ? (
-              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                <button onClick={() => decideCoReq(r, true)} style={{ padding: "7px 14px", borderRadius: 16, border: "none", background: T.green, color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>✓ Approve</button>
-                <button onClick={() => decideCoReq(r, false)} style={{ padding: "7px 14px", borderRadius: 16, border: `1px solid ${T.red}`, background: "#fff", color: T.red, fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Deny</button>
-              </div>
-            ) : <span style={{ fontSize: 10.5, fontWeight: 800, color: "#B45309", background: "#FDE9C8", borderRadius: 12, padding: "3px 9px", flexShrink: 0 }}>PENDING — admin decides</span>}
           </div>
-        ))}
-        <div>
-          {secHdr("Scope of work", <span style={{ display: "inline-flex", gap: 6 }}>{j.scope ? miniBtn("📄 Open PDF", () => openSowPdf(j).catch(() => {})) : null}{isAdmin ? miniBtn("✎ Edit scope", () => setScopeEdit(true)) : null}{isAdmin && onEditBasics ? miniBtn("✎ Edit basics", onEditBasics) : null}</span>)}
-          <div style={{ fontSize: 13, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{j.scope || "No scope written — edit the job or let the contractor upload their SOW PDF."}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <SecHd color={T.green} action={isAdmin ? <span style={{ whiteSpace: "nowrap" }}>{linkBtn("＋ Add", () => setPayDraft({ amount: "", date: today(), note: "" }))}{qbProjectId ? linkBtn("🔍 QuickBooks", () => setQbPick(true)) : null}</span> : null}>Payments</SecHd>
+            <div style={{ ...CARD, marginTop: 7 }}>
+              {(j.payments || []).map((pm, i) => (
+                <div key={pm.id} style={{ ...rowCss, borderTop: i ? HAIR : "none" }}>
+                  {pm.qbId && <span title="Pinned from QuickBooks" style={{ fontSize: 9, fontWeight: 800, color: "#248A3D", background: "#EAF7EE", borderRadius: 100, padding: "2px 6px", flexShrink: 0 }}>QB</span>}
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pm.note || "Payment"}</span>
+                  <span style={{ color: T.textTert, fontSize: 11 }}>{fmtDate(pm.date)}</span><b style={{ fontSize: 12.5, color: "#248A3D", fontVariantNumeric: "tabular-nums" }}>{money(pm.amount)}</b>
+                  {isAdmin && <button onClick={() => save("contractor_jobs", { ...j, payments: (j.payments || []).filter((x) => x.id !== pm.id) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
+                </div>
+              ))}
+              {(j.payments || []).length === 0 && !payDraft && <div style={{ padding: "12px 14px", fontSize: 12, color: T.textTert }}>Nothing paid on this job yet.</div>}
+              {(j.payments || []).length > 0 && <div style={{ ...totCss, borderTop: HAIR }}><span style={{ flex: 1, fontSize: 12, color: T.textSub }}>Paid so far</span><b style={{ fontSize: 12.5, color: "#248A3D", fontVariantNumeric: "tabular-nums" }}>{money(paid)}</b></div>}
+              {payDraft && (
+                <div style={{ padding: "10px 12px", borderTop: HAIR, background: T.cardAlt, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <input autoFocus value={payDraft.amount} onChange={(e) => setPayDraft({ ...payDraft, amount: numIn(e.target.value) })} inputMode="decimal" placeholder="$" style={{ ...inp, flex: 1, minWidth: 80, background: "#fff" }} />
+                  <input type="date" value={payDraft.date} onChange={(e) => setPayDraft({ ...payDraft, date: e.target.value })} style={{ ...inp, flex: 1, minWidth: 115, background: "#fff", borderRadius: 100 }} />
+                  <input value={payDraft.note} onChange={(e) => setPayDraft({ ...payDraft, note: e.target.value })} placeholder="Note (check #, draw…)" style={{ ...inp, flex: 2, minWidth: 120, background: "#fff" }} />
+                  <button onClick={addPay} style={goldBtn(!!Number(numIn(payDraft.amount)))}>Add</button>
+                  <button onClick={() => setPayDraft(null)} style={{ ...ghostBtn, padding: "10px 13px" }}>Cancel</button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
+
+        <div>
+          <SecHd color="#0EA5C5" action={<span style={{ whiteSpace: "nowrap" }}>{j.scope ? linkBtn("📄 Open PDF", () => openSowPdf(j).catch(() => {})) : null}{isAdmin ? linkBtn("✎ Edit", () => setScopeEdit(true)) : null}{isAdmin && onEditBasics ? linkBtn("✎ Basics", onEditBasics) : null}</span>}>Scope of Work</SecHd>
+          <div style={{ ...CARD, marginTop: 7, padding: "12px 14px" }}>
+            <div style={{ fontSize: 12.5, color: j.scope ? T.textSub : T.textTert, whiteSpace: "pre-wrap", lineHeight: 1.5, maxHeight: 130, overflow: "hidden" }}>{j.scope || "No scope written — edit the job or let the contractor upload their SOW PDF."}</div>
+          </div>
+        </div>
+
         {isAdmin && orgLogins.length > 1 && (
           <div>
-            {secHdr(`${org?.name || "Their"} people on this job`)}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            <SecHd color="#8E8E93">{org?.name || "Their"} People on This Job</SecHd>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
               {orgLogins.map((u) => { const on = onJob(u.id); return (
-                <button key={u.id} onClick={() => toggleCrew(u)} title={on ? "On this job — tap to remove them" : "Removed — tap to add them back"} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 16, border: `1.5px solid ${on ? T.gold : T.border}`, background: on ? T.goldLight : T.bg, color: on ? "#8a6d1f" : T.textTert, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", textDecoration: on ? "none" : "line-through" }}>{on ? "✓" : "✕"} {u.name}</button>
+                <button key={u.id} onClick={() => toggleCrew(u)} title={on ? "On this job — tap to remove them" : "Removed — tap to add them back"} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 13px", borderRadius: 14, border: "1px solid rgba(0,0,0,0.05)", background: on ? "#fff" : "rgba(118,118,128,0.08)", color: on ? "#8a6d1f" : T.textTert, fontSize: 12.5, fontWeight: on ? 650 : 500, cursor: "pointer", fontFamily: "inherit", boxShadow: on ? "0 1px 4px rgba(0,0,0,0.12)" : "none", textDecoration: on ? "none" : "line-through" }}>{on ? "✓" : "✕"} {u.name}</button>
               ); })}
             </div>
-            <div style={{ fontSize: 11, color: T.textTert, marginTop: 6 }}>Tap a name to remove or re-add them. Removed people don't see this job — or its messages, tasks, and alerts — in their portal.</div>
+            <div style={{ fontSize: 11, color: T.textTert, marginTop: 6, paddingLeft: 4 }}>Tap a name to remove or re-add them. Removed people don't see this job in their portal.</div>
           </div>
         )}
+
         <div>
-          {secHdr("Documents", miniBtn(busy ? "Uploading…" : "＋ Upload", () => docRef.current && docRef.current.click()))}
+          <SecHd color="#B8912E" action={linkBtn(busy ? "Uploading…" : "＋ Upload", () => docRef.current && docRef.current.click())}>Documents</SecHd>
           <input ref={docRef} type="file" accept="application/pdf,image/*" onChange={uploadDoc} style={{ display: "none" }} />
-          {jDocs.length === 0 && <div style={{ fontSize: 12.5, color: T.textTert }}>No documents yet. Their uploaded SOW PDFs land here too.</div>}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {jDocs.map((d) => <a key={d.id} href={d.url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, color: T.blue, fontSize: 12, fontWeight: 600, textDecoration: "none", maxWidth: 230 }}>📄 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span><span style={{ color: T.textTert, fontWeight: 400 }}>· {d.by}</span></a>)}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
+            {jDocs.length === 0 && <div style={{ fontSize: 12, color: T.textTert, paddingLeft: 4 }}>No documents yet. Their uploaded SOW PDFs land here too.</div>}
+            {jDocs.map((d) => <a key={d.id} href={d.url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 12px", borderRadius: 14, border: "1px solid rgba(0,0,0,0.05)", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", color: T.text, fontSize: 12, fontWeight: 600, textDecoration: "none", maxWidth: 230 }}>📄 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span><span style={{ color: T.textTert, fontWeight: 400 }}>· {d.by}</span></a>)}
           </div>
         </div>
-        <div>
-          {secHdr("Change orders", isAdmin && !isRemoved ? <span style={{ display: "inline-flex", gap: 6 }}>{miniBtn("🧾 Ask them for a price", () => setAskDraft({ label: "" }))}{miniBtn("＋ Change order", () => setCoDraft({ label: "", amount: "", date: today() }))}</span> : null)}
-          {askDraft && (
-            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-              <input autoFocus value={askDraft.label} onChange={(e) => setAskDraft({ label: e.target.value })} onKeyDown={(e) => e.key === "Enter" && sendAsk()} placeholder="Scope of work you want priced — e.g. Frame out the basement bathroom" style={{ ...inp, flex: 1, minWidth: 200 }} />
-              <button onClick={sendAsk} style={goldBtn(!!(askDraft.label || "").trim())}>Send request</button>
-              <button onClick={() => setAskDraft(null)} style={{ padding: "8px 13px", borderRadius: 10, border: `1px solid ${T.border}`, background: "#fff", color: T.textSub, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
-            </div>
-          )}
-          {(j.changeOrders || []).map((c) => (
-            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "5px 0", borderBottom: `1px solid ${T.border}` }}>
-              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</span>
-              <span style={{ color: T.textTert, fontSize: 11.5 }}>{fmtDate(c.date)}</span><b>{money(c.amount)}</b>
-              {isAdmin && <button onClick={() => save("contractor_jobs", { ...j, changeOrders: (j.changeOrders || []).filter((x) => x.id !== c.id) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>}
-            </div>
-          ))}
-          {coDraft && (
-            <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-              <input autoFocus value={coDraft.label} onChange={(e) => setCoDraft({ ...coDraft, label: e.target.value })} placeholder="What's added? e.g. 2nd bathroom" style={{ ...inp, flex: 2, minWidth: 140 }} />
-              <input value={coDraft.amount} onChange={(e) => setCoDraft({ ...coDraft, amount: numIn(e.target.value) })} inputMode="decimal" placeholder="$" style={{ ...inp, flex: 1, minWidth: 80 }} />
-              <input type="date" value={coDraft.date} onChange={(e) => setCoDraft({ ...coDraft, date: e.target.value })} style={{ ...inp, flex: 1, minWidth: 120 }} />
-              <button onClick={addCO} style={goldBtn(!!Number(numIn(coDraft.amount)))}>Add</button>
-            </div>
-          )}
-        </div>
-        <div>
-          {secHdr("Payments", isAdmin ? <span style={{ display: "inline-flex", gap: 6 }}>{qbProjectId ? miniBtn("🔍 From QuickBooks", () => setQbPick(true)) : null}{miniBtn("＋ Payment", () => setPayDraft({ amount: "", date: today(), note: "" }))}</span> : null)}
-          {(j.payments || []).map((p) => (
-            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "5px 0", borderBottom: `1px solid ${T.border}` }}>
-              <span style={{ flex: 1, minWidth: 0, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.qbId && <span title="Pinned from QuickBooks" style={{ fontSize: 9, fontWeight: 800, color: "#2C7A3F", background: "#E7F6EC", borderRadius: 10, padding: "1px 6px", marginRight: 6 }}>QB</span>}{p.note || "Payment"}</span>
-              <span style={{ color: T.textTert, fontSize: 11.5 }}>{fmtDate(p.date)}</span><b style={{ color: T.green }}>{money(p.amount)}</b>
-              {isAdmin && <button onClick={() => save("contractor_jobs", { ...j, payments: (j.payments || []).filter((x) => x.id !== p.id) })} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>}
-            </div>
-          ))}
-          {payDraft && (
-            <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-              <input autoFocus value={payDraft.amount} onChange={(e) => setPayDraft({ ...payDraft, amount: numIn(e.target.value) })} inputMode="decimal" placeholder="$" style={{ ...inp, flex: 1, minWidth: 90 }} />
-              <input type="date" value={payDraft.date} onChange={(e) => setPayDraft({ ...payDraft, date: e.target.value })} style={{ ...inp, flex: 1, minWidth: 120 }} />
-              <input value={payDraft.note} onChange={(e) => setPayDraft({ ...payDraft, note: e.target.value })} placeholder="Note (check #, draw…)" style={{ ...inp, flex: 2, minWidth: 130 }} />
-              <button onClick={addPay} style={goldBtn(!!Number(numIn(payDraft.amount)))}>Add</button>
-            </div>
-          )}
-        </div>
-        {/* Danger zone. "Remove" pulls the contractor but keeps every record;
-            "Delete" erases the job and everything on it from both sides. */}
+
         {isAdmin && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+          <div style={{ ...CARD, marginTop: 2 }}>
             {!isRemoved && (
-              <button onClick={removeContractor} style={{ padding: "10px", borderRadius: T.radiusSm, border: `1px solid ${T.red}`, background: "#fff", color: T.red, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
-                🚫 Remove {org?.name || "the contractor"} from this job — keep all records
+              <button onClick={removeContractor} style={{ display: "block", width: "100%", textAlign: "center", padding: "12px 14px", border: "none", background: "none", color: T.red, fontWeight: 650, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>
+                Remove {org?.name || "the Contractor"} from This Job — Keep All Records
               </button>
             )}
-            <button onClick={removeJob} style={{ padding: "10px", borderRadius: T.radiusSm, border: `1px solid ${T.red}`, background: "#FFF0EF", color: T.red, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
-              🗑 Delete this job entirely — erases scope, tasks, messages & payments
+            <button onClick={removeJob} style={{ display: "block", width: "100%", textAlign: "center", padding: "12px 14px", borderTop: isRemoved ? "none" : HAIR, borderLeft: "none", borderRight: "none", borderBottom: "none", background: "none", color: T.red, fontWeight: 650, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>
+              Delete This Job Entirely — Erases Scope, Tasks, Messages & Payments
             </button>
           </div>
         )}
@@ -826,57 +924,59 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
 
       {tab2 === "tasks" && (<>
         <div>
-          {secHdr(`Tasks for ${org?.name || "them"}`)}
-          {!isRemoved && <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <input value={taskDraft} onChange={(e) => setTaskDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder="Delegate a task to them…" style={{ ...inp, flex: 1 }} />
-            <button onClick={addTask} style={goldBtn(!!taskDraft.trim())}>Add</button>
-          </div>}
-          {toThem.map((t) => (
-            <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
-              {statusPill(t)}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, color: T.text, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: closed(t.status) ? 0.6 : 1 }}>{t.text}</div>
-                <div style={{ fontSize: 11, color: T.textTert }}>{(t.statusBy || t.doneBy) ? `${t.status === "Completed" ? "✓ " : ""}${t.statusBy || t.doneBy}` : ""}</div>
+          <SecHd color={T.gold}>Tasks for {org?.name || "Them"}</SecHd>
+          <div style={{ ...CARD, marginTop: 7 }}>
+            {toThem.map((t, i) => (
+              <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 14px", borderTop: i ? HAIR : "none" }}>
+                {statusPill(t)}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, color: T.text, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: closed(t.status) ? 0.6 : 1 }}>{t.text}</div>
+                  <div style={{ fontSize: 11, color: T.textTert }}>{(t.statusBy || t.doneBy) ? `${t.status === "Completed" ? "✓ " : ""}${t.statusBy || t.doneBy}` : ""}</div>
+                </div>
+                {isAdmin && <button onClick={() => remove("contractor_tasks", t.id)} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0 }}>×</button>}
               </div>
-              {isAdmin && <button onClick={() => remove("contractor_tasks", t.id)} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>}
-            </div>
-          ))}
-          {toThem.length === 0 && <div style={{ fontSize: 12.5, color: T.textTert }}>Nothing delegated on this job yet.</div>}
+            ))}
+            {toThem.length === 0 && <div style={{ padding: "12px 14px", fontSize: 12, color: T.textTert }}>Nothing delegated on this job yet.</div>}
+            {!isRemoved && <div style={{ display: "flex", gap: 8, padding: "10px 12px", borderTop: toThem.length ? HAIR : "none", background: T.cardAlt }}>
+              <input value={taskDraft} onChange={(e) => setTaskDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder="Delegate a task to them…" style={{ ...inp, flex: 1, background: "#fff" }} />
+              <button onClick={addTask} style={goldBtn(!!taskDraft.trim())}>Add</button>
+            </div>}
+          </div>
         </div>
         <div>
-          {secHdr("Requests FROM them")}
-          {fromThem.map((t) => (
-            <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
-              {statusPill(t)}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, color: T.text, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: closed(t.status) ? 0.6 : 1 }}>{t.text}</div>
-                <div style={{ fontSize: 11, color: T.textTert }}>from {t.createdBy || org?.name} · {fmtDate(t.createdAt)}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${t.statusBy || t.doneBy}` : ""}</div>
+          <SecHd color="#0EA5C5">Requests From Them</SecHd>
+          <div style={{ ...CARD, marginTop: 7 }}>
+            {fromThem.map((t, i) => (
+              <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 14px", borderTop: i ? HAIR : "none" }}>
+                {statusPill(t)}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, color: T.text, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: closed(t.status) ? 0.6 : 1 }}>{t.text}</div>
+                  <div style={{ fontSize: 11, color: T.textTert }}>from {t.createdBy || org?.name} · {fmtDate(t.createdAt)}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${t.statusBy || t.doneBy}` : ""}</div>
+                </div>
               </div>
-            </div>
-          ))}
-          {fromThem.length === 0 && <div style={{ fontSize: 12.5, color: T.textTert }}>No requests from them on this job.</div>}
+            ))}
+            {fromThem.length === 0 && <div style={{ padding: "12px 14px", fontSize: 12, color: T.textTert }}>No requests from them on this job.</div>}
+          </div>
         </div>
         {doneCount > 0 && (
-          <button onClick={() => setShowDone((v) => !v)} style={{ alignSelf: "flex-start", padding: "6px 13px", borderRadius: 16, border: `1px solid ${T.green}`, background: showDone ? "#fff" : "#EDFBF1", color: "#15803D", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-            {showDone ? "Hide" : "Show"} completed ({doneCount})
+          <button onClick={() => setShowDone((v) => !v)} style={{ alignSelf: "flex-start", padding: "7px 14px", borderRadius: 100, border: "1px solid rgba(0,0,0,0.05)", background: showDone ? "#fff" : "rgba(118,118,128,0.08)", color: "#248A3D", fontSize: 12, fontWeight: 650, cursor: "pointer", fontFamily: "inherit", boxShadow: showDone ? "0 1px 4px rgba(0,0,0,0.12)" : "none" }}>
+            {showDone ? "Hide" : "Show"} Completed · {doneCount}
           </button>
         )}
       </>)}
 
       {tab2 === "messages" && (<>
-        <div ref={scrollRef} style={{ maxHeight: 340, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, padding: "4px 2px" }}>
+        <div ref={scrollRef} style={{ maxHeight: 360, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, padding: "4px 2px" }}>
           {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 13, padding: "26px 0" }}>No messages on this job yet.</div>}
           {thread.map((m) => { const mine = m.side === "team"; return (
             <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "86%" }}>
-              <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2, textAlign: mine ? "right" : "left" }}>
-                {m.author}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)} ·{" "}
-                <button onClick={() => setReplyTo(m)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 10, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>↩ Reply</button>
-              </div>
-              <div style={{ background: mine ? T.gold : T.bg, color: mine ? "#fff" : T.text, borderRadius: 13, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                {m.replyTo && <div style={{ fontSize: 11, marginBottom: 4, padding: "4px 8px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 5, background: mine ? "rgba(255,255,255,0.15)" : "#fff", color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
-                {m.taskRefText && <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 3, color: mine ? "rgba(255,255,255,0.9)" : "#8a6d1f" }}>↳ Task: {m.taskRefText}</div>}
-                {linkifyText(m.text, mine)}
-                {m.attachment && (m.attachment.kind === "contact" && m.attachment.contact
+              {!mine && <div style={{ fontSize: 10, color: T.textTert, margin: "0 0 2px 8px" }}>{(m.author || "").split(" ")[0]}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)}</div>}
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: mine ? "row-reverse" : "row" }}>
+                <div style={{ background: mine ? T.gold : "#fff", color: mine ? "#fff" : T.text, border: mine ? "none" : "1px solid rgba(0,0,0,0.06)", borderRadius: 18, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", boxShadow: "0 1px 2px rgba(0,0,0,0.05)", minWidth: 0 }}>
+                  {m.replyTo && <div style={{ fontSize: 11, marginBottom: 4, padding: "4px 8px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 5, background: mine ? "rgba(255,255,255,0.15)" : T.cardAlt, color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
+                  {m.taskRefText && <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 3, color: mine ? "rgba(255,255,255,0.9)" : "#8a6d1f" }}>↳ Task: {m.taskRefText}</div>}
+                  {linkifyText(m.text, mine)}
+                  {m.attachment && (m.attachment.kind === "contact" && m.attachment.contact
                   ? <ContactCardBubble c={m.attachment.contact} mine={mine} />
                   : m.attachment.kind === "video" && (m.attachment.pending || m.attachment.failed)
                   ? <VideoUploadBubble att={m.attachment} mine={mine} />
@@ -888,19 +988,22 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
                   ? <iframe src={m.attachment.url} title={m.attachment.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ marginTop: 6, width: "min(300px,70vw)", aspectRatio: "16/9", border: "none", borderRadius: 9, display: "block", background: "#000" }} />
                   : m.attachment.kind === "video"
                   ? <video src={m.attachment.url} controls playsInline preload="metadata" style={{ marginTop: 6, maxWidth: 220, width: "100%", borderRadius: 9, display: "block", background: "#000" }} />
-                  : <a href={m.attachment.url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, padding: "6px 9px", borderRadius: 9, background: mine ? "rgba(255,255,255,0.18)" : "#fff", color: mine ? "#fff" : T.text, textDecoration: "none", fontSize: 11.5, fontWeight: 600, maxWidth: 210 }}>📄 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.attachment.name}</span></a>)}
+                  : <a href={m.attachment.url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, padding: "6px 9px", borderRadius: 9, background: mine ? "rgba(255,255,255,0.18)" : T.cardAlt, color: mine ? "#fff" : T.text, textDecoration: "none", fontSize: 11.5, fontWeight: 600, maxWidth: 210 }}>📄 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.attachment.name}</span></a>)}
+                </div>
+                <button onClick={() => setReplyTo(m)} title="Reply" style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid rgba(0,0,0,0.06)", background: replyTo && replyTo.id === m.id ? T.goldLight : "rgba(118,118,128,0.08)", color: T.textSub, fontSize: 12, cursor: "pointer", flexShrink: 0, padding: 0, fontFamily: "inherit" }}>↩</button>
               </div>
+              {mine && <div style={{ fontSize: 10, color: T.textTert, margin: "2px 8px 0", textAlign: "right" }}>{fmtWhen(m.at)}</div>}
             </div>
           ); })}
         </div>
-        {replyTo && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderLeft: `3px solid ${T.gold}`, borderRadius: 8 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? "📎 attachment" : "")}</span><button onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
-        {pending && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}`, borderRadius: 10 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pending.pending ? "🎬 " : "📎 "}{pending.name}{pending.pending ? " — uploading in background, OK to send" : ""}</span><button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
+        {replyTo && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.cardAlt, borderLeft: `3px solid ${T.gold}`, borderRadius: 8 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? "📎 attachment" : "")}</span><button onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
+        {pending && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}55`, borderRadius: 10 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pending.pending ? "🎬 " : "📎 "}{pending.name}{pending.pending ? " — uploading in background, OK to send" : ""}</span><button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
         {isRemoved ? <div style={{ fontSize: 12.5, color: T.textTert, textAlign: "center", padding: "8px 0" }}>Contractor removed — the thread is kept as a record. Restore them to message again.</div> : <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
           <input ref={attRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
-          <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, fontSize: 15, cursor: "pointer" }}>📎</button>
+          <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", fontSize: 15, cursor: "pointer" }}>📎</button>
           <textarea rows={1} value={msgDraft} onChange={(e) => setMsgDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} onPaste={(e) => { const fixed = rescuePastedLink(e); if (fixed != null) { e.preventDefault(); const el = e.target, st = el.selectionStart ?? msgDraft.length, en = el.selectionEnd ?? msgDraft.length; setMsgDraft(msgDraft.slice(0, st) + fixed + msgDraft.slice(en)); } }} placeholder={`Message ${org?.name}…`} disabled={busy}
-            style={{ flex: 1, minWidth: 0, padding: "10px 13px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, fontSize: 14, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 110, boxSizing: "border-box" }} />
-          <button onClick={sendMsg} disabled={(!msgDraft.trim() && !pending) || busy} style={goldBtn(!!(msgDraft.trim() || pending) && !busy)}>Send</button>
+            style={{ flex: 1, minWidth: 0, padding: "10px 14px", borderRadius: 18, border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", fontSize: 14, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 110, boxSizing: "border-box" }} />
+          <button onClick={sendMsg} disabled={(!msgDraft.trim() && !pending) || busy} style={{ ...goldBtn(!!(msgDraft.trim() || pending) && !busy), height: 38, padding: "0 18px", borderRadius: 19, display: "inline-flex", alignItems: "center" }}>Send</button>
         </div>}
       </>)}
       {scopeEdit && <ScopeEditModal j={j} save={save} displayName={displayName} onClose={() => setScopeEdit(false)} />}
@@ -909,49 +1012,185 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   );
 }
 
-export function ContractorsAdminPage() {
+
+// ── One company's pane: header, members & logins, jobs — used by the merged
+// People section (and reachable standalone). Admin sees everything; the same
+// markup renders read-only facts for non-admin teammates. ────────────────────
+const normCo = (v) => String(v || "").toLowerCase().replace(/\b(llc|inc|corp|co|ltd|construction|builders?|contracting|group)\b/g, "").replace(/[^a-z0-9]/g, "");
+export function sameOrgCompany(a, b) { const x = normCo(a), y = normCo(b); return !!x && !!y && (x === y || x.startsWith(y) || y.startsWith(x)); }
+
+export function OrgPane({ org, onBack }) {
   const { displayName, isAdmin } = useAuth();
   const { sharedProps, contacts } = useData();
-  const { orgs, jobs, tasks, messages, docs, save, remove, error } = useContractorData();
-  const [selOrgId, setSelOrgId] = useState(null);
-  const [orgModal, setOrgModal] = useState(null);     // {} new or org obj
-  const [jobModal, setJobModal] = useState(null);     // {} new or job obj (edit basics)
-  const [openJobId, setOpenJobId] = useState(null);   // job detail view
-  const [loginModal, setLoginModal] = useState(false);
-  const [manageLogin, setManageLogin] = useState(null); // users row being managed
+  const { jobs, tasks, messages, docs, save, remove, error } = useContractorData();
+  const [orgModal, setOrgModal] = useState(null);
+  const [jobModal, setJobModal] = useState(null);
+  const [openJobId, setOpenJobId] = useState(null);
+  const [addMember, setAddMember] = useState(null); // {} new · {prefill} for an existing contact
+  const [manageLogin, setManageLogin] = useState(null);
   const [loginsBump, setLoginsBump] = useState(0);
-  const [logins, setLogins] = useState([]);           // users rows for the selected org
+  const [logins, setLogins] = useState([]);
+  const [textTo, setTextTo] = useState(null); // {phone,name}
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
-  const orgList = (orgs || []).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  const org = orgList.find((o) => String(o.id) === String(selOrgId)) || null;
   const orgJobs = (jobs || []).filter((j) => org && j.orgId === String(org.id)).sort((a, b) => ((a.status === "complete" || a.status === "removed") ? 1 : 0) - ((b.status === "complete" || b.status === "removed") ? 1 : 0) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const openJob = orgJobs.find((j) => String(j.id) === String(openJobId)) || null;
   const properties = (sharedProps || []).filter((p) => !p.archived).sort((a, b) => (a.address || "").localeCompare(b.address || ""));
+  const activeJobs = orgJobs.filter((j) => j.status !== "complete" && j.status !== "removed");
+  const contracted = activeJobs.reduce((s2, j) => s2 + jobTotal(j), 0);
 
-  // Logins at the selected company (team can read the users roster).
   useEffect(() => {
     if (!org) { setLogins([]); return; }
     let alive = true;
     supabase.from("users").select("id,name,email,notify_muted,notify_channels").eq("contractor_org_id", String(org.id)).then(({ data }) => { if (alive) setLogins(data || []); });
     return () => { alive = false; };
-  }, [org?.id, loginModal, loginsBump]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [org?.id, addMember, loginsBump]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Members = portal logins + contacts filed under this company (matched by
+  // email or name so a login and their contact card make ONE row).
+  const cPhone = (c) => c.phone || (c.phones && c.phones[0] && c.phones[0].number) || "";
+  const memberContacts = (contacts || []).filter((c) => c && sameOrgCompany(c.company, org?.name));
+  const rows = [];
+  const usedC = new Set();
+  (logins || []).forEach((u) => {
+    const c = memberContacts.find((mc) => (mc.email && u.email && String(mc.email).toLowerCase() === String(u.email).toLowerCase()) || (mc.name && u.name && String(mc.name).trim().toLowerCase() === String(u.name).trim().toLowerCase())) || null;
+    if (c) usedC.add(c.id);
+    rows.push({ key: "u" + u.id, login: u, contact: c, name: u.name || (c && c.name) || u.email, phone: (c && cPhone(c)) || "", email: u.email || "", role: (c && c.role) || "" });
+  });
+  memberContacts.filter((c) => !usedC.has(c.id)).forEach((c) => rows.push({ key: "c" + c.id, login: null, contact: c, name: c.name || "(no name)", phone: cPhone(c), email: c.email || "", role: c.role || "" }));
+  if (org?.contactName && !rows.some((r) => String(r.name).trim().toLowerCase() === String(org.contactName).trim().toLowerCase())) {
+    rows.unshift({ key: "main", login: null, contact: null, name: org.contactName, phone: org.phone || "", email: org.email || "", role: "main contact" });
+  }
+  const initialsOf = (n) => String(n || "").replace(/[^a-zA-Z\s]/g, "").trim().split(/\s+/).slice(0, 2).map((x) => x[0] || "").join("").toUpperCase() || "🔨";
+
+  if (!org) return null;
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "12px 12px 24px" : "18px 22px 28px", background: T.bg }}>
+      {onBack && <button onClick={onBack} style={{ background: "none", border: "none", color: "#8a6d1f", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit", padding: "0 0 10px" }}>‹ People</button>}
+
+      <div style={{ ...CARD, borderRadius: 16, padding: "15px 17px 13px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+          <span style={{ width: 46, height: 46, borderRadius: "50%", background: "#F5E9C8", color: "#8a6d1f", fontSize: 15, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initialsOf(org.name)}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 17, fontWeight: 750, color: T.text, letterSpacing: -0.3 }}>{org.name}</div>
+            <div style={{ fontSize: 12, color: T.textSub, marginTop: 3, display: "flex", flexWrap: "wrap", gap: "2px 12px" }}>
+              {org.contactName && <span>👤 {org.contactName}</span>}
+              {org.phone && <CallA phone={org.phone} style={{ color: T.text, textDecoration: "none" }}>📞 {org.phone}</CallA>}
+              {org.email && <a href={`mailto:${org.email}`} style={{ color: T.text, textDecoration: "none" }}>✉️ {org.email}</a>}
+              {org.address && <span>🏠 {org.address}</span>}
+            </div>
+          </div>
+          {isAdmin && <button onClick={() => setOrgModal(org)} style={{ ...ghostBtn, padding: "7px 13px", fontSize: 12, flexShrink: 0 }}>✎ Edit</button>}
+        </div>
+        <div style={{ display: "flex", gap: 7, marginTop: 11, flexWrap: "wrap" }}>
+          {logins.length > 0
+            ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 11px", borderRadius: 100, background: "#EAF7EE", color: "#248A3D", border: "1px solid rgba(36,138,61,0.2)", fontSize: 11, fontWeight: 700 }}>● Portal active</span>
+            : <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 11px", borderRadius: 100, background: "rgba(118,118,128,0.08)", color: T.textSub, border: "1px solid rgba(0,0,0,0.05)", fontSize: 11, fontWeight: 700 }}>No portal logins yet</span>}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 11px", borderRadius: 100, background: "rgba(118,118,128,0.08)", color: T.textSub, border: "1px solid rgba(0,0,0,0.05)", fontSize: 11, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{activeJobs.length} active job{activeJobs.length !== 1 ? "s" : ""}{contracted > 0 ? ` · ${money(contracted)} contracted` : ""}</span>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "16px 6px 7px" }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: T.gold, flexShrink: 0 }} />
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: T.text, letterSpacing: -0.1 }}>Members</span>
+        <span style={{ fontSize: 12, color: T.textTert }}>· {rows.length}</span>
+        <span style={{ flex: 1 }} />
+        {isAdmin && <button onClick={() => setAddMember({})} style={{ background: "none", border: "none", color: "#8a6d1f", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>＋ Add Member</button>}
+      </div>
+      <div style={{ ...CARD, borderRadius: 16 }}>
+        {rows.length === 0 && <div style={{ padding: "16px 14px", fontSize: 12.5, color: T.textTert, textAlign: "center" }}>No members yet — add their first person and send them a login.</div>}
+        {rows.map((r, i) => (
+          <div key={r.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderTop: i ? HAIR : "none" }}>
+            <span style={{ width: 34, height: 34, borderRadius: "50%", background: r.login ? "#F5E9C8" : "#E8E8ED", color: r.login ? "#8a6d1f" : T.textSub, fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initialsOf(r.name)}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 650, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                {r.login
+                  ? <span style={{ fontSize: 10, fontWeight: 700, background: "#EAF7EE", color: "#248A3D", borderRadius: 100, padding: "2px 8px", flexShrink: 0 }}>portal login{r.login.notify_muted ? " · muted" : ""}</span>
+                  : <span style={{ fontSize: 10, fontWeight: 700, background: "rgba(118,118,128,0.08)", color: T.textSub, border: "1px solid rgba(0,0,0,0.05)", borderRadius: 100, padding: "2px 8px", flexShrink: 0 }}>no login</span>}
+              </span>
+              <span style={{ display: "block", fontSize: 11.5, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[r.email, r.phone, r.role].filter(Boolean).join(" · ") || "—"}</span>
+            </span>
+            {r.phone && <CallA phone={r.phone} title="Call" style={{ ...CIRC, width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none", boxSizing: "border-box" }}>📞</CallA>}
+            {r.phone && <button onClick={() => setTextTo({ phone: r.phone, name: r.name })} title="Text" style={{ ...CIRC, width: 32, height: 32 }}>💬</button>}
+            {isAdmin && (r.login
+              ? <button onClick={() => setManageLogin(r.login)} title="Manage their login" style={{ background: "none", border: "none", color: "#C7C7CC", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", padding: "0 2px" }}>›</button>
+              : <button onClick={() => setAddMember({ prefill: { name: r.name, phone: r.phone, email: r.email, role: r.role, contactId: r.contact ? r.contact.id : "x" } })} title="Create their portal login" style={{ background: "none", border: "none", color: "#8a6d1f", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0, whiteSpace: "nowrap" }}>＋ Login</button>)}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "16px 6px 7px" }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#0EA5C5", flexShrink: 0 }} />
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: T.text, letterSpacing: -0.1, flex: 1 }}>Jobs</span>
+        {isAdmin && <button onClick={() => setJobModal({})} style={{ ...goldBtn(true), padding: "8px 15px", fontSize: 12.5, borderRadius: 100 }}>＋ New Job</button>}
+      </div>
+      <div style={{ ...CARD, borderRadius: 16 }}>
+        {orgJobs.length === 0 && <div style={{ padding: "20px 16px", textAlign: "center", color: T.textTert, fontSize: 13 }}>No jobs yet for {org.name}.</div>}
+        {orgJobs.map((j, i) => {
+          const total = jobTotal(j), paid = jobPaid(j), days = jobDays(j);
+          const done = j.status === "complete", removed = j.status === "removed", bid = j.status === "bid";
+          const needsOk = (j.coRequests || []).filter((r) => r.status === "pending").length;
+          const pct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
+          return (
+            <div key={j.id} onClick={() => setOpenJobId(j.id)} style={{ padding: "13px 14px", borderTop: i ? HAIR : "none", cursor: "pointer", opacity: done || removed ? 0.55 : 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress}{j.title ? ` — ${j.title}` : ""}</span>
+                {bid && <span style={{ fontSize: 10.5, fontWeight: 700, color: "#B45309", background: "#FDE9C8", borderRadius: 100, padding: "3px 9px", flexShrink: 0 }}>BID REQUEST</span>}
+                {!done && !removed && !bid && days != null && <span style={{ fontSize: 10.5, fontWeight: 700, color: T.textSub, background: "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.05)", borderRadius: 100, padding: "3px 9px", flexShrink: 0 }}>DAY {days}</span>}
+                {needsOk > 0 && !removed && <span style={{ fontSize: 10.5, fontWeight: 700, color: "#B45309", background: "#FDE9C8", borderRadius: 100, padding: "3px 9px", flexShrink: 0 }}>{needsOk} needs your OK</span>}
+                {removed && <span style={{ fontSize: 10, fontWeight: 700, background: "#FFF0EF", color: T.red, borderRadius: 100, padding: "3px 9px", flexShrink: 0 }}>REMOVED</span>}
+                {done && <span style={{ fontSize: 10.5, fontWeight: 700, background: "#EAF7EE", color: "#248A3D", borderRadius: 100, padding: "3px 9px", flexShrink: 0 }}>✓ Complete</span>}
+                <span style={{ color: "#C7C7CC", fontSize: 15, flexShrink: 0 }}>›</span>
+              </div>
+              {bid
+                ? <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 3 }}>Waiting on their bid</div>
+                : done || removed
+                ? <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 3, fontVariantNumeric: "tabular-nums" }}>{money(total)}{paid >= total && total > 0 ? " · paid in full" : ` · ${money(paid)} paid`}</div>
+                : <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7 }}>
+                    <span style={{ flex: 1, maxWidth: 260, height: 5, borderRadius: 3, background: "rgba(118,118,128,0.14)", overflow: "hidden" }}><span style={{ display: "block", width: `${pct}%`, height: "100%", background: T.green, borderRadius: 3 }} /></span>
+                    <span style={{ fontSize: 11.5, color: T.textSub, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{money(paid)} of {money(total)} paid</span>
+                  </div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {error && <div style={{ position: "fixed", bottom: 14, left: "50%", transform: "translateX(-50%)", background: "#FFF0EF", border: `1.5px solid ${T.red}`, color: T.red, borderRadius: 12, padding: "10px 16px", fontSize: 12.5, fontWeight: 600, zIndex: 500 }}>{error}</div>}
+      {orgModal && <OrgModal orgModal={orgModal} contacts={contacts} save={save} onSaved={() => {}} onClose={() => setOrgModal(null)} />}
+      {addMember && <AddMemberModal org={org} contacts={contacts} existingEmails={logins.map((u) => u.email)} prefill={addMember.prefill || null} onSaved={() => setLoginsBump((x) => x + 1)} onClose={() => setAddMember(null)} />}
+      {manageLogin && <ManageLoginModal login={manageLogin} onDone={() => setLoginsBump((x) => x + 1)} onClose={() => setManageLogin(null)} />}
+      {jobModal && <JobModal org={org} jobModal={jobModal.id ? jobModal : null} properties={properties} save={save} onSaved={setOpenJobId} onClose={() => setJobModal(null)} />}
+      {openJob && <JobDetail j={openJob} org={org} isAdmin={isAdmin} qbProjectId={(properties.find((p) => String(p.id) === String(openJob.propertyId)) || {}).qbProjectId || null} tasks={tasks} messages={messages} docs={docs} save={save} remove={remove} displayName={displayName} onEditBasics={() => setJobModal(openJob)} onClose={() => setOpenJobId(null)} />}
+      {textTo && <SmsThreadPopup phone={textTo.phone} name={textTo.name} onClose={() => setTextTo(null)} />}
+    </div>
+  );
+}
+
+// Legacy standalone page (the old Contractors nav section) — now a thin shell
+// around OrgPane; the merged People section is the primary home.
+export function ContractorsAdminPage() {
+  const { isAdmin } = useAuth();
+  const { contacts } = useData();
+  const { orgs, jobs, save } = useContractorData();
+  const [selOrgId, setSelOrgId] = useState(null);
+  const [orgModal, setOrgModal] = useState(null);
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const orgList = (orgs || []).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const org = orgList.find((o) => String(o.id) === String(selOrgId)) || null;
   return (
     <div style={{ flex: 1, display: "flex", overflow: "hidden", background: T.bg }}>
-      {/* Company list */}
       <div style={{ width: isMobile ? "100%" : 300, flexShrink: 0, display: isMobile && org ? "none" : "flex", flexDirection: "column", borderRight: isMobile ? "none" : `1px solid ${T.border}`, background: T.card, overflow: "hidden" }}>
-        <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: T.text, flex: 1 }}>Contractors ({orgList.length})</div>
-          {isAdmin && <button onClick={() => setOrgModal({})} style={{ padding: "7px 13px", borderRadius: 16, border: "none", background: T.gold, color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>＋ Company</button>}
+        <div style={{ padding: "12px 14px", borderBottom: HAIR, display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 750, color: T.text, flex: 1 }}>Contractors <span style={{ color: T.textTert, fontWeight: 500 }}>· {orgList.length}</span></div>
+          {isAdmin && <button onClick={() => setOrgModal({})} style={{ ...goldBtn(true), padding: "7px 13px", fontSize: 12, borderRadius: 100 }}>＋ Company</button>}
         </div>
         <div style={{ flex: 1, overflowY: "auto" }}>
-          {orgList.length === 0 && orgs !== null && <div style={{ padding: 24, textAlign: "center", color: T.textTert, fontSize: 13 }}>Add your first contractor company — then create their login and jobs.</div>}
           {orgList.map((o) => {
             const n = (jobs || []).filter((jj) => jj.orgId === String(o.id) && jj.status !== "complete" && jj.status !== "removed").length;
             const on = String(selOrgId) === String(o.id);
             return (
-              <div key={o.id} onClick={() => setSelOrgId(String(o.id))} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on ? T.goldLight : "transparent" }}>
+              <div key={o.id} onClick={() => setSelOrgId(String(o.id))} style={{ padding: "12px 14px", borderBottom: HAIR, cursor: "pointer", background: on ? T.goldLight : "transparent" }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{o.name}</div>
                 <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{n} active job{n !== 1 ? "s" : ""}{o.contactName ? ` · ${o.contactName}` : ""}</div>
               </div>
@@ -959,66 +1198,13 @@ export function ContractorsAdminPage() {
           })}
         </div>
       </div>
-
-      {/* Company detail */}
       <div style={{ flex: 1, display: isMobile && !org ? "none" : "flex", flexDirection: "column", overflow: "hidden" }}>
-        {!org
-          ? <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: T.textSub, padding: 24, textAlign: "center" }}>
+        {org ? <OrgPane org={org} onBack={isMobile ? () => setSelOrgId(null) : null} />
+          : <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: T.textSub, padding: 24, textAlign: "center" }}>
               <div style={{ fontSize: 30 }}>👷</div><div style={{ fontSize: 15, fontWeight: 700 }}>Pick a contractor</div>
-              <div style={{ fontSize: 13, color: T.textTert, maxWidth: 320 }}>Their jobs, logins, money and messages live here — and they see their own mirror of it in the portal.</div>
-            </div>
-          : <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? 14 : 20 }}>
-              {isMobile && <button onClick={() => setSelOrgId(null)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit", padding: "0 0 10px" }}>‹ All contractors</button>}
-              <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "14px 16px", marginBottom: 14 }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 17, fontWeight: 800, color: T.text }}>{org.name}</div>
-                    <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 2, display: "flex", flexWrap: "wrap", gap: "2px 12px" }}>
-                      {org.contactName && <span>👤 {org.contactName}</span>}
-                      {org.phone && <CallA phone={org.phone} style={{ color: T.blue, textDecoration: "none" }}>📞 {org.phone}</CallA>}
-                      {org.email && <a href={`mailto:${org.email}`} style={{ color: T.blue, textDecoration: "none" }}>✉️ {org.email}</a>}
-                      {org.address && <span>🏠 {org.address}</span>}
-                    </div>
-                  </div>
-                  {isAdmin && <button onClick={() => setOrgModal(org)} style={{ ...ghostBtn, padding: "7px 13px", fontSize: 12, flexShrink: 0 }}>✎ Edit</button>}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em" }}>Portal logins:</span>
-                  {logins.map((u) => <button key={u.id} onClick={isAdmin ? () => setManageLogin(u) : undefined} title={`${u.email}${isAdmin ? " — tap to manage" : ""}`} style={{ fontSize: 12, fontWeight: 600, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 14, padding: "3px 10px", color: T.text, cursor: isAdmin ? "pointer" : "default", fontFamily: "inherit" }}>{u.name}{isAdmin ? " ✎" : ""}</button>)}
-                  {logins.length === 0 && <span style={{ fontSize: 12, color: T.textTert }}>none yet</span>}
-                  {isAdmin && <button onClick={() => setLoginModal(true)} style={{ padding: "4px 11px", borderRadius: 14, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>＋ Login</button>}
-                </div>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: T.text, flex: 1 }}>Jobs</div>
-                {isAdmin && <button onClick={() => setJobModal({})} style={{ padding: "8px 15px", borderRadius: 16, border: "none", background: T.gold, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>＋ New job</button>}
-              </div>
-              {orgJobs.length === 0 && <div style={{ padding: "22px 16px", textAlign: "center", color: T.textTert, fontSize: 13, background: T.card, borderRadius: T.radius, border: `1px dashed ${T.border}` }}>No jobs yet for {org.name}.</div>}
-              {orgJobs.map((j) => {
-                const total = jobTotal(j), paid = jobPaid(j), days = jobDays(j);
-                const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.status !== "Completed").length;
-                return (
-                  <div key={j.id} onClick={() => setOpenJobId(j.id)} style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "13px 16px", marginBottom: 10, cursor: "pointer", opacity: (j.status === "complete" || j.status === "removed") ? 0.65 : 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 14.5, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress}{j.title ? ` — ${j.title}` : ""}</div>
-                        <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>{money(paid)} of {money(total)} paid · {money(jobLeft(j))} left{days != null && j.status !== "complete" ? ` · day ${days}` : ""}{openT ? ` · ${openT} open task${openT !== 1 ? "s" : ""}` : ""}</div>
-                      </div>
-                      {j.status === "removed" ? <span style={{ fontSize: 10, fontWeight: 800, background: "#FFF0EF", color: T.red, borderRadius: 14, padding: "3px 9px", flexShrink: 0 }}>REMOVED</span> : j.status === "complete" ? <span style={{ fontSize: 10, fontWeight: 800, background: T.bg, color: T.textSub, borderRadius: 14, padding: "3px 9px", flexShrink: 0 }}>DONE</span> : <span style={{ fontSize: 15, color: T.textTert, flexShrink: 0 }}>›</span>}
-                    </div>
-                  </div>
-                );
-              })}
             </div>}
       </div>
-
-      {error && <div style={{ position: "fixed", bottom: 14, left: "50%", transform: "translateX(-50%)", background: "#FFF0EF", border: `1.5px solid ${T.red}`, color: T.red, borderRadius: 12, padding: "10px 16px", fontSize: 12.5, fontWeight: 600, zIndex: 500 }}>{error}</div>}
-      {orgModal && <OrgModal orgModal={orgModal.id ? orgModal : null} contacts={contacts} save={save} onSaved={setSelOrgId} onClose={() => setOrgModal(null)} />}
-      {loginModal && org && <LoginModal org={org} contacts={contacts} existingEmails={logins.map((u) => u.email)} onClose={() => setLoginModal(false)} />}
-      {manageLogin && <ManageLoginModal login={manageLogin} onDone={() => setLoginsBump((x) => x + 1)} onClose={() => setManageLogin(null)} />}
-      {jobModal && org && <JobModal org={org} jobModal={jobModal.id ? jobModal : null} properties={properties} save={save} onSaved={setOpenJobId} onClose={() => setJobModal(null)} />}
-      {openJob && <JobDetail j={openJob} org={org} isAdmin={isAdmin} qbProjectId={(properties.find((p) => String(p.id) === String(openJob.propertyId)) || {}).qbProjectId || null} tasks={tasks} messages={messages} docs={docs} save={save} remove={remove} displayName={displayName} onEditBasics={() => setJobModal(openJob)} onClose={() => setOpenJobId(null)} />}
+      {orgModal && <OrgModal orgModal={null} contacts={contacts} save={save} onSaved={setSelOrgId} onClose={() => setOrgModal(null)} />}
     </div>
   );
 }

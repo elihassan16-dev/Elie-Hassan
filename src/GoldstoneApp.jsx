@@ -12,7 +12,7 @@ import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, STREAM_VIDEO_CAP } from "./net";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { usePersistentDraft } from "./useDraft";
-import { ContractorsAdminPage, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
+import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
@@ -489,13 +489,12 @@ const NAV=[
   {key:"rentals",label:"Rental Portfolio",short:"Rentals",icon:ICONS.rentals},
   {key:"calendar",label:"Calendar",short:"Calendar",icon:ICONS.calendar},
   {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
-  {key:"contacts",label:"Contacts",short:"Contacts",icon:ICONS.contacts},
+  {key:"contacts",label:"People",short:"People",icon:ICONS.contacts},
   {key:"email",label:"Email",short:"Email",icon:ICONS.email},
   {key:"financials",label:"Financial Section",short:"Financials",icon:ICONS.financials},
-  {key:"contractors",label:"Contractors",short:"Contractors",icon:ICONS.contacts},
 ];
 // Sections only the admin (Elie) can see. Everyone else never gets these nav items.
-const ADMIN_ONLY_KEYS=new Set(["financials","contractors"]);
+const ADMIN_ONLY_KEYS=new Set(["financials"]);
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
 function Card({children,style={}}){return <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",...style}}>{children}</div>;}
@@ -9705,8 +9704,14 @@ const sameCompany=(a,b)=>a&&b&&a.trim().toLowerCase()===b.trim().toLowerCase();
 // ─── Contacts — company directory (search, add/edit, import from iPhone) ───────
 function ContactsPage(){
   const { contacts, setContacts, flushContacts }=useData();
+  const { isAdmin }=useAuth();
+  // Contractor companies live in this same directory now — LLC + members —
+  // with the full jobs/portal pane for admins. Teammates see plain contacts.
+  const ctr=useContractorData();
   const isMobile=useIsMobile();
   const[selId,setSelId]=useState(null);
+  const[selOrgId,setSelOrgId]=useState(null);
+  const[orgModalOpen,setOrgModalOpen]=useState(false);
   // Global search can open Contacts pre-searched for a person's name.
   const[search,setSearch]=useState(()=>{try{const t=window.__contactsTarget;if(t){delete window.__contactsTarget;return t.q||"";}}catch{/* no window */}return "";});
   const[editing,setEditing]=useState(null); // draft contact being added/edited
@@ -9725,11 +9730,34 @@ function ContactsPage(){
   const tagFolders=[...tagMap.values()].sort((a,b)=>b.n-a.n||a.label.localeCompare(b.label));
   const tagEmoji=(t)=>{const s=String(t).toLowerCase();if(/contract|builder|\bgc\b/.test(s))return "🔨";if(/lend|fund|bank/.test(s))return "🏦";if(/title/.test(s))return "🧾";if(/septic/.test(s))return "🚿";if(/attorn|lawyer|legal/.test(s))return "⚖️";if(/insur/.test(s))return "🛡️";if(/plumb/.test(s))return "🔧";if(/electr/.test(s))return "⚡";if(/agent|realtor|broker/.test(s))return "🏘️";if(/inspect/.test(s))return "🔎";return "🏷️";};
   const inTag=(c)=>tagSel==="__none"?!(c.tags||[]).some(t=>String(t).trim()):(c.tags||[]).some(t=>String(t).trim().toLowerCase()===tagSel);
-  const tagLabel=tagSel==="__none"?"No tag":tagSel?((tagMap.get(tagSel)||{}).label||tagSel):"";
+  const tagLabel=tagSel==="__none"?"No tag":tagSel==="__ctr"?"Contractors":tagSel?((tagMap.get(tagSel)||{}).label||tagSel):"";
   const matches=(c)=>!q||[c.name,c.company,c.role,c.notes,...(c.tags||[]),...(c.phones||[]).map(p=>p.number),c.email].filter(Boolean).join(" ").toLowerCase().includes(q);
   const list=dir.filter(c=>matches(c)&&(!tagSel||inTag(c))).sort((a,b)=>(a.company||"~").toLowerCase().localeCompare((b.company||"~").toLowerCase())||(a.name||"").localeCompare(b.name||""));
   const sel=dir.find(c=>c.id===selId)||null;
   const colleagues=sel&&sel.company?dir.filter(c=>c.id!==sel.id&&sameCompany(c.company,sel.company)):[];
+  const ctrOrgs=isAdmin?(ctr.orgs||[]):[];
+  const ctrJobs=ctr.jobs||[];
+  const selOrg=ctrOrgs.find(o=>String(o.id)===String(selOrgId))||null;
+  const orgMatches=(o)=>!q||String(o.name||"").toLowerCase().includes(q)||String(o.contactName||"").toLowerCase().includes(q);
+  // Default view: companies first — contractor LLCs (with jobs), then contact
+  // companies with 2+ people, then everyone else A-Z.
+  const groups=(()=>{
+    const orgRows=ctrOrgs.map(o=>{
+      const mem=dir.filter(c=>sameOrgCompany(c.company,o.name));
+      const nJobs=ctrJobs.filter(j=>j.orgId===String(o.id)&&j.status!=="complete"&&j.status!=="removed").length;
+      return {o,mem,nJobs};
+    }).sort((a,b)=>(a.o.name||"").localeCompare(b.o.name||""));
+    const claimed=new Set();orgRows.forEach(r=>r.mem.forEach(c=>claimed.add(c.id)));
+    const coMap=new Map();
+    dir.forEach(c=>{if(claimed.has(c.id))return;const co=(c.company||"").trim();if(!co)return;const k=co.toLowerCase();const e=coMap.get(k)||{label:co,mem:[]};e.mem.push(c);coMap.set(k,e);});
+    const coRows=[...coMap.values()].filter(e=>e.mem.length>1).sort((a,b)=>a.label.localeCompare(b.label));
+    const coIds=new Set();coRows.forEach(e=>e.mem.forEach(c=>coIds.add(c.id)));
+    const solo=dir.filter(c=>!claimed.has(c.id)&&!coIds.has(c.id)).sort((a,b)=>(a.name||"~").localeCompare(b.name||"~"));
+    return {orgRows,coRows,solo};
+  })();
+  const firsts=(mem)=>mem.map(c=>String(c.name||"").split(" ")[0]).filter(Boolean).slice(0,3).join(", ");
+  const pickOrg=(id)=>{setSelOrgId(String(id));setSelId(null);setEditing(null);};
+  const pickPerson=(id)=>{setSelId(id);setSelOrgId(null);setEditing(null);};
   const companies=[...new Set(dir.map(c=>c.company).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const save=(c)=>{
     const phones=(c.phones||[]).map(p=>({label:(p.label||"Mobile").trim()||"Mobile",number:String(p.number||"").trim()})).filter(p=>p.number);
@@ -9782,13 +9810,13 @@ function ContactsPage(){
   const iS={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   const initials=(n)=>initialsOf(n)||"?";
   const actBtn={display:"inline-flex",alignItems:"center",gap:6,padding:"9px 14px",borderRadius:T.radiusSm,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textDecoration:"none"};
-  const showDetail=isMobile?(!!sel||!!editing):true;
+  const showDetail=isMobile?(!!sel||!!editing||!!selOrg):true;
   return(
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
       <div style={{width:isMobile?"100%":300,flexShrink:0,display:isMobile&&showDetail?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-            <div><div style={{fontWeight:700,fontSize:15,color:T.text}}>Contacts</div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{contacts.length} in directory</div></div>
+            <div><div style={{fontWeight:700,fontSize:15,color:T.text}}>People</div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{contacts.length} people{ctrOrgs.length?` · ${ctrOrgs.length} contractor compan${ctrOrgs.length===1?"y":"ies"}`:""}</div></div>
             <div style={{display:"flex",gap:6}}>
               <input ref={fileRef} type="file" accept=".vcf,.csv,text/csv,text/vcard,text/x-vcard" onChange={onImport} style={{display:"none"}}/>
               <button onClick={()=>fileRef.current&&fileRef.current.click()} title="Import from a .vcf or .csv file" style={{height:32,padding:"0 10px",borderRadius:8,background:T.bg,border:"none",cursor:"pointer",color:T.textSub,fontSize:12,fontWeight:600,fontFamily:"inherit"}}>⇪ Import</button>
@@ -9798,59 +9826,71 @@ function ContactsPage(){
           {importMsg&&<div style={{marginBottom:8,fontSize:11.5,color:T.gold,fontWeight:600}}>{importMsg}</div>}
           <div style={{position:"relative"}}>
             <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:15,pointerEvents:"none"}}>⌕</span>
-            <input placeholder={tagSel?`Search in ${tagLabel}…`:"Search all contacts…"} value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px"}}/>
+            <input placeholder={tagSel&&tagSel!=="__ctr"?`Search in ${tagLabel}…`:"Search a name, company, trade…"} value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px",borderRadius:100,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)"}}/>
+          </div>
+          <div className="gs-scroll-x" style={{display:"flex",gap:6,marginTop:10,overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",WebkitOverflowScrolling:"touch",scrollbarWidth:"none"}}>
+            {(()=>{const chipF=(k,label)=>(<button key={k||"all"} onClick={()=>{setTagSel(k);setSelId(null);setSelOrgId(null);}} style={{...TOGGLE_CHIP(tagSel===k,undefined),color:tagSel===k?T.text:T.textSub,flexShrink:0}}>{label}</button>);
+              return(<>
+                {chipF(null,"All")}
+                {ctrOrgs.length>0&&chipF("__ctr","🔨 Contractors")}
+                {tagFolders.map(f=>chipF(f.key,`${tagEmoji(f.label)} ${f.label} · ${f.n}`))}
+                {noTagN>0&&chipF("__none","📁 No tag")}
+              </>);})()}
           </div>
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
-          {tagSel&&(
-            <button onClick={()=>{setTagSel(null);setSearch("");}} style={{display:"flex",alignItems:"center",gap:6,width:"100%",padding:"10px 14px",background:T.goldLight+"66",border:"none",borderBottom:`1px solid ${T.border}`,color:T.blue,fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
-              ‹ All tags <span style={{color:"#8a6d1f"}}>· {tagSel==="__none"?"📁":tagEmoji(tagLabel)} {tagLabel} ({list.length})</span>
-            </button>
-          )}
-          {!tagSel&&!q?(
-            <>
-              {tagFolders.length===0&&noTagN===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No contacts yet. Add one, or import a .vcf.</div>}
-              {tagFolders.map(f=>(
-                <div key={f.key} onClick={()=>{setTagSel(f.key);setSelId(null);}} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`}}>
-                  <span style={{width:36,height:36,borderRadius:11,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0}}>{tagEmoji(f.label)}</span>
-                  <div style={{minWidth:0,flex:1}}>
-                    <div style={{fontSize:13.5,fontWeight:800,color:T.text}}>{f.label}</div>
-                    <div style={{fontSize:11,color:T.textSub}}>{f.n} {f.n===1?"person":"people"}</div>
-                  </div>
-                  <span style={{fontSize:15,color:T.textTert}}>›</span>
+          {(()=>{
+            const orgRow=(r)=>{const on=String(selOrgId)===String(r.o.id);return(
+              <div key={"org"+r.o.id} onClick={()=>pickOrg(r.o.id)} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:on?T.goldLight:"transparent",borderLeft:on?`3px solid ${T.gold}`:"3px solid transparent"}}>
+                <span style={{width:34,height:34,borderRadius:"50%",background:"#F5E9C8",color:"#8a6d1f",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(r.o.name)}</span>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700,color:on?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.o.name}</div>
+                  <div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{firsts(r.mem)||r.o.contactName||"contractor"}{r.mem.length?` · ${r.mem.length} member${r.mem.length!==1?"s":""}`:""}</div>
                 </div>
-              ))}
-              {noTagN>0&&(
-                <div onClick={()=>{setTagSel("__none");setSelId(null);}} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`}}>
-                  <span style={{width:36,height:36,borderRadius:11,background:"#F1F1F4",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0}}>📁</span>
-                  <div style={{minWidth:0,flex:1}}>
-                    <div style={{fontSize:13.5,fontWeight:800,color:T.text}}>No tag</div>
-                    <div style={{fontSize:11,color:T.textSub}}>{noTagN} {noTagN===1?"person":"people"}</div>
-                  </div>
-                  <span style={{fontSize:15,color:T.textTert}}>›</span>
+                <span style={{fontSize:10.5,fontWeight:700,background:"#F5E9C8",color:"#8a6d1f",borderRadius:100,padding:"3px 9px",flexShrink:0,whiteSpace:"nowrap"}}>🔨 {r.nJobs} job{r.nJobs!==1?"s":""}</span>
+                <span style={{fontSize:15,color:"#C7C7CC",flexShrink:0}}>›</span>
+              </div>);};
+            const coRow=(e)=>(
+              <div key={"co"+e.label} onClick={()=>pickPerson(e.mem[0].id)} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`}}>
+                <span style={{width:34,height:34,borderRadius:"50%",background:"#E8E8ED",color:T.textSub,fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(e.label)}</span>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.label}</div>
+                  <div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{firsts(e.mem)} · {e.mem.length} members</div>
                 </div>
-              )}
-            </>
-          ):(<>
-          {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{contacts.length===0?"No contacts yet. Add one, or import a .vcf.":"No matches."}</div>}
-          {list.map(c=>{
-            const active=c.id===selId;
-            return(
-              <div key={c.id} onClick={()=>{setSelId(c.id);setEditing(null);}} style={{display:"flex",alignItems:"center",gap:11,padding:"10px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:active?T.goldLight:"transparent",borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent"}}>
+                <span style={{fontSize:15,color:"#C7C7CC",flexShrink:0}}>›</span>
+              </div>);
+            const personRow=(c)=>{const active=c.id===selId;return(
+              <div key={c.id} onClick={()=>pickPerson(c.id)} style={{display:"flex",alignItems:"center",gap:11,padding:"10px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:active?T.goldLight:"transparent",borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent"}}>
                 <span style={{width:34,height:34,borderRadius:"50%",background:avatarColor(c.name),color:"#fff",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(c.name)}</span>
                 <div style={{minWidth:0,flex:1}}>
                   <div style={{fontSize:13,fontWeight:active?700:600,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name||"(no name)"}</div>
                   <div style={{fontSize:11.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[c.company,c.role].filter(Boolean).join(" · ")||(c.tags[0]||"")||(c.phones[0]&&c.phones[0].number)||c.email||""}</div>
                 </div>
-              </div>
-            );
-          })}
-          </>)}
+              </div>);};
+            if(tagSel==="__ctr")return(<>
+              {isAdmin&&<button onClick={()=>setOrgModalOpen(true)} style={{display:"block",width:"100%",padding:"11px 14px",background:"none",border:"none",borderBottom:`1px solid ${T.border}`,color:"#8a6d1f",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"center"}}>＋ New Contractor Company</button>}
+              {groups.orgRows.filter(r=>orgMatches(r.o)).map(orgRow)}
+              {groups.orgRows.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No contractor companies yet.</div>}
+            </>);
+            if(!tagSel&&!q)return(<>
+              {dir.length===0&&ctrOrgs.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>No one here yet. Add a person, or import a .vcf.</div>}
+              {groups.orgRows.map(orgRow)}
+              {groups.coRows.map(coRow)}
+              {groups.solo.map(personRow)}
+            </>);
+            return(<>
+              {q&&groups.orgRows.filter(r=>orgMatches(r.o)).map(orgRow)}
+              {list.length===0&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>{contacts.length===0?"No contacts yet. Add one, or import a .vcf.":"No matches."}</div>}
+              {list.map(personRow)}
+            </>);
+          })()}
         </div>
       </div>
       <div style={{flex:1,display:isMobile&&!showDetail?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
         {editing!==null
           ? <ContactForm draft={editing} isMobile={isMobile} companies={companies} onSave={save} onCancel={()=>{setEditing(null);}} onDelete={editing.id?()=>del(editing.id):null}/>
+          : selOrg
+          ? <OrgPane key={selOrg.id} org={selOrg} onBack={isMobile?()=>setSelOrgId(null):null}/>
           : sel
             ? <div style={{flex:1,overflowY:"auto"}}>
                 {isMobile&&<button onClick={()=>setSelId(null)} style={{display:"flex",alignItems:"center",gap:4,padding:"11px 14px",background:T.card,border:"none",borderBottom:`1px solid ${T.border}`,color:T.gold,fontWeight:600,fontSize:15,fontFamily:"inherit",cursor:"pointer",width:"100%",textAlign:"left"}}>‹ Contacts</button>}
@@ -9895,10 +9935,11 @@ function ContactsPage(){
               </div>
             : <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:T.textSub}}>
                 <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>👥</div>
-                <div style={{fontSize:16,fontWeight:600}}>Select a contact</div>
-                <div style={{fontSize:13,color:T.textTert}}>Or tap + to add one, ⇪ to import from your phone</div>
+                <div style={{fontSize:16,fontWeight:600}}>Pick a person or company</div>
+                <div style={{fontSize:13,color:T.textTert}}>Contractor companies carry their jobs, members & portal logins</div>
               </div>}
       </div>
+      {orgModalOpen&&<OrgModal orgModal={null} contacts={contacts} save={ctr.save} onSaved={(id)=>{setOrgModalOpen(false);pickOrg(id);}} onClose={()=>setOrgModalOpen(false)}/>}
       {/* CSV column-mapping modal */}
       {csvData&&(
         <div onClick={()=>setCsvData(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:420,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
@@ -20933,7 +20974,7 @@ export function GoldstoneShell(){
     : active==="contacts" ? <ContactsPage/>
     : active==="email" ? <EmailPage isMobile={isMobile}/>
     : active==="financials" ? <FinancialSectionPage onNavigate={navigateToProperty} canEdit={isAdmin}/>
-    : active==="contractors" ? <ContractorsAdminPage/>
+    : active==="contractors" ? <ContactsPage/>
     : <ComingSoon label={NAV.find(n=>n.key===active)?.label}/>;
 
   if(loading) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.gold,fontWeight:700,fontSize:16,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif"}}>Loading Goldstone…</div>;

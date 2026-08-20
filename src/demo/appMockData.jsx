@@ -85,9 +85,13 @@ const TEAM = [
 ];
 
 const CONTACTS = [
-  { id: 2001, name: "Ray Demeters", role: "Septic", phone: "(609) 555-0132", email: "ray@demeterseptic.com" },
-  { id: 2002, name: "Lisa LaScala", role: "Septic engineering", phone: "(856) 555-0177", email: "lisa@icdconnected.com" },
-  { id: 2003, name: "Sam Cutler", role: "Attorney", phone: "(732) 555-0110", email: "sam@cutlerlaw.com" },
+  { id: 2001, name: "Ray Demeters", role: "Septic", phone: "(609) 555-0132", email: "ray@demeterseptic.com", tags: ["Septic"] },
+  { id: 2002, name: "Lisa LaScala", role: "Septic engineering", phone: "(856) 555-0177", email: "lisa@icdconnected.com", company: "ICD Connected", tags: ["Septic"] },
+  { id: 2003, name: "Sam Cutler", role: "Attorney", phone: "(732) 555-0110", email: "sam@cutlerlaw.com", company: "Cutler Law", tags: ["Attorney"] },
+  { id: 2004, name: "Shia Polak", role: "Owner", phone: "(848) 555-0133", email: "shia@polakconstruction.com", company: "Shia Polak Construction", tags: ["Contractor"] },
+  { id: 2005, name: "Yanky Polak", role: "Foreman", phone: "(848) 555-0102", company: "Shia Polak Construction", tags: ["Contractor"] },
+  { id: 2006, name: "Dana Whitfield", role: "Closer", phone: "(609) 555-0119", email: "dana@gstitle.com", company: "Garden State Title", tags: ["Title"] },
+  { id: 2007, name: "Robert Ellis", role: "Post-closing", phone: "(609) 555-0121", email: "rob@gstitle.com", company: "Garden State Title", tags: ["Title"] },
 ];
 
 const OFFICE_MSGS = [
@@ -130,7 +134,11 @@ export function DataProvider({ children }) {
     appSettings, setAppSettings, flushAppSettings: noop,
     rentals, setRentals, flushRentals: noop,
     team,
-    ctrUsers: [],
+    ctrUsers: [
+      { id: "cu1", name: "Shia Polak", orgId: "org1" },
+      { id: "cu2", name: "Moti Polak", orgId: "org1" },
+      { id: "cu3", name: "Mendel Davids", orgId: "org2" },
+    ],
     teamMembers: TEAM.map((u) => u.name),
     setUserMuted: (id, muted) => setTeam((t) => t.map((u) => (u.id === id ? { ...u, notify_muted: muted } : u))),
     setUserSms: (id, sms) => setTeam((t) => t.map((u) => (u.id === id ? { ...u, sms_email: sms } : u))),

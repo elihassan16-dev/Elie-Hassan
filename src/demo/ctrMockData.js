@@ -4,7 +4,8 @@
 const days = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString(); };
 const day10 = (n) => days(n).slice(0, 10);
 
-const ORG = { id: "org1", name: "Shia Polak Construction" };
+const ORG = { id: "org1", name: "Shia Polak Construction", contactName: "Shia Polak", phone: "(848) 555-0133", email: "shia@polakconstruction.com" };
+const ORG2 = { id: "org2", name: "MCD Builds LLC", contactName: "Mendel Davids", phone: "(732) 555-0129", email: "mendel@mcdbuilds.com" };
 const JOBS = [
   { id: "j1", orgId: "org1", propertyId: 1003, propertyAddress: "1055 Huntingdon Dr, Westampton", title: "Full interior renovation", status: "active", price: 46800, startDate: day10(-12),
     changeOrders: [{ id: 1, label: "Extra beam in the basement", amount: 1200, date: day10(-5) }],
@@ -16,6 +17,7 @@ const JOBS = [
     scope: "yes", sowPdfUrl: "", crew: [] },
   { id: "j2", orgId: "org1", propertyId: 1001, propertyAddress: "417 Lakeview Ter, Pemberton", title: "Roof + siding", status: "active", price: 42000, startDate: day10(-4), changeOrders: [], coRequests: [], payments: [], crew: [] },
   { id: "j3", orgId: "org1", propertyId: 1002, propertyAddress: "32 Oakland Ave, Newfield", title: "Kitchen & two baths", status: "bid", price: 0, changeOrders: [], coRequests: [], payments: [], crew: [] },
+  { id: "j4", orgId: "org2", propertyId: 1002, propertyAddress: "32 Oakland Ave, Newfield", title: "Septic replacement", status: "active", price: 28500, startDate: day10(-20), changeOrders: [], coRequests: [], payments: [{ id: 1, amount: 14000, date: day10(-14), note: "Half up front" }], crew: [] },
 ];
 const TASKS = [
   { id: "t1", orgId: "org1", jobId: "j1", text: "Demo the back bathroom down to studs", status: "In Progress", createdBy: "Moshe Hamaoui", createdAt: days(-3), statusBy: "Shia Polak" },
@@ -34,7 +36,7 @@ const SITE = [{ id: "1003", address: "1055 Huntingdon Dr, Westampton", utilities
 ] }];
 
 export function useContractorData() {
-  return { orgs: [ORG], jobs: JOBS, tasks: TASKS, messages: MESSAGES, docs: [], siteStatus: SITE, save: async () => {}, error: null };
+  return { orgs: [ORG, ORG2], jobs: JOBS, tasks: TASKS, messages: MESSAGES, docs: [], siteStatus: SITE, save: async () => {}, remove: async () => {}, error: null };
 }
 export const jobTotal = (j) => (Number(j.price) || 0) + (j.changeOrders || []).reduce((s, c) => s + (Number(c.amount) || 0), 0);
 export const jobPaid = (j) => (j.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);

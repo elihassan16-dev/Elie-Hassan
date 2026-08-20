@@ -9872,19 +9872,27 @@ function RoutePlannerPage(){
 
         {secHd("#0EA5C5","Start & End",<button onClick={()=>setEditPlaces(places.map(x=>({...x})))} style={{background:"none",border:"none",color:"#8a6d1f",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:0}}>✎ Edit Places</button>)}
         <div className="fin-card" style={{background:"#fff",borderRadius:16,boxShadow:T.shadow,overflow:"hidden"}}>
-          {drivers.map((dk,i)=>(
-            <div key={dk} style={{padding:"11px 14px",borderTop:i?"1px solid rgba(0,0,0,0.055)":"none"}}>
-              <div style={{fontSize:11,fontWeight:800,color:dCol(dk).fg,letterSpacing:"0.04em",marginBottom:7}}>{cap(dk).toUpperCase()}</div>
-              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                <span style={{fontSize:10.5,fontWeight:650,color:T.textTert}}>From</span>
-                {places.map(pl=><button key={pl.id} onClick={()=>{const next={...se,[dk]:{...se[dk],start:pl.id}};setSe(next);setRoutes(null);persist({se:next,routes:null});}} style={chipS(se[dk].start===pl.id)}>{pl.id==="office"?"🏢":"🏠"} {pl.label}</button>)}
+          {drivers.map((dk,i)=>{
+            const selS={flex:1,minWidth:0,appearance:"none",WebkitAppearance:"none",padding:"11px 34px 11px 14px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:`rgba(118,118,128,0.08) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7' viewBox='0 0 11 7'%3E%3Cpath d='M1 1l4.5 4.5L10 1' stroke='%236E6E73' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 13px center`,color:T.text,fontSize:13.5,fontWeight:650,fontFamily:"inherit",outline:"none",cursor:"pointer",minHeight:44,boxSizing:"border-box"};
+            const setSE=(key,val)=>{const next={...se,[dk]:{...se[dk],[key]:val}};setSe(next);setRoutes(null);persist({se:next,routes:null});};
+            const opt=(pl)=><option key={pl.id} value={pl.id}>{pl.id==="office"?"🏢":"🏠"} {pl.label}</option>;
+            return(
+              <div key={dk} style={{padding:"12px 14px 13px",borderTop:i?"1px solid rgba(0,0,0,0.055)":"none"}}>
+                <div style={{fontSize:11,fontWeight:800,color:dCol(dk).fg,letterSpacing:"0.04em",marginBottom:8}}>{cap(dk).toUpperCase()}</div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:10.5,fontWeight:650,color:T.textTert,marginBottom:4,paddingLeft:4}}>Leaves from</div>
+                    <select value={se[dk].start} onChange={e=>setSE("start",e.target.value)} style={selS}>{places.map(opt)}</select>
+                  </div>
+                  <span style={{color:"#C7C7CC",fontWeight:700,fontSize:14,paddingTop:16,flexShrink:0}}>→</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:10.5,fontWeight:650,color:T.textTert,marginBottom:4,paddingLeft:4}}>Ends at</div>
+                    <select value={se[dk].end} onChange={e=>setSE("end",e.target.value)} style={selS}>{places.map(opt)}</select>
+                  </div>
+                </div>
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginTop:7}}>
-                <span style={{fontSize:10.5,fontWeight:650,color:T.textTert,paddingRight:8}}>To</span>
-                {places.map(pl=><button key={pl.id} onClick={()=>{const next={...se,[dk]:{...se[dk],end:pl.id}};setSe(next);setRoutes(null);persist({se:next,routes:null});}} style={chipS(se[dk].end===pl.id)}>{pl.id==="office"?"🏢":"🏠"} {pl.label}</button>)}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {secHd(T.green,<>Stops Today <span style={{color:T.textTert,fontWeight:500}}>· {stops.length}</span></>)}

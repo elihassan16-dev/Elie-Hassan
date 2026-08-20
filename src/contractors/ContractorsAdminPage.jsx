@@ -43,13 +43,14 @@ const linkBtn = (label, onClick) => <button onClick={onClick} style={{ backgroun
 const numIn = (v) => String(v).replace(/[^0-9.\-]/g, "");
 const today = () => new Date().toISOString().slice(0, 10);
 
-function Modal({ title, sub, onClose, children, footer, width = 520, tone, headEnd }) {
+function Modal({ title, sub, onClose, children, footer, width = 520, tone, headEnd, external }) {
+  const EXT_BADGE = <span style={{ fontSize: 10, fontWeight: 800, color: "#B45309", background: "#FDE9C8", border: "1px solid #E8B45A", borderRadius: 20, padding: "2px 8px", letterSpacing: "0.05em", flexShrink: 0 }}>EXTERNAL</span>;
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: tone === "bg" ? T.bg : "#fff", borderRadius: 20, width: `min(${width}px,94vw)`, maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 18px 60px rgba(0,0,0,0.28)", overflow: "hidden" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: external ? "#F7F1E4" : tone === "bg" ? T.bg : "#fff", borderRadius: 20, width: `min(${width}px,94vw)`, maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 18px 60px rgba(0,0,0,0.28)", overflow: "hidden", border: external ? `1.5px solid ${T.gold}99` : "none", boxSizing: "border-box" }}>
         <div style={{ padding: "14px 18px 12px", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: 10, background: "#fff", flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, letterSpacing: -0.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><span style={{ fontSize: 15, fontWeight: 700, color: T.text, letterSpacing: -0.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{title}</span>{external ? EXT_BADGE : null}</div>
             {sub && <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
           </div>
           {headEnd || null}
@@ -741,7 +742,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   const rowCss = { display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderTop: HAIR };
   const totCss = { ...rowCss, background: T.cardAlt };
   return (
-    <Modal title={j.propertyAddress} sub={`${org?.name || ""}${j.title ? ` · ${j.title}` : ""}`} width={680} tone="bg" onClose={onClose}
+    <Modal title={j.propertyAddress} sub={`${org?.name || ""}${j.title ? ` · ${j.title}` : ""} — their team sees this job`} width={680} tone="bg" external onClose={onClose}
       headEnd={isAdmin && !isRemoved ? <button onClick={() => save("contractor_jobs", { ...j, status: j.status === "complete" ? "active" : "complete" })} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 13px", borderRadius: 100, border: "none", background: j.status === "complete" ? "rgba(118,118,128,0.08)" : "#EAF7EE", color: j.status === "complete" ? T.textSub : "#248A3D", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>{j.status === "complete" ? "Reopen job" : "✓ Mark Complete"}</button> : null}>
       <div style={{ display: "flex", justifyContent: "center" }}>
         <div style={{ display: "inline-flex", alignItems: "center", borderRadius: 18, background: "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.05)", padding: 3, gap: 2, maxWidth: "100%", overflowX: "auto", overflowY: "hidden", overscrollBehavior: "contain" }}>
@@ -763,13 +764,13 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           <SecHd color={T.gold}>Contract</SecHd>
           <div style={{ ...CARD, padding: "13px 16px", marginTop: 7 }}>
             <div style={{ display: "flex", alignItems: "stretch" }}>
-              {heroCol("TOTAL", money(total), T.text, heroSub((j.changeOrders || []).length ? `incl. ${(j.changeOrders || []).length} change order${(j.changeOrders || []).length !== 1 ? "s" : ""} ›` : "contract price", (j.changeOrders || []).length ? () => setPricePop(true) : undefined), true)}
+              {heroCol("TOTAL", total > 0 ? money(total) : "—", T.text, heroSub(total > 0 ? ((j.changeOrders || []).length ? `incl. ${(j.changeOrders || []).length} change order${(j.changeOrders || []).length !== 1 ? "s" : ""} ›` : "contract price") : (isAdmin && onEditBasics ? "no price yet — set it ›" : "no contract price yet"), total > 0 ? ((j.changeOrders || []).length ? () => setPricePop(true) : undefined) : (isAdmin && onEditBasics ? onEditBasics : undefined)), true)}
               {heroCol("PAID SO FAR", money(paid), "#248A3D", heroSub(`${(j.payments || []).length} payment${(j.payments || []).length !== 1 ? "s" : ""}`))}
-              {heroCol("LEFT", money(left), "#B8912E", heroSub(days != null && j.status !== "complete" ? `day ${days} of the job` : j.status === "complete" ? "job complete" : ""))}
+              {heroCol("LEFT", total > 0 ? money(left) : "—", "#B8912E", heroSub(days != null && j.status !== "complete" ? `day ${days} of the job` : j.status === "complete" ? "job complete" : ""))}
             </div>
-            <div style={{ marginTop: 11, height: 6, borderRadius: 3, background: "rgba(118,118,128,0.14)", overflow: "hidden" }}>
-              <div style={{ width: `${Math.min(100, Math.round((total > 0 ? paid / total : 0) * 100))}%`, height: "100%", background: T.green, borderRadius: 3 }} />
-            </div>
+            {total > 0 && <div style={{ marginTop: 11, height: 6, borderRadius: 3, background: "rgba(118,118,128,0.14)", overflow: "hidden" }}>
+              <div style={{ width: `${Math.min(100, Math.round((paid / total) * 100))}%`, height: "100%", background: T.green, borderRadius: 3 }} />
+            </div>}
           </div>
         </div>
         {pricePop && (
@@ -920,6 +921,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
             </button>
           </div>
         )}
+        <div style={{ fontSize: 10.5, color: "#B45309", fontWeight: 600, textAlign: "center", padding: "0 8px 2px", lineHeight: 1.5 }}>👁 {org?.name || "Their"}'s team sees this job in their portal — contract, change orders, payments, scope, tasks & messages. Your internal chat stays hidden from them.</div>
       </>)}
 
       {tab2 === "tasks" && (<>

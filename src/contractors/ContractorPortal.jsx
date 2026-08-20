@@ -3,7 +3,7 @@
 // the selected job's detail on the right with three tabs — Overview (money, scope,
 // docs), Tasks, and Messages. Mobile: list first, tap in, ‹ back.
 // RLS guarantees they only ever receive their own company's rows.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { T } from "../theme";
 import { linkifyText, rescuePastedLink } from "../sms";
@@ -19,12 +19,28 @@ import { ContactShareModal, ContactCardBubble } from "../contactShare";
 const TASK_STATUSES = ["Not Started", "In Progress", "Completed", "N/A"];const stColor = (s) => s === "Completed" ? T.green : s === "In Progress" ? T.blue : s === "N/A" ? "#6b6b70" : T.textSub;
 const taskClosed = (s) => s === "Completed" || s === "N/A";
 // Same status pill both sides use — a dropdown styled like the app's status chips.
+// ── Shared design tokens for the portal (mirrors the main app's iOS language) ──
+const HAIR = "1px solid rgba(0,0,0,0.055)";
+const CARD = { background: T.card, borderRadius: 16, boxShadow: T.shadow, overflow: "hidden" };
+const CAPS_BG = "rgba(118,118,128,0.08)";
+const CAPS_BD = "1px solid rgba(0,0,0,0.05)";
+// Section header ABOVE its card — colored dot + title case, optional action on the right.
+function SecHd({ color, action, onAction, children }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 7, margin: "16px 6px 7px" }}>
+      <span style={{ width: 7, height: 7, borderRadius: 4, background: color, flexShrink: 0 }} />
+      <span style={{ fontSize: 13.5, fontWeight: 650, color: T.text, flex: 1, minWidth: 0 }}>{children}</span>
+      {action && <button onClick={onAction} style={{ background: "none", border: "none", color: T.gold, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>{action}</button>}
+    </div>
+  );
+}
 function StatusPill({ t, onSet }) {
   const v = TASK_STATUSES.includes(t.status) ? t.status : "Not Started";
   const c = stColor(v);
+  const idle = v === "Not Started";
   return (
     <select value={v} onChange={(e) => onSet(t, e.target.value)} title="Change status"
-      style={{ padding: "3px 6px", borderRadius: 20, border: "none", background: c + "22", color: c, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+      style={{ padding: "5px 10px", borderRadius: 14, border: CAPS_BD, background: idle ? CAPS_BG : "#fff", boxShadow: idle ? "none" : "0 1px 4px rgba(0,0,0,0.12)", color: idle ? T.textSub : c, fontSize: 11.5, fontWeight: 650, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
       {TASK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
     </select>
   );
@@ -293,17 +309,81 @@ export function ContractorPortal() {
     const byCap = (m) => m && m.by ? `${m.by.split(" ")[0]}${m.at ? ` · ${fmtDate(m.at).replace(/, \d{4}$/, "")}` : ""}` : null;
     const sec = (t) => <div style={{ fontSize: 10.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", margin: "14px 0 6px" }}>{t}</div>;
     return (
-      <div style={{ padding: 14 }}>
-        {/* Slim launcher — the board itself is a popup, same as Goldstone's side. */}
-        <button onClick={() => setStatusOpen(true)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, background: T.card, border: "none", borderRadius: T.radius, boxShadow: T.shadow, padding: "13px 16px", marginBottom: 12, cursor: "pointer", fontFamily: "inherit", textAlign: "left", boxSizing: "border-box" }}>
-          <span style={{ fontSize: 20, flexShrink: 0 }}>🏗</span>
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: 13.5, fontWeight: 800, color: T.text }}>Site Status</span>
-            <span style={{ display: "block", fontSize: 11, color: T.textSub }}>Utilities, permits & property info — tap to view or update</span>
-          </span>
-          {UTIL_DEFS.map(([u, icon]) => { const on = (st.utilities || {})[u] === "on"; return <span key={u} title={u} style={{ fontSize: 15, filter: on ? "none" : "grayscale(1)", opacity: on ? 1 : 0.4, flexShrink: 0 }}>{icon}</span>; })}
-          <span style={{ fontSize: 15, color: T.textTert, flexShrink: 0 }}>›</span>
-        </button>
+      <div style={{ padding: 14, maxWidth: 660, boxSizing: "border-box" }}>
+        {/* 🧾 Bid request — price the job before anything else exists */}
+        {j.status === "bid" && (
+          <div style={{ ...CARD, padding: "12px 14px" }}>
+          {j.status === "bid" && (
+            <div style={{ background: T.goldLight, border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: "11px 13px", marginBottom: 12 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: T.text }}>🧾 Bid request from Goldstone</div>
+              <BidBox key={j.id} job={j} onError={setErr} />
+            </div>
+          )}
+          </div>
+        )}
+
+        {/* 💰 Contract hero — the money story first, same as the app's Net Profit hero */}
+        {j.status !== "bid" && (() => {
+          const priceClick = (j.changeOrders || []).length > 0;
+          return (
+            <div onClick={priceClick ? () => setPricePop(true) : undefined} title={priceClick ? "See the original price + change orders" : undefined} style={{ ...CARD, padding: "15px 20px 13px", cursor: priceClick ? "pointer" : "default" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 4, background: T.green, display: "inline-block" }} />
+                <span style={{ fontSize: 12.5, fontWeight: 650, color: T.textSub }}>Contract</span>
+                <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 700, background: T.goldLight, color: "#8a6d1f", borderRadius: 20, padding: "3px 10px" }}>{j.status === "complete" ? "COMPLETE" : days == null ? "ACTIVE" : `DAY ${days}`}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "stretch" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 650, color: T.textTert, marginBottom: 2 }}>TOTAL</div>
+                  <div style={{ fontSize: 22, fontWeight: 750, letterSpacing: "-0.02em", color: T.text, fontVariantNumeric: "tabular-nums" }}>{money(total)}</div>
+                </div>
+                <div style={{ flex: 1, minWidth: 0, borderLeft: HAIR, paddingLeft: 16, marginLeft: 16 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 650, color: T.textTert, marginBottom: 2 }}>PAID SO FAR</div>
+                  <div style={{ fontSize: 22, fontWeight: 750, letterSpacing: "-0.02em", color: "#248A3D", fontVariantNumeric: "tabular-nums" }}>{money(paid)}</div>
+                </div>
+                <div style={{ flex: 1, minWidth: 0, borderLeft: HAIR, paddingLeft: 16, marginLeft: 16 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 650, color: T.textTert, marginBottom: 2 }}>LEFT</div>
+                  <div style={{ fontSize: 22, fontWeight: 750, letterSpacing: "-0.02em", color: left > 0 ? T.gold : "#248A3D", fontVariantNumeric: "tabular-nums" }}>{money(left)}</div>
+                </div>
+              </div>
+              <div style={{ height: 7, background: CAPS_BG, borderRadius: 4, marginTop: 11, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: T.green, borderRadius: 4 }} /></div>
+              <div style={{ fontSize: 11, color: T.textTert, marginTop: 5 }}>{pct}% paid{j.startDate ? ` · started ${fmtDate(j.startDate)}` : ""}{priceClick ? " · tap for the price breakdown ›" : ""}</div>
+            </div>
+          );
+        })()}
+          {pricePop && (
+            <div onClick={() => setPricePop(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 430, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
+              <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: "min(400px,94vw)", boxShadow: "0 8px 40px rgba(0,0,0,0.2)", overflow: "hidden" }}>
+                <div style={{ padding: "13px 17px", borderBottom: `1px solid ${T.border}`, background: T.goldLight, display: "flex", alignItems: "center" }}>
+                  <div style={{ flex: 1, fontSize: 14, fontWeight: 800, color: T.text }}>Contract price breakdown</div>
+                  <button onClick={() => setPricePop(false)} style={{ background: "none", border: "none", fontSize: 20, color: T.textTert, cursor: "pointer", lineHeight: 1 }}>×</button>
+                </div>
+                <div style={{ padding: "14px 17px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}><span style={{ color: T.textSub }}>Original contract</span><b>{money(j.price)}</b></div>
+                  {(j.changeOrders || []).map((c) => (
+                    <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
+                      <span style={{ color: T.textSub, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>+ {c.label || "Change order"}{c.date ? ` · ${fmtDate(c.date)}` : ""}</span><b style={{ flexShrink: 0 }}>{money(c.amount)}</b>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14.5, padding: "9px 0 2px" }}><b>Total</b><b style={{ color: T.gold }}>{money(total)}</b></div>
+                </div>
+              </div>
+            </div>
+          )}
+
+        {/* 🏗 Site Status */}
+        <SecHd color="#B45309" action="Open ›" onAction={() => setStatusOpen(true)}>Site Status</SecHd>
+        <div style={CARD}>
+          <button onClick={() => setStatusOpen(true)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", padding: "13px 16px", cursor: "pointer", fontFamily: "inherit", textAlign: "left", boxSizing: "border-box" }}>
+            <span style={{ fontSize: 19, flexShrink: 0 }}>🏗</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 13.5, fontWeight: 600, color: T.text }}>Utilities, permits & property info</span>
+              <span style={{ display: "block", fontSize: 11, color: T.textTert, marginTop: 1 }}>Goldstone sees every update you make</span>
+            </span>
+            {UTIL_DEFS.map(([u, icon]) => { const on = (st.utilities || {})[u] === "on"; return <span key={u} title={u} style={{ fontSize: 15, filter: on ? "none" : "grayscale(1)", opacity: on ? 1 : 0.35, flexShrink: 0 }}>{icon}</span>; })}
+            <span style={{ fontSize: 15, color: "#C7C7CC", flexShrink: 0 }}>›</span>
+          </button>
+        </div>
         {statusOpen && (
           <div onClick={() => setStatusOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 420, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
             <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, width: "min(580px,94vw)", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,0.2)", overflow: "hidden" }}>
@@ -315,7 +395,7 @@ export function ContractorPortal() {
                 <button onClick={() => setStatusOpen(false)} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
               </div>
               <div style={{ padding: "16px 18px", overflowY: "auto" }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Utilities</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}><span style={{ width: 7, height: 7, borderRadius: 4, background: "#0EA5C5" }} /><span style={{ fontSize: 13, fontWeight: 650, color: T.text }}>Utilities</span></div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
                   {UTIL_DEFS.map(([u, icon, label]) => {
                     const on = (st.utilities || {})[u] === "on";
@@ -331,7 +411,7 @@ export function ContractorPortal() {
                   })}
                 </div>
                 <div style={{ fontSize: 10.5, color: T.textTert, marginTop: 6 }}>Tap to flip — every change shows who made it.</div>
-                <div style={{ fontSize: 11, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", margin: "18px 0 8px" }}>Permits</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, margin: "18px 0 8px" }}><span style={{ width: 7, height: 7, borderRadius: 4, background: "#AF52DE" }} /><span style={{ fontSize: 13, fontWeight: 650, color: T.text }}>Permits</span></div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {PERMIT_DEFS.map(([k, icon, label]) => {
                     // Attribution = whoever touched any of the three stages last.
@@ -361,7 +441,7 @@ export function ContractorPortal() {
                     );
                   })}
                 </div>
-                <div style={{ fontSize: 11, fontWeight: 800, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", margin: "18px 0 8px" }}>Certificate of Occupancy</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, margin: "18px 0 8px" }}><span style={{ width: 7, height: 7, borderRadius: 4, background: T.gold }} /><span style={{ fontSize: 13, fontWeight: 650, color: T.text }}>Certificate of Occupancy</span></div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, background: T.bg, borderRadius: 12, padding: "9px 12px" }}>
                   <span style={{ fontSize: 17, flexShrink: 0 }}>🏛</span>
                   <span style={{ flex: 1, minWidth: 0 }}>
@@ -399,16 +479,12 @@ export function ContractorPortal() {
           };
           const removeEv = (ev) => writeStatus({ events: (st.events || []).filter((x) => x.id !== ev.id) }, `📅 Cancelled: ${eventLabel(ev)} ${fmtDate(ev.date)}`);
           const selS = { padding: "8px 10px", borderRadius: 10, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
-          return (
-            <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "12px 16px", marginBottom: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 18 }}>📅</span>
-                <span style={{ flex: 1, fontSize: 13.5, fontWeight: 800, color: T.text }}>Schedule</span>
-                <button onClick={() => setEvOpen((v) => !v)} style={{ padding: "6px 13px", borderRadius: 16, border: `1px solid ${T.gold}`, background: evOpen ? "#fff" : T.goldLight, color: "#8a6d1f", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{evOpen ? "Cancel" : "+ Add event"}</button>
-              </div>
-              <div style={{ fontSize: 11, color: T.textSub, marginTop: 2 }}>Inspections, walkthroughs, deliveries — Goldstone sees these on their calendar.</div>
+          return (<>
+            <SecHd color={T.blue} action={evOpen ? "Cancel" : "+ Schedule"} onAction={() => setEvOpen((v) => !v)}>Schedule</SecHd>
+            <div style={CARD}>
+              <div style={{ padding: "10px 16px 9px", fontSize: 11, color: T.textTert, borderBottom: evOpen || upcoming.length ? HAIR : "none" }}>Inspections, walkthroughs, deliveries — Goldstone sees these on their calendar.</div>
               {evOpen && (
-                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8, background: T.bg, borderRadius: 12, padding: "10px 12px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, background: T.cardAlt, padding: "11px 14px", borderBottom: upcoming.length ? HAIR : "none" }}>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <select value={evDraft.type} onChange={(e) => setEvDraft((d) => ({ ...d, type: e.target.value }))} style={{ ...selS, flex: 1, minWidth: 150 }}>
                       {EVENT_TYPES.map(([v, ic, l]) => <option key={v} value={v}>{ic} {l}</option>)}
@@ -432,9 +508,9 @@ export function ContractorPortal() {
                 </div>
               )}
               {upcoming.length > 0 && (
-                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                <div>
                   {upcoming.map((ev) => (
-                    <div key={ev.id} style={{ display: "flex", alignItems: "center", gap: 9, background: T.bg, borderRadius: 10, padding: "8px 11px" }}>
+                    <div key={ev.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderTop: HAIR }}>
                       <span style={{ fontSize: 15, flexShrink: 0 }}>{eventIcon(ev)}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text }}>{eventLabel(ev)}{ev.note ? <span style={{ fontWeight: 400, color: T.textSub }}> — {ev.note}</span> : null}</div>
@@ -446,49 +522,11 @@ export function ContractorPortal() {
                 </div>
               )}
             </div>
-          );
+          </>);
         })()}
-        <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, padding: "14px 16px" }}>
-          {/* Bid request: no money yet — review the scope, price it lump-sum or line by line. */}
-          {j.status === "bid" && (
-            <div style={{ background: T.goldLight, border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: "11px 13px", marginBottom: 12 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 800, color: T.text }}>🧾 Bid request from Goldstone</div>
-              <BidBox key={j.id} job={j} onError={setErr} />
-            </div>
-          )}
-          {j.status !== "bid" && (<>
-          <div style={{ display: "flex", gap: 8 }}>
-            {[["Contract", money(total)], ["Paid", money(paid)], ["Remaining", money(left)], ["Days", j.status === "complete" ? "Done" : (days == null ? "—" : days)]].map(([l, v], i) => {
-              const priceClick = l === "Contract" && (j.changeOrders || []).length > 0;
-              return (
-                <div key={l} onClick={priceClick ? () => setPricePop(true) : undefined} title={priceClick ? "See the original price + change orders" : undefined} style={{ flex: 1, background: T.bg, borderRadius: 10, padding: "9px 6px", textAlign: "center", cursor: priceClick ? "pointer" : "default" }}>
-                  <div style={{ fontSize: 9.5, fontWeight: 800, color: T.textTert, textTransform: "uppercase" }}>{l}</div>
-                  <div style={{ fontSize: 14.5, fontWeight: 800, color: i === 2 ? (left > 0 ? T.gold : T.green) : T.text, textDecoration: priceClick ? "underline dotted" : "none", textUnderlineOffset: 3 }}>{v}</div>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ height: 6, background: T.bg, borderRadius: 4, marginTop: 10, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: T.green, borderRadius: 4 }} /></div>
-          <div style={{ fontSize: 11, color: T.textTert, marginTop: 4 }}>{pct}% paid{j.startDate ? ` · started ${fmtDate(j.startDate)}` : ""}</div>
-          {pricePop && (
-            <div onClick={() => setPricePop(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 430, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
-              <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: "min(400px,94vw)", boxShadow: "0 8px 40px rgba(0,0,0,0.2)", overflow: "hidden" }}>
-                <div style={{ padding: "13px 17px", borderBottom: `1px solid ${T.border}`, background: T.goldLight, display: "flex", alignItems: "center" }}>
-                  <div style={{ flex: 1, fontSize: 14, fontWeight: 800, color: T.text }}>Contract price breakdown</div>
-                  <button onClick={() => setPricePop(false)} style={{ background: "none", border: "none", fontSize: 20, color: T.textTert, cursor: "pointer", lineHeight: 1 }}>×</button>
-                </div>
-                <div style={{ padding: "14px 17px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}><span style={{ color: T.textSub }}>Original contract</span><b>{money(j.price)}</b></div>
-                  {(j.changeOrders || []).map((c) => (
-                    <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
-                      <span style={{ color: T.textSub, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>+ {c.label || "Change order"}{c.date ? ` · ${fmtDate(c.date)}` : ""}</span><b style={{ flexShrink: 0 }}>{money(c.amount)}</b>
-                    </div>
-                  ))}
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14.5, padding: "9px 0 2px" }}><b>Total</b><b style={{ color: T.gold }}>{money(total)}</b></div>
-                </div>
-              </div>
-            </div>
-          )}
+        {j.status !== "bid" && (<>
+          <SecHd color="#AF52DE">Change Orders</SecHd>
+          <div style={CARD}>
           {(() => {
             const reqs = (j.coRequests || []).filter((r) => r.status !== "approved").slice().sort((a, b) => b.id - a.id);
             const amt = Number(String(coReq.amount).replace(/[^0-9.]/g, ""));
@@ -500,9 +538,8 @@ export function ContractorPortal() {
               } catch (ex) { setErr(ex.message || "Couldn't send the request."); }
             };
             return (<>
-              {sec("Change orders")}
-              {(j.changeOrders || []).map((c) => (
-                <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, padding: "5px 0", borderBottom: `1px solid ${T.border}` }}>
+                            {(j.changeOrders || []).map((c) => (
+                <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, padding: "10px 16px", borderTop: HAIR }}>
                   <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.textSub }}>{c.label || "Change order"}</span>
                   <span style={{ color: T.textTert, fontSize: 11 }}>{c.date ? fmtDate(c.date) : ""}</span><b>{money(c.amount)}</b>
                 </div>
@@ -517,7 +554,7 @@ export function ContractorPortal() {
                   } catch (ex) { setErr(ex.message || "Couldn't send the price."); }
                 };
                 return (
-                  <div key={r.id} style={{ background: T.goldLight, border: `1.5px dashed ${T.gold}`, borderRadius: 10, padding: "9px 11px", margin: "7px 0" }}>
+                  <div key={r.id} style={{ background: T.goldLight, border: `1.5px dashed ${T.gold}`, borderRadius: 10, padding: "9px 11px", margin: "8px 12px" }}>
                     <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text }}>🧾 Goldstone requested: {r.label}</div>
                     <div style={{ fontSize: 10.5, color: "#8a6d1f", marginTop: 1 }}>Asked by {r.askedBy || "Goldstone"}{r.at ? ` · ${fmtDate(r.at)}` : ""} — send your price and they'll approve it.</div>
                     <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
@@ -530,7 +567,7 @@ export function ContractorPortal() {
               {reqs.filter((r) => r.status !== "awaiting_price").map((r) => {
                 const [txt, fg, bg] = r.status === "pending" ? ["Pending approval", "#B45309", "#FDE9C8"] : ["Denied", "#B42318", "#FFE1DE"];
                 return (
-                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, padding: "5px 0", borderBottom: `1px solid ${T.border}`, opacity: r.status === "denied" ? 0.65 : 1 }}>
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, padding: "10px 16px", borderTop: HAIR, opacity: r.status === "denied" ? 0.65 : 1 }}>
                     <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.textSub }}>{r.label}</span>
                     <b>{money(r.amount)}</b>
                     <span style={{ fontSize: 10, fontWeight: 800, color: fg, background: bg, borderRadius: 12, padding: "2px 8px", flexShrink: 0 }}>{txt}</span>
@@ -539,7 +576,7 @@ export function ContractorPortal() {
                 );
               })}
               {coReqOpen ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 8, background: T.bg, borderRadius: 10, padding: "9px 11px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 7, background: T.cardAlt, borderTop: HAIR, padding: "11px 14px" }}>
                   <input value={coReq.label} onChange={(e) => setCoReq((d) => ({ ...d, label: e.target.value }))} placeholder="What's the extra work? e.g. Replace rotted subfloor" style={{ padding: "8px 10px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
                   <div style={{ display: "flex", gap: 7 }}>
                     <input value={coReq.amount} onChange={(e) => setCoReq((d) => ({ ...d, amount: e.target.value }))} inputMode="decimal" placeholder="$ amount" style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
@@ -549,36 +586,42 @@ export function ContractorPortal() {
                   <div style={{ fontSize: 10.5, color: T.textTert }}>Goldstone approves or denies it — approval updates the contract price automatically.</div>
                 </div>
               ) : (
-                <button onClick={() => setCoReqOpen(true)} style={{ marginTop: 8, padding: "8px 14px", borderRadius: 16, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>＋ Request a change order</button>
+                <button onClick={() => setCoReqOpen(true)} style={{ display: "block", width: "100%", padding: "12px 16px", border: "none", borderTop: HAIR, background: "none", color: T.textTert, fontWeight: 600, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", textAlign: "center" }}>＋ Request a change order</button>
               )}
             </>);
           })()}
-
+          </div>
           {(j.payments || []).length > 0 && (<>
-            {sec("Payments received")}
-            {(j.payments || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).map((p) => (
-              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12.5, padding: "4px 0", borderBottom: `1px solid ${T.border}` }}>
+            <SecHd color={T.green}>Payments Received</SecHd>
+            <div style={CARD}>
+
+                        {(j.payments || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).map((p) => (
+              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12.5, padding: "10px 16px", borderTop: HAIR }}>
                 <span style={{ color: T.textSub, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtDate(p.date)}{p.note ? ` · ${p.note}` : ""}</span>
-                <b style={{ color: T.green, flexShrink: 0 }}>{money(p.amount)}</b>
+                <b style={{ color: "#248A3D", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{money(p.amount)}</b>
               </div>
             ))}
-          </>)}
-          </>)}
 
-          {sec("Scope of work")}
+            </div>
+          </>)}
+        </>)}
+
+        <SecHd color={T.gold}>Scope of Work</SecHd>
+        <div style={{ ...CARD, padding: "13px 16px" }}>
           {(j.scope || j.sowPdfUrl)
             ? <button onClick={() => openScopePdf(j)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 15px", borderRadius: 12, border: `1px solid ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                 📄 Open to view scope of work (PDF)
                 {scopeUpdatedRecently(j) && <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", background: T.red, borderRadius: 10, padding: "2px 7px", letterSpacing: "0.04em" }}>UPDATED</span>}
               </button>
             : <div style={{ fontSize: 13, color: T.textTert, lineHeight: 1.5 }}>No written scope yet — upload your SOW below or ask Goldstone.</div>}
-
-          {sec("Documents")}
+          <div style={{ marginTop: 12 }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
             {jobDocs.map((d) => <a key={d.id} href={d.url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 16, border: `1px solid ${T.border}`, background: T.bg, color: T.blue, fontSize: 12, fontWeight: 600, textDecoration: "none", maxWidth: 210 }}>📄 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span></a>)}
             <button onClick={() => sowRef.current && sowRef.current.click()} disabled={sowBusy} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px", borderRadius: 16, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{sowBusy ? "Uploading…" : "＋ Upload document"}</button>
           </div>
+          </div>
         </div>
+        <div style={{ fontSize: 11, color: T.textTert, margin: "8px 8px 0", lineHeight: 1.5 }}>Everything here is shared with Goldstone — updates ping their team automatically.</div>
       </div>
     );
   };
@@ -614,16 +657,16 @@ export function ContractorPortal() {
     const toTeam = jt.filter((t) => t.direction === "to_team" && t.status !== "Completed").sort((a, b) => taskClosed(a.status) - taskClosed(b.status) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
     return (
       <div style={{ padding: 14 }}>
-        {done.length > 0 && (
-          <button onClick={() => setDoneOpen(true)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "11px 14px", marginBottom: 12, borderRadius: T.radius, border: `1.5px solid ${T.green}`, background: "#EDFBF1", cursor: "pointer", fontFamily: "inherit", boxShadow: T.shadow, textAlign: "left", boxSizing: "border-box" }}>
-            <span style={{ fontSize: 17, flexShrink: 0 }}>✓</span>
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: T.text }}>Completed tasks</span>
-              <span style={{ display: "block", fontSize: 11, color: "#15803D" }}>{done.length} done on this job — tap to review</span>
-            </span>
-            <span style={{ fontSize: 14, color: "#15803D", flexShrink: 0 }}>›</span>
-          </button>
-        )}
+        {done.length > 0 && (<>
+          <SecHd color="#248A3D" action={`Show · ${done.length} ›`} onAction={() => setDoneOpen(true)}>Done</SecHd>
+          <div style={CARD}>
+            <button onClick={() => setDoneOpen(true)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", padding: "12px 16px", cursor: "pointer", fontFamily: "inherit", textAlign: "left", boxSizing: "border-box" }}>
+              <span style={{ fontSize: 15, flexShrink: 0, color: "#248A3D", fontWeight: 800 }}>✓</span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 600, color: T.text }}>{done.length} completed on this job</span>
+              <span style={{ fontSize: 14, color: "#C7C7CC", flexShrink: 0 }}>›</span>
+            </button>
+          </div>
+        </>)}
         {doneOpen && (
           <div onClick={() => setDoneOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 430, backdropFilter: "blur(6px)", padding: 16, boxSizing: "border-box" }}>
             <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, width: "min(520px,94vw)", maxHeight: "84vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,0.2)", overflow: "hidden" }}>
@@ -653,11 +696,11 @@ export function ContractorPortal() {
             </div>
           </div>
         )}
-        <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, overflow: "hidden", marginBottom: 14 }}>
-          <div style={{ padding: "11px 14px", fontSize: 12, fontWeight: 800, color: T.gold, textTransform: "uppercase", letterSpacing: "0.05em" }}>Your tasks from Goldstone</div>
-          {forUs.length === 0 && <div style={{ padding: "6px 14px 16px", fontSize: 13, color: T.textTert }}>Nothing assigned on this job right now.</div>}
+        <SecHd color={T.green} action={forUs.length ? `· ${forUs.length}` : null}>Your Tasks from Goldstone</SecHd>
+        <div style={CARD}>
+          {forUs.length === 0 && <div style={{ padding: "14px 16px", fontSize: 13, color: T.textTert }}>Nothing assigned on this job right now.</div>}
           {forUs.map((t) => (
-            <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "11px 14px", borderTop: `1px solid ${T.border}` }}>
+            <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 16px", borderTop: HAIR }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: taskClosed(t.status) ? 0.6 : 1 }}>{t.text}</div>
                 <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdBy ? `from ${t.createdBy.split(" ")[0]} · ` : ""}{t.createdAt ? fmtDate(t.createdAt) : ""}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${(t.statusBy || t.doneBy).split(" ")[0]}` : ""}</div>
@@ -667,8 +710,9 @@ export function ContractorPortal() {
             </div>
           ))}
         </div>
-        <div style={{ background: T.card, borderRadius: T.radius, boxShadow: T.shadow, overflow: "hidden" }}>
-          <div style={{ padding: "11px 14px", fontSize: 12, fontWeight: 800, color: T.blue, textTransform: "uppercase", letterSpacing: "0.05em" }}>Ask Goldstone for something</div>
+        <SecHd color={T.gold}>Ask Goldstone</SecHd>
+        <div style={CARD}>
+          <div style={{ height: 10 }} />
           {roster.length > 0 && (
             <div style={{ padding: "0 14px 8px", display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
               <span style={{ fontSize: 11, color: T.textTert, fontWeight: 700 }}>Who are you asking?</span>
@@ -683,7 +727,7 @@ export function ContractorPortal() {
             <button onClick={sendRequest} disabled={!reqText.trim()} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: reqText.trim() ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 13, cursor: reqText.trim() ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>Send</button>
           </div>
           {toTeam.map((t) => (
-            <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "11px 14px", borderTop: `1px solid ${T.border}` }}>
+            <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 16px", borderTop: HAIR }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: taskClosed(t.status) ? 0.6 : 1 }}>{t.text}</div>
                 <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdAt ? fmtDate(t.createdAt) : ""}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${(t.statusBy || t.doneBy).split(" ")[0]}` : ""}</div>
@@ -836,8 +880,10 @@ export function ContractorPortal() {
           <div style={{ fontSize: 14.5, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{org?.name || "Contractor Portal"}</div>
           <div style={{ fontSize: 11, color: T.textSub }}>Goldstone Properties · {displayName}</div>
         </div>
-        {pushWanted && <button onClick={turnOnPush} disabled={pushBusy} title="Turn on notifications" style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 8, color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 15, padding: "5px 9px", flexShrink: 0, opacity: pushBusy ? 0.5 : 1 }}>{pushBusy ? "⏳" : "🔔"}</button>}
-        <button onClick={signOut} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 8, color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12, padding: "6px 10px", flexShrink: 0 }}>Sign out</button>
+        <div style={{ display: "inline-flex", alignItems: "center", height: 34, borderRadius: 17, background: CAPS_BG, border: CAPS_BD, padding: "0 3px", gap: 2, flexShrink: 0 }}>
+          {pushWanted && <button onClick={turnOnPush} disabled={pushBusy} title="Turn on notifications" style={{ width: 34, height: 28, borderRadius: 14, background: "none", border: "none", color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 14, padding: 0, opacity: pushBusy ? 0.5 : 1, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{pushBusy ? "⏳" : "🔔"}</button>}
+          <button onClick={signOut} style={{ height: 28, borderRadius: 14, background: "none", border: "none", color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, padding: "0 12px", flexShrink: 0 }}>Sign out</button>
+        </div>
       </div>
       {pushWanted && !pushHide && (
         <div style={{ background: T.goldLight, borderBottom: `1px solid ${T.gold}`, padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -853,27 +899,40 @@ export function ContractorPortal() {
         {/* Job list (left) */}
         {showList && (
           <div style={{ width: isMobile ? "100%" : 290, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: isMobile ? "none" : `1px solid ${T.border}`, background: T.card, overflow: "hidden" }}>
-            <div style={{ padding: "11px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 12.5, fontWeight: 800, color: T.textSub }}>Your jobs ({myJobs.length})</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "13px 14px 8px", borderBottom: HAIR }}>
+              <span style={{ width: 7, height: 7, borderRadius: 4, background: T.gold, flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 650, color: T.text }}>Your Jobs</span>
+              <span style={{ fontSize: 11.5, color: T.textTert }}>· {myJobs.length}</span>
+            </div>
             <div style={{ flex: 1, overflowY: "auto" }}>
               {myJobs.length === 0 && jobs !== null && <div style={{ padding: 24, textAlign: "center", color: T.textTert, fontSize: 13 }}>No jobs yet. Goldstone will add your first job here.</div>}
-              {myJobs.map((j) => {
+              {(() => { let lastCat = null; return myJobs.map((j) => {
                 const on = String(selJobId) === String(j.id);
                 const days = jobDays(j);
                 const un = unreadFor(j.id);
                 const openT = (tasks || []).filter((t) => String(t.jobId) === String(j.id) && t.direction !== "to_team" && !taskClosed(t.status)).length;
-                return (
-                  <div key={j.id} onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); setDoneOpen(false); setMediaOpen(false); setBidPop(false); }} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
+                const cat = j.status === "bid" ? "Bid Requests" : j.status === "complete" ? "Complete" : "Active";
+                const catDot = cat === "Active" ? T.green : cat === "Bid Requests" ? "#AF52DE" : T.textTert;
+                const grpHdr = cat !== lastCat ? cat : null; lastCat = cat;
+                return (<Fragment key={j.id}>
+                  {grpHdr && <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 14px 5px", background: T.bg, borderBottom: HAIR }}>
+                    <span style={{ width: 7, height: 7, borderRadius: 4, background: catDot, flexShrink: 0 }} />
+                    <span style={{ fontSize: 11.5, fontWeight: 650, color: T.textSub }}>{grpHdr}</span>
+                  </div>}
+                  {(
+                  <div onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); setDoneOpen(false); setMediaOpen(false); setBidPop(false); }} style={{ padding: "12px 14px", borderBottom: HAIR, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", borderLeft: on && !isMobile ? `3px solid ${T.gold}` : "3px solid transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress || j.title || "Job"}</div>
                         <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.status === "bid" ? `🧾 Bid request${j.bidAmount ? ` — you bid ${money(j.bidAmount)}` : " — send your price"}` : `${j.status === "complete" ? "Complete" : days != null ? `Day ${days}` : "Active"} · ${money(jobLeft(j))} left${openT ? ` · ${openT} task${openT !== 1 ? "s" : ""}` : ""}`}</div>
                       </div>
                       {un > 0 && <span style={{ minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9, background: T.red, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{un}</span>}
-                      <span style={{ fontSize: 14, color: T.textTert, flexShrink: 0 }}>›</span>
+                      <span style={{ fontSize: 14, color: "#C7C7CC", flexShrink: 0 }}>›</span>
                     </div>
                   </div>
-                );
-              })}
+                  )}
+                </Fragment>);
+              }); })()}
             </div>
           </div>
         )}
@@ -908,7 +967,7 @@ export function ContractorPortal() {
                   {bidPop && selJob.status === "bid" && (
                     <div onClick={() => setBidPop(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 460, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, boxSizing: "border-box", backdropFilter: "blur(5px)" }}>
                       <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: "min(440px,96vw)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 12px 48px rgba(0,0,0,0.25)" }}>
-                        <div style={{ padding: "14px 18px", borderBottom: `2px solid ${T.gold}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ padding: "14px 18px", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>🧾 Submit your bid</div>
                             <div style={{ fontSize: 11.5, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selJob.propertyAddress || selJob.title}{selJob.title && selJob.propertyAddress ? ` — ${selJob.title}` : ""}</div>
@@ -921,12 +980,14 @@ export function ContractorPortal() {
                       </div>
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: 2, marginTop: 8 }}>
-                    {(selJob.status === "bid" ? [["messages", "Messages"]] : [["overview", "Overview"], ["tasks", "Tasks"], ["messages", "Messages"]]).map(([k, l]) => (
-                      <button key={k} onClick={() => setTab(k)} style={{ padding: "8px 16px", border: "none", borderBottom: tab === k ? `2.5px solid ${T.gold}` : "2.5px solid transparent", background: "none", color: tab === k ? T.gold : T.textSub, fontWeight: tab === k ? 800 : 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
-                        {l}{k === "messages" && unreadFor(selJob.id) > 0 ? ` (${unreadFor(selJob.id)})` : ""}
-                      </button>
-                    ))}
+                  <div style={{ display: "flex", marginTop: 9, marginBottom: 9 }}>
+                    <div style={{ display: "inline-flex", background: CAPS_BG, border: CAPS_BD, borderRadius: 100, padding: 3, gap: 2, maxWidth: "100%", overflowX: "auto", overflowY: "hidden", overscrollBehavior: "contain", scrollbarWidth: "none" }}>
+                      {(selJob.status === "bid" ? [["messages", "Messages"]] : [["overview", "Overview"], ["tasks", "Tasks"], ["messages", "Messages"]]).map(([k, l]) => (
+                        <button key={k} onClick={() => setTab(k)} style={{ padding: "6px 16px", borderRadius: 100, border: "none", background: tab === k ? "#fff" : "transparent", color: tab === k ? T.text : T.textSub, fontWeight: tab === k ? 650 : 450, fontSize: 12.5, boxShadow: tab === k ? "0 1px 4px rgba(0,0,0,0.12)" : "none", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                          {l}{k === "messages" && unreadFor(selJob.id) > 0 ? ` · ${unreadFor(selJob.id)}` : ""}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
                 <div ref={tab === "messages" ? scrollRef : undefined} style={{ flex: 1, overflowY: "auto", display: tab === "messages" ? "flex" : "block", flexDirection: "column" }}>

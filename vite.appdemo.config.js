@@ -15,6 +15,10 @@ export default defineConfig({
       { find: /^\.{1,2}\/data\/DataProvider$/, replacement: r("src/demo/appMockData.jsx") },
       { find: /^\.{1,2}\/net$/, replacement: r("src/demo/appMockNet.js") },
       { find: /^\.{1,2}\/supabaseClient$/, replacement: r("src/demo/mockSupabase.js") },
+      // Contractor-portal preview (ctrdemo.html): the portal's data hook swaps
+      // to an in-memory sample so the REAL portal renders offline too. Only the
+      // two contractors/ pages import exactly "./data".
+      { find: /^\.\/data$/, replacement: r("src/demo/ctrMockData.js") },
     ],
   },
   server: { port: 5188, strictPort: true },

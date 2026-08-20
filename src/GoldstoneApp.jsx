@@ -6996,14 +6996,10 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
 
   const isFunded=p=>p.status!=="Under Contract"||!!p.hasFunder;
   const[listPopup,setListPopup]=useState(null);
-  const[sortKey,setSortKey]=useState("status");
-  const sorted=[...props].sort((a,b)=>{
-    if(sortKey==="profit")return pfCalcProfit(b)-pfCalcProfit(a);
-    if(sortKey==="equity")return calcEquity(b)-calcEquity(a);
-    return ACTIVE_STATUSES.indexOf(a.status)-ACTIVE_STATUSES.indexOf(b.status);
-  });
+  // Always in status order (Elie 8/20/26 — sort menu removed, status is the order).
+  const sorted=[...props].sort((a,b)=>ACTIVE_STATUSES.indexOf(a.status)-ACTIVE_STATUSES.indexOf(b.status));
 
-  const thS={padding:"11px 14px",fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",textAlign:"left",borderBottom:FIN_HAIR,background:T.cardAlt,cursor:"pointer",userSelect:"none",whiteSpace:"nowrap"};
+  const thS={padding:"11px 14px",fontSize:10.5,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",textAlign:"left",borderBottom:FIN_HAIR,background:T.cardAlt,userSelect:"none",whiteSpace:"nowrap"};
   const tdS={padding:"13px 14px",fontSize:13.5,color:T.text,borderBottom:FIN_HAIR};
   // iOS-style funded mark — replaces the native checkbox
   const FundedMark=({on,disabled,onToggle,title})=>(
@@ -7108,11 +7104,6 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
           <span style={{fontSize:13.5,fontWeight:650,color:T.text,whiteSpace:"nowrap"}}>All Properties</span>
           <span style={{fontSize:12,color:T.textTert,whiteSpace:"nowrap"}}>· {props.length} active</span>
         </div>
-        <div style={SEG_WRAP}>
-          {[["status","Status"],["profit","Profit"],["equity","Cash to Close"]].map(([k,l])=>(
-            <button key={k} onClick={()=>setSortKey(k)} style={{...segTab(sortKey===k),padding:"6px 12px",fontSize:12}}>{l}</button>
-          ))}
-        </div>
       </div>
       <div className="fin-card" style={FIN_CARD}>
 
@@ -7166,11 +7157,11 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
           <table style={{width:"100%",borderCollapse:"collapse"}}>
             <thead>
               <tr>
-                <th style={{...thS}} onClick={()=>setSortKey("status")}>Address</th>
+                <th style={{...thS}}>Address</th>
                 <th style={{...thS,textAlign:"center"}}>Status</th>
-                <th style={{...thS,textAlign:"right"}} onClick={()=>setSortKey("equity")}>Cash to Close {sortKey==="equity"?"↓":""}</th>
+                <th style={{...thS,textAlign:"right"}}>Cash to Close</th>
                 <th style={{...thS,textAlign:"center",width:70}}>Actual?</th>
-                <th style={{...thS,textAlign:"right"}} onClick={()=>setSortKey("profit")}>Est. Profit {sortKey==="profit"?"↓":""}</th>
+                <th style={{...thS,textAlign:"right"}}>Est. Profit</th>
                 <th style={{...thS,textAlign:"center",width:90}}>Has Funder</th>
               </tr>
             </thead>

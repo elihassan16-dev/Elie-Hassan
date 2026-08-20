@@ -650,6 +650,16 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   // They told you the number (phone, text, in person) — type it in yourself:
   // the request is approved at that price and becomes a real change order.
   const [priceFor, setPriceFor] = useState(null); // {id, amount} for an awaiting_price request
+  // No contract price yet → a real button + inline field in the Contract card
+  // (the tiny "set it ›" text was impossible to hit on a phone — Elie 8/20/26).
+  const [priceDraft, setPriceDraft] = useState(null); // "" while typing, null closed
+  const saveContractPrice = async () => {
+    const a = Number(numIn(priceDraft || ""));
+    if (!a) return;
+    await save("contractor_jobs", { ...j, price: a });
+    setPriceDraft(null);
+    notify(null, { toOrg: j.orgId, title: "Contract price set", body: `${money(a)} — ${j.propertyAddress}${j.title ? ` · ${j.title}` : ""}`, url: `/?goto=job:${j.id}` });
+  };
   const priceAsk = async (r) => {
     const a = Number(numIn(priceFor?.amount || ""));
     if (!a) return;
@@ -815,13 +825,20 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
           <SecHd color={T.gold}>Contract</SecHd>
           <div style={{ ...CARD, padding: "13px 16px", marginTop: 7 }}>
             <div style={{ display: "flex", alignItems: "stretch" }}>
-              {heroCol("TOTAL", total > 0 ? money(total) : "—", T.text, heroSub(total > 0 ? ((j.changeOrders || []).length ? `incl. ${(j.changeOrders || []).length} change order${(j.changeOrders || []).length !== 1 ? "s" : ""} ›` : "contract price") : (isAdmin && onEditBasics ? "no price yet — set it ›" : "no contract price yet"), total > 0 ? ((j.changeOrders || []).length ? () => setPricePop(true) : undefined) : (isAdmin && onEditBasics ? onEditBasics : undefined)), true)}
+              {heroCol("TOTAL", total > 0 ? money(total) : "—", T.text, heroSub(total > 0 ? ((j.changeOrders || []).length ? `incl. ${(j.changeOrders || []).length} change order${(j.changeOrders || []).length !== 1 ? "s" : ""} ›` : "contract price") : "no contract price yet", total > 0 && (j.changeOrders || []).length ? () => setPricePop(true) : undefined), true)}
               {heroCol("PAID SO FAR", money(paid), "#248A3D", heroSub(`${(j.payments || []).length} payment${(j.payments || []).length !== 1 ? "s" : ""}`))}
               {heroCol("LEFT", total > 0 ? money(left) : "—", "#B8912E", heroSub(days != null && j.status !== "complete" ? `day ${days} of the job` : j.status === "complete" ? "job complete" : ""))}
             </div>
             {total > 0 && <div style={{ marginTop: 11, height: 6, borderRadius: 3, background: "rgba(118,118,128,0.14)", overflow: "hidden" }}>
               <div style={{ width: `${Math.min(100, Math.round((paid / total) * 100))}%`, height: "100%", background: T.green, borderRadius: 3 }} />
             </div>}
+            {total === 0 && isAdmin && (priceDraft == null
+              ? <button onClick={() => setPriceDraft("")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", minHeight: 44, marginTop: 12, borderRadius: 14, border: `1.5px dashed ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>＋ Set the Contract Price</button>
+              : <div style={{ display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap" }}>
+                  <input autoFocus value={priceDraft} onChange={(e) => setPriceDraft(numIn(e.target.value))} onKeyDown={(e) => e.key === "Enter" && saveContractPrice()} inputMode="decimal" placeholder="Contract price — e.g. 85000" style={{ ...inp, flex: 1, minWidth: 150, minHeight: 44 }} />
+                  <button onClick={saveContractPrice} style={{ ...goldBtn(!!Number(numIn(priceDraft))), minHeight: 44 }}>Save</button>
+                  <button onClick={() => setPriceDraft(null)} style={{ ...ghostBtn, minHeight: 44 }}>Cancel</button>
+                </div>)}
           </div>
         </div>
         {pricePop && (

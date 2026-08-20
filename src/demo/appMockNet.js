@@ -12,9 +12,25 @@ export async function uploadAttachment(file) {
 }
 export async function uploadStreamVideo(file) { return uploadAttachment(file); }
 
+// Demo ShowingTime feed for the On-Market property — shared with appMockData
+// so saved lead statuses key to the same showings (key = start-minute + agent).
+const shAt = (n, h) => { const x = new Date(); x.setDate(x.getDate() + n); x.setHours(h, 0, 0, 0); return x.toISOString(); };
+const HANOVER = "1030 Hanover Blvd, Browns Mills, NJ 08015";
+export const DEMO_SHOWINGS = [
+  { agent: "Dominique Bell", phone: "(609) 555-0177", broker: "Keller Williams Premier", d: -6, h: 10 },
+  { agent: "Marc Rivera", phone: "(732) 555-0164", broker: "RE/MAX Central", d: -4, h: 13 },
+  { agent: "Sarah Chen", phone: "(848) 555-0102", broker: "Compass NJ", d: -4, h: 15 },
+  { agent: "Dominique Bell", phone: "(609) 555-0177", broker: "Keller Williams Premier", d: -2, h: 11 },
+  { agent: "Yosef Adler", phone: "(917) 555-0139", broker: "eXp Realty", d: -1, h: 16 },
+  { agent: "Tanya Brooks", phone: "(609) 555-0155", broker: "Century 21 Action", d: 2, h: 14 },
+].map((s, i) => ({ uid: `demo-sh-${i}`, start: shAt(s.d, s.h), end: shAt(s.d, s.h + 1), summary: `Showing — ${HANOVER}`, location: HANOVER, status: "CONFIRMED", agent: s.agent, phone: s.phone, broker: s.broker, email: "" }));
+export const demoShowingKey = (s) => `${String(s.start).slice(0, 16)}|${s.agent.trim().toLowerCase().replace(/\s+/g, " ")}`;
+
 export async function qbAuthFetch(path) {
   const p = String(path);
-  if (p.includes("/api/showings")) return { configured: true, showings: [] };
+  if (p.includes("/api/showings/status")) return { configured: true, feeds: [{ id: 1, label: "ShowingTime" }] };
+  if (p.includes("/api/showings/save")) return { ok: true };
+  if (p.includes("/api/showings")) return { configured: true, showings: DEMO_SHOWINGS };
   if (p.includes("/api/jivetel/send")) return { connected: true, from: "+17325550100", lines: {} };
   if (p.includes("/api/team/roster")) return { names: ["Elie Hassan", "Moshe Hamaoui", "Esti Ungar"] };
   if (p.includes("/api/quickbooks")) return { connected: false, rows: [], income: 0, cogs: 0, expenses: 0, netIncome: 0 };

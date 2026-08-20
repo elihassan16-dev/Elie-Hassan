@@ -1238,7 +1238,7 @@ function FinancingPopup({fin, onSave, onClose}){
             {iField("Interest Rate",hmRate,setHmRate,"% / yr")}
             {iField("Origination Fee",hmOrigPct,setHmOrigPct,"% (0=none)")}
             {iField("Doc Fee",hmDocFee,setHmDocFee,"$")}
-            <div style={{...iRow,background:"#EBF4FF"}}><span style={{fontSize:13,color:T.blue,fontWeight:600}}>Total HM Loan</span><span style={{fontSize:13,fontWeight:700,color:T.blue}}>{fmtD(hmTotal)}</span></div>
+            <div style={{...iRow,background:T.cardAlt}}><span style={{fontSize:13,color:T.text,fontWeight:700}}>Total HM Loan</span><span style={{fontSize:13,fontWeight:700,color:T.blue}}>{fmtD(hmTotal)}</span></div>
             <div style={iRow}><span style={iLbl}>Monthly Interest</span><span style={iVal}>{fmtD(hmMonthlyInt)}/mo</span></div>
             <div style={iRow}><span style={iLbl}>Interest Reserve ({holdMonths} mo)</span><span style={iVal}>{fmtD(hmIntReserve)}</span></div>
           </div>
@@ -1258,8 +1258,8 @@ function FinancingPopup({fin, onSave, onClose}){
             <div style={iRow}><span style={iLbl}>HM Doc Fee</span><span style={iVal}>{fmtD(hmDoc)}</span></div>
             {insAmt>0&&<div style={iRow}><span style={iLbl}>Insurance Premium <span style={{fontSize:11,color:T.textTert}}>(full yr, paid at closing)</span></span><span style={iVal}>{fmtD(insAmt)}</span></div>}
             {taxEscrow>0&&<div style={iRow}><span style={iLbl}>Property Tax Escrow <span style={{fontSize:11,color:T.textTert}}>(½ yr at closing)</span></span><span style={iVal}>{fmtD(taxEscrow)}</span></div>}
-            <div style={{...iRow,background:"#EAF9FD"}}><span style={{fontSize:13,fontWeight:700,color:"#0EA5C5"}}>Total Capital to Raise</span><span style={{fontSize:13,fontWeight:700,color:"#0EA5C5"}}>{fmtD(gapPrincipal+insAmt+taxEscrow)}</span></div>
-            <div style={{...iRow,background:"#FFF8F0"}}><span style={{fontSize:13,color:T.textSub}}>Gap Balloon Interest — at sale</span><span style={{fontSize:13,fontWeight:600,color:T.orange}}>{fmtD(gapBalloon)}</span></div>
+            <div style={{...iRow,background:T.cardAlt}}><span style={{fontSize:13,fontWeight:700,color:T.text}}>Total Capital to Raise</span><span style={{fontSize:13,fontWeight:700,color:"#0EA5C5"}}>{fmtD(gapPrincipal+insAmt+taxEscrow)}</span></div>
+            <div style={{...iRow}}><span style={{fontSize:13,color:T.textSub}}>Gap Balloon Interest — at sale</span><span style={{fontSize:13,fontWeight:600,color:T.orange}}>{fmtD(gapBalloon)}</span></div>
           </div>
 
           {/* Summary */}
@@ -1268,12 +1268,12 @@ function FinancingPopup({fin, onSave, onClose}){
             <span style={{fontSize:13,fontWeight:650,color:T.text}}>Summary</span>
           </div>
           <div style={{background:T.card,paddingBottom:6}}>
-            <div style={{...iRow,background:T.goldLight,borderTop:`2px solid ${T.gold}`}}>
-              <span style={{fontSize:13,fontWeight:600,color:T.gold}}>HM Loan + Gap Principal</span>
+            <div style={{...iRow,background:T.cardAlt,borderTop:"1px solid rgba(0,0,0,0.08)"}}>
+              <span style={{fontSize:13,fontWeight:700,color:T.text}}>HM Loan + Gap Principal</span>
               <span style={{fontSize:14,fontWeight:700,color:T.gold}}>{fmtD(hmTotal+gapPrincipal)}</span>
             </div>
-            <div style={{...iRow,background:T.goldLight}}>
-              <span style={{fontSize:13,fontWeight:600,color:T.gold}}>Total Debt Service</span>
+            <div style={{...iRow,background:T.cardAlt}}>
+              <span style={{fontSize:13,fontWeight:700,color:T.text}}>Total Debt Service</span>
               <span style={{fontSize:14,fontWeight:700,color:T.gold}}>{fmtD(totalIntCost)}</span>
             </div>
           </div>
@@ -1702,8 +1702,11 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
           {/* Auto-matched private line of credit for this property (from the Financial Section) */}
           {locDraws.length>0&&(()=>{const gcol="1fr 84px 84px";return(
             <div style={{margin:"8px 16px 4px",background:"#fff",border:`1px solid ${T.gold}`,borderRadius:12,overflow:"hidden",boxShadow:T.shadow}}>
-              <div style={{padding:"9px 14px",background:T.goldLight,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
-                <div style={{fontSize:11.5,fontWeight:800,color:T.gold,textTransform:"uppercase",letterSpacing:"0.05em"}}>Matched Line of Credit</div>
+              <div style={{padding:"9px 14px",background:T.cardAlt,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:7}}>
+                  <span style={{width:7,height:7,borderRadius:4,background:T.gold,display:"inline-block"}}/>
+                  <span style={{fontSize:12.5,fontWeight:650,color:T.text}}>Matched Line of Credit</span>
+                </div>
                 <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:T.textSub,whiteSpace:"nowrap"}}>If sold by
                   <input type="date" value={assumedSell} onChange={e=>setAssumedSell(e.target.value)} style={{padding:"3px 6px",borderRadius:6,border:bdr,background:"#fff",fontSize:12,fontFamily:"inherit",color:T.text}}/>
                 </label>
@@ -1721,7 +1724,7 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
                   <div style={{fontSize:13,fontWeight:700,color:T.gold,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(r.interest)}</div>
                 </div>
               ))}
-              <div style={{display:"grid",gridTemplateColumns:gcol,gap:10,padding:"9px 14px",borderTop:`2px solid ${T.gold}`,background:T.goldLight,alignItems:"center"}}>
+              <div style={{display:"grid",gridTemplateColumns:gcol,gap:10,padding:"9px 14px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt,alignItems:"center"}}>
                 <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>{locRows.length} draw{locRows.length===1?"":"s"}</span>
                 <span style={{fontSize:14,fontWeight:800,color:T.text,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(locFunded)}</span>
                 <span style={{fontSize:14,fontWeight:800,color:T.gold,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(locInterest)}</span>
@@ -1737,9 +1740,9 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
             {iField("Gap Rate",gapRate,setGapRate,"% / yr")}
             <div style={iRow}><span style={iLbl}>Calculated Balloon</span><span style={iVal}>{fmtD(calcGapBalloon)}</span></div>
             {iField("Override Gap Balloon Paid",gapIntOverride,setGapIntOverride,"$","leave blank to use calculated")}
-            <div style={{...iRow,background:T.goldLight,borderTop:`2px solid ${T.gold}`}}>
-              <span style={{fontSize:14,fontWeight:700,color:T.gold}}>Total Debt Service</span>
-              <span style={{fontSize:15,fontWeight:800,color:T.gold}}>{fmtD(totalDebt)}</span>
+            <div style={{...iRow,background:T.cardAlt,borderTop:"1px solid rgba(0,0,0,0.08)"}}>
+              <span style={{fontSize:14,fontWeight:700,color:T.text}}>Total Debt Service</span>
+              <span style={{fontSize:15,fontWeight:750,color:T.gold,fontVariantNumeric:"tabular-nums"}}>{fmtD(totalDebt)}</span>
             </div>
           </div>
         </div>
@@ -2681,7 +2684,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
           <button onClick={onSave} style={{padding:"7px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Add</button>
           <button onClick={()=>{setAddNumFor(null);setNumDraft("");}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
         </div>
-      : <button onClick={()=>{setAddNumFor(key);setNumDraft("");}} style={{marginTop:8,padding:"5px 11px",borderRadius:20,background:"transparent",border:`1px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600}}>+ Add number</button>
+      : <button onClick={()=>{setAddNumFor(key);setNumDraft("");}} style={{marginTop:4,padding:"2px 2px",background:"none",border:"none",color:T.textTert,cursor:"pointer",fontFamily:"inherit",fontSize:11.5,fontWeight:600}}>+ Add number</button>
   );
   // A template button that remembers being tapped: unsent shows its normal colors;
   // once tapped it turns green with a ✓ + date (tap again to resend/re-stamp), and a
@@ -2817,7 +2820,9 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   // BoldTrail buyer. Desktop: single line. Mobile: two lines. Gold stripes.
   const CompactRow=({idx,dot,name,nameTitle,meta,phones,rowKey,leadVal,onLead,email,msgMeta,bt,onRemove,addUI,tmplOpts,srcTag})=>{
     const lead=SHOWING_LEADS.find(x=>x.key===(leadVal||""));
-    const stripe=lead?lead.bg+"55":(idx%2?T.goldLight+"55":"transparent");
+    // Clean white rows — the lead status reads from its colored pill alone
+    // (full-row washes made the list look stained; Elie's rule).
+    const stripe="transparent";
     const first=phones[0];
     const phoneSeg=(ph)=>(
       <span style={{fontSize:isMobile?10.5:11,color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:5}}>
@@ -2826,7 +2831,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     );
     const removeBtn=onRemove&&<button onClick={onRemove} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>;
     return(
-      <div style={{padding:isMobile?"7px 12px":"5px 14px",borderTop:`1px solid ${T.border}`,background:stripe}}>
+      <div style={{padding:isMobile?"9px 12px":"8px 14px",borderTop:"1px solid rgba(0,0,0,0.055)",background:stripe}}>
         <div style={{display:"flex",alignItems:"center",gap:7}}>
           <span style={{width:7,height:7,borderRadius:4,background:dot,flexShrink:0}}/>
           <span title={nameTitle||name} style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...(isMobile?{flex:1,minWidth:0}:{flex:"0 0 150px"})}}>{name}</span>
@@ -2928,15 +2933,15 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     </div>
     {dateMode==="custom"&&(
       <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
-        <input type="date" value={cFrom} onChange={e=>setCFrom(e.target.value)} style={{padding:"7px 9px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none"}}/>
+        <input type="date" value={cFrom} onChange={e=>setCFrom(e.target.value)} style={{padding:"6px 12px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",fontSize:12.5,fontFamily:"inherit",background:"rgba(118,118,128,0.08)",color:T.text,outline:"none"}}/>
         <span style={{color:T.textTert,fontSize:12}}>to</span>
-        <input type="date" value={cTo} onChange={e=>setCTo(e.target.value)} style={{padding:"7px 9px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:13,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none"}}/>
+        <input type="date" value={cTo} onChange={e=>setCTo(e.target.value)} style={{padding:"6px 12px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",fontSize:12.5,fontFamily:"inherit",background:"rgba(118,118,128,0.08)",color:T.text,outline:"none"}}/>
       </div>
     )}
-    <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:12.5,color:T.textSub,cursor:"pointer"}}>
-      <input type="checkbox" checked={hideNot} onChange={toggleHide} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>
-      Hide "not interested" leads{hideNot&&hiddenCount>0?` (${hiddenCount} hidden)`:""}
-    </label>
+    <div onClick={toggleHide} style={{...TOGGLE_CHIP(hideNot),marginBottom:10,gap:6}}>
+      {hideNot&&<span style={{fontSize:11,lineHeight:1}}>✓</span>}
+      Hide "not interested" leads{hideNot&&hiddenCount>0?` · ${hiddenCount} hidden`:""}
+    </div>
     {upcomingShown.length>0&&<Card style={{marginBottom:12}}><GHeader label="Upcoming"/>{upcomingShown.map((x,i)=>ShowRow(x,i))}</Card>}
     {/* Approved layout: tab switcher \u2014 \ud83c\udfe0 agents (+ your hand-added leads) | \ud83d\udd25 BoldTrail buyers */}
     {(()=>{
@@ -3232,7 +3237,10 @@ function ShowingsPage(){
             const meta=SHOWING_LEADS.find(x=>x.key===r.lead)||{};
             const hdr=r.lead!==last?meta.label:null;last=r.lead;
             return(<Fragment key={String(r.p.id)+"|"+r.skey}>
-              {hdr&&<div style={{padding:"16px 2px 7px",fontSize:11,fontWeight:800,color:meta.color||T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>{hdr}</div>}
+              {hdr&&<div style={{padding:"16px 2px 7px",display:"flex",alignItems:"center",gap:7}}>
+                <span style={{width:7,height:7,borderRadius:4,background:meta.color||T.textTert,flexShrink:0}}/>
+                <span style={{fontSize:13,fontWeight:650,color:T.text}}>{meta.short||hdr}</span>
+              </div>}
               <div onClick={()=>setHotOpen({propId:r.p.id,skey:r.skey})} style={{display:"flex",alignItems:"center",gap:10,background:"#fff",border:`1px solid ${T.border}`,borderLeft:`3px solid ${meta.color||T.border}`,borderRadius:12,padding:"11px 13px",marginBottom:8,cursor:"pointer",boxShadow:T.shadow}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:14,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</div>
@@ -3267,12 +3275,12 @@ function ShowingsPage(){
                 <div style={{padding:"14px 18px"}}>
                   <div style={{fontSize:12.5,color:T.textSub,lineHeight:1.5,marginBottom:12}}>The moment a new showing appears on the calendar, these people get a notification (each through their own notification channels).</div>
                   <div style={{fontSize:12,fontWeight:700,color:alertNames.length?T.textTert:"#15803D",marginBottom:10}}>{alertNames.length?"Going to the people checked below:":"✓ Right now: admins only (you)."}</div>
-                  {(teamMembers||[]).map(nm=>(
-                    <label key={nm} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",fontSize:13.5,color:T.text,cursor:"pointer"}}>
-                      <input type="checkbox" checked={alertNames.includes(nm)} onChange={()=>saveAlertNames(alertNames.includes(nm)?alertNames.filter(x=>x!==nm):[...alertNames,nm])} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>
+                  {(teamMembers||[]).map(nm=>{const on=alertNames.includes(nm);return(
+                    <div key={nm} onClick={()=>saveAlertNames(on?alertNames.filter(x=>x!==nm):[...alertNames,nm])} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",fontSize:13.5,color:T.text,cursor:"pointer"}}>
+                      <span style={{width:20,height:20,borderRadius:10,flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",background:on?T.gold:"rgba(118,118,128,0.12)",border:on?"none":"1px solid rgba(0,0,0,0.06)"}}>{on&&<span style={{color:"#fff",fontSize:11,fontWeight:800,lineHeight:1}}>✓</span>}</span>
                       {nm}
-                    </label>
-                  ))}
+                    </div>
+                  );})}
                   <div style={{fontSize:11,color:T.textTert,marginTop:10,lineHeight:1.45}}>Nobody checked = just the admins. Check people to set an exact list (then admins are only included if checked too).</div>
                 </div>
               </div>
@@ -3293,7 +3301,10 @@ function ShowingsPage(){
             const sc=SC[p.status]||{};
             const groupHdr=p.status!==lastStatus?p.status:null; lastStatus=p.status;
             return(<Fragment key={p.id}>
-              {groupHdr&&<div style={{padding:"9px 14px 5px",fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",background:T.bg}}>{groupHdr}</div>}
+              {groupHdr&&<div style={{padding:"9px 14px 5px",background:T.bg,display:"flex",alignItems:"center",gap:7}}>
+                <span style={{width:7,height:7,borderRadius:4,background:(SC[groupHdr]||{}).color||T.textTert,flexShrink:0}}/>
+                <span style={{fontSize:11.5,fontWeight:650,color:T.textSub}}>{groupHdr}</span>
+              </div>}
               <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"11px 14px",cursor:"pointer",borderBottom:`1px solid ${T.border}`,background:active?T.goldLight:"transparent",borderLeft:active?`3px solid ${T.gold}`:"3px solid transparent"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{flex:1,minWidth:0,fontWeight:active?700:600,fontSize:13,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</span>
@@ -4214,7 +4225,7 @@ function RentalPortfolioPage(){
                         </div>}
                       </div>
                     );})}
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",borderTop:`2px solid ${T.gold}`,background:T.goldLight}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt}}>
                       <span style={{fontSize:16,fontWeight:800,color:T.text}}>Net</span>
                       <span style={{fontSize:20,fontWeight:800,color:net>=0?T.green:T.red}}>{net>=0?"+":""}{fmtD(net)}</span>
                     </div>
@@ -5998,7 +6009,7 @@ function PropertyContractorsCard({property}){
                 </div>
                 :<button onClick={()=>setManFor(true)} style={{width:"100%",textAlign:"left",padding:"9px 18px",borderTop:`1px solid ${T.border}55`,background:"none",border:"none",color:T.blue,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>＋ Add a manual payment</button>}
             </div>
-            <div style={{padding:"11px 18px",borderTop:`2px solid ${T.gold}`,background:"#FBF7EC",display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:13}}>
+            <div style={{padding:"11px 18px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt,display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:13}}>
               <span style={{color:"#B8953F"}}>Paid {fm(m.paid)} of the {fm(m.bid)} bid</span>
               <span style={{color:m.left<0?T.red:"#0F9D58"}}>{m.left<0?`over by ${fm(-m.left)}`:`${fm(m.left)} left`}</span>
             </div>
@@ -13474,7 +13485,7 @@ function QbBucketTxnsModal({label,txns,allTxns,loading,onClose}){
             </div>
           ))}
           {!loading&&list.length>0&&(
-            <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"12px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"12px 18px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt}}>
               <span style={{fontSize:13.5,fontWeight:800,color:T.gold}}>{term?`Total paid to “${q.trim()}”`:"Total"}</span>
               <span style={{fontSize:15,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(total)}</span>
             </div>
@@ -13525,7 +13536,7 @@ function QbAllInBreakdownModal({pnl,total,projectId,onClose}){
               ))}
             </div>
           );})}
-          <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"13px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"13px 18px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt}}>
             <span style={{fontSize:14,fontWeight:800,color:T.gold}}>All-in cost</span>
             <span style={{fontSize:16,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(total)}</span>
           </div>
@@ -13813,7 +13824,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
          <button onClick={()=>{setAddFor("");setDraft({label:"",amount:""});setEditId(null);}} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
        </div>
       :<button onClick={()=>{setDraft({label:"",amount:""});setEditId(null);setAddFor(customField);}} style={{width:"100%",padding:"10px 18px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>+ Add manual line</button>}
-    <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 18px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt}}>
       <span style={{flex:1,fontSize:13.5,fontWeight:800,color:T.gold}}>Total</span>{amt(money(sum),{size:16})}
     </div>
   </>);
@@ -13896,7 +13907,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
         {reserveRow("LOC pot",`${potIds.length} of ${pinned.length+loanCustom.length} loan${pinned.length+loanCustom.length!==1?"s":""}`,pot,()=>setSectionModal("pot"))}
         {reserveRow("Deployed",`${floatTxns.length+(property.qbFloatCustom||[]).length} item${floatTxns.length+(property.qbFloatCustom||[]).length!==1?"s":""} · down payment, deposit`,floatSum,()=>setSectionModal("float"))}
         {reserveRow("Debt service paid",`${debtTxns.length+(property.qbDebtCustom||[]).length} item${debtTxns.length+(property.qbDebtCustom||[]).length!==1?"s":""}`,debtSum,()=>setSectionModal("debt"))}
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt}}>
           <div style={{flex:1}}><div style={{fontSize:13,fontWeight:800,color:T.gold}}>Interest Reserve left</div><div style={{fontSize:10,color:T.textTert}}>LOC pot − deployed − debt service</div></div>
           {amt(money(interestReserve),{size:17,color:interestReserve>=0?T.green:T.red})}{slot()}
         </div>
@@ -13919,7 +13930,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
             {amt(money(Number(l.amount)||0),{size:13.5,weight:600})}
           </label>
         ))}
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px 18px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt}}>
           <span style={{flex:1,fontSize:13.5,fontWeight:800,color:T.gold}}>LOC pot total</span>{amt(money(pot),{size:16})}
         </div>
       </>)}
@@ -14269,7 +14280,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
                   ?<input autoFocus value={b.actual||""} onChange={e=>setActual(b.id,e.target.value)} placeholder="Enter…" inputMode="decimal" style={{...inS,width:140,textAlign:"right"}}/>
                   :<span style={{fontSize:15,fontWeight:700,color:b.actual?T.text:T.textTert,width:140,textAlign:"right"}}>{b.actual?fmtD(num(b.actual)):"—"}</span>}
               </div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"13px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"14"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"13px 18px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt}}>
                 <div><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Difference</div><div style={{fontSize:11,color:T.textTert}}>{diff==null?"Enter the actual balance":Math.abs(diff)<1?"Reconciled ✓":diff<0?`Transfer ${fmtD(-diff)} in`:`${fmtD(diff)} more than expected`}</div></div>
                 <span style={{fontSize:19,fontWeight:800,color:diff==null?T.textTert:(Math.abs(diff)<1?T.green:T.red),whiteSpace:"nowrap"}}>{diff==null?"—":fmtD(diff)}</span>
               </div>
@@ -15090,7 +15101,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                           ?<div style={{padding:"8px 18px",borderTop:`1px solid ${T.border}`}}>{manualForm((nm,amt)=>updateProp(sel.id,CUSTOM,[...customs,{id:Date.now(),label:nm||"Manual",amount:amt}]))}</div>
                           :<button onClick={()=>setManualFor("pop")} style={{width:"100%",textAlign:"left",padding:"10px 18px",borderTop:`1px solid ${T.border}`,background:"none",border:"none",color:T.blue,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>+ Add manual line</button>)}
                       </div>
-                      <div style={{padding:"12px 18px",borderTop:`2px solid ${T.gold}`,background:T.goldLight+"44",display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{padding:"12px 18px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt,display:"flex",alignItems:"center",gap:8}}>
                         <span style={{fontSize:13.5,fontWeight:800,color:"#B8953F"}}>Total</span>
                         {autoField&&(sel[autoField]||[]).length>0&&<span style={{fontSize:10.5,color:T.textTert}}>⊘ {(sel[autoField]||[]).length} excluded · <button onClick={()=>updateProp(sel.id,autoField,[])} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:10.5,fontWeight:700,padding:0,fontFamily:"inherit"}}>bring back</button></span>}
                         {canEdit&&!autoField&&arr.length>1&&<button onClick={()=>{if(window.confirm(`Unpin all ${arr.length} transactions?`)){updateProp(sel.id,pinsOpen.field,[]);setPinsOpen(null);}}} style={{padding:"4px 11px",borderRadius:10,border:`1px solid ${T.red}66`,background:"#fff",color:T.red,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Clear all</button>}
@@ -15209,7 +15220,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         </div>
       </div>
     );
-    const goldFoot=(label,val,col)=>(<div style={{padding:"11px 18px",borderTop:`2px solid ${T.gold}`,background:T.goldLight+"44",display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:13.5}}><span style={{color:"#B8953F"}}>{label}</span><span style={{color:col}}>{val}</span></div>);
+    const goldFoot=(label,val,col)=>(<div style={{padding:"11px 18px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt,display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:13.5}}><span style={{color:"#B8953F"}}>{label}</span><span style={{color:col}}>{val}</span></div>);
     if(detailPop==="reserve"){
       const exKeys=new Set(sel.qbDebtExcluded||[]);
       const exRows=(autoTxns||[]).filter(t=>qbBucket(t.account)==="debt"&&exKeys.has(txKey(t)));
@@ -16757,11 +16768,11 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                         </tr>
                       ))}
                       <tr>
-                        <td style={{padding:"11px 10px",borderTop:`2px solid ${T.gold}`,fontWeight:800}}>{soldYear}{soldYear===nowYear?" so far":""}</td>
-                        <td style={{padding:"11px 10px",borderTop:`2px solid ${T.gold}`,textAlign:"right",fontWeight:800}}>{s.n}</td>
-                        <td style={{padding:"11px 10px",borderTop:`2px solid ${T.gold}`,textAlign:"right",fontWeight:800}}>{fmtD(s.sale)}</td>
-                        <td style={{padding:"11px 10px",borderTop:`2px solid ${T.gold}`,textAlign:"right",fontWeight:800,color:T.gold}}>{fmtD(s.profit)}</td>
-                        <td style={{padding:"11px 10px",borderTop:`2px solid ${T.gold}`,textAlign:"right",fontWeight:800}}>{s.n?fmtD(s.profit/s.n):"—"}</td>
+                        <td style={{padding:"11px 10px",borderTop:"2px solid rgba(0,0,0,0.15)",fontWeight:800}}>{soldYear}{soldYear===nowYear?" so far":""}</td>
+                        <td style={{padding:"11px 10px",borderTop:"2px solid rgba(0,0,0,0.15)",textAlign:"right",fontWeight:800}}>{s.n}</td>
+                        <td style={{padding:"11px 10px",borderTop:"2px solid rgba(0,0,0,0.15)",textAlign:"right",fontWeight:800}}>{fmtD(s.sale)}</td>
+                        <td style={{padding:"11px 10px",borderTop:"2px solid rgba(0,0,0,0.15)",textAlign:"right",fontWeight:800,color:T.gold}}>{fmtD(s.profit)}</td>
+                        <td style={{padding:"11px 10px",borderTop:"2px solid rgba(0,0,0,0.15)",textAlign:"right",fontWeight:800}}>{s.n?fmtD(s.profit/s.n):"—"}</td>
                       </tr>
                     </tbody>
                   </table>)}
@@ -16906,7 +16917,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                         :c.fund
                         ?<span style={{display:"inline-flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}><span style={{filter:c.fund.show&&c.fund.checked?"blur(1.6px)":"none",opacity:c.fund.show&&c.fund.checked?0.4:1,textDecoration:c.fund.show&&c.fund.checked?"line-through":"none"}}>{c.t}</span>{c.fund.show?<input type="checkbox" checked={c.fund.checked} disabled={!canEdit} onClick={(e)=>e.stopPropagation()} onChange={()=>toggleFunded(c.fund.propId)} title="Secured additional funding — dim the shortfall" style={{width:15,height:15,cursor:canEdit?"pointer":"default",accentColor:T.gold,flexShrink:0}}/>:<span style={{width:15,flexShrink:0,display:"inline-block"}}/>}</span>
                         :c.t}</td>)}</tr>;})}
-                  {rep.rows.length>0&&rep.foot&&rep.foot.map((frow,fi)=><tr key={"f"+fi}>{frow.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:fi===0?"11px 10px 8px":"2px 10px 8px",...(fi===0?{borderTop:`2px solid ${T.gold}`}:{}),fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{background:T.card})}}>{c.t}</td>)}</tr>)}
+                  {rep.rows.length>0&&rep.foot&&rep.foot.map((frow,fi)=><tr key={"f"+fi}>{frow.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:fi===0?"11px 10px 8px":"2px 10px 8px",...(fi===0?{borderTop:"2px solid rgba(0,0,0,0.15)"}:{}),fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{background:T.card})}}>{c.t}</td>)}</tr>)}
                 </tbody>
               </table>}
             </div>
@@ -17084,7 +17095,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                 </div>
               )}
             </div>
-            <div style={{padding:"11px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"10",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+            <div style={{padding:"11px 16px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
               <span style={{fontSize:12.5,fontWeight:800,color:T.text}}>= Cash to you from closings</span>
               <span style={{fontSize:15,fontWeight:800,color:c.closingsNet<0?T.red:T.green}}>{fmtD(c.closingsNet)}</span>
             </div>
@@ -17155,7 +17166,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                 </div>
               ))}
             </div>
-            <div style={{padding:"11px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"10",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+            <div style={{padding:"11px 16px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
               <span style={{fontSize:12.5,fontWeight:800,color:T.text}}>{shown.length} line item{shown.length!==1?"s":""}{ql?" (filtered)":""}</span>
               <span style={{fontSize:15,fontWeight:800,color:T.gold}}>{fmtD(tot)}</span>
             </div>
@@ -17367,7 +17378,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                       </div>
                     ))}
                   </div>
-                  <div style={{padding:"11px 16px",borderTop:`2px solid ${T.gold}`,background:T.gold+"10",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+                  <div style={{padding:"11px 16px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
                     <span style={{fontSize:12.5,fontWeight:800,color:T.text}}>{shown.length} line item{shown.length!==1?"s":""}{ql?" (filtered)":""}</span>
                     <span style={{fontSize:15,fontWeight:800,color:T.gold}}>{fmtD(tot)}</span>
                   </div>
@@ -17416,7 +17427,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                   <input value={man} onChange={e=>updateProp(hbProp.id,"constrHoldback",e.target.value.replace(/[^0-9.-]/g,""))} placeholder="0" inputMode="decimal" style={{...iS2,width:120,textAlign:"right"}}/>
                 </div>
               </div>
-              <div style={{padding:"12px 18px",borderTop:`2px solid ${T.gold}`,background:T.gold+"10",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{padding:"12px 18px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span style={{fontSize:14,fontWeight:800,color:T.text}}>Total holdback</span>
                 <span style={{fontSize:18,fontWeight:800,color:T.gold}}>{fmtD(total)}</span>
               </div>
@@ -17928,13 +17939,16 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
           {showings===null&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>⏳ Loading your showings…</div>}
           {showings!==null&&shown.length===0&&<div style={{padding:24,textAlign:"center",fontSize:12.5,color:T.textTert}}>Nothing here{term?" for that search":""}.</div>}
           {(()=>{
-          const secHdr=(txt,fg,bg,bd)=><div style={{padding:"7px 13px 3px",fontSize:10.5,fontWeight:800,letterSpacing:"0.05em",color:fg,background:bg,borderTop:`2px solid ${bd}`}}>{txt}</div>;
+          const secHdr=(txt,fg)=><div style={{padding:"10px 13px 4px",background:T.bg,display:"flex",alignItems:"center",gap:7,borderTop:FIN_HAIR}}>
+            <span style={{width:7,height:7,borderRadius:4,background:fg,flexShrink:0}}/>
+            <span style={{fontSize:11.5,fontWeight:650,color:T.textSub}}>{txt}</span>
+          </div>;
           const row=(c)=>{
             const active=c.key===selKey;
             const picked=picks.has(c.key);
             return(
               <div key={c.key} onClick={()=>{if(selMode){const n=new Set(picks);picked?n.delete(c.key):n.add(c.key);setPicks(n);}else setSelKey(c.key);}} style={{display:"flex",gap:9,alignItems:"center",padding:"10px 13px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:selMode&&picked?T.goldLight:active&&!selMode?T.goldLight:"transparent",borderLeft:(selMode&&picked)||(active&&!selMode)?`3px solid ${T.gold}`:"3px solid transparent"}}>
-                {selMode&&<input type="checkbox" checked={picked} readOnly style={{width:16,height:16,accentColor:T.gold,flexShrink:0,pointerEvents:"none"}}/>}
+                {selMode&&<span style={{width:20,height:20,flexShrink:0,borderRadius:10,border:`2px solid ${picked?T.gold:T.border}`,background:picked?T.gold:"transparent",color:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800}}>{picked?"✓":""}</span>}
                 <span style={{width:33,height:33,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:11.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(c.name)}</span>
                 <span style={{flex:1,minWidth:0}}>
                   <span style={{display:"flex",gap:5,alignItems:"baseline"}}>
@@ -17966,16 +17980,16 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
             );
           };
           return(<>
-            {actList.length>0&&secHdr(`💬 ACTIVE CONVERSATIONS · ${actList.length}`,"#0F9D58","#F2FBF5","#0F9D58")}
+            {actList.length>0&&secHdr(`💬 Active Conversations · ${actList.length}`,"#0F9D58")}
             {actList.map(row)}
-            {actList.length>0&&restList.length>0&&secHdr(who==="buyers"?"🛒 BY MOST RECENT INQUIRY":who==="agents"?"👁 BY MOST RECENT SHOWING":"👁 BY MOST RECENT SHOWING / INQUIRY","#8a6d1f","#FBF7EA",T.gold)}
+            {actList.length>0&&restList.length>0&&secHdr(who==="buyers"?"🛒 By Most Recent Inquiry":who==="agents"?"👁 By Most Recent Showing":"👁 By Most Recent Showing / Inquiry",T.gold)}
             {restList.map(row)}
           </>);
           })()}
         </div>
         {/* ☑ Select-mode action bar */}
         {selMode&&(
-          <div style={{padding:"9px 12px",borderTop:`2px solid ${T.gold}`,background:T.goldLight,display:"flex",alignItems:"center",gap:8,flexShrink:0,flexWrap:"wrap"}}>
+          <div style={{padding:"9px 12px",borderTop:"2px solid rgba(0,0,0,0.15)",background:T.goldLight,display:"flex",alignItems:"center",gap:8,flexShrink:0,flexWrap:"wrap"}}>
             <b style={{fontSize:12,color:"#8a6d1f"}}>{picks.size} picked</b>
             <button onClick={()=>setPicks(new Set(shown.map(c=>c.key)))} style={{padding:"5px 10px",borderRadius:12,border:`1px solid ${T.gold}`,background:"#fff",color:"#8a6d1f",fontWeight:800,fontSize:10.5,cursor:"pointer",fontFamily:"inherit"}}>All shown · {shown.length}</button>
             <button onClick={()=>setPicks(new Set())} style={{padding:"5px 10px",borderRadius:12,border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontWeight:700,fontSize:10.5,cursor:"pointer",fontFamily:"inherit"}}>None</button>

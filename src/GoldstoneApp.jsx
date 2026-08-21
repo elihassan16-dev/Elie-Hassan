@@ -3260,7 +3260,7 @@ function ShowingsPage(){
         <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
             <div style={{minWidth:0,flex:1}}>
-              <div style={{fontWeight:700,fontSize:15,color:T.text}}>Showings</div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontWeight:700,fontSize:15,color:T.text}}>Showings</span><NavBackChip/></div>
               <div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>{totalUpcoming} upcoming · {rows.length} on market</div>
             </div>
             {isAdmin&&<button onClick={()=>setAlertsOpen(true)} title="Who gets notified when a new showing is scheduled" style={{padding:"6px 10px",borderRadius:T.radiusSm,background:"#fff",color:T.textSub,border:`1px solid ${T.border}`,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>🔔</button>}
@@ -6032,6 +6032,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const[aiChat,setAiChat]=useState(false); // ✨ ask-AI-about-this-property popup
   const[statusBoard,setStatusBoard]=useState(false); // 🏗 utilities + permits board
   const[editAddr,setEditAddr]=useState(false);       // ✎ fix a typo'd address
+  const[jumpNav,setJumpNav]=useState(false);         // tap the address → jump to this property's Showings / BS / chat
   // Showings tab only shows while the property is actively On Market / In Closing.
   const showShowings=property.status==="On Market"||property.status==="In Closing";
   // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.
@@ -6081,11 +6082,12 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
             one word per line); the icons + Archive wrap onto the next row. */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"8px 12px",marginBottom:10,flexWrap:"wrap"}}>
           <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0,flex:isMobile?"1 1 100%":"1 1 auto"}}>
-            <div style={{fontSize:isMobile?17:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0,flex:isMobile?"1 1 auto":"0 1 auto"}}>{full}</div>
+            <div onClick={()=>setJumpNav(true)} title="Jump to this property's Showings, Balance Sheet or chat" style={{fontSize:isMobile?17:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0,flex:isMobile?"1 1 auto":"0 1 auto",cursor:"pointer"}}>{full}<span style={{color:"#C7C7CC",fontWeight:600,marginLeft:5}}>›</span></div>
             {!isMobile&&iconCaps()}
           </div>
           {isMobile&&iconCaps()}
           {editAddr&&<AddressEditPopup rec={property} onSave={(v)=>{onUpdate(property.id,"address",v.address);onUpdate(property.id,"city",v.city);onUpdate(property.id,"state",v.state);onUpdate(property.id,"zip",v.zip);}} onClose={()=>setEditAddr(false)}/>}
+          {jumpNav&&<PropertyJumpSheet property={property} onClose={()=>setJumpNav(false)}/>}
           {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
         </div>
@@ -10208,7 +10210,7 @@ function ContactsPage(){
       <div style={{width:isMobile?"100%":300,flexShrink:0,display:isMobile&&showDetail?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-            <div><div style={{fontWeight:700,fontSize:15,color:T.text}}>People</div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{contacts.length} people{ctrOrgs.length?` · ${ctrOrgs.length} contractor compan${ctrOrgs.length===1?"y":"ies"}`:""}</div></div>
+            <div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontWeight:700,fontSize:15,color:T.text}}>People</span><NavBackChip/></div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{contacts.length} people{ctrOrgs.length?` · ${ctrOrgs.length} contractor compan${ctrOrgs.length===1?"y":"ies"}`:""}</div></div>
             <div style={{display:"flex",gap:6}}>
               <input ref={fileRef} type="file" accept=".vcf,.csv,text/csv,text/vcard,text/x-vcard" onChange={onImport} style={{display:"none"}}/>
               <button onClick={()=>fileRef.current&&fileRef.current.click()} title="Import from a .vcf or .csv file" style={{height:32,padding:"0 10px",borderRadius:8,background:T.bg,border:"none",cursor:"pointer",color:T.textSub,fontSize:12,fontWeight:600,fontFamily:"inherit"}}>⇪ Import</button>
@@ -18617,10 +18619,49 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
 // where you actually were (Elie 8/21/26 — lives in page headers, NEVER by the
 // tab bar; the old capsule there collided with the tab strip).
 const gsNav={stack:[]};
+// Shell-registered cross-section jumps (showings/fin/chat) — set every shell
+// render (featSync pattern) so deep components can offer "go to X for this
+// property" without prop-drilling. fin is null for non-admins.
+const gsGo={};
 const navPush=(label,restore)=>{gsNav.stack.push({label,fn:restore});if(gsNav.stack.length>80)gsNav.stack.shift();};
 const navBack=()=>{const e=gsNav.stack.pop();if(e&&e.fn)e.fn();};
 const navCanBack=()=>gsNav.stack.length>0;
 const navPeekLabel=()=>gsNav.stack.length?gsNav.stack[gsNav.stack.length-1].label||"Back":"";
+// Tap a property's address → where do you want to go for THIS property?
+// Paired with NavBackChip so every jump has a one-tap way home (Elie 8/21/26).
+function PropertyJumpSheet({property,onClose}){
+  const addr=`${property.address||""}${property.city?`, ${property.city}`:""}`;
+  const rows=[
+    gsGo.showings?{ic:"📅",t:"Showings",sub:"Tours, hot leads & the agent CRM for this property",fn:()=>gsGo.showings(property.id)}:null,
+    gsGo.fin?{ic:"💰",t:"Balance Sheet",sub:"Loans, draws & equity in the Financial Section",fn:()=>gsGo.fin(property.id)}:null,
+    gsGo.chat?{ic:"💬",t:"Team Chat",sub:"This property's thread in Messages",fn:()=>gsGo.chat(property.id)}:null,
+  ].filter(Boolean);
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:480,backdropFilter:"blur(4px)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:"20px 20px 0 0",width:"min(520px,100vw)",padding:"10px 14px calc(14px + env(safe-area-inset-bottom))",boxSizing:"border-box",boxShadow:"0 -8px 40px rgba(0,0,0,0.25)"}}>
+        <div style={{width:36,height:5,borderRadius:3,background:"rgba(0,0,0,0.15)",margin:"2px auto 12px"}}/>
+        <div style={{display:"flex",alignItems:"center",gap:8,margin:"0 4px 10px"}}>
+          <span style={{width:8,height:8,borderRadius:"50%",background:T.gold,flexShrink:0}}/>
+          <span style={{flex:1,minWidth:0,fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</span>
+          <button onClick={onClose} aria-label="Close" style={{width:28,height:28,borderRadius:"50%",background:"rgba(118,118,128,0.08)",border:"none",fontSize:13,color:T.textSub,cursor:"pointer",lineHeight:1,padding:0,fontFamily:"inherit",flexShrink:0}}>✕</button>
+        </div>
+        <div style={{background:"#fff",borderRadius:16,boxShadow:T.shadow,overflow:"hidden"}}>
+          {rows.map((r,i)=>(
+            <button key={r.t} onClick={()=>{onClose();r.fn();}} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 15px",background:"none",border:"none",borderTop:i?"1px solid rgba(0,0,0,0.055)":"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left",minHeight:52,boxSizing:"border-box"}}>
+              <span style={{width:34,height:34,borderRadius:10,background:"rgba(118,118,128,0.08)",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{r.ic}</span>
+              <span style={{flex:1,minWidth:0}}>
+                <span style={{display:"block",fontSize:14.5,fontWeight:650,color:T.text}}>{r.t}</span>
+                <span style={{display:"block",fontSize:11.5,color:T.textSub,marginTop:1}}>{r.sub}</span>
+              </span>
+              <span style={{color:"#C7C7CC",fontSize:15,flexShrink:0}}>›</span>
+            </button>
+          ))}
+        </div>
+        <div style={{fontSize:11,color:T.textTert,textAlign:"center",marginTop:10}}>Jump anywhere — the ‹ back chip brings you right back.</div>
+      </div>
+    </div>
+  );
+}
 function NavBackChip({style}){
   if(!navCanBack())return null;
   return(
@@ -18636,6 +18677,8 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   const isMobile=useIsMobile();
   const[subTab,setSubTab]=useState("loc");
   const[bsSel,setBsSel]=useState(null); // property to open in the BS report (e.g. from Bank Reconciliation)
+  // A property-address jump lands straight on THAT property's balance sheet.
+  useEffect(()=>{try{const t=window.__finTarget;if(t&&t.propId!=null){delete window.__finTarget;setSubTab("bs");setBsSel(t.propId);}}catch{/* no window */}},[]);
   const goToBS=(propId)=>{setBsSel(propId);setSubTab("bs");};
   const[selId,setSelId]=useState(null);
   const[funderModal,setFunderModal]=useState(null);   // {} new, or funder obj to edit
@@ -18925,6 +18968,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <div style={{fontSize:isMobile?19:22,fontWeight:800,color:T.text}}>Financial Section</div>
           <span style={{fontSize:10,fontWeight:800,background:T.gold,color:"#fff",borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>Private</span>
+          <NavBackChip/>
           {!canEdit&&<span style={{fontSize:10,fontWeight:800,background:T.bg,color:T.textSub,border:`1px solid ${T.border}`,borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>View only</span>}
           {canEdit&&subTab==="loc"&&<div style={{marginLeft:"auto",display:"flex",gap:8}}>
             <button onClick={()=>setPaybackAll(true)} title="Pay back a loan — pick the property, the lender's tagged on each" style={{...finBtn(false),padding:"8px 12px",border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#8a6d1f"}}>↩ Payback</button>
@@ -21334,6 +21378,11 @@ export function GoldstoneShell(){
   useEffect(()=>{ registerServiceWorker(); if(displayName) refreshSubscription(displayName); },[displayName]);
 
   const pushPage=(k)=>{if(k!==active)navPush((NAV.find(n=>n.key===active)||{}).short||"Back",((prev)=>()=>setActive(prev))(active));setActive(k);};
+  Object.assign(gsGo,{
+    showings:(id)=>{try{window.__showingsTarget={propId:id,tab:"buyers"};}catch{/* no window */}pushPage("showings");},
+    fin:isAdmin?(id)=>{try{if(id!=null)window.__finTarget={propId:id};}catch{/* no window */}pushPage("financials");}:null,
+    chat:(id)=>{pushPage("messages");setNavChatId(id);},
+  });
 
   // When a background video upload finishes, swap its placeholder attachment for
   // the real one wherever the message landed — property chat, a task thread, or
@@ -21452,7 +21501,7 @@ export function GoldstoneShell(){
               const searchEl=<GlobalSearch isMobile={isMobile} who={whoG} go={{
                 prop:(id)=>{pushPage("properties");setNavPropId(id);},
                 showings:(id)=>{try{window.__showingsTarget={propId:id,tab:"buyers"};}catch{/* no window */}pushPage("showings");},
-                fin:isAdmin?()=>pushPage("financials"):null,
+                fin:isAdmin?(id)=>{try{if(id!=null)window.__finTarget={propId:id};}catch{/* no window */}pushPage("financials");}:null,
                 chat:(id)=>{pushPage("messages");setNavChatId(id);},
                 contact:(qq)=>{try{window.__contactsTarget={q:qq};}catch{/* no window */}pushPage("contacts");},
               }}/>;

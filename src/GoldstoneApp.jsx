@@ -2351,7 +2351,7 @@ function FinOverview({property,onUpdate}){
 }
 
 // ─── Property Detail ──────────────────────────────────────────────────────────
-const PTABS=["Financial Overview","QuickBooks","Tasks","Contacts","Files","Emails","Showings"];
+const PTABS=["Financial Overview","QuickBooks","Tasks","Contacts","Files","Emails"];
 
 // ─── Showings tab — pull ShowingTime calendar feed, match to this property ─────
 function showingMatchesProperty(text,p){
@@ -3101,62 +3101,6 @@ function fetchShowingsShared(force){
   if(_shInflight) return _shInflight;
   _shInflight=qbAuthFetch("/api/showings").then(d=>{_shCache=d;_shAt=Date.now();_shInflight=null;return d;}).catch(e=>{_shInflight=null;throw e;});
   return _shInflight;
-}
-function ShowingsTab({property,onUpdate}){
-  const { isAdmin }=useAuth();
-  const { flushProps }=useData();
-  const[status,setStatus]=useState(null);
-  const[showings,setShowings]=useState(null);
-  const[loading,setLoading]=useState(false);
-  const[error,setError]=useState("");
-  const[urlInput,setUrlInput]=useState("");
-  const[saving,setSaving]=useState(false);
-
-  useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
-  const load=useCallback((force)=>{setLoading(true);setError("");fetchShowingsShared(force).then(d=>setShowings(d.showings||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
-  useEffect(()=>{if(status&&status.configured)load();},[status,load]);
-
-  const save=async()=>{
-    if(!urlInput.trim())return;setSaving(true);setError("");
-    try{await qbAuthFetch("/api/showings/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({icsUrl:urlInput.trim()})});setStatus({configured:true});}
-    catch(e){setError(e.message);}
-    setSaving(false);
-  };
-
-  const wrap={padding:24,maxWidth:680,margin:"0 auto"};
-  const btn={padding:"9px 16px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"};
-
-  if(!status) return <div style={{...wrap,color:T.textSub,fontSize:14}}>Loading…</div>;
-
-  if(!status.configured) return(
-    <div style={wrap}>
-      <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>Connect ShowingTime</div>
-      <div style={{fontSize:13,color:T.textSub,marginBottom:14,lineHeight:1.5}}>Paste your ShowingTime <strong>Calendar Sync Link</strong> (in ShowingTime: Profile → Calendar Sync → Sync Now). This connects showings for <em>all</em> your properties — you only do it once.</div>
-      {!isAdmin
-        ?<div style={{fontSize:13,color:T.textTert}}>Ask an admin to connect ShowingTime.</div>
-        :(<>
-          <input value={urlInput} onChange={e=>setUrlInput(e.target.value)} placeholder="webcal://showingti.me/cal/…"
-            style={{width:"100%",padding:"11px 13px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit",marginBottom:12}}/>
-          <button onClick={save} disabled={saving} style={btn}>{saving?"Connecting…":"Connect"}</button>
-        </>)}
-      {error&&<div style={{marginTop:12,color:T.red,fontSize:13}}>{error}</div>}
-    </div>
-  );
-
-  const all=showings||[];
-  const mineCount=matchedShowings(all,property).length;
-  return(
-    <div style={wrap}>
-      <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
-        <div style={{fontSize:13,color:T.textSub}}>{mineCount} showing{mineCount!==1?"s":""} for this property <span style={{color:T.textTert}}>· {all.length} in feed</span></div>
-        <button onClick={()=>load(true)} style={{marginLeft:"auto",padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻ Refresh</button>
-      </div>
-      {loading&&<div style={{color:T.textSub,fontSize:14,padding:12}}>Loading showings…</div>}
-      {error&&<div style={{marginBottom:12,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>{error}</div>}
-      <PropertyShowings property={property} showings={all} onUpdate={onUpdate} flush={flushProps}/>
-      {mineCount>0&&<div style={{marginTop:12,fontSize:12,color:T.textTert,textAlign:"center"}}>Live from ShowingTime · matched by address</div>}
-    </div>
-  );
 }
 // ─── Showings page — every on-market property's showings in one schedule ───────
 function ShowingsPage(){
@@ -6161,11 +6105,9 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const[statusBoard,setStatusBoard]=useState(false); // 🏗 utilities + permits board
   const[editAddr,setEditAddr]=useState(false);       // ✎ fix a typo'd address
   const[jumpNav,setJumpNav]=useState(false);         // tap the address → jump to this property's Showings / BS / chat
-  // Showings tab only shows while the property is actively On Market / In Closing.
-  const showShowings=property.status==="On Market"||property.status==="In Closing";
   // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.
   const showQB=property.status!=="Under Contract";
-  const tabs=useMemo(()=>PTABS.filter(t=>(t!=="Showings"||showShowings)&&(t!=="QuickBooks"||showQB)),[showShowings,showQB]);
+  const tabs=useMemo(()=>PTABS.filter(t=>t!=="QuickBooks"||showQB),[showQB]);
   useEffect(()=>{ if(!tabs.includes(tab)) setTab("Financial Overview"); },[tabs,tab]);
   const sc=SC[property.status]||{color:"#64748B",bg:"#F1F5F9"};
   const upP=(k,v)=>onUpdate(property.id,"propertyInfo",{...property.propertyInfo,[k]:v});
@@ -6386,7 +6328,6 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
         {tab==="Files"&&<FilesTab property={property} onUpdate={onUpdate}/>}
         {tab==="Emails"&&<PropertyEmails property={property} onUpdate={onUpdate} isMobile={isMobile}/>}
         {tab==="QuickBooks"&&<QuickBooksTab property={property} onUpdate={onUpdate}/>}
-        {tab==="Showings"&&<ShowingsTab property={property} onUpdate={onUpdate}/>}
       </div>
     </div>
   );

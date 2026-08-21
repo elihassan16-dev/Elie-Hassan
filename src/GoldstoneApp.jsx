@@ -6392,7 +6392,10 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
         </div>
       </div>
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
-        {isMobile&&sel&&<button onClick={()=>setSelId(null)} style={{display:"flex",alignItems:"center",gap:4,padding:"11px 14px",background:T.card,border:"none",borderBottom:`1px solid ${T.border}`,color:T.gold,fontWeight:600,fontSize:15,fontFamily:"inherit",cursor:"pointer",flexShrink:0,textAlign:"left",minHeight:44}}>‹ All properties</button>}
+        {isMobile&&sel&&<div style={{display:"flex",alignItems:"center",gap:8,background:T.card,borderBottom:`1px solid ${T.border}`,paddingRight:12,flexShrink:0}}>
+          <button onClick={()=>setSelId(null)} style={{display:"flex",alignItems:"center",gap:4,padding:"11px 14px",background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,fontFamily:"inherit",cursor:"pointer",textAlign:"left",minHeight:44,flex:1,minWidth:0}}>‹ All properties</button>
+          <NavBackChip/>
+        </div>}
         {sel?<PropDetail property={sel} onUpdate={upProp} onArchive={onArchive?(id)=>{onArchive(id);setSelId(null);}:undefined} onOpenChat={onOpenChat}/>:
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:14}}>
             <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🏠</div>
@@ -12094,7 +12097,8 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,background:T.bg,overflow:"hidden"}}>
       <div style={{padding:"12px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-        {isMobile&&<button onClick={onBack} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",padding:"2px 4px",flexShrink:0}}>‹</button>}
+        {isMobile&&<button onClick={onBack} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",padding:"2px 4px",flexShrink:0,minWidth:32,minHeight:32}}>‹</button>}
+        {isMobile&&<NavBackChip style={{marginRight:2}}/>}
         <div style={{minWidth:0,flex:1}}><div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>{property.status&&<span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{property.status}</span>}</div>
         {messages.length>0&&!selMode&&<button onClick={()=>setFindQ(findQ==null?"":null)} title="Search this conversation" style={{background:findQ!=null?T.goldLight:"none",border:`1px solid ${findQ!=null?T.gold:T.border}`,borderRadius:20,color:findQ!=null?"#8a6d1f":T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 11px",flexShrink:0}}>🔍</button>}
         {mediaItems.length>0&&!selMode&&<button onClick={()=>setMediaOpen(true)} title="All photos & videos in this chat" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 12px",flexShrink:0}}>🖼 {mediaItems.length}</button>}
@@ -18607,12 +18611,22 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
 }
 
 // ── App-wide back stack ──────────────────────────────────────────────────────
-// Screens push a restore-closure BEFORE navigating away; "‹ Back" (or the
-// phone's back gesture — each push also adds a history entry) pops one.
+// Every cross-section jump pushes {label, fn} — the label names where you came
+// FROM ("Dashboard"), fn restores it. Detail pages render <NavBackChip/> beside
+// their local close so both exits exist: ✕ to the section's list, ‹ back to
+// where you actually were (Elie 8/21/26 — lives in page headers, NEVER by the
+// tab bar; the old capsule there collided with the tab strip).
 const gsNav={stack:[]};
-const navPush=(restore)=>{gsNav.stack.push(restore);if(gsNav.stack.length>80)gsNav.stack.shift();};
-const navBack=()=>{const f=gsNav.stack.pop();if(f)f();};
+const navPush=(label,restore)=>{gsNav.stack.push({label,fn:restore});if(gsNav.stack.length>80)gsNav.stack.shift();};
+const navBack=()=>{const e=gsNav.stack.pop();if(e&&e.fn)e.fn();};
 const navCanBack=()=>gsNav.stack.length>0;
+const navPeekLabel=()=>gsNav.stack.length?gsNav.stack[gsNav.stack.length-1].label||"Back":"";
+function NavBackChip({style}){
+  if(!navCanBack())return null;
+  return(
+    <button onClick={navBack} title={`Back to ${navPeekLabel()}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 13px",minHeight:32,borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",color:"#8a6d1f",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap",...style}}>‹ {navPeekLabel()}</button>
+  );
+}
 
 function FinancialSectionPage({onNavigate,canEdit=true}){
   const { funders, setFunders:rawSetFunders, flushFunders, draws, setDraws:rawSetDraws, flushDraws, sharedProps, setSharedProps, flushProps, setOfficeTasks, flushOfficeTasks, teamMembers, currentUser, bankAccounts, setBankAccounts, flushBank } = useData();
@@ -21319,7 +21333,7 @@ export function GoldstoneShell(){
   // (only if the user already opted in — never prompts on its own).
   useEffect(()=>{ registerServiceWorker(); if(displayName) refreshSubscription(displayName); },[displayName]);
 
-  const pushPage=(k)=>{if(k!==active)navPush(((prev)=>()=>setActive(prev))(active));setActive(k);};
+  const pushPage=(k)=>{if(k!==active)navPush((NAV.find(n=>n.key===active)||{}).short||"Back",((prev)=>()=>setActive(prev))(active));setActive(k);};
 
   // When a background video upload finishes, swap its placeholder attachment for
   // the real one wherever the message landed — property chat, a task thread, or

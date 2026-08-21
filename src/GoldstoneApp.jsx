@@ -6877,6 +6877,12 @@ function DashEmailCard({activeProps,onNavigate}){
   const threadRef=useRef(null);
   const[reply,setReply]=useState("");
   const[sending,setSending]=useState(false);
+  // Full mail actions — reply-all (default), reply to sender only, forward
+  // with a To field, and attachments on any of them.
+  const[replyMode,setReplyMode]=useState("all"); // all | one | fwd
+  const[fwdTo,setFwdTo]=useState("");
+  const[outFiles,setOutFiles]=useState([]);
+  const outRef=useRef(null);
   const pinSig=useMemo(()=>activeProps.filter(p=>(p.pinnedEmails||[]).length).map(p=>`${p.id}:${(p.pinnedEmails||[]).map(pe=>pe.id).join("|")}`).join(","),[activeProps]);
   useEffect(()=>{
     if(!mail.signedIn){setRows([]);return;}
@@ -6921,10 +6927,17 @@ function DashEmailCard({activeProps,onNavigate}){
       }catch{setMsgs([]);}
     })();
   };
+  const canSend=(reply.trim()||outFiles.length)&&(replyMode!=="fwd"||fwdTo.trim());
   const sendReply=async()=>{
-    if(!reply.trim()||!msgs||!msgs.length)return;
+    if(!canSend||!msgs||!msgs.length||sending)return;
     setSending(true);
-    try{await mail.reply(msgs[msgs.length-1].id,`<div>${mailEsc(reply).replace(/\n/g,"<br>")}</div>`,true);setReply("");setOpen(null);}
+    const html=`<div>${mailEsc(reply).replace(/\n/g,"<br>")}</div>`;
+    const lastId=msgs[msgs.length-1].id;
+    try{
+      if(replyMode==="fwd")await mail.forward(lastId,{to:fwdTo,html,files:outFiles});
+      else await mail.reply(lastId,html,replyMode==="all","",[],outFiles);
+      setReply("");setOutFiles([]);setFwdTo("");setOpen(null);
+    }
     catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
     setSending(false);
   };
@@ -6987,9 +7000,27 @@ function DashEmailCard({activeProps,onNavigate}){
             })}
           </div>
           {msgs&&msgs.length>0&&(
-            <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:"1px solid rgba(0,0,0,0.08)",background:"#fff",display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
-              <input value={reply} onChange={e=>setReply(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendReply()} placeholder="Quick reply-all…" style={{flex:1,minWidth:0,padding:"10px 15px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              <button onClick={sendReply} disabled={sending||!reply.trim()} style={{height:38,padding:"0 18px",borderRadius:19,border:"none",background:reply.trim()?T.gold:"rgba(118,118,128,0.16)",color:"#fff",fontWeight:700,fontSize:13,cursor:reply.trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0,boxShadow:reply.trim()?"0 1px 4px rgba(0,0,0,0.12)":"none"}}>{sending?"Sending…":"Send"}</button>
+            <div style={{padding:"8px 12px max(10px,env(safe-area-inset-bottom))",borderTop:"1px solid rgba(0,0,0,0.08)",background:"#fff",flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",scrollbarWidth:"none"}}>
+                <div style={{display:"inline-flex",alignItems:"center",borderRadius:16,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:2,gap:2,flexShrink:0}}>
+                  {[["all","↩ Reply All"],["one","↩ Reply"],["fwd","→ Forward"]].map(([k,l])=>(
+                    <button key={k} onClick={()=>setReplyMode(k)} style={{flex:"0 0 auto",whiteSpace:"nowrap",padding:"6px 13px",borderRadius:13,border:"none",background:replyMode===k?"#fff":"transparent",color:replyMode===k?T.text:T.textSub,fontWeight:replyMode===k?650:450,fontSize:12,cursor:"pointer",fontFamily:"inherit",boxShadow:replyMode===k?"0 1px 4px rgba(0,0,0,0.14)":"none",transition:"all 0.15s"}}>{l}</button>
+                  ))}
+                </div>
+                {replyMode==="one"&&<span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0}}>only {mailAddr(msgs[msgs.length-1].from).split(" ")[0]||"the sender"}</span>}
+              </div>
+              {replyMode==="fwd"&&<input value={fwdTo} onChange={e=>setFwdTo(e.target.value)} placeholder="Forward to — email address" type="email" style={{width:"100%",padding:"9px 14px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>}
+              {outFiles.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                {outFiles.map((f,i)=>(
+                  <span key={i} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:100,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",fontSize:11.5,fontWeight:600,color:T.text,maxWidth:200}}>📎 <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</span><button onClick={()=>setOutFiles(prev=>prev.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:0,fontFamily:"inherit"}}>×</button></span>
+                ))}
+              </div>}
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <input ref={outRef} type="file" multiple onChange={e=>{const list=[...(e.target.files||[])];if(list.length)setOutFiles(prev=>[...prev,...list]);e.target.value="";}} style={{display:"none"}}/>
+                <button onClick={()=>outRef.current&&outRef.current.click()} disabled={sending} title="Attach files" style={{width:38,height:38,flexShrink:0,borderRadius:"50%",border:"1px solid rgba(0,0,0,0.05)",background:outFiles.length?T.goldLight:"rgba(118,118,128,0.08)",fontSize:15,cursor:"pointer",padding:0}}>📎</button>
+                <input value={reply} onChange={e=>setReply(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendReply()} placeholder={replyMode==="fwd"?"Add a note to the forward…":replyMode==="one"?`Reply to ${mailAddr(msgs[msgs.length-1].from).split(" ")[0]||"sender"} only…`:"Reply to everyone…"} style={{flex:1,minWidth:0,padding:"10px 15px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                <button onClick={sendReply} disabled={sending||!canSend} style={{height:38,padding:"0 18px",borderRadius:19,border:"none",background:canSend?T.gold:"rgba(118,118,128,0.16)",color:"#fff",fontWeight:700,fontSize:13,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,boxShadow:canSend?"0 1px 4px rgba(0,0,0,0.12)":"none"}}>{sending?"Sending…":replyMode==="fwd"?"Forward":"Send"}</button>
+              </div>
             </div>
           )}
         </div>

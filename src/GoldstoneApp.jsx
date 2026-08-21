@@ -3321,7 +3321,7 @@ function ShowingsPage(){
         <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
             <div style={{minWidth:0,flex:1}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontWeight:700,fontSize:15,color:T.text}}>Showings</span><NavBackChip/></div>
+              <span style={{fontWeight:700,fontSize:15,color:T.text}}>Showings</span>
               <div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>{totalUpcoming} upcoming · {rows.length} on market</div>
             </div>
             {isAdmin&&<button onClick={()=>setAlertsOpen(true)} title="Who gets notified when a new showing is scheduled" style={{padding:"6px 10px",borderRadius:T.radiusSm,background:"#fff",color:T.textSub,border:`1px solid ${T.border}`,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>🔔</button>}
@@ -6498,7 +6498,6 @@ function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,o
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
         {isMobile&&sel&&<div style={{display:"flex",alignItems:"center",gap:8,background:T.card,borderBottom:`1px solid ${T.border}`,paddingRight:12,flexShrink:0}}>
           <button onClick={()=>setSelId(null)} style={{display:"flex",alignItems:"center",gap:4,padding:"11px 14px",background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,fontFamily:"inherit",cursor:"pointer",textAlign:"left",minHeight:44,flex:1,minWidth:0}}>‹ All properties</button>
-          <NavBackChip/>
         </div>}
         {sel?<PropDetail property={sel} onUpdate={upProp} onArchive={onArchive?(id)=>{onArchive(id);setSelId(null);}:undefined} onOpenChat={onOpenChat}/>:
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:T.bg,gap:14}}>
@@ -10312,7 +10311,7 @@ function ContactsPage(){
       <div style={{width:isMobile?"100%":300,flexShrink:0,display:isMobile&&showDetail?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
         <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-            <div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontWeight:700,fontSize:15,color:T.text}}>People</span><NavBackChip/></div><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{contacts.length} people{ctrOrgs.length?` · ${ctrOrgs.length} contractor compan${ctrOrgs.length===1?"y":"ies"}`:""}</div></div>
+            <div><span style={{fontWeight:700,fontSize:15,color:T.text}}>People</span><div style={{fontSize:11,color:T.textSub,marginTop:1}}>{contacts.length} people{ctrOrgs.length?` · ${ctrOrgs.length} contractor compan${ctrOrgs.length===1?"y":"ies"}`:""}</div></div>
             <div style={{display:"flex",gap:6}}>
               <input ref={fileRef} type="file" accept=".vcf,.csv,text/csv,text/vcard,text/x-vcard" onChange={onImport} style={{display:"none"}}/>
               <button onClick={()=>fileRef.current&&fileRef.current.click()} title="Import from a .vcf or .csv file" style={{height:32,padding:"0 10px",borderRadius:8,background:T.bg,border:"none",cursor:"pointer",color:T.textSub,fontSize:12,fontWeight:600,fontFamily:"inherit"}}>⇪ Import</button>
@@ -12202,7 +12201,6 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
     <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,background:T.bg,overflow:"hidden"}}>
       <div style={{padding:"12px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         {isMobile&&<button onClick={onBack} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",padding:"2px 4px",flexShrink:0,minWidth:32,minHeight:32}}>‹</button>}
-        {isMobile&&<NavBackChip style={{marginRight:2}}/>}
         <div style={{minWidth:0,flex:1}}><div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>{property.status&&<span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{property.status}</span>}</div>
         {messages.length>0&&!selMode&&<button onClick={()=>setFindQ(findQ==null?"":null)} title="Search this conversation" style={{background:findQ!=null?T.goldLight:"none",border:`1px solid ${findQ!=null?T.gold:T.border}`,borderRadius:20,color:findQ!=null?"#8a6d1f":T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 11px",flexShrink:0}}>🔍</button>}
         {mediaItems.length>0&&!selMode&&<button onClick={()=>setMediaOpen(true)} title="All photos & videos in this chat" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 12px",flexShrink:0}}>🖼 {mediaItems.length}</button>}
@@ -16138,7 +16136,6 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
             <div style={{maxWidth:980,margin:"0 auto",padding:isMobile?"10px 10px 40px":"16px 18px 40px",boxSizing:"border-box"}}>
               {isMobile&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"2px 0 8px"}}>
                 <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flex:1,minWidth:0,textAlign:"left"}}>‹ All properties</button>
-                <NavBackChip/>
               </div>}
               {bsJump&&<PropertyJumpSheet property={bsJump} current="fin" onClose={()=>setBsJump(null)}/>}
               <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:16,boxShadow:T.shadow,overflow:"hidden"}}>
@@ -18735,7 +18732,8 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
 
 // ── App-wide back stack ──────────────────────────────────────────────────────
 // Every cross-section jump pushes {label, fn} — the label names where you came
-// FROM ("Dashboard"), fn restores it. Detail pages render <NavBackChip/> beside
+// FROM ("Dashboard"), fn restores it. The ONE <NavBackChip/> lives in the top
+// bar beside the page title (Elie moved it there from the page headers) —
 // their local close so both exits exist: ✕ to the section's list, ‹ back to
 // where you actually were (Elie 8/21/26 — lives in page headers, NEVER by the
 // tab bar; the old capsule there collided with the tab strip).
@@ -19090,7 +19088,6 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <div style={{fontSize:isMobile?19:22,fontWeight:800,color:T.text}}>Financial Section</div>
           <span style={{fontSize:10,fontWeight:800,background:T.gold,color:"#fff",borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>Private</span>
-          <NavBackChip/>
           {!canEdit&&<span style={{fontSize:10,fontWeight:800,background:T.bg,color:T.textSub,border:`1px solid ${T.border}`,borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>View only</span>}
           {canEdit&&subTab==="loc"&&<div style={{marginLeft:"auto",display:"flex",gap:8}}>
             <button onClick={()=>setPaybackAll(true)} title="Pay back a loan — pick the property, the lender's tagged on each" style={{...finBtn(false),padding:"8px 12px",border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#8a6d1f"}}>↩ Payback</button>
@@ -21613,9 +21610,10 @@ export function GoldstoneShell(){
       </aside>
       <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div className="gs-topbar" style={{minHeight:54,padding:isMobile?"max(8px,env(safe-area-inset-top)) 16px 8px":"0 24px",borderBottom:`1px solid ${T.border}`,background:T.card,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flexShrink:1}}>
             {isMobile&&<button onClick={()=>setShowNavMenu(true)} title="Menu" aria-label="Open menu" style={{width:36,height:36,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer",padding:0,flexShrink:0,backgroundColor:"#fff",backgroundImage:"url(/logo.png)",backgroundRepeat:"no-repeat",backgroundSize:"185%",backgroundPosition:"50% 27%"}}/>}
-            <div style={{fontWeight:700,fontSize:17,color:T.text}}>{NAV.find(n=>n.key===active)?.label}</div>
+            <div style={{fontWeight:700,fontSize:17,color:T.text,whiteSpace:"nowrap"}}>{NAV.find(n=>n.key===active)?.label}</div>
+            <NavBackChip style={{maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}/>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
             {(()=>{

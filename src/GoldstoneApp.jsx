@@ -6869,6 +6869,7 @@ function usePinnedEmailUnread(props){
 // quick reply-all box; "Open property ›" jumps to the full Emails tab.
 function DashEmailCard({activeProps,onNavigate}){
   const mail=useOutlookMail();
+  const appPeople=useMailPeople(); // for @-mention suggestions, same as the Email tab
   const[rows,setRows]=useState([]);
   const[hidden,setHidden]=useState(()=>new Set()); // pin ids read this session
   const[open,setOpen]=useState(null); // {pin,prop}
@@ -6882,6 +6883,7 @@ function DashEmailCard({activeProps,onNavigate}){
   const[replyMode,setReplyMode]=useState("all"); // all | one | fwd
   const[fwdTo,setFwdTo]=useState("");
   const[outFiles,setOutFiles]=useState([]);
+  const[emailMentions,setEmailMentions]=useState([]); // @-tagged people → native Outlook mentions
   const outRef=useRef(null);
   const pinSig=useMemo(()=>activeProps.filter(p=>(p.pinnedEmails||[]).length).map(p=>`${p.id}:${(p.pinnedEmails||[]).map(pe=>pe.id).join("|")}`).join(","),[activeProps]);
   useEffect(()=>{
@@ -6935,8 +6937,8 @@ function DashEmailCard({activeProps,onNavigate}){
     const lastId=msgs[msgs.length-1].id;
     try{
       if(replyMode==="fwd")await mail.forward(lastId,{to:fwdTo,html,files:outFiles});
-      else await mail.reply(lastId,html,replyMode==="all","",[],outFiles);
-      setReply("");setOutFiles([]);setFwdTo("");setOpen(null);
+      else await mail.reply(lastId,html,replyMode==="all","",emailMentions,outFiles);
+      setReply("");setOutFiles([]);setFwdTo("");setEmailMentions([]);setOpen(null);
     }
     catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
     setSending(false);
@@ -7018,7 +7020,11 @@ function DashEmailCard({activeProps,onNavigate}){
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
                 <input ref={outRef} type="file" multiple onChange={e=>{const list=[...(e.target.files||[])];if(list.length)setOutFiles(prev=>[...prev,...list]);e.target.value="";}} style={{display:"none"}}/>
                 <button onClick={()=>outRef.current&&outRef.current.click()} disabled={sending} title="Attach files" style={{width:38,height:38,flexShrink:0,borderRadius:"50%",border:"1px solid rgba(0,0,0,0.05)",background:outFiles.length?T.goldLight:"rgba(118,118,128,0.08)",fontSize:15,cursor:"pointer",padding:0}}>📎</button>
-                <input value={reply} onChange={e=>setReply(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendReply()} placeholder={replyMode==="fwd"?"Add a note to the forward…":replyMode==="one"?`Reply to ${mailAddr(msgs[msgs.length-1].from).split(" ")[0]||"sender"} only…`:"Reply to everyone…"} style={{flex:1,minWidth:0,padding:"10px 15px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <MentionTextarea value={reply} onChange={setReply} mentions={emailMentions} onMentionsChange={setEmailMentions} contacts={appPeople} mail={mail}
+                    placeholder={replyMode==="fwd"?"Add a note to the forward…":replyMode==="one"?`Reply to ${mailAddr(msgs[msgs.length-1].from).split(" ")[0]||"sender"} only…  @ to tag`:"Reply to everyone…  @ to tag"}
+                    style={{width:"100%",minWidth:0,padding:"10px 15px",borderRadius:18,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",resize:"none",lineHeight:1.4,height:40,maxHeight:100}}/>
+                </div>
                 <button onClick={sendReply} disabled={sending||!canSend} style={{height:38,padding:"0 18px",borderRadius:19,border:"none",background:canSend?T.gold:"rgba(118,118,128,0.16)",color:"#fff",fontWeight:700,fontSize:13,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,boxShadow:canSend?"0 1px 4px rgba(0,0,0,0.12)":"none"}}>{sending?"Sending…":replyMode==="fwd"?"Forward":"Send"}</button>
               </div>
             </div>
@@ -20362,9 +20368,13 @@ function PropertyEmails({property,onUpdate,isMobile}){
       {viewer&&(
         <div onClick={()=>setViewer(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:251,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:isMobile?"20px 20px 0 0":20,width:680,maxWidth:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-            <div style={{padding:"14px 18px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-              <div style={{flex:1,minWidth:0,fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewer.subject||"(no subject)"}</div>
-              <button onClick={()=>setViewer(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+            <div style={{padding:"13px 16px 11px",background:"#fff",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:"#4F46E5",flexShrink:0}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:14.5,fontWeight:700,color:T.text,letterSpacing:-0.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewer.subject||"(no subject)"}</div>
+                {viewMsgs&&viewMsgs.length>0&&<div style={{fontSize:11,color:T.textSub,marginTop:1}}>{viewMsgs.length} message{viewMsgs.length!==1?"s":""} · newest at the bottom</div>}
+              </div>
+              <button onClick={()=>setViewer(null)} aria-label="Close" style={{width:28,height:28,borderRadius:"50%",background:"rgba(118,118,128,0.08)",border:"none",fontSize:13,color:T.textSub,cursor:"pointer",lineHeight:1,flexShrink:0,padding:0,fontFamily:"inherit"}}>✕</button>
             </div>
             <div ref={vScrollRef} style={{flex:1,overflowY:"auto",padding:isMobile?12:16}}>
               {viewMsgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Opening the thread…</div>}
@@ -20376,20 +20386,26 @@ function PropertyEmails({property,onUpdate,isMobile}){
                   <div style={{fontSize:11.5,color:T.textTert,marginTop:12,lineHeight:1.5,paddingTop:10,borderTop:`1px solid ${T.border}`}}>This thread isn't in your mailbox, so the full conversation can't open here — but the pinned details above stay as a reference for the property.</div>
                 </div>
               )}
-              {viewMsgs&&viewMsgs.map(m=>{const open=!!vExpanded[m.id];return(
-                <div key={m.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,marginBottom:10,overflow:"hidden"}}>
-                  <div onClick={()=>setVExpanded(e=>({...e,[m.id]:!open}))} style={{display:"flex",gap:10,alignItems:"center",padding:"10px 14px",cursor:"pointer"}}>
+              {viewMsgs&&viewMsgs.map(m=>{
+                const open=!!vExpanded[m.id];
+                const fromA=String(m.from?.emailAddress?.address||"").toLowerCase();
+                const ours=fromA&&(fromA===String(mail.account?.username||"").toLowerCase()||fromA.endsWith("@goldstonepropertiesnj.com"));
+                return(
+                <div key={m.id} style={{background:"#fff",borderRadius:14,marginBottom:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.07)",borderLeft:ours?`3px solid ${T.gold}`:"3px solid transparent"}}>
+                  <div onClick={()=>setVExpanded(e=>({...e,[m.id]:!open}))} title={open?"Collapse":"Read this message"} style={{padding:"10px 13px",display:"flex",gap:9,alignItems:"center",cursor:"pointer"}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</div>
-                      <div style={{fontSize:11,color:T.textTert}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div>
+                      <div style={{display:"flex",alignItems:"baseline",gap:7,minWidth:0}}>
+                        <b style={{fontSize:12.5,color:ours?"#8a6d1f":T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"55%"}}>{mailAddr(m.from)||"(unknown)"}{ours?" · Goldstone":""}</b>
+                        {!open&&<span style={{fontSize:11.5,color:T.textTert,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</span>}
+                      </div>
+                      {open&&<div style={{fontSize:10.5,color:T.textTert,marginTop:1}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div>}
                     </div>
                     {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
-                    <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{open?"▾":"▸"}</span>
+                    {!open&&<span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</span>}
+                    <span style={{fontSize:11,color:"#C7C7CC",flexShrink:0}}>{open?"▾":"▸"}</span>
                   </div>
-                  {open
-                    ? <><div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail} trimQuote/></div>
-                       {m.hasAttachments&&<EmailAttachments messageId={m.id} mail={mail} od={od} folder={filesFolder}/>}</>
-                    : <div style={{padding:"0 14px 10px",fontSize:12.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</div>}
+                  {open&&<><div style={{borderTop:"1px solid rgba(0,0,0,0.055)"}}><MailBody message={m} mail={mail} trimQuote/></div>
+                    {m.hasAttachments&&<EmailAttachments messageId={m.id} mail={mail} od={od} folder={filesFolder}/>}</>}
                 </div>
               );})}
             </div>
@@ -20397,10 +20413,10 @@ function PropertyEmails({property,onUpdate,isMobile}){
             {viewMsgs&&viewMsgs.length>0&&(
               <div style={{borderTop:`1px solid ${T.border}`,background:T.card,padding:isMobile?"10px 12px max(10px,env(safe-area-inset-bottom))":"12px 18px",flexShrink:0}}>
                 {!vReply
-                  ? <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                      <button onClick={()=>setVReply({all:false,text:"",cc:"",mentions:[],files:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply</button>
-                      <button onClick={()=>setVReply({all:true,text:"",cc:"",mentions:[],files:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply all</button>
-                      <button onClick={()=>setVReply({fwd:true,to:"",cc:"",text:"",files:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↪ Forward</button>
+                  ? <div style={{display:"inline-flex",alignItems:"center",borderRadius:18,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:3,gap:2,maxWidth:"100%",overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain"}}>
+                      {[["↩ Reply All",()=>setVReply({all:true,text:"",cc:"",mentions:[],files:[]})],["↩ Reply",()=>setVReply({all:false,text:"",cc:"",mentions:[],files:[]})],["→ Forward",()=>setVReply({fwd:true,to:"",cc:"",text:"",files:[]})]].map(([l,fn])=>(
+                        <button key={l} onClick={fn} style={{flex:"0 0 auto",whiteSpace:"nowrap",padding:"8px 16px",borderRadius:14,border:"none",background:"transparent",color:T.text,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                      ))}
                     </div>
                   : <div>
                       <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{vReply.fwd?`Forward "${viewer?.subject||"(no subject)"}"`:`${vReply.all?"Reply all":"Reply"} to ${mailAddr(viewMsgs[viewMsgs.length-1]?.from)}`}</div>

@@ -6990,10 +6990,10 @@ function DashEmailCard({activeProps,onNavigate}){
                         <b style={{fontSize:12.5,color:ours?"#8a6d1f":T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"55%"}}>{mailAddr(m.from)||"(unknown)"}{ours?" · Goldstone":""}</b>
                         {!on&&<span style={{fontSize:11.5,color:T.textTert,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</span>}
                       </div>
-                      {on&&<div style={{fontSize:10.5,color:T.textTert,marginTop:1}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div>}
+                      {on&&<div style={{fontSize:10.5,color:T.textTert,marginTop:1}}>{mailWhenFull(m.receivedDateTime||m.sentDateTime)}</div>}
                     </div>
                     {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
-                    {!on&&<span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</span>}
+                    {!on&&<span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0}}>{mailWhenFull(m.receivedDateTime||m.sentDateTime)}</span>}
                     <span style={{fontSize:11,color:"#C7C7CC",flexShrink:0}}>{on?"▾":"▸"}</span>
                   </div>
                   {on&&<div style={{borderTop:"1px solid rgba(0,0,0,0.055)"}}><MailBody message={m} mail={mail} trimQuote/></div>}
@@ -19005,6 +19005,7 @@ function stripQuotedReply(html){
   return trimmed.replace(/<[^>]+>/g,"").replace(/&nbsp;/g," ").trim().length>0?trimmed:html;
 }
 const mailAddr=(r)=>r?.emailAddress?.name||r?.emailAddress?.address||"";
+const mailWhenFull=(iso)=>{if(!iso)return "";try{const d=new Date(iso);const now=new Date();const time=d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});if(d.toDateString()===now.toDateString())return time;return `${d.toLocaleDateString(undefined,{month:"short",day:"numeric",...(d.getFullYear()!==now.getFullYear()?{year:"numeric"}:{})})}, ${time}`;}catch{return iso;}};
 const mailWhen=(iso)=>{if(!iso)return "";try{const d=new Date(iso);const now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:d.getFullYear()===now.getFullYear()?undefined:"numeric"});}catch{return iso;}};
 
 // Pick + list outgoing email attachments (compose, reply, forward). Holds File
@@ -19572,7 +19573,7 @@ function EmailPage({isMobile}){
                         <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>to {(m.toRecipients||[]).map(mailAddr).join(", ")||"—"}</div>
                       </div>
                       <button onClick={e=>{e.stopPropagation();setReadMsg(m);}} title="Open this message full-screen" style={{flexShrink:0,background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:12,fontFamily:"inherit",padding:"3px 8px"}}>⤢ Open</button>
-                      <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</span>
+                      <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{mailWhenFull(m.receivedDateTime||m.sentDateTime)}</span>
                     </div>
                     {open
                       ? <div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail} trimQuote/>{m.hasAttachments&&<EmailAttachments messageId={m.id} mail={mail} od={od} folder={null} properties={savePropList}/>}</div>
@@ -19636,7 +19637,7 @@ function EmailPage({isMobile}){
                 <div style={{fontSize:16,fontWeight:800,color:T.text,marginBottom:3}}>{readMsg.subject||sel?.latest?.subject||"(no subject)"}</div>
                 <div style={{fontSize:12.5,color:T.text,fontWeight:600}}>{mailAddr(readMsg.from)||"(unknown)"}</div>
                 <div style={{fontSize:11.5,color:T.textTert}}>to {(readMsg.toRecipients||[]).map(mailAddr).join(", ")||"—"}{(readMsg.ccRecipients||[]).length?` · cc ${(readMsg.ccRecipients||[]).map(mailAddr).join(", ")}`:""}</div>
-                <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{mailWhen(readMsg.receivedDateTime||readMsg.sentDateTime)}</div>
+                <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{mailWhenFull(readMsg.receivedDateTime||readMsg.sentDateTime)}</div>
               </div>
               <button onClick={()=>setReadMsg(null)} style={{flexShrink:0,background:"none",border:"none",fontSize:24,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
             </div>
@@ -20398,10 +20399,10 @@ function PropertyEmails({property,onUpdate,isMobile}){
                         <b style={{fontSize:12.5,color:ours?"#8a6d1f":T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"55%"}}>{mailAddr(m.from)||"(unknown)"}{ours?" · Goldstone":""}</b>
                         {!open&&<span style={{fontSize:11.5,color:T.textTert,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</span>}
                       </div>
-                      {open&&<div style={{fontSize:10.5,color:T.textTert,marginTop:1}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div>}
+                      {open&&<div style={{fontSize:10.5,color:T.textTert,marginTop:1}}>{mailWhenFull(m.receivedDateTime||m.sentDateTime)}</div>}
                     </div>
                     {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
-                    {!open&&<span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</span>}
+                    {!open&&<span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0}}>{mailWhenFull(m.receivedDateTime||m.sentDateTime)}</span>}
                     <span style={{fontSize:11,color:"#C7C7CC",flexShrink:0}}>{open?"▾":"▸"}</span>
                   </div>
                   {open&&<><div style={{borderTop:"1px solid rgba(0,0,0,0.055)"}}><MailBody message={m} mail={mail} trimQuote/></div>

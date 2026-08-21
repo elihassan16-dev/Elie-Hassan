@@ -1,7 +1,7 @@
 // Preview-harness stand-in for supabaseClient — inert, offline, chainable.
 // Every query resolves to empty data (except sms_messages → demo call log);
 // realtime is a no-op. Aliased in by vite.appdemo.config.js — never production.
-import { DEMO_CALLS } from "./appMockNet.js";
+import { DEMO_CALLS, DEMO_TEXTS } from "./appMockNet.js";
 class Q {
   constructor() { this.res = { data: [], error: null, count: 0 }; }
   select() { return this; }
@@ -42,7 +42,7 @@ export const supabase = {
   // phone popup its demo call log; every other table stays empty.
   from(table) {
     const q = new Q();
-    if (table === "sms_messages") q.res = { data: DEMO_CALLS, error: null, count: DEMO_CALLS.length };
+    if (table === "sms_messages") { const rows = [...DEMO_CALLS, ...DEMO_TEXTS]; q.res = { data: rows, error: null, count: rows.length }; }
     if (table === "users") {
       const U = [
         { id: "cu1", name: "Shia Polak", email: "shia@polakconstruction.com", notify_muted: false, notify_channels: null, _org: "org1" },
@@ -61,6 +61,9 @@ export const supabase = {
   storage: { from() { return { upload: async () => ({ data: null, error: null }), getPublicUrl: () => ({ data: { publicUrl: "" } }) }; } },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "demo", user: { id: "demo-elie", email: "elie@goldstonepropertiesnj.com", user_metadata: {} } } } }),
+    // Read stamps for the texting store: every demo thread read except
+    // Dominique's, so exactly her two fresh texts badge as unread.
+    getUser: async () => ({ data: { user: { id: "demo-elie", email: "elie@goldstonepropertiesnj.com", user_metadata: { smsRead: { "+19085550142": new Date().toISOString(), "+17325550164": new Date().toISOString(), "+18485550102": new Date().toISOString(), "+16095550155": new Date().toISOString() } } } } }),
     refreshSession: async () => ({ data: {}, error: null }),
     updateUser: async () => ({ data: { user: { id: "demo-elie" } }, error: null }),
     onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),

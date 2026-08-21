@@ -2525,12 +2525,15 @@ function ShowingInfoPopup({property,skey,onUpdate,onClose}){
 // Renders one property's showings from an already-loaded feed: upcoming + past
 // (past ranked by lead disposition), each row with call/text templates. Shared by
 // the per-property Showings tab and the top-level Showings page.
-function PropertyShowings({property,showings,onUpdate,flush}){
+function PropertyShowings({property,showings,onUpdate,flush,onOpenSms,dense}){
   const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS }=useData();
   // Business texting (Jivetel): when connected, Text/template buttons open a
   // real in-app conversation sent from your own line; otherwise sms: links as before.
   const {connected:smsOn,threadFor,unreadFor}=useSmsTexting();
   const[smsPop,setSmsPop]=useState(null); // {phone,name,rowKey,kind,bt}
+  // Desktop Showings page passes onOpenSms so a tapped 💬 opens the thread in
+  // the always-on Messages column instead of a popup over everything.
+  const popSms=(o)=>{if(onOpenSms)onOpenSms(o);else setSmsPop(o);};
   const isMobile=useIsMobile();
   const[leadTab,setLeadTab]=useState(()=>{ // approved: tab switcher — agents | BoldTrail buyers
     // A tapped buyer alert deep-links to this property — open on the Buyers tab.
@@ -2697,7 +2700,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     return(
       <span style={{display:"inline-flex",alignItems:"center",gap:2}}>
         {smsOn
-          ?<button onClick={()=>setSmsPop({phone:ph,name,rowKey,kind})} title={sent?`${label} text sent ${fmtSent(sent)} — open the conversation`:`Send the ${label.toLowerCase()} text from the business line`} style={style}>{text}</button>
+          ?<button onClick={()=>popSms({phone:ph,name,rowKey,kind})} title={sent?`${label} text sent ${fmtSent(sent)} — open the conversation`:`Send the ${label.toLowerCase()} text from the business line`} style={style}>{text}</button>
           :<a href={showingSms(ph,showingMessage(kind,name,address))} onClick={()=>markText(rowKey,kind)} title={sent?`${label} text sent ${fmtSent(sent)} — tap to send again`:`Send the ${label.toLowerCase()} text`} style={style}>{text}</a>}
         {sent&&<button onClick={()=>{if(window.confirm(`Clear the "${label} sent" mark?`))clearText(rowKey,kind);}} title="Clear the sent mark" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:"0 2px"}}>×</button>}
       </span>
@@ -2766,7 +2769,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
         </div>
         <span style={{...CAPS_ROW,height:36}}>
           <CallA phone={ph} title="Call" style={icoS}>📞</CallA>
-          <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setSmsPop({phone:ph,name,rowKey,bt,kind:kind||null})}
+          <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>popSms({phone:ph,name,rowKey,bt,kind:kind||null})}
             templates={showingTemplates(bt,name,address)}
             onTemplate={(kind)=>markText(rowKey,kind)}
             style={icoS}>
@@ -2804,7 +2807,7 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     return(
       <div style={{...CAPS_ROW,height:32,flexShrink:0}}>
         <CallA phone={ph} title="Call" style={icoC}><PhoneIcon size={13} color={T.text}/></CallA>
-        <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>setSmsPop({phone:ph,name,rowKey,bt,kind:kind||null,tmplOpts})}
+        <TextA phone={ph} title="Text — conversation & templates" onInApp={(kind)=>popSms({phone:ph,name,rowKey,bt,kind:kind||null,tmplOpts})}
           templates={showingTemplates(bt,name,address,tmplOpts)}
           onTemplate={(kind)=>markText(rowKey,kind)}
           style={icoC}>
@@ -2820,30 +2823,33 @@ function PropertyShowings({property,showings,onUpdate,flush}){
   // One condensed row for all three kinds — showing agent, hand-added lead,
   // BoldTrail buyer. Desktop: single line. Mobile: two lines. Gold stripes.
   const CompactRow=({idx,dot,name,nameTitle,meta,phones,rowKey,leadVal,onLead,email,msgMeta,bt,onRemove,addUI,tmplOpts,srcTag})=>{
+    // nar: stacked two-line layout — phones/actions under the name. Mobile
+    // always; desktop too when the Messages column narrows this one (dense).
+    const nar=isMobile||!!dense;
     const lead=SHOWING_LEADS.find(x=>x.key===(leadVal||""));
     // Clean white rows — the lead status reads from its colored pill alone
     // (full-row washes made the list look stained; Elie's rule).
     const stripe="transparent";
     const first=phones[0];
     const phoneSeg=(ph)=>(
-      <span style={{fontSize:isMobile?10.5:11,color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:5}}>
+      <span style={{fontSize:(isMobile||dense)?10.5:11,color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:5}}>
         <span style={{fontWeight:600,color:T.text}}>{ph}</span> <SmsBadge phone={ph} prop={property.address}/> <span>{outreachMini(ph,rowKey)}</span>
       </span>
     );
     const removeBtn=onRemove&&<button onClick={onRemove} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:15,lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>;
     return(
-      <div style={{padding:isMobile?"9px 12px":"8px 14px",borderTop:"1px solid rgba(0,0,0,0.055)",background:stripe}}>
+      <div style={{padding:nar?"9px 12px":"8px 14px",borderTop:"1px solid rgba(0,0,0,0.055)",background:stripe}}>
         <div style={{display:"flex",alignItems:"center",gap:7}}>
           <span style={{width:7,height:7,borderRadius:4,background:dot,flexShrink:0}}/>
-          <span title={nameTitle||name} style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...(isMobile?{flex:1,minWidth:0}:{flex:"0 0 150px"})}}>{name}</span>
+          <span title={nameTitle||name} style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...(nar?{flex:1,minWidth:0}:{flex:"0 0 150px"})}}>{name}</span>
           {srcTag&&<span title={`From the ${srcTag} ShowingTime calendar`} style={{fontSize:10.5,fontWeight:800,background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap",flexShrink:0,textTransform:"uppercase"}}>{srcTag}</span>}
-          <span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0,...(isMobile?{}:{width:100,overflow:"hidden",textOverflow:"ellipsis"})}}>{meta}</span>
-          {!isMobile&&<span style={{flex:1,minWidth:0,display:"flex"}}>{first?phoneSeg(first):<span style={{fontSize:11,color:T.textTert}}>No phone number.</span>}</span>}
+          <span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0,...(nar?{}:{width:100,overflow:"hidden",textOverflow:"ellipsis"})}}>{meta}</span>
+          {!nar&&<span style={{flex:1,minWidth:0,display:"flex"}}>{first?phoneSeg(first):<span style={{fontSize:11,color:T.textTert}}>No phone number.</span>}</span>}
           {leadSelect(leadVal||"",onLead,lead)}
-          {!isMobile&&first&&iconCluster(first,name,rowKey,msgMeta,bt,email,tmplOpts)}
+          {!nar&&first&&iconCluster(first,name,rowKey,msgMeta,bt,email,tmplOpts)}
           {removeBtn}
         </div>
-        {isMobile&&(
+        {nar&&(
           <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4,paddingLeft:14}}>
             <span style={{flex:1,minWidth:0,display:"flex"}}>{first?phoneSeg(first):<span style={{fontSize:10.5,color:T.textTert}}>No phone number.</span>}</span>
             {first&&iconCluster(first,name,rowKey,msgMeta,bt,email,tmplOpts)}
@@ -3015,6 +3021,75 @@ function PropertyShowings({property,showings,onUpdate,flush}){
     })()}
   </>);
 }
+// ── 💬 Every text about one property — agents & buyers in one sorted list ─────
+// Desktop: the third column of Showings → By property. Mobile: the 💬 Messages
+// tab inside a property. Same sorting as the Texts inbox: active conversations
+// pinned on top (unread first, then freshest), everyone else under Earlier.
+const TX_AV_COLORS=[["#FBF0EE","#C2410C"],["#EFF6FF","#1D6FB8"],["#F3EFFA","#7C5CBF"],["#EAF7F5","#0E7490"],["#EAF7EE","#248A3D"],["#FDF1F7","#DB2777"]];
+// Everyone connected to a property who could have a thread: feed agents (+ their
+// hand-attached numbers), snapshot leads, hand-added leads, BoldTrail buyers.
+function propertyTexters(property,showings,btLeads){
+  const seen=new Set(),people=[];
+  const push=(name,ph,buyer)=>{const d=String(ph||"").replace(/\D/g,"");if(!d||seen.has(d))return;seen.add(d);people.push({name:name||ph,phone:ph,buyer:!!buyer});};
+  const sp=property.showingPhones||{};
+  matchedShowings(showings||[],property).forEach(s=>{[...parseShowingPhones(s.phone),...(sp[showingKey(s)]||[])].forEach(ph=>push(s.agent||s.summary||"Agent",ph,false));});
+  Object.values(property.showingSnapshots||{}).forEach(sn=>parseShowingPhones(sn.phone).forEach(ph=>push(sn.agent||"Agent",ph,false)));
+  (property.customLeads||[]).forEach(l=>parseShowingPhones(l.phone).forEach(ph=>push(l.name||"Lead",ph,!!l.buyer)));
+  (btLeads||[]).filter(l=>btMatchesProperty(l,property)).forEach(l=>parseShowingPhones(l.phone).forEach(ph=>push(l.name||"Buyer",ph,true)));
+  return people;
+}
+function PropertyTextsList({property,showings,onOpen}){
+  const {connected:smsOn,threadFor,unreadFor}=useSmsTexting();
+  const btAllLeads=useBtLeads();
+  const[who,setWho]=useState("all"); // all | agents | buyers
+  const address=property.address;
+  if(!smsOn)return <div style={{padding:"34px 22px",textAlign:"center",color:T.textTert,fontSize:12.5,lineHeight:1.6}}>Business texting isn\u2019t connected for your login \u2014 conversations show up here once it is.</div>;
+  const rows=propertyTexters(property,showings,btAllLeads).map(p=>{
+    const th=smsThreadForProp(threadFor(p.phone),address,p.phone).filter(m=>m.kind!=="call");
+    if(!th.length)return null;
+    const last=th[th.length-1],lastAt=last.at||"";
+    const unread=unreadFor(p.phone);
+    const active=th.some(m=>m.direction==="in")&&lastAt&&Date.now()-new Date(lastAt).getTime()<7*86400000;
+    return {...p,last,lastAt,unread,active};
+  }).filter(Boolean).filter(p=>who==="all"||((who==="buyers")===p.buyer));
+  const act=rows.filter(r=>r.active).sort((a,b)=>((b.unread>0)-(a.unread>0))||String(b.lastAt).localeCompare(String(a.lastAt)));
+  const rest=rows.filter(r=>!r.active).sort((a,b)=>String(b.lastAt).localeCompare(String(a.lastAt)));
+  const when=(iso)=>{try{const d=new Date(iso),now=new Date();if(d.toDateString()===now.toDateString())return d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});if(now-d<6*86400000)return d.toLocaleDateString(undefined,{weekday:"short"});return d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
+  const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
+  const avC=(n)=>{let h=0;for(const c of String(n))h=(h*31+c.charCodeAt(0))>>>0;return TX_AV_COLORS[h%TX_AV_COLORS.length];};
+  const secHd=(dot,label)=>(<div style={{display:"flex",alignItems:"center",gap:7,padding:"14px 2px 7px"}}><span style={{width:7,height:7,borderRadius:4,background:dot,flexShrink:0}}/><span style={{fontSize:12.5,fontWeight:700,color:T.text}}>{label}</span></div>);
+  const row=(r,i,hot)=>{const[bg,fg]=avC(r.name);const snip=(r.last.direction!=="in"?"You: ":"")+(r.last.text||(Array.isArray(r.last.media)&&r.last.media.length?"\ud83d\udcce Attachment":""));return(
+    <div key={r.phone} onClick={()=>onOpen(r)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 13px",cursor:"pointer",borderTop:i?"1px solid rgba(0,0,0,0.055)":"none",background:hot&&r.unread>0?T.goldLight:"#fff"}}>
+      <span style={{width:34,height:34,borderRadius:17,background:bg,color:fg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12.5,fontWeight:800,flexShrink:0}}>{initials(r.name)}</span>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:7}}>
+          <span style={{fontSize:13.5,fontWeight:r.unread>0?750:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
+          <span style={{flexShrink:0,fontSize:9.5,fontWeight:800,letterSpacing:0.3,padding:"2px 8px",borderRadius:100,background:r.buyer?"#EAF7EE":"#E9F2FB",color:r.buyer?GREEN_TXT:"#1D6FB8"}}>{r.buyer?"BUYER":"AGENT"}</span>
+        </div>
+        <div style={{fontSize:12,color:r.unread>0?T.text:T.textSub,fontWeight:r.unread>0?600:400,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{snip}</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
+        <span style={{fontSize:10.5,color:r.unread>0?T.gold:T.textTert,fontWeight:r.unread>0?700:500}}>{when(r.lastAt)}</span>
+        {r.unread>0&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:9,background:T.gold,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",boxSizing:"border-box"}}>{r.unread}</span>}
+      </div>
+    </div>);};
+  return(
+    <div style={{padding:"0 12px 24px"}}>
+      <div style={{...SEG_WRAP,margin:"12px 0 0"}}>
+        {[["all","All"],["agents","Agents"],["buyers","Buyers"]].map(([k,l])=>(<button key={k} onClick={()=>setWho(k)} style={{...segTab(who===k),padding:"6px 13px",fontSize:12,...(who===k?{color:T.gold}:{})}}>{l}</button>))}
+      </div>
+      {rows.length===0&&<div style={{padding:"34px 16px",textAlign:"center",color:T.textTert,fontSize:12.5,lineHeight:1.6}}>No text conversations about this property yet.<br/>Text an agent or buyer from a showing row and the chat lands here.</div>}
+      {act.length>0&&(<>
+        {secHd(T.gold,"\ud83d\udcac Active Conversations")}
+        <div style={{background:"#fff",borderRadius:14,boxShadow:T.shadow,overflow:"hidden"}}>{act.map((r,i)=>row(r,i,true))}</div>
+      </>)}
+      {rest.length>0&&(<>
+        {secHd("#8E8E93",act.length?"Earlier":"Conversations")}
+        <div style={{background:"#fff",borderRadius:14,boxShadow:T.shadow,overflow:"hidden"}}>{rest.map((r,i)=>row(r,i,false))}</div>
+      </>)}
+    </div>
+  );
+}
 // Count showings from the feed that match a property (used for headers/sorting).
 const matchedShowings=(showings,p)=>(showings||[]).filter(s=>showingMatchesProperty(s.location||s.summary||"",p)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
 // One shared showings fetch for BOTH the top-level Showings page and each
@@ -3128,6 +3203,13 @@ function ShowingsPage(){
   };
   const[view,setView]=useState("props"); // props (per-property) | hot (every live lead, ranked)
   const[hotOpen,setHotOpen]=useState(null); // {propId, skey} → ShowingInfoPopup
+  // 💬 third column (desktop) / Messages tab (mobile) — every text about the
+  // selected property. txSel = the person whose thread is open.
+  const {connected:smsPageOn,unreadFor:txUnreadFor}=useSmsTexting();
+  const btPageLeads=useBtLeads();
+  const[txSel,setTxSel]=useState(null); // {phone,name,buyer,kind?,rowKey?,tmplOpts?}
+  const[mDetTab,setMDetTab]=useState("sh"); // mobile property detail: sh | tx
+  useEffect(()=>{setTxSel(null);setMDetTab("sh");},[selId]);
   useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
   const load=useCallback((force)=>{setLoading(true);setError("");fetchShowingsShared(force).then(d=>setShowings(d.showings||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
   useEffect(()=>{if(status&&status.configured)load();},[status,load]);
@@ -3180,6 +3262,9 @@ function ShowingsPage(){
   );
 
   const all=showings||[];
+  // Unread texts across everyone tied to a property — badges the left list,
+  // the mobile Messages tab, and decides nothing else (cheap linear scans).
+  const propTxUnread=(p)=>smsPageOn?propertyTexters(p,all,btPageLeads).reduce((n,x)=>n+txUnreadFor(x.phone),0):0;
   const cutoff=Date.now()-3600000;
   const statusRank=(s)=>s==="On Market"?0:1; // On Market group first, then In Closing
   const rows=sharedProps.filter(p=>!p.archived&&(p.status==="On Market"||p.status==="In Closing"))
@@ -3310,6 +3395,7 @@ function ShowingsPage(){
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{flex:1,minWidth:0,fontWeight:active?700:600,fontSize:13,color:active?T.gold:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</span>
                   {upcoming>0&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:9,background:T.gold,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{upcoming}</span>}
+                  {(()=>{const u=propTxUnread(p);return u>0?<span title={`${u} unread text${u>1?"s":""} about this property`} style={{minWidth:18,height:18,padding:"0 5px",borderRadius:9,background:T.red,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,gap:2}}>💬{u}</span>:null;})()}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3}}>
                   {p.status&&<span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 7px",borderRadius:20}}>{p.status}</span>}
@@ -3348,8 +3434,8 @@ function ShowingsPage(){
           </div>
         )}
       </div>
-      {/* Right: selected property's showings */}
-      <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
+      {/* Middle: selected property's showings (desktop grows a Messages column to its right) */}
+      <div style={{flex:1,minWidth:0,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
         {sel?(()=>{
           const sc=SC[sel.status]||{};
           const addr=`${sel.address}${sel.city?`, ${sel.city}`:""}`;
@@ -3366,10 +3452,27 @@ function ShowingsPage(){
                 </div>
                 <button onClick={()=>load(true)} title="Refresh" style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻ Refresh</button>
               </div>
+              {/* Phone: the property flips between its showings and its texts — the
+                  desktop shows both at once, so the capsule is mobile-only. */}
+              {isMobile&&smsPageOn&&(
+                <div style={{padding:"8px 12px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+                  <div style={{...SEG_WRAP,width:"100%",display:"flex",boxSizing:"border-box"}}>
+                    <button onClick={()=>setMDetTab("sh")} style={{...segTab(mDetTab==="sh"),flex:1,fontSize:12.5,...(mDetTab==="sh"?{color:T.gold}:{})}}>📅 Showings</button>
+                    <button onClick={()=>setMDetTab("tx")} style={{...segTab(mDetTab==="tx"),flex:1,fontSize:12.5,...(mDetTab==="tx"?{color:T.gold}:{})}}>💬 Messages{(()=>{const u=propTxUnread(sel);return u>0?<span style={{marginLeft:5,display:"inline-flex",minWidth:16,height:16,padding:"0 4px",borderRadius:8,background:T.red,color:"#fff",fontSize:9.5,fontWeight:800,alignItems:"center",justifyContent:"center",boxSizing:"border-box"}}>{u}</span>:null;})()}</button>
+                  </div>
+                </div>
+              )}
+              {isMobile&&mDetTab==="tx"&&smsPageOn?(
+                <div style={{flex:1,overflowY:"auto"}}>
+                  <PropertyTextsList key={sel.id} property={sel} showings={all} onOpen={r=>setTxSel({phone:r.phone,name:r.name,buyer:r.buyer})}/>
+                </div>
+              ):(
               <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
-                <PropertyShowings key={sel.id} property={sel} showings={all} onUpdate={onUpdate} flush={flushProps}/>
+                <PropertyShowings key={sel.id} property={sel} showings={all} onUpdate={onUpdate} flush={flushProps} dense={!isMobile&&smsPageOn}
+                  onOpenSms={!isMobile&&smsPageOn?(o)=>setTxSel({phone:o.phone,name:o.name,buyer:!!o.bt,kind:o.kind||null,rowKey:o.rowKey||null,tmplOpts:o.tmplOpts||null}):undefined}/>
                 <div style={{marginTop:12,fontSize:12,color:T.textTert,textAlign:"center"}}>Live from ShowingTime · matched by address</div>
               </div>
+              )}
             </>
           );
         })():(
@@ -3380,6 +3483,30 @@ function ShowingsPage(){
           </div>
         )}
       </div>
+      {/* Right: 💬 every text about the selected property — tap one and the
+          conversation opens in place, showings stay on screen beside it. */}
+      {!isMobile&&sel&&smsPageOn&&(
+        <div style={{width:"clamp(300px, 32%, 430px)",flexShrink:0,borderLeft:`1px solid ${T.border}`,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
+          {txSel?(<>
+            <div style={{padding:"10px 14px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+              <button onClick={()=>setTxSel(null)} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:100,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",color:T.gold,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>‹ All messages</button>
+            </div>
+            <SmsThreadPane key={txSel.phone} inline phone={txSel.phone} name={txSel.name} sub={[txSel.buyer?"🛒 Buyer":"Agent",`🏠 ${String(sel.address).split(",")[0]}`].join(" · ")} initialKind={txSel.kind||null}
+              templates={showingTemplates(!!txSel.buyer,txSel.name,`${sel.address}${sel.city?`, ${sel.city}`:""}`,txSel.tmplOpts||null)}
+              sentStamps={txSel.rowKey?((sel.showingTexts||{})[txSel.rowKey]||{}):{}}
+              onClearStamp={(kind)=>{if(!txSel.rowKey)return;const cur={...((sel.showingTexts||{})[txSel.rowKey]||{})};delete cur[kind];onUpdate(sel.id,"showingTexts",{...(sel.showingTexts||{}),[txSel.rowKey]:cur});if(flushProps)setTimeout(flushProps,0);}}
+              onSent={(kind)=>{if(kind&&txSel.rowKey){onUpdate(sel.id,"showingTexts",{...(sel.showingTexts||{}),[txSel.rowKey]:{...((sel.showingTexts||{})[txSel.rowKey]||{}),[kind]:new Date().toISOString()}});if(flushProps)setTimeout(flushProps,0);}}}/>
+          </>):(<>
+            <div style={{padding:"12px 16px 10px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+              <div style={{fontSize:14.5,fontWeight:700,color:T.text}}>💬 Messages</div>
+              <div style={{fontSize:11,color:T.textSub,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Every text about {String(sel.address).split(",")[0]} — agents & buyers</div>
+            </div>
+            <div style={{flex:1,overflowY:"auto"}}>
+              <PropertyTextsList key={sel.id} property={sel} showings={all} onOpen={r=>setTxSel({phone:r.phone,name:r.name,buyer:r.buyer})}/>
+            </div>
+          </>)}
+        </div>
+      )}
     </div>
     )}
     {/* Tap a hot lead → the full agent card (call/text, change the status). */}
@@ -3388,6 +3515,7 @@ function ShowingsPage(){
       if(!p)return null;
       return <ShowingInfoPopup property={p} skey={hotOpen.skey} onUpdate={onUpdate} onClose={()=>setHotOpen(null)}/>;
     })()}
+    {isMobile&&txSel&&sel&&<SmsThreadPopup phone={txSel.phone} name={txSel.name} prop={String(sel.address).split(",")[0]} sub={[txSel.buyer?"\ud83d\uded2 Buyer":"Agent",`\ud83c\udfe0 ${String(sel.address).split(",")[0]}`].join(" \u00b7 ")} templates={showingTemplates(!!txSel.buyer,txSel.name,`${sel.address}${sel.city?`, ${sel.city}`:""}`)} onClose={()=>setTxSel(null)}/>}
     </div>
   );
 }

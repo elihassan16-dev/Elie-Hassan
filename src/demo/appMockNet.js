@@ -42,6 +42,24 @@ export const DEMO_CALLS = [
   { phone: "(732) 555-0198", dir: "call-in", m: 11000, missed: true, ext: "103" },         // unknown — missed on Esti's line (old, off the badge)
 ].map((c, i) => ({ id: "demo-call-" + i, phone: c.phone, data: { kind: "call", direction: c.dir, at: cAt(c.m), talkSecs: c.talk || 0, missed: !!c.missed, ext: c.ext } }));
 
+// Demo text threads for the Showings → 💬 Messages column. Outgoing rows carry
+// prop so smsThreadForProp files each chat under 1030 Hanover; the mock auth
+// user's smsRead stamps (mockSupabase) mark everything but Dominique read.
+const tAt = (mins) => new Date(Date.now() - mins * 60000).toISOString();
+export const DEMO_TEXTS = [
+  { phone: "(609) 555-0177", dir: "out", m: 2000, text: "Hi Dominique, thanks for showing 1030 Hanover — any feedback from your buyers?" },
+  { phone: "(609) 555-0177", dir: "in", m: 1900, text: "They loved it! Thinking it over this weekend." },
+  { phone: "(609) 555-0177", dir: "out", m: 300, text: "Great — happy to hold Sunday afternoon for a second look." },
+  { phone: "(609) 555-0177", dir: "in", m: 95, text: "My buyers want to come back Sunday with their parents — does 1pm work?" },
+  { phone: "(609) 555-0177", dir: "in", m: 80, text: "Also, is the seller open on price at all?" },
+  { phone: "(908) 555-0142", dir: "in", m: 1560, text: "Hi, following up on my offer for 1030 Hanover." },
+  { phone: "(908) 555-0142", dir: "out", m: 1500, text: "The seller reviewed your offer — call me when you're free." },
+  { phone: "(732) 555-0164", dir: "out", m: 12100, text: "Marc, any word from your clients on 1030 Hanover?" },
+  { phone: "(732) 555-0164", dir: "in", m: 12000, text: "Clients liked it, weighing another listing. Will circle back." },
+  { phone: "(848) 555-0102", dir: "out", m: 7300, text: "Hi Sarah, any feedback from Monday's showing at 1030 Hanover?" },
+  { phone: "(609) 555-0155", dir: "in", m: 14500, text: "Confirming Sunday 2 PM — lockbox code same as last time?" },
+].map((t, i) => ({ id: "demo-sms-" + i, phone: t.phone, data: { direction: t.dir, at: tAt(t.m), text: t.text, ...(t.dir === "out" ? { prop: "1030 Hanover Blvd" } : {}) } }));
+
 export async function qbAuthFetch(path) {
   const p = String(path);
   if (p.includes("/api/showings/status")) return { configured: true, feeds: [{ id: 1, label: "ShowingTime" }] };

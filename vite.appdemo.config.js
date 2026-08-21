@@ -20,6 +20,7 @@ export default defineConfig({
       // two contractors/ pages import exactly "./data".
       { find: /^\.\/data$/, replacement: r("src/demo/ctrMockData.js") },
       { find: /^\.\/contractors\/data$/, replacement: r("src/demo/ctrMockData.js") },
+      { find: /^\.{1,2}\/outlook\/useOutlookMail$/, replacement: r("src/demo/mockOutlook.js") },
     ],
   },
   server: { port: 5188, strictPort: true },

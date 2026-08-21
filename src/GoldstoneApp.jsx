@@ -6869,12 +6869,22 @@ function usePinnedEmailUnread(props){
 // quick reply-all box; "Open property ›" jumps to the full Emails tab.
 function DashEmailCard({activeProps,onNavigate}){
   const mail=useOutlookMail();
+  const appPeople=useMailPeople(); // for @-mention suggestions, same as the Email tab
   const[rows,setRows]=useState([]);
   const[hidden,setHidden]=useState(()=>new Set()); // pin ids read this session
   const[open,setOpen]=useState(null); // {pin,prop}
   const[msgs,setMsgs]=useState(null);
+  const[expanded,setExpanded]=useState(()=>new Set()); // opened messages — newest starts open
+  const threadRef=useRef(null);
   const[reply,setReply]=useState("");
   const[sending,setSending]=useState(false);
+  // Full mail actions — reply-all (default), reply to sender only, forward
+  // with a To field, and attachments on any of them.
+  const[replyMode,setReplyMode]=useState("all"); // all | one | fwd
+  const[fwdTo,setFwdTo]=useState("");
+  const[outFiles,setOutFiles]=useState([]);
+  const[emailMentions,setEmailMentions]=useState([]); // @-tagged people → native Outlook mentions
+  const outRef=useRef(null);
   const pinSig=useMemo(()=>activeProps.filter(p=>(p.pinnedEmails||[]).length).map(p=>`${p.id}:${(p.pinnedEmails||[]).map(pe=>pe.id).join("|")}`).join(","),[activeProps]);
   useEffect(()=>{
     if(!mail.signedIn){setRows([]);return;}
@@ -6909,16 +6919,27 @@ function DashEmailCard({activeProps,onNavigate}){
         if(r.pin.internetMessageId){const hit=await mail.findByInternetId(r.pin.internetMessageId);if(hit)convId=hit.conversationId;}
         const m=await mail.getConversation(convId);
         setMsgs(m);
+        // Land on the NEWEST message: it starts expanded, the rest collapse to
+        // one-line rows, and the thread scrolls to the bottom like a chat.
+        setExpanded(new Set(m.length?[m[m.length-1].id]:[]));
+        setTimeout(()=>{const el=threadRef.current;if(el)el.scrollTop=el.scrollHeight;},60);
         const un=m.filter(x=>x.isRead===false);
         if(un.length)await Promise.all(un.map(u=>mail.markRead(u.id)));
         setHidden(h=>new Set([...h,r.pin.id])); // read → off the card
       }catch{setMsgs([]);}
     })();
   };
+  const canSend=(reply.trim()||outFiles.length)&&(replyMode!=="fwd"||fwdTo.trim());
   const sendReply=async()=>{
-    if(!reply.trim()||!msgs||!msgs.length)return;
+    if(!canSend||!msgs||!msgs.length||sending)return;
     setSending(true);
-    try{await mail.reply(msgs[msgs.length-1].id,`<div>${mailEsc(reply).replace(/\n/g,"<br>")}</div>`,true);setReply("");setOpen(null);}
+    const html=`<div>${mailEsc(reply).replace(/\n/g,"<br>")}</div>`;
+    const lastId=msgs[msgs.length-1].id;
+    try{
+      if(replyMode==="fwd")await mail.forward(lastId,{to:fwdTo,html,files:outFiles});
+      else await mail.reply(lastId,html,replyMode==="all","",emailMentions,outFiles);
+      setReply("");setOutFiles([]);setFwdTo("");setEmailMentions([]);setOpen(null);
+    }
     catch(e){alert("Couldn't send: "+(e.message||"unknown error"));}
     setSending(false);
   };
@@ -6940,33 +6961,72 @@ function DashEmailCard({activeProps,onNavigate}){
       );})}
     </div>}
     {open&&(
-      <div onClick={()=>setOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)",padding:16,boxSizing:"border-box"}}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:20,width:640,maxWidth:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-          <div style={{padding:"13px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+      <div onClick={()=>setOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(5px)",padding:16,boxSizing:"border-box"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:20,width:640,maxWidth:"100%",height:"min(760px,88vh)",display:"flex",flexDirection:"column",boxShadow:"0 18px 60px rgba(0,0,0,0.28)",overflow:"hidden"}}>
+          <div style={{padding:"13px 16px 11px",background:"#fff",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:14.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{open.pin.subject||"(no subject)"}</div>
-              <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏠 {String(open.prop.address||"")}{open.prop.city?`, ${open.prop.city}`:""}</div>
-            </div>
-            {onNavigate&&<button onClick={()=>{setOpen(null);onNavigate(open.prop.id);}} style={{background:"none",border:"none",color:T.blue,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0,padding:0}}>Open property ›</button>}
-            <button onClick={()=>setOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
-          </div>
-          <div style={{flex:1,overflowY:"auto",padding:12}}>
-            {msgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Opening the thread…</div>}
-            {msgs&&msgs.length===0&&<div style={{padding:16,fontSize:12.5,color:T.textTert}}>Couldn't open this thread here — use "Open property ›" to see it on the Emails tab.</div>}
-            {msgs&&msgs.map(m=>(
-              <div key={m.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,marginBottom:10,overflow:"hidden"}}>
-                <div style={{padding:"9px 13px",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center"}}>
-                  <div style={{flex:1,minWidth:0}}><div style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</div><div style={{fontSize:10.5,color:T.textTert}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div></div>
-                  {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
-                </div>
-                <MailBody message={m} mail={mail}/>
+              <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+                <span style={{width:8,height:8,borderRadius:"50%",background:"#4F46E5",flexShrink:0}}/>
+                <span style={{fontSize:14.5,fontWeight:700,color:T.text,letterSpacing:-0.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{open.pin.subject||"(no subject)"}</span>
               </div>
-            ))}
+              <div style={{fontSize:11,color:T.textSub,marginTop:2,paddingLeft:16,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏠 {String(open.prop.address||"")}{open.prop.city?`, ${open.prop.city}`:""}{msgs&&msgs.length?` · ${msgs.length} message${msgs.length!==1?"s":""}`:""}</div>
+            </div>
+            {onNavigate&&<button onClick={()=>{setOpen(null);onNavigate(open.prop.id);}} style={{background:"none",border:"none",color:"#8a6d1f",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0,padding:0}}>Open Property ›</button>}
+            <button onClick={()=>setOpen(null)} aria-label="Close" style={{width:28,height:28,borderRadius:"50%",background:"rgba(118,118,128,0.08)",border:"none",fontSize:13,color:T.textSub,cursor:"pointer",lineHeight:1,flexShrink:0,padding:0,fontFamily:"inherit"}}>✕</button>
+          </div>
+          <div ref={threadRef} style={{flex:1,overflowY:"auto",padding:12}}>
+            {msgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Opening the thread…</div>}
+            {msgs&&msgs.length===0&&<div style={{padding:16,fontSize:12.5,color:T.textTert}}>Couldn't open this thread here — use "Open Property ›" to see it on the Emails tab.</div>}
+            {msgs&&msgs.map((m,i)=>{
+              const on=expanded.has(m.id);
+              const fromA=String(m.from?.emailAddress?.address||"").toLowerCase();
+              const ours=fromA&&(fromA===String(mail.account?.username||"").toLowerCase()||fromA.endsWith("@goldstonepropertiesnj.com"));
+              const toggle=()=>{setExpanded(prev=>{const n2=new Set(prev);n2.has(m.id)?n2.delete(m.id):n2.add(m.id);return n2;});};
+              return(
+                <div key={m.id} style={{background:"#fff",borderRadius:14,marginBottom:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.07)",borderLeft:ours?`3px solid ${T.gold}`:"3px solid transparent"}}>
+                  <div onClick={toggle} title={on?"Collapse":"Read this message"} style={{padding:"10px 13px",display:"flex",gap:9,alignItems:"center",cursor:"pointer"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",alignItems:"baseline",gap:7,minWidth:0}}>
+                        <b style={{fontSize:12.5,color:ours?"#8a6d1f":T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"55%"}}>{mailAddr(m.from)||"(unknown)"}{ours?" · Goldstone":""}</b>
+                        {!on&&<span style={{fontSize:11.5,color:T.textTert,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</span>}
+                      </div>
+                      {on&&<div style={{fontSize:10.5,color:T.textTert,marginTop:1}}>{mailWhenFull(m.receivedDateTime||m.sentDateTime)}</div>}
+                    </div>
+                    {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
+                    {!on&&<span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0}}>{mailWhenFull(m.receivedDateTime||m.sentDateTime)}</span>}
+                    <span style={{fontSize:11,color:"#C7C7CC",flexShrink:0}}>{on?"▾":"▸"}</span>
+                  </div>
+                  {on&&<div style={{borderTop:"1px solid rgba(0,0,0,0.055)"}}><MailBody message={m} mail={mail} trimQuote/></div>}
+                </div>
+              );
+            })}
           </div>
           {msgs&&msgs.length>0&&(
-            <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,background:T.card,display:"flex",gap:8,flexShrink:0}}>
-              <input value={reply} onChange={e=>setReply(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendReply()} placeholder="Quick reply-all…" style={{flex:1,minWidth:0,padding:"10px 12px",borderRadius:12,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              <button onClick={sendReply} disabled={sending||!reply.trim()} style={{padding:"10px 16px",borderRadius:12,border:"none",background:reply.trim()?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:12.5,cursor:reply.trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{sending?"Sending…":"Send"}</button>
+            <div style={{padding:"8px 12px max(10px,env(safe-area-inset-bottom))",borderTop:"1px solid rgba(0,0,0,0.08)",background:"#fff",flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",scrollbarWidth:"none"}}>
+                <div style={{display:"inline-flex",alignItems:"center",borderRadius:16,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:2,gap:2,flexShrink:0}}>
+                  {[["all","↩ Reply All"],["one","↩ Reply"],["fwd","→ Forward"]].map(([k,l])=>(
+                    <button key={k} onClick={()=>setReplyMode(k)} style={{flex:"0 0 auto",whiteSpace:"nowrap",padding:"6px 13px",borderRadius:13,border:"none",background:replyMode===k?"#fff":"transparent",color:replyMode===k?T.text:T.textSub,fontWeight:replyMode===k?650:450,fontSize:12,cursor:"pointer",fontFamily:"inherit",boxShadow:replyMode===k?"0 1px 4px rgba(0,0,0,0.14)":"none",transition:"all 0.15s"}}>{l}</button>
+                  ))}
+                </div>
+                {replyMode==="one"&&<span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0}}>only {mailAddr(msgs[msgs.length-1].from).split(" ")[0]||"the sender"}</span>}
+              </div>
+              {replyMode==="fwd"&&<input value={fwdTo} onChange={e=>setFwdTo(e.target.value)} placeholder="Forward to — email address" type="email" style={{width:"100%",padding:"9px 14px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>}
+              {outFiles.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                {outFiles.map((f,i)=>(
+                  <span key={i} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:100,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",fontSize:11.5,fontWeight:600,color:T.text,maxWidth:200}}>📎 <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</span><button onClick={()=>setOutFiles(prev=>prev.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:0,fontFamily:"inherit"}}>×</button></span>
+                ))}
+              </div>}
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <input ref={outRef} type="file" multiple onChange={e=>{const list=[...(e.target.files||[])];if(list.length)setOutFiles(prev=>[...prev,...list]);e.target.value="";}} style={{display:"none"}}/>
+                <button onClick={()=>outRef.current&&outRef.current.click()} disabled={sending} title="Attach files" style={{width:38,height:38,flexShrink:0,borderRadius:"50%",border:"1px solid rgba(0,0,0,0.05)",background:outFiles.length?T.goldLight:"rgba(118,118,128,0.08)",fontSize:15,cursor:"pointer",padding:0}}>📎</button>
+                <div style={{flex:1,minWidth:0}}>
+                  <MentionTextarea value={reply} onChange={setReply} mentions={emailMentions} onMentionsChange={setEmailMentions} contacts={appPeople} mail={mail}
+                    placeholder={replyMode==="fwd"?"Add a note to the forward…":replyMode==="one"?`Reply to ${mailAddr(msgs[msgs.length-1].from).split(" ")[0]||"sender"} only…  @ to tag`:"Reply to everyone…  @ to tag"}
+                    style={{width:"100%",minWidth:0,padding:"10px 15px",borderRadius:18,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",resize:"none",lineHeight:1.4,height:40,maxHeight:100}}/>
+                </div>
+                <button onClick={sendReply} disabled={sending||!canSend} style={{height:38,padding:"0 18px",borderRadius:19,border:"none",background:canSend?T.gold:"rgba(118,118,128,0.16)",color:"#fff",fontWeight:700,fontSize:13,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,boxShadow:canSend?"0 1px 4px rgba(0,0,0,0.12)":"none"}}>{sending?"Sending…":replyMode==="fwd"?"Forward":"Send"}</button>
+              </div>
             </div>
           )}
         </div>
@@ -18933,6 +18993,11 @@ function stripQuotedReply(html){
     /<blockquote[^>]*>/i,
     /<hr[^>]*>\s*(?:<[^>]+>\s*)*(?:<b>\s*)?From:/i,
     /(?:^|>)\s*On\b[^<]{0,90}\bwrote:\s*(?:<br\s*\/?>|<\/p>|<blockquote|<div)/i,
+    // Plain-text bodies (rendered in a <pre>): same boundaries, newline-delimited.
+    /\n\s*On\b[^\n<]{0,90}\bwrote:\s*\n/i,
+    /\n\s*-{2,}\s*Original Message\s*-{2,}/i,
+    /\n\s*_{10,}\s*\n/,
+    /\n\s*From:\s[^\n]{1,90}\n\s*Sent:/i,
   ];
   let cut=html.length;
   markers.forEach(re=>{const m=html.match(re);if(m&&m.index<cut)cut=m.index;});
@@ -18940,6 +19005,7 @@ function stripQuotedReply(html){
   return trimmed.replace(/<[^>]+>/g,"").replace(/&nbsp;/g," ").trim().length>0?trimmed:html;
 }
 const mailAddr=(r)=>r?.emailAddress?.name||r?.emailAddress?.address||"";
+const mailWhenFull=(iso)=>{if(!iso)return "";try{const d=new Date(iso);const now=new Date();const time=d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});if(d.toDateString()===now.toDateString())return time;return `${d.toLocaleDateString(undefined,{month:"short",day:"numeric",...(d.getFullYear()!==now.getFullYear()?{year:"numeric"}:{})})}, ${time}`;}catch{return iso;}};
 const mailWhen=(iso)=>{if(!iso)return "";try{const d=new Date(iso);const now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:d.getFullYear()===now.getFullYear()?undefined:"numeric"});}catch{return iso;}};
 
 // Pick + list outgoing email attachments (compose, reply, forward). Holds File
@@ -19507,7 +19573,7 @@ function EmailPage({isMobile}){
                         <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>to {(m.toRecipients||[]).map(mailAddr).join(", ")||"—"}</div>
                       </div>
                       <button onClick={e=>{e.stopPropagation();setReadMsg(m);}} title="Open this message full-screen" style={{flexShrink:0,background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:12,fontFamily:"inherit",padding:"3px 8px"}}>⤢ Open</button>
-                      <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</span>
+                      <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{mailWhenFull(m.receivedDateTime||m.sentDateTime)}</span>
                     </div>
                     {open
                       ? <div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail} trimQuote/>{m.hasAttachments&&<EmailAttachments messageId={m.id} mail={mail} od={od} folder={null} properties={savePropList}/>}</div>
@@ -19571,7 +19637,7 @@ function EmailPage({isMobile}){
                 <div style={{fontSize:16,fontWeight:800,color:T.text,marginBottom:3}}>{readMsg.subject||sel?.latest?.subject||"(no subject)"}</div>
                 <div style={{fontSize:12.5,color:T.text,fontWeight:600}}>{mailAddr(readMsg.from)||"(unknown)"}</div>
                 <div style={{fontSize:11.5,color:T.textTert}}>to {(readMsg.toRecipients||[]).map(mailAddr).join(", ")||"—"}{(readMsg.ccRecipients||[]).length?` · cc ${(readMsg.ccRecipients||[]).map(mailAddr).join(", ")}`:""}</div>
-                <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{mailWhen(readMsg.receivedDateTime||readMsg.sentDateTime)}</div>
+                <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{mailWhenFull(readMsg.receivedDateTime||readMsg.sentDateTime)}</div>
               </div>
               <button onClick={()=>setReadMsg(null)} style={{flexShrink:0,background:"none",border:"none",fontSize:24,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
             </div>
@@ -20303,9 +20369,13 @@ function PropertyEmails({property,onUpdate,isMobile}){
       {viewer&&(
         <div onClick={()=>setViewer(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:251,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:isMobile?"20px 20px 0 0":20,width:680,maxWidth:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-            <div style={{padding:"14px 18px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-              <div style={{flex:1,minWidth:0,fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewer.subject||"(no subject)"}</div>
-              <button onClick={()=>setViewer(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+            <div style={{padding:"13px 16px 11px",background:"#fff",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:"#4F46E5",flexShrink:0}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:14.5,fontWeight:700,color:T.text,letterSpacing:-0.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewer.subject||"(no subject)"}</div>
+                {viewMsgs&&viewMsgs.length>0&&<div style={{fontSize:11,color:T.textSub,marginTop:1}}>{viewMsgs.length} message{viewMsgs.length!==1?"s":""} · newest at the bottom</div>}
+              </div>
+              <button onClick={()=>setViewer(null)} aria-label="Close" style={{width:28,height:28,borderRadius:"50%",background:"rgba(118,118,128,0.08)",border:"none",fontSize:13,color:T.textSub,cursor:"pointer",lineHeight:1,flexShrink:0,padding:0,fontFamily:"inherit"}}>✕</button>
             </div>
             <div ref={vScrollRef} style={{flex:1,overflowY:"auto",padding:isMobile?12:16}}>
               {viewMsgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Opening the thread…</div>}
@@ -20317,20 +20387,26 @@ function PropertyEmails({property,onUpdate,isMobile}){
                   <div style={{fontSize:11.5,color:T.textTert,marginTop:12,lineHeight:1.5,paddingTop:10,borderTop:`1px solid ${T.border}`}}>This thread isn't in your mailbox, so the full conversation can't open here — but the pinned details above stay as a reference for the property.</div>
                 </div>
               )}
-              {viewMsgs&&viewMsgs.map(m=>{const open=!!vExpanded[m.id];return(
-                <div key={m.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,marginBottom:10,overflow:"hidden"}}>
-                  <div onClick={()=>setVExpanded(e=>({...e,[m.id]:!open}))} style={{display:"flex",gap:10,alignItems:"center",padding:"10px 14px",cursor:"pointer"}}>
+              {viewMsgs&&viewMsgs.map(m=>{
+                const open=!!vExpanded[m.id];
+                const fromA=String(m.from?.emailAddress?.address||"").toLowerCase();
+                const ours=fromA&&(fromA===String(mail.account?.username||"").toLowerCase()||fromA.endsWith("@goldstonepropertiesnj.com"));
+                return(
+                <div key={m.id} style={{background:"#fff",borderRadius:14,marginBottom:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.07)",borderLeft:ours?`3px solid ${T.gold}`:"3px solid transparent"}}>
+                  <div onClick={()=>setVExpanded(e=>({...e,[m.id]:!open}))} title={open?"Collapse":"Read this message"} style={{padding:"10px 13px",display:"flex",gap:9,alignItems:"center",cursor:"pointer"}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</div>
-                      <div style={{fontSize:11,color:T.textTert}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div>
+                      <div style={{display:"flex",alignItems:"baseline",gap:7,minWidth:0}}>
+                        <b style={{fontSize:12.5,color:ours?"#8a6d1f":T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"55%"}}>{mailAddr(m.from)||"(unknown)"}{ours?" · Goldstone":""}</b>
+                        {!open&&<span style={{fontSize:11.5,color:T.textTert,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</span>}
+                      </div>
+                      {open&&<div style={{fontSize:10.5,color:T.textTert,marginTop:1}}>{mailWhenFull(m.receivedDateTime||m.sentDateTime)}</div>}
                     </div>
                     {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
-                    <span style={{fontSize:11,color:T.textTert,flexShrink:0}}>{open?"▾":"▸"}</span>
+                    {!open&&<span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0}}>{mailWhenFull(m.receivedDateTime||m.sentDateTime)}</span>}
+                    <span style={{fontSize:11,color:"#C7C7CC",flexShrink:0}}>{open?"▾":"▸"}</span>
                   </div>
-                  {open
-                    ? <><div style={{borderTop:`1px solid ${T.border}`}}><MailBody message={m} mail={mail} trimQuote/></div>
-                       {m.hasAttachments&&<EmailAttachments messageId={m.id} mail={mail} od={od} folder={filesFolder}/>}</>
-                    : <div style={{padding:"0 14px 10px",fontSize:12.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</div>}
+                  {open&&<><div style={{borderTop:"1px solid rgba(0,0,0,0.055)"}}><MailBody message={m} mail={mail} trimQuote/></div>
+                    {m.hasAttachments&&<EmailAttachments messageId={m.id} mail={mail} od={od} folder={filesFolder}/>}</>}
                 </div>
               );})}
             </div>
@@ -20338,10 +20414,10 @@ function PropertyEmails({property,onUpdate,isMobile}){
             {viewMsgs&&viewMsgs.length>0&&(
               <div style={{borderTop:`1px solid ${T.border}`,background:T.card,padding:isMobile?"10px 12px max(10px,env(safe-area-inset-bottom))":"12px 18px",flexShrink:0}}>
                 {!vReply
-                  ? <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                      <button onClick={()=>setVReply({all:false,text:"",cc:"",mentions:[],files:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply</button>
-                      <button onClick={()=>setVReply({all:true,text:"",cc:"",mentions:[],files:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↩ Reply all</button>
-                      <button onClick={()=>setVReply({fwd:true,to:"",cc:"",text:"",files:[]})} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>↪ Forward</button>
+                  ? <div style={{display:"inline-flex",alignItems:"center",borderRadius:18,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:3,gap:2,maxWidth:"100%",overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain"}}>
+                      {[["↩ Reply All",()=>setVReply({all:true,text:"",cc:"",mentions:[],files:[]})],["↩ Reply",()=>setVReply({all:false,text:"",cc:"",mentions:[],files:[]})],["→ Forward",()=>setVReply({fwd:true,to:"",cc:"",text:"",files:[]})]].map(([l,fn])=>(
+                        <button key={l} onClick={fn} style={{flex:"0 0 auto",whiteSpace:"nowrap",padding:"8px 16px",borderRadius:14,border:"none",background:"transparent",color:T.text,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+                      ))}
                     </div>
                   : <div>
                       <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{vReply.fwd?`Forward "${viewer?.subject||"(no subject)"}"`:`${vReply.all?"Reply all":"Reply"} to ${mailAddr(viewMsgs[viewMsgs.length-1]?.from)}`}</div>

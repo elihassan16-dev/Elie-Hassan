@@ -3184,6 +3184,7 @@ function ShowingsPage(){
   const btPageLeads=useBtLeads();
   const[txSel,setTxSel]=useState(null); // {phone,name,buyer,kind?,rowKey?,tmplOpts?}
   const[mDetTab,setMDetTab]=useState("sh"); // mobile property detail: sh | tx
+  const[shJump,setShJump]=useState(false); // tap the header address → jump popup (property page / BS / chat)
   useEffect(()=>{setTxSel(null);setMDetTab("sh");},[selId]);
   useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
   const load=useCallback((force)=>{setLoading(true);setError("");fetchShowingsShared(force).then(d=>setShowings(d.showings||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
@@ -3419,7 +3420,7 @@ function ShowingsPage(){
               <div style={{padding:"12px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
                 {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",padding:"2px 4px",flexShrink:0}}>‹</button>}
                 <div style={{minWidth:0,flex:1}}>
-                  <div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>
+                  <div onClick={()=>setShJump(true)} title="Jump to this property's page, balance sheet or chat" style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}>{addr}<span style={{color:"#C7C7CC",fontWeight:600,marginLeft:6}}>›</span></div>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
                     {sel.status&&<span style={{fontSize:10.5,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{sel.status}</span>}
                     <span style={{fontSize:11.5,color:T.textSub}}>{selMeta.upcoming} upcoming · {selMeta.total} total</span>
@@ -3490,6 +3491,7 @@ function ShowingsPage(){
       if(!p)return null;
       return <ShowingInfoPopup property={p} skey={hotOpen.skey} onUpdate={onUpdate} onClose={()=>setHotOpen(null)}/>;
     })()}
+    {shJump&&sel&&<PropertyJumpSheet property={sel} current="showings" onClose={()=>setShJump(false)}/>}
     {isMobile&&txSel&&sel&&<SmsThreadPopup phone={txSel.phone} name={txSel.name} prop={String(sel.address).split(",")[0]} sub={[txSel.buyer?"\ud83d\uded2 Buyer":"Agent",`\ud83c\udfe0 ${String(sel.address).split(",")[0]}`].join(" \u00b7 ")} templates={showingTemplates(!!txSel.buyer,txSel.name,`${sel.address}${sel.city?`, ${sel.city}`:""}`)} onClose={()=>setTxSel(null)}/>}
     </div>
   );

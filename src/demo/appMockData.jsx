@@ -23,6 +23,7 @@ const FIN = (over = {}) => ({
 const PROPS = [
   {
     id: 1001, address: "417 Lakeview Ter", city: "Pemberton", state: "NJ", zip: "08068", status: "Under Construction",
+    pinnedEmails: [{ id: "pin1", conversationId: "conv-16f", internetMessageId: "", subject: "Re: 16 Falmouth Contract review", from: "Martin Pankiewicz", fromAddr: "martin@pankiewiczlaw.com", date: days(-0.1), preview: "Attached is the revised rider signed by my client — please confirm…" }],
     financials: FIN({
       arvAi: {
         at: days(-1), plan: "Full gut — new kitchen, 2 baths, flooring, roof", provider: "ChatARV (MLS)",

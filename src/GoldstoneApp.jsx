@@ -6873,6 +6873,8 @@ function DashEmailCard({activeProps,onNavigate}){
   const[hidden,setHidden]=useState(()=>new Set()); // pin ids read this session
   const[open,setOpen]=useState(null); // {pin,prop}
   const[msgs,setMsgs]=useState(null);
+  const[expanded,setExpanded]=useState(()=>new Set()); // opened messages — newest starts open
+  const threadRef=useRef(null);
   const[reply,setReply]=useState("");
   const[sending,setSending]=useState(false);
   const pinSig=useMemo(()=>activeProps.filter(p=>(p.pinnedEmails||[]).length).map(p=>`${p.id}:${(p.pinnedEmails||[]).map(pe=>pe.id).join("|")}`).join(","),[activeProps]);
@@ -6909,6 +6911,10 @@ function DashEmailCard({activeProps,onNavigate}){
         if(r.pin.internetMessageId){const hit=await mail.findByInternetId(r.pin.internetMessageId);if(hit)convId=hit.conversationId;}
         const m=await mail.getConversation(convId);
         setMsgs(m);
+        // Land on the NEWEST message: it starts expanded, the rest collapse to
+        // one-line rows, and the thread scrolls to the bottom like a chat.
+        setExpanded(new Set(m.length?[m[m.length-1].id]:[]));
+        setTimeout(()=>{const el=threadRef.current;if(el)el.scrollTop=el.scrollHeight;},60);
         const un=m.filter(x=>x.isRead===false);
         if(un.length)await Promise.all(un.map(u=>mail.markRead(u.id)));
         setHidden(h=>new Set([...h,r.pin.id])); // read → off the card
@@ -6940,33 +6946,50 @@ function DashEmailCard({activeProps,onNavigate}){
       );})}
     </div>}
     {open&&(
-      <div onClick={()=>setOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)",padding:16,boxSizing:"border-box"}}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:20,width:640,maxWidth:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-          <div style={{padding:"13px 16px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+      <div onClick={()=>setOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(5px)",padding:16,boxSizing:"border-box"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:20,width:640,maxWidth:"100%",height:"min(760px,88vh)",display:"flex",flexDirection:"column",boxShadow:"0 18px 60px rgba(0,0,0,0.28)",overflow:"hidden"}}>
+          <div style={{padding:"13px 16px 11px",background:"#fff",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:14.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{open.pin.subject||"(no subject)"}</div>
-              <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏠 {String(open.prop.address||"")}{open.prop.city?`, ${open.prop.city}`:""}</div>
-            </div>
-            {onNavigate&&<button onClick={()=>{setOpen(null);onNavigate(open.prop.id);}} style={{background:"none",border:"none",color:T.blue,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0,padding:0}}>Open property ›</button>}
-            <button onClick={()=>setOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
-          </div>
-          <div style={{flex:1,overflowY:"auto",padding:12}}>
-            {msgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Opening the thread…</div>}
-            {msgs&&msgs.length===0&&<div style={{padding:16,fontSize:12.5,color:T.textTert}}>Couldn't open this thread here — use "Open property ›" to see it on the Emails tab.</div>}
-            {msgs&&msgs.map(m=>(
-              <div key={m.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,marginBottom:10,overflow:"hidden"}}>
-                <div style={{padding:"9px 13px",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center"}}>
-                  <div style={{flex:1,minWidth:0}}><div style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(m.from)||"(unknown)"}</div><div style={{fontSize:10.5,color:T.textTert}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div></div>
-                  {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
-                </div>
-                <MailBody message={m} mail={mail}/>
+              <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+                <span style={{width:8,height:8,borderRadius:"50%",background:"#4F46E5",flexShrink:0}}/>
+                <span style={{fontSize:14.5,fontWeight:700,color:T.text,letterSpacing:-0.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{open.pin.subject||"(no subject)"}</span>
               </div>
-            ))}
+              <div style={{fontSize:11,color:T.textSub,marginTop:2,paddingLeft:16,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏠 {String(open.prop.address||"")}{open.prop.city?`, ${open.prop.city}`:""}{msgs&&msgs.length?` · ${msgs.length} message${msgs.length!==1?"s":""}`:""}</div>
+            </div>
+            {onNavigate&&<button onClick={()=>{setOpen(null);onNavigate(open.prop.id);}} style={{background:"none",border:"none",color:"#8a6d1f",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0,padding:0}}>Open Property ›</button>}
+            <button onClick={()=>setOpen(null)} aria-label="Close" style={{width:28,height:28,borderRadius:"50%",background:"rgba(118,118,128,0.08)",border:"none",fontSize:13,color:T.textSub,cursor:"pointer",lineHeight:1,flexShrink:0,padding:0,fontFamily:"inherit"}}>✕</button>
+          </div>
+          <div ref={threadRef} style={{flex:1,overflowY:"auto",padding:12}}>
+            {msgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Opening the thread…</div>}
+            {msgs&&msgs.length===0&&<div style={{padding:16,fontSize:12.5,color:T.textTert}}>Couldn't open this thread here — use "Open Property ›" to see it on the Emails tab.</div>}
+            {msgs&&msgs.map((m,i)=>{
+              const on=expanded.has(m.id);
+              const fromA=String(m.from?.emailAddress?.address||"").toLowerCase();
+              const ours=fromA&&(fromA===String(mail.account?.username||"").toLowerCase()||fromA.endsWith("@goldstonepropertiesnj.com"));
+              const toggle=()=>{setExpanded(prev=>{const n2=new Set(prev);n2.has(m.id)?n2.delete(m.id):n2.add(m.id);return n2;});};
+              return(
+                <div key={m.id} style={{background:"#fff",borderRadius:14,marginBottom:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.07)",borderLeft:ours?`3px solid ${T.gold}`:"3px solid transparent"}}>
+                  <div onClick={toggle} title={on?"Collapse":"Read this message"} style={{padding:"10px 13px",display:"flex",gap:9,alignItems:"center",cursor:"pointer"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",alignItems:"baseline",gap:7,minWidth:0}}>
+                        <b style={{fontSize:12.5,color:ours?"#8a6d1f":T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"55%"}}>{mailAddr(m.from)||"(unknown)"}{ours?" · Goldstone":""}</b>
+                        {!on&&<span style={{fontSize:11.5,color:T.textTert,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</span>}
+                      </div>
+                      {on&&<div style={{fontSize:10.5,color:T.textTert,marginTop:1}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</div>}
+                    </div>
+                    {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
+                    {!on&&<span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0}}>{mailWhen(m.receivedDateTime||m.sentDateTime)}</span>}
+                    <span style={{fontSize:11,color:"#C7C7CC",flexShrink:0}}>{on?"▾":"▸"}</span>
+                  </div>
+                  {on&&<div style={{borderTop:"1px solid rgba(0,0,0,0.055)"}}><MailBody message={m} mail={mail} trimQuote/></div>}
+                </div>
+              );
+            })}
           </div>
           {msgs&&msgs.length>0&&(
-            <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,background:T.card,display:"flex",gap:8,flexShrink:0}}>
-              <input value={reply} onChange={e=>setReply(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendReply()} placeholder="Quick reply-all…" style={{flex:1,minWidth:0,padding:"10px 12px",borderRadius:12,border:`1px solid ${T.border}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              <button onClick={sendReply} disabled={sending||!reply.trim()} style={{padding:"10px 16px",borderRadius:12,border:"none",background:reply.trim()?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:12.5,cursor:reply.trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{sending?"Sending…":"Send"}</button>
+            <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:"1px solid rgba(0,0,0,0.08)",background:"#fff",display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
+              <input value={reply} onChange={e=>setReply(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendReply()} placeholder="Quick reply-all…" style={{flex:1,minWidth:0,padding:"10px 15px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              <button onClick={sendReply} disabled={sending||!reply.trim()} style={{height:38,padding:"0 18px",borderRadius:19,border:"none",background:reply.trim()?T.gold:"rgba(118,118,128,0.16)",color:"#fff",fontWeight:700,fontSize:13,cursor:reply.trim()?"pointer":"default",fontFamily:"inherit",flexShrink:0,boxShadow:reply.trim()?"0 1px 4px rgba(0,0,0,0.12)":"none"}}>{sending?"Sending…":"Send"}</button>
             </div>
           )}
         </div>
@@ -18933,6 +18956,11 @@ function stripQuotedReply(html){
     /<blockquote[^>]*>/i,
     /<hr[^>]*>\s*(?:<[^>]+>\s*)*(?:<b>\s*)?From:/i,
     /(?:^|>)\s*On\b[^<]{0,90}\bwrote:\s*(?:<br\s*\/?>|<\/p>|<blockquote|<div)/i,
+    // Plain-text bodies (rendered in a <pre>): same boundaries, newline-delimited.
+    /\n\s*On\b[^\n<]{0,90}\bwrote:\s*\n/i,
+    /\n\s*-{2,}\s*Original Message\s*-{2,}/i,
+    /\n\s*_{10,}\s*\n/,
+    /\n\s*From:\s[^\n]{1,90}\n\s*Sent:/i,
   ];
   let cut=html.length;
   markers.forEach(re=>{const m=html.match(re);if(m&&m.index<cut)cut=m.index;});

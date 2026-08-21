@@ -22,6 +22,7 @@ Production real-estate PWA for Elie Hassan (non-technical; voice-dictated messag
 - Chat-bubble convention (ALL messaging: SMS panes/popups in sms.jsx, team/office/task chats, contractor portal, AI chats) — Elie approved 8/20/26: bubbles radius 18 w/ hairline borders; name+time (tiny, first name) ONLY over other people's bubbles, never your own; own bubbles get gray "time · Delivered/Read by …" underneath (never blue ✓✓); reply = small ghost ↩ circle beside the bubble, not a labeled button; contractor threads keep gold outline + EXTERNAL badge.
 - Do NOT cancel Quo subscription decision = Elie's alone. PR #502 preview shipped (CRM). Tasks "By property" third view previewed but NOT approved/built.
 - Sort/behavior decisions Elie made are in git history — read recent commit messages for rationale.
+- 🕸 graphify skill installed (.claude/skills/graphify): for codebase/architecture questions, build once per session (/graphify . --no-viz — AST-only ≈1 min, zero LLM; SKIP semantic extraction, the detected "documents" are just skill references) then `graphify query` instead of grepping. graphify-out/ is gitignored.
 - Token thrift (Elie 8/21/26): screenshots are the big cost — take ONE combined preview per round (mobile-first), not many angles; skip HTML-mockup rounds for small tweaks (build → one real screenshot); batch several changes into one preview + one ship-it; keep reads of GoldstoneApp.jsx targeted (grep + offsets, never whole-file).
 
 ## Recently shipped (context, no open next task)

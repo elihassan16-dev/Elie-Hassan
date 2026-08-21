@@ -18821,10 +18821,15 @@ function PropertyJumpSheet({property,current="prop",onClose}){
     </div>
   );
 }
-function NavBackChip({style}){
+function NavBackChip({style,compact}){
   if(!navCanBack())return null;
+  // Phones: the labeled pill fights the toolbar capsule for width, so it
+  // collapses to the iOS back chevron — the title says where it goes.
+  if(compact)return(
+    <button onClick={navBack} title={`Back to ${navPeekLabel()}`} aria-label={`Back to ${navPeekLabel()}`} style={{width:32,height:32,minHeight:32,borderRadius:16,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",color:"#8a6d1f",fontWeight:700,fontSize:17,lineHeight:1,cursor:"pointer",fontFamily:"inherit",flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0,...style}}>‹</button>
+  );
   return(
-    <button onClick={navBack} title={`Back to ${navPeekLabel()}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 13px",minHeight:32,borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",color:"#8a6d1f",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap",...style}}>‹ {navPeekLabel()}</button>
+    <button onClick={navBack} title={`Back to ${navPeekLabel()}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 13px",minHeight:32,borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",color:"#8a6d1f",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap",...style}}>‹ <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{navPeekLabel()}</span></button>
   );
 }
 
@@ -21649,10 +21654,10 @@ export function GoldstoneShell(){
       </aside>
       <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div className="gs-topbar" style={{minHeight:54,padding:isMobile?"max(8px,env(safe-area-inset-top)) 16px 8px":"0 24px",borderBottom:`1px solid ${T.border}`,background:T.card,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flexShrink:1}}>
+          <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,minWidth:0,flexShrink:1,overflow:"hidden",marginRight:8}}>
             {isMobile&&<button onClick={()=>setShowNavMenu(true)} title="Menu" aria-label="Open menu" style={{width:36,height:36,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer",padding:0,flexShrink:0,backgroundColor:"#fff",backgroundImage:"url(/logo.png)",backgroundRepeat:"no-repeat",backgroundSize:"185%",backgroundPosition:"50% 27%"}}/>}
             <div style={{fontWeight:700,fontSize:17,color:T.text,whiteSpace:"nowrap"}}>{NAV.find(n=>n.key===active)?.label}</div>
-            <NavBackChip style={{maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}/>
+            <NavBackChip compact={isMobile} style={isMobile?undefined:{flexShrink:1,minWidth:0,maxWidth:150,overflow:"hidden"}}/>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
             {(()=>{

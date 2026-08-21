@@ -17,7 +17,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp, setSmsPropTimeline } from "./sms";
+import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp, smsPropKey, setSmsPropTimeline } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -2525,6 +2525,17 @@ function ShowingInfoPopup({property,skey,onUpdate,onClose}){
 // Renders one property's showings from an already-loaded feed: upcoming + past
 // (past ranked by lead disposition), each row with call/text templates. Shared by
 // the per-property Showings tab and the top-level Showings page.
+// One shared "Hide not-interested" switch for the whole Showings section —
+// the showing rows AND the Messages column. Hidden by DEFAULT (Elie's rule);
+// unchecking shows them again, and the choice sticks per device.
+let gsHideNot=(()=>{try{return localStorage.getItem("gs_hideNotInterested")!=="0";}catch{return true;}})();
+const gsHideNotSubs=new Set();
+function useHideNot(){
+  const[,force]=useState(0);
+  useEffect(()=>{const fn=()=>force(x=>x+1);gsHideNotSubs.add(fn);return()=>gsHideNotSubs.delete(fn);},[]);
+  const toggle=()=>{gsHideNot=!gsHideNot;try{localStorage.setItem("gs_hideNotInterested",gsHideNot?"1":"0");}catch{/* private mode */}gsHideNotSubs.forEach(f=>f());};
+  return[gsHideNot,toggle];
+}
 function PropertyShowings({property,showings,onUpdate,flush,onOpenSms,dense}){
   const { currentUser:CURRENT_USER, teamMembers:TEAM_MEMBERS }=useData();
   // Business texting (Jivetel): when connected, Text/template buttons open a
@@ -2615,8 +2626,7 @@ function PropertyShowings({property,showings,onUpdate,flush,onOpenSms,dense}){
     onUpdate(property.id,"selectedBuyer",bs?{agent:bs.agent||"",broker:bs.broker||"",phone:bs.phone||"",email:bs.email||""}:null);
     saveNow();
   };
-  const[hideNot,setHideNot]=useState(()=>{try{return localStorage.getItem("gs_hideNotInterested")==="1";}catch{return false;}});
-  const toggleHide=()=>setHideNot(v=>{const n=!v;try{localStorage.setItem("gs_hideNotInterested",n?"1":"0");}catch{}return n;});
+  const[hideNot,toggleHide]=useHideNot();
   const mineRaw=all.filter(s=>showingMatchesProperty(s.location||s.summary||"",property)).map(s=>({...s,ts:s.start?new Date(s.start).getTime():0}));
   const feedKeys=new Set(mineRaw.map(s=>showingKey(s)));
   // One-time heal: leads saved under an old ShowingTime UID (which the feed
@@ -3029,22 +3039,32 @@ const TX_AV_COLORS=[["#FBF0EE","#C2410C"],["#EFF6FF","#1D6FB8"],["#F3EFFA","#7C5
 // Everyone connected to a property who could have a thread: feed agents (+ their
 // hand-attached numbers), snapshot leads, hand-added leads, BoldTrail buyers.
 function propertyTexters(property,showings,btLeads){
-  const seen=new Set(),people=[];
-  const push=(name,ph,buyer)=>{const d=String(ph||"").replace(/\D/g,"");if(!d||seen.has(d))return;seen.add(d);people.push({name:name||ph,phone:ph,buyer:!!buyer});};
+  const seen=new Map(),people=[];
+  const leadMap=property.showingLeads||{};
+  // Same number from several sources: first name wins; a real status fills an
+  // empty one, and "not"/"badnum" always wins — that's what hiding keys off.
+  const push=(name,ph,buyer,lead)=>{
+    const d=String(ph||"").replace(/\D/g,"");if(!d)return;
+    const prev=seen.get(d);
+    if(prev){if(lead&&(!prev.lead||lead==="not"||lead==="badnum"))prev.lead=lead;return;}
+    const person={name:name||ph,phone:ph,buyer:!!buyer,lead:lead||""};
+    seen.set(d,person);people.push(person);
+  };
   const sp=property.showingPhones||{};
-  matchedShowings(showings||[],property).forEach(s=>{[...parseShowingPhones(s.phone),...(sp[showingKey(s)]||[])].forEach(ph=>push(s.agent||s.summary||"Agent",ph,false));});
-  Object.values(property.showingSnapshots||{}).forEach(sn=>parseShowingPhones(sn.phone).forEach(ph=>push(sn.agent||"Agent",ph,false)));
-  (property.customLeads||[]).forEach(l=>parseShowingPhones(l.phone).forEach(ph=>push(l.name||"Lead",ph,!!l.buyer)));
-  (btLeads||[]).filter(l=>btMatchesProperty(l,property)).forEach(l=>parseShowingPhones(l.phone).forEach(ph=>push(l.name||"Buyer",ph,true)));
+  matchedShowings(showings||[],property).forEach(s=>{const k=showingKey(s);[...parseShowingPhones(s.phone),...(sp[k]||[])].forEach(ph=>push(s.agent||s.summary||"Agent",ph,false,leadMap[k]));});
+  Object.entries(property.showingSnapshots||{}).forEach(([k,sn])=>parseShowingPhones(sn.phone).forEach(ph=>push(sn.agent||"Agent",ph,false,leadMap[k])));
+  (property.customLeads||[]).forEach(l=>parseShowingPhones(l.phone).forEach(ph=>push(l.name||"Lead",ph,!!l.buyer,l.lead)));
+  (btLeads||[]).filter(l=>btMatchesProperty(l,property)).forEach(l=>parseShowingPhones(l.phone).forEach(ph=>push(l.name||"Buyer",ph,true,leadMap["bt-"+l.id])));
   return people;
 }
-function PropertyTextsList({property,showings,onOpen}){
+function PropertyTextsList({property,showings,onOpen,onCampaign}){
   const {connected:smsOn,threadFor,unreadFor}=useSmsTexting();
   const btAllLeads=useBtLeads();
   const[who,setWho]=useState("all"); // all | agents | buyers
+  const[hideNot,toggleHideNot]=useHideNot();
   const address=property.address;
   if(!smsOn)return <div style={{padding:"34px 22px",textAlign:"center",color:T.textTert,fontSize:12.5,lineHeight:1.6}}>Business texting isn\u2019t connected for your login \u2014 conversations show up here once it is.</div>;
-  const rows=propertyTexters(property,showings,btAllLeads).map(p=>{
+  const rowsAll=propertyTexters(property,showings,btAllLeads).map(p=>{
     const th=smsThreadForProp(threadFor(p.phone),address,p.phone).filter(m=>m.kind!=="call");
     if(!th.length)return null;
     const last=th[th.length-1],lastAt=last.at||"";
@@ -3052,6 +3072,9 @@ function PropertyTextsList({property,showings,onOpen}){
     const active=th.some(m=>m.direction==="in")&&lastAt&&Date.now()-new Date(lastAt).getTime()<7*86400000;
     return {...p,last,lastAt,unread,active};
   }).filter(Boolean).filter(p=>who==="all"||((who==="buyers")===p.buyer));
+  const isDead=(r)=>r.lead==="not"||r.lead==="badnum";
+  const deadCount=rowsAll.filter(isDead).length;
+  const rows=hideNot?rowsAll.filter(r=>!isDead(r)):rowsAll;
   const act=rows.filter(r=>r.active).sort((a,b)=>((b.unread>0)-(a.unread>0))||String(b.lastAt).localeCompare(String(a.lastAt)));
   const rest=rows.filter(r=>!r.active).sort((a,b)=>String(b.lastAt).localeCompare(String(a.lastAt)));
   const when=(iso)=>{try{const d=new Date(iso),now=new Date();if(d.toDateString()===now.toDateString())return d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});if(now-d<6*86400000)return d.toLocaleDateString(undefined,{weekday:"short"});return d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
@@ -3075,8 +3098,16 @@ function PropertyTextsList({property,showings,onOpen}){
     </div>);};
   return(
     <div style={{padding:"0 12px 24px"}}>
-      <div style={{...SEG_WRAP,margin:"12px 0 0"}}>
-        {[["all","All"],["agents","Agents"],["buyers","Buyers"]].map(([k,l])=>(<button key={k} onClick={()=>setWho(k)} style={{...segTab(who===k),padding:"6px 13px",fontSize:12,...(who===k?{color:T.gold}:{})}}>{l}</button>))}
+      <div style={{display:"flex",alignItems:"center",gap:8,margin:"12px 0 0"}}>
+        <div style={SEG_WRAP}>
+          {[["all","All"],["agents","Agents"],["buyers","Buyers"]].map(([k,l])=>(<button key={k} onClick={()=>setWho(k)} style={{...segTab(who===k),padding:"6px 13px",fontSize:12,...(who===k?{color:T.gold}:{})}}>{l}</button>))}
+        </div>
+        <div style={{flex:1}}/>
+        {onCampaign&&<button onClick={onCampaign} title="📣 Campaign — mass text people about this property (opens the campaign builder pre-set to it)" style={{padding:"6px 11px",borderRadius:14,border:"1px solid #C9A227",background:"#FBF3DD",color:"#8a6d1f",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>📣 Campaign</button>}
+      </div>
+      <div onClick={toggleHideNot} style={{...TOGGLE_CHIP(hideNot),gap:6,marginTop:10}}>
+        {hideNot&&<span style={{fontSize:11,lineHeight:1}}>✓</span>}
+        Hide "not interested"{hideNot&&deadCount>0?` · ${deadCount} hidden`:""}
       </div>
       {rows.length===0&&<div style={{padding:"34px 16px",textAlign:"center",color:T.textTert,fontSize:12.5,lineHeight:1.6}}>No text conversations about this property yet.<br/>Text an agent or buyer from a showing row and the chat lands here.</div>}
       {act.length>0&&(<>
@@ -3408,7 +3439,7 @@ function ShowingsPage(){
               )}
               {isMobile&&mDetTab==="tx"&&smsPageOn?(
                 <div style={{flex:1,overflowY:"auto"}}>
-                  <PropertyTextsList key={sel.id} property={sel} showings={all} onOpen={r=>setTxSel({phone:r.phone,name:r.name,buyer:r.buyer})}/>
+                  <PropertyTextsList key={sel.id} property={sel} showings={all} onOpen={r=>setTxSel({phone:r.phone,name:r.name,buyer:r.buyer})} onCampaign={()=>{try{window.__campTarget={prop:sel.address};}catch{/* no window */}setTxSel(null);setView("agents");}}/>
                 </div>
               ):(
               <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
@@ -3446,7 +3477,7 @@ function ShowingsPage(){
               <div style={{fontSize:11,color:T.textSub,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Every text about {String(sel.address).split(",")[0]} — agents & buyers</div>
             </div>
             <div style={{flex:1,overflowY:"auto"}}>
-              <PropertyTextsList key={sel.id} property={sel} showings={all} onOpen={r=>setTxSel({phone:r.phone,name:r.name,buyer:r.buyer})}/>
+              <PropertyTextsList key={sel.id} property={sel} showings={all} onOpen={r=>setTxSel({phone:r.phone,name:r.name,buyer:r.buyer})} onCampaign={()=>{try{window.__campTarget={prop:sel.address};}catch{/* no window */}setTxSel(null);setView("agents");}}/>
             </div>
           </>)}
         </div>
@@ -18370,6 +18401,20 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   const[campOpen,setCampOpen]=useState(false);
   const[camp,setCamp]=useState({who:"buyers",prop:"all",days:10,resp:"never",wait:2,msg:"initial",custom:""});
   const campProps=[...new Set(contacts.flatMap(c=>c.addrs))].sort();
+  // 📣 from a property (Showings → Messages column): open the builder with
+  // that property pre-picked — every skip/dedupe rule applies unchanged.
+  useEffect(()=>{
+    try{
+      const t=window.__campTarget;
+      if(!t)return;
+      delete window.__campTarget;
+      const k=smsPropKey(t.prop||"");
+      const hit=campProps.find(a=>smsPropKey(a)===k)||"all";
+      setCamp(c=>({...c,prop:hit,who:"all"}));
+      setCampOpen(true);
+    }catch{/* no window */}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[contacts.length]);
   const campMatch=(c)=>{
     if(c.dead||c.future)return false;
     if(camp.who==="buyers"&&!c.buyer)return false;

@@ -32,3 +32,6 @@ Thumbs.db
 
 # Python bytecode from skill scripts
 __pycache__/
+
+# graphify knowledge-graph output — regenerated per session (AST-only, free)
+graphify-out/

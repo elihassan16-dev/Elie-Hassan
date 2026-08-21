@@ -18398,7 +18398,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   // contact — campaigns never poach.
   const campOwnedBy=(c)=>{const own=threadOwnerOf(c.thread,crmExtOwner);return own&&!sameFirstName(own,CURRENT_USER)?own:"";};
   const[campOpen,setCampOpen]=useState(false);
-  const[camp,setCamp]=useState({who:"buyers",prop:"all",days:10,resp:"never",wait:2,msg:"initial",custom:""});
+  const[camp,setCamp]=useState({who:"buyers",prop:"all",days:10,resps:["never"],wait:2,msg:"initial",custom:""});
   const campProps=[...new Set(contacts.flatMap(c=>c.addrs))].sort();
   // 📣 from a property (Showings → Messages column): open the builder with
   // that property pre-picked — every skip/dedupe rule applies unchanged.
@@ -18415,26 +18415,46 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[contacts.length]);
   const campMatch=(c)=>{
-    if(c.dead||c.future)return false;
+    // Wrong numbers are NEVER texted. Not-interested people are skipped too —
+    // unless the 🚫 chip is checked on purpose (price-reduction blasts).
+    const badNum=c.statuses.some(st=>st.lead==="badnum");
+    const notInt=c.statuses.some(st=>st.lead==="not");
+    const wantNot=camp.resps.includes("notint");
+    if(badNum||c.future)return false;
+    if(notInt&&!wantNot)return false;
     if(camp.who==="buyers"&&!c.buyer)return false;
     if(camp.who==="agents"&&c.buyer&&!c.shows.length)return false;
     if(camp.prop!=="all"&&!c.addrs.includes(camp.prop))return false;
     const cut=Date.now()-(Number(camp.days)||10)*86400000;
     const lastAct=Math.max(c.lastShow?new Date(c.lastShow).getTime():0,c.inq&&c.inq.at?new Date(c.inq.at).getTime():0);
     if(!(lastAct>=cut))return false;
-    if(camp.resp==="never"&&c.contacted)return false;
-    // "Didn't respond" also waits: only people whose last text from us is at
-    // least camp.wait days old — someone texted this morning isn't hit again.
-    if(camp.resp==="noresp"&&!(c.contacted&&!c.everReplied&&c.noRespDays!=null&&c.noRespDays>=(Number(camp.wait)||0)))return false;
-    if(camp.resp==="replied"&&!c.replied)return false;
+    // The picked chips OR together (none picked = anyone). "Didn't respond"
+    // still waits camp.wait days so this morning's text isn't chased already.
+    const rs=camp.resps.filter(r=>r!=="notint");
+    if(rs.length||wantNot){
+      const hit=(rs.includes("never")&&!c.contacted)
+        ||(rs.includes("noresp")&&c.contacted&&!c.everReplied&&c.noRespDays!=null&&c.noRespDays>=(Number(camp.wait)||0))
+        ||(rs.includes("replied")&&c.replied)
+        ||(wantNot&&notInt);
+      if(!hit)return false;
+    }
     if(camp.msg!=="custom"&&campSent.includes(`${c.key}|${camp.msg}`))return false;
     return true;
+  };
+  // ✎ Custom-campaign fill-ins: [First name] / [Address] / [Zillow link], per
+  // person. On an all-properties blast each person gets THEIR property.
+  const campAddrOf=(c)=>camp.prop!=="all"?camp.prop:((c.inq&&c.inq.addr)||c.addrs[0]||"");
+  const campFill=(c,txt)=>{
+    const first=(String(c.name||"").trim().split(/\s+/)[0])||"there";
+    const addr=campAddrOf(c)||"the property";
+    const slug=String(addr).replace(/[^A-Za-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
+    return String(txt||"").split("[First name]").join(first).split("[Address]").join(addr).split("[Zillow link]").join(`https://www.zillow.com/homes/${slug}_rb/`);
   };
   const campList=campOpen?contacts.filter(c=>campMatch(c)&&!campOwnedBy(c)):[];
   const campSkipped=campOpen?contacts.filter(c=>campMatch(c)&&campOwnedBy(c)).length:0;
   const launchCamp=()=>{
     if(!campList.length)return;
-    const mk=camp.msg==="custom"?()=>camp.custom.trim():(c)=>tmplFor(c,camp.msg);
+    const mk=camp.msg==="custom"?(c)=>campFill(c,camp.custom.trim()):(c)=>tmplFor(c,camp.msg);
     setCampOpen(false);
     setBlastOff(new Set());
     setBlast({list:campList,mk,kind:camp.msg!=="custom"?camp.msg:null});
@@ -18565,7 +18585,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
         return(
         <div onClick={()=>setCampOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:470,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(440px,96vw)",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 14px 44px rgba(0,0,0,0.25)"}}>
-            <div style={{padding:"13px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)"}}><b style={{fontSize:15}}>📣 New campaign</b><div style={{fontSize:11,color:T.textTert,marginTop:2}}>Mass text by filters — not-interested and wrong numbers are always skipped.</div></div>
+            <div style={{padding:"13px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)"}}><b style={{fontSize:15}}>📣 New campaign</b><div style={{fontSize:11,color:T.textTert,marginTop:2}}>Mass text by filters — wrong numbers are always skipped; not-interested only joins when you check that chip.</div></div>
             <div style={lbl}>1 · WHO</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 18px"}}>{[["buyers","🛒 Buyers"],["agents","👤 Agents"],["all","Everyone"]].map(([k,l])=><button key={k} onClick={()=>setCamp({...camp,who:k})} style={chipB(camp.who===k)}>{l}</button>)}</div>
             <div style={lbl}>2 · WHICH PROPERTY</div>
@@ -18579,9 +18599,15 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
               <input value={camp.days} onChange={e=>setCamp({...camp,days:e.target.value.replace(/\D/g,"")})} inputMode="numeric" style={{width:60,padding:"7px 9px",borderRadius:9,border:`1px solid ${T.gold}`,fontSize:12,fontFamily:"inherit",outline:"none",textAlign:"center"}}/>
               <span style={{fontSize:11,color:T.textTert}}>days</span>
             </div>
-            <div style={lbl}>4 · ONLY PEOPLE WHO…</div>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 18px"}}>{[["any","Anyone"],["never","Never texted"],["noresp","Didn't respond"],["replied","Replied"]].map(([k,l])=><button key={k} onClick={()=>setCamp({...camp,resp:k})} style={chipB(camp.resp===k)}>{l}</button>)}</div>
-            {camp.resp==="noresp"&&(<>
+            <div style={lbl}>4 · ONLY PEOPLE WHO… <span style={{fontWeight:600,textTransform:"none",letterSpacing:0}}>(pick any — they combine)</span></div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 18px"}}>
+              <button onClick={()=>setCamp({...camp,resps:[]})} style={chipB(camp.resps.length===0)}>Anyone</button>
+              {[["never","Never texted"],["noresp","Didn't respond"],["replied","Replied"],["notint","🚫 Not interested"]].map(([k,l])=>{
+                const on=camp.resps.includes(k);
+                return <button key={k} onClick={()=>setCamp({...camp,resps:on?camp.resps.filter(x=>x!==k):[...camp.resps,k]})} style={chipB(on)}>{on?"✓ ":""}{l}</button>;
+              })}
+            </div>
+            {camp.resps.includes("noresp")&&(<>
               <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"8px 18px 0",alignItems:"center"}}>
                 <span style={{fontSize:11.5,color:T.textSub,fontWeight:700}}>…and my last text was at least</span>
                 {[1,2,3,7].map(d=><button key={d} onClick={()=>setCamp({...camp,wait:d})} style={chipB(Number(camp.wait)===d)}>{d} day{d===1?"":"s"}</button>)}
@@ -18590,9 +18616,22 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
               </div>
               <div style={{padding:"4px 18px 0",fontSize:10.5,color:T.textTert,lineHeight:1.5}}>So someone you texted this morning doesn't get another one — they only qualify once they've had {Number(camp.wait)||0} day{(Number(camp.wait)||0)===1?"":"s"} to answer.</div>
             </>)}
+            {camp.resps.includes("notint")&&<div style={{margin:"8px 18px 0",background:"#FFF6ED",border:"1px solid #F6C9B2",borderRadius:11,padding:"8px 12px",fontSize:11.5,color:"#C2410C",lineHeight:1.5}}>🚫 Heads up — people marked <b>not interested</b> ARE included in this campaign. Wrong numbers still never get texted.</div>}
             <div style={lbl}>5 · THE MESSAGE</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 18px"}}>{[["initial","Intro (auto voice)"],["followup","Follow-up"],["custom","✎ Write my own"]].map(([k,l])=><button key={k} onClick={()=>setCamp({...camp,msg:k})} style={chipB(camp.msg===k)}>{l}</button>)}</div>
-            {camp.msg==="custom"&&<textarea value={camp.custom} onChange={e=>setCamp({...camp,custom:e.target.value})} rows={3} placeholder="Write the text everyone gets…" style={{...finInput,width:"calc(100% - 36px)",margin:"8px 18px 0",resize:"vertical",lineHeight:1.5}}/>}
+            {camp.msg==="custom"&&(<>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"8px 18px 0"}}>
+                {[["[First name]","👤 First name"],["[Address]","🏠 Address"],["[Zillow link]","🔗 Zillow link"]].map(([tok,l])=>
+                  <button key={tok} onClick={()=>setCamp({...camp,custom:camp.custom+(camp.custom&&!/\s$/.test(camp.custom)?" ":"")+tok})} title={`Drops ${tok} into the text — filled in per person when it sends`} style={{padding:"5px 10px",borderRadius:14,border:"1px dashed #C9A227",background:"#FDF9EE",color:"#8a6d1f",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>＋ {l}</button>)}
+              </div>
+              <textarea value={camp.custom} onChange={e=>setCamp({...camp,custom:e.target.value})} rows={4} placeholder="Write the text everyone gets — tap the chips above to drop in each person's name, address or Zillow link…" style={{...finInput,width:"calc(100% - 36px)",margin:"8px 18px 0",resize:"vertical",lineHeight:1.5}}/>
+              {campList.length>0&&camp.custom.trim()&&(
+                <div style={{margin:"8px 18px 0",background:T.bg,border:`1px solid ${T.border}`,borderRadius:11,padding:"9px 12px"}}>
+                  <div style={{fontSize:9.5,fontWeight:800,color:T.textTert,letterSpacing:"0.05em",marginBottom:4}}>PREVIEW — EXACTLY WHAT {((String(campList[0].name||"").trim().split(/\s+/)[0])||"THEY").toUpperCase()} WILL GET</div>
+                  <div style={{fontSize:12.5,color:T.text,lineHeight:1.55,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{campFill(campList[0],camp.custom)}</div>
+                </div>
+              )}
+            </>)}
             <div style={{margin:"14px 18px",background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:11,padding:"10px 13px",fontSize:12.5,color:"#8a6d1f",lineHeight:1.6}}>
               🎯 <b>{campList.length} {campList.length===1?"person matches":"people match"}</b>{camp.msg!=="custom"?" — already-sent ones excluded.":"."}{campSkipped>0?` 🔒 ${campSkipped} skipped — a teammate is already in touch with them.`:""} Each message is personalized and sent one at a time, carrier-paced.
             </div>

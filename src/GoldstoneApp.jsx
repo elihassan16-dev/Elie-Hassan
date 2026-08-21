@@ -15067,6 +15067,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   // New: qbConstrIds (accounts tagged 🔨 construction), dmReserveMode
   // ("all" | "custom") + dmReserveAmt for the left-in-the-pot choice.
   const[selId,setSelId]=useState(initialSelId);
+  const[bsJump,setBsJump]=useState(null); // tap the BS title → jump to this property's page/showings/chat
   const[listQ,setListQ]=useState(""); // property search in the left list
   const[bulkOpen,setBulkOpen]=useState(false); // ⚙ bank accounts for every property at once
   const[dsOpen,setDsOpen]=useState(false);  // 🏦 debt service — covered / short / borrow
@@ -16033,9 +16034,13 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         {selP&&(
           <div style={{flex:1,overflowY:"auto",background:T.bg}}>
             <div style={{maxWidth:980,margin:"0 auto",padding:isMobile?"10px 10px 40px":"16px 18px 40px",boxSizing:"border-box"}}>
-              {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:"2px 0 8px"}}>‹ All properties</button>}
+              {isMobile&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"2px 0 8px"}}>
+                <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:0,flex:1,minWidth:0,textAlign:"left"}}>‹ All properties</button>
+                <NavBackChip/>
+              </div>}
+              {bsJump&&<PropertyJumpSheet property={bsJump} current="fin" onClose={()=>setBsJump(null)}/>}
               <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:16,boxShadow:T.shadow,overflow:"hidden"}}>
-                <div style={{padding:"13px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)",fontSize:15,fontWeight:800,color:T.text}}>{selP.address} — Balance Sheet</div>
+                <div onClick={()=>setBsJump(selP)} title="Jump to this property's page, showings or chat" style={{padding:"13px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)",fontSize:15,fontWeight:800,color:T.text,cursor:"pointer"}}>{selP.address} — Balance Sheet<span style={{color:"#C7C7CC",fontWeight:600,marginLeft:5}}>›</span></div>
                 {renderDetail(selP)}
               </div>
             </div>
@@ -18629,12 +18634,13 @@ const navCanBack=()=>gsNav.stack.length>0;
 const navPeekLabel=()=>gsNav.stack.length?gsNav.stack[gsNav.stack.length-1].label||"Back":"";
 // Tap a property's address → where do you want to go for THIS property?
 // Paired with NavBackChip so every jump has a one-tap way home (Elie 8/21/26).
-function PropertyJumpSheet({property,onClose}){
+function PropertyJumpSheet({property,current="prop",onClose}){
   const addr=`${property.address||""}${property.city?`, ${property.city}`:""}`;
   const rows=[
-    gsGo.showings?{ic:"📅",t:"Showings",sub:"Tours, hot leads & the agent CRM for this property",fn:()=>gsGo.showings(property.id)}:null,
-    gsGo.fin?{ic:"💰",t:"Balance Sheet",sub:"Loans, draws & equity in the Financial Section",fn:()=>gsGo.fin(property.id)}:null,
-    gsGo.chat?{ic:"💬",t:"Team Chat",sub:"This property's thread in Messages",fn:()=>gsGo.chat(property.id)}:null,
+    current!=="prop"&&gsGo.prop?{ic:"🏠",t:"Property Page",sub:"Overview, tasks, files & the financial overview",fn:()=>gsGo.prop(property.id)}:null,
+    current!=="showings"&&gsGo.showings?{ic:"📅",t:"Showings",sub:"Tours, hot leads & the agent CRM for this property",fn:()=>gsGo.showings(property.id)}:null,
+    current!=="fin"&&gsGo.fin?{ic:"💰",t:"Balance Sheet",sub:"Loans, draws & equity in the Financial Section",fn:()=>gsGo.fin(property.id)}:null,
+    current!=="chat"&&gsGo.chat?{ic:"💬",t:"Team Chat",sub:"This property's thread in Messages",fn:()=>gsGo.chat(property.id)}:null,
   ].filter(Boolean);
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:480,backdropFilter:"blur(4px)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
@@ -18647,7 +18653,7 @@ function PropertyJumpSheet({property,onClose}){
         </div>
         <div style={{background:"#fff",borderRadius:16,boxShadow:T.shadow,overflow:"hidden"}}>
           {rows.map((r,i)=>(
-            <button key={r.t} onClick={()=>{onClose();r.fn();}} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 15px",background:"none",border:"none",borderTop:i?"1px solid rgba(0,0,0,0.055)":"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left",minHeight:52,boxSizing:"border-box"}}>
+            <button key={r.t} onClick={()=>{onClose();if(gsGo.markProp)gsGo.markProp(property.id);r.fn();}} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 15px",background:"none",border:"none",borderTop:i?"1px solid rgba(0,0,0,0.055)":"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left",minHeight:52,boxSizing:"border-box"}}>
               <span style={{width:34,height:34,borderRadius:10,background:"rgba(118,118,128,0.08)",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{r.ic}</span>
               <span style={{flex:1,minWidth:0}}>
                 <span style={{display:"block",fontSize:14.5,fontWeight:650,color:T.text}}>{r.t}</span>
@@ -21379,6 +21385,8 @@ export function GoldstoneShell(){
 
   const pushPage=(k)=>{if(k!==active)navPush((NAV.find(n=>n.key===active)||{}).short||"Back",((prev)=>()=>setActive(prev))(active));setActive(k);};
   Object.assign(gsGo,{
+    prop:(id)=>{pushPage("properties");setNavPropId(id);},
+    markProp:(id)=>setNavPropId(id),
     showings:(id)=>{try{window.__showingsTarget={propId:id,tab:"buyers"};}catch{/* no window */}pushPage("showings");},
     fin:isAdmin?(id)=>{try{if(id!=null)window.__finTarget={propId:id};}catch{/* no window */}pushPage("financials");}:null,
     chat:(id)=>{pushPage("messages");setNavChatId(id);},

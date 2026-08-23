@@ -3060,7 +3060,7 @@ function propertyTexters(property,showings,btLeads){
 function PropertyTextsList({property,showings,onOpen,onCampaign}){
   const {connected:smsOn,threadFor,unreadFor}=useSmsTexting();
   const btAllLeads=useBtLeads();
-  const[who,setWho]=useState("all"); // all | agents | buyers
+  const[who,setWho]=useState("agents"); // agents by DEFAULT (Elie's rule) | all | buyers
   const[hideNot,toggleHideNot]=useHideNot();
   const address=property.address;
   if(!smsOn)return <div style={{padding:"34px 22px",textAlign:"center",color:T.textTert,fontSize:12.5,lineHeight:1.6}}>Business texting isn\u2019t connected for your login \u2014 conversations show up here once it is.</div>;

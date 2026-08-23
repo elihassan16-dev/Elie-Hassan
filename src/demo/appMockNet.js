@@ -74,11 +74,13 @@ export async function qbAuthFetch(path) {
   if (p.includes("/api/quickbooks/transactions")) {
     const qd = (n) => { const x = new Date(); x.setDate(x.getDate() - n); return x.toISOString().slice(0, 10); };
     return { items: [
-      { id: "tx1", date: qd(2), vendor: "Shia Polak Construction", memo: "Wire — draw 3", account: "Construction", type: "Expense", amount: -15000 },
-      { id: "tx2", date: qd(6), vendor: "", memo: "A/C: SHIA POLAK CONST — wire out", account: "Construction", type: "Transfer", amount: -8000 },
-      { id: "tx3", date: qd(9), vendor: "Home Depot", memo: "Materials", account: "Materials", type: "Expense", amount: -1240 },
-      { id: "tx4", date: qd(14), vendor: "Shia Polak Construction", memo: "Check #1188 — draw 2", account: "Construction", type: "Check", amount: -17500 },
-      { id: "tx5", date: qd(20), vendor: "PSE&G", memo: "Utilities", account: "Utilities", type: "Expense", amount: -212 },
+      { id: "tx1", date: qd(2), vendor: "Shia Polak Construction", memo: "Wire — draw 3", account: "Construction", type: "Expense", amount: -15000, project: "1030 Hanover Blvd" },
+      { id: "tx6", date: qd(4), vendor: "Garden State Lumber", memo: "Wire — lumber package (two jobs)", account: "Materials", type: "Expense", amount: -12000, project: "1030 Hanover Blvd" },
+      { id: "tx6", date: qd(4), vendor: "Garden State Lumber", memo: "Wire — lumber package (two jobs)", account: "Materials", type: "Expense", amount: -8000, project: "417 Lakeview Ter" },
+      { id: "tx2", date: qd(6), vendor: "", memo: "A/C: SHIA POLAK CONST — wire out", account: "Construction", type: "Transfer", amount: -8000, project: "1030 Hanover Blvd" },
+      { id: "tx3", date: qd(9), vendor: "Home Depot", memo: "Materials", account: "Materials", type: "Expense", amount: -1240, project: "417 Lakeview Ter" },
+      { id: "tx4", date: qd(14), vendor: "Shia Polak Construction", memo: "Check #1188 — draw 2", account: "Construction", type: "Check", amount: -17500, project: "1030 Hanover Blvd" },
+      { id: "tx5", date: qd(20), vendor: "PSE&G", memo: "Utilities", account: "Utilities", type: "Expense", amount: -212, project: "" },
     ] };
   }
   if (p.includes("/api/quickbooks")) return { connected: false, rows: [], income: 0, cogs: 0, expenses: 0, netIncome: 0 };

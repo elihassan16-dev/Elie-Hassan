@@ -18844,6 +18844,7 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
   const[loading,setLoading]=useState(false);
   const[splitFor,setSplitFor]=useState(null); // grouped txn → detail/allocation popup
   const money=(n)=>`$${Math.abs(Math.round(n)).toLocaleString()}`;
+  const isCredit=(t)=>/credit|refund/i.test(String(t||""));
   const fd=(d)=>{try{return new Date(String(d).length===10?d+"T12:00:00":d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});}catch{return String(d||"");}};
   const load=()=>{
     setLoading(true);setErr("");
@@ -18921,14 +18922,14 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
                   <span style={{fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.vendor||g.memo||"(no name)"}</span>
-                  {g.type&&<span style={{flexShrink:0,fontSize:9.5,fontWeight:800,color:T.textSub,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",borderRadius:8,padding:"1.5px 7px",whiteSpace:"nowrap"}}>{g.type}{g.num?` #${g.num}`:""}</span>}
+                  {g.type&&<span style={{flexShrink:0,fontSize:9.5,fontWeight:800,color:isCredit(g.type)?GREEN_TXT:T.textSub,background:isCredit(g.type)?"#EAF7EE":"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",borderRadius:8,padding:"1.5px 7px",whiteSpace:"nowrap"}}>{isCredit(g.type)?"↩ ":""}{g.type}{g.num?` #${g.num}`:""}</span>}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:7,marginTop:4,flexWrap:"wrap"}}>
                   {projChip(g)}
                   <span style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{fd(g.date)}{g.accounts.length?` \u00b7 ${g.accounts.join(", ")}`:""}</span>
                 </div>
               </div>
-              <span style={{flexShrink:0,fontSize:14.5,fontWeight:750,color:T.text,fontVariantNumeric:"tabular-nums"}}>{money(g.total)}</span>
+              <span style={{flexShrink:0,fontSize:14.5,fontWeight:750,color:isCredit(g.type)?GREEN_TXT:T.text,fontVariantNumeric:"tabular-nums"}}>{isCredit(g.type)?"−":""}{money(g.total)}</span>
             </div>
           ))}
         </div>
@@ -18944,7 +18945,7 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
               {isMobile&&<div style={{width:36,height:5,borderRadius:3,background:"rgba(0,0,0,0.15)",margin:"8px auto 0"}}/>}
               <div style={{padding:"14px 18px 12px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isSplit?"⚡ Split payment":"Transaction"} · {g.vendor||"(no vendor)"}</div>
+                  <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isCredit(g.type)?"↩ Credit":isSplit?"⚡ Split payment":"Transaction"} · {g.vendor||"(no vendor)"}</div>
                   <div style={{fontSize:11.5,color:T.textSub,marginTop:2}}>{fd(g.date)}{g.type?` \u00b7 ${g.type}${g.num?` #${g.num}`:""}`:""}{g.memo?` \u00b7 ${g.memo}`:""}</div>
                 </div>
                 <button onClick={()=>setSplitFor(null)} style={{width:30,height:30,borderRadius:15,border:"none",background:"rgba(118,118,128,0.1)",color:T.textSub,fontSize:16,lineHeight:1,cursor:"pointer",flexShrink:0}}>×</button>
@@ -18958,7 +18959,7 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
                         <div style={{fontSize:13.5,fontWeight:700,color:pr?"#8a6d1f":T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.project?`🏠 ${l.project}${pr?" ›":""}`:"(no project)"}</div>
                         <div style={{fontSize:11,color:T.textSub,marginTop:1}}>{l.account||""}{l.memo&&l.memo!==g.memo?` \u00b7 ${l.memo}`:""}</div>
                       </div>
-                      <span style={{flexShrink:0,fontSize:13.5,fontWeight:750,color:T.text,fontVariantNumeric:"tabular-nums"}}>{money(l.amount)}</span>
+                      <span style={{flexShrink:0,fontSize:13.5,fontWeight:750,color:isCredit(g.type)?GREEN_TXT:T.text,fontVariantNumeric:"tabular-nums"}}>{isCredit(g.type)?"−":""}{money(l.amount)}</span>
                     </div>
                   );
                 })}
@@ -18966,7 +18967,7 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
               <div style={{margin:"4px 18px 14px",background:"#F7F6F2",borderRadius:12,padding:"10px 14px",display:"flex",alignItems:"center"}}>
                 <span style={{fontSize:12,fontWeight:800,color:T.textSub}}>Total</span>
                 <span style={{flex:1}}/>
-                <span style={{fontSize:14.5,fontWeight:800,color:T.text,fontVariantNumeric:"tabular-nums"}}>{money(g.total)}</span>
+                <span style={{fontSize:14.5,fontWeight:800,color:isCredit(g.type)?GREEN_TXT:T.text,fontVariantNumeric:"tabular-nums"}}>{isCredit(g.type)?"−":""}{money(g.total)}</span>
               </div>
               {g.lines.some(l=>propFor(l.project))&&<div style={{padding:"0 18px 14px",fontSize:11,color:T.textTert,textAlign:"center"}}>Tap a project to open its balance sheet.</div>}
             </div>

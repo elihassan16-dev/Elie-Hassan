@@ -81,6 +81,7 @@ export async function qbAuthFetch(path) {
       { id: "tx3", date: qd(9), vendor: "Home Depot", memo: "Materials", account: "Materials", type: "Expense", amount: -1240, project: "417 Lakeview Ter" },
       { id: "tx4", date: qd(14), vendor: "Shia Polak Construction", memo: "Check #1188 — draw 2", account: "Construction", type: "Check", amount: -17500, project: "1030 Hanover Blvd" },
       { id: "tx5", date: qd(20), vendor: "PSE&G", memo: "Utilities", account: "Utilities", type: "Expense", amount: -212, project: "" },
+      { id: "tx7", date: qd(3), vendor: "Shia Polak Construction", memo: "Returned materials — credit", account: "Construction", type: "Vendor Credit", amount: 2300, project: "1030 Hanover Blvd" },
     ] };
   }
   if (p.includes("/api/quickbooks")) return { connected: false, rows: [], income: 0, cogs: 0, expenses: 0, netIncome: 0 };

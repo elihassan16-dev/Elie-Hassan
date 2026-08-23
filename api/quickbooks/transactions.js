@@ -24,7 +24,7 @@ export default async function handler(req, res) {
     const start = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.start || "")) ? req.query.start : "2010-01-01";
     const end = new Date().toISOString().slice(0, 10);
     const rpt = await qbApi(
-      `/reports/ProfitAndLossDetail?${customerId ? `customer=${encodeURIComponent(customerId)}&` : ""}start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,subt_nat_amount`
+      `/reports/ProfitAndLossDetail?${customerId ? `customer=${encodeURIComponent(customerId)}&` : ""}start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,cust_name,subt_nat_amount`
     );
 
     // Map each column to a lowercase key from its metadata (fall back to title).
@@ -39,6 +39,7 @@ export default async function handler(req, res) {
     const iName = idx("name");
     const iMemo = idx("memo");
     const iAmt = idx("subt_nat_amount", "nat_amount", "amount");
+    const iCust = idx("cust_name", "cust");
 
     // Transactions are grouped under their P&L account. Each Section's Header holds
     // the account name; carry it down to the transaction rows beneath it. Nested
@@ -70,7 +71,7 @@ export default async function handler(req, res) {
             // The tx_date cell carries the transaction's Id in detail reports; keep it
             // so the client can fetch the full transaction (all splits) on demand.
             const id = r.ColData[iDate >= 0 ? iDate : 0]?.id || r.ColData.find((c) => c && c.id)?.id || "";
-            items.push({ id, date, type, num: g(iNum), vendor, memo: g(iMemo), account: acct, section: sec, amount: num(g(iAmt)) });
+            items.push({ id, date, type, num: g(iNum), vendor, memo: g(iMemo), project: g(iCust), account: acct, section: sec, amount: num(g(iAmt)) });
           }
         }
         if (r.Rows?.Row) walk(r.Rows.Row, acct, sec);

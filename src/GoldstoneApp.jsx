@@ -18833,6 +18833,150 @@ function NavBackChip({style,compact}){
   );
 }
 
+// ── 🔍 Find a Transaction — search all of QuickBooks by vendor or amount ─────
+// Company-wide P&L detail lines grouped back into transactions; each shows
+// which project (QB customer) it hit, and a check split across projects gets a
+// ⚡ Split tag that opens the per-project allocation.
+function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
+  const[q,setQ]=useState("");
+  const[rows,setRows]=useState(null);
+  const[err,setErr]=useState("");
+  const[loading,setLoading]=useState(false);
+  const[splitFor,setSplitFor]=useState(null); // grouped txn → detail/allocation popup
+  const money=(n)=>`$${Math.abs(Math.round(n)).toLocaleString()}`;
+  const isCredit=(t)=>/credit|refund/i.test(String(t||""));
+  const fd=(d)=>{try{return new Date(String(d).length===10?d+"T12:00:00":d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});}catch{return String(d||"");}};
+  const load=()=>{
+    setLoading(true);setErr("");
+    qbAuthFetch("/api/quickbooks/transactions").then(d=>{
+      if(d&&Array.isArray(d.items))setRows(d.items);
+      else{setRows([]);setErr((d&&d.error)||"QuickBooks didn\u2019t return any transactions \u2014 is it connected?");}
+    }).catch(e=>{setRows([]);setErr(e.message||"Couldn\u2019t reach QuickBooks.");}).finally(()=>setLoading(false));
+  };
+  useEffect(()=>{load();},[]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A QB project named like one of our properties jumps to its balance sheet.
+  const propFor=(projName)=>{
+    const k=String(projName||"").split(",")[0].trim().toLowerCase();
+    if(!k)return null;
+    // Only offer the jump when the property actually appears on the BS report
+    // (same status gate FinPropertyBS uses) — no dead-end taps.
+    return (sharedProps||[]).find(p=>String(p.address||"").split(",")[0].trim().toLowerCase()===k&&!p.archived&&BS_STATUSES.includes(p.status))||null;
+  };
+  // The report lists every split line separately (same txn id) — group them
+  // back into one transaction and keep the lines for the allocation popup.
+  const grouped=(()=>{
+    if(!rows)return[];
+    const by=new Map();
+    rows.forEach((t,i)=>{
+      const key=t.id||`${t.date}|${t.num||""}|${t.vendor||""}|${i}`;
+      const g=by.get(key)||{key,id:t.id,date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,total:0,lines:[],projects:[],accounts:[]};
+      g.total+=Number(t.amount)||0;
+      g.lines.push(t);
+      if(t.project&&!g.projects.includes(t.project))g.projects.push(t.project);
+      if(t.account&&!g.accounts.includes(t.account))g.accounts.push(t.account);
+      if(!g.vendor&&t.vendor)g.vendor=t.vendor;
+      if(!g.memo&&t.memo)g.memo=t.memo;
+      by.set(key,g);
+    });
+    return[...by.values()].sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  })();
+  const ql=q.trim().toLowerCase();
+  const qNum=(()=>{if(!ql||!/^[$\s]*[\d.,]+$/.test(ql))return null;const n=parseFloat(ql.replace(/[$,\s]/g,""));return isNaN(n)?null:Math.abs(n);})();
+  const amtHit=(g)=>qNum!=null&&(Math.abs(Math.round(Math.abs(g.total))-qNum)<1||g.lines.some(l=>Math.abs(Math.round(Math.abs(l.amount))-qNum)<1));
+  const txtHit=(g)=>[g.vendor,g.memo,g.num,g.type,...g.projects,...g.accounts].filter(Boolean).join(" ").toLowerCase().includes(ql);
+  const shown=!ql?grouped:grouped.filter(g=>qNum!=null?(amtHit(g)||txtHit(g)):txtHit(g));
+  const CAP=60;
+  const projChip=(g)=>{
+    if(g.projects.length>1)return(
+      <button onClick={e=>{e.stopPropagation();setSplitFor(g);}} title="Split across projects — tap to see the allocation" style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:100,background:"#FDE9C8",border:"1px solid #E8B45A",color:"#B45309",fontSize:10.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>⚡ Split · {g.projects.length} projects</button>
+    );
+    if(g.projects.length===1){
+      const pr=propFor(g.projects[0]);
+      return(
+        <button onClick={e=>{e.stopPropagation();if(pr&&onOpenProperty)onOpenProperty(pr.id);}} title={pr?"Open this property\u2019s balance sheet":g.projects[0]} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:100,background:T.goldLight,border:"1px solid #EAD9A9",color:"#8a6d1f",fontSize:10.5,fontWeight:700,cursor:pr?"pointer":"default",fontFamily:"inherit",maxWidth:190,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>🏠 {g.projects[0]}{pr?" ›":""}</button>
+      );
+    }
+    return <span style={{padding:"3px 10px",borderRadius:100,background:"rgba(118,118,128,0.08)",color:T.textTert,fontSize:10.5,fontWeight:700,flexShrink:0}}>No project</span>;
+  };
+  return(
+    <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+      <div style={{maxWidth:760,margin:"0 auto",padding:isMobile?"12px 12px 40px":"18px 18px 40px",boxSizing:"border-box"}}>
+        <div style={{position:"relative",marginBottom:10}}>
+          <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:15,pointerEvents:"none"}}>⌕</span>
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search a vendor, memo, project or amount…" inputMode="search"
+            style={{width:"100%",padding:"12px 36px",borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",fontSize:15,outline:"none",boxSizing:"border-box",fontFamily:"inherit",boxShadow:T.shadow}}/>
+          {q&&<button onClick={()=>setQ("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:17,lineHeight:1}}>×</button>}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <span style={{fontSize:11.5,color:T.textSub}}>{loading?"Loading from QuickBooks\u2026":rows?`${shown.length} transaction${shown.length===1?"":"s"}${shown.length>CAP?` \u00b7 showing the first ${CAP}`:""}`:""}</span>
+          <span style={{flex:1}}/>
+          <button onClick={load} disabled={loading} style={{padding:"5px 12px",borderRadius:100,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>↻</button>
+        </div>
+        {err&&<div style={{marginBottom:10,padding:"10px 13px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:12,color:T.red,fontSize:12.5,lineHeight:1.5}}>{err}</div>}
+        {!loading&&rows&&shown.length===0&&!err&&(
+          <div style={{padding:"40px 20px",textAlign:"center",color:T.textTert,fontSize:13,lineHeight:1.6}}>{ql?`Nothing matched \u201c${q.trim()}\u201d.`:"No transactions yet."}<br/>Try a vendor’s name, part of a memo, or a dollar amount.</div>
+        )}
+        <div style={{background:"#fff",borderRadius:16,boxShadow:T.shadow,overflow:"hidden"}}>
+          {shown.slice(0,CAP).map((g,i)=>(
+            <div key={g.key} onClick={()=>setSplitFor(g)} style={{display:"flex",alignItems:"center",gap:10,padding:isMobile?"11px 12px":"11px 16px",borderTop:i?"1px solid rgba(0,0,0,0.055)":"none",cursor:"pointer"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                  <span style={{fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.vendor||g.memo||"(no name)"}</span>
+                  {g.type&&<span style={{flexShrink:0,fontSize:9.5,fontWeight:800,color:isCredit(g.type)?GREEN_TXT:T.textSub,background:isCredit(g.type)?"#EAF7EE":"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",borderRadius:8,padding:"1.5px 7px",whiteSpace:"nowrap"}}>{isCredit(g.type)?"↩ ":""}{g.type}{g.num?` #${g.num}`:""}</span>}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:7,marginTop:4,flexWrap:"wrap"}}>
+                  {projChip(g)}
+                  <span style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{fd(g.date)}{g.accounts.length?` \u00b7 ${g.accounts.join(", ")}`:""}</span>
+                </div>
+              </div>
+              <span style={{flexShrink:0,fontSize:14.5,fontWeight:750,color:isCredit(g.type)?GREEN_TXT:T.text,fontVariantNumeric:"tabular-nums"}}>{isCredit(g.type)?"−":""}{money(g.total)}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{marginTop:12,fontSize:11.5,color:T.textTert,textAlign:"center",lineHeight:1.5}}>Live from QuickBooks · tap any transaction for its full breakdown</div>
+      </div>
+      {/* Transaction detail / split-allocation sheet */}
+      {splitFor&&(()=>{
+        const g=splitFor;
+        const isSplit=g.projects.length>1;
+        return(
+          <div onClick={()=>setSplitFor(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:480,display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:isMobile?"18px 18px 0 0":18,width:isMobile?"100%":"min(460px,96vw)",maxHeight:"84vh",overflowY:"auto",boxShadow:"0 14px 44px rgba(0,0,0,0.25)",paddingBottom:isMobile?"max(10px,env(safe-area-inset-bottom))":0}}>
+              {isMobile&&<div style={{width:36,height:5,borderRadius:3,background:"rgba(0,0,0,0.15)",margin:"8px auto 0"}}/>}
+              <div style={{padding:"14px 18px 12px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isCredit(g.type)?"↩ Credit":isSplit?"⚡ Split payment":"Transaction"} · {g.vendor||"(no vendor)"}</div>
+                  <div style={{fontSize:11.5,color:T.textSub,marginTop:2}}>{fd(g.date)}{g.type?` \u00b7 ${g.type}${g.num?` #${g.num}`:""}`:""}{g.memo?` \u00b7 ${g.memo}`:""}</div>
+                </div>
+                <button onClick={()=>setSplitFor(null)} style={{width:30,height:30,borderRadius:15,border:"none",background:"rgba(118,118,128,0.1)",color:T.textSub,fontSize:16,lineHeight:1,cursor:"pointer",flexShrink:0}}>×</button>
+              </div>
+              <div style={{padding:"6px 18px 4px"}}>
+                {g.lines.map((l,i)=>{
+                  const pr=propFor(l.project);
+                  return(
+                    <div key={i} onClick={()=>{if(pr&&onOpenProperty){setSplitFor(null);onOpenProperty(pr.id);}}} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 0",borderTop:i?"1px solid rgba(0,0,0,0.055)":"none",cursor:pr?"pointer":"default"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13.5,fontWeight:700,color:pr?"#8a6d1f":T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.project?`🏠 ${l.project}${pr?" ›":""}`:"(no project)"}</div>
+                        <div style={{fontSize:11,color:T.textSub,marginTop:1}}>{l.account||""}{l.memo&&l.memo!==g.memo?` \u00b7 ${l.memo}`:""}</div>
+                      </div>
+                      <span style={{flexShrink:0,fontSize:13.5,fontWeight:750,color:isCredit(g.type)?GREEN_TXT:T.text,fontVariantNumeric:"tabular-nums"}}>{isCredit(g.type)?"−":""}{money(l.amount)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{margin:"4px 18px 14px",background:"#F7F6F2",borderRadius:12,padding:"10px 14px",display:"flex",alignItems:"center"}}>
+                <span style={{fontSize:12,fontWeight:800,color:T.textSub}}>Total</span>
+                <span style={{flex:1}}/>
+                <span style={{fontSize:14.5,fontWeight:800,color:isCredit(g.type)?GREEN_TXT:T.text,fontVariantNumeric:"tabular-nums"}}>{isCredit(g.type)?"−":""}{money(g.total)}</span>
+              </div>
+              {g.lines.some(l=>propFor(l.project))&&<div style={{padding:"0 18px 14px",fontSize:11,color:T.textTert,textAlign:"center"}}>Tap a project to open its balance sheet.</div>}
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
 function FinancialSectionPage({onNavigate,canEdit=true}){
   const { funders, setFunders:rawSetFunders, flushFunders, draws, setDraws:rawSetDraws, flushDraws, sharedProps, setSharedProps, flushProps, setOfficeTasks, flushOfficeTasks, teamMembers, currentUser, bankAccounts, setBankAccounts, flushBank } = useData();
   // View-only members: block every write path (setters become no-ops).
@@ -19145,7 +19289,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
             was removed at Elie's request — the tabs themselves are the nav.) */}
         <div style={{marginTop:12}}>
           <div style={SEG_WRAP}>
-            {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["reports","Report Center"],["sold","🏷 Sold Properties"],["docs","Document Creator"]].map(([k,l])=>(
+            {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["find","🔍 Find a Transaction"],["reports","Report Center"],["sold","🏷 Sold Properties"],["docs","Document Creator"]].map(([k,l])=>(
               <button key={k} onClick={()=>{if(k!==subTab)navPush(((st,bp)=>()=>{setSubTab(st);setBsSel(bp);})(subTab,bsSel));setSubTab(k);setBsSel(null);}} style={{...segTab(subTab===k),fontSize:isMobile?12:12.5,...(subTab===k?{color:T.gold}:{})}}>{l}</button>
             ))}
           </div>
@@ -19181,6 +19325,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       </>}
       {subTab==="bs"&&<FinPropertyBS sharedProps={sharedProps} draws={draws} onNavigate={onNavigate} initialSelId={bsSel} isMobile={isMobile} canEdit={canEdit}/>}
       {subTab==="bank"&&<FinBankRecon sharedProps={sharedProps} onOpenProperty={goToBS} isMobile={isMobile} canEdit={canEdit}/>}
+      {subTab==="find"&&<FinTxnSearch sharedProps={sharedProps} onOpenProperty={goToBS} isMobile={isMobile}/>}
       {subTab==="reports"&&<FinReportCenter sharedProps={sharedProps} isMobile={isMobile} canEdit={canEdit}/>}
       {subTab==="sold"&&<FinReportCenter sharedProps={sharedProps} isMobile={isMobile} canEdit={canEdit} soldPage/>}
       {subTab==="docs"&&<FinDocCreator sharedProps={sharedProps} isMobile={isMobile}/>}

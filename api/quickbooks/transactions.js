@@ -129,11 +129,14 @@ export default async function handler(req, res) {
         };
         // modest concurrency — dozens of projects stay well inside the timeout
         const t0 = Date.now();
+        let complete = true;
         for (let i = 0; i < projects.length; i += 10) {
-          if (Date.now() - t0 > 40000) break; // stay inside maxDuration — partial attribution beats a 500
+          if (Date.now() - t0 > 40000) { complete = false; break; } // stay inside maxDuration — partial attribution beats a 500
           await Promise.all(projects.slice(i, i + 10).map(one));
         }
-        if (!cached) _allocCache = { at: Date.now(), start, map: alloc };
+        // Only a COMPLETE sweep may be cached — caching a clipped run would
+        // serve its gaps for 10 minutes.
+        if (!cached && complete) _allocCache = { at: Date.now(), start, map: alloc };
         for (const t of items) { if (!t.project) { const hit = alloc.get(`${t.id}|${t.amount}`); if (hit) t.project = hit; } }
       } catch (e) { console.error("[quickbooks] project attribution skipped:", e.message); }
     }

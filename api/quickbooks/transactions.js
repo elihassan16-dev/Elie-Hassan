@@ -79,6 +79,55 @@ export default async function handler(req, res) {
     }
     walk(rpt.Rows?.Row, "", "");
 
+    // ── Project attribution for the company-wide report ──────────────────────
+    // QBO's ProfitAndLossDetail NEVER fills a customer column on the whole-
+    // company run (known API limitation) — but the SAME report filtered to one
+    // customer works (the property pages rely on it). So: list the projects,
+    // run the report per project in parallel, and stamp each company line with
+    // its project by matching transaction id + amount. A split check appears in
+    // two projects' reports with each project's own slice, so splits map
+    // per-line for free. Best-effort: attribution failures leave "No project".
+    if (!customerId && items.length) {
+      try {
+        const pj = await qbApi(`/query?query=${encodeURIComponent("select Id, DisplayName, Job, ParentRef from Customer where Active in (true, false) maxresults 1000")}`);
+        // Parents first, then sub-customers/projects — a line inside a project is
+        // stamped by both passes and the more specific (project) name wins.
+        const projects = (pj.QueryResponse?.Customer || [])
+          .map((c) => ({ id: c.Id, name: c.DisplayName, sub: !!(c.Job || c.ParentRef) }))
+          .sort((a, b) => (a.sub ? 1 : 0) - (b.sub ? 1 : 0))
+          .slice(0, 120);
+        const alloc = new Map(); // `${txnId}|${amount}` → project name
+        const one = async (proj) => {
+          try {
+            const r = await qbApi(
+              `/reports/ProfitAndLossDetail?customer=${encodeURIComponent(proj.id)}&start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,subt_nat_amount`
+            );
+            const pc = (r.Columns?.Column || []).map((c) => { const m = (c.MetaData || []).find((x) => x.Name === "ColKey"); return (m?.Value || c.ColType || c.ColTitle || "").toLowerCase(); });
+            const pAmt = pc.findIndex((c) => c.includes("subt_nat_amount") || c.includes("nat_amount") || c.includes("amount"));
+            const pDate = pc.findIndex((c) => c.includes("tx_date") || c.includes("date"));
+            (function w(rows) {
+              if (!rows) return;
+              for (const row of rows) {
+                if (row.ColData) {
+                  const id = row.ColData[pDate >= 0 ? pDate : 0]?.id || row.ColData.find((c) => c && c.id)?.id || "";
+                  const amt = num(pAmt >= 0 ? row.ColData[pAmt]?.value : "");
+                  if (id) alloc.set(`${id}|${amt}`, proj.name);
+                }
+                if (row.Rows?.Row) w(row.Rows.Row);
+              }
+            })(r.Rows?.Row);
+          } catch { /* one project failing shouldn't sink the search */ }
+        };
+        // modest concurrency — dozens of projects stay well inside the timeout
+        const t0 = Date.now();
+        for (let i = 0; i < projects.length; i += 8) {
+          if (Date.now() - t0 > 6500) break; // stay well inside the function timeout — partial attribution beats a 500
+          await Promise.all(projects.slice(i, i + 8).map(one));
+        }
+        for (const t of items) { if (!t.project) { const hit = alloc.get(`${t.id}|${t.amount}`); if (hit) t.project = hit; } }
+      } catch (e) { console.error("[quickbooks] project attribution skipped:", e.message); }
+    }
+
     // Temporary diagnostic: ?debug=1 shows the report shape + per-account counts.
     if (req.query.debug) {
       res.status(200).json({

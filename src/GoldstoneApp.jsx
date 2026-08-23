@@ -18903,7 +18903,7 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
       <div style={{maxWidth:760,margin:"0 auto",padding:isMobile?"12px 12px 40px":"18px 18px 40px",boxSizing:"border-box"}}>
         <div style={{position:"relative",marginBottom:10}}>
           <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:15,pointerEvents:"none"}}>⌕</span>
-          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search a vendor, memo, project or amount\u2026" inputMode="search"
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search a vendor, memo, project or amount…" inputMode="search"
             style={{width:"100%",padding:"12px 36px",borderRadius:14,border:`1px solid ${T.border}`,background:"#fff",fontSize:15,outline:"none",boxSizing:"border-box",fontFamily:"inherit",boxShadow:T.shadow}}/>
           {q&&<button onClick={()=>setQ("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:17,lineHeight:1}}>×</button>}
         </div>

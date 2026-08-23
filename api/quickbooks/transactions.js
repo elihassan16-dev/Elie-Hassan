@@ -1,5 +1,11 @@
 import { qbApi, requireAppUser } from "../../lib/quickbooks.js";
 
+// Project attribution fans out one report call per project — give it room.
+export const config = { maxDuration: 60 };
+// Warm-instance cache of the txn→project map so refreshes are instant and
+// repeat loads skip the fan-out entirely.
+let _allocCache = { at: 0, start: "", map: null };
+
 // Transaction-level detail for a single QuickBooks project/customer, grouped by
 // the P&L account (Purchase Price, Rehab Costs, etc.) so the app can drill into a
 // cost bucket and list each transaction.
@@ -89,14 +95,16 @@ export default async function handler(req, res) {
     // per-line for free. Best-effort: attribution failures leave "No project".
     if (!customerId && items.length) {
       try {
-        const pj = await qbApi(`/query?query=${encodeURIComponent("select Id, DisplayName, Job, ParentRef from Customer where Active in (true, false) maxresults 1000")}`);
-        // Parents first, then sub-customers/projects — a line inside a project is
-        // stamped by both passes and the more specific (project) name wins.
-        const projects = (pj.QueryResponse?.Customer || [])
+        const cached = _allocCache.map && _allocCache.start === start && Date.now() - _allocCache.at < 10 * 60000;
+        const pj = cached ? null : await qbApi(`/query?query=${encodeURIComponent("select Id, DisplayName, Job, ParentRef from Customer where Active in (true, false) maxresults 1000")}`);
+        // SUB-projects first — they're the actual jobs, and if the clock runs out
+        // it's the generic parents we skip, not the properties. First writer wins
+        // per key, so a child's specific name is never overwritten by its parent.
+        const projects = cached ? [] : (pj.QueryResponse?.Customer || [])
           .map((c) => ({ id: c.Id, name: c.DisplayName, sub: !!(c.Job || c.ParentRef) }))
-          .sort((a, b) => (a.sub ? 1 : 0) - (b.sub ? 1 : 0))
-          .slice(0, 120);
-        const alloc = new Map(); // `${txnId}|${amount}` → project name
+          .sort((a, b) => (b.sub ? 1 : 0) - (a.sub ? 1 : 0))
+          .slice(0, 200);
+        const alloc = cached ? _allocCache.map : new Map(); // `${txnId}|${amount}` → project name
         const one = async (proj) => {
           try {
             const r = await qbApi(
@@ -111,7 +119,8 @@ export default async function handler(req, res) {
                 if (row.ColData) {
                   const id = row.ColData[pDate >= 0 ? pDate : 0]?.id || row.ColData.find((c) => c && c.id)?.id || "";
                   const amt = num(pAmt >= 0 ? row.ColData[pAmt]?.value : "");
-                  if (id) alloc.set(`${id}|${amt}`, proj.name);
+                  const k = `${id}|${amt}`;
+                  if (id && !alloc.has(k)) alloc.set(k, proj.name);
                 }
                 if (row.Rows?.Row) w(row.Rows.Row);
               }
@@ -120,10 +129,11 @@ export default async function handler(req, res) {
         };
         // modest concurrency — dozens of projects stay well inside the timeout
         const t0 = Date.now();
-        for (let i = 0; i < projects.length; i += 8) {
-          if (Date.now() - t0 > 6500) break; // stay well inside the function timeout — partial attribution beats a 500
-          await Promise.all(projects.slice(i, i + 8).map(one));
+        for (let i = 0; i < projects.length; i += 10) {
+          if (Date.now() - t0 > 40000) break; // stay inside maxDuration — partial attribution beats a 500
+          await Promise.all(projects.slice(i, i + 10).map(one));
         }
+        if (!cached) _allocCache = { at: Date.now(), start, map: alloc };
         for (const t of items) { if (!t.project) { const hit = alloc.get(`${t.id}|${t.amount}`); if (hit) t.project = hit; } }
       } catch (e) { console.error("[quickbooks] project attribution skipped:", e.message); }
     }

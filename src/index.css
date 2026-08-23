@@ -5,6 +5,12 @@
 }
 
 * { -webkit-tap-highlight-color: transparent; }
+/* iOS ignores user-scalable=no since iOS 10, so double-tap-zoom stays armed and
+   Safari can hold or swallow a first tap while waiting for a second one.
+   touch-action:manipulation keeps scroll + pinch but kills the double-tap
+   arbitration — taps fire immediately and reliably. */
+button, [role="button"], a, select, input, textarea, label,
+[style*="cursor: pointer"], [style*="cursor:pointer"] { touch-action: manipulation; }
 
 html, body, #root {
   margin: 0;

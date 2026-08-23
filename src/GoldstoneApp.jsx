@@ -18843,6 +18843,10 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
   const[err,setErr]=useState("");
   const[loading,setLoading]=useState(false);
   const[splitFor,setSplitFor]=useState(null); // grouped txn → detail/allocation popup
+  // Opening a transaction pulls the RAW entity from QuickBooks — its lines
+    // carry the authoritative per-line job, so the popup can say definitively
+    // whether a line is untagged in QB or the report matching just missed it.
+  const[entFor,setEntFor]=useState(null); // {key, lines} from /txn-lines
   const money=(n)=>`$${Math.abs(Math.round(n)).toLocaleString()}`;
   const isCredit=(t)=>/credit|refund/i.test(String(t||""));
   const fd=(d)=>{try{return new Date(String(d).length===10?d+"T12:00:00":d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});}catch{return String(d||"");}};
@@ -18854,6 +18858,15 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
     }).catch(e=>{setRows([]);setErr(e.message||"Couldn\u2019t reach QuickBooks.");}).finally(()=>setLoading(false));
   };
   useEffect(()=>{load();},[]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{
+    if(!splitFor||!splitFor.id||!splitFor.type){setEntFor(null);return;}
+    let dead=false;
+    qbAuthFetch(`/api/quickbooks/txn-lines?id=${encodeURIComponent(splitFor.id)}&type=${encodeURIComponent(splitFor.type)}`).then(d=>{
+      if(dead||!d||!Array.isArray(d.lines)||!d.lines.length)return;
+      setEntFor({key:splitFor.key,lines:d.lines.map(l=>({project:l.customer||"",account:l.account||"",amount:l.amount,memo:l.description||""}))});
+    }).catch(()=>{/* report lines stay */});
+    return()=>{dead=true;};
+  },[splitFor]);
   // A QB project named like one of our properties jumps to its balance sheet.
   const propFor=(projName)=>{
     const k=String(projName||"").split(",")[0].trim().toLowerCase();
@@ -18938,7 +18951,10 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
       {/* Transaction detail / split-allocation sheet */}
       {splitFor&&(()=>{
         const g=splitFor;
-        const isSplit=g.projects.length>1;
+        const exact=entFor&&entFor.key===g.key;
+        const lines=exact?entFor.lines:g.lines;
+        const tot=exact?lines.reduce((n,l)=>n+(Number(l.amount)||0),0):g.total;
+        const isSplit=(exact?[...new Set(lines.map(l=>l.project).filter(Boolean))].length:g.projects.length)>1;
         return(
           <div onClick={()=>setSplitFor(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:480,display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
             <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:isMobile?"18px 18px 0 0":18,width:isMobile?"100%":"min(460px,96vw)",maxHeight:"84vh",overflowY:"auto",boxShadow:"0 14px 44px rgba(0,0,0,0.25)",paddingBottom:isMobile?"max(10px,env(safe-area-inset-bottom))":0}}>
@@ -18951,12 +18967,12 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
                 <button onClick={()=>setSplitFor(null)} style={{width:30,height:30,borderRadius:15,border:"none",background:"rgba(118,118,128,0.1)",color:T.textSub,fontSize:16,lineHeight:1,cursor:"pointer",flexShrink:0}}>×</button>
               </div>
               <div style={{padding:"6px 18px 4px"}}>
-                {g.lines.map((l,i)=>{
+                {lines.map((l,i)=>{
                   const pr=propFor(l.project);
                   return(
                     <div key={i} onClick={()=>{if(pr&&onOpenProperty){setSplitFor(null);onOpenProperty(pr.id);}}} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 0",borderTop:i?"1px solid rgba(0,0,0,0.055)":"none",cursor:pr?"pointer":"default"}}>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13.5,fontWeight:700,color:pr?"#8a6d1f":T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.project?`🏠 ${l.project}${pr?" ›":""}`:"(no project)"}</div>
+                        <div style={{fontSize:13.5,fontWeight:700,color:pr?"#8a6d1f":T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.project?`🏠 ${l.project}${pr?" ›":""}`:exact?"(no job tagged in QuickBooks)":"(no project)"}</div>
                         <div style={{fontSize:11,color:T.textSub,marginTop:1}}>{l.account||""}{l.memo&&l.memo!==g.memo?` \u00b7 ${l.memo}`:""}</div>
                       </div>
                       <span style={{flexShrink:0,fontSize:13.5,fontWeight:750,color:isCredit(g.type)?GREEN_TXT:T.text,fontVariantNumeric:"tabular-nums"}}>{isCredit(g.type)?"−":""}{money(l.amount)}</span>
@@ -18967,9 +18983,9 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
               <div style={{margin:"4px 18px 14px",background:"#F7F6F2",borderRadius:12,padding:"10px 14px",display:"flex",alignItems:"center"}}>
                 <span style={{fontSize:12,fontWeight:800,color:T.textSub}}>Total</span>
                 <span style={{flex:1}}/>
-                <span style={{fontSize:14.5,fontWeight:800,color:isCredit(g.type)?GREEN_TXT:T.text,fontVariantNumeric:"tabular-nums"}}>{isCredit(g.type)?"−":""}{money(g.total)}</span>
+                <span style={{fontSize:14.5,fontWeight:800,color:isCredit(g.type)?GREEN_TXT:T.text,fontVariantNumeric:"tabular-nums"}}>{isCredit(g.type)?"−":""}{money(tot)}</span>
               </div>
-              {g.lines.some(l=>propFor(l.project))&&<div style={{padding:"0 18px 14px",fontSize:11,color:T.textTert,textAlign:"center"}}>Tap a project to open its balance sheet.</div>}
+              <div style={{padding:"0 18px 14px",fontSize:11,color:T.textTert,textAlign:"center",lineHeight:1.5}}>{exact?"Straight from the QuickBooks transaction — a line with no job here is untagged in QuickBooks itself.":lines.some(l=>propFor(l.project))?"Tap a project to open its balance sheet.":""}</div>
             </div>
           </div>
         );

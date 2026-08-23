@@ -31,12 +31,16 @@ function lineFields(line) {
     line.SalesItemLineDetail ||
     {};
   const account = d.AccountRef?.name || line.ItemRef?.name || d.AccountRef?.value || "";
+  // The line's job/project: expense-style lines carry CustomerRef; journal
+  // lines carry Entity.EntityRef (when the entity is a customer).
+  const customer = d.CustomerRef?.name || (d.Entity && d.Entity.EntityRef && d.Entity.EntityRef.name) || "";
   return {
     account,
     accountId: d.AccountRef?.value || "",
     amount: Number(line.Amount) || 0,
     description: line.Description || "",
     postingType: d.PostingType || "",
+    customer,
   };
 }
 

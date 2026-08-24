@@ -4257,7 +4257,7 @@ function RentalPortfolioPage(){
             </div>
             {ledger.length===0
               ?<div style={{padding:"22px 16px",textAlign:"center",fontSize:13,color:T.textTert}}>No months logged yet. Add one — it pre-fills expected rent, mortgage & management.</div>
-              :<div style={{overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain"}}>
+              :<div style={{overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                   <thead><tr>
                     <th style={{textAlign:"left",textTransform:"uppercase",fontSize:10,letterSpacing:"0.05em",color:T.textTert,fontWeight:700,padding:"9px 16px",borderBottom:`1px solid ${T.border}`}}>Month</th>
@@ -7320,7 +7320,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
             })}
           </div>
         ) : (
-        <div style={{overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain"}}>
+        <div style={{overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse"}}>
             <thead>
               <tr>
@@ -10323,14 +10323,16 @@ function ContactsPage(){
             <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:T.textTert,fontSize:15,pointerEvents:"none"}}>⌕</span>
             <input placeholder={tagSel&&tagSel!=="__ctr"?`Search in ${tagLabel}…`:"Search a name, company, trade…"} value={search} onChange={e=>setSearch(e.target.value)} style={{...iS,paddingLeft:28,fontSize:13,padding:"7px 10px 7px 28px",borderRadius:100,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)"}}/>
           </div>
-          <div className="gs-scroll-x" style={{display:"flex",gap:6,marginTop:10,overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",WebkitOverflowScrolling:"touch",scrollbarWidth:"none"}}>
-            {(()=>{const chipF=(k,label)=>(<button key={k||"all"} onClick={()=>{setTagSel(k);setSelId(null);setSelOrgId(null);}} style={{...TOGGLE_CHIP(tagSel===k,undefined),color:tagSel===k?T.text:T.textSub,flexShrink:0}}>{label}</button>);
-              return(<>
-                {chipF(null,"All")}
-                {ctrOrgs.length>0&&chipF("__ctr","🔨 Contractors")}
-                {tagFolders.map(f=>chipF(f.key,`${tagEmoji(f.label)} ${f.label} · ${f.n}`))}
-                {noTagN>0&&chipF("__none","📁 No tag")}
-              </>);})()}
+          {/* Tag filter — a dropdown (the chip row overflowed and couldn't scroll;
+              Elie's call). All by default, one tap to any tag. */}
+          <div style={{marginTop:10}}>
+            <select value={tagSel||""} onChange={e=>{setTagSel(e.target.value||null);setSelId(null);setSelOrgId(null);}}
+              style={{appearance:"none",WebkitAppearance:"none",width:"100%",padding:"9px 34px 9px 14px",borderRadius:100,border:"1px solid rgba(0,0,0,0.05)",background:`rgba(118,118,128,0.08) url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7' viewBox='0 0 12 7'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%236E6E73' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 13px center/12px`,fontSize:13,fontWeight:650,color:T.text,fontFamily:"inherit",outline:"none",cursor:"pointer",boxSizing:"border-box"}}>
+              <option value="">👥 All people</option>
+              {ctrOrgs.length>0&&<option value="__ctr">🔨 Contractors</option>}
+              {tagFolders.map(f=><option key={f.key} value={f.key}>{tagEmoji(f.label)} {f.label} · {f.n}</option>)}
+              {noTagN>0&&<option value="__none">📁 No tag</option>}
+            </select>
           </div>
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
@@ -11195,7 +11197,7 @@ function ArvUnderwriter({address,f,upMany,isMobile,pinfo,onInfo}){
               <div style={{fontSize:11.5,color:T.textSub,lineHeight:1.55,marginTop:6}}>{res.reasoning}</div>
               {res.asIs>0&&<div style={{fontSize:10.5,color:T.textTert,marginTop:4}}>Automated as-is estimate: {fmtD(res.asIs)} · comps: {res.provider||"county records"} · underwritten {new Date(res.at).toLocaleDateString()}{res.filters?` · within ${res.filters.radius} mi, sold last ${res.filters.months} mo`:""}</div>}
               {res.after&&<div style={{fontSize:10.5,color:"#8a6d1f",fontWeight:700,marginTop:3}}>🏗 Valued as finished: {[res.after.scope?({light:"light rehab",mid:"mid rehab",gut:"full gut"})[res.after.scope]:"",res.after.sqftAdd?`+${res.after.sqftAdd} sf`:"",res.after.beds?`${res.after.beds} bd`:"",(res.after.bathsFull||res.after.bathsHalf)?`${res.after.bathsFull||0} full${res.after.bathsHalf?` + ${res.after.bathsHalf} half`:""} ba`:""].filter(Boolean).join(" · ")}</div>}
-              <div style={{overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",marginTop:6}}>
+              <div style={{overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain auto",marginTop:6}}>
                 <table style={{borderCollapse:"collapse",width:"100%",minWidth:520}}>
                   <thead><tr>{["COMP","LIST","SOLD","WHEN","$/SF","DIST",""].map(h=><th key={h} style={{fontSize:10,fontWeight:800,letterSpacing:"0.04em",color:T.textTert,textAlign:"left",padding:"4px 7px",borderBottom:`1.5px solid ${T.border}`}}>{h}</th>)}</tr></thead>
                   <tbody>

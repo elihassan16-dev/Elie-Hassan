@@ -4669,11 +4669,13 @@ function QuickBooksTab({property,onUpdate}){
         )}
       </Card>
 
-      {error&&<div style={{marginBottom:14,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>
-        <div style={{marginBottom:8,wordBreak:"break-word"}}>{error}</div>
-        {!/monthly API-call limit/.test(error)&&<button onClick={()=>{window.location.href="/api/quickbooks/connect";}} style={{padding:"6px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Reconnect QuickBooks</button>}
-        <div style={{marginTop:8,fontSize:12}}><QbSupport/></div>
-      </div>}
+      {error&&(/monthly API-call limit/.test(error)
+        ?<div style={{marginBottom:14,padding:"10px 12px",background:"#FFF8E6",border:"1px solid #E8C15A",borderRadius:T.radiusSm,color:"#8A6D1A",fontSize:13,lineHeight:1.5}}>⏸ {error}</div>
+        :<div style={{marginBottom:14,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>
+          <div style={{marginBottom:8,wordBreak:"break-word"}}>{error}</div>
+          <button onClick={()=>{window.location.href="/api/quickbooks/connect";}} style={{padding:"6px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Reconnect QuickBooks</button>
+          <div style={{marginTop:8,fontSize:12}}><QbSupport/></div>
+        </div>)}
       {flash&&<div style={{marginBottom:14,padding:"10px 12px",background:"#EDFBF1",border:`1px solid ${T.green}`,borderRadius:T.radiusSm,color:T.green,fontSize:13,fontWeight:600}}>{flash}</div>}
 
       {loading&&<div style={{padding:20,color:T.textSub,fontSize:14}}>Loading QuickBooks numbers…</div>}

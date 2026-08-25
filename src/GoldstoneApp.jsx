@@ -898,18 +898,29 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
     {id:3, title:"Miscellaneous", autoType:null,         auto:false, resp:"Seller Pays", amount:"1000"},
   ]);
   const[loc,setLoc]=useState(seed);
-  const[pctTouched,setPctTouched]=useState(false);
   const injectedRef=useRef(false);
-  const up=(id,k,v)=>{if(k==="commissionPct")setPctTouched(true);setLoc(prev=>prev.map(it=>it.id===id?{...it,[k]:v}:it));};
-  // ── In-house detection (Elie's rule): pct ≤ 3 — saved that way, or typed
-  // here — adds the package ONCE; after that, edits and deletions always win.
-  const hadSavedItems=!!(items&&items.length>0);
+  const miscLoweredRef=useRef(false);
+  const up=(id,k,v)=>setLoc(prev=>prev.map(it=>it.id===id?{...it,[k]:v}:it));
+  // ── In-house detection (Elie's rule): whenever the commission reads 3% or
+  // less (typed OR the default), the package is added. If the commission is
+  // raised above 3% in the same popup session, the auto-added rows leave with
+  // it. After a save, edits and deletions always win (inhouseApplied).
   const commPctNow=(()=>{const c=loc.find(i=>i.autoType==="commission");return c?parseFloat(c.commissionPct)||0:0;})();
   const hasIH=loc.some(i=>i.inhouse||i.autoType==="flatfee");
   useEffect(()=>{
-    if(!allowInhouse||injectedRef.current||hasIH)return;
-    if(!(hadSavedItems||pctTouched))return;         // an untouched seed default doesn't count
-    if(!(commPctNow>0&&commPctNow<=3))return;
+    if(!allowInhouse)return;
+    if(!(commPctNow>0&&commPctNow<=3)){
+      // Climbed above 3% after this session auto-added the package → take the
+      // auto rows back out (rows he added or edited himself are never touched).
+      if(injectedRef.current&&hasIH){
+        injectedRef.current=false;
+        setLoc(prev=>prev.filter(i=>!(i.inhouse||i.autoType==="flatfee"))
+          .map(i=>miscLoweredRef.current&&!i.auto&&/misc/i.test(i.title||"")&&String(i.amount)==="1000"?{...i,amount:"2000"}:i));
+        miscLoweredRef.current=false;
+      }
+      return;
+    }
+    if(injectedRef.current||hasIH)return;
     injectedRef.current=true;
     setLoc(prev=>{
       const titles=prev.map(i=>String(i.title||"").toLowerCase());
@@ -923,12 +934,13 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
       const ci=prev.findIndex(i=>i.autoType==="commission");
       // The old default Miscellaneous ($2,000) padded for costs that are now
       // their own lines — an untouched one drops to $1,000 with the package.
+      miscLoweredRef.current=prev.some(i=>!i.auto&&/misc/i.test(i.title||"")&&String(i.amount)==="2000");
       const out=prev.map(i=>!i.auto&&/misc/i.test(i.title||"")&&String(i.amount)==="2000"?{...i,amount:"1000"}:i);
       out.splice(ci<0?out.length:ci+1,0,...add);
       return out;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[commPctNow,allowInhouse,hasIH,hadSavedItems,pctTouched]);
+  },[commPctNow,allowInhouse,hasIH]);
   const addItem=()=>setLoc(prev=>[...prev,{id:Date.now(),title:"",autoType:null,auto:false,resp:"Seller Pays",amount:""}]);
   const delItem=(id)=>setLoc(prev=>prev.filter(it=>it.id!==id));
   const displayItems=loc.map(it=>({...it,computedAmt:getAmt(it)}));

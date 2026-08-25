@@ -871,7 +871,7 @@ export function ContractorPortal() {
   const showList = !isMobile || !selJob;
   const showDetail = !isMobile || !!selJob;
   return (
-    <div style={{ height: "100vh", minHeight: "100dvh", display: "flex", flexDirection: "column", background: T.bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", background: T.bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif" }}>
       <input ref={sowRef} type="file" accept="application/pdf,image/*" onChange={uploadDoc} style={{ display: "none" }} />
       {/* Header */}
       <div style={{ background: T.card, borderBottom: `1px solid ${T.border}`, padding: "max(10px,env(safe-area-inset-top)) 16px 10px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>

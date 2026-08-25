@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     const start = "2010-01-01";
     const end = new Date().toISOString().slice(0, 10);
     // 15-min shared cache — the BS report re-scans every project on each open.
-    const { data: rpt, cachedAt, stale } = await qbCached(`pnl_${customerId}`, 15 * 60000, () => qbApi(
+    const { data: rpt, cachedAt, stale } = await qbCached(`pnl_${customerId}`, req.query.fresh === "1" ? 0 : 15 * 60000, () => qbApi(
       `/reports/ProfitAndLoss?customer=${encodeURIComponent(customerId)}&start_date=${start}&end_date=${end}&accounting_method=Accrual`
     ));
 

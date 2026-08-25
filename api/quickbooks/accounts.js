@@ -15,7 +15,7 @@ export default async function handler(req, res) {
     const cls = req.query.class === "Equity" ? "Equity" : req.query.class === "Bank" ? "Bank" : "Liability";
     const q = "select Id, Name, FullyQualifiedName, AccountType, AccountSubType, CurrentBalance, Classification from Account maxresults 1000";
     // 5-minute shared cache: every device used to spend one API call per poll.
-    const { data, cachedAt, stale } = await qbCached("accounts", 5 * 60000, () => qbApi(`/query?query=${encodeURIComponent(q)}`));
+    const { data, cachedAt, stale } = await qbCached("accounts", req.query.fresh === "1" ? 0 : 5 * 60000, () => qbApi(`/query?query=${encodeURIComponent(q)}`));
     const items = (data.QueryResponse?.Account || [])
       .filter((a) => cls === "Bank" ? a.AccountType === "Bank" : a.Classification === cls)
       .map((a) => ({

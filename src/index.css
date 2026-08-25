@@ -31,6 +31,9 @@ body {
    bar; pinning the body stops it for good. All scrolling happens inside. */
 @media (display-mode: standalone) {
   html, body { position: fixed; inset: 0; width: 100%; overflow: hidden; }
+  /* In-call iOS shrinks the layout viewport; 100vh stays the full screen.
+     Take the larger so the app never ends early on either axis quirk. */
+  html, body, #root { height: 100vh; min-height: 100%; }
 }
 
 /* Prevent iOS auto-zoom on focus by keeping inputs at >=16px */

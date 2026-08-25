@@ -21774,10 +21774,10 @@ export function GoldstoneShell(){
     : active==="contractors" ? <ContactsPage/>
     : <ComingSoon label={NAV.find(n=>n.key===active)?.label}/>;
 
-  if(loading) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.gold,fontWeight:700,fontSize:16,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif"}}>Loading Goldstone…</div>;
+  if(loading) return <div style={{height:"100vh",minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.gold,fontWeight:700,fontSize:16,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif"}}>Loading Goldstone…</div>;
 
   return(
-    <div style={{display:"flex",flexDirection:isMobile?"column":"row",height:"100vh",width:"100%",paddingTop:"env(safe-area-inset-top)",boxSizing:"border-box",fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif",background:T.card,overflow:"hidden"}}>
+    <div style={{display:"flex",flexDirection:isMobile?"column":"row",height:"100vh",minHeight:"100dvh",width:"100%",paddingTop:"env(safe-area-inset-top)",boxSizing:"border-box",fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif",background:T.card,overflow:"hidden"}}>
       {saveError&&(
         <div onClick={clearSaveError} style={{position:"fixed",top:"max(12px,env(safe-area-inset-top))",left:"50%",transform:"translateX(-50%)",zIndex:9999,maxWidth:"92vw",background:"#FFF0EF",border:`1.5px solid ${T.red}`,color:T.red,borderRadius:12,padding:"12px 16px",fontSize:13,fontWeight:600,boxShadow:"0 8px 30px rgba(0,0,0,0.18)",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
           <span style={{flex:1}}>{saveError}</span>

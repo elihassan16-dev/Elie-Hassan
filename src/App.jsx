@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useAuth } from "./auth/AuthProvider";
 import Login from "./auth/Login";
 import { DataProvider } from "./data/DataProvider";
@@ -10,6 +11,7 @@ function Splash() {
     <div
       style={{
         height: "100vh",
+        minHeight: "100dvh",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -28,6 +30,14 @@ function Splash() {
 
 export default function Root() {
   const { loading, session, isContractor } = useAuth();
+  // iPadOS PWAs reserve a band at the bottom (home indicator) painted with the
+  // PAGE background — keep it matching whichever screen is up, so no pale strip
+  // under the gold login or the app chrome.
+  const docBg = loading || !session ? "#8C6F2D" : "#F2F2F7";
+  useEffect(() => {
+    document.documentElement.style.background = docBg;
+    document.body.style.background = docBg;
+  }, [docBg]);
   // The 📲 desktop→phone handoff bar — catches the push tap (URL param or
   // service-worker message) and offers the real tap iOS requires to jump
   // into Messages or the dialer. Rendered on every branch.

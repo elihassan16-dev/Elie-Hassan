@@ -29,21 +29,6 @@ body {
 /* Installed app (PWA): the shell IS the viewport — the page itself must never
    scroll or rubber-band. iPadOS let the whole app slide up under the status
    bar; pinning the body stops it for good. All scrolling happens inside. */
-/* The iPadOS bottom strip (and any canvas beyond the layout viewport) shows
-   ONLY the html canvas color — blend it with what sits above it. Inside the
-   app on wide screens that's the white 220px sidebar + gray content. */
-/* SOLID colors only — the reserved strip ignores background-image (a gradient
-   made it fall back to white); a solid at least blends with the content side. */
-html.gs-guest, html.gs-guest body { background: #8C6F2D; }
-html.gs-authed, html.gs-authed body { background: #F2F2F7; }
-
-@media (display-mode: standalone) {
-  /* Just overflow:hidden — position:fixed here was the iPhone band's true
-     cause (iOS leaves a pinned body shrunk, especially after the keyboard),
-     and every band sighting today traces back to it. The shell's own
-     100vh + safe-area padding handles geometry, like it always did. */
-  html, body { overflow: hidden; }
-}
 
 /* Prevent iOS auto-zoom on focus by keeping inputs at >=16px */
 input, select, textarea, button { font-size: 16px; font-family: inherit; }

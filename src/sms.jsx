@@ -845,7 +845,27 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
     return out;
   };
   const scrollRef = useRef(null);
-  useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length]);
+  // Open on the NEWEST text and STAY there while MMS images size in — their
+  // late layout used to leave the view mid-history. The pin follows every size
+  // change and releases the moment the reader scrolls up (or after 2.5s).
+  useEffect(() => {
+    const el = scrollRef.current; if (!el) return;
+    let stick = true;
+    const down = () => { if (stick) el.scrollTop = el.scrollHeight; };
+    down();
+    const release = () => { stick = false; };
+    el.addEventListener("wheel", release, { passive: true });
+    el.addEventListener("touchmove", release, { passive: true });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(down) : null;
+    if (ro) { ro.observe(el); if (el.firstElementChild) ro.observe(el.firstElementChild); }
+    const t = setTimeout(release, 2500);
+    return () => { clearTimeout(t); el.removeEventListener("wheel", release); el.removeEventListener("touchmove", release); if (ro) ro.disconnect(); };
+  }, [phone]);
+  // New text while reading: follow it only if already near the bottom.
+  useEffect(() => {
+    const el = scrollRef.current; if (!el) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < el.clientHeight * 1.5) el.scrollTop = el.scrollHeight;
+  }, [thread.length]);
   // Having the conversation open means you've read it — clears the red
   // "new reply" badge on every device (re-marks as new messages stream in).
   useEffect(() => { markThreadRead(phone); }, [phone, fullThread.length]);

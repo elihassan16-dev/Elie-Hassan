@@ -26,6 +26,13 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* Installed app (PWA): the shell IS the viewport — the page itself must never
+   scroll or rubber-band. iPadOS let the whole app slide up under the status
+   bar; pinning the body stops it for good. All scrolling happens inside. */
+@media (display-mode: standalone) {
+  html, body { position: fixed; inset: 0; width: 100%; overflow: hidden; }
+}
+
 /* Prevent iOS auto-zoom on focus by keeping inputs at >=16px */
 input, select, textarea, button { font-size: 16px; font-family: inherit; }
 

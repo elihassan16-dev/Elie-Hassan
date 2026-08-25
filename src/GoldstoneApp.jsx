@@ -14581,6 +14581,7 @@ const qbStore={
   connected:null, accounts:qbCache.get("accounts",null), spend:qbCache.get("spend",{}),
   refreshing:false, subs:new Set(), statusStarted:false, loopStarted:false,
   spendQueue:[], spendActive:0, spendAt:{},   // projectId -> ts of last completed scan
+  throttled:false, syncedAt:qbCache.get("accountsAt",null), // Intuit monthly cap hit; when balances last truly synced
 };
 const qbNotify=()=>{qbStore.subs.forEach(fn=>{try{fn();}catch{/* ignore */}});};
 async function qbRefreshAccounts(force){
@@ -14590,8 +14591,14 @@ async function qbRefreshAccounts(force){
   if(!force&&qbStore.accountsAt&&Date.now()-qbStore.accountsAt<4*60000)return;
   qbStore.accountsAt=Date.now();
   qbStore.refreshing=true;qbNotify();
-  try{const d=await qbAuthFetch(`/api/quickbooks/accounts${force?"?fresh=1":""}`);qbStore.accounts=d.items||[];qbCache.set("accounts",qbStore.accounts);}
-  catch{/* keep the last-known balances */}
+  try{
+    const d=await qbAuthFetch(`/api/quickbooks/accounts${force?"?fresh=1":""}`);
+    qbStore.accounts=d.items||[];qbCache.set("accounts",qbStore.accounts);
+    qbStore.throttled=false;
+    // When the server had to serve a stale copy, keep ITS vintage, not "now".
+    qbStore.syncedAt=d.cachedAt||Date.now();qbCache.set("accountsAt",qbStore.syncedAt);
+  }
+  catch(e){/* keep the last-known balances */ if(/monthly API-call limit/.test(String(e&&e.message||"")))qbStore.throttled=true;}
   qbStore.refreshing=false;qbNotify();
 }
 function qbEnsureStatus(){
@@ -14645,6 +14652,8 @@ function useQB(){
     accounts:qbStore.accounts,
     spend:qbStore.spend,
     refreshing:qbStore.refreshing,
+    throttled:qbStore.throttled,
+    syncedAt:qbStore.syncedAt,
     requestSpend:qbRequestSpend,
     refresh:(ids)=>{qbRefreshAccounts(true);qbRequestSpend(ids,true);},
   };
@@ -14661,7 +14670,19 @@ function FinPropertyBS({sharedProps,onNavigate,initialSelId,isMobile,canEdit=tru
   const {connected,accounts,spend,requestSpend}=useQB();
   const projKey=props.map(p=>p.qbProjectId).filter(Boolean).join(",");
   useEffect(()=>{if(connected)requestSpend(props.map(p=>p.qbProjectId));},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  return <FinDealMoney inline bsProps={props} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={dmHoldbackOf} initialSelId={initialSelId} isMobile={isMobile}/>;
+  return <><QbPausedNote/><FinDealMoney inline bsProps={props} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={dmHoldbackOf} initialSelId={initialSelId} isMobile={isMobile}/></>;
+}
+// Shown on QuickBooks-driven screens while Intuit's monthly call limit is hit:
+// the numbers on screen are each device's last successful sync, not live.
+function QbPausedNote(){
+  const {throttled,syncedAt}=useQB();
+  if(!throttled)return null;
+  const when=syncedAt?new Date(syncedAt).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):null;
+  return(
+    <div style={{margin:"0 0 12px",padding:"9px 13px",background:"#FFF8E6",border:"1px solid #E8C15A",borderRadius:T.radiusSm,color:"#8A6D1A",fontSize:12.5,lineHeight:1.5}}>
+      ⏸ <b>QuickBooks is paused</b> — Intuit's monthly limit is used up until the 1st. These numbers are your last synced copy{when?` (from ${when})`:""}; anything entered in QuickBooks since then isn't reflected yet.
+    </div>
+  );
 }
 function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   const { bankAccounts, setBankAccounts:rawSetBankAccounts, flushBank }=useData();
@@ -14716,6 +14737,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
 
   return(
     <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?"14px":"18px 24px"}}>
+      <QbPausedNote/>
       {connected===false&&<div style={{marginBottom:14,padding:"11px 14px",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:T.radiusSm,color:"#8a6d1f",fontSize:12.5,lineHeight:1.5}}>Connect QuickBooks to fill in the expected balances. You can still add and organize bank accounts here.</div>}
       {canEdit&&<Card style={{marginBottom:16}}>
         <GHeader label="Add a bank account"/>

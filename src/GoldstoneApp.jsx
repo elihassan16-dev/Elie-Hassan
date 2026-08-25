@@ -750,6 +750,15 @@ function calcBuyingTotal(items, purchasePrice){
   },0);
 }
 
+// ─── Compact one-line rows shared by the three cost popups (Elie 8/25/26) ────
+const COST_LIST={background:T.card,borderRadius:13,overflow:"hidden",boxShadow:T.shadow};
+const COST_ROW=(last)=>({display:"flex",alignItems:"center",gap:6,minHeight:47,padding:"5px 6px 5px 12px",borderBottom:last?"none":`1px solid ${T.border}`,boxSizing:"border-box"});
+const COST_NAME_INPUT={flex:1,minWidth:0,padding:"6px 3px 6px 0",border:"none",background:"transparent",color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit"};
+const COST_SEL={fontSize:11.5,color:T.textSub,background:T.bg,border:"none",borderRadius:7,padding:"6px 2px",cursor:"pointer",fontFamily:"inherit",flexShrink:0,maxWidth:70,outline:"none"};
+const COST_X={background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:17,lineHeight:1,width:26,height:44,flexShrink:0,padding:0,fontFamily:"inherit"};
+const COST_LOCK={width:26,textAlign:"center",fontSize:11,color:T.textTert,flexShrink:0};
+const COST_ADD={display:"block",width:"100%",minHeight:46,background:"transparent",border:"none",borderTop:`1px solid ${T.border}`,color:T.blue,cursor:"pointer",fontSize:13.5,fontFamily:"inherit",fontWeight:600};
+
 // ─── Buying Costs Popup ───────────────────────────────────────────────────────
 function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}){
   const isMobile=useIsMobile();
@@ -801,61 +810,35 @@ function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}
         {/* Table */}
         <div style={{flex:1,overflowY:"auto",padding:isMobile?"16px 14px":"20px 28px"}}>
 
-          {/* Column headers */}
-          {!isMobile&&<div style={{display:"grid",gridTemplateColumns:"1fr 130px 150px 36px",gap:10,marginBottom:10,padding:"0 4px"}}>
-            <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em"}}>Description</div>
-            <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Amount</div>
-            <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em"}}>Who Pays</div>
-            <div/>
-          </div>}
-
-          {/* Rows */}
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {displayItems.map(item=>{
-              const isNA = item.resp==="N/A" || item.resp==="Maybe";
+          <div style={COST_LIST}>
+            {displayItems.map((item,ix)=>{
+              const isNA=item.resp==="N/A"||item.resp==="Maybe";
               const descEl=item.auto
-                ? <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                    <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{item.title}</span>
-                    <span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>
-                    {item.autoType==="title"&&<div style={{flexBasis:"100%",fontSize:10.5,color:T.textTert,lineHeight:1.4,marginTop:1}}>Premium {fmtD(titleCalc.premium)} + settlement {fmtD(titleCalc.settlement)}, searches {fmtD(titleCalc.searchExam+titleCalc.municipal)}, recording {fmtD(titleCalc.recording)}, CPL/misc {fmtD(titleCalc.misc)}</div>}
+                ?<div style={{minWidth:0}}>
+                    <span style={{fontSize:13,fontWeight:650,color:T.gold,display:"block",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.title}</span>
+                    {item.autoType==="title"&&<div style={{fontSize:10.5,color:T.textTert,lineHeight:1.35,marginTop:1}}>Premium {fmtD(titleCalc.premium)} + settlement {fmtD(titleCalc.settlement)}, searches {fmtD(titleCalc.searchExam+titleCalc.municipal)}, recording {fmtD(titleCalc.recording)}, CPL/misc {fmtD(titleCalc.misc)}</div>}
                   </div>
-                : <input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>;
-              const amountEl=(item.auto || isNA)
-                ? <span style={{fontSize:15,fontWeight:700,color:isNA?T.textTert:T.gold}}>{isNA?"—":fmtD(item.computedAmt)}</span>
-                : <EditableAmount value={item.amount} onChange={v=>up(item.id,"amount",v)}/>;
-              const respEl=<select value={item.resp} onChange={e=>up(item.id,"resp",e.target.value)} style={selS}>
-                {(item.auto ? RESP_OPTIONS_AUTO : RESP_OPTIONS_CUSTOM).map(o=><option key={o}>{o}</option>)}
+                :<input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={COST_NAME_INPUT}/>;
+              const amountEl=(item.auto||isNA)
+                ?<span style={{fontSize:14.5,fontWeight:700,color:isNA?T.textTert:T.gold}}>{isNA?"—":fmtD(item.computedAmt)}</span>
+                :<EditableAmount value={item.amount} onChange={v=>up(item.id,"amount",v)}/>;
+              const respEl=<select value={item.resp} onChange={e=>up(item.id,"resp",e.target.value)} style={COST_SEL}>
+                {(item.auto?RESP_OPTIONS_AUTO:RESP_OPTIONS_CUSTOM).map(o=><option key={o} value={o}>{o.replace(" Pays","")}</option>)}
               </select>;
               const actionEl=item.auto
-                ? <div style={{textAlign:"center",fontSize:12,color:T.textTert}}>🔒</div>
-                : <button onClick={()=>delItem(item.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:20,lineHeight:1,textAlign:"center"}}>×</button>;
-              // Phones: stack description above an aligned Amount / Who-Pays / × row.
-              if(isMobile){
-                return(
-                  <div key={item.id} style={{display:"flex",flexDirection:"column",gap:10,padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow,opacity:isNA?0.5:1}}>
-                    {descEl}
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 128px 22px",gap:8,alignItems:"center"}}>
-                      <div style={{textAlign:"left",fontWeight:600}}>{amountEl}</div>
-                      {respEl}
-                      {actionEl}
-                    </div>
-                  </div>
-                );
-              }
+                ?<div style={COST_LOCK}>🔒</div>
+                :<button onClick={()=>delItem(item.id)} style={COST_X}>×</button>;
               return(
-                <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr 130px 150px 36px",gap:10,alignItems:"center",padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow,opacity:isNA?0.5:1}}>
-                  {descEl}
-                  <div style={{textAlign:"right"}}>{amountEl}</div>
+                <div key={item.id} style={{...COST_ROW(ix===displayItems.length-1),opacity:isNA?0.45:1}}>
+                  <div style={{flex:1,minWidth:0}}>{descEl}</div>
                   {respEl}
+                  <div style={{width:78,textAlign:"right",flexShrink:0}}>{amountEl}</div>
                   {actionEl}
                 </div>
               );
             })}
+            <button onClick={addItem} style={COST_ADD}>+ Add Line Item</button>
           </div>
-
-          <button onClick={addItem} style={{marginTop:12,width:"100%",padding:"13px",borderRadius:T.radiusSm,background:"transparent",border:`2px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontSize:14,fontFamily:"inherit",fontWeight:500}}>
-            + Add Line Item
-          </button>
         </div>
 
         {/* Footer */}
@@ -964,67 +947,41 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
         </div>
         <div style={{flex:1,overflowY:"auto",padding:isMobile?"16px 14px":"20px 28px"}}>
           {hasIH&&<div style={{marginBottom:12,background:"#EAF7EE",border:"1px solid #BFE8CD",borderRadius:12,padding:"9px 13px",fontSize:12,color:"#15803D",lineHeight:1.5}}>🏠 <b>Listed in-house</b> — commission is 3% or less, so the flat fee and prep costs were added automatically. Change or delete any of them; your edits always win.</div>}
-          {!isMobile&&<div style={{display:"grid",gridTemplateColumns:"1fr 130px 150px 36px",gap:10,marginBottom:10,padding:"0 4px"}}>
-            <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em"}}>Description</div>
-            <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Amount</div>
-            <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em"}}>Who Pays</div>
-            <div/>
-          </div>}
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {displayItems.map(item=>{
+          <div style={COST_LIST}>
+            {displayItems.map((item,ix)=>{
               const isNA=item.resp==="N/A"||item.resp==="Maybe";
-              // Description cell (auto label + optional % input + badge, or free text).
               const descEl=item.auto
-                ? <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                    <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{item.title}</span>
-                    {item.autoType==="commission"&&(
-                      <div style={{display:"flex",alignItems:"center",gap:4}}>
-                        <input value={item.commissionPct} onChange={e=>up(item.id,"commissionPct",e.target.value.replace(/[^\d.]/g,""))}
-                          style={{width:44,padding:"3px 6px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:13,textAlign:"right",outline:"none",fontFamily:"inherit",background:"#fff"}}/>
-                        <span style={{fontSize:13,color:T.textSub}}>%</span>
-                      </div>
-                    )}
-                    {item.autoType==="flatfee"
-                      ?<><span style={{fontSize:10,background:"#EAF7EE",color:"#248A3D",padding:"2px 7px",borderRadius:20,fontWeight:800,letterSpacing:"0.3px"}}>IN-HOUSE</span><span style={{fontSize:10.5,color:T.textTert}}>{n(salePrice)<=350000?"≤$350k":n(salePrice)<=500000?"$350–500k":">$500k"} tier{n(item.amountOverride)>0?` · auto would be ${fmtD(INHOUSE_FLAT_FEE(n(salePrice)))}`:""}</span></>
-                      :<span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>}
+                ?<div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
+                    <span style={{fontSize:13,fontWeight:650,color:T.gold,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.title}</span>
+                    {item.autoType==="commission"&&<>
+                      <input value={item.commissionPct} onChange={e=>up(item.id,"commissionPct",e.target.value.replace(/[^\d.]/g,""))}
+                        style={{width:30,padding:"3px 4px",borderRadius:6,border:`1px solid ${T.border}`,fontSize:12,textAlign:"right",outline:"none",fontFamily:"inherit",background:"#fff",flexShrink:0}}/>
+                      <span style={{fontSize:11,color:T.textSub,flexShrink:0}}>%</span>
+                    </>}
                   </div>
-                : <div style={{display:"flex",alignItems:"center",gap:8}}><input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>{item.inhouse&&<span style={{fontSize:10,background:"#EAF7EE",color:"#248A3D",padding:"2px 7px",borderRadius:20,fontWeight:800,flexShrink:0,letterSpacing:"0.3px"}}>IN-HOUSE</span>}</div>;
+                :<input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={COST_NAME_INPUT}/>;
               const amountEl=item.autoType==="flatfee"&&!isNA
-                ? <EditableAmount value={item.amountOverride!==""&&item.amountOverride!=null?item.amountOverride:String(item.computedAmt)} onChange={v=>up(item.id,"amountOverride",v)}/>
-                : (item.auto||isNA)
-                ? <span style={{fontSize:15,fontWeight:700,color:isNA?T.textTert:T.gold}}>{isNA?"—":fmtD(item.computedAmt)}</span>
-                : <EditableAmount value={item.amount} onChange={v=>up(item.id,"amount",v)}/>;
-              const respEl=<select value={item.resp} onChange={e=>up(item.id,"resp",e.target.value)} style={{...iS,cursor:"pointer"}}>
-                {(item.auto?RESP_AUTO:RESP_CUSTOM).map(o=><option key={o}>{o}</option>)}
+                ?<EditableAmount value={item.amountOverride!==""&&item.amountOverride!=null?item.amountOverride:String(item.computedAmt)} onChange={v=>up(item.id,"amountOverride",v)}/>
+                :(item.auto||isNA)
+                ?<span style={{fontSize:14.5,fontWeight:700,color:isNA?T.textTert:T.gold}}>{isNA?"—":fmtD(item.computedAmt)}</span>
+                :<EditableAmount value={item.amount} onChange={v=>up(item.id,"amount",v)}/>;
+              const respEl=<select value={item.resp} onChange={e=>up(item.id,"resp",e.target.value)} style={COST_SEL}>
+                {(item.auto?RESP_AUTO:RESP_CUSTOM).map(o=><option key={o} value={o}>{o.replace(" Pays","")}</option>)}
               </select>;
               const actionEl=item.auto&&item.autoType!=="flatfee"
-                ?<div style={{textAlign:"center",fontSize:12,color:T.textTert}}>🔒</div>
-                :<button onClick={()=>delItem(item.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:20,lineHeight:1,textAlign:"center"}}>×</button>;
-              // On phones the 4-wide grid overflows, so stack: description on its own
-              // line, then an aligned Amount / Who-Pays / × row beneath it.
-              if(isMobile){
-                return(
-                  <div key={item.id} style={{display:"flex",flexDirection:"column",gap:10,padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow,opacity:isNA?0.45:1}}>
-                    {descEl}
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 128px 22px",gap:8,alignItems:"center"}}>
-                      <div style={{textAlign:"left",fontWeight:600}}>{amountEl}</div>
-                      {respEl}
-                      {actionEl}
-                    </div>
-                  </div>
-                );
-              }
+                ?<div style={COST_LOCK}>🔒</div>
+                :<button onClick={()=>delItem(item.id)} style={COST_X}>×</button>;
               return(
-                <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr 130px 150px 36px",gap:10,alignItems:"center",padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow,opacity:isNA?0.45:1}}>
-                  {descEl}
-                  <div style={{textAlign:"right"}}>{amountEl}</div>
+                <div key={item.id} style={{...COST_ROW(ix===displayItems.length-1),opacity:isNA?0.45:1}}>
+                  <div style={{flex:1,minWidth:0}}>{descEl}</div>
                   {respEl}
+                  <div style={{width:78,textAlign:"right",flexShrink:0}}>{amountEl}</div>
                   {actionEl}
                 </div>
               );
             })}
+            <button onClick={addItem} style={COST_ADD}>+ Add Line Item</button>
           </div>
-          <button onClick={addItem} style={{marginTop:12,width:"100%",padding:"13px",borderRadius:T.radiusSm,background:"transparent",border:`2px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontSize:14,fontFamily:"inherit",fontWeight:500}}>+ Add Line Item</button>
         </div>
         <div style={{background:T.card,borderTop:`1px solid ${T.border}`,padding:isMobile?"16px 16px":"18px 28px",flexShrink:0}}>
           <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
@@ -1079,71 +1036,41 @@ function HoldingCostsPopup({items, holdPeriod, onChange, onClose}){
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:24,color:T.textTert,cursor:"pointer",lineHeight:1,padding:"0 4px"}}>×</button>
         </div>
         <div style={{flex:1,overflowY:"auto",padding:isMobile?"16px 14px":"20px 28px"}}>
-          {/* Column headers (desktop only — phones use a stacked layout) */}
-          {!isMobile&&<div style={{display:"grid",gridTemplateColumns:"1fr 110px 90px 110px 36px",gap:8,marginBottom:10,padding:"0 4px"}}>
-            <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em"}}>Description</div>
-            <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Annual / Mo</div>
-            <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"center"}}>Per</div>
-            <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Total ({months}mo)</div>
-            <div/>
-          </div>}
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {loc.map(item=>{
-              // Note showing the value pulled from NJ tax records, and a one-tap
-              // "Use" to snap this line back to it if it was edited away.
+          <div style={COST_LIST}>
+            {loc.map((item,ix)=>{
               const curAnnual=item.perYear?n(item.amount):n(item.amount)*12;
               const njNote=item.njTax?(
-                <div style={{fontSize:11,color:T.gold,marginTop:5,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",lineHeight:1.35}}>
+                <div style={{fontSize:10.5,color:T.gold,marginTop:2,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",lineHeight:1.35}}>
                   <span>📋 NJ records{item.njMun?` (${item.njMun})`:""}: {fmtD(item.njTax)}/yr</span>
                   {Math.round(curAnnual)!==item.njTax&&<button onClick={()=>{up(item.id,"amount",String(item.njTax));up(item.id,"perYear",true);}}
-                    style={{border:`1px solid ${T.gold}`,background:T.goldLight,color:T.gold,borderRadius:20,padding:"1px 9px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Use</button>}
+                    style={{border:`1px solid ${T.gold}`,background:T.goldLight,color:T.gold,borderRadius:20,padding:"1px 9px",fontSize:10.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Use</button>}
                 </div>
               ):null;
               const titleEl=item.auto
-                ?<div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{item.title}</span>
-                    <span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>
-                  </div>
-                :<input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>;
-              const descEl=njNote?<div>{titleEl}{njNote}</div>:titleEl;
+                ?<span style={{fontSize:13,fontWeight:650,color:T.gold,display:"block",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.title}</span>
+                :<input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={{...COST_NAME_INPUT,width:"100%"}}/>;
               const amountEl=<input value={item.amount} onChange={e=>up(item.id,"amount",e.target.value.replace(/[^\d.]/g,""))} placeholder="0"
-                readOnly={item.auto} style={{...iS,textAlign:"right",background:item.auto?"#F8F1E0":"#fff",color:item.auto?T.gold:T.text}}/>;
+                readOnly={item.auto} style={{width:56,padding:"6px 6px",borderRadius:7,border:"none",background:item.auto?"#F8F1E0":T.bg,color:item.auto?T.gold:T.text,fontSize:13,textAlign:"right",outline:"none",fontFamily:"inherit",flexShrink:0,boxSizing:"content-box"}}/>;
               const perEl=<select value={item.perYear?"year":"month"} onChange={e=>up(item.id,"perYear",e.target.value==="year")}
-                disabled={item.auto}
-                style={{...iS,cursor:item.auto?"default":"pointer",background:item.auto?"#F8F1E0":"#fff",color:item.auto?T.gold:T.text,textAlign:"center",padding:"9px 6px"}}>
-                <option value="year">/ Year</option>
-                <option value="month">/ Month</option>
+                disabled={item.auto} style={{...COST_SEL,background:item.auto?"#F8F1E0":T.bg,color:item.auto?T.gold:T.textSub}}>
+                <option value="year">/yr</option>
+                <option value="month">/mo</option>
               </select>;
-              const totalEl=<span style={{fontSize:15,fontWeight:700,color:T.gold}}>{fmtD(totalForPeriod(item))}</span>;
               const actionEl=item.auto
-                ?<div style={{textAlign:"center",fontSize:12,color:T.textTert}}>🔒</div>
-                :<button onClick={()=>delItem(item.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:20,lineHeight:1,textAlign:"center"}}>×</button>;
-              // Phones: stack description above an aligned Amount / Per / Total / × row.
-              if(isMobile){
-                return(
-                  <div key={item.id} style={{display:"flex",flexDirection:"column",gap:10,padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow}}>
-                    {descEl}
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 96px auto 22px",gap:8,alignItems:"center"}}>
-                      {amountEl}
-                      {perEl}
-                      <div style={{textAlign:"right"}}>{totalEl}</div>
-                      {actionEl}
-                    </div>
-                  </div>
-                );
-              }
+                ?<div style={COST_LOCK}>🔒</div>
+                :<button onClick={()=>delItem(item.id)} style={COST_X}>×</button>;
               return(
-                <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr 110px 90px 110px 36px",gap:8,alignItems:"center",padding:"12px 14px",background:T.card,borderRadius:T.radiusSm,boxShadow:T.shadow}}>
-                  {descEl}
+                <div key={item.id} style={COST_ROW(ix===loc.length-1)}>
+                  <div style={{flex:1,minWidth:0}}>{titleEl}{njNote}</div>
                   {amountEl}
                   {perEl}
-                  <div style={{textAlign:"right"}}>{totalEl}</div>
+                  <div style={{width:70,textAlign:"right",flexShrink:0}}><span style={{fontSize:13.5,fontWeight:700,color:T.gold}}>{fmtD(totalForPeriod(item))}</span></div>
                   {actionEl}
                 </div>
               );
             })}
+            <button onClick={addItem} style={COST_ADD}>+ Add Line Item</button>
           </div>
-          <button onClick={addItem} style={{marginTop:12,width:"100%",padding:"13px",borderRadius:T.radiusSm,background:"transparent",border:`2px dashed ${T.border}`,color:T.blue,cursor:"pointer",fontSize:14,fontFamily:"inherit",fontWeight:500}}>+ Add Line Item</button>
         </div>
         <div style={{background:T.card,borderTop:`1px solid ${T.border}`,padding:"18px 28px",flexShrink:0}}>
           <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>

@@ -29,6 +29,15 @@ body {
 /* Installed app (PWA): the shell IS the viewport — the page itself must never
    scroll or rubber-band. iPadOS let the whole app slide up under the status
    bar; pinning the body stops it for good. All scrolling happens inside. */
+/* The iPadOS bottom strip (and any canvas beyond the layout viewport) shows
+   ONLY the html canvas color — blend it with what sits above it. Inside the
+   app on wide screens that's the white 220px sidebar + gray content. */
+html.gs-guest, html.gs-guest body { background: #8C6F2D; }
+html.gs-authed, html.gs-authed body { background: #F2F2F7; }
+@media (min-width: 768px) {
+  html.gs-authed, html.gs-authed body { background: linear-gradient(90deg, #FFFFFF 0px, #FFFFFF 220px, #F2F2F7 220px); }
+}
+
 @media (display-mode: standalone) {
   html, body { position: fixed; inset: 0; width: 100%; overflow: hidden; }
   /* In-call iOS shrinks the layout viewport; 100vh stays the full screen.

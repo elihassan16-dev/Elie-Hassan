@@ -5426,7 +5426,8 @@ function GlobalAiChat({onClose}){
       const mk=(r,i)=>({id:base+i,text:r.text,status:"Not Started",assignee:r.assignee||CURRENT_USER,delegate:r.delegate||"",assignedAt:Date.now(),assignedBy:CURRENT_USER});
       if(a.propertyId==="office"){ setOfficeTasks(prev=>[...(prev||[]),...a.tasks.map(mk)]); if(flushOfficeTasks)setTimeout(flushOfficeTasks,0); }
       else setSharedProps(prev=>prev.map(p=>String(p.id)!==a.propertyId?p:{...p,tasks:[...(p.tasks||[]),...a.tasks.map(mk)]}));
-      a.tasks.forEach((r,i)=>{const to=[...new Set([r.assignee,r.delegate].filter(m=>m&&m!==CURRENT_USER))];if(to.length)notify(to,{title:"New task for you",body:`${CURRENT_USER} assigned you: ${r.text}`,tag:`task-${base+i}`,url:"/?goto=tasks"});});
+      const addrN=a.propertyId==="office"?"Company Tasks":(()=>{const p=(sharedProps||[]).find(x=>String(x.id)===a.propertyId);return p?`${p.address}${p.city?`, ${p.city}`:""}`:"";})();
+      a.tasks.forEach((r,i)=>{const to=[...new Set([r.assignee,r.delegate].filter(m=>m&&m!==CURRENT_USER))];if(to.length)notify(to,{title:"New task for you",body:`${CURRENT_USER} assigned you: ${r.text}${addrN?` — 🏠 ${addrN}`:""}`,tag:`task-${base+i}`,url:`/?goto=task:${a.propertyId==="office"?"office":a.propertyId}:${base+i}`});});
     }
     setMsgs(ms=>ms.map((m,j)=>j===mi?{...m,applied:true}:m));
   };
@@ -8590,7 +8591,7 @@ function PropertyTaskList({property}){
       if(!member)return {...tk,delegate:""};
       return {...tk,delegate:member===tk.assignee?"":member,...stamp};
     })}));
-    if(member&&member!==CURRENT_USER){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(t=>t.id===tid); notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}`,tag:`task-${tid}`,url:"/?goto=tasks"}); }
+    if(member&&member!==CURRENT_USER){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(t=>t.id===tid); const pN=sharedProps.find(p=>p.id===pid); const aN=pN?`${pN.address}${pN.city?`, ${pN.city}`:""}`:""; notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}${aN?` — 🏠 ${aN}`:""}`,tag:`task-${tid}`,url:`/?goto=task:${pid}:${tid}`}); }
   };
   const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}; if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`task-${tid}`,url:`/?goto=chat:${pid}`}); } };
   const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
@@ -8620,7 +8621,7 @@ function PropertyTaskList({property}){
   const addAiTasks=(list)=>{
     const base=Date.now();
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),...list.map((r,i)=>({id:base+i,text:r.text,status:"Not Started",assignee:r.assignee||CURRENT_USER,delegate:r.delegate||"",assignedAt:Date.now(),assignedBy:CURRENT_USER}))]}));
-    list.forEach((r,i)=>{const to=[...new Set([r.assignee,r.delegate].filter(m=>m&&m!==CURRENT_USER))];if(to.length)notify(to,{title:"New task for you",body:`${CURRENT_USER} assigned you: ${r.text}`,tag:`task-${base+i}`,url:"/?goto=tasks"});});
+    list.forEach((r,i)=>{const to=[...new Set([r.assignee,r.delegate].filter(m=>m&&m!==CURRENT_USER))];if(to.length)notify(to,{title:"New task for you",body:`${CURRENT_USER} assigned you: ${r.text}${propAddr?` — 🏠 ${propAddr}`:""}`,tag:`task-${base+i}`,url:`/?goto=task:${propId}:${base+i}`});});
     setAiTasksOpen(false);
   };
 
@@ -8767,6 +8768,22 @@ function TasksPage({onNavigate}){
   // whatever view each user picks follows them to any phone or computer.
   useEffect(()=>{const pv=prefs&&prefs.tasksViewMode;if(pv)setTaskViewMode(pv);},[prefs&&prefs.tasksViewMode]); // eslint-disable-line react-hooks/exhaustive-deps
   const setViewMode=(m)=>{setTaskViewMode(m);try{localStorage.setItem("tasksViewMode",m);}catch{/* ignore */}if(savePrefs)savePrefs({tasksViewMode:m});};
+  // 📬 Email/push deep link: open the property's task popup and glow the task.
+  const[hlTaskId,setHlTaskId]=useState(null);
+  useEffect(()=>{
+    try{
+      const t=window.__taskTarget;
+      if(!t)return;
+      if(!(sharedProps||[]).length)return; // props still loading — retry on next pass
+      delete window.__taskTarget;
+      setViewMode("byprop");
+      const pid=t.propId==="office"?OFFICE_TASK_PID:((sharedProps||[]).find(p=>String(p.id)===String(t.propId))||{}).id;
+      if(pid==null)return;
+      setByPropOpen(pid);
+      if(t.taskId){setHlTaskId(String(t.taskId));setTimeout(()=>setHlTaskId(null),8000);}
+    }catch{/* no window */}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[sharedProps]);
   // Phones can't show the spreadsheet — a saved "grid" pick falls back to the list there.
   const byProp=taskViewMode==="byprop"||(isMobile&&taskViewMode==="grid");
   const compact=!isMobile&&taskViewMode==="grid";
@@ -9002,7 +9019,7 @@ function TasksPage({onNavigate}){
     };
     if(isOffice(propId))upOfficeTask(taskId,applyRole);
     else setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:applyRole(tk))}));
-    if(member&&member!==CURRENT_USER){ const tsk=findLiveTask(propId,taskId); notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}`,tag:`task-${taskId}`,url:"/?goto=tasks"}); }
+    if(member&&member!==CURRENT_USER){ const tsk=findLiveTask(propId,taskId); const aN=isOffice(propId)?"Company Tasks":(()=>{const p=(sharedProps||[]).find(x=>String(x.id)===String(propId));return p?`${p.address}${p.city?`, ${p.city}`:""}`:"";})(); notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}${aN?` — 🏠 ${aN}`:""}`,tag:`task-${taskId}`,url:`/?goto=task:${isOffice(propId)?"office":propId}:${taskId}`}); }
   }
   // Mark a task's messages read by me when I open its 💬 popup.
   function markTaskRead(propId,taskId){
@@ -9126,8 +9143,10 @@ function TasksPage({onNavigate}){
     const at=Date.now();
     // NOTE: the <select> hands back a STRING id, property ids are numbers — coerce
     // both so the task lands on the right property instead of being dropped.
-    setSharedProps(prev=>prev.map(p=>String(p.id)!==String(propId)?p:{...p,tasks:[...(p.tasks||[]),...clean.map((r,i)=>({id:Date.now()+i,text:r.text,status:"Not Started",assignee:r.assignee,delegate:(r.delegate&&r.delegate!==r.assignee)?r.delegate:"",cat:"Custom",assignedAt:at,assignedBy:CURRENT_USER}))]}));
-    clean.forEach(r=>{const who=[...new Set([r.assignee,r.delegate].filter(n=>n&&n!==CURRENT_USER))];if(who.length)notify(who,{title:"New task for you",body:`${CURRENT_USER}: ${r.text}`,tag:`newtask-${Date.now()}-${Math.round(Math.random()*1e5)}`,url:"/?goto=tasks"});});
+    const rows2=clean.map((r,i)=>({...r,id:at+i}));
+    setSharedProps(prev=>prev.map(p=>String(p.id)!==String(propId)?p:{...p,tasks:[...(p.tasks||[]),...rows2.map(r=>({id:r.id,text:r.text,status:"Not Started",assignee:r.assignee,delegate:(r.delegate&&r.delegate!==r.assignee)?r.delegate:"",cat:"Custom",assignedAt:at,assignedBy:CURRENT_USER}))]}));
+    const pAddrB=(()=>{const p=(sharedProps||[]).find(x=>String(x.id)===String(propId));return p?`${p.address}${p.city?`, ${p.city}`:""}`:"";})();
+    rows2.forEach(r=>{const who=[...new Set([r.assignee,r.delegate].filter(n=>n&&n!==CURRENT_USER))];if(who.length)notify(who,{title:"New task for you",body:`${CURRENT_USER}: ${r.text}${pAddrB?` — 🏠 ${pAddrB}`:""}`,tag:`newtask-${r.id}`,url:`/?goto=task:${propId}:${r.id}`});});
   }
 
   // On my plate = I'm the delegate, or I'm the owner and it isn't delegated away.
@@ -9596,7 +9615,14 @@ function TasksPage({onNavigate}){
                       {(()=>{
                         const isMineT=(t)=>t.assignee===CURRENT_USER||t.delegate===CURRENT_USER;
                         const mineTs=openTs.filter(isMineT),otherTs=openTs.filter(t=>!isMineT(t));
-                        const row=(t,mine)=><TaskRow key={t.id} t={t} emph={mine} faded={!mine&&mineTs.length>0&&otherTs.length>0} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER}/>;
+                        const row=(t,mine)=>{
+                          const hl=hlTaskId!=null&&String(t.id)===String(hlTaskId);
+                          return(
+                            <div key={t.id} ref={el=>{if(el&&hl)setTimeout(()=>{try{el.scrollIntoView({block:"center",behavior:"smooth"});}catch{/* older webkit */}},150);}} style={hl?{background:"#FBF3DD",boxShadow:"inset 0 0 0 2px #C9A227",borderRadius:12,margin:"4px 8px",transition:"background 0.4s"}:undefined}>
+                              <TaskRow t={t} emph={mine} faded={!mine&&mineTs.length>0&&otherTs.length>0} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER}/>
+                            </div>
+                          );
+                        };
                         if(!mineTs.length||!otherTs.length)return openTs.map(t=>row(t,isMineT(t)));
                         return(<>
                           <div style={{padding:"8px 16px 3px",fontSize:10.5,fontWeight:800,color:"#8a6d1f",letterSpacing:"0.05em"}}>👤 YOUR TASKS</div>
@@ -19052,7 +19078,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       const pid=d.propertyId!=null&&(sharedProps||[]).some(p=>String(p.id)===String(d.propertyId))?d.propertyId:null;
       if(pid&&setSharedProps){setSharedProps(prev=>prev.map(p=>String(p.id)!==String(pid)?p:{...p,tasks:[...(p.tasks||[]),task]}));if(flushProps)setTimeout(flushProps,0);}
       else if(setOfficeTasks){setOfficeTasks(prev=>[...(prev||[]),task]);if(flushOfficeTasks)setTimeout(flushOfficeTasks,0);}
-      if(esti!==currentUser)notify([esti],{title:"New task for you",body:`Reconcile LOC in QuickBooks — ${d.propertyLabel||"a property"} · ${fmtD(Number(d.amount)||0)} from ${d.funderName||"a lender"}`,tag:`task-${task.id}`,url:"/?goto=tasks"});
+      if(esti!==currentUser)notify([esti],{title:"New task for you",body:`Reconcile LOC in QuickBooks — ${d.propertyLabel||"a property"} · ${fmtD(Number(d.amount)||0)} from ${d.funderName||"a lender"}`,tag:`task-${task.id}`,url:`/?goto=task:${pid!=null?pid:"office"}:${task.id}`});
     }
     // 🏦 Deploying a lender's money takes from his held Bank-Recon lines first
     // (oldest line first), each with a history entry — so the held number is
@@ -21531,6 +21557,9 @@ export function GoldstoneShell(){
     const i=pendingGoto.indexOf(":");
     const kind=i<0?pendingGoto:pendingGoto.slice(0,i),id=i<0?"":pendingGoto.slice(i+1);
     if(kind==="tasks"){setActive("tasks");setPendingGoto(null);return;}
+    // task:<propId|office>:<taskId> — open that property's task popup on the
+    // Dashboard and light the exact task up in gold (email/push deep links).
+    if(kind==="task"){const j=id.indexOf(":");const pid=j<0?id:id.slice(0,j),tid=j<0?"":id.slice(j+1);try{window.__taskTarget={propId:pid,taskId:tid};}catch{/* no window */}setActive("tasks");setPendingGoto(null);return;}
     if(kind==="showings"){if(id){try{window.__showingsTarget={propId:id,tab:"buyers"};}catch{/* no window */}}setActive("showings");setPendingGoto(null);return;}
     if(kind==="chat"&&id==="__office__"){setActive("messages");setNavChatId("__office__");setPendingGoto(null);return;}
     if(kind==="chat"||kind==="prop"){

@@ -4528,11 +4528,11 @@ function QuickBooksTab({property,onUpdate}){
     if(best&&best.score>=0.7){autoPicked.current=true;pick(best.id);setFlash(`✓ Auto-matched to "${best.name}" from your address.`);}
   },[projects,suggestions,property.qbProjectId,pick]);
 
-  const loadPnl=useCallback((id)=>{
+  const loadPnl=useCallback((id,fresh)=>{
     if(!id)return;setLoading(true);setError("");setPnl(null);setTxns(null);setOpenBucket("");
     autoImported.current=null; // allow a fresh auto-sync for this load
-    qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`).then(setPnl).catch(e=>setError(e.message)).finally(()=>setLoading(false));
-    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`).then(d=>setTxns(d.items||[])).catch(()=>setTxns([]));
+    qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}${fresh?"&fresh=1":""}`).then(setPnl).catch(e=>setError(e.message)).finally(()=>setLoading(false));
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}${fresh?"&fresh=1":""}`).then(d=>setTxns(d.items||[])).catch(()=>setTxns([]));
   },[]);
   useEffect(()=>{if(sel)loadPnl(sel);},[sel,loadPnl]);
 
@@ -4641,7 +4641,7 @@ function QuickBooksTab({property,onUpdate}){
             <option value="">— Select a project —</option>
             {(projects||[]).map(p=>{const sg=suggestions.find(s=>s.id===p.id);return <option key={p.id} value={p.id}>{sg?"★ ":""}{p.name}{p.isProject?"":" (customer)"}{sg?` — ${qbConfidence(sg.score)}`:""}</option>;})}
           </select>
-          {sel&&<button onClick={()=>loadPnl(sel)} style={{padding:"8px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻</button>}
+          {sel&&<button onClick={()=>loadPnl(sel,true)} title="Pull fresh from QuickBooks now" style={{padding:"8px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻</button>}
         </div>
         {!projects&&<div style={{padding:"0 16px 14px",fontSize:12,color:T.textTert}}>Loading projects…</div>}
         {/* Suggested matches — shown until a project is picked */}
@@ -14590,7 +14590,7 @@ async function qbRefreshAccounts(force){
   if(!force&&qbStore.accountsAt&&Date.now()-qbStore.accountsAt<4*60000)return;
   qbStore.accountsAt=Date.now();
   qbStore.refreshing=true;qbNotify();
-  try{const d=await qbAuthFetch("/api/quickbooks/accounts");qbStore.accounts=d.items||[];qbCache.set("accounts",qbStore.accounts);}
+  try{const d=await qbAuthFetch(`/api/quickbooks/accounts${force?"?fresh=1":""}`);qbStore.accounts=d.items||[];qbCache.set("accounts",qbStore.accounts);}
   catch{/* keep the last-known balances */}
   qbStore.refreshing=false;qbNotify();
 }
@@ -14614,6 +14614,7 @@ function qbRequestSpend(ids,force){
   const now=Date.now();
   [...new Set((ids||[]).filter(Boolean))].forEach(id=>{
     if(!force&&qbStore.spendAt[id]&&now-qbStore.spendAt[id]<15*60000)return;
+    if(force)(qbStore.spendForce=qbStore.spendForce||new Set()).add(id);
     if(!qbStore.spendQueue.includes(id))qbStore.spendQueue.push(id);
   });
   while(qbStore.spendActive<4&&qbStore.spendQueue.length)qbSpendWorker();
@@ -14624,7 +14625,8 @@ async function qbSpendWorker(){
     const id=qbStore.spendQueue.shift();
     qbStore.spend={...qbStore.spend,[id]:{...(qbStore.spend[id]||{}),loading:true}};qbNotify();
     try{
-      const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);
+      const fresh=qbStore.spendForce&&qbStore.spendForce.delete(id);
+      const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}${fresh?"&fresh=1":""}`);
       qbStore.spend={...qbStore.spend,[id]:{loading:false,allIn:(d?.expenses||0)+(d?.cogs||0),pnl:d}};
       qbStore.spendAt[id]=Date.now();
       qbCache.set("spend",slimSpend(qbStore.spend));
@@ -18902,9 +18904,9 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
   const money=(n)=>`$${Math.abs(Math.round(n)).toLocaleString()}`;
   const isCredit=(t)=>/credit|refund/i.test(String(t||""));
   const fd=(d)=>{try{return new Date(String(d).length===10?d+"T12:00:00":d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});}catch{return String(d||"");}};
-  const load=()=>{
+  const load=(fresh)=>{
     setLoading(true);setErr("");
-    qbAuthFetch("/api/quickbooks/transactions").then(d=>{
+    qbAuthFetch(`/api/quickbooks/transactions${fresh?"?fresh=1":""}`).then(d=>{
       if(d&&Array.isArray(d.items))setRows(d.items);
       else{setRows([]);setErr((d&&d.error)||"QuickBooks didn\u2019t return any transactions \u2014 is it connected?");}
     }).catch(e=>{setRows([]);setErr(e.message||"Couldn\u2019t reach QuickBooks.");}).finally(()=>setLoading(false));
@@ -18975,7 +18977,7 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
           <span style={{fontSize:11.5,color:T.textSub}}>{loading?"Loading from QuickBooks\u2026":rows?`${shown.length} transaction${shown.length===1?"":"s"}${shown.length>CAP?` \u00b7 showing the first ${CAP}`:""}`:""}</span>
           <span style={{flex:1}}/>
-          <button onClick={load} disabled={loading} style={{padding:"5px 12px",borderRadius:100,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>↻</button>
+          <button onClick={()=>load(true)} disabled={loading} title="Pull fresh from QuickBooks now" style={{padding:"5px 12px",borderRadius:100,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>↻</button>
         </div>
         {err&&<div style={{marginBottom:10,padding:"10px 13px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:12,color:T.red,fontSize:12.5,lineHeight:1.5}}>{err}</div>}
         {!loading&&rows&&shown.length===0&&!err&&(

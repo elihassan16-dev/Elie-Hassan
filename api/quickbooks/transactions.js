@@ -148,12 +148,14 @@ export default async function handler(req, res) {
     }
 
     if (customerId) {
-      const { data: items, cachedAt, stale } = await qbCached(`txns_cust_${customerId}_${start}`, 15 * 60000, computeItems);
+      const { data: items, cachedAt, stale } = await qbCached(`txns_cust_${customerId}_${start}`, req.query.fresh === "1" ? 0 : 15 * 60000, computeItems);
       res.status(200).json({ items, cachedAt, stale: !!stale });
       return;
     }
 
-    const { data: items, cachedAt, stale } = await qbCached(`txns_all_${start}`, 30 * 60000, async () => {
+    // fresh=1 re-runs the company report (1 call) but keeps the cached 12h
+    // attribution map — a manual refresh never re-triggers the 200-call sweep.
+    const { data: items, cachedAt, stale } = await qbCached(`txns_all_${start}`, req.query.fresh === "1" ? 0 : 30 * 60000, async () => {
       const items = await computeItems();
       if (items.length) {
         try {

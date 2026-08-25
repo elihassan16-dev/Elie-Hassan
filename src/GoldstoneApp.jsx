@@ -4671,7 +4671,7 @@ function QuickBooksTab({property,onUpdate}){
 
       {error&&<div style={{marginBottom:14,padding:"10px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:T.radiusSm,color:T.red,fontSize:13}}>
         <div style={{marginBottom:8,wordBreak:"break-word"}}>{error}</div>
-        <button onClick={()=>{window.location.href="/api/quickbooks/connect";}} style={{padding:"6px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Reconnect QuickBooks</button>
+        {!/monthly API-call limit/.test(error)&&<button onClick={()=>{window.location.href="/api/quickbooks/connect";}} style={{padding:"6px 12px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Reconnect QuickBooks</button>}
         <div style={{marginTop:8,fontSize:12}}><QbSupport/></div>
       </div>}
       {flash&&<div style={{marginBottom:14,padding:"10px 12px",background:"#EDFBF1",border:`1px solid ${T.green}`,borderRadius:T.radiusSm,color:T.green,fontSize:13,fontWeight:600}}>{flash}</div>}
@@ -14581,8 +14581,12 @@ const qbStore={
   spendQueue:[], spendActive:0, spendAt:{},   // projectId -> ts of last completed scan
 };
 const qbNotify=()=>{qbStore.subs.forEach(fn=>{try{fn();}catch{/* ignore */}});};
-async function qbRefreshAccounts(){
+async function qbRefreshAccounts(force){
   if(!qbStore.connected||qbStore.refreshing)return;
+  // The server caches balances for 5 min anyway — hitting it harder only
+  // burns Intuit's monthly call quota. Skip if this device asked recently.
+  if(!force&&qbStore.accountsAt&&Date.now()-qbStore.accountsAt<4*60000)return;
+  qbStore.accountsAt=Date.now();
   qbStore.refreshing=true;qbNotify();
   try{const d=await qbAuthFetch("/api/quickbooks/accounts");qbStore.accounts=d.items||[];qbCache.set("accounts",qbStore.accounts);}
   catch{/* keep the last-known balances */}
@@ -14596,7 +14600,7 @@ function qbEnsureStatus(){
 function qbStartLoop(){
   if(qbStore.loopStarted)return;qbStore.loopStarted=true;
   qbRefreshAccounts();
-  setInterval(()=>{if(document.visibilityState==="visible")qbRefreshAccounts();},60000);
+  setInterval(()=>{if(document.visibilityState==="visible")qbRefreshAccounts();},5*60000);
   const onShow=()=>{if(document.visibilityState==="visible")qbRefreshAccounts();};
   window.addEventListener("focus",onShow);
   document.addEventListener("visibilitychange",onShow);
@@ -14607,7 +14611,7 @@ function qbRequestSpend(ids,force){
   if(!qbStore.connected)return;
   const now=Date.now();
   [...new Set((ids||[]).filter(Boolean))].forEach(id=>{
-    if(!force&&qbStore.spendAt[id]&&now-qbStore.spendAt[id]<120000)return;
+    if(!force&&qbStore.spendAt[id]&&now-qbStore.spendAt[id]<15*60000)return;
     if(!qbStore.spendQueue.includes(id))qbStore.spendQueue.push(id);
   });
   while(qbStore.spendActive<4&&qbStore.spendQueue.length)qbSpendWorker();
@@ -14638,7 +14642,7 @@ function useQB(){
     spend:qbStore.spend,
     refreshing:qbStore.refreshing,
     requestSpend:qbRequestSpend,
-    refresh:(ids)=>{qbRefreshAccounts();qbRequestSpend(ids,true);},
+    refresh:(ids)=>{qbRefreshAccounts(true);qbRequestSpend(ids,true);},
   };
 }
 

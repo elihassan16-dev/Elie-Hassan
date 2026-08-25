@@ -3,7 +3,7 @@
 // changes can be screenshotted here before anything ships. Mutations work
 // (setX are real state setters); nothing persists. Aliased in by
 // vite.appdemo.config.js only — never bundled into the real app.
-import { useState } from "react";
+import { useState, createContext, useContext } from "react";
 import { DEMO_SHOWINGS, demoShowingKey } from "./appMockNet.js";
 
 const days = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString(); };
@@ -111,7 +111,11 @@ const OFFICE_TASKS = [
   { id: 9101, text: "Reconcile line of credit", status: "Not Started", assignee: "Esti Ungar", delegate: "", autoId: "loc-reconcile", assignedAt: Date.now(), assignedBy: "Elie Hassan", locInfo: { funderName: "J. Klein", amount: 120000, dateFunded: "2026-08-01", ratePct: 15, custom: false, locTotal: 120000, drawId: 1 } },
 ];
 
-export function useData() { return window.__appDemoData; }
+// A REAL context (not a window global): edits made in the preview must
+// re-render consumers exactly like the production DataProvider, otherwise a
+// Save can look like it "didn't take" in the harness while working fine live.
+const DemoCtx = createContext(null);
+export function useData() { return useContext(DemoCtx) || window.__appDemoData; }
 
 export function DataProvider({ children }) {
   const [sharedProps, setSharedProps] = useState(PROPS);
@@ -155,5 +159,5 @@ export function DataProvider({ children }) {
     clearSaveError: noop,
   };
   window.__appDemoData = value;
-  return children;
+  return <DemoCtx.Provider value={value}>{children}</DemoCtx.Provider>;
 }

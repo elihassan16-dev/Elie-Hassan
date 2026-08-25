@@ -351,6 +351,7 @@ function finProfit(f,status){
   const sellingOf=(sp,items,flat)=>items.length>0
     ?items.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe").reduce((s,i)=>{
         if(i.autoType==="commission")return s+Math.round(n(sp)*(parseFloat(i.commissionPct||0)/100));
+        if(i.autoType==="flatfee")return s+(n(i.amountOverride)>0?n(i.amountOverride):INHOUSE_FLAT_FEE(sp));
         if(i.autoType==="tax"){const rtf=calcNJRTF(n(sp));return i.resp==="Seller Pays"?s+rtf.total:i.resp==="Split"?s+Math.round(rtf.total/2):s;}
         return s+n(i.amount);
       },0)
@@ -888,8 +889,13 @@ function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}
   );
 }
 
+// ── In-house listing rules (Elie 8/25/26) ────────────────────────────────────
+// Commission entered at 3% or less = we're listing in-house: her flat fee is
+// tiered by sale price (overridable — Elie's number always wins) and the
+// standard prep costs get added once. Items carry inhouse:true for the tag.
+const INHOUSE_FLAT_FEE=(sp)=>{const v=n(sp);return v<=350000?1200:v<=500000?1500:2000;};
 // ─── Selling Costs Popup ──────────────────────────────────────────────────────
-function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, blank}){
+function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, blank, allowInhouse=false}){
   const isMobile=useIsMobile();
   const calc = calcNJRTF(n(salePrice));
   const RESP_AUTO   = ["Buyer Pays","Seller Pays","Split","N/A","Maybe"];
@@ -905,6 +911,7 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
       const pct=parseFloat(item.commissionPct)||0;
       return Math.round(n(salePrice)*(pct/100));
     }
+    if(item.autoType==="flatfee")return n(item.amountOverride)>0?n(item.amountOverride):INHOUSE_FLAT_FEE(n(salePrice));
     return n(item.amount);
   }
 
@@ -914,7 +921,34 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
     {id:3, title:"Miscellaneous", autoType:null,         auto:false, resp:"Seller Pays", amount:"2000"},
   ]);
   const[loc,setLoc]=useState(seed);
-  const up=(id,k,v)=>setLoc(prev=>prev.map(it=>it.id===id?{...it,[k]:v}:it));
+  const[pctTouched,setPctTouched]=useState(false);
+  const injectedRef=useRef(false);
+  const up=(id,k,v)=>{if(k==="commissionPct")setPctTouched(true);setLoc(prev=>prev.map(it=>it.id===id?{...it,[k]:v}:it));};
+  // ── In-house detection (Elie's rule): pct ≤ 3 — saved that way, or typed
+  // here — adds the package ONCE; after that, edits and deletions always win.
+  const hadSavedItems=!!(items&&items.length>0);
+  const commPctNow=(()=>{const c=loc.find(i=>i.autoType==="commission");return c?parseFloat(c.commissionPct)||0:0;})();
+  const hasIH=loc.some(i=>i.inhouse||i.autoType==="flatfee");
+  useEffect(()=>{
+    if(!allowInhouse||injectedRef.current||hasIH)return;
+    if(!(hadSavedItems||pctTouched))return;         // an untouched seed default doesn't count
+    if(!(commPctNow>0&&commPctNow<=3))return;
+    injectedRef.current=true;
+    setLoc(prev=>{
+      const titles=prev.map(i=>String(i.title||"").toLowerCase());
+      const has=(f)=>titles.some(f);
+      const base=Date.now();
+      const add=[{id:base+1,title:"Listing flat fee",autoType:"flatfee",auto:true,resp:"Seller Pays",inhouse:true,amountOverride:""}];
+      if(!has(t=>t.includes("staging")))add.push({id:base+2,title:"Staging",autoType:null,auto:false,resp:"Seller Pays",amount:"2500",inhouse:true});
+      if(!has(t=>t.includes("picture")||t.includes("boost")||t.includes("marketing")))add.push({id:base+3,title:"Pictures / boosting & marketing",autoType:null,auto:false,resp:"Seller Pays",amount:"1000",inhouse:true});
+      if(!has(t=>t.includes("pre-list")||t.includes("prelist")||t.includes("pre list")))add.push({id:base+4,title:"Pre-list inspection",autoType:null,auto:false,resp:"Seller Pays",amount:"550",inhouse:true});
+      if(!has(t=>t.includes("misc")))add.push({id:base+5,title:"Miscellaneous",autoType:null,auto:false,resp:"Seller Pays",amount:"1000",inhouse:true});
+      const ci=prev.findIndex(i=>i.autoType==="commission");
+      const out=[...prev];out.splice(ci<0?out.length:ci+1,0,...add);
+      return out;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[commPctNow,allowInhouse,hasIH,hadSavedItems,pctTouched]);
   const addItem=()=>setLoc(prev=>[...prev,{id:Date.now(),title:"",autoType:null,auto:false,resp:"Seller Pays",amount:""}]);
   const delItem=(id)=>setLoc(prev=>prev.filter(it=>it.id!==id));
   const displayItems=loc.map(it=>({...it,computedAmt:getAmt(it)}));
@@ -932,6 +966,7 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:24,color:T.textTert,cursor:"pointer",lineHeight:1,padding:"0 4px"}}>×</button>
         </div>
         <div style={{flex:1,overflowY:"auto",padding:isMobile?"16px 14px":"20px 28px"}}>
+          {hasIH&&<div style={{marginBottom:12,background:"#EAF7EE",border:"1px solid #BFE8CD",borderRadius:12,padding:"9px 13px",fontSize:12,color:"#15803D",lineHeight:1.5}}>🏠 <b>Listed in-house</b> — commission is 3% or less, so the flat fee and prep costs were added automatically. Change or delete any of them; your edits always win.</div>}
           {!isMobile&&<div style={{display:"grid",gridTemplateColumns:"1fr 130px 150px 36px",gap:10,marginBottom:10,padding:"0 4px"}}>
             <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em"}}>Description</div>
             <div style={{fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Amount</div>
@@ -952,16 +987,20 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
                         <span style={{fontSize:13,color:T.textSub}}>%</span>
                       </div>
                     )}
-                    <span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>
+                    {item.autoType==="flatfee"
+                      ?<><span style={{fontSize:10,background:"#EAF7EE",color:"#248A3D",padding:"2px 7px",borderRadius:20,fontWeight:800,letterSpacing:"0.3px"}}>IN-HOUSE</span><span style={{fontSize:10.5,color:T.textTert}}>{n(salePrice)<=350000?"≤$350k":n(salePrice)<=500000?"$350–500k":">$500k"} tier{n(item.amountOverride)>0?` · auto would be ${fmtD(INHOUSE_FLAT_FEE(n(salePrice)))}`:""}</span></>
+                      :<span style={{fontSize:11,background:T.goldLight,color:T.gold,padding:"2px 7px",borderRadius:20,fontWeight:600}}>auto</span>}
                   </div>
-                : <input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>;
-              const amountEl=(item.auto||isNA)
+                : <div style={{display:"flex",alignItems:"center",gap:8}}><input value={item.title} onChange={e=>up(item.id,"title",e.target.value)} placeholder="Description" style={iS}/>{item.inhouse&&<span style={{fontSize:10,background:"#EAF7EE",color:"#248A3D",padding:"2px 7px",borderRadius:20,fontWeight:800,flexShrink:0,letterSpacing:"0.3px"}}>IN-HOUSE</span>}</div>;
+              const amountEl=item.autoType==="flatfee"&&!isNA
+                ? <EditableAmount value={item.amountOverride!==""&&item.amountOverride!=null?item.amountOverride:String(item.computedAmt)} onChange={v=>up(item.id,"amountOverride",v)}/>
+                : (item.auto||isNA)
                 ? <span style={{fontSize:15,fontWeight:700,color:isNA?T.textTert:T.gold}}>{isNA?"—":fmtD(item.computedAmt)}</span>
                 : <EditableAmount value={item.amount} onChange={v=>up(item.id,"amount",v)}/>;
               const respEl=<select value={item.resp} onChange={e=>up(item.id,"resp",e.target.value)} style={{...iS,cursor:"pointer"}}>
                 {(item.auto?RESP_AUTO:RESP_CUSTOM).map(o=><option key={o}>{o}</option>)}
               </select>;
-              const actionEl=item.auto
+              const actionEl=item.auto&&item.autoType!=="flatfee"
                 ?<div style={{textAlign:"center",fontSize:12,color:T.textTert}}>🔒</div>
                 :<button onClick={()=>delItem(item.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:20,lineHeight:1,textAlign:"center"}}>×</button>;
               // On phones the 4-wide grid overflows, so stack: description on its own
@@ -1005,7 +1044,7 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
           </div>
           <div style={{display:"flex",gap:12,justifyContent:"flex-end"}}>
             <button onClick={onClose} style={{padding:"12px 24px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:15}}>Cancel</button>
-            <button onClick={()=>{onChange(displayItems,total);onClose();}} style={{padding:"12px 28px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:15,boxShadow:`0 2px 10px ${T.gold}55`}}>Save — {fmtD(total)}</button>
+            <button onClick={()=>{onChange(displayItems,total,injectedRef.current);onClose();}} style={{padding:"12px 28px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:15,boxShadow:`0 2px 10px ${T.gold}55`}}>Save — {fmtD(total)}</button>
           </div>
         </div>
       </div>
@@ -2147,6 +2186,7 @@ function FinOverview({property,onUpdate}){
       ?sellingItems.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe").reduce((s,i)=>{
           if(i.autoType==="commission")return s+Math.round(n(sp)*(parseFloat(i.commissionPct||0)/100));
           if(i.autoType==="tax"){const rtf=calcNJRTF(n(sp));return i.resp==="Seller Pays"?s+rtf.total:i.resp==="Split"?s+Math.round(rtf.total/2):s;}
+          if(i.autoType==="flatfee")return s+(n(i.amountOverride)>0?n(i.amountOverride):INHOUSE_FLAT_FEE(n(sp)));
           return s+n(i.amount);
         },0)
       :n(f.sellingCosts)||0;
@@ -2201,6 +2241,7 @@ function FinOverview({property,onUpdate}){
     ?acSellingItems.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe").reduce((s,i)=>{
         if(i.autoType==="commission")return s+Math.round(acSalePrice*(parseFloat(i.commissionPct||0)/100));
         if(i.autoType==="tax"){const rtf=calcNJRTF(acSalePrice);return i.resp==="Seller Pays"?s+rtf.total:i.resp==="Split"?s+Math.round(rtf.total/2):s;}
+        if(i.autoType==="flatfee")return s+(n(i.amountOverride)>0?n(i.amountOverride):INHOUSE_FLAT_FEE(acSalePrice));
         return s+n(i.amount);
       },0)
     :n(f.actualSellingCosts)||0;
@@ -2228,7 +2269,7 @@ function FinOverview({property,onUpdate}){
   return(
     <div style={{background:T.bg,minHeight:"100%",padding:"24px 28px"}}>
       {showBuying&&<BuyingCostsPopup items={buyingItems} purchasePrice={f.purchasePrice} currentResp={f.transferTaxResp} onChange={(items,total,resp,taxAmt)=>upMany({buyingCostItems:items,buyingCosts:String(total),buyingTransferTax:String(taxAmt||0),transferTaxResp:resp})} onClose={()=>setShowBuying(false)}/>}
-      {showSelling&&<SellingCostsPopup items={sellingItems} salePrice={f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({sellingCostItems:items,sellingCosts:String(total)})} onClose={()=>setShowSelling(false)}/>}
+      {showSelling&&<SellingCostsPopup items={sellingItems} salePrice={f.salePrice} currentResp={f.transferTaxResp} allowInhouse={!f.inhouseApplied} onChange={(items,total,ih)=>upMany({sellingCostItems:items,sellingCosts:String(total),...(ih?{inhouseApplied:true}:{})})} onClose={()=>setShowSelling(false)}/>}
       {showHolding&&<HoldingCostsPopup items={holdingItems} holdPeriod={f.holdPeriod} onChange={(items,total)=>upMany({holdingCostItems:items,annualHoldingCosts:String(total)})} onClose={()=>setShowHolding(false)}/>}
       {showActualSelling&&<SellingCostsPopup items={acSellingItems} salePrice={f.actualSalePrice||f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({actualSellingCostItems:items,actualSellingCosts:String(total)})} onClose={()=>setShowActualSelling(false)}/>}
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
@@ -6614,6 +6655,7 @@ function LeadDetail({lead,onUpdate}){
     ?sellingItems.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe").reduce((s,i)=>{
         if(i.autoType==="commission")return s+Math.round(n(f.salePrice)*(parseFloat(i.commissionPct||0)/100));
         if(i.autoType==="tax"){const rtf=calcNJRTF(n(f.salePrice));return i.resp==="Seller Pays"?s+rtf.total:i.resp==="Split"?s+Math.round(rtf.total/2):s;}
+        if(i.autoType==="flatfee")return s+(n(i.amountOverride)>0?n(i.amountOverride):INHOUSE_FLAT_FEE(n(f.salePrice)));
         return s+n(i.amount);
       },0)
     :n(f.sellingCosts)||0;
@@ -6649,7 +6691,7 @@ function LeadDetail({lead,onUpdate}){
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
       {showBuying&&<BuyingCostsPopup items={buyingItems} purchasePrice={f.purchasePrice} currentResp={f.transferTaxResp} onChange={(items,total,resp,taxAmt)=>upMany({buyingCostItems:items,buyingCosts:String(total),buyingTransferTax:String(taxAmt||0),transferTaxResp:resp})} onClose={()=>setShowBuying(false)}/>}
-      {showSelling&&<SellingCostsPopup items={sellingItems} salePrice={f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({sellingCostItems:items,sellingCosts:String(total)})} onClose={()=>setShowSelling(false)}/>}
+      {showSelling&&<SellingCostsPopup items={sellingItems} salePrice={f.salePrice} currentResp={f.transferTaxResp} allowInhouse={!f.inhouseApplied} onChange={(items,total,ih)=>upMany({sellingCostItems:items,sellingCosts:String(total),...(ih?{inhouseApplied:true}:{})})} onClose={()=>setShowSelling(false)}/>}
       {showHolding&&<HoldingCostsPopup items={holdingItems} holdPeriod={f.holdPeriod} onChange={(items,total)=>upMany({holdingCostItems:items,annualHoldingCosts:String(total)})} onClose={()=>setShowHolding(false)}/>}
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
 
@@ -14872,6 +14914,7 @@ function cfSellingOf(sp,items,flat){
     return items.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe").reduce((s,i)=>{
       if(i.autoType==="commission")return s+Math.round(n(sp)*(parseFloat(i.commissionPct||0)/100));
       if(i.autoType==="tax"){const rtf=calcNJRTF(n(sp));return i.resp==="Seller Pays"?s+rtf.total:i.resp==="Split"?s+Math.round(rtf.total/2):s;}
+      if(i.autoType==="flatfee")return s+(n(i.amountOverride)>0?n(i.amountOverride):INHOUSE_FLAT_FEE(n(sp)));
       return s+n(i.amount);
     },0);
   }
@@ -16492,6 +16535,31 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   // whatever isn't purchase/rehab/debt/selling on a flip is really a holding
   // cost, so there is no separate "Other" bucket.
   const SOLD_CATS=["Purchase","Rehab","Holding","Debt service","Selling"];
+  // 🏠 In-house deals: her flat fee is paid OUTSIDE QuickBooks, so sold-property
+  // profit was overstated until Elie typed it in by hand. Any Sold in-house deal
+  // with no manual Selling entry gets the flat-fee adjustment automatically —
+  // once (autoId guard), and never where Elie already entered his own.
+  useEffect(()=>{
+    if(!canEdit||!(sharedProps||[]).length)return;
+    let changed=false;
+    setSharedProps(prev=>prev.map(p=>{
+      if(p.status!=="Sold"||p.soldExcluded)return p;
+      const f=p.financials||{};
+      const items=f.sellingCostItems||[];
+      const flat=items.find(i=>i.autoType==="flatfee");
+      const commPct=parseFloat(((items.find(i=>i.autoType==="commission")||{}).commissionPct));
+      if(!(flat||(commPct>0&&commPct<=3)))return p;
+      const adjs=p.soldAdjust||[];
+      if(adjs.some(a=>a.autoId==="inhouse-flatfee"))return p;
+      if(adjs.some(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Holding")==="Selling"))return p;
+      const amt=flat&&n(flat.amountOverride)>0?n(flat.amountOverride):INHOUSE_FLAT_FEE(f.actualSalePrice||f.salePrice);
+      if(!(amt>0))return p;
+      changed=true;
+      return {...p,soldAdjust:[...adjs,{id:Date.now()+Math.floor(Math.random()*1e4),label:"Listing flat fee (in-house)",amount:amt,cat:"Selling",autoId:"inhouse-flatfee"}]};
+    }));
+    if(changed&&flushProps)setTimeout(flushProps,0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[sharedProps.length,canEdit]);
   const soldCatOfAcct=(name)=>{
     const s=String(name||"").toLowerCase();
     if(/purchase|acquisition|land|buying|title|closing cost/.test(s))return "Purchase";

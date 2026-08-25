@@ -77,9 +77,9 @@ self.addEventListener("fetch", (event) => {
   if (req.mode === "navigate") {
     event.respondWith((async () => {
       const cache = await caches.open(PAGE_CACHE);
-      // 1.2s: enough for a healthy network to serve the newest deploy; on a
-      // weak one the cached shell (+ on-device data snapshots) wins instead.
-      const fresh = await fetchWithTimeout(req, 1200);
+      // 3.5s: give real networks a fair shot at the newest deploy before the
+      // cached shell wins; the in-app stale-build check reloads stragglers.
+      const fresh = await fetchWithTimeout(req, 3500);
       if (fresh && fresh.ok) { cache.put("/__shell__", fresh.clone()); return fresh; }
       const cached = await cache.match("/__shell__");
       if (cached) {

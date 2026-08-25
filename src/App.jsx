@@ -39,6 +39,38 @@ export default function Root() {
     document.documentElement.classList.toggle("gs-authed", authed);
     document.documentElement.classList.toggle("gs-guest", !authed);
   }, [authed]);
+  // ── Stale-build self-healing ────────────────────────────────────────────────
+  // The service worker serves a cached shell when the network loses a 1.2s race
+  // at launch — great for speed, but iOS PWAs then run DAYS-old builds with no
+  // way to catch up. Compare our running bundle against the live index.html
+  // (no-store, bypasses every cache) shortly after launch, on re-focus, and
+  // every 10 minutes; when a newer build is live, reload once into it.
+  useEffect(() => {
+    let busy = false;
+    const check = async () => {
+      if (busy) return; busy = true;
+      try {
+        const html = await fetch("/", { cache: "no-store" }).then((r) => (r.ok ? r.text() : ""));
+        const live = (html.match(/\/assets\/[^"']+\.js/) || [])[0] || "";
+        const mine = (document.querySelector('script[src*="/assets/"]')?.getAttribute("src")) || "";
+        if (live && mine && !html.includes(mine)) {
+          // one attempt per target build — if the reload loses the race again,
+          // the next interval retries instead of loop-reloading
+          const key = "gs_reload_for";
+          if (sessionStorage.getItem(key) !== live) {
+            sessionStorage.setItem(key, live);
+            window.location.reload();
+          }
+        }
+      } catch { /* offline — the next check catches up */ }
+      busy = false;
+    };
+    const t = setTimeout(check, 4000);
+    const iv = setInterval(check, 10 * 60000);
+    const vis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", vis);
+    return () => { clearTimeout(t); clearInterval(iv); document.removeEventListener("visibilitychange", vis); };
+  }, []);
   // The 📲 desktop→phone handoff bar — catches the push tap (URL param or
   // service-worker message) and offers the real tap iOS requires to jump
   // into Messages or the dialer. Rendered on every branch.

@@ -39,12 +39,11 @@ html.gs-authed, html.gs-authed body { background: #F2F2F7; }
 }
 
 @media (display-mode: standalone) {
-  html, body { position: fixed; inset: 0; width: 100%; overflow: hidden; }
-  /* iPhone: the fixed inset:0 body spans the TRUE screen while 100vh stops
-     above the home indicator — an explicit height:100vh here was CAPPING the
-     app short (the gray bottom band). Keep the inherited height:100% chain
-     and only FLOOR it at 100vh, so whichever measures larger wins. */
-  html, body, #root { min-height: 100vh; }
+  /* Just overflow:hidden — position:fixed here was the iPhone band's true
+     cause (iOS leaves a pinned body shrunk, especially after the keyboard),
+     and every band sighting today traces back to it. The shell's own
+     100vh + safe-area padding handles geometry, like it always did. */
+  html, body { overflow: hidden; }
 }
 
 /* Prevent iOS auto-zoom on focus by keeping inputs at >=16px */

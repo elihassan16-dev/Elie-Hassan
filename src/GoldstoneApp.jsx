@@ -21775,7 +21775,7 @@ export function GoldstoneShell(){
   if(loading) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.gold,fontWeight:700,fontSize:16,fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif"}}>Loading Goldstone…</div>;
 
   return(
-    <div style={{display:"flex",flexDirection:isMobile?"column":"row",height:"100vh",width:"100%",fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif",background:T.bg,overflow:"hidden"}}>
+    <div style={{display:"flex",flexDirection:isMobile?"column":"row",height:"100vh",width:"100%",paddingTop:"env(safe-area-inset-top)",boxSizing:"border-box",fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif",background:T.card,overflow:"hidden"}}>
       {saveError&&(
         <div onClick={clearSaveError} style={{position:"fixed",top:"max(12px,env(safe-area-inset-top))",left:"50%",transform:"translateX(-50%)",zIndex:9999,maxWidth:"92vw",background:"#FFF0EF",border:`1.5px solid ${T.red}`,color:T.red,borderRadius:12,padding:"12px 16px",fontSize:13,fontWeight:600,boxShadow:"0 8px 30px rgba(0,0,0,0.18)",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
           <span style={{flex:1}}>{saveError}</span>
@@ -21814,7 +21814,7 @@ export function GoldstoneShell(){
         </div>
       </aside>
       <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <div className="gs-topbar" style={{minHeight:54,padding:isMobile?"max(8px,env(safe-area-inset-top)) 16px 8px":"0 24px",borderBottom:`1px solid ${T.border}`,background:T.card,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+        <div className="gs-topbar" style={{minHeight:54,padding:isMobile?"8px 16px":"0 24px",borderBottom:`1px solid ${T.border}`,background:T.card,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,minWidth:0,flexShrink:1,overflow:"hidden",marginRight:8}}>
             {isMobile&&<button onClick={()=>setShowNavMenu(true)} title="Menu" aria-label="Open menu" style={{width:36,height:36,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer",padding:0,flexShrink:0,backgroundColor:"#fff",backgroundImage:"url(/logo.png)",backgroundRepeat:"no-repeat",backgroundSize:"185%",backgroundPosition:"50% 27%"}}/>}
             <div style={{fontWeight:700,fontSize:17,color:T.text,whiteSpace:"nowrap"}}>{NAV.find(n=>n.key===active)?.label}</div>

@@ -26,6 +26,12 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* 🔒 The page itself never drag-bounces (iPad slid the whole app up/down).
+   overscroll-behavior on the ROOT is what iPadOS actually honors — body alone
+   wasn't enough. Pure bounce lock: no sizes, positions or clipping touched;
+   every pane inside scrolls exactly as before. */
+html { overscroll-behavior: none; }
+
 /* Installed app (PWA): the shell IS the viewport — the page itself must never
    scroll or rubber-band. iPadOS let the whole app slide up under the status
    bar; pinning the body stops it for good. All scrolling happens inside. */

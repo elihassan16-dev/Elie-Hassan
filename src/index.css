@@ -32,11 +32,10 @@ body {
 /* The iPadOS bottom strip (and any canvas beyond the layout viewport) shows
    ONLY the html canvas color — blend it with what sits above it. Inside the
    app on wide screens that's the white 220px sidebar + gray content. */
+/* SOLID colors only — the reserved strip ignores background-image (a gradient
+   made it fall back to white); a solid at least blends with the content side. */
 html.gs-guest, html.gs-guest body { background: #8C6F2D; }
 html.gs-authed, html.gs-authed body { background: #F2F2F7; }
-@media (min-width: 768px) {
-  html.gs-authed, html.gs-authed body { background: linear-gradient(90deg, #FFFFFF 0px, #FFFFFF 220px, #F2F2F7 220px); }
-}
 
 @media (display-mode: standalone) {
   /* Just overflow:hidden — position:fixed here was the iPhone band's true

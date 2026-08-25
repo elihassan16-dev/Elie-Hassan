@@ -11,7 +11,6 @@ function Splash() {
     <div
       style={{
         height: "100vh",
-        minHeight: "100%",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -30,15 +29,6 @@ function Splash() {
 
 export default function Root() {
   const { loading, session, isContractor } = useAuth();
-  // iPadOS reserves a strip below every home-screen web app that no layout box
-  // can reach — only the page canvas color paints there. Tag the html element
-  // so index.css can blend that strip with whatever is directly above it
-  // (gold login, or white-sidebar + gray-content inside the app).
-  const authed = !loading && !!session;
-  useEffect(() => {
-    document.documentElement.classList.toggle("gs-authed", authed);
-    document.documentElement.classList.toggle("gs-guest", !authed);
-  }, [authed]);
   // ── Stale-build self-healing ────────────────────────────────────────────────
   // The service worker serves a cached shell when the network loses a 1.2s race
   // at launch — great for speed, but iOS PWAs then run DAYS-old builds with no

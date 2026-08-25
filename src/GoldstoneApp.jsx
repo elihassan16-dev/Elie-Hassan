@@ -8301,7 +8301,25 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
   const external=(ctrMessages||[]).filter(m=>String(m.jobId)===String(job.id)).sort((a,b)=>String(a.at||"").localeCompare(String(b.at||"")));
   const internal=((property?.messages)||[]).filter(m=>String(m.ctrTaskKey||"")===String(task.id)).sort((a,b)=>msgTime(a.at)-msgTime(b.at));
   const msgs=mode==="external"?external:internal;
-  useEffect(()=>{const el=scrollRef.current;if(el)el.scrollTop=el.scrollHeight;},[msgs.length,mode]);
+  // Same bottom-pin as the property chat: hold the newest message while late
+  // media layout settles; release on the reader's own upward scroll.
+  useEffect(()=>{
+    const el=scrollRef.current;if(!el)return;
+    let stick=true;
+    const down=()=>{if(stick)el.scrollTop=el.scrollHeight;};
+    down();
+    const release=()=>{stick=false;};
+    el.addEventListener("wheel",release,{passive:true});
+    el.addEventListener("touchmove",release,{passive:true});
+    const ro=typeof ResizeObserver!=="undefined"?new ResizeObserver(down):null;
+    if(ro){ro.observe(el);if(el.firstElementChild)ro.observe(el.firstElementChild);}
+    const t=setTimeout(release,2500);
+    return ()=>{clearTimeout(t);el.removeEventListener("wheel",release);el.removeEventListener("touchmove",release);if(ro)ro.disconnect();};
+  },[mode]);
+  useEffect(()=>{
+    const el=scrollRef.current;if(!el)return;
+    if(el.scrollHeight-el.scrollTop-el.clientHeight<el.clientHeight*1.5)el.scrollTop=el.scrollHeight;
+  },[msgs.length]);
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   const send=async(txt,att,mentions)=>{
     const t=(txt||"").trim();if(!t&&!att)return;
@@ -12133,21 +12151,28 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
   const[coPopup,setCoPopup]=useState(null); // {jobId, reqId}
   const scrollRef=useRef(null);
   const[showInfo,setShowInfo]=useState(null); // showingKey whose agent-info popup is open
-  // Jump to the newest message when a chat opens or a message arrives — and
-  // KEEP pinning briefly while images size in (their late layout used to leave
-  // the view mid-thread and visibly judder). Once the reader scrolls up more
-  // than a screen's worth, the pin backs off.
+  // Open on the NEWEST message and STAY there while images/attachments size
+  // in — a late layout jump used to outrun the old interval pin and leave the
+  // view mid-thread. The pin follows every size change (ResizeObserver) and
+  // releases the moment the reader scrolls up themselves (or after 2.5s).
   useEffect(()=>{
     const el=scrollRef.current;if(!el)return;
-    el.scrollTop=el.scrollHeight;
-    let n=0;
-    const iv=setInterval(()=>{
-      const near=el.scrollHeight-el.scrollTop-el.clientHeight<el.clientHeight;
-      if(near)el.scrollTop=el.scrollHeight;
-      if(++n>=12)clearInterval(iv);
-    },150);
-    return ()=>clearInterval(iv);
-  },[property.id,messages.length]);
+    let stick=true;
+    const down=()=>{if(stick)el.scrollTop=el.scrollHeight;};
+    down();
+    const release=()=>{stick=false;};
+    el.addEventListener("wheel",release,{passive:true});
+    el.addEventListener("touchmove",release,{passive:true});
+    const ro=typeof ResizeObserver!=="undefined"?new ResizeObserver(down):null;
+    if(ro){ro.observe(el);if(el.firstElementChild)ro.observe(el.firstElementChild);}
+    const t=setTimeout(release,2500);
+    return ()=>{clearTimeout(t);el.removeEventListener("wheel",release);el.removeEventListener("touchmove",release);if(ro)ro.disconnect();};
+  },[property.id]);
+  // New message while reading: follow it only if already near the bottom.
+  useEffect(()=>{
+    const el=scrollRef.current;if(!el)return;
+    if(el.scrollHeight-el.scrollTop-el.clientHeight<el.clientHeight*1.5)el.scrollTop=el.scrollHeight;
+  },[messages.length]);
   const[reply,setReply]=useState(null); // message being replied to
   const[selMode,setSelMode]=useState(false); // select-to-delete mode
   const[selIds,setSelIds]=useState(new Set());

@@ -4,6 +4,9 @@ import react from "@vitejs/plugin-react";
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // Build stamp shown in the profile menu — tells us at a glance which build a
+  // device is actually running (PWA caches made that guesswork).
+  define: { __GS_BUILD__: JSON.stringify(new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC") },
   server: { port: 5173 },
   build: {
     rollupOptions: {

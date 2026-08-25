@@ -30,14 +30,15 @@ function Splash() {
 
 export default function Root() {
   const { loading, session, isContractor } = useAuth();
-  // iPadOS PWAs reserve a band at the bottom (home indicator) painted with the
-  // PAGE background — keep it matching whichever screen is up, so no pale strip
-  // under the gold login or the app chrome.
-  const docBg = loading || !session ? "#8C6F2D" : "#F2F2F7";
+  // iPadOS reserves a strip below every home-screen web app that no layout box
+  // can reach — only the page canvas color paints there. Tag the html element
+  // so index.css can blend that strip with whatever is directly above it
+  // (gold login, or white-sidebar + gray-content inside the app).
+  const authed = !loading && !!session;
   useEffect(() => {
-    document.documentElement.style.background = docBg;
-    document.body.style.background = docBg;
-  }, [docBg]);
+    document.documentElement.classList.toggle("gs-authed", authed);
+    document.documentElement.classList.toggle("gs-guest", !authed);
+  }, [authed]);
   // The 📲 desktop→phone handoff bar — catches the push tap (URL param or
   // service-worker message) and offers the real tap iOS requires to jump
   // into Messages or the dialer. Rendered on every branch.

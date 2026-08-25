@@ -222,7 +222,7 @@ function parseProps(raw){
     const sellingCostItems=[
       {id:1,title:"Commission",   autoType:"commission",auto:true, resp:"Seller Pays",commissionPct:"2"},
       {id:2,title:"Transfer Tax", autoType:"tax",       auto:true, resp:"Seller Pays"},
-      {id:3,title:"Miscellaneous",autoType:null,        auto:false,resp:"Seller Pays",amount:"2000"},
+      {id:3,title:"Miscellaneous",autoType:null,        auto:false,resp:"Seller Pays",amount:"1000"},
     ];
     const holdingCostItems=[
       {id:1,title:"Property Taxes",amount:"",   perYear:true, auto:false},
@@ -861,13 +861,7 @@ function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}
         {/* Footer */}
         <div style={{background:T.card,borderTop:`1px solid ${T.border}`,padding:isMobile?"16px 16px":"18px 28px",flexShrink:0}}>
           <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
-            {displayItems.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe"&&i.computedAmt>0).map(item=>(
-              <div key={item.id} style={{display:"flex",justifyContent:"space-between"}}>
-                <span style={{fontSize:14,color:T.textSub}}>{item.title||"(unnamed)"} <span style={{fontSize:12,color:T.textTert}}>· {item.resp}</span></span>
-                <span style={{fontSize:14,fontWeight:600,color:item.auto?T.gold:T.text}}>{fmtD(item.computedAmt)}</span>
-              </div>
-            ))}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid rgba(0,0,0,0.08)",paddingTop:12,marginTop:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontSize:16,fontWeight:700,color:T.text}}>Total Buying Costs</span>
               <span style={{fontSize:20,fontWeight:800,color:T.gold}}>{fmtD(total)}</span>
             </div>
@@ -918,7 +912,7 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
   const seed = (items && items.length > 0) ? items : (blank ? [] : [
     {id:1, title:"Commission",    autoType:"commission", auto:true,  resp:"Seller Pays", commissionPct:"2"},
     {id:2, title:"Transfer Tax",  autoType:"tax",        auto:true,  resp:"Seller Pays"},
-    {id:3, title:"Miscellaneous", autoType:null,         auto:false, resp:"Seller Pays", amount:"2000"},
+    {id:3, title:"Miscellaneous", autoType:null,         auto:false, resp:"Seller Pays", amount:"1000"},
   ]);
   const[loc,setLoc]=useState(seed);
   const[pctTouched,setPctTouched]=useState(false);
@@ -944,7 +938,10 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
       if(!has(t=>t.includes("pre-list")||t.includes("prelist")||t.includes("pre list")))add.push({id:base+4,title:"Pre-list inspection",autoType:null,auto:false,resp:"Seller Pays",amount:"550",inhouse:true});
       if(!has(t=>t.includes("misc")))add.push({id:base+5,title:"Miscellaneous",autoType:null,auto:false,resp:"Seller Pays",amount:"1000",inhouse:true});
       const ci=prev.findIndex(i=>i.autoType==="commission");
-      const out=[...prev];out.splice(ci<0?out.length:ci+1,0,...add);
+      // The old default Miscellaneous ($2,000) padded for costs that are now
+      // their own lines — an untouched one drops to $1,000 with the package.
+      const out=prev.map(i=>!i.auto&&/misc/i.test(i.title||"")&&String(i.amount)==="2000"?{...i,amount:"1000"}:i);
+      out.splice(ci<0?out.length:ci+1,0,...add);
       return out;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1031,13 +1028,7 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
         </div>
         <div style={{background:T.card,borderTop:`1px solid ${T.border}`,padding:isMobile?"16px 16px":"18px 28px",flexShrink:0}}>
           <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
-            {displayItems.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe"&&i.computedAmt>0).map(item=>(
-              <div key={item.id} style={{display:"flex",justifyContent:"space-between"}}>
-                <span style={{fontSize:14,color:T.textSub}}>{item.title||"(unnamed)"} <span style={{fontSize:12,color:T.textTert}}>· {item.resp}</span></span>
-                <span style={{fontSize:14,fontWeight:600,color:item.auto?T.gold:T.text}}>{fmtD(item.computedAmt)}</span>
-              </div>
-            ))}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid rgba(0,0,0,0.08)",paddingTop:12,marginTop:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontSize:16,fontWeight:700,color:T.text}}>Total Selling Costs</span>
               <span style={{fontSize:20,fontWeight:800,color:T.gold}}>{fmtD(total)}</span>
             </div>
@@ -1156,13 +1147,7 @@ function HoldingCostsPopup({items, holdPeriod, onChange, onClose}){
         </div>
         <div style={{background:T.card,borderTop:`1px solid ${T.border}`,padding:"18px 28px",flexShrink:0}}>
           <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
-            {loc.filter(i=>n(i.amount)>0).map(item=>(
-              <div key={item.id} style={{display:"flex",justifyContent:"space-between"}}>
-                <span style={{fontSize:14,color:T.textSub}}>{item.title||"(unnamed)"} <span style={{fontSize:12,color:T.textTert}}>· {item.perYear?`$${fmtD(n(item.amount)).replace("$","")}/yr`:`$${fmtD(n(item.amount)).replace("$","")}/mo`}</span></span>
-                <span style={{fontSize:14,fontWeight:600,color:T.gold}}>{fmtD(totalForPeriod(item))}</span>
-              </div>
-            ))}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid rgba(0,0,0,0.08)",paddingTop:12,marginTop:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontSize:16,fontWeight:700,color:T.text}}>Total Holding Costs ({months} months)</span>
               <span style={{fontSize:20,fontWeight:800,color:T.gold}}>{fmtD(grandTotal)}</span>
             </div>
@@ -6451,7 +6436,7 @@ function SortModal({order,hidden,onSave,onClose}){
 // Fresh property record with the full financials template (cost items etc.) —
 // used by the Properties page Add form and the Sold report's "Add a past sale".
 function mkPropertyRecord(address,city,state,zip,status){
-  return {id:Date.now(),address,city,state,zip,status,financials:{purchasePrice:"",buyingCosts:"",buyingTransferTax:"",transferTaxResp:"Seller Pays",rehabCosts:"",annualHoldingCosts:"",holdPeriod:"",fundingSource:"",salePrice:"",sellingCosts:"",sellingTransferTax:"",actualPurchasePrice:"",actualBuyingCosts:"",actualRehabCosts:"",purchaseDate:"",sellingDate:"",locLoan:"",locInterest:"",hmLoan:"",hmInterest:"",actualSalePrice:"",actualSellingCosts:"",actualSellingTransferTax:"",buyingCostItems:[{id:1,title:"Title Cost",autoType:"title",auto:true,resp:"Buyer Pays"},{id:2,title:"Transfer Tax",autoType:"tax",auto:true,resp:"Seller Pays"},{id:3,title:"Miscellaneous",autoType:null,auto:false,resp:"Buyer Pays",amount:"1000"}],sellingCostItems:[{id:1,title:"Commission",autoType:"commission",auto:true,resp:"Seller Pays",commissionPct:"2"},{id:2,title:"Transfer Tax",autoType:"tax",auto:true,resp:"Seller Pays"},{id:3,title:"Miscellaneous",autoType:null,auto:false,resp:"Seller Pays",amount:"2000"}],holdingCostItems:[{id:1,title:"Property Taxes",amount:"",perYear:true,auto:false},{id:2,title:"Insurance",amount:"",perYear:true,auto:false},{id:3,title:"Utilities",amount:"150",perMonth:true,auto:true},{id:4,title:"Miscellaneous",amount:"200",perMonth:true,auto:false}]},propertyInfo:{type:"",beds:"",baths:"",sqft:"",yearBuilt:"",lot:"",parcel:"",lockboxCode:"",lockboxLocation:"",notes:""},tasks:[],contacts:[]};
+  return {id:Date.now(),address,city,state,zip,status,financials:{purchasePrice:"",buyingCosts:"",buyingTransferTax:"",transferTaxResp:"Seller Pays",rehabCosts:"",annualHoldingCosts:"",holdPeriod:"",fundingSource:"",salePrice:"",sellingCosts:"",sellingTransferTax:"",actualPurchasePrice:"",actualBuyingCosts:"",actualRehabCosts:"",purchaseDate:"",sellingDate:"",locLoan:"",locInterest:"",hmLoan:"",hmInterest:"",actualSalePrice:"",actualSellingCosts:"",actualSellingTransferTax:"",buyingCostItems:[{id:1,title:"Title Cost",autoType:"title",auto:true,resp:"Buyer Pays"},{id:2,title:"Transfer Tax",autoType:"tax",auto:true,resp:"Seller Pays"},{id:3,title:"Miscellaneous",autoType:null,auto:false,resp:"Buyer Pays",amount:"1000"}],sellingCostItems:[{id:1,title:"Commission",autoType:"commission",auto:true,resp:"Seller Pays",commissionPct:"2"},{id:2,title:"Transfer Tax",autoType:"tax",auto:true,resp:"Seller Pays"},{id:3,title:"Miscellaneous",autoType:null,auto:false,resp:"Seller Pays",amount:"1000"}],holdingCostItems:[{id:1,title:"Property Taxes",amount:"",perYear:true,auto:false},{id:2,title:"Insurance",amount:"",perYear:true,auto:false},{id:3,title:"Utilities",amount:"150",perMonth:true,auto:true},{id:4,title:"Miscellaneous",amount:"200",perMonth:true,auto:false}]},propertyInfo:{type:"",beds:"",baths:"",sqft:"",yearBuilt:"",lot:"",parcel:"",lockboxCode:"",lockboxLocation:"",notes:""},tasks:[],contacts:[]};
 }
 // ─── Properties Page ──────────────────────────────────────────────────────────
 function PropertiesPage({sharedProps,setSharedProps,initialSelId,onNavConsumed,onArchive,onOpenChat}){

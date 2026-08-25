@@ -15,7 +15,7 @@ const FIN = (over = {}) => ({
   purchaseDate: "", sellingDate: "", locLoan: "", locInterest: "", hmLoan: "", hmInterest: "",
   actualSalePrice: "", actualSellingCosts: "", actualSellingTransferTax: "",
   buyingCostItems: [{ id: 1, title: "Title Cost", autoType: "title", auto: true, resp: "Buyer Pays" }, { id: 2, title: "Transfer Tax", autoType: "tax", auto: true, resp: "Seller Pays" }, { id: 3, title: "Miscellaneous", autoType: null, auto: false, resp: "Buyer Pays", amount: "1000" }],
-  sellingCostItems: [{ id: 1, title: "Commission", autoType: "commission", auto: true, resp: "Seller Pays", commissionPct: "2" }, { id: 2, title: "Transfer Tax", autoType: "tax", auto: true, resp: "Seller Pays" }, { id: 3, title: "Miscellaneous", autoType: null, auto: false, resp: "Seller Pays", amount: "2000" }],
+  sellingCostItems: [{ id: 1, title: "Commission", autoType: "commission", auto: true, resp: "Seller Pays", commissionPct: "2" }, { id: 2, title: "Transfer Tax", autoType: "tax", auto: true, resp: "Seller Pays" }, { id: 3, title: "Miscellaneous", autoType: null, auto: false, resp: "Seller Pays", amount: "1000" }],
   holdingCostItems: [{ id: 1, title: "Property Taxes", amount: "6200", perYear: true, auto: false }, { id: 2, title: "Insurance", amount: "1800", perYear: true, auto: false }, { id: 3, title: "Utilities", amount: "150", perMonth: true, auto: true }],
   ...over,
 });

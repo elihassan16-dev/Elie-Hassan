@@ -25,7 +25,7 @@ export default function Login() {
   return (
     <div
       style={{
-        minHeight: "100%",
+        minHeight: "max(100%, 100vh)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

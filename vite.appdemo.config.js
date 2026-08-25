@@ -9,6 +9,7 @@ const r = (p) => path.resolve(__dirname, p);
 
 export default defineConfig({
   plugins: [react()],
+  define: { __GS_BUILD__: JSON.stringify("preview") },
   resolve: {
     alias: [
       { find: /^\.{1,2}\/auth\/AuthProvider$/, replacement: r("src/demo/appMockAuth.jsx") },

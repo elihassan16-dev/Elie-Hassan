@@ -1,4 +1,4 @@
-import { qbApi, requireAppUser } from "../../lib/quickbooks.js";
+import { qbApi, requireAppUser, qbCached } from "../../lib/quickbooks.js";
 
 // List the transactions posted to a single QuickBooks ACCOUNT (e.g. a construction
 // mortgage / loan liability), so the app can pin individual draws against it. The
@@ -15,9 +15,10 @@ export default async function handler(req, res) {
   try {
     const start = "2010-01-01";
     const end = new Date().toISOString().slice(0, 10);
-    const rpt = await qbApi(
+    // 15-min shared cache per account — bank recon reloads these constantly.
+    const { data: rpt, cachedAt, stale } = await qbCached(`atx_${account}`, 15 * 60000, () => qbApi(
       `/reports/GeneralLedger?account=${encodeURIComponent(account)}&start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,subt_nat_amount`
-    );
+    ));
 
     const cols = (rpt.Columns?.Column || []).map((c) => {
       const meta = (c.MetaData || []).find((m) => m.Name === "ColKey");
@@ -55,7 +56,7 @@ export default async function handler(req, res) {
       res.status(200).json({ cols, indexes: { iDate, iType, iNum, iName, iMemo, iAmt }, parsedCount: items.length, sample: items.slice(0, 5) });
       return;
     }
-    res.status(200).json({ items });
+    res.status(200).json({ items, cachedAt, stale: !!stale });
   } catch (e) {
     console.error("[quickbooks] account-txns failed:", e.message);
     res.status(500).json({ error: e.message });

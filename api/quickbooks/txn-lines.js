@@ -1,4 +1,4 @@
-import { qbApi, requireAppUser } from "../../lib/quickbooks.js";
+import { qbApi, requireAppUser, qbCached } from "../../lib/quickbooks.js";
 
 // Fetch the full line items (splits) of a single QuickBooks transaction, so the
 // client can pin only some lines of a journal entry / bill / check / deposit, etc.
@@ -57,7 +57,8 @@ export default async function handler(req, res) {
 
   try {
     const safeId = String(id).replace(/[^0-9]/g, "");
-    const data = await qbApi(`/query?query=${encodeURIComponent(`select * from ${entity} where Id = '${safeId}'`)}`);
+    // Posted transactions barely change — a day-long shared cache per txn.
+    const { data } = await qbCached(`lines_${entity}_${safeId}`, 24 * 3600000, () => qbApi(`/query?query=${encodeURIComponent(`select * from ${entity} where Id = '${safeId}'`)}`));
     const obj = (data.QueryResponse?.[entity] || [])[0];
     if (!obj) { res.status(200).json({ entity, lines: [] }); return; }
     const lines = (obj.Line || [])

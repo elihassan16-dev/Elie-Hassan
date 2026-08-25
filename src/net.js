@@ -17,7 +17,15 @@ export async function qbAuthFetch(path, opts = {}) {
     res = await call();
   }
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || `Request failed (${res.status}).`);
+  if (!res.ok) {
+    let msg = json.error || `Request failed (${res.status}).`;
+    // Intuit's MONTHLY quota (500K calls for unpublished apps): reconnecting
+    // does nothing — say so instead of dumping the raw fault JSON.
+    if (/ThrottleExceeded|003001|monthly limit of 500K/i.test(msg)) {
+      msg = "QuickBooks has hit Intuit's monthly API-call limit, so live numbers are paused. It resets on the 1st of the month — reconnecting won't help. Where the app has recent numbers it keeps showing them.";
+    }
+    throw new Error(msg);
+  }
   return json;
 }
 

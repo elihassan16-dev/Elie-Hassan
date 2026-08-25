@@ -35,7 +35,7 @@ const mapData = (data) => data.map((r) => (r && r.data ? r.data : r)).filter(Boo
 // comp caches). They grow to megabytes and no client screen reads them — keep
 // them out of the client sync entirely so phones never download them, never
 // re-diff them, and never reload everything because a server cache churned.
-const SERVER_ONLY_SETTINGS = ["jivetel_events", "jivetel_call_events", "jivetel_msgs", "jivetel_calls", "jivetel_alerts", "rentcast_cache", "chatarv_cache", "chatarv_cfg"];
+const SERVER_ONLY_SETTINGS = ["jivetel_events", "jivetel_call_events", "jivetel_msgs", "jivetel_calls", "jivetel_alerts", "rentcast_cache", "chatarv_cache", "chatarv_cfg", "qb_cache"];
 
 // ── A Supabase-backed collection with safe, coalesced, in-order writes ────────
 // - Edits update local state immediately, then a single debounced flush writes

@@ -1,4 +1,4 @@
-import { qbApi, requireAppUser } from "../../lib/quickbooks.js";
+import { qbApi, requireAppUser, qbCached } from "../../lib/quickbooks.js";
 
 // Profit & Loss for a single QuickBooks project/customer — flattened to rows.
 export default async function handler(req, res) {
@@ -12,9 +12,10 @@ export default async function handler(req, res) {
   try {
     const start = "2010-01-01";
     const end = new Date().toISOString().slice(0, 10);
-    const rpt = await qbApi(
+    // 15-min shared cache — the BS report re-scans every project on each open.
+    const { data: rpt, cachedAt, stale } = await qbCached(`pnl_${customerId}`, 15 * 60000, () => qbApi(
       `/reports/ProfitAndLoss?customer=${encodeURIComponent(customerId)}&start_date=${start}&end_date=${end}&accounting_method=Accrual`
-    );
+    ));
 
     const out = { rows: [], income: 0, cogs: 0, expenses: 0, netIncome: 0 };
     function walk(rows, section) {
@@ -38,7 +39,7 @@ export default async function handler(req, res) {
       }
     }
     walk(rpt.Rows?.Row, null);
-    res.status(200).json(out);
+    res.status(200).json({ ...out, cachedAt, stale: !!stale });
   } catch (e) {
     console.error("[quickbooks] pnl failed:", e.message);
     res.status(500).json({ error: e.message });

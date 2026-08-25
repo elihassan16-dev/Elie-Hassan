@@ -1,4 +1,4 @@
-import { qbApi, requireAppUser } from "../../lib/quickbooks.js";
+import { qbApi, requireAppUser, qbCached } from "../../lib/quickbooks.js";
 
 // Lists QuickBooks liability accounts (line of credit, hard-money notes, mortgages)
 // with their live CurrentBalance, so a property can be linked to the loan accounts
@@ -14,7 +14,8 @@ export default async function handler(req, res) {
     // Liability (loan accounts).
     const cls = req.query.class === "Equity" ? "Equity" : req.query.class === "Bank" ? "Bank" : "Liability";
     const q = "select Id, Name, FullyQualifiedName, AccountType, AccountSubType, CurrentBalance, Classification from Account maxresults 1000";
-    const data = await qbApi(`/query?query=${encodeURIComponent(q)}`);
+    // 5-minute shared cache: every device used to spend one API call per poll.
+    const { data, cachedAt, stale } = await qbCached("accounts", 5 * 60000, () => qbApi(`/query?query=${encodeURIComponent(q)}`));
     const items = (data.QueryResponse?.Account || [])
       .filter((a) => cls === "Bank" ? a.AccountType === "Bank" : a.Classification === cls)
       .map((a) => ({
@@ -25,7 +26,7 @@ export default async function handler(req, res) {
         balance: num(a.CurrentBalance),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    res.status(200).json({ items });
+    res.status(200).json({ items, cachedAt, stale: !!stale });
   } catch (e) {
     console.error("[quickbooks] accounts failed:", e.message);
     res.status(500).json({ error: e.message });

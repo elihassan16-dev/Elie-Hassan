@@ -10,8 +10,7 @@ function Splash() {
   return (
     <div
       style={{
-        height: "100vh",
-        minHeight: "100dvh",
+        height: "100%",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

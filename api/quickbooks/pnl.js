@@ -17,6 +17,12 @@ export default async function handler(req, res) {
       `/reports/ProfitAndLoss?customer=${encodeURIComponent(customerId)}&start_date=${start}&end_date=${end}&accounting_method=Accrual`
     ));
 
+    // An entry imported from a QBO CSV export is already processed — serve it.
+    if (rpt && Array.isArray(rpt.rows) && rpt.income !== undefined) {
+      res.status(200).json({ ...rpt, cachedAt, stale: true, imported: true });
+      return;
+    }
+
     const out = { rows: [], income: 0, cogs: 0, expenses: 0, netIncome: 0 };
     function walk(rows, section) {
       if (!rows) return;

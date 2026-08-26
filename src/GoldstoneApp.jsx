@@ -14718,38 +14718,46 @@ function qbParseCsv(text){
   return rows;
 }
 const qbImpNum=(v)=>{let x=String(v||"").trim();if(!x)return 0;const neg=/^\(.*\)$/.test(x);x=x.replace(/[^0-9.\-]/g,"");const f=parseFloat(x);return isNaN(f)?0:(neg?-Math.abs(f):f);};
-const qbImpIsBS=(acct)=>/loan|mortgage|line of credit|checking|savings|bank|escrow|equity|payable|receivable|owner|transfer|undeposited/i.test(String(acct||""));
+const qbImpIsBS=(acct)=>/loan|mortgage|line of credit|checking|savings|bank|escrow|equity|payable|receivable|owner|transfer|undeposited|chase|wells fargo|citi|capital one|td bank|amex|credit card/i.test(String(acct||""));
 const qbImpSection=(acct)=>{const a=String(acct||"").toLowerCase();if(qbImpIsBS(a))return "";if(/cost of goods|cogs/.test(a))return "COGS";if(/income|revenue|sales/.test(a))return "Income";return "Expenses";};
 const qbImpIsoDate=(sv)=>{const m=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(String(sv).trim());if(!m)return String(sv).trim();const y=m[3].length===2?"20"+m[3]:m[3];return `${y}-${String(m[1]).padStart(2,"0")}-${String(m[2]).padStart(2,"0")}`;};
 function buildQbImport(text,props,accounts){
   const rows=qbParseCsv(text);
-  const hi=rows.findIndex(r=>r.some(c=>/^date$/i.test(String(c).trim()))&&r.some(c=>/transaction type|^type$/i.test(String(c).trim())));
+  const hi=rows.findIndex(r=>r.some(c=>/^(transaction )?date$/i.test(String(c).trim()))&&r.some(c=>/transaction type|^type$/i.test(String(c).trim())));
   if(hi<0)throw new Error("Couldn't find the header row — export the report as CSV (not Excel) and try again.");
   const hdr=rows[hi].map(c=>String(c).trim().toLowerCase());
   const col=(...pats)=>hdr.findIndex(h=>pats.some(pt=>pt.test(h)));
-  const iDate=col(/^date$/),iType=col(/transaction type|^type$/),iNum=col(/^num$/,/^no\.?$/),iName=col(/^name$/),iMemo=col(/memo/),iCust=col(/^customer/),iAcct=col(/^account$/),iAmt=col(/^amount$/);
+  const iDate=col(/^date$/,/^transaction date$/),iType=col(/transaction type|^type$/),iNum=col(/^num$/,/^no\.?$/),iName=col(/^name$/),iMemo=col(/memo|^description$/),iCust=col(/^customer/),iAcct=col(/^account$/,/distribution account/),iAmt=col(/^amount$/);
   if(iAmt<0)throw new Error("No Amount column found in this export.");
   const looksDate=(sv)=>/^\d{1,2}\/\d{1,2}\/\d{2,4}$|^\d{4}-\d{2}-\d{2}$/.test(String(sv||"").trim());
-  let curAcct="";const items=[];
+  // Two export shapes are auto-detected: grouped by ACCOUNT (headings are
+  // account names, no per-row account column) or grouped by CUSTOMER with a
+  // "Distribution account" column per row — the group heading is the project.
+  const groupIsCustomer=iAcct>=0;
+  let curGroup="";const items=[];
   for(let r=hi+1;r<rows.length;r++){
     const row=rows[r];if(!row||!row.length)continue;
     const g=(i)=>i>=0&&i<row.length?String(row[i]).trim():"";
     if(looksDate(g(iDate))){
-      const acct=(iAcct>=0&&g(iAcct))||curAcct;
+      const acct=(iAcct>=0&&g(iAcct))||(groupIsCustomer?"":curGroup);
       if(!acct)continue;
-      items.push({id:"",date:qbImpIsoDate(g(iDate)),type:g(iType),num:g(iNum),vendor:g(iName),memo:g(iMemo),project:g(iCust),account:acct,section:qbImpSection(acct),amount:qbImpNum(g(iAmt))});
+      const proj=g(iCust)||(groupIsCustomer?curGroup:"");
+      items.push({id:"",date:qbImpIsoDate(g(iDate)),type:g(iType),num:g(iNum),vendor:g(iName),memo:g(iMemo).slice(0,80),project:proj,account:acct,section:qbImpSection(acct),amount:qbImpNum(g(iAmt))});
       continue;
     }
     const label=row.map(c=>String(c).trim()).find(Boolean)||"";
     if(!label)continue;
     if(/^total( for)?\b/i.test(label)||/^beginning balance/i.test(label))continue;
-    if(!/^\(?\$?-?[\d,.]+\)?$/.test(label))curAcct=label;
+    if(!/^\(?\$?-?[\d,.]+\)?$/.test(label))curGroup=label;
   }
   if(!items.length)throw new Error("No transactions found — make sure the report period is All Dates and the export is CSV.");
   const norm=(sv)=>String(sv||"").toLowerCase().replace(/[^a-z0-9]/g,"");
   const leaf=(sv)=>String(sv||"").split(":").pop().trim();
   const custMatch=(cust,name)=>{const a=norm(leaf(cust)),b=norm(leaf(name));return !!(a&&b&&(a===b||a.includes(b)||b.includes(a)));};
-  const entries=[{key:"txns_all_2010-01-01",data:items}];
+  const cut=new Date();cut.setFullYear(cut.getFullYear()-3);
+  const cutIso=cut.toISOString().slice(0,10);
+  const recent=items.filter(t=>t.date>=cutIso);
+  const entries=[{key:"txns_all_2010-01-01",data:recent.length?recent:items}];
   let matched=0;
   (props||[]).forEach(p=>{
     if(!p.qbProjectId||!p.qbProjectName)return;
@@ -14787,9 +14795,24 @@ function QbImportPopup({onClose}){
     rd.onerror=()=>setErr("Couldn't read that file.");
     rd.readAsText(f);
   };
+  const[prog,setProg]=useState(0);
   const doImport=async()=>{
-    if(!parsed||busy)return;setBusy(true);setErr("");
-    try{await qbAuthFetch("/api/quickbooks/import",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:parsed.entries})});setDone(true);}
+    if(!parsed||busy)return;setBusy(true);setErr("");setProg(0);
+    try{
+      // Big lists ship in ~8k-row chunks (first replaces, the rest append) to
+      // stay inside the serverless request-size limit.
+      const parts=[];
+      parsed.entries.forEach(en=>{
+        if(Array.isArray(en.data)&&en.data.length>8000){
+          for(let o=0;o<en.data.length;o+=8000)parts.push({key:en.key,data:en.data.slice(o,o+8000),append:o>0});
+        }else parts.push(en);
+      });
+      for(let i=0;i<parts.length;i++){
+        await qbAuthFetch("/api/quickbooks/import",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:[parts[i]]})});
+        setProg(i+1);
+      }
+      setDone(true);
+    }
     catch(e){setErr(e.message||"Import failed.");}
     finally{setBusy(false);}
   };
@@ -14817,7 +14840,7 @@ function QbImportPopup({onClose}){
         </div>}
         {done
           ?<div style={{padding:"10px 13px",background:"#EAF7EE",border:"1px solid #BFE8CD",borderRadius:10,color:"#15803D",fontSize:13,fontWeight:600,lineHeight:1.6}}>✓ Imported. Reload the app on each device to see the numbers.<button onClick={()=>window.location.reload()} style={{display:"block",marginTop:8,padding:"9px 16px",borderRadius:10,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Reload now</button></div>
-          :<button onClick={doImport} disabled={!parsed||busy} style={{width:"100%",padding:"12px",borderRadius:12,border:"none",background:parsed&&!busy?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:14,cursor:parsed&&!busy?"pointer":"default",fontFamily:"inherit"}}>{busy?"Importing…":"Import into the app"}</button>}
+          :<button onClick={doImport} disabled={!parsed||busy} style={{width:"100%",padding:"12px",borderRadius:12,border:"none",background:parsed&&!busy?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:14,cursor:parsed&&!busy?"pointer":"default",fontFamily:"inherit"}}>{busy?`Importing… step ${prog}`:"Import into the app"}</button>}
       </div>
     </div>
   );

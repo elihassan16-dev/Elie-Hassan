@@ -1,4 +1,4 @@
-import { requireAppUser, qbCacheSet } from "../../lib/quickbooks.js";
+import { requireAppUser, qbCacheSet, qbCacheGet } from "../../lib/quickbooks.js";
 
 // While Intuit's monthly cap has the API blocked, QuickBooks Online itself
 // still works — so a report exported from the QBO website can stand in for
@@ -21,7 +21,12 @@ export default async function handler(req, res) {
     let stored = 0;
     for (const e of entries) {
       if (!e || typeof e.key !== "string" || !KEY_OK.test(e.key) || e.data == null) continue;
-      await qbCacheSet(e.key, e.data);
+      // Large lists arrive in chunks: the first write replaces, the rest append.
+      if (e.append && Array.isArray(e.data)) {
+        const prev = await qbCacheGet(e.key);
+        const base = prev && Array.isArray(prev.data) ? prev.data : [];
+        await qbCacheSet(e.key, base.concat(e.data));
+      } else await qbCacheSet(e.key, e.data);
       stored++;
     }
     res.status(200).json({ stored });

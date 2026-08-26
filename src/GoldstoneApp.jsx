@@ -14598,8 +14598,35 @@ async function qbRefreshAccounts(force){
     // When the server had to serve a stale copy, keep ITS vintage, not "now".
     qbStore.syncedAt=d.cachedAt||Date.now();qbCache.set("accountsAt",qbStore.syncedAt);
   }
-  catch(e){/* keep the last-known balances */ if(/monthly API-call limit/.test(String(e&&e.message||"")))qbStore.throttled=true;}
+  catch(e){/* keep the last-known balances */ if(/monthly API-call limit/.test(String(e&&e.message||""))){qbStore.throttled=true;qbSeedSync();}}
   qbStore.refreshing=false;qbNotify();
+}
+// While Intuit's monthly cap has us paused, devices share their last good
+// snapshot through the server: a device that still holds balances donates them
+// once, and a device with nothing adopts the freshest donated copy — so every
+// screen shows the same labeled "as of" numbers instead of blanks.
+async function qbSeedSync(){
+  try{
+    if(qbStore.accounts&&qbStore.accounts.length){
+      if(qbStore.seedPushed)return;
+      qbStore.seedPushed=true;
+      const spend={};
+      Object.entries(qbStore.spend||{}).forEach(([k,v])=>{if(v&&v.allIn!=null)spend[k]={allIn:v.allIn};});
+      await qbAuthFetch("/api/quickbooks/seed",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({at:qbStore.syncedAt||Date.now(),accounts:qbStore.accounts,spend})});
+    }else{
+      if(qbStore.seedTriedAt&&Date.now()-qbStore.seedTriedAt<120000)return;
+      qbStore.seedTriedAt=Date.now();
+      const hit=await qbAuthFetch("/api/quickbooks/seed");
+      if(hit&&hit.data&&Array.isArray(hit.data.accounts)&&hit.data.accounts.length){
+        qbStore.accounts=hit.data.accounts;qbCache.set("accounts",qbStore.accounts);
+        const sp={...qbStore.spend};
+        Object.entries(hit.data.spend||{}).forEach(([k,v])=>{const cur=sp[k];if(!cur||cur.allIn==null)sp[k]={...(cur||{}),allIn:v.allIn,loading:false};});
+        qbStore.spend=sp;qbCache.set("spend",slimSpend(sp));
+        if(hit.at){qbStore.syncedAt=hit.at;qbCache.set("accountsAt",hit.at);}
+        qbNotify();
+      }
+    }
+  }catch{/* seeding is best-effort */}
 }
 function qbEnsureStatus(){
   if(qbStore.statusStarted)return;qbStore.statusStarted=true;

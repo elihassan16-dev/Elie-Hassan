@@ -9906,13 +9906,28 @@ function rpOrder(start,end,stops){
   return {order:bestArr,miles:bestC};
 }
 let rpGeoCache=null;
+// OpenStreetMap allows ~1 lookup/second — pace uncached calls or the burst of
+// stops + start/end gets rejected mid-plan and a perfectly good address reads
+// as "couldn't locate".
+let rpGeoLastAt=0;
+async function rpGeoFetch(q){
+  const wait=rpGeoLastAt+1100-Date.now();
+  if(wait>0)await new Promise(r=>setTimeout(r,wait));
+  rpGeoLastAt=Date.now();
+  try{return await geocodeAddress(q);}catch{return null;}
+}
 async function rpGeocode(addr){
   if(!rpGeoCache){try{rpGeoCache=JSON.parse(localStorage.getItem("gs-geo-cache")||"{}");}catch{rpGeoCache={};}}
   const k=String(addr).trim().toLowerCase();
   if(rpGeoCache[k])return rpGeoCache[k];
+  // The geocoder chokes on suite/unit tokens and typo'd zips — walk cleaned
+  // variants until one lands.
+  const s=String(addr).trim();
+  const noUnit=s.replace(/\b(suite|ste\.?|unit|apt\.?|floor|fl\.?)\s*[\w-]*/ig,"").replace(/#\s*[\w-]*/g,"").replace(/\s{2,}/g," ").replace(/\s+,/g,",").trim();
+  const noZip=noUnit.replace(/\b\d{5}(-\d{4})?\b/g,"").replace(/\s{2,}/g," ").trim().replace(/,\s*$/,"");
+  const variants=[...new Set([s,`${s}, NJ`,noUnit,`${noUnit}, NJ`,`${noZip}, NJ`])].filter(v=>v.replace(/[^a-z0-9]/ig,"").length>4);
   let g=null;
-  try{g=await geocodeAddress(addr);}catch{/* retry below */}
-  if(!g){try{g=await geocodeAddress(addr+", NJ");}catch{/* not found */}}
+  for(const v of variants){g=await rpGeoFetch(v);if(g)break;}
   if(g){rpGeoCache[k]=g;try{localStorage.setItem("gs-geo-cache",JSON.stringify(rpGeoCache));}catch{/* cache full */}}
   return g;
 }
@@ -9960,7 +9975,7 @@ function RoutePlannerPage(){
     setBusy("Locating addresses…");
     try{
       const located={};const missing=[];
-      for(const pl of needPlaces){const g=await rpGeocode(pl.addr);if(!g){missing.push(pl.label);}else located["pl:"+pl.id]=g;}
+      for(const pl of needPlaces){const g=await rpGeocode(pl.addr);if(!g){missing.push(`${pl.label} (${pl.addr})`);}else located["pl:"+pl.id]=g;}
       const gStops=[];
       for(const st of stops){
         const g=await rpGeocode(st.addr);

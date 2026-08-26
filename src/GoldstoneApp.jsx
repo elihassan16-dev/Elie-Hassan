@@ -14757,14 +14757,20 @@ function buildQbImport(text,props,accounts){
   const norm=(sv)=>String(sv||"").toLowerCase().replace(/[^a-z0-9]/g,"");
   const leaf=(sv)=>String(sv||"").split(":").pop().trim();
   const custMatch=(cust,name)=>{const a=norm(leaf(cust)),b=norm(leaf(name));return !!(a&&b&&(a===b||a.includes(b)||b.includes(a)));};
+  // The LIVE per-property/company feeds come from ProfitAndLossDetail, which
+  // never contains balance-sheet lines — so the imported stand-ins must not
+  // either. Feeding mortgage/bank legs into them made the debt auto-pinner
+  // grab principal payoffs as "payments made". BS rows live only in the
+  // per-account GL entries (atx_*) below.
+  const pl=items.filter(t=>!qbImpIsBS(t.account));
   const cut=new Date();cut.setFullYear(cut.getFullYear()-3);
   const cutIso=cut.toISOString().slice(0,10);
-  const recent=items.filter(t=>t.date>=cutIso);
-  const entries=[{key:"txns_all_2010-01-01",data:recent.length?recent:items}];
+  const recent=pl.filter(t=>t.date>=cutIso);
+  const entries=[{key:"txns_all_2010-01-01",data:recent.length?recent:pl}];
   let matched=0;
   (props||[]).forEach(p=>{
     if(!p.qbProjectId||!p.qbProjectName)return;
-    const sub=items.filter(t=>t.project&&custMatch(t.project,p.qbProjectName));
+    const sub=pl.filter(t=>t.project&&custMatch(t.project,p.qbProjectName));
     if(!sub.length)return;
     matched++;
     entries.push({key:`txns_cust_${p.qbProjectId}_2010-01-01`,data:sub});

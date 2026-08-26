@@ -14718,7 +14718,10 @@ function qbParseCsv(text){
   return rows;
 }
 const qbImpNum=(v)=>{let x=String(v||"").trim();if(!x)return 0;const neg=/^\(.*\)$/.test(x);x=x.replace(/[^0-9.\-]/g,"");const f=parseFloat(x);return isNaN(f)?0:(neg?-Math.abs(f):f);};
-const qbImpIsBS=(acct)=>/loan|mortgage|line of credit|checking|savings|bank|escrow|equity|payable|receivable|owner|transfer|undeposited|chase|wells fargo|citi|capital one|td bank|amex|credit card/i.test(String(acct||""));
+// ⚠ bank-brand tokens must be whole words: a bare /chase/ also matched
+// "PurCHASE Price" and silently dropped the biggest cost account on every
+// flip from the imported spend totals.
+const qbImpIsBS=(acct)=>/loan|mortgage|line of credit|checking|savings|bank|escrow|equity|payable|receivable|owner|transfer|undeposited|\bchase\b|wells fargo|\bciti\b|capital one|td bank|amex|credit card/i.test(String(acct||""));
 const qbImpSection=(acct)=>{const a=String(acct||"").toLowerCase();if(qbImpIsBS(a))return "";if(/cost of goods|cogs/.test(a))return "COGS";if(/income|revenue|sales/.test(a))return "Income";return "Expenses";};
 const qbImpIsoDate=(sv)=>{const m=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(String(sv).trim());if(!m)return String(sv).trim();const y=m[3].length===2?"20"+m[3]:m[3];return `${y}-${String(m[1]).padStart(2,"0")}-${String(m[2]).padStart(2,"0")}`;};
 function buildQbImport(text,props,accounts){

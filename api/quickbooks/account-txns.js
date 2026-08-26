@@ -20,6 +20,12 @@ export default async function handler(req, res) {
       `/reports/GeneralLedger?account=${encodeURIComponent(account)}&start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,subt_nat_amount`
     ));
 
+    // An entry imported from a QBO CSV export is already a flat item list.
+    if (Array.isArray(rpt)) {
+      res.status(200).json({ items: rpt, cachedAt, stale: true, imported: true });
+      return;
+    }
+
     const cols = (rpt.Columns?.Column || []).map((c) => {
       const meta = (c.MetaData || []).find((m) => m.Name === "ColKey");
       return (meta?.Value || c.ColType || c.ColTitle || "").toLowerCase();

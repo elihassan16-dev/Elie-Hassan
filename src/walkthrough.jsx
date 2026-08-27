@@ -116,6 +116,9 @@ async function extractAudioRealtime(file, onMsg, playGate) {
       }, 2500);
       undo.push(() => clearInterval(iv));
     });
+    // Let the audio graph drain before detaching — cutting at 'ended' can
+    // clip the last words right where he names the final item.
+    await new Promise((r) => setTimeout(r, 400));
     proc.onaudioprocess = null;
     const total = chunks.reduce((n, c) => n + c.length, 0);
     if (!total) throw new Error("No audio could be read from this video.");
@@ -277,7 +280,14 @@ async function processClip(property, file, label) {
     const CHUNK = 150 * rate; // 2.5-minute pieces stay well inside the upload limit
     const segments = [];
     for (let off = 0; off < samples.length; off += CHUNK) {
-      const part = samples.subarray(off, Math.min(off + CHUNK, samples.length));
+      let part = samples.subarray(off, Math.min(off + CHUNK, samples.length));
+      if (off + CHUNK >= samples.length) {
+        // Trailing silence on the final chunk — Whisper tends to drop a last
+        // sentence that ends flush with the audio ("...also clean up these chairs").
+        const pad = new Float32Array(part.length + rate * 2);
+        pad.set(part);
+        part = pad;
+      }
       const t0 = off / rate;
       say(duration > mapT(t0 + 150) - mapT(t0) + 5 ? `Transcribing ${fmtT(mapT(t0))}–${fmtT(Math.min(duration, mapT(t0 + 150)))} of ${fmtT(duration)}…` : "Transcribing your narration…");
       const b64 = toB64(wavBytes(part, rate));

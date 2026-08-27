@@ -2,9 +2,10 @@
 // the JV agreement): Goldstone header, items grouped by room, each with its
 // video frame and the snippet it came from ("video 0:38–0:52 · 14 sec").
 const fmtT = (t) => `${Math.floor(t / 60)}:${String(Math.floor(Math.max(0, t) % 60)).padStart(2, "0")}`;
-export const snippetLabel = (it) => {
+export const snippetLabel = (it, multi) => {
   const dur = Math.max(0, Math.round((it.end || 0) - (it.start || 0)));
-  return dur > 0 ? `video ${fmtT(it.start)}–${fmtT(it.end)} · ${dur} sec` : `video ${fmtT(it.start || 0)}`;
+  const pre = multi ? `video ${it.clip || 1} · ` : "video ";
+  return dur > 0 ? `${pre}${fmtT(it.start)}–${fmtT(it.end)} · ${dur} sec` : `${pre}${fmtT(it.start || 0)}`;
 };
 
 export async function walkPdfFile({ address, cityLine, dateLabel, contractor, items }) {
@@ -49,6 +50,7 @@ export async function walkPdfFile({ address, cityLine, dateLabel, contractor, it
   // Room groups in first-appearance order
   const rooms = [];
   items.forEach((it) => { const r = it.room || "General"; if (!rooms.includes(r)) rooms.push(r); });
+  const multiClip = items.some((it) => (it.clip || 1) > 1); // several videos → cite which one
 
   const IMG_W = 118, IMG_H = 82, GAP = 12;
   let n = 0;
@@ -83,7 +85,7 @@ export async function walkPdfFile({ address, cityLine, dateLabel, contractor, it
         doc.setTextColor(0);
       }
       doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(150);
-      doc.text(snippetLabel(it), textX, ty + 3);
+      doc.text(snippetLabel(it, multiClip), textX, ty + 3);
       doc.setTextColor(0);
       y = top + rowH;
       doc.setDrawColor(232); doc.setLineWidth(0.6);

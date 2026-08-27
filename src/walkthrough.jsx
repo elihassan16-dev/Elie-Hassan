@@ -158,19 +158,110 @@ function grabFrame(video, t) {
   });
 }
 
+// ---- Background jobs: transcription runs at module level, OUTSIDE the popup,
+// so closing it (or moving to another page) doesn't stop the work — it just
+// keeps going and the Tasks-tab button shows "Transcribing…" until it's done.
+// One job per property; extra clips append to the same punch list.
+const wkJobs = {};
+const wkSubs = new Set();
+const wkEmit = () => wkSubs.forEach((f) => { try { f(); } catch { /* ignore */ } });
+const wkGet = (pid) => wkJobs[pid] || null;
+const wkSet = (pid, patch) => { wkJobs[pid] = { ...(wkJobs[pid] || { items: [], clips: 0, status: "idle", msg: "", err: "", tap: null }), ...patch }; wkEmit(); };
+export const clearWalkJob = (pid) => { delete wkJobs[pid]; wkEmit(); };
+export function useWalkJob(propertyId) {
+  const [, force] = useState(0);
+  useEffect(() => { const f = () => force((n) => n + 1); wkSubs.add(f); return () => { wkSubs.delete(f); }; }, []);
+  return wkGet(propertyId);
+}
+
+async function processClip(property, file, label) {
+  const pid = property.id;
+  const say = (m) => wkSet(pid, { msg: label + m });
+  // One tap satisfies iOS's play-needs-a-gesture rule for the backup reader:
+  // video.play() + ac.resume() run synchronously inside the click handler.
+  const playGate = (video, ac) => new Promise((res, rej) => {
+    (async () => { try { await ac.resume(); } catch { /* ignore */ } await video.play(); if (ac.state === "suspended") throw new Error("suspended"); })()
+      .then(res)
+      .catch(() => {
+        wkSet(pid, {
+          msg: "Your phone needs one tap to open the video — hit the button below.",
+          tap: () => {
+            wkSet(pid, { tap: null });
+            const p = video.play();
+            try { ac.resume(); } catch { /* ignore */ }
+            Promise.resolve(p).then(res, rej);
+          },
+        });
+      });
+  });
+  const url = URL.createObjectURL(file);
+  try {
+    say("Reading the video's audio…");
+    const { samples, rate, duration, scale = 1 } = await extractAudio(file, say, playGate);
+    wkSet(pid, { tap: null });
+    const CHUNK = 150 * rate; // 2.5-minute pieces stay well inside the upload limit
+    const span = 150 * scale; // real video seconds each chunk covers
+    const segments = [];
+    for (let off = 0; off < samples.length; off += CHUNK) {
+      const part = samples.subarray(off, Math.min(off + CHUNK, samples.length));
+      const t0 = (off / rate) * scale;
+      say(duration > span + 5 ? `Transcribing ${fmtT(t0)}–${fmtT(Math.min(duration, t0 + span))} of ${fmtT(duration)}…` : "Transcribing your narration…");
+      const b64 = toB64(wavBytes(part, rate));
+      const d = await qbAuthFetch("/api/ai/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audio: b64, timestamps: 1 }) });
+      (d.segments || []).forEach((sg) => segments.push({ start: (Number(sg.start) || 0) * scale + t0, end: (Number(sg.end) || 0) * scale + t0, text: sg.text }));
+    }
+    if (!segments.length) throw new Error("No speech was found in this video — was the narration audible?");
+    say("Building your punch list…");
+    const out = await qbAuthFetch("/api/ai/walkthrough", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ segments, address: property.address || "" }) });
+    const clipNo = (wkGet(pid)?.clips || 0) + 1;
+    const list = (out.items || []).map((it, i) => ({ ...it, id: Date.now() + i, image: null, clip: clipNo }));
+    if (!list.length) throw new Error("The AI couldn't find any work items in the narration.");
+    // Frame grabs — one hidden video element, sequential seeks.
+    say(`Grabbing ${list.length} photo${list.length !== 1 ? "s" : ""} from the video…`);
+    const vid = document.createElement("video");
+    vid.src = url; vid.muted = true; vid.playsInline = true; vid.preload = "auto";
+    await new Promise((r) => { vid.onloadeddata = r; vid.onerror = r; setTimeout(r, 6000); });
+    for (const it of list) it.image = await grabFrame(vid, (Number(it.start) || 0) + 0.3);
+    wkSet(pid, { items: [...(wkGet(pid)?.items || []), ...list], clips: clipNo });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// Kick off one or more videos for a property. Runs to completion whether or
+// not the popup stays open; items append across clips.
+export async function startWalkClips(property, files) {
+  const pid = property.id;
+  const fl = Array.from(files || []).filter(Boolean);
+  if (!fl.length || wkGet(pid)?.status === "proc") return;
+  wkSet(pid, { status: "proc", err: "", tap: null });
+  let lock = null;
+  try { lock = await navigator.wakeLock?.request?.("screen"); } catch { /* ignore */ }
+  try {
+    for (let i = 0; i < fl.length; i++) {
+      await processClip(property, fl[i], fl.length > 1 ? `Video ${i + 1} of ${fl.length}: ` : "");
+    }
+    wkSet(pid, { status: "ready", msg: "", tap: null });
+  } catch (e) {
+    const has = (wkGet(pid)?.items || []).length;
+    wkSet(pid, { status: has ? "ready" : "idle", err: e.message || "Couldn't process this video.", msg: "", tap: null });
+  } finally {
+    try { lock && lock.release(); } catch { /* ignore */ }
+  }
+}
+
 export function WalkthroughModal({ property, onUpdate, onClose }) {
   const mail = useOutlookMail();
-  const [step, setStep] = useState("start"); // start | rec | proc | review
+  const job = useWalkJob(property.id);
+  const items = job?.items || [];
+  const [step, setStep] = useState("idle"); // idle | rec — processing/review states live in the job store
+  const [adding, setAdding] = useState(false); // items exist but the user wants to add another video
   const [err, setErr] = useState("");
-  const [procMsg, setProcMsg] = useState("");
   const [recSec, setRecSec] = useState(0);
-  const [items, setItems] = useState([]);
-  const [videoUrl, setVideoUrl] = useState("");
   const [contractor, setContractor] = useState("");
   const [emailTo, setEmailTo] = useState("");
   const [flash, setFlash] = useState("");
   const [busy, setBusy] = useState("");
-  const [tapGo, setTapGo] = useState(null); // backup audio reader needs one tap on iPhone to start playback
   const liveRef = useRef(null);
   const mrRef = useRef(null);
   const streamRef = useRef(null);
@@ -180,9 +271,11 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   useEffect(() => () => {
     clearInterval(timerRef.current);
     try { streamRef.current && streamRef.current.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
-    if (videoUrl) URL.revokeObjectURL(videoUrl);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => { if (step === "rec" && liveRef.current && streamRef.current) { liveRef.current.srcObject = streamRef.current; liveRef.current.play().catch(() => {}); } }, [step]);
+
+  const view = step === "rec" ? "rec" : job?.status === "proc" ? "proc" : items.length && !adding ? "review" : "start";
+  const showErr = err || job?.err || "";
 
   const startRec = async () => {
     setErr("");
@@ -198,7 +291,8 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
         clearInterval(timerRef.current);
         const type = mime || "video/webm";
         const blob = new Blob(chunksRef.current, { type });
-        processVideo(new File([blob], `walkthrough.${type.includes("mp4") ? "mp4" : "webm"}`, { type }));
+        setStep("idle"); setAdding(false);
+        startWalkClips(property, [new File([blob], `walkthrough.${type.includes("mp4") ? "mp4" : "webm"}`, { type })]);
       };
       mrRef.current = mr;
       mr.start(1000);
@@ -211,64 +305,9 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   };
   const stopRec = () => { try { mrRef.current && mrRef.current.state !== "inactive" && mrRef.current.stop(); } catch { /* ignore */ } };
 
-  // One tap satisfies iOS's play-needs-a-gesture rule for the backup reader:
-  // video.play() + ac.resume() run synchronously inside the click handler.
-  const playGate = (video, ac) => new Promise((res, rej) => {
-    (async () => { try { await ac.resume(); } catch { /* ignore */ } await video.play(); if (ac.state === "suspended") throw new Error("suspended"); })()
-      .then(res)
-      .catch(() => {
-        setProcMsg("Your phone needs one tap to open the video — hit the button below.");
-        setTapGo(() => () => {
-          setTapGo(null);
-          const p = video.play();
-          try { ac.resume(); } catch { /* ignore */ }
-          Promise.resolve(p).then(res, rej);
-        });
-      });
-  });
-
-  const processVideo = async (file) => {
-    setStep("proc"); setErr("");
-    const url = URL.createObjectURL(file);
-    setVideoUrl(url);
-    try {
-      setProcMsg("Reading the video's audio…");
-      const { samples, rate, duration, scale = 1 } = await extractAudio(file, setProcMsg, playGate);
-      setTapGo(null);
-      const CHUNK = 150 * rate; // 2.5-minute pieces stay well inside the upload limit
-      const span = 150 * scale; // real video seconds each chunk covers
-      const segments = [];
-      for (let off = 0; off < samples.length; off += CHUNK) {
-        const part = samples.subarray(off, Math.min(off + CHUNK, samples.length));
-        const t0 = (off / rate) * scale;
-        setProcMsg(duration > span + 5 ? `Transcribing ${fmtT(t0)}–${fmtT(Math.min(duration, t0 + span))} of ${fmtT(duration)}…` : "Transcribing your narration…");
-        const b64 = toB64(wavBytes(part, rate));
-        const d = await qbAuthFetch("/api/ai/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audio: b64, timestamps: 1 }) });
-        (d.segments || []).forEach((sg) => segments.push({ start: (Number(sg.start) || 0) * scale + t0, end: (Number(sg.end) || 0) * scale + t0, text: sg.text }));
-      }
-      if (!segments.length) throw new Error("No speech was found in this video — was the narration audible?");
-      setProcMsg("Building your punch list…");
-      const out = await qbAuthFetch("/api/ai/walkthrough", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ segments, address: property.address || "" }) });
-      const list = (out.items || []).map((it, i) => ({ ...it, id: Date.now() + i, image: null }));
-      if (!list.length) throw new Error("The AI couldn't find any work items in the narration.");
-      // Frame grabs — one hidden video element, sequential seeks.
-      setProcMsg(`Grabbing ${list.length} photo${list.length !== 1 ? "s" : ""} from the video…`);
-      const vid = document.createElement("video");
-      vid.src = url; vid.muted = true; vid.playsInline = true; vid.preload = "auto";
-      await new Promise((r) => { vid.onloadeddata = r; vid.onerror = r; setTimeout(r, 6000); });
-      for (const it of list) it.image = await grabFrame(vid, (Number(it.start) || 0) + 0.3);
-      setItems(list);
-      setStep("review");
-    } catch (e) {
-      setTapGo(null);
-      setErr(e.message || "Couldn't process this video.");
-      setStep("start");
-    }
-  };
-
-  const up = (id, k, v) => setItems((prev) => prev.map((it) => (it.id === id ? { ...it, [k]: v } : it)));
-  const del = (id) => setItems((prev) => prev.filter((it) => it.id !== id));
-  const addBlank = () => setItems((prev) => [...prev, { id: Date.now(), title: "", detail: "", room: "General", quote: "", start: 0, end: 0, image: null }]);
+  const up = (id, k, v) => wkSet(property.id, { items: items.map((it) => (it.id === id ? { ...it, [k]: v } : it)) });
+  const del = (id) => wkSet(property.id, { items: items.filter((it) => it.id !== id) });
+  const addBlank = () => wkSet(property.id, { items: [...items, { id: Date.now(), title: "", detail: "", room: "General", quote: "", start: 0, end: 0, image: null, clip: job?.clips || 1 }] });
 
   const makeTasks = () => {
     const good = items.filter((it) => it.title.trim());
@@ -320,34 +359,41 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
 
   const rooms = [];
   items.forEach((it) => { const r = it.room || "General"; if (!rooms.includes(r)) rooms.push(r); });
+  const multiClip = items.some((i) => (i.clip || 1) > 1);
   const btn = (bg, fg) => ({ padding: "12px", borderRadius: 12, border: "none", background: bg, color: fg, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" });
 
   return (
-    <div onClick={step === "rec" ? undefined : onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 460, display: "flex", alignItems: "center", justifyContent: "center", padding: 10, backdropFilter: "blur(5px)" }}>
+    <div onClick={view === "rec" ? undefined : onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 460, display: "flex", alignItems: "center", justifyContent: "center", padding: 10, backdropFilter: "blur(5px)" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: T.bg, borderRadius: 20, width: "min(560px,96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: T.shadowMd }}>
         <div style={{ padding: "16px 18px 12px", background: T.card, borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexShrink: 0 }}>
           <div>
             <div style={{ fontWeight: 800, fontSize: 16, color: T.text }}>🎥 Walkthrough — {property.address}</div>
             <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 2 }}>
-              {step === "review" ? `${items.length} item${items.length !== 1 ? "s" : ""} — tap any text to edit, × to drop` : "Walk and talk — the AI writes the punch list."}
+              {view === "review" ? `${items.length} item${items.length !== 1 ? "s" : ""}${(job?.clips || 1) > 1 ? ` from ${job.clips} videos` : ""} — tap any text to edit, × to drop` : "Walk and talk — the AI writes the punch list."}
             </div>
           </div>
-          {step !== "rec" && <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1 }}>×</button>}
+          {view !== "rec" && <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1 }}>×</button>}
         </div>
 
-        {err && <div style={{ margin: "10px 14px 0", padding: "9px 12px", background: "#FFF0EF", border: `1px solid ${T.red}`, borderRadius: 10, color: T.red, fontSize: 12.5 }}>{err}</div>}
+        {showErr && <div style={{ margin: "10px 14px 0", padding: "9px 12px", background: "#FFF0EF", border: `1px solid ${T.red}`, borderRadius: 10, color: T.red, fontSize: 12.5 }}>{showErr}</div>}
         {flash && <div style={{ margin: "10px 14px 0", padding: "9px 12px", background: "#EAF7EE", border: "1px solid #BFE8CD", borderRadius: 10, color: "#15803D", fontSize: 12.5, fontWeight: 600 }}>{flash}</div>}
 
-        {step === "start" && (
+        {view === "start" && (
           <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 10 }}>
+            {items.length > 0 && (
+              <button onClick={() => setAdding(false)} style={{ background: "none", border: "none", color: T.blue, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left", padding: 0 }}>
+                ← Back to your {items.length} item{items.length !== 1 ? "s" : ""}
+              </button>
+            )}
             <button onClick={startRec} style={{ ...btn(T.gold, "#fff"), padding: 16, fontSize: 15, boxShadow: `0 2px 10px ${T.gold}55` }}>🎥 Record a walkthrough now</button>
             <label style={{ ...btn(T.card, T.text), padding: 16, fontSize: 15, textAlign: "center", border: `1px solid ${T.border}` }}>
-              📁 Upload a video (camera roll / sent to you)
-              <input type="file" accept="video/*,audio/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; if (f) processVideo(f); }} />
+              📁 Upload videos (camera roll / sent to you)
+              <input type="file" accept="video/*,audio/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) { setErr(""); setAdding(false); startWalkClips(property, fl); } e.target.value = ""; }} />
             </label>
             <div style={{ fontSize: 11.5, color: T.textSub, lineHeight: 1.55, padding: "2px 4px" }}>
               Talk naturally as you walk — "master bath, regrout the tub… replace this outlet cover". Long videos are fine (5–10 minutes).
-              Each item gets the video frame from the moment you said it, plus the exact snippet time for the contractor.
+              Pick several videos at once (exterior, interior…) — they all land on one punch list. Each item gets the video frame from the
+              moment you said it, plus the exact snippet time for the contractor.
             </div>
           </div>
         )}
@@ -368,19 +414,22 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
           </div>
         )}
 
-        {step === "proc" && (
+        {view === "proc" && (
           <div style={{ padding: "38px 20px", textAlign: "center" }}>
             <div style={{ fontSize: 34, marginBottom: 12 }}>🎞️</div>
-            <div style={{ fontSize: 14.5, fontWeight: 700, color: T.text }}>{procMsg}</div>
-            {tapGo ? (
-              <button onClick={tapGo} style={{ marginTop: 16, padding: "13px 26px", borderRadius: 14, border: "none", background: T.gold, color: "#fff", fontSize: 15, fontWeight: 750, fontFamily: "inherit", cursor: "pointer" }}>▶ Tap to continue</button>
+            <div style={{ fontSize: 14.5, fontWeight: 700, color: T.text }}>{job?.msg || "Working…"}</div>
+            {job?.tap ? (
+              <button onClick={job.tap} style={{ marginTop: 16, padding: "13px 26px", borderRadius: 14, border: "none", background: T.gold, color: "#fff", fontSize: 15, fontWeight: 750, fontFamily: "inherit", cursor: "pointer" }}>▶ Tap to continue</button>
             ) : (
-              <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 8 }}>Long videos take a minute or two — keep this open.</div>
+              <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 10, lineHeight: 1.6, maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
+                You can close this and keep using the app — the work continues, and the 🎥 button on the Tasks tab shows "Transcribing…" until it's done.
+                If the phone locks or you leave the app it pauses, then picks back up when you return.
+              </div>
             )}
           </div>
         )}
 
-        {step === "review" && (
+        {view === "review" && (
           <>
             <div style={{ flex: 1, overflowY: "auto" }}>
               {rooms.map((room) => (
@@ -394,7 +443,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <input value={it.title} onChange={(e) => up(it.id, "title", e.target.value)} placeholder="What needs doing…" style={{ width: "100%", border: "none", background: "transparent", fontSize: 13, fontWeight: 650, color: T.text, outline: "none", fontFamily: "inherit", padding: 0 }} />
                         <input value={it.detail} onChange={(e) => up(it.id, "detail", e.target.value)} placeholder="Detail for the contractor…" style={{ width: "100%", border: "none", background: "transparent", fontSize: 11, color: T.textSub, outline: "none", fontFamily: "inherit", padding: "2px 0 0" }} />
-                        <div style={{ fontSize: 10, color: T.textTert, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{snippetLabel(it)}{it.quote ? ` · "${it.quote}"` : ""}</div>
+                        <div style={{ fontSize: 10, color: T.textTert, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{snippetLabel(it, multiClip)}{it.quote ? ` · "${it.quote}"` : ""}</div>
                       </div>
                       <button onClick={() => del(it.id)} style={{ background: "none", border: "none", color: T.red, fontSize: 17, cursor: "pointer", width: 26, flexShrink: 0 }}>×</button>
                     </div>
@@ -404,6 +453,10 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
               <button onClick={addBlank} style={{ display: "block", width: "100%", minHeight: 44, background: "transparent", border: "none", color: T.blue, cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 600 }}>+ Add item</button>
             </div>
             <div style={{ background: T.card, borderTop: `1px solid ${T.border}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => { setErr(""); setAdding(true); }} style={{ ...btn(T.bg, T.text), flex: 1, border: `1px solid ${T.border}`, padding: "9px 12px", fontSize: 12.5 }}>➕ Add another video</button>
+                <button onClick={() => { if (window.confirm("Throw away this punch list and start fresh?")) { setAdding(false); clearWalkJob(property.id); } }} title="Start over" style={{ ...btn(T.bg, T.red), border: `1px solid ${T.border}`, padding: "9px 14px", fontSize: 12.5 }}>🗑</button>
+              </div>
               <input value={contractor} onChange={(e) => setContractor(e.target.value)} placeholder='PDF "Prepared for" — contractor name (optional)' style={{ padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, fontSize: 12.5, outline: "none", fontFamily: "inherit" }} />
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={makeTasks} style={{ ...btn(T.bg, T.text), flex: 1, border: `1px solid ${T.border}` }}>→ Add as tasks</button>

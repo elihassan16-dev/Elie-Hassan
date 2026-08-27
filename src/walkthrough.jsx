@@ -39,7 +39,7 @@ function toB64(bytes) {
 }
 
 // Decode any video/audio file's soundtrack → 16 kHz mono Float32Array.
-async function extractAudio(file) {
+async function extractAudioFast(file) {
   const AC = window.AudioContext || window.webkitAudioContext;
   const raw = await file.arrayBuffer();
   const ac = new AC();
@@ -54,7 +54,89 @@ async function extractAudio(file) {
   src.connect(oc.destination);
   src.start();
   const rendered = await oc.startRendering();
-  return { samples: rendered.getChannelData(0), rate, duration: decoded.duration };
+  return { samples: rendered.getChannelData(0), rate, duration: decoded.duration, scale: 1 };
+}
+
+// Backup reader for videos the Web Audio decoder rejects ("Decoding failed" —
+// e.g. iPhone camera-roll clips with Spatial Audio, whose APAC track only the
+// <video> element can play): play the file through a hidden video routed into
+// an audio graph and capture the soundtrack as it plays, pitch-preserved at
+// 1.5× so the wait is shorter. Timestamps come back in captured time, so we
+// return the measured scale (video time ÷ captured time) for the caller to
+// map them onto the real video.
+const RT_SPEED = 1.5;
+async function extractAudioRealtime(file, onMsg, playGate) {
+  const url = URL.createObjectURL(file);
+  const video = document.createElement("video");
+  video.src = url; video.playsInline = true; video.preload = "auto"; video.crossOrigin = "anonymous";
+  video.style.cssText = "position:fixed;left:-9999px;width:2px;height:2px;opacity:0.01;pointer-events:none";
+  document.body.appendChild(video);
+  const undo = [];
+  try {
+    await new Promise((res, rej) => {
+      video.onloadedmetadata = res;
+      video.onerror = () => rej(new Error("This video can't be played in the browser — export/share it as a standard MP4 and try again."));
+      const to = setTimeout(() => rej(new Error("The video took too long to open.")), 20000);
+      undo.push(() => clearTimeout(to));
+    });
+    const duration = video.duration || 0;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ac = new AC();
+    undo.push(() => { try { ac.close(); } catch { /* ignore */ } });
+    const src = ac.createMediaElementSource(video); // reroutes sound into the graph — speakers stay silent
+    const proc = ac.createScriptProcessor(4096, 1, 1);
+    const mute = ac.createGain(); mute.gain.value = 0;
+    const chunks = [];
+    proc.onaudioprocess = (e) => { chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+    src.connect(proc); proc.connect(mute); mute.connect(ac.destination);
+    try { video.preservesPitch = true; } catch { /* ignore */ }
+    try { video.webkitPreservesPitch = true; } catch { /* ignore */ }
+    try { video.playbackRate = RT_SPEED; } catch { /* ignore */ }
+    await playGate(video, ac);
+    const say = () => onMsg && onMsg(`Reading the video's audio (fast-forward)… ${fmtT(video.currentTime)} of ${fmtT(duration)} — keep this screen open`);
+    say();
+    await new Promise((res, rej) => {
+      video.onended = res;
+      video.onerror = () => rej(new Error("Playback failed partway through reading the video."));
+      video.ontimeupdate = say;
+      let last = -1, still = 0;
+      const iv = setInterval(() => {
+        if (video.ended) return;
+        if (video.currentTime === last) { if (++still >= 8) rej(new Error("The video stalled while its audio was being read — try again with the screen kept on.")); }
+        else { still = 0; last = video.currentTime; }
+      }, 2500);
+      undo.push(() => clearInterval(iv));
+    });
+    proc.onaudioprocess = null;
+    const total = chunks.reduce((n, c) => n + c.length, 0);
+    if (!total) throw new Error("No audio could be read from this video.");
+    const sr = ac.sampleRate;
+    const all = new Float32Array(total);
+    let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+    const rate = 16000;
+    const outLen = Math.floor(total * rate / sr);
+    const samples = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      const p = i * sr / rate, i0 = Math.floor(p), f = p - i0;
+      samples[i] = all[i0] + ((all[i0 + 1] - all[i0]) || 0) * f;
+    }
+    let scale = duration / (total / sr);
+    if (!isFinite(scale) || scale <= 0.5 || scale > 4) scale = RT_SPEED;
+    return { samples, rate, duration, scale };
+  } finally {
+    undo.forEach((f) => { try { f(); } catch { /* ignore */ } });
+    try { video.pause(); } catch { /* ignore */ }
+    video.remove();
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function extractAudio(file, onMsg, playGate) {
+  try { return await extractAudioFast(file); }
+  catch {
+    onMsg && onMsg("This video needs the backup audio reader — opening it…");
+    return await extractAudioRealtime(file, onMsg, playGate);
+  }
 }
 
 // Grab a JPEG frame from the video at t seconds (hidden element, seek + draw).
@@ -88,6 +170,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   const [emailTo, setEmailTo] = useState("");
   const [flash, setFlash] = useState("");
   const [busy, setBusy] = useState("");
+  const [tapGo, setTapGo] = useState(null); // backup audio reader needs one tap on iPhone to start playback
   const liveRef = useRef(null);
   const mrRef = useRef(null);
   const streamRef = useRef(null);
@@ -128,22 +211,40 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   };
   const stopRec = () => { try { mrRef.current && mrRef.current.state !== "inactive" && mrRef.current.stop(); } catch { /* ignore */ } };
 
+  // One tap satisfies iOS's play-needs-a-gesture rule for the backup reader:
+  // video.play() + ac.resume() run synchronously inside the click handler.
+  const playGate = (video, ac) => new Promise((res, rej) => {
+    (async () => { try { await ac.resume(); } catch { /* ignore */ } await video.play(); if (ac.state === "suspended") throw new Error("suspended"); })()
+      .then(res)
+      .catch(() => {
+        setProcMsg("Your phone needs one tap to open the video — hit the button below.");
+        setTapGo(() => () => {
+          setTapGo(null);
+          const p = video.play();
+          try { ac.resume(); } catch { /* ignore */ }
+          Promise.resolve(p).then(res, rej);
+        });
+      });
+  });
+
   const processVideo = async (file) => {
     setStep("proc"); setErr("");
     const url = URL.createObjectURL(file);
     setVideoUrl(url);
     try {
       setProcMsg("Reading the video's audio…");
-      const { samples, rate, duration } = await extractAudio(file);
+      const { samples, rate, duration, scale = 1 } = await extractAudio(file, setProcMsg, playGate);
+      setTapGo(null);
       const CHUNK = 150 * rate; // 2.5-minute pieces stay well inside the upload limit
+      const span = 150 * scale; // real video seconds each chunk covers
       const segments = [];
       for (let off = 0; off < samples.length; off += CHUNK) {
         const part = samples.subarray(off, Math.min(off + CHUNK, samples.length));
-        const t0 = off / rate;
-        setProcMsg(duration > 155 ? `Transcribing ${fmtT(t0)}–${fmtT(Math.min(duration, t0 + 150))} of ${fmtT(duration)}…` : "Transcribing your narration…");
+        const t0 = (off / rate) * scale;
+        setProcMsg(duration > span + 5 ? `Transcribing ${fmtT(t0)}–${fmtT(Math.min(duration, t0 + span))} of ${fmtT(duration)}…` : "Transcribing your narration…");
         const b64 = toB64(wavBytes(part, rate));
         const d = await qbAuthFetch("/api/ai/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audio: b64, timestamps: 1 }) });
-        (d.segments || []).forEach((sg) => segments.push({ start: (Number(sg.start) || 0) + t0, end: (Number(sg.end) || 0) + t0, text: sg.text }));
+        (d.segments || []).forEach((sg) => segments.push({ start: (Number(sg.start) || 0) * scale + t0, end: (Number(sg.end) || 0) * scale + t0, text: sg.text }));
       }
       if (!segments.length) throw new Error("No speech was found in this video — was the narration audible?");
       setProcMsg("Building your punch list…");
@@ -159,6 +260,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
       setItems(list);
       setStep("review");
     } catch (e) {
+      setTapGo(null);
       setErr(e.message || "Couldn't process this video.");
       setStep("start");
     }
@@ -270,7 +372,11 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
           <div style={{ padding: "38px 20px", textAlign: "center" }}>
             <div style={{ fontSize: 34, marginBottom: 12 }}>🎞️</div>
             <div style={{ fontSize: 14.5, fontWeight: 700, color: T.text }}>{procMsg}</div>
-            <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 8 }}>Long videos take a minute or two — keep this open.</div>
+            {tapGo ? (
+              <button onClick={tapGo} style={{ marginTop: 16, padding: "13px 26px", borderRadius: 14, border: "none", background: T.gold, color: "#fff", fontSize: 15, fontWeight: 750, fontFamily: "inherit", cursor: "pointer" }}>▶ Tap to continue</button>
+            ) : (
+              <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 8 }}>Long videos take a minute or two — keep this open.</div>
+            )}
           </div>
         )}
 

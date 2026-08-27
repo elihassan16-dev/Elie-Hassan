@@ -80,6 +80,10 @@ async function extractAudioRealtime(file, onMsg, playGate) {
       undo.push(() => clearTimeout(to));
     });
     const duration = video.duration || 0;
+    // Short videos read at NORMAL speed — 1.5x garbles words ("let's also fix
+    // all [chairs]" came through clipped) and saves almost nothing under a few
+    // minutes. Fast-forward only pays off on long walkthroughs.
+    const speed = duration > 180 ? RT_SPEED : 1;
     const AC = window.AudioContext || window.webkitAudioContext;
     const ac = new AC();
     undo.push(() => { try { ac.close(); } catch { /* ignore */ } });
@@ -92,7 +96,7 @@ async function extractAudioRealtime(file, onMsg, playGate) {
     src.connect(proc); proc.connect(mute); mute.connect(ac.destination);
     try { video.preservesPitch = true; } catch { /* ignore */ }
     try { video.webkitPreservesPitch = true; } catch { /* ignore */ }
-    try { video.playbackRate = RT_SPEED; } catch { /* ignore */ }
+    try { video.playbackRate = speed; } catch { /* ignore */ }
     // A tap-restart replays from 0:00 — drop whatever the false start captured
     // so the first narration isn't in the recording twice.
     await playGate(video, ac, () => { chunks.length = 0; cap.n = 0; });
@@ -102,7 +106,7 @@ async function extractAudioRealtime(file, onMsg, playGate) {
     const marks = [];
     const mk = setInterval(() => { if (cap.n && video.currentTime > 0) marks.push({ c: cap.n / ac.sampleRate, v: video.currentTime }); }, 1000);
     undo.push(() => clearInterval(mk));
-    const say = () => onMsg && onMsg(`Reading the video's audio (fast-forward)… ${fmtT(video.currentTime)} of ${fmtT(duration)} — keep this screen open`);
+    const say = () => onMsg && onMsg(`Reading the video's audio${speed > 1 ? " (fast-forward)" : ""}… ${fmtT(video.currentTime)} of ${fmtT(duration)} — keep this screen open`);
     say();
     await new Promise((res, rej) => {
       video.onended = res;
@@ -132,14 +136,14 @@ async function extractAudioRealtime(file, onMsg, playGate) {
       const p = i * sr / rate, i0 = Math.floor(p), f = p - i0;
       samples[i] = all[i0] + ((all[i0 + 1] - all[i0]) || 0) * f;
     }
-    let scale = RT_SPEED, offset = 0;
+    let scale = speed, offset = 0;
     const mA = marks[0], mB = marks[marks.length - 1];
     if (mA && mB && mB.c - mA.c > 2) {
       scale = (mB.v - mA.v) / (mB.c - mA.c);
       offset = mA.v - mA.c * scale;
     }
     if (!isFinite(scale) || scale <= 0.5 || scale > 4) { scale = duration / (total / sr); offset = 0; }
-    if (!isFinite(scale) || scale <= 0.5 || scale > 4) scale = RT_SPEED;
+    if (!isFinite(scale) || scale <= 0.5 || scale > 4) scale = speed;
     if (!isFinite(offset) || Math.abs(offset) > 30) offset = 0;
     return { samples, rate, duration, scale, offset };
   } finally {

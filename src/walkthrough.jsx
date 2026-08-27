@@ -240,6 +240,35 @@ export function useWalkJob(propertyId) {
   return wkGet(propertyId);
 }
 
+// Whisper often returns one timed block covering several sentences, so two
+// items can come back with near-identical times — and then identical photos.
+// Pin each item's true moment by locating its quoted words inside the timed
+// blocks and interpolating by character position.
+function refineTimes(items, segments) {
+  const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  let full = "";
+  const at = []; // start-time per character of `full`
+  segments.forEach((sg) => {
+    const t = norm(sg.text);
+    if (!t) return;
+    const s0 = Number(sg.start) || 0;
+    const span = Math.max(0.5, (Number(sg.end) || 0) - s0 || 0.5);
+    if (full) { full += " "; at.push(s0); }
+    for (let i = 0; i < t.length; i++) at.push(s0 + (i / t.length) * span);
+    full += t;
+  });
+  items.forEach((it) => {
+    const q = norm(it.quote);
+    if (q.length < 8) return;
+    let idx = full.indexOf(q);
+    if (idx < 0) idx = full.indexOf(q.slice(0, Math.max(10, q.length >> 1))); // quote may be trimmed/paraphrased at the end
+    if (idx < 0 || idx >= at.length) return;
+    const endIdx = Math.min(at.length - 1, idx + q.length);
+    it.start = at[idx];
+    it.end = Math.max(it.start + 1.5, at[endIdx]);
+  });
+}
+
 async function processClip(property, file, label) {
   const pid = property.id;
   const say = (m) => wkSet(pid, { msg: label + m });
@@ -307,6 +336,7 @@ async function processClip(property, file, label) {
     const clipNo = (wkGet(pid)?.clips || 0) + 1;
     const list = (out.items || []).map((it, i) => ({ ...it, id: Date.now() + i, image: null, clip: clipNo }));
     if (!list.length) throw new Error("The AI couldn't find any work items in the narration.");
+    refineTimes(list, segments);
     // Frame grabs — one hidden video element, sequential seeks. The element
     // must be in the DOM and have PLAYED (muted — no gesture needed) before
     // iOS will paint it into a canvas; a never-played video draws blank.

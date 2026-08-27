@@ -6144,7 +6144,6 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
       {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={capsSeg()}><TeamChatIcon size={14}/></button>}
       <button onClick={()=>setAiChat(true)} title="Ask AI about this property" style={capsSeg(T.gold)}><SparkleIcon size={15}/></button>
       <button onClick={()=>setStatusBoard(true)} title="Property status — utilities & permits (contractors see this too)" style={capsSeg()}>🏗</button>
-      <button onClick={()=>setWalk(true)} title="Walkthrough — record or upload a narrated video, get an AI punch list + PDF" style={capsSeg()}>🎥</button>
       <button onClick={()=>setEditAddr(true)} title="Edit the address" style={capsSeg()}>✎</button>
     </div>
   );
@@ -6295,7 +6294,10 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                     <span style={{width:7,height:7,borderRadius:4,background:T.green,display:"inline-block"}}/>
                     <span style={{fontSize:13.5,fontWeight:650,color:T.text}}>Task Progress</span>
                   </div>
-                  <div style={{fontSize:20,fontWeight:750,color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{pct}%</div>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <button onClick={()=>setWalk(true)} title="Walkthrough — record or upload a narrated video, get an AI punch list + PDF" style={{padding:"7px 13px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,cursor:"pointer",fontSize:13,fontFamily:"inherit",display:"flex",alignItems:"center",gap:6,color:T.textSub,fontWeight:650}}>🎥<span style={{fontSize:12}}>Walkthrough</span></button>
+                    <div style={{fontSize:20,fontWeight:750,color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{pct}%</div>
+                  </div>
                 </div>
                 <div style={{height:10,borderRadius:5,background:T.bg,overflow:"hidden",marginBottom:10}}>
                   <div style={{height:"100%",borderRadius:5,background:`linear-gradient(90deg,${T.green},#22C55E)`,width:`${pct}%`,transition:"width 0.4s"}}/>

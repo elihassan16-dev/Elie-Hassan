@@ -106,7 +106,30 @@ export default async function handler(req, res) {
     // Ping whoever OWNS the line an inbound text arrived on (their number in
     // JIVETEL_NUMBERS); unknown line → the whole team. Shared by both the
     // id-carrying and the app-originated (no-id) message paths.
+    // What arrived, in words: "Video sent" / "Photo sent" / "Attachment sent"
+    // (with counts) instead of a generic label.
+    const mediaLabel = (urls) => {
+      if (!urls || !urls.length) return "";
+      const kind = (u) => /\.(mp4|mov|m4v|3gp|webm|avi|mkv)(\?|$)/i.test(u) ? "video" : /\.(jpe?g|png|gif|heic|heif|webp|bmp|tiff?)(\?|$)/i.test(u) ? "photo" : "file";
+      const kinds = urls.map(kind);
+      const n = urls.length;
+      if (kinds.every((k) => k === "video")) return n > 1 ? `🎥 ${n} videos sent` : "🎥 Video sent";
+      if (kinds.every((k) => k === "photo")) return n > 1 ? `📷 ${n} photos sent` : "📷 Photo sent";
+      return n > 1 ? `📎 ${n} attachments sent` : "📎 Attachment sent";
+    };
     const pingInbound = async (m) => {
+      // Jivetel can deliver the SAME inbound text in two encodings (with and
+      // without a MessageID) near-simultaneously — each raced past the store
+      // dedupe and pinged, so phones buzzed twice. A short-lived alert log
+      // keyed by sender+content collapses them regardless of arrival order.
+      try {
+        const key = `${e164(m.from)}|${String(m.text || "").slice(0, 80)}|${String((m.media || [])[0] || "").slice(0, 60)}`;
+        const { data: arow } = await client.from("app_settings").select("data").eq("id", "jivetel_text_alerts").maybeSingle();
+        const log = ((arow && arow.data && arow.data.log) || []).filter((x) => Date.now() - new Date(x.at).getTime() < 10 * 60000);
+        if (log.some((x) => x.k === key && Date.now() - new Date(x.at).getTime() < 3 * 60000)) return;
+        log.push({ k: key, at: new Date().toISOString() });
+        await client.from("app_settings").upsert({ id: "jivetel_text_alerts", data: { log: log.slice(-60) }, updated_at: new Date().toISOString() });
+      } catch { /* dedupe is best-effort — never blocks the alert */ }
       // ⚙️ Feature switch (Settings portal): new-text alerts can be turned off.
       try {
         const { data: featR } = await client.from("app_settings").select("data").eq("id", "features").maybeSingle();
@@ -119,10 +142,11 @@ export default async function handler(req, res) {
       // Name in the title; buyer/agent/lead + their property before the
       // message, so the banner answers "who and about what" at a glance.
       const sub = whoSub(who);
+      const label = mediaLabel(m.media);
       await notifyFanout(client, null, {
         ...(owner ? { recipientsFirst: [owner] } : { toTeam: true }),
         title: `💬 New text — ${(who && who.name) || m.name || m.from}`,
-        body: `${sub ? sub + " · " : ""}${preview || (m.media && m.media.length ? "📷 Photo" : "(no text)")}`,
+        body: `${sub ? sub + " · " : ""}${[preview, label].filter(Boolean).join(" · ") || "(no text)"}`,
         tag: `jvmsg-${m.id}`.slice(0, 64),
         url: "/",
       }).catch(() => {});
@@ -230,7 +254,7 @@ export default async function handler(req, res) {
           at,
           status: "",
         }).catch(() => {});
-        if (dir === "in") await pingInbound({ id, from, to, name, text });
+        if (dir === "in") await pingInbound({ id, from, to, name, text, media });
       }
     }
     // Delivery receipts: a status-only event (MessageID, no MessageBody)

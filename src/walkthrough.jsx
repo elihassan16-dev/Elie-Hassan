@@ -140,21 +140,47 @@ async function extractAudio(file, onMsg, playGate) {
 }
 
 // Grab a JPEG frame from the video at t seconds (hidden element, seek + draw).
+// iOS won't paint a video into a canvas until a frame is actually PRESENTED —
+// a bare seek often draws blank. So we wait for requestVideoFrameCallback
+// after the seek, and if the drawing still comes out uniform (all one color),
+// give the decoder a beat and draw once more.
 function grabFrame(video, t) {
+  const draw = () => {
+    const w = 480, h = Math.round((video.videoHeight / video.videoWidth) * 480) || 320;
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(video, 0, 0, w, h);
+    let uniform = true;
+    try {
+      const px = ctx.getImageData(0, 0, w, h).data;
+      const r = px[0], g = px[1], b = px[2];
+      for (const i of [1, w - 2, (h - 2) * w, (h - 2) * w + w - 2, ((h >> 1) * w) + (w >> 1)]) {
+        const o = i * 4;
+        if (Math.abs(px[o] - r) > 6 || Math.abs(px[o + 1] - g) > 6 || Math.abs(px[o + 2] - b) > 6) { uniform = false; break; }
+      }
+    } catch { uniform = false; }
+    return { data: c.toDataURL("image/jpeg", 0.72), uniform };
+  };
   return new Promise((resolve) => {
-    const done = () => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return; settled = true;
       try {
-        const w = 480, h = Math.round((video.videoHeight / video.videoWidth) * 480) || 320;
-        const c = document.createElement("canvas");
-        c.width = w; c.height = h;
-        c.getContext("2d").drawImage(video, 0, 0, w, h);
-        resolve(c.toDataURL("image/jpeg", 0.72));
+        const first = draw();
+        if (!first.uniform) { resolve(first.data); return; }
+        setTimeout(() => { try { resolve(draw().data); } catch { resolve(first.data); } }, 280);
       } catch { resolve(null); }
     };
-    const to = setTimeout(() => { video.removeEventListener("seeked", onSeek); resolve(null); }, 4000);
-    const onSeek = () => { clearTimeout(to); video.removeEventListener("seeked", onSeek); requestAnimationFrame(done); };
+    const to = setTimeout(finish, 5000); // grab whatever is painted rather than nothing
+    const onSeek = () => {
+      video.removeEventListener("seeked", onSeek);
+      clearTimeout(to);
+      if (video.requestVideoFrameCallback) { video.requestVideoFrameCallback(finish); setTimeout(finish, 1500); }
+      else requestAnimationFrame(() => requestAnimationFrame(finish));
+    };
     video.addEventListener("seeked", onSeek);
-    try { video.currentTime = Math.max(0.1, t); } catch { clearTimeout(to); resolve(null); }
+    try { video.currentTime = Math.max(0.1, t); } catch { clearTimeout(to); finish(); }
   });
 }
 
@@ -229,12 +255,19 @@ async function processClip(property, file, label) {
     const clipNo = (wkGet(pid)?.clips || 0) + 1;
     const list = (out.items || []).map((it, i) => ({ ...it, id: Date.now() + i, image: null, clip: clipNo }));
     if (!list.length) throw new Error("The AI couldn't find any work items in the narration.");
-    // Frame grabs — one hidden video element, sequential seeks.
+    // Frame grabs — one hidden video element, sequential seeks. The element
+    // must be in the DOM and have PLAYED (muted — no gesture needed) before
+    // iOS will paint it into a canvas; a never-played video draws blank.
     say(`Grabbing ${list.length} photo${list.length !== 1 ? "s" : ""} from the video…`);
     const vid = document.createElement("video");
     vid.src = url; vid.muted = true; vid.playsInline = true; vid.preload = "auto";
-    await new Promise((r) => { vid.onloadeddata = r; vid.onerror = r; setTimeout(r, 6000); });
-    for (const it of list) it.image = await grabFrame(vid, (Number(it.start) || 0) + 0.3);
+    vid.style.cssText = "position:fixed;left:-9999px;width:2px;height:2px;opacity:0.01;pointer-events:none";
+    document.body.appendChild(vid);
+    try {
+      await new Promise((r) => { vid.onloadeddata = r; vid.onerror = r; setTimeout(r, 6000); });
+      try { await vid.play(); await new Promise((r) => setTimeout(r, 200)); vid.pause(); } catch { /* ignore */ }
+      for (const it of list) it.image = await grabFrame(vid, (Number(it.start) || 0) + 0.3);
+    } finally { vid.remove(); }
     wkSet(pid, { items: [...(wkGet(pid)?.items || []), ...list], clips: clipNo });
   } finally {
     URL.revokeObjectURL(url);

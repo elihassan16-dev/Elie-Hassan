@@ -52,17 +52,29 @@ export async function walkPdfFile({ address, cityLine, dateLabel, contractor, it
   items.forEach((it) => { const r = it.room || "General"; if (!rooms.includes(r)) rooms.push(r); });
   const multiClip = items.some((it) => (it.clip || 1) > 1); // several videos → cite which one
 
-  const IMG_W = 118, IMG_H = 82, GAP = 12;
+  // Images keep their real shape — phone walkthroughs are portrait, and
+  // forcing them into a landscape box stretches them. Fixed column width,
+  // aspect-true size capped in height, centered in the column.
+  const IMG_W = 118, IMG_MAXH = 150, GAP = 12;
   let n = 0;
   for (const room of rooms) {
     const list = items.filter((it) => (it.room || "General") === room);
-    ensure(20 + IMG_H);
+    ensure(20 + 90);
     doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(140);
     doc.text(String(room).toUpperCase(), margin, y);
     doc.setTextColor(0);
     y += 10;
     for (const it of list) {
       n += 1;
+      let iw = 0, ih = 0;
+      if (it.image) {
+        iw = IMG_W; ih = 82;
+        try {
+          const p = doc.getImageProperties(it.image);
+          const r = p.height / p.width;
+          if (r > 0 && isFinite(r)) { iw = IMG_W; ih = IMG_W * r; if (ih > IMG_MAXH) { ih = IMG_MAXH; iw = IMG_MAXH / r; } }
+        } catch { /* keep default box */ }
+      }
       const textX = margin + (it.image ? IMG_W + GAP : 0);
       const textW = maxW - (it.image ? IMG_W + GAP : 0);
       doc.setFont("helvetica", "bold"); doc.setFontSize(10.5);
@@ -70,11 +82,11 @@ export async function walkPdfFile({ address, cityLine, dateLabel, contractor, it
       doc.setFont("helvetica", "normal"); doc.setFontSize(9);
       const detailLines = it.detail ? doc.splitTextToSize(it.detail, textW) : [];
       const textH = titleLines.length * 12 + detailLines.length * 11 + 14;
-      const rowH = Math.max(it.image ? IMG_H : 0, textH) + 10;
+      const rowH = Math.max(it.image ? ih : 0, textH) + 10;
       ensure(rowH + 6);
       const top = y;
       if (it.image) {
-        try { doc.addImage(it.image, "JPEG", margin, top, IMG_W, IMG_H); } catch { /* frame missing — text-only row */ }
+        try { doc.addImage(it.image, "JPEG", margin + (IMG_W - iw) / 2, top, iw, ih); } catch { /* frame missing — text-only row */ }
       }
       let ty = top + 11;
       doc.setFont("helvetica", "bold"); doc.setFontSize(10.5);

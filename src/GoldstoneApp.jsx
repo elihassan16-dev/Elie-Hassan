@@ -10,6 +10,7 @@ import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
 import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, STREAM_VIDEO_CAP, geocodeAddress } from "./net";
+import { WalkthroughModal } from "./walkthrough";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { usePersistentDraft } from "./useDraft";
 import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
@@ -6106,6 +6107,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const[statusBoard,setStatusBoard]=useState(false); // 🏗 utilities + permits board
   const[editAddr,setEditAddr]=useState(false);       // ✎ fix a typo'd address
   const[jumpNav,setJumpNav]=useState(false);         // tap the address → jump to this property's Showings / BS / chat
+  const[walk,setWalk]=useState(false);               // 🎥 narrated walkthrough → AI punch list
   // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.
   const showQB=property.status!=="Under Contract";
   const tabs=useMemo(()=>PTABS.filter(t=>t!=="QuickBooks"||showQB),[showQB]);
@@ -6142,6 +6144,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
       {onOpenChat&&<button onClick={()=>onOpenChat(property.id)} title="Property chat" style={capsSeg()}><TeamChatIcon size={14}/></button>}
       <button onClick={()=>setAiChat(true)} title="Ask AI about this property" style={capsSeg(T.gold)}><SparkleIcon size={15}/></button>
       <button onClick={()=>setStatusBoard(true)} title="Property status — utilities & permits (contractors see this too)" style={capsSeg()}>🏗</button>
+      <button onClick={()=>setWalk(true)} title="Walkthrough — record or upload a narrated video, get an AI punch list + PDF" style={capsSeg()}>🎥</button>
       <button onClick={()=>setEditAddr(true)} title="Edit the address" style={capsSeg()}>✎</button>
     </div>
   );
@@ -6159,6 +6162,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           {isMobile&&iconCaps()}
           {editAddr&&<AddressEditPopup rec={property} onSave={(v)=>{onUpdate(property.id,"address",v.address);onUpdate(property.id,"city",v.city);onUpdate(property.id,"state",v.state);onUpdate(property.id,"zip",v.zip);}} onClose={()=>setEditAddr(false)}/>}
           {jumpNav&&<PropertyJumpSheet property={property} onClose={()=>setJumpNav(false)}/>}
+          {walk&&<WalkthroughModal property={property} onUpdate={onUpdate} onClose={()=>setWalk(false)}/>}
           {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
         </div>

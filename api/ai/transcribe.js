@@ -26,10 +26,10 @@ export default async function handler(req, res) {
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   if (!CF_ACCOUNT_ID || !CF_AI_TOKEN) { res.status(503).json({ error: "Transcription isn't set up yet — add CF_AI_TOKEN (Cloudflare Workers AI) in Vercel." }); return; }
 
-  const { audio } = await readBody(req);
+  const { audio, timestamps } = await readBody(req);
   if (!audio) { res.status(400).json({ error: "No audio received." }); return; }
   const b64 = String(audio);
-  if (b64.length > 11 * 1024 * 1024) { res.status(413).json({ error: "Recording is too long — keep it under five minutes." }); return; }
+  if (b64.length > 11 * 1024 * 1024) { res.status(413).json({ error: "This audio chunk is too large — the app should be sending pieces under ~3 minutes." }); return; }
 
   try {
     // whisper-large-v3-turbo takes base64 JSON (the older whisper wanted raw
@@ -43,6 +43,22 @@ export default async function handler(req, res) {
     if (!r.ok || j.success === false) {
       const msg = j.errors?.[0]?.message || `Transcription failed (${r.status}).`;
       res.status(r.status === 403 || r.status === 401 ? 503 : 502).json({ error: /auth|permission|token/i.test(msg) ? "The Cloudflare token can't use Workers AI — create a token with 'Workers AI: Read' and add it as CF_AI_TOKEN in Vercel." : msg });
+      return;
+    }
+    // Walkthroughs need WHEN each thing was said: pass segments through when
+    // asked (start/end seconds + text). Falls back to parsing the VTT track,
+    // then to one whole-clip segment, so callers always get usable timing.
+    if (timestamps) {
+      let segments = Array.isArray(j.result?.segments)
+        ? j.result.segments.map((sg) => ({ start: Number(sg.start) || 0, end: Number(sg.end) || 0, text: String(sg.text || "").trim() })).filter((sg) => sg.text)
+        : [];
+      if (!segments.length && typeof j.result?.vtt === "string") {
+        const toSec = (t) => { const m = /(?:(\d+):)?(\d+):(\d+)\.(\d+)/.exec(t); return m ? (Number(m[1] || 0) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number("0." + m[4])) : 0; };
+        const re = /([\d:.]+)\s*-->\s*([\d:.]+)\s*\n([^\n]+)/g; let m;
+        while ((m = re.exec(j.result.vtt))) segments.push({ start: toSec(m[1]), end: toSec(m[2]), text: m[3].trim() });
+      }
+      if (!segments.length && j.result?.text) segments = [{ start: 0, end: 0, text: String(j.result.text).trim() }];
+      res.status(200).json({ text: (j.result?.text || "").trim(), segments });
       return;
     }
     res.status(200).json({ text: (j.result?.text || "").trim() });

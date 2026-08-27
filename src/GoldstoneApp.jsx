@@ -10,7 +10,7 @@ import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
 import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, STREAM_VIDEO_CAP, geocodeAddress } from "./net";
-import { WalkthroughModal } from "./walkthrough";
+import { WalkthroughModal, useWalkJob } from "./walkthrough";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { usePersistentDraft } from "./useDraft";
 import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
@@ -6108,6 +6108,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const[editAddr,setEditAddr]=useState(false);       // ✎ fix a typo'd address
   const[jumpNav,setJumpNav]=useState(false);         // tap the address → jump to this property's Showings / BS / chat
   const[walk,setWalk]=useState(false);               // 🎥 narrated walkthrough → AI punch list
+  const walkJob=useWalkJob(property.id);             // background transcription status for the Tasks-tab button
   // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.
   const showQB=property.status!=="Under Contract";
   const tabs=useMemo(()=>PTABS.filter(t=>t!=="QuickBooks"||showQB),[showQB]);
@@ -6295,7 +6296,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                     <span style={{fontSize:13.5,fontWeight:650,color:T.text}}>Task Progress</span>
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:12}}>
-                    <button onClick={()=>setWalk(true)} title="Walkthrough — record or upload a narrated video, get an AI punch list + PDF" style={{padding:"7px 13px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,cursor:"pointer",fontSize:13,fontFamily:"inherit",display:"flex",alignItems:"center",gap:6,color:T.textSub,fontWeight:650}}>🎥<span style={{fontSize:12}}>Walkthrough</span></button>
+                    <button onClick={()=>setWalk(true)} title="Walkthrough — record or upload narrated videos, get an AI punch list + PDF" style={{padding:"7px 13px",borderRadius:18,border:`1px solid ${walkJob?.status==="proc"||walkJob?.items?.length?T.gold:T.border}`,background:T.bg,cursor:"pointer",fontSize:13,fontFamily:"inherit",display:"flex",alignItems:"center",gap:6,color:walkJob?.status==="proc"||walkJob?.items?.length?T.gold:T.textSub,fontWeight:650}}>🎥<span style={{fontSize:12}}>{walkJob?.status==="proc"?"Transcribing…":walkJob?.items?.length?`Punch list · ${walkJob.items.length}`:"Walkthrough"}</span></button>
                     <div style={{fontSize:20,fontWeight:750,color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{pct}%</div>
                   </div>
                 </div>

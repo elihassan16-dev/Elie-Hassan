@@ -15154,6 +15154,8 @@ function cashFlowNet(p,accounts,spend,intPaid,bankAccounts){
 // ($225,534.25 on $210,000 = 15%/yr over the 180-day window). Signed for
 // Goldstone by Moshe Hamaoui, President, in a script hand, dated the day it's
 // created — with a matching signature + date block for the investor.
+// "15" -> "fifteen" for the agreement's spelled-out percentages.
+const pctWords=(n)=>({1:"one",2:"two",3:"three",4:"four",5:"five",6:"six",7:"seven",8:"eight",9:"nine",10:"ten",11:"eleven",12:"twelve",13:"thirteen",14:"fourteen",15:"fifteen",16:"sixteen",17:"seventeen",18:"eighteen",19:"nineteen",20:"twenty",25:"twenty-five"}[Number(n)]||String(n));
 function JVAgreementModal({property,onClose}){
   // The counterparties are the LOC lenders (Financial Section funders) — each
   // already carries a mailing address "used on partnership documents".
@@ -15165,7 +15167,6 @@ function JVAgreementModal({property,onClose}){
   const[inv,setInv]=useState({name:"",address:"",email:""});
   const[emailing,setEmailing]=useState(""); // "" | "sending" | "sent" | error text
   const[amount,setAmount]=useState(String(Math.round(_fp.equityRequired||0)||""));
-  const[ownPct,setOwnPct]=useState("50");
   const[retPct,setRetPct]=useState("15");
   const[days,setDays]=useState("180");
   const amt=Number(numIn?numIn(amount):amount)||Number(String(amount).replace(/[^0-9.]/g,""))||0;
@@ -15202,15 +15203,16 @@ function JVAgreementModal({property,onClose}){
     <h2>1. BACKGROUND</h2>
     <p>The Parties desire to enter into a joint venture for the purpose of purchase and construction of real estate property (the "Venture").</p>
     <h2>2. CONTRIBUTIONS</h2>
-    <p><b>2.1 Cash Contribution:</b> ${sh} agrees to contribute ${money2(amt)} in cash towards the purchase and construction of ${esc(propLegal)} (the \u201cProperty\u201d).</p>
-    <p><b>2.2 Ownership Interest:</b> In consideration of the cash contribution, ${sh} shall be entitled to a ${esc(ownPct)} percent ownership interest in the Venture.</p>
+    <p><b>2.1 Cash Contribution.</b> ${sh} agrees to contribute ${money2(amt)} in cash towards the purchase and construction of ${esc(propLegal)} (the \u201cProperty\u201d).</p>
+    <p><b>2.2 Total Equity Raise.</b> \u201cTotal Equity Raise\u201d means the aggregate cash contributed to the Venture by ${sh} and by any other investor admitted by Goldstone for the purchase and construction of the Property, excluding any capital contributed by Goldstone itself and excluding loan or financing proceeds.</p>
+    <p><b>2.3 Ownership Interest.</b> Fifty percent (50%) of the Venture (the \u201cInvestor Interest\u201d) shall be allocated collectively among all contributors to the Total Equity Raise. Goldstone shall hold the remaining fifty percent (50%). ${sh}\u2019s ownership interest shall equal fifty percent (50%) multiplied by the quotient of his cash contribution divided by the Total Equity Raise. As of the date of this Agreement, ${sh} is the sole contributor to the Total Equity Raise and accordingly holds the full fifty percent (50%) Investor Interest. If Goldstone admits additional contributors, ${sh}\u2019s percentage shall be recalculated accordingly, and Goldstone shall provide ${sh} written notice of the recalculated percentage within ten (10) days of each such admission.</p>
     <h2>3. BUYOUT OPTION</h2>
-    <p><b>3.1 Buyout Price:</b> Goldstone shall have the option to buy out ${sh}'s ${esc(ownPct)} percent ownership interest in the Venture within ${esc(days)} days of the effective date of this Agreement (the \u201cBuyout Period\u201d) for the total amount of ${money2(buyout)} which shall be prorated based on the date of the buyout.</p>
+    <p><b>3.1 Buyout Price.</b> Goldstone shall have the option to buy out ${sh}\u2019s entire Investor Interest in the Venture within ${esc(days)} days of the effective date of this Agreement (the \u201cBuyout Period\u201d) for the total amount of ${money2(buyout)}, representing his cash contribution plus ${esc(pctWords(retPct))} percent (${esc(retPct)}%) per annum, which shall be prorated based on the date of the buyout.</p>
     <h2>4. MANAGEMENT</h2>
     <p><b>4.1 Decision-Making:</b> The Parties agree that Goldstone shall have sole authority to make major decisions regarding the Venture.</p>
     <p><b>4.2 Management Responsibilities:</b> Goldstone shall have full management responsibility for the Venture, including but not limited to decision-making and day-to-day operations.</p>
     <h2>5. PROFITS AND LOSSES</h2>
-    <p>The profits and losses of the Venture shall be allocated between the Parties in proportion to their respective ownership interests.</p>
+    <p>The profits and losses of the Venture shall be allocated between the Parties in proportion to their respective ownership interests as determined under Section 2.3.</p>
     <h2>6. TERM AND TERMINATION</h2>
     <p>This Agreement shall commence on the effective date and shall continue until sale of Property.</p>
     <h2>7. MISCELLANEOUS</h2>
@@ -15245,7 +15247,7 @@ function JVAgreementModal({property,onClose}){
     if(!ok||!emailOk||emailing==="sending")return;
     setEmailing("sending");
     try{
-      const file=await jvPdfFile({address:property.address,propLegal,invName:inv.name.trim(),invAddress:inv.address.trim(),short,today,amount:money2(amt),ownPct:String(ownPct||"0"),retPct:String(retPct||"0"),days:String(days||"0"),buyout:money2(buyout)});
+      const file=await jvPdfFile({address:property.address,propLegal,invName:inv.name.trim(),invAddress:inv.address.trim(),short,today,amount:money2(amt),retPct:String(retPct||"0"),retWords:pctWords(retPct),days:String(days||"0"),buyout:money2(buyout)});
       const bodyHtml=`<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1a1a1a">Hi,<br><br>Please see attached JV agreement for ${esc(addrFull)}.<br><br>Let me know if you have any questions or concerns.<br><br>Thank you,<br>Goldstone Properties</div>`;
       await mail.sendNew({to:inv.email.trim(),subject:`${property.address||""} JV Agreement`.trim(),html:bodyHtml,files:[file]});
       setEmailing("sent");
@@ -15279,7 +15281,6 @@ function JVAgreementModal({property,onClose}){
             <div style={{fontSize:11,color:T.textTert,marginTop:4}}>Defaults to this deal's cash-needed-in ({`$${Math.round(_fp.equityRequired||0).toLocaleString()}`}) — type over it for your own number.</div>
           </div>
           <div style={{display:"flex",gap:10}}>
-            <div style={{flex:1}}><label style={lbl}>Ownership %</label><input value={ownPct} onChange={e=>setOwnPct(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" style={inp}/></div>
             <div style={{flex:1}}><label style={lbl}>Annual return %</label><input value={retPct} onChange={e=>setRetPct(e.target.value.replace(/[^0-9.]/g,""))} inputMode="decimal" style={inp}/></div>
             <div style={{flex:1}}><label style={lbl}>Buyout days</label><input value={days} onChange={e=>setDays(e.target.value.replace(/[^0-9]/g,""))} inputMode="numeric" style={inp}/></div>
           </div>

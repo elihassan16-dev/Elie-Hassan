@@ -28,7 +28,7 @@ function signaturePng() {
 
 // All money/percent values arrive pre-formatted strings; propLegal is the full
 // address incl. block/lot; short is the investor's short name used in the text.
-export async function jvPdfFile({ address, propLegal, invName, invAddress, short, today, amount, ownPct, retPct, days, buyout }) {
+export async function jvPdfFile({ address, propLegal, invName, invAddress, short, today, amount, retPct, retWords, days, buyout }) {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "letter" }); // 612 x 792
   const W = 612, H = 792, margin = 72, maxW = W - margin * 2;
@@ -79,15 +79,16 @@ export async function jvPdfFile({ address, propLegal, invName, invAddress, short
   heading("1. BACKGROUND");
   para([{ t: `The Parties desire to enter into a joint venture for the purpose of purchase and construction of real estate property (the "Venture").` }]);
   heading("2. CONTRIBUTIONS");
-  para([{ t: "2.1 Cash Contribution: ", b: 1 }, { t: `${sh} agrees to contribute ${amount} in cash towards the purchase and construction of ${propLegal} (the “Property”).` }]);
-  para([{ t: "2.2 Ownership Interest: ", b: 1 }, { t: `In consideration of the cash contribution, ${sh} shall be entitled to a ${ownPct} percent ownership interest in the Venture.` }]);
+  para([{ t: "2.1 Cash Contribution. ", b: 1 }, { t: `${sh} agrees to contribute ${amount} in cash towards the purchase and construction of ${propLegal} (the “Property”).` }]);
+  para([{ t: "2.2 Total Equity Raise. ", b: 1 }, { t: `“Total Equity Raise” means the aggregate cash contributed to the Venture by ${sh} and by any other investor admitted by Goldstone for the purchase and construction of the Property, excluding any capital contributed by Goldstone itself and excluding loan or financing proceeds.` }]);
+  para([{ t: "2.3 Ownership Interest. ", b: 1 }, { t: `Fifty percent (50%) of the Venture (the “Investor Interest”) shall be allocated collectively among all contributors to the Total Equity Raise. Goldstone shall hold the remaining fifty percent (50%). ${sh}’s ownership interest shall equal fifty percent (50%) multiplied by the quotient of his cash contribution divided by the Total Equity Raise. As of the date of this Agreement, ${sh} is the sole contributor to the Total Equity Raise and accordingly holds the full fifty percent (50%) Investor Interest. If Goldstone admits additional contributors, ${sh}’s percentage shall be recalculated accordingly, and Goldstone shall provide ${sh} written notice of the recalculated percentage within ten (10) days of each such admission.` }]);
   heading("3. BUYOUT OPTION");
-  para([{ t: "3.1 Buyout Price: ", b: 1 }, { t: `Goldstone shall have the option to buy out ${sh}'s ${ownPct} percent ownership interest in the Venture within ${days} days of the effective date of this Agreement (the “Buyout Period”) for the total amount of ${buyout} which shall be prorated based on the date of the buyout.` }]);
+  para([{ t: "3.1 Buyout Price. ", b: 1 }, { t: `Goldstone shall have the option to buy out ${sh}’s entire Investor Interest in the Venture within ${days} days of the effective date of this Agreement (the “Buyout Period”) for the total amount of ${buyout}, representing his cash contribution plus ${retWords || retPct} percent (${retPct}%) per annum, which shall be prorated based on the date of the buyout.` }]);
   heading("4. MANAGEMENT");
   para([{ t: "4.1 Decision-Making: ", b: 1 }, { t: "The Parties agree that Goldstone shall have sole authority to make major decisions regarding the Venture." }]);
   para([{ t: "4.2 Management Responsibilities: ", b: 1 }, { t: "Goldstone shall have full management responsibility for the Venture, including but not limited to decision-making and day-to-day operations." }]);
   heading("5. PROFITS AND LOSSES");
-  para([{ t: "The profits and losses of the Venture shall be allocated between the Parties in proportion to their respective ownership interests." }]);
+  para([{ t: "The profits and losses of the Venture shall be allocated between the Parties in proportion to their respective ownership interests as determined under Section 2.3." }]);
   heading("6. TERM AND TERMINATION");
   para([{ t: "This Agreement shall commence on the effective date and shall continue until sale of Property." }]);
   heading("7. MISCELLANEOUS");

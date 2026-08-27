@@ -87,12 +87,21 @@ async function extractAudioRealtime(file, onMsg, playGate) {
     const proc = ac.createScriptProcessor(4096, 1, 1);
     const mute = ac.createGain(); mute.gain.value = 0;
     const chunks = [];
-    proc.onaudioprocess = (e) => { chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+    const cap = { n: 0 };
+    proc.onaudioprocess = (e) => { const d = e.inputBuffer.getChannelData(0); chunks.push(new Float32Array(d)); cap.n += d.length; };
     src.connect(proc); proc.connect(mute); mute.connect(ac.destination);
     try { video.preservesPitch = true; } catch { /* ignore */ }
     try { video.webkitPreservesPitch = true; } catch { /* ignore */ }
     try { video.playbackRate = RT_SPEED; } catch { /* ignore */ }
-    await playGate(video, ac);
+    // A tap-restart replays from 0:00 — drop whatever the false start captured
+    // so the first narration isn't in the recording twice.
+    await playGate(video, ac, () => { chunks.length = 0; cap.n = 0; });
+    // Anchor captured-audio time to the video's own clock while it plays, so
+    // timestamps stay honest whatever late start or playback rate the phone
+    // actually used — a drifted clock puts item A's photo in item B's moment.
+    const marks = [];
+    const mk = setInterval(() => { if (cap.n && video.currentTime > 0) marks.push({ c: cap.n / ac.sampleRate, v: video.currentTime }); }, 1000);
+    undo.push(() => clearInterval(mk));
     const say = () => onMsg && onMsg(`Reading the video's audio (fast-forward)… ${fmtT(video.currentTime)} of ${fmtT(duration)} — keep this screen open`);
     say();
     await new Promise((res, rej) => {
@@ -120,9 +129,16 @@ async function extractAudioRealtime(file, onMsg, playGate) {
       const p = i * sr / rate, i0 = Math.floor(p), f = p - i0;
       samples[i] = all[i0] + ((all[i0 + 1] - all[i0]) || 0) * f;
     }
-    let scale = duration / (total / sr);
+    let scale = RT_SPEED, offset = 0;
+    const mA = marks[0], mB = marks[marks.length - 1];
+    if (mA && mB && mB.c - mA.c > 2) {
+      scale = (mB.v - mA.v) / (mB.c - mA.c);
+      offset = mA.v - mA.c * scale;
+    }
+    if (!isFinite(scale) || scale <= 0.5 || scale > 4) { scale = duration / (total / sr); offset = 0; }
     if (!isFinite(scale) || scale <= 0.5 || scale > 4) scale = RT_SPEED;
-    return { samples, rate, duration, scale };
+    if (!isFinite(offset) || Math.abs(offset) > 30) offset = 0;
+    return { samples, rate, duration, scale, offset };
   } finally {
     undo.forEach((f) => { try { f(); } catch { /* ignore */ } });
     try { video.pause(); } catch { /* ignore */ }
@@ -142,25 +158,28 @@ async function extractAudio(file, onMsg, playGate) {
 // Grab a JPEG frame from the video at t seconds (hidden element, seek + draw).
 // iOS won't paint a video into a canvas until a frame is actually PRESENTED —
 // a bare seek often draws blank. So we wait for requestVideoFrameCallback
-// after the seek, and if the drawing still comes out uniform (all one color),
-// give the decoder a beat and draw once more.
+// after the seek. Each grab also returns a sharpness score (sum of local
+// contrast) so the caller can compare candidate frames; a near-zero score
+// means blank/uniform, so give the decoder a beat and draw once more.
 function grabFrame(video, t) {
   const draw = () => {
-    const w = 480, h = Math.round((video.videoHeight / video.videoWidth) * 480) || 320;
+    const w = 960, h = Math.round((video.videoHeight / video.videoWidth) * 960) || 540;
     const c = document.createElement("canvas");
     c.width = w; c.height = h;
     const ctx = c.getContext("2d");
     ctx.drawImage(video, 0, 0, w, h);
-    let uniform = true;
+    let score = 0;
     try {
       const px = ctx.getImageData(0, 0, w, h).data;
-      const r = px[0], g = px[1], b = px[2];
-      for (const i of [1, w - 2, (h - 2) * w, (h - 2) * w + w - 2, ((h >> 1) * w) + (w >> 1)]) {
-        const o = i * 4;
-        if (Math.abs(px[o] - r) > 6 || Math.abs(px[o + 1] - g) > 6 || Math.abs(px[o + 2] - b) > 6) { uniform = false; break; }
+      for (let y = 2; y < h - 2; y += 6) {
+        const row = y * w;
+        for (let x = 2; x < w - 6; x += 6) {
+          const o = (row + x) * 4, p = o + 16;
+          score += Math.abs(px[o] + px[o + 1] + px[o + 2] - px[p] - px[p + 1] - px[p + 2]);
+        }
       }
-    } catch { uniform = false; }
-    return { data: c.toDataURL("image/jpeg", 0.72), uniform };
+    } catch { score = 1; }
+    return { data: c.toDataURL("image/jpeg", 0.8), score };
   };
   return new Promise((resolve) => {
     let settled = false;
@@ -168,8 +187,8 @@ function grabFrame(video, t) {
       if (settled) return; settled = true;
       try {
         const first = draw();
-        if (!first.uniform) { resolve(first.data); return; }
-        setTimeout(() => { try { resolve(draw().data); } catch { resolve(first.data); } }, 280);
+        if (first.score > 1500) { resolve(first); return; } // real detail painted
+        setTimeout(() => { try { resolve(draw()); } catch { resolve(first); } }, 280); // blank/uniform — let the decoder catch up
       } catch { resolve(null); }
     };
     const to = setTimeout(finish, 5000); // grab whatever is painted rather than nothing
@@ -182,6 +201,20 @@ function grabFrame(video, t) {
     video.addEventListener("seeked", onSeek);
     try { video.currentTime = Math.max(0.1, t); } catch { clearTimeout(to); finish(); }
   });
+}
+
+// Walking-and-talking video is motion-blurry: try three moments around t and
+// keep the sharpest frame.
+async function bestFrame(video, t, dur) {
+  const cands = [t, t - 1, t + 1]
+    .map((x) => Math.max(0.1, x))
+    .filter((x, i, arr) => arr.indexOf(x) === i && (!dur || x < dur - 0.05));
+  let best = null;
+  for (const x of cands) {
+    const f = await grabFrame(video, x);
+    if (f && (!best || f.score > best.score)) best = f;
+  }
+  return best ? best.data : null;
 }
 
 // ---- Background jobs: transcription runs at module level, OUTSIDE the popup,
@@ -208,7 +241,7 @@ async function processClip(property, file, label) {
   // Try to start; unless both the context and playback are confirmed running
   // within 3s, ask for one tap (which restarts from 0:00 so no audio is lost).
   // The tap handler calls play()/resume() synchronously inside the click.
-  const playGate = (video, ac) => new Promise((res, rej) => {
+  const playGate = (video, ac, onRestart) => new Promise((res, rej) => {
     let settled = false;
     const ok = () => { if (!settled) { settled = true; res(); } };
     const needTap = () => {
@@ -218,6 +251,7 @@ async function processClip(property, file, label) {
         msg: "Your phone needs one tap to open the video — hit the button below.",
         tap: () => {
           wkSet(pid, { tap: null });
+          try { onRestart && onRestart(); } catch { /* ignore */ }
           try { video.currentTime = 0; } catch { /* ignore */ }
           const p = video.play();
           try { ac.resume(); } catch { /* ignore */ }
@@ -236,20 +270,24 @@ async function processClip(property, file, label) {
   const url = URL.createObjectURL(file);
   try {
     say("Reading the video's audio…");
-    const { samples, rate, duration, scale = 1 } = await extractAudio(file, say, playGate);
+    const { samples, rate, duration, scale = 1, offset = 0 } = await extractAudio(file, say, playGate);
     wkSet(pid, { tap: null });
+    // Captured-audio seconds → real video seconds.
+    const mapT = (t) => Math.max(0, Math.min(duration || t * scale, offset + t * scale));
     const CHUNK = 150 * rate; // 2.5-minute pieces stay well inside the upload limit
-    const span = 150 * scale; // real video seconds each chunk covers
     const segments = [];
     for (let off = 0; off < samples.length; off += CHUNK) {
       const part = samples.subarray(off, Math.min(off + CHUNK, samples.length));
-      const t0 = (off / rate) * scale;
-      say(duration > span + 5 ? `Transcribing ${fmtT(t0)}–${fmtT(Math.min(duration, t0 + span))} of ${fmtT(duration)}…` : "Transcribing your narration…");
+      const t0 = off / rate;
+      say(duration > mapT(t0 + 150) - mapT(t0) + 5 ? `Transcribing ${fmtT(mapT(t0))}–${fmtT(Math.min(duration, mapT(t0 + 150)))} of ${fmtT(duration)}…` : "Transcribing your narration…");
       const b64 = toB64(wavBytes(part, rate));
       const d = await qbAuthFetch("/api/ai/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audio: b64, timestamps: 1 }) });
-      (d.segments || []).forEach((sg) => segments.push({ start: (Number(sg.start) || 0) * scale + t0, end: (Number(sg.end) || 0) * scale + t0, text: sg.text }));
+      (d.segments || []).forEach((sg) => segments.push({ start: mapT((Number(sg.start) || 0) + t0), end: mapT((Number(sg.end) || 0) + t0), text: sg.text }));
     }
     if (!segments.length) throw new Error("No speech was found in this video — was the narration audible?");
+    // Keep the raw transcript so "🎙 What I heard" can show whether a missed
+    // item was mis-heard or mis-listed.
+    wkSet(pid, { transcript: [...(wkGet(pid)?.transcript || []), segments.map((s) => s.text).join(" ")] });
     say("Building your punch list…");
     const out = await qbAuthFetch("/api/ai/walkthrough", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ segments, address: property.address || "" }) });
     const clipNo = (wkGet(pid)?.clips || 0) + 1;
@@ -266,7 +304,11 @@ async function processClip(property, file, label) {
     try {
       await new Promise((r) => { vid.onloadeddata = r; vid.onerror = r; setTimeout(r, 6000); });
       try { await vid.play(); await new Promise((r) => setTimeout(r, 200)); vid.pause(); } catch { /* ignore */ }
-      for (const it of list) it.image = await grabFrame(vid, (Number(it.start) || 0) + 0.3);
+      for (const it of list) {
+        const s = Number(it.start) || 0, e = Number(it.end) || 0;
+        // Mid-snippet, not the first word — by then the camera has settled on the thing.
+        it.image = await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || duration);
+      }
     } finally { vid.remove(); }
     wkSet(pid, { items: [...(wkGet(pid)?.items || []), ...list], clips: clipNo });
   } finally {
@@ -308,6 +350,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   const [emailTo, setEmailTo] = useState("");
   const [flash, setFlash] = useState("");
   const [busy, setBusy] = useState("");
+  const [showTx, setShowTx] = useState(false); // raw transcript — "did it hear me right?"
   const liveRef = useRef(null);
   const mrRef = useRef(null);
   const streamRef = useRef(null);
@@ -497,6 +540,20 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
                 </div>
               ))}
               <button onClick={addBlank} style={{ display: "block", width: "100%", minHeight: 44, background: "transparent", border: "none", color: T.blue, cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 600 }}>+ Add item</button>
+              {(job?.transcript || []).length > 0 && (
+                <div style={{ padding: "0 14px 12px" }}>
+                  <button onClick={() => setShowTx((v) => !v)} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 11.5, fontFamily: "inherit", fontWeight: 600, padding: 0 }}>
+                    🎙 What I heard {showTx ? "▴" : "▾"}
+                  </button>
+                  {showTx && (
+                    <div style={{ marginTop: 6, padding: "9px 11px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, fontSize: 11.5, color: T.textSub, lineHeight: 1.6, maxHeight: 150, overflowY: "auto" }}>
+                      {job.transcript.map((tx, i) => (
+                        <div key={i} style={{ marginBottom: i < job.transcript.length - 1 ? 8 : 0 }}>{job.transcript.length > 1 && <b style={{ color: T.textTert }}>Video {i + 1}: </b>}{tx}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div style={{ background: T.card, borderTop: `1px solid ${T.border}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
               <div style={{ display: "flex", gap: 8 }}>

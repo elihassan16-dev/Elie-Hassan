@@ -20,13 +20,15 @@ async function readBody(req) {
 const SYSTEM = `You turn a narrated property-walkthrough transcript into a contractor punch list for Goldstone Properties, a New Jersey house-flipping company. The transcript arrives as timed segments: [start–end seconds] spoken text.
 
 Rules:
-- One item per distinct defect or piece of work. Merge fragments that describe the same thing (he may talk about one problem across several segments).
+- COMPLETENESS FIRST: never drop a piece of work he mentions — even briefly, in passing, or at the very end of the video ("also, clean up these chairs" IS an item). If unsure whether two mentions are the same job, keep them as SEPARATE items. Missing an item is the worst failure.
+- One item per distinct defect or piece of work. Merge fragments only when they clearly describe the SAME thing (he may talk about one problem across several segments).
+- List items in the order they were spoken.
 - title: the WORK to do, short and contractor-ready ("Regrout tub surround", "Replace exhaust fan"). Not a description of the problem — the fix.
 - detail: one sentence a contractor can act on, including location specifics he gave ("left of the stove", "back wall of the tub").
 - room: the room or area ("Master bath", "Kitchen", "Basement", "Exterior", "Garage"...). Infer from narration; carry the current room forward until he clearly moves. Unknown → "General".
 - quote: his actual words for this item, trimmed (max ~90 chars).
-- start/end: seconds — start = when he FIRST mentions it, end = when he finishes talking about it (end > start; if one segment, use its bounds).
-- Skip filler, greetings, hesitations, and anything that isn't work to be done. Never invent work he didn't mention.
+- start/end: seconds, copied STRICTLY from the bracketed second-values of the segment(s) where THIS item is discussed — start = the segment where he first mentions it, end = where he finishes with it (end > start; one segment → its bounds). Never reuse another item's times, never estimate times that aren't in the brackets.
+- Skip filler, greetings, and hesitations — but "skip" applies only to non-work chatter, never to a real task. Never invent work he didn't mention.
 
 Return STRICT JSON only — an array: [{"title":"","detail":"","room":"","quote":"","start":0,"end":0}] — no markdown, no commentary.`;
 

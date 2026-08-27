@@ -177,22 +177,35 @@ export function useWalkJob(propertyId) {
 async function processClip(property, file, label) {
   const pid = property.id;
   const say = (m) => wkSet(pid, { msg: label + m });
-  // One tap satisfies iOS's play-needs-a-gesture rule for the backup reader:
-  // video.play() + ac.resume() run synchronously inside the click handler.
+  // iOS quirk: without a fresh user gesture, ac.resume() and video.play() can
+  // hang PENDING forever instead of rejecting — so never await them bare.
+  // Try to start; unless both the context and playback are confirmed running
+  // within 3s, ask for one tap (which restarts from 0:00 so no audio is lost).
+  // The tap handler calls play()/resume() synchronously inside the click.
   const playGate = (video, ac) => new Promise((res, rej) => {
-    (async () => { try { await ac.resume(); } catch { /* ignore */ } await video.play(); if (ac.state === "suspended") throw new Error("suspended"); })()
-      .then(res)
-      .catch(() => {
-        wkSet(pid, {
-          msg: "Your phone needs one tap to open the video — hit the button below.",
-          tap: () => {
-            wkSet(pid, { tap: null });
-            const p = video.play();
-            try { ac.resume(); } catch { /* ignore */ }
-            Promise.resolve(p).then(res, rej);
-          },
-        });
+    let settled = false;
+    const ok = () => { if (!settled) { settled = true; res(); } };
+    const needTap = () => {
+      if (settled) return;
+      try { video.pause(); } catch { /* ignore */ }
+      wkSet(pid, {
+        msg: "Your phone needs one tap to open the video — hit the button below.",
+        tap: () => {
+          wkSet(pid, { tap: null });
+          try { video.currentTime = 0; } catch { /* ignore */ }
+          const p = video.play();
+          try { ac.resume(); } catch { /* ignore */ }
+          Promise.resolve(p).then(ok, rej);
+        },
       });
+    };
+    try { ac.resume().catch(() => { /* ignore */ }); } catch { /* ignore */ }
+    Promise.resolve(video.play()).then(() => { if (ac.state === "running") ok(); }).catch(() => { /* tap will handle it */ });
+    const t0 = setTimeout(needTap, 3000);
+    const iv = setInterval(() => {
+      if (settled) { clearTimeout(t0); clearInterval(iv); return; }
+      if (ac.state === "running" && !video.paused && video.currentTime > 0) { clearTimeout(t0); clearInterval(iv); ok(); }
+    }, 300);
   });
   const url = URL.createObjectURL(file);
   try {

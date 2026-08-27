@@ -1,6 +1,7 @@
 // Shared network helpers — used by the main app and the contractor portal.
 import { supabase } from "./supabaseClient";
 
+
 // Authenticated fetch to our serverless API (sends the Supabase JWT). If the token
 // has gone stale (server replies 401 "Not signed in"), refresh the session once and
 // retry — otherwise an idle PWA can fail even though the user is still logged in.

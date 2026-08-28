@@ -14722,173 +14722,15 @@ function FinPropertyBS({sharedProps,onNavigate,initialSelId,isMobile,canEdit=tru
   return <><QbPausedNote/><FinDealMoney inline bsProps={props} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={dmHoldbackOf} initialSelId={initialSelId} isMobile={isMobile}/></>;
 }
 // ── Import a QuickBooks CSV export while the API is capped ───────────────────
-// QuickBooks Online itself keeps working when the API is blocked, so one
-// "Transaction Detail by Account" export (All Dates, + Customer column, CSV)
-// can stand in for live data: it refills the transaction search, each mapped
-// property's QuickBooks numbers, and the bank-recon activity lists.
-function qbParseCsv(text){
-  const rows=[];let row=[],cell="",q=false;
-  for(let i=0;i<text.length;i++){
-    const c=text[i];
-    if(q){if(c==='"'){if(text[i+1]==='"'){cell+='"';i++;}else q=false;}else cell+=c;}
-    else if(c==='"')q=true;
-    else if(c===','){row.push(cell);cell="";}
-    else if(c==='\n'||c==='\r'){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);cell="";rows.push(row);row=[];}
-    else cell+=c;
-  }
-  if(cell!==""||row.length){row.push(cell);rows.push(row);}
-  return rows;
-}
-const qbImpNum=(v)=>{let x=String(v||"").trim();if(!x)return 0;const neg=/^\(.*\)$/.test(x);x=x.replace(/[^0-9.\-]/g,"");const f=parseFloat(x);return isNaN(f)?0:(neg?-Math.abs(f):f);};
-// ⚠ bank-brand tokens must be whole words: a bare /chase/ also matched
-// "PurCHASE Price" and silently dropped the biggest cost account on every
-// flip from the imported spend totals.
-const qbImpIsBS=(acct)=>/loan|mortgage|line of credit|checking|savings|bank|escrow|equity|payable|receivable|owner|transfer|undeposited|\bchase\b|wells fargo|\bciti\b|capital one|td bank|amex|credit card/i.test(String(acct||""));
-const qbImpSection=(acct)=>{const a=String(acct||"").toLowerCase();if(qbImpIsBS(a))return "";if(/cost of goods|cogs/.test(a))return "COGS";if(/income|revenue|sales/.test(a))return "Income";return "Expenses";};
-const qbImpIsoDate=(sv)=>{const m=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(String(sv).trim());if(!m)return String(sv).trim();const y=m[3].length===2?"20"+m[3]:m[3];return `${y}-${String(m[1]).padStart(2,"0")}-${String(m[2]).padStart(2,"0")}`;};
-function buildQbImport(text,props,accounts){
-  const rows=qbParseCsv(text);
-  const hi=rows.findIndex(r=>r.some(c=>/^(transaction )?date$/i.test(String(c).trim()))&&r.some(c=>/transaction type|^type$/i.test(String(c).trim())));
-  if(hi<0)throw new Error("Couldn't find the header row — export the report as CSV (not Excel) and try again.");
-  const hdr=rows[hi].map(c=>String(c).trim().toLowerCase());
-  const col=(...pats)=>hdr.findIndex(h=>pats.some(pt=>pt.test(h)));
-  const iDate=col(/^date$/,/^transaction date$/),iType=col(/transaction type|^type$/),iNum=col(/^num$/,/^no\.?$/),iName=col(/^name$/),iMemo=col(/memo|^description$/),iCust=col(/^customer/),iAcct=col(/^account$/,/distribution account/),iAmt=col(/^amount$/);
-  if(iAmt<0)throw new Error("No Amount column found in this export.");
-  const looksDate=(sv)=>/^\d{1,2}\/\d{1,2}\/\d{2,4}$|^\d{4}-\d{2}-\d{2}$/.test(String(sv||"").trim());
-  // Two export shapes are auto-detected: grouped by ACCOUNT (headings are
-  // account names, no per-row account column) or grouped by CUSTOMER with a
-  // "Distribution account" column per row — the group heading is the project.
-  const groupIsCustomer=iAcct>=0;
-  let curGroup="";const items=[];
-  for(let r=hi+1;r<rows.length;r++){
-    const row=rows[r];if(!row||!row.length)continue;
-    const g=(i)=>i>=0&&i<row.length?String(row[i]).trim():"";
-    if(looksDate(g(iDate))){
-      const acct=(iAcct>=0&&g(iAcct))||(groupIsCustomer?"":curGroup);
-      if(!acct)continue;
-      const proj=g(iCust)||(groupIsCustomer?curGroup:"");
-      items.push({id:"",date:qbImpIsoDate(g(iDate)),type:g(iType),num:g(iNum),vendor:g(iName),memo:g(iMemo).slice(0,80),project:proj,account:acct,section:qbImpSection(acct),amount:qbImpNum(g(iAmt))});
-      continue;
-    }
-    const label=row.map(c=>String(c).trim()).find(Boolean)||"";
-    if(!label)continue;
-    if(/^total( for)?\b/i.test(label)||/^beginning balance/i.test(label))continue;
-    if(!/^\(?\$?-?[\d,.]+\)?$/.test(label))curGroup=label;
-  }
-  if(!items.length)throw new Error("No transactions found — make sure the report period is All Dates and the export is CSV.");
-  const norm=(sv)=>String(sv||"").toLowerCase().replace(/[^a-z0-9]/g,"");
-  const leaf=(sv)=>String(sv||"").split(":").pop().trim();
-  const custMatch=(cust,name)=>{const a=norm(leaf(cust)),b=norm(leaf(name));return !!(a&&b&&(a===b||a.includes(b)||b.includes(a)));};
-  // The LIVE per-property/company feeds come from ProfitAndLossDetail, which
-  // never contains balance-sheet lines — so the imported stand-ins must not
-  // either. Feeding mortgage/bank legs into them made the debt auto-pinner
-  // grab principal payoffs as "payments made". BS rows live only in the
-  // per-account GL entries (atx_*) below.
-  const pl=items.filter(t=>!qbImpIsBS(t.account));
-  const cut=new Date();cut.setFullYear(cut.getFullYear()-3);
-  const cutIso=cut.toISOString().slice(0,10);
-  const recent=pl.filter(t=>t.date>=cutIso);
-  const entries=[{key:"txns_all_2010-01-01",data:recent.length?recent:pl}];
-  let matched=0;
-  (props||[]).forEach(p=>{
-    if(!p.qbProjectId||!p.qbProjectName)return;
-    const sub=pl.filter(t=>t.project&&custMatch(t.project,p.qbProjectName));
-    if(!sub.length)return;
-    matched++;
-    entries.push({key:`txns_cust_${p.qbProjectId}_2010-01-01`,data:sub});
-    // P&L totals only — bank/loan movement stays out of the spend numbers.
-    const by={};sub.forEach(t=>{if(!qbImpIsBS(t.account))by[t.account]=(by[t.account]||0)+t.amount;});
-    const rws=Object.entries(by).map(([name,amount])=>({name,amount,section:qbImpSection(name)}));
-    const sum=(sec)=>rws.filter(x=>x.section===sec).reduce((sm,x)=>sm+x.amount,0);
-    const income=sum("Income"),cogs=sum("COGS"),expenses=sum("Expenses");
-    entries.push({key:`pnl_${p.qbProjectId}`,data:{rows:rws,income,cogs,expenses,netIncome:income-cogs-expenses}});
-  });
-  let glAccounts=0;
-  (accounts||[]).forEach(a=>{
-    const sub=items.filter(t=>norm(leaf(t.account))===norm(leaf(a.name)));
-    if(!sub.length)return;
-    glAccounts++;
-    entries.push({key:`atx_${a.id}`,data:sub.map(t=>({id:t.id,date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,amount:t.amount}))});
-  });
-  return {count:items.length,accountsSeen:new Set(items.map(t=>t.account)).size,matched,glAccounts,entries};
-}
-function QbImportPopup({onClose}){
-  const {sharedProps}=useData();
-  const {accounts}=useQB();
-  const[parsed,setParsed]=useState(null);
-  const[err,setErr]=useState("");
-  const[busy,setBusy]=useState(false);
-  const[done,setDone]=useState(false);
-  const onFile=(f)=>{
-    if(!f)return;setErr("");setParsed(null);
-    const rd=new FileReader();
-    rd.onload=()=>{try{setParsed(buildQbImport(String(rd.result),(sharedProps||[]).filter(p=>!p.archived),accounts));}catch(e){setErr(e.message||"Couldn't read that file.");}};
-    rd.onerror=()=>setErr("Couldn't read that file.");
-    rd.readAsText(f);
-  };
-  const[prog,setProg]=useState(0);
-  const doImport=async()=>{
-    if(!parsed||busy)return;setBusy(true);setErr("");setProg(0);
-    try{
-      // Big lists ship in ~8k-row chunks (first replaces, the rest append) to
-      // stay inside the serverless request-size limit.
-      const parts=[];
-      parsed.entries.forEach(en=>{
-        if(Array.isArray(en.data)&&en.data.length>8000){
-          for(let o=0;o<en.data.length;o+=8000)parts.push({key:en.key,data:en.data.slice(o,o+8000),append:o>0});
-        }else parts.push(en);
-      });
-      for(let i=0;i<parts.length;i++){
-        await qbAuthFetch("/api/quickbooks/import",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:[parts[i]]})});
-        setProg(i+1);
-      }
-      setDone(true);
-    }
-    catch(e){setErr(e.message||"Import failed.");}
-    finally{setBusy(false);}
-  };
-  const li={fontSize:12.5,color:T.textSub,lineHeight:1.7};
-  return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:14,backdropFilter:"blur(6px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:18,width:"min(560px,96vw)",maxHeight:"92vh",overflowY:"auto",boxShadow:T.shadowMd,padding:"20px 22px"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
-          <div style={{fontWeight:800,fontSize:17,color:T.text}}>📥 Load numbers from a QuickBooks export</div>
-          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
-        </div>
-        <div style={{fontSize:12.5,color:T.textSub,lineHeight:1.55,marginBottom:12}}>The QuickBooks website still works while the API is capped — one exported report fills the app's numbers until live data returns on the 1st.</div>
-        <div style={{background:T.card,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
-          <div style={li}>1. In <b>QuickBooks Online</b>: Reports → search <b>"Transaction Detail by Account"</b></div>
-          <div style={li}>2. Report period: <b>All Dates</b> → Run report</div>
-          <div style={li}>3. <b>Customize → Rows/Columns → Change columns</b> → check <b>Customer</b> → Run report</div>
-          <div style={li}>4. Export (⬇ icon) → <b>Export to CSV</b></div>
-          <div style={li}>5. Choose that file here:</div>
-          <input type="file" accept=".csv,text/csv" onChange={e=>onFile(e.target.files&&e.target.files[0])} style={{marginTop:8,fontSize:13,fontFamily:"inherit"}}/>
-        </div>
-        {err&&<div style={{marginBottom:10,padding:"9px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:10,color:T.red,fontSize:12.5}}>{err}</div>}
-        {parsed&&!done&&<div style={{marginBottom:12,padding:"10px 13px",background:"#EAF7EE",border:"1px solid #BFE8CD",borderRadius:10,color:"#15803D",fontSize:12.5,lineHeight:1.6}}>
-          Found <b>{parsed.count.toLocaleString()} transactions</b> across <b>{parsed.accountsSeen} accounts</b> · matched <b>{parsed.matched}</b> mapped propert{parsed.matched===1?"y":"ies"}{parsed.glAccounts?<> · <b>{parsed.glAccounts}</b> loan/bank account{parsed.glAccounts===1?"":"s"} for reconciliation</>:null}.
-          {parsed.matched===0&&<div style={{color:"#8A6D1A",marginTop:4}}>No properties matched — was the Customer column added in step 3?</div>}
-        </div>}
-        {done
-          ?<div style={{padding:"10px 13px",background:"#EAF7EE",border:"1px solid #BFE8CD",borderRadius:10,color:"#15803D",fontSize:13,fontWeight:600,lineHeight:1.6}}>✓ Imported. Reload the app on each device to see the numbers.<button onClick={()=>window.location.reload()} style={{display:"block",marginTop:8,padding:"9px 16px",borderRadius:10,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Reload now</button></div>
-          :<button onClick={doImport} disabled={!parsed||busy} style={{width:"100%",padding:"12px",borderRadius:12,border:"none",background:parsed&&!busy?T.gold:T.border,color:"#fff",fontWeight:700,fontSize:14,cursor:parsed&&!busy?"pointer":"default",fontFamily:"inherit"}}>{busy?`Importing… step ${prog}`:"Import into the app"}</button>}
-      </div>
-    </div>
-  );
-}
 // Shown on QuickBooks-driven screens while Intuit's monthly call limit is hit:
 // the numbers on screen are each device's last successful sync, not live.
 function QbPausedNote(){
   const {throttled,syncedAt}=useQB();
-  const {isAdmin}=useAuth()||{};
-  const[imp,setImp]=useState(false);
   if(!throttled)return null;
   const when=syncedAt?new Date(syncedAt).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):null;
   return(
     <div style={{margin:"0 0 12px",padding:"9px 13px",background:"#FFF8E6",border:"1px solid #E8C15A",borderRadius:T.radiusSm,color:"#8A6D1A",fontSize:12.5,lineHeight:1.5}}>
       ⏸ <b>QuickBooks is paused</b> — Intuit's monthly limit is used up until the 1st. These numbers are your last synced copy{when?` (from ${when})`:""}; anything entered in QuickBooks since then isn't reflected yet.
-      {isAdmin&&<button onClick={()=>setImp(true)} style={{display:"inline-block",marginLeft:8,padding:"3px 10px",borderRadius:20,border:"1px solid #E8C15A",background:"#fff",color:"#8A6D1A",fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit"}}>📥 Load from a QuickBooks export</button>}
-      {imp&&<QbImportPopup onClose={()=>setImp(false)}/>}
     </div>
   );
 }
@@ -21612,6 +21454,17 @@ function PhoneTopButton(){
 export function GoldstoneShell(){
   const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, setUserChannels, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks, currentUser: CURRENT_USER, contacts: CONTACTS_G, appSettings, setAppSettings, flushAppSettings } = useData();
   useWalkCloudSync(appSettings, setAppSettings, flushAppSettings); // 🎥 punch lists sync across devices
+  // One-time cleanup (Elie 8/28): the CSV-import stand-in kept fighting the
+  // real numbers — remove everything it wrote server-side. Idempotent; pins,
+  // exclusions, and manual lists live in properties and are untouched.
+  const {isAdmin:shellIsAdmin}=useAuth()||{};
+  useEffect(()=>{
+    if(!shellIsAdmin)return;
+    try{ if(localStorage.getItem("gsQbImportPurged"))return; }catch{ /* ignore */ }
+    qbAuthFetch("/api/quickbooks/import",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({purge:1})})
+      .then(()=>{try{localStorage.setItem("gsQbImportPurged","1");}catch{ /* ignore */ }})
+      .catch(()=>{ /* retry next launch */ });
+  },[shellIsAdmin]);
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
   const isMobile = useIsMobile();
   // 🤖 Auto email matcher — scans this user's inbox and pins matching chains

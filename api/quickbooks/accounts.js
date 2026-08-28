@@ -1,4 +1,4 @@
-import { qbApi, requireAppUser, qbCached } from "../../lib/quickbooks.js";
+import { qbApi, requireAppUser, qbCached, qbUsage, QB_LIMIT } from "../../lib/quickbooks.js";
 
 // Lists QuickBooks liability accounts (line of credit, hard-money notes, mortgages)
 // with their live CurrentBalance, so a property can be linked to the loan accounts
@@ -26,7 +26,9 @@ export default async function handler(req, res) {
         balance: num(a.CurrentBalance),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    res.status(200).json({ items, cachedAt, stale: !!stale });
+    // The client's usage banner rides along on the poll it already makes.
+    const used = await qbUsage().catch(() => 0);
+    res.status(200).json({ items, cachedAt, stale: !!stale, usage: { used, limit: QB_LIMIT } });
   } catch (e) {
     console.error("[quickbooks] accounts failed:", e.message);
     res.status(500).json({ error: e.message });

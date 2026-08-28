@@ -6296,7 +6296,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                     <span style={{fontSize:13.5,fontWeight:650,color:T.text}}>Task Progress</span>
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:12}}>
-                    <button onClick={()=>setWalk(true)} title="Walkthrough — record or upload narrated videos, get an AI punch list + PDF" style={{padding:"7px 13px",borderRadius:18,border:`1px solid ${walkJob?.status==="proc"||walkJob?.items?.length?T.gold:T.border}`,background:T.bg,cursor:"pointer",fontSize:13,fontFamily:"inherit",display:"flex",alignItems:"center",gap:6,color:walkJob?.status==="proc"||walkJob?.items?.length?T.gold:T.textSub,fontWeight:650}}>🎥<span style={{fontSize:12}}>{walkJob?.status==="proc"?"Transcribing…":walkJob?.items?.length?`Punch list · ${walkJob.items.length}`:"Walkthrough"}</span></button>
+                    <button onClick={()=>setWalk(true)} title="Walkthrough — record or upload narrated videos, get an AI punch list + PDF" style={{padding:"7px 13px",borderRadius:18,border:`1px solid ${walkJob?.status==="proc"||walkJob?.items?.length?T.gold:T.border}`,background:T.bg,cursor:"pointer",fontSize:13,fontFamily:"inherit",display:"flex",alignItems:"center",gap:6,color:walkJob?.status==="proc"||walkJob?.items?.length?T.gold:T.textSub,fontWeight:650}}>🎥<span style={{fontSize:12}}>{walkJob?.status==="proc"?`Transcribing…${walkJob?.items?.length?` · ${walkJob.items.length}`:""}`:walkJob?.items?.length?`Punch list · ${walkJob.items.length}`:"Walkthrough"}</span></button>
                     <div style={{fontSize:20,fontWeight:750,color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{pct}%</div>
                   </div>
                 </div>

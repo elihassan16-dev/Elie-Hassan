@@ -38,7 +38,7 @@ export default async function handler(req, res) {
   const user = await requireAppUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
 
-  const { segments, address } = await readBody(req);
+  const { segments, address, lastRoom } = await readBody(req);
   const segs = (Array.isArray(segments) ? segments : [])
     .map((s) => ({ start: Number(s.start) || 0, end: Number(s.end) || 0, text: String(s.text || "").trim() }))
     .filter((s) => s.text)
@@ -54,7 +54,7 @@ export default async function handler(req, res) {
       model: "claude-opus-4-8",
       max_tokens: 4000,
       system: SYSTEM,
-      messages: [{ role: "user", content: `Property: ${String(address || "").slice(0, 120)}\n\nTranscript:\n${transcript.slice(0, 60000)}` }],
+      messages: [{ role: "user", content: `Property: ${String(address || "").slice(0, 120)}\n${lastRoom ? `Context: this transcript continues a walkthrough — he was last in "${String(lastRoom).slice(0, 40)}". Carry that room forward until he clearly moves.\n` : ""}\nTranscript:\n${transcript.slice(0, 60000)}` }],
     });
     const raw = (msg.content || []).map((c) => c.text || "").join("");
     const jsonText = (raw.match(/\[[\s\S]*\]/) || [raw])[0];

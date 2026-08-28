@@ -39,7 +39,7 @@ function toB64(bytes) {
 }
 
 // Decode any video/audio file's soundtrack → 16 kHz mono Float32Array.
-async function extractAudioFast(file) {
+async function extractAudioFast(file, startAt = 0) {
   const AC = window.AudioContext || window.webkitAudioContext;
   const raw = await file.arrayBuffer();
   const ac = new AC();
@@ -54,7 +54,9 @@ async function extractAudioFast(file) {
   src.connect(oc.destination);
   src.start();
   const rendered = await oc.startRendering();
-  return { samples: rendered.getChannelData(0), rate, duration: decoded.duration, scale: 1 };
+  let samples = rendered.getChannelData(0), offset = 0;
+  if (startAt > 0 && startAt < decoded.duration - 1) { samples = samples.subarray(Math.floor(startAt * rate)); offset = startAt; }
+  return { samples, rate, duration: decoded.duration, scale: 1, offset };
 }
 
 // Backup reader for videos the Web Audio decoder rejects ("Decoding failed" —
@@ -65,7 +67,7 @@ async function extractAudioFast(file) {
 // return the measured scale (video time ÷ captured time) for the caller to
 // map them onto the real video.
 const RT_SPEED = 1.5;
-async function extractAudioRealtime(file, onMsg, playGate) {
+async function extractAudioRealtime(file, onMsg, playGate, startAt = 0) {
   const url = URL.createObjectURL(file);
   const video = document.createElement("video");
   video.src = url; video.playsInline = true; video.preload = "auto"; video.crossOrigin = "anonymous";
@@ -80,10 +82,11 @@ async function extractAudioRealtime(file, onMsg, playGate) {
       undo.push(() => clearTimeout(to));
     });
     const duration = video.duration || 0;
-    // Short videos read at NORMAL speed — 1.5x garbles words ("let's also fix
+    if (startAt > 0 && startAt < duration - 1) { try { video.currentTime = startAt; } catch { /* ignore */ } }
+    // Short reads go at NORMAL speed — 1.5x garbles words ("let's also fix
     // all [chairs]" came through clipped) and saves almost nothing under a few
     // minutes. Fast-forward only pays off on long walkthroughs.
-    const speed = duration > 180 ? RT_SPEED : 1;
+    const speed = duration - startAt > 180 ? RT_SPEED : 1;
     const AC = window.AudioContext || window.webkitAudioContext;
     const ac = new AC();
     undo.push(() => { try { ac.close(); } catch { /* ignore */ } });
@@ -142,9 +145,9 @@ async function extractAudioRealtime(file, onMsg, playGate) {
       scale = (mB.v - mA.v) / (mB.c - mA.c);
       offset = mA.v - mA.c * scale;
     }
-    if (!isFinite(scale) || scale <= 0.5 || scale > 4) { scale = duration / (total / sr); offset = 0; }
+    if (!isFinite(scale) || scale <= 0.5 || scale > 4) { scale = (duration - startAt) / (total / sr); offset = startAt; }
     if (!isFinite(scale) || scale <= 0.5 || scale > 4) scale = speed;
-    if (!isFinite(offset) || Math.abs(offset) > 30) offset = 0;
+    if (!isFinite(offset) || Math.abs(offset - startAt) > 30) offset = startAt;
     return { samples, rate, duration, scale, offset };
   } finally {
     undo.forEach((f) => { try { f(); } catch { /* ignore */ } });
@@ -154,11 +157,11 @@ async function extractAudioRealtime(file, onMsg, playGate) {
   }
 }
 
-async function extractAudio(file, onMsg, playGate) {
-  try { return await extractAudioFast(file); }
+async function extractAudio(file, onMsg, playGate, startAt = 0) {
+  try { return await extractAudioFast(file, startAt); }
   catch {
     onMsg && onMsg("This video needs the backup audio reader — opening it…");
-    return await extractAudioRealtime(file, onMsg, playGate);
+    return await extractAudioRealtime(file, onMsg, playGate, startAt);
   }
 }
 
@@ -232,8 +235,29 @@ const wkJobs = {};
 const wkSubs = new Set();
 const wkEmit = () => wkSubs.forEach((f) => { try { f(); } catch { /* ignore */ } });
 const wkGet = (pid) => wkJobs[pid] || null;
-const wkSet = (pid, patch) => { wkJobs[pid] = { ...(wkJobs[pid] || { items: [], clips: 0, status: "idle", msg: "", err: "", tap: null }), ...patch }; wkEmit(); };
-export const clearWalkJob = (pid) => { delete wkJobs[pid]; wkEmit(); };
+// Jobs survive an app reload (localStorage, debounced): items, transcript and
+// the resume point persist; photos are too big to store and heal on resume.
+const WK_LS = "gsWalkJobs1";
+let wkSaveT = null;
+const wkPersist = () => {
+  clearTimeout(wkSaveT);
+  wkSaveT = setTimeout(() => {
+    try {
+      const slim = {};
+      for (const [pid, j] of Object.entries(wkJobs)) {
+        if (!(j.items || []).length && !j.partialClip) continue;
+        slim[pid] = { ...j, status: "ready", msg: "", err: "", tap: null, items: (j.items || []).map((it) => ({ ...it, image: null })) };
+      }
+      localStorage.setItem(WK_LS, JSON.stringify(slim));
+    } catch { /* ignore */ }
+  }, 400);
+};
+try {
+  const saved = JSON.parse(localStorage.getItem(WK_LS) || "{}");
+  for (const k of Object.keys(saved)) wkJobs[k] = saved[k];
+} catch { /* ignore */ }
+const wkSet = (pid, patch) => { wkJobs[pid] = { ...(wkJobs[pid] || { items: [], clips: 0, status: "idle", msg: "", err: "", tap: null }), ...patch }; wkPersist(); wkEmit(); };
+export const clearWalkJob = (pid) => { delete wkJobs[pid]; wkPersist(); wkEmit(); };
 export function useWalkJob(propertyId) {
   const [, force] = useState(0);
   useEffect(() => { const f = () => force((n) => n + 1); wkSubs.add(f); return () => { wkSubs.delete(f); }; }, []);
@@ -269,14 +293,15 @@ function refineTimes(items, segments) {
   });
 }
 
-async function processClip(property, file, label) {
+async function processClip(property, file, label, opts = {}) {
   const pid = property.id;
+  const resumeFrom = Math.max(0, Number(opts.resumeFrom) || 0);
   const say = (m) => wkSet(pid, { msg: label + m });
   // iOS quirk: without a fresh user gesture, ac.resume() and video.play() can
   // hang PENDING forever instead of rejecting — so never await them bare.
   // Try to start; unless both the context and playback are confirmed running
-  // within 3s, ask for one tap (which restarts from 0:00 so no audio is lost).
-  // The tap handler calls play()/resume() synchronously inside the click.
+  // within 3s, ask for one tap (which restarts at the read point so no audio
+  // is lost). The tap handler calls play()/resume() synchronously in the click.
   const playGate = (video, ac, onRestart) => new Promise((res, rej) => {
     let settled = false;
     const ok = () => { if (!settled) { settled = true; res(); } };
@@ -288,7 +313,7 @@ async function processClip(property, file, label) {
         tap: () => {
           wkSet(pid, { tap: null });
           try { onRestart && onRestart(); } catch { /* ignore */ }
-          try { video.currentTime = 0; } catch { /* ignore */ }
+          try { video.currentTime = resumeFrom; } catch { /* ignore */ }
           const p = video.play();
           try { ac.resume(); } catch { /* ignore */ }
           Promise.resolve(p).then(ok, rej);
@@ -304,21 +329,36 @@ async function processClip(property, file, label) {
     }, 300);
   });
   const url = URL.createObjectURL(file);
+  let vid = null;
   try {
-    say("Reading the video's audio…");
-    const { samples, rate, duration, scale = 1, offset = 0 } = await extractAudio(file, say, playGate);
+    say(resumeFrom ? `Picking up from ${fmtT(resumeFrom)}…` : "Reading the video's audio…");
+    const { samples, rate, duration, scale = 1, offset = 0 } = await extractAudio(file, say, playGate, resumeFrom);
     wkSet(pid, { tap: null });
     // Captured-audio seconds → real video seconds.
-    const mapT = (t) => Math.max(0, Math.min(duration || t * scale, offset + t * scale));
+    const mapT = (t) => Math.max(0, Math.min(duration || 1e9, offset + t * scale));
     // 80s of 16k WAV ≈ 3.4MB as base64 — Vercel rejects request bodies over
     // ~4.5MB with a bare 413, so the piece size must stay under that.
     const CHUNK_S = 80;
     const CHUNK = CHUNK_S * rate;
-    const segments = [];
+    const clipNo = opts.resumeClip || (wkGet(pid)?.clips || 0) + 1;
+    // Frame grabber — one hidden video element for the whole clip. It must be
+    // in the DOM and have PLAYED (muted — no gesture needed) before iOS will
+    // paint it into a canvas; a never-played video draws blank.
+    vid = document.createElement("video");
+    vid.src = url; vid.muted = true; vid.playsInline = true; vid.preload = "auto";
+    vid.style.cssText = "position:fixed;left:-9999px;width:2px;height:2px;opacity:0.01;pointer-events:none";
+    document.body.appendChild(vid);
+    await new Promise((r) => { vid.onloadeddata = r; vid.onerror = r; setTimeout(r, 6000); });
+    try { await vid.play(); await new Promise((r) => setTimeout(r, 200)); vid.pause(); } catch { /* ignore */ }
+    const normTitle = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+    let anySpeech = false;
+    // Each 80s piece is transcribed, itemized, photographed and SAVED before
+    // the next one starts — an interrupted run keeps everything found so far,
+    // and partialClip records where to pick back up.
     for (let off = 0; off < samples.length; off += CHUNK) {
       let part = samples.subarray(off, Math.min(off + CHUNK, samples.length));
       if (off + CHUNK >= samples.length) {
-        // Trailing silence on the final chunk — Whisper tends to drop a last
+        // Trailing silence on the final piece — Whisper tends to drop a last
         // sentence that ends flush with the audio ("...also clean up these chairs").
         const pad = new Float32Array(part.length + rate * 2);
         pad.set(part);
@@ -328,44 +368,53 @@ async function processClip(property, file, label) {
       say(duration > mapT(t0 + CHUNK_S) - mapT(t0) + 5 ? `Transcribing ${fmtT(mapT(t0))}–${fmtT(Math.min(duration, mapT(t0 + CHUNK_S)))} of ${fmtT(duration)}…` : "Transcribing your narration…");
       const b64 = toB64(wavBytes(part, rate));
       const d = await qbAuthFetch("/api/ai/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audio: b64, timestamps: 1 }) });
-      (d.segments || []).forEach((sg) => segments.push({ start: mapT((Number(sg.start) || 0) + t0), end: mapT((Number(sg.end) || 0) + t0), text: sg.text }));
-    }
-    if (!segments.length) throw new Error("No speech was found in this video — was the narration audible?");
-    // Keep the raw transcript so "🎙 What I heard" can show whether a missed
-    // item was mis-heard or mis-listed.
-    wkSet(pid, { transcript: [...(wkGet(pid)?.transcript || []), segments.map((s) => s.text).join(" ")] });
-    say("Building your punch list…");
-    const out = await qbAuthFetch("/api/ai/walkthrough", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ segments, address: property.address || "" }) });
-    const clipNo = (wkGet(pid)?.clips || 0) + 1;
-    const list = (out.items || []).map((it, i) => ({ ...it, id: Date.now() + i, image: null, clip: clipNo }));
-    if (!list.length) throw new Error("The AI couldn't find any work items in the narration.");
-    refineTimes(list, segments);
-    // Frame grabs — one hidden video element, sequential seeks. The element
-    // must be in the DOM and have PLAYED (muted — no gesture needed) before
-    // iOS will paint it into a canvas; a never-played video draws blank.
-    say(`Grabbing ${list.length} photo${list.length !== 1 ? "s" : ""} from the video…`);
-    const vid = document.createElement("video");
-    vid.src = url; vid.muted = true; vid.playsInline = true; vid.preload = "auto";
-    vid.style.cssText = "position:fixed;left:-9999px;width:2px;height:2px;opacity:0.01;pointer-events:none";
-    document.body.appendChild(vid);
-    try {
-      await new Promise((r) => { vid.onloadeddata = r; vid.onerror = r; setTimeout(r, 6000); });
-      try { await vid.play(); await new Promise((r) => setTimeout(r, 200)); vid.pause(); } catch { /* ignore */ }
-      for (const it of list) {
-        const s = Number(it.start) || 0, e = Number(it.end) || 0;
-        // Mid-snippet, not the first word — by then the camera has settled on the thing.
-        it.image = await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || duration);
+      const segs = (d.segments || []).map((sg) => ({ start: mapT((Number(sg.start) || 0) + t0), end: mapT((Number(sg.end) || 0) + t0), text: String(sg.text || "").trim() })).filter((sg) => sg.text);
+      const pieceEnd = Math.min(duration || 1e9, mapT(Math.min(t0 + CHUNK_S, samples.length / rate)));
+      if (segs.length) {
+        anySpeech = true;
+        const tx = [...(wkGet(pid)?.transcript || [])];
+        tx[clipNo - 1] = ((tx[clipNo - 1] || "") + " " + segs.map((s) => s.text).join(" ")).trim();
+        wkSet(pid, { transcript: tx });
+        const prevItems = wkGet(pid)?.items || [];
+        const lastRoom = prevItems.length ? prevItems[prevItems.length - 1].room : "";
+        const out = await qbAuthFetch("/api/ai/walkthrough", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ segments: segs, address: property.address || "", lastRoom }) });
+        const list = (out.items || []).map((it, i) => ({ ...it, id: Date.now() + i, image: null, clip: clipNo }));
+        refineTimes(list, segs);
+        if (list.length) say(`Grabbing photo${list.length !== 1 ? "s" : ""}…`);
+        for (const it of list) {
+          const s = Number(it.start) || 0, e = Number(it.end) || 0;
+          // Mid-snippet, not the first word — by then the camera has settled on the thing.
+          it.image = await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || duration);
+        }
+        // A resume re-reads a few overlap seconds — don't double-list the item at the seam.
+        const cur = wkGet(pid)?.items || [];
+        const fresh = list.filter((it) => it.title && !cur.some((p) => p.clip === it.clip && normTitle(p.title) === normTitle(it.title) && Math.abs((p.start || 0) - (it.start || 0)) < 10));
+        if (fresh.length) wkSet(pid, { items: [...cur, ...fresh] });
       }
-    } finally { vid.remove(); }
-    wkSet(pid, { items: [...(wkGet(pid)?.items || []), ...list], clips: clipNo });
+      wkSet(pid, { clips: Math.max(wkGet(pid)?.clips || 0, clipNo), partialClip: { clip: clipNo, doneUpTo: pieceEnd, duration } });
+    }
+    // Heal photos this clip is missing (items restored after an app reload
+    // come back without their screenshots — the resume run refills them).
+    const missing = (wkGet(pid)?.items || []).filter((it) => it.clip === clipNo && !it.image);
+    for (const it of missing) {
+      const s = Number(it.start) || 0, e = Number(it.end) || 0;
+      const img = await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || duration);
+      if (img) wkSet(pid, { items: (wkGet(pid)?.items || []).map((p) => (p.id === it.id ? { ...p, image: img } : p)) });
+    }
+    wkSet(pid, { partialClip: null });
+    if (!resumeFrom) {
+      if (!anySpeech) throw new Error("No speech was found in this video — was the narration audible?");
+      if (!(wkGet(pid)?.items || []).some((it) => it.clip === clipNo)) throw new Error("The AI couldn't find any work items in the narration.");
+    }
   } finally {
+    if (vid) vid.remove();
     URL.revokeObjectURL(url);
   }
 }
 
 // Kick off one or more videos for a property. Runs to completion whether or
 // not the popup stays open; items append across clips.
-export async function startWalkClips(property, files) {
+export async function startWalkClips(property, files, opts = {}) {
   const pid = property.id;
   const fl = Array.from(files || []).filter(Boolean);
   if (!fl.length || wkGet(pid)?.status === "proc") return;
@@ -373,8 +422,14 @@ export async function startWalkClips(property, files) {
   let lock = null;
   try { lock = await navigator.wakeLock?.request?.("screen"); } catch { /* ignore */ }
   try {
-    for (let i = 0; i < fl.length; i++) {
-      await processClip(property, fl[i], fl.length > 1 ? `Video ${i + 1} of ${fl.length}: ` : "");
+    if (opts.resumeFrom != null) {
+      // Continue an interrupted video: back up a few seconds past the resume
+      // point so the sentence that got cut isn't lost (the seam is deduped).
+      await processClip(property, fl[0], "", { resumeFrom: Math.max(0, opts.resumeFrom - 4), resumeClip: opts.resumeClip });
+    } else {
+      for (let i = 0; i < fl.length; i++) {
+        await processClip(property, fl[i], fl.length > 1 ? `Video ${i + 1} of ${fl.length}: ` : "");
+      }
     }
     wkSet(pid, { status: "ready", msg: "", tap: null });
   } catch (e) {
@@ -497,6 +552,13 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   items.forEach((it) => { const r = it.room || "General"; if (!rooms.includes(r)) rooms.push(r); });
   const multiClip = items.some((i) => (i.clip || 1) > 1);
   const btn = (bg, fg) => ({ padding: "12px", borderRadius: 12, border: "none", background: bg, color: fg, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" });
+  const partial = job?.status !== "proc" ? job?.partialClip : null;
+  const resumeBtn = partial ? (
+    <label style={{ ...btn(T.gold, "#fff"), padding: 14, fontSize: 13.5, textAlign: "center", display: "block", boxShadow: `0 2px 10px ${T.gold}55` }}>
+      ▶ Finish the last video — stopped at {fmtT(partial.doneUpTo)} of {fmtT(partial.duration || 0)}. Pick the same video to continue.
+      <input type="file" accept="video/*,audio/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; if (f) { setErr(""); setAdding(false); startWalkClips(property, [f], { resumeFrom: partial.doneUpTo, resumeClip: partial.clip }); } e.target.value = ""; }} />
+    </label>
+  ) : null;
 
   return (
     <div onClick={view === "rec" ? undefined : onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 460, display: "flex", alignItems: "center", justifyContent: "center", padding: 10, backdropFilter: "blur(5px)" }}>
@@ -521,6 +583,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
                 ← Back to your {items.length} item{items.length !== 1 ? "s" : ""}
               </button>
             )}
+            {resumeBtn}
             <button onClick={startRec} style={{ ...btn(T.gold, "#fff"), padding: 16, fontSize: 15, boxShadow: `0 2px 10px ${T.gold}55` }}>🎥 Record a walkthrough now</button>
             <label style={{ ...btn(T.card, T.text), padding: 16, fontSize: 15, textAlign: "center", border: `1px solid ${T.border}` }}>
               📁 Upload videos (camera roll / sent to you)
@@ -554,6 +617,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
           <div style={{ padding: "38px 20px", textAlign: "center" }}>
             <div style={{ fontSize: 34, marginBottom: 12 }}>🎞️</div>
             <div style={{ fontSize: 14.5, fontWeight: 700, color: T.text }}>{job?.msg || "Working…"}</div>
+            {items.length > 0 && <div style={{ fontSize: 12, color: "#15803D", marginTop: 6, fontWeight: 650 }}>{items.length} item{items.length !== 1 ? "s" : ""} on the list already — saved as it goes</div>}
             {job?.tap ? (
               <button onClick={job.tap} style={{ marginTop: 16, padding: "13px 26px", borderRadius: 14, border: "none", background: T.gold, color: "#fff", fontSize: 15, fontWeight: 750, fontFamily: "inherit", cursor: "pointer" }}>▶ Tap to continue</button>
             ) : (
@@ -603,6 +667,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
               )}
             </div>
             <div style={{ background: T.card, borderTop: `1px solid ${T.border}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+              {resumeBtn}
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => { setErr(""); setAdding(true); }} style={{ ...btn(T.bg, T.text), flex: 1, border: `1px solid ${T.border}`, padding: "9px 12px", fontSize: 12.5 }}>➕ Add another video</button>
                 <button onClick={() => { if (window.confirm("Throw away this punch list and start fresh?")) { setAdding(false); clearWalkJob(property.id); } }} title="Start over" style={{ ...btn(T.bg, T.red), border: `1px solid ${T.border}`, padding: "9px 14px", fontSize: 12.5 }}>🗑</button>

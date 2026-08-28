@@ -310,7 +310,10 @@ async function processClip(property, file, label) {
     wkSet(pid, { tap: null });
     // Captured-audio seconds → real video seconds.
     const mapT = (t) => Math.max(0, Math.min(duration || t * scale, offset + t * scale));
-    const CHUNK = 150 * rate; // 2.5-minute pieces stay well inside the upload limit
+    // 80s of 16k WAV ≈ 3.4MB as base64 — Vercel rejects request bodies over
+    // ~4.5MB with a bare 413, so the piece size must stay under that.
+    const CHUNK_S = 80;
+    const CHUNK = CHUNK_S * rate;
     const segments = [];
     for (let off = 0; off < samples.length; off += CHUNK) {
       let part = samples.subarray(off, Math.min(off + CHUNK, samples.length));
@@ -322,7 +325,7 @@ async function processClip(property, file, label) {
         part = pad;
       }
       const t0 = off / rate;
-      say(duration > mapT(t0 + 150) - mapT(t0) + 5 ? `Transcribing ${fmtT(mapT(t0))}–${fmtT(Math.min(duration, mapT(t0 + 150)))} of ${fmtT(duration)}…` : "Transcribing your narration…");
+      say(duration > mapT(t0 + CHUNK_S) - mapT(t0) + 5 ? `Transcribing ${fmtT(mapT(t0))}–${fmtT(Math.min(duration, mapT(t0 + CHUNK_S)))} of ${fmtT(duration)}…` : "Transcribing your narration…");
       const b64 = toB64(wavBytes(part, rate));
       const d = await qbAuthFetch("/api/ai/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audio: b64, timestamps: 1 }) });
       (d.segments || []).forEach((sg) => segments.push({ start: mapT((Number(sg.start) || 0) + t0), end: mapT((Number(sg.end) || 0) + t0), text: sg.text }));

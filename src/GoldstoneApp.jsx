@@ -14617,6 +14617,7 @@ async function qbRefreshAccounts(force){
     const d=await qbAuthFetch(`/api/quickbooks/accounts${force?"?fresh=1":""}`);
     qbStore.accounts=d.items||[];qbCache.set("accounts",qbStore.accounts);
     qbStore.throttled=false;
+    if(d.usage)qbStore.usage=d.usage; // monthly Intuit-call gauge for the early-warning banner
     // When the server had to serve a stale copy, keep ITS vintage, not "now".
     qbStore.syncedAt=d.cachedAt||Date.now();qbCache.set("accountsAt",qbStore.syncedAt);
   }
@@ -14703,6 +14704,7 @@ function useQB(){
     refreshing:qbStore.refreshing,
     throttled:qbStore.throttled,
     syncedAt:qbStore.syncedAt,
+    usage:qbStore.usage||null,
     requestSpend:qbRequestSpend,
     refresh:(ids)=>{qbRefreshAccounts(true);qbRequestSpend(ids,true);},
   };
@@ -14725,14 +14727,25 @@ function FinPropertyBS({sharedProps,onNavigate,initialSelId,isMobile,canEdit=tru
 // Shown on QuickBooks-driven screens while Intuit's monthly call limit is hit:
 // the numbers on screen are each device's last successful sync, not live.
 function QbPausedNote(){
-  const {throttled,syncedAt}=useQB();
-  if(!throttled)return null;
-  const when=syncedAt?new Date(syncedAt).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):null;
-  return(
-    <div style={{margin:"0 0 12px",padding:"9px 13px",background:"#FFF8E6",border:"1px solid #E8C15A",borderRadius:T.radiusSm,color:"#8A6D1A",fontSize:12.5,lineHeight:1.5}}>
-      ⏸ <b>QuickBooks is paused</b> — Intuit's monthly limit is used up until the 1st. These numbers are your last synced copy{when?` (from ${when})`:""}; anything entered in QuickBooks since then isn't reflected yet.
+  const {throttled,syncedAt,usage}=useQB();
+  const wrap={margin:"0 0 12px",padding:"9px 13px",background:"#FFF8E6",border:"1px solid #E8C15A",borderRadius:T.radiusSm,color:"#8A6D1A",fontSize:12.5,lineHeight:1.5};
+  if(throttled){
+    const when=syncedAt?new Date(syncedAt).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):null;
+    return(
+      <div style={wrap}>
+        ⏸ <b>QuickBooks is paused</b> — Intuit's monthly limit is used up until the 1st. Showing your last synced numbers{when?<> — <b>as of {when}</b></>:""}; anything entered in QuickBooks since then isn't reflected yet.
+      </div>
+    );
+  }
+  // Early warning BEFORE the wall: past 80% the server already stretches its
+  // cache lifetimes 6x so the remaining budget lasts to the 1st.
+  const pct=usage&&usage.limit?Math.round((usage.used/usage.limit)*100):0;
+  if(pct>=80)return(
+    <div style={wrap}>
+      ⚠ <b>QuickBooks usage is at {pct}%</b> of Intuit's monthly limit ({(usage.used||0).toLocaleString()} of {(usage.limit||0).toLocaleString()} calls). Refreshes are slowed automatically so the budget lasts until the 1st — numbers may lag a little longer than usual.
     </div>
   );
+  return null;
 }
 function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   const { bankAccounts, setBankAccounts:rawSetBankAccounts, flushBank }=useData();
@@ -17370,6 +17383,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
 
   return(
     <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?"14px":"18px 24px"}}>
+      <QbPausedNote/>
       {!soldPage&&<>
       <div style={{fontSize:12.5,color:T.textSub,marginBottom:14,lineHeight:1.5}}>Tap a report to preview it, then export or save it as a PDF.</div>
       <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:12}}>

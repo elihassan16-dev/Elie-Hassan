@@ -279,6 +279,8 @@ const wkCloudSlice = (j) => ({ items: j.items || [], clips: j.clips || 0, transc
 export function useWalkCloudSync(appSettings, setAppSettings, flushAppSettings) {
   const lastRef = useRef({});
   const sweptRef = useRef(false);
+  const settingsRef = useRef(appSettings);
+  settingsRef.current = appSettings;
   // remote → store
   useEffect(() => {
     if (!setAppSettings) return;
@@ -322,6 +324,11 @@ export function useWalkCloudSync(appSettings, setAppSettings, flushAppSettings) 
             continue;
           }
           if (!(j.items || []).length && !j.partialClip) continue;
+          // Never clobber an imaged cloud copy with an imageless local one — a
+          // reload restores items WITHOUT photos (localStorage strips them),
+          // and the cloud row is the copy that still has them.
+          const cloudRow = (settingsRef.current || []).find((x) => x && x.id === key);
+          if (cloudRow && (cloudRow.items || []).some((i) => i && i.image) && !(j.items || []).some((i) => i && i.image)) continue;
           const slice = wkCloudSlice(j);
           const s = JSON.stringify(slice);
           if (lastRef.current[pid] === s) continue;

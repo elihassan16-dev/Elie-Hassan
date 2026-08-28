@@ -10,7 +10,7 @@ import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
 import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, STREAM_VIDEO_CAP, geocodeAddress } from "./net";
-import { WalkthroughModal, useWalkJob } from "./walkthrough";
+import { WalkthroughModal, useWalkJob, useWalkCloudSync } from "./walkthrough";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { usePersistentDraft } from "./useDraft";
 import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
@@ -21610,7 +21610,8 @@ function PhoneTopButton(){
 }
 
 export function GoldstoneShell(){
-  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, setUserChannels, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks, currentUser: CURRENT_USER, contacts: CONTACTS_G, appSettings, setAppSettings } = useData();
+  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, setUserChannels, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks, currentUser: CURRENT_USER, contacts: CONTACTS_G, appSettings, setAppSettings, flushAppSettings } = useData();
+  useWalkCloudSync(appSettings, setAppSettings, flushAppSettings); // 🎥 punch lists sync across devices
   const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
   const isMobile = useIsMobile();
   // 🤖 Auto email matcher — scans this user's inbox and pins matching chains

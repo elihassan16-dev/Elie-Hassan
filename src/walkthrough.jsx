@@ -173,7 +173,11 @@ async function extractAudio(file, onMsg, playGate, startAt = 0) {
 // means blank/uniform, so give the decoder a beat and draw once more.
 function grabFrame(video, t) {
   const draw = () => {
-    const w = 960, h = Math.round((video.videoHeight / video.videoWidth) * 960) || 540;
+    // Long side capped at 720 — plenty for the review row and the PDF, and
+    // small enough (~60-90KB each) for lists to sync between devices.
+    const vw = video.videoWidth || 960, vh = video.videoHeight || 540;
+    const k = Math.min(1, 720 / Math.max(vw, vh));
+    const w = Math.max(2, Math.round(vw * k)), h = Math.max(2, Math.round(vh * k));
     const c = document.createElement("canvas");
     c.width = w; c.height = h;
     const ctx = c.getContext("2d");
@@ -189,7 +193,7 @@ function grabFrame(video, t) {
         }
       }
     } catch { score = 1; }
-    return { data: c.toDataURL("image/jpeg", 0.8), score };
+    return { data: c.toDataURL("image/jpeg", 0.72), score };
   };
   return new Promise((resolve) => {
     let settled = false;
@@ -257,11 +261,114 @@ try {
   for (const k of Object.keys(saved)) wkJobs[k] = saved[k];
 } catch { /* ignore */ }
 const wkSet = (pid, patch) => { wkJobs[pid] = { ...(wkJobs[pid] || { items: [], clips: 0, status: "idle", msg: "", err: "", tap: null }), ...patch }; wkPersist(); wkEmit(); };
-export const clearWalkJob = (pid) => { delete wkJobs[pid]; wkPersist(); wkEmit(); };
+// A tombstone (not a delete) so the cloud-sync bridge knows to remove the
+// walk_<pid> row instead of re-uploading it.
+export const clearWalkJob = (pid) => { wkJobs[pid] = { items: [], clips: 0, status: "idle", msg: "", err: "", tap: null, transcript: [], partialClip: null, cleared: Date.now() }; wkPersist(); wkEmit(); };
 export function useWalkJob(propertyId) {
   const [, force] = useState(0);
   useEffect(() => { const f = () => force((n) => n + 1); wkSubs.add(f); return () => { wkSubs.delete(f); }; }, []);
   return wkGet(propertyId);
+}
+
+// ---- Cross-device sync: punch lists ride the same app_settings rail as the
+// rest of the app (rows walk_<propertyId>, realtime included), so a list
+// compiling on the desktop shows up on the phone piece by piece and vice
+// versa. Mounted once in the admin shell (GoldstoneShell). A device that is
+// actively processing always wins over incoming remote state.
+const wkCloudSlice = (j) => ({ items: j.items || [], clips: j.clips || 0, transcript: j.transcript || [], partialClip: j.partialClip || null });
+export function useWalkCloudSync(appSettings, setAppSettings, flushAppSettings) {
+  const lastRef = useRef({});
+  const sweptRef = useRef(false);
+  // remote → store
+  useEffect(() => {
+    if (!setAppSettings) return;
+    (appSettings || []).forEach((row) => {
+      if (!row || typeof row.id !== "string" || !row.id.startsWith("walk_")) return;
+      const pid = row.id.slice(5);
+      const remote = wkCloudSlice(row);
+      const rs = JSON.stringify(remote);
+      if (lastRef.current[pid] === rs) return;
+      const j = wkGet(pid);
+      if (j && (j.status === "proc" || (j.cleared && j.cleared > (row.at || 0)))) return;
+      lastRef.current[pid] = rs;
+      if (!remote.items.length && !remote.partialClip) return;
+      wkSet(pid, { ...remote, status: "ready", msg: "", err: "", tap: null, cleared: 0 });
+    });
+    // One sweep per session: drop finished lists older than 30 days so the
+    // startup payload can't grow forever (in-progress ones are kept).
+    if (!sweptRef.current && (appSettings || []).length) {
+      sweptRef.current = true;
+      const old = (appSettings || []).filter((x) => x && typeof x.id === "string" && x.id.startsWith("walk_") && (x.at || 0) < Date.now() - 30 * 86400000 && !x.partialClip);
+      if (old.length) {
+        setAppSettings((prev) => (prev || []).filter((x) => !old.some((o) => o.id === x.id)));
+        if (flushAppSettings) setTimeout(flushAppSettings, 0);
+      }
+    }
+  }, [appSettings, setAppSettings, flushAppSettings]);
+  // store → remote (debounced — pieces land every minute or so, not per keystroke)
+  useEffect(() => {
+    if (!setAppSettings) return undefined;
+    let t = null;
+    const push = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        for (const [pid, j] of Object.entries(wkJobs)) {
+          const key = "walk_" + pid;
+          if (j.cleared) {
+            if (lastRef.current[pid] === "×") continue;
+            lastRef.current[pid] = "×";
+            setAppSettings((prev) => (prev || []).filter((x) => !(x && x.id === key)));
+            if (flushAppSettings) setTimeout(flushAppSettings, 0);
+            continue;
+          }
+          if (!(j.items || []).length && !j.partialClip) continue;
+          const slice = wkCloudSlice(j);
+          const s = JSON.stringify(slice);
+          if (lastRef.current[pid] === s) continue;
+          lastRef.current[pid] = s;
+          setAppSettings((prev) => [...(prev || []).filter((x) => !(x && x.id === key)), { id: key, ...slice, at: Date.now() }]);
+          if (flushAppSettings) setTimeout(flushAppSettings, 0);
+        }
+      }, 2500);
+    };
+    wkSubs.add(push);
+    push();
+    return () => { wkSubs.delete(push); clearTimeout(t); };
+  }, [setAppSettings, flushAppSettings]);
+}
+
+// Re-attach screenshots to items that lost them (a list synced from another
+// device, or restored after a reload, has no photos): the user re-picks the
+// same video(s) and only the missing frames are grabbed — no re-transcribing.
+export async function healWalkPhotos(property, files) {
+  const pid = property.id;
+  const fl = Array.from(files || []).filter(Boolean);
+  if (!fl.length || wkGet(pid)?.status === "proc") return;
+  wkSet(pid, { status: "proc", err: "", tap: null, msg: "Re-attaching photos…" });
+  try {
+    const clipsMissing = [...new Set((wkGet(pid)?.items || []).filter((it) => !it.image && it.title).map((it) => it.clip || 1))].sort((a, b) => a - b);
+    for (let i = 0; i < fl.length && i < clipsMissing.length; i++) {
+      const clipNo = clipsMissing[i];
+      const url = URL.createObjectURL(fl[i]);
+      const vid = document.createElement("video");
+      vid.src = url; vid.muted = true; vid.playsInline = true; vid.preload = "auto";
+      vid.style.cssText = "position:fixed;left:-9999px;width:2px;height:2px;opacity:0.01;pointer-events:none";
+      document.body.appendChild(vid);
+      try {
+        await new Promise((r) => { vid.onloadeddata = r; vid.onerror = r; setTimeout(r, 6000); });
+        try { await vid.play(); await new Promise((r) => setTimeout(r, 200)); vid.pause(); } catch { /* ignore */ }
+        const missing = (wkGet(pid)?.items || []).filter((it) => (it.clip || 1) === clipNo && !it.image && it.title);
+        for (const it of missing) {
+          const s = Number(it.start) || 0, e = Number(it.end) || 0;
+          const img = await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || 0);
+          if (img) wkSet(pid, { items: (wkGet(pid)?.items || []).map((p) => (p.id === it.id ? { ...p, image: img } : p)) });
+        }
+      } finally { vid.remove(); URL.revokeObjectURL(url); }
+    }
+    wkSet(pid, { status: "ready", msg: "" });
+  } catch (e) {
+    wkSet(pid, { status: "ready", err: e.message || "Couldn't read that video.", msg: "" });
+  }
 }
 
 // Whisper often returns one timed block covering several sentences, so two
@@ -672,6 +779,12 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
                 <button onClick={() => { setErr(""); setAdding(true); }} style={{ ...btn(T.bg, T.text), flex: 1, border: `1px solid ${T.border}`, padding: "9px 12px", fontSize: 12.5 }}>➕ Add another video</button>
                 <button onClick={() => { if (window.confirm("Throw away this punch list and start fresh?")) { setAdding(false); clearWalkJob(property.id); } }} title="Start over" style={{ ...btn(T.bg, T.red), border: `1px solid ${T.border}`, padding: "9px 14px", fontSize: 12.5 }}>🗑</button>
               </div>
+              {items.some((it) => it.title && !it.image) && (
+                <label style={{ ...btn(T.bg, T.textSub), border: `1px dashed ${T.border}`, padding: "9px 12px", fontSize: 12, textAlign: "center", display: "block" }}>
+                  📷 Some items are missing their photos — pick the same video{multiClip ? "s (in order)" : ""} to re-attach them
+                  <input type="file" accept="video/*,audio/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) { setErr(""); healWalkPhotos(property, fl); } e.target.value = ""; }} />
+                </label>
+              )}
               <input value={contractor} onChange={(e) => setContractor(e.target.value)} placeholder='PDF "Prepared for" — contractor name (optional)' style={{ padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, fontSize: 12.5, outline: "none", fontFamily: "inherit" }} />
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={makeTasks} style={{ ...btn(T.bg, T.text), flex: 1, border: `1px solid ${T.border}` }}>→ Add as tasks</button>

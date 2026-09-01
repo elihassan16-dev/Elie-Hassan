@@ -58,11 +58,38 @@ export default async function handler(req, res) {
         const token = process.env["JIVETEL_TOKEN_" + sfx] || process.env.JIVETEL_API_TOKEN || "";
         if (!token) { report.push({ person, note: "no token" }); continue; }
         const auth = token.includes(" ") ? token : `Bearer ${token}`;
-        let r, t;
-        try { r = await fetch("https://jivetel-txt.jivetel.com/api/export", { headers: { Authorization: auth, Accept: "*/*" } }); t = await r.text(); }
-        catch (e) { report.push({ person, err: String(e.message).slice(0, 80) }); continue; }
+        // The bare GET answers 400 — it wants parameters the spec doesn't
+        // document. Capture each attempt's error text (it names what's
+        // missing) and walk the common date-range spellings until one opens.
+        const sIso = new Date(cutoff).toISOString().slice(0, 10);
+        const eIso = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+        const attempts = [
+          { q: "" },
+          { q: `?start=${sIso}&end=${eIso}` },
+          { q: `?startDate=${sIso}&endDate=${eIso}` },
+          { q: `?start_date=${sIso}&end_date=${eIso}` },
+          { q: `?dateFrom=${sIso}&dateTo=${eIso}` },
+          { q: `?from=${sIso}&to=${eIso}` },
+          { q: `?type=messages&start=${sIso}&end=${eIso}` },
+          { q: `?number=${encodeURIComponent(numbers[person] || "")}&start=${sIso}&end=${eIso}` },
+          { q: "", post: { start: sIso, end: eIso } },
+          { q: "", post: { startDate: sIso, endDate: eIso } },
+        ];
+        let r = null, t = "", tried2 = [];
+        for (const a of attempts) {
+          try {
+            const rr = await fetch("https://jivetel-txt.jivetel.com/api/export" + a.q, {
+              method: a.post ? "POST" : "GET",
+              headers: { Authorization: auth, Accept: "*/*", ...(a.post ? { "Content-Type": "application/json" } : {}) },
+              ...(a.post ? { body: JSON.stringify(a.post) } : {}),
+            });
+            const tt = await rr.text();
+            if (rr.ok && tt.length > 4) { r = rr; t = tt; tried2.push({ q: (a.post ? "POST " : "") + (a.q || "(bare)"), status: rr.status, bytes: tt.length }); break; }
+            tried2.push({ q: (a.post ? "POST " : "") + (a.q || "(bare)"), status: rr.status, said: tt.slice(0, 160) });
+          } catch (e) { tried2.push({ q: a.q || "(bare)", err: String(e.message).slice(0, 60) }); }
+        }
+        if (!r) { report.push({ person, attempts: tried2 }); continue; }
         const ct = String(r.headers.get("content-type") || "");
-        if (!r.ok) { report.push({ person, status: r.status, ct, bytes: t.length }); continue; }
         let rows = null;
         try { const j = JSON.parse(t); const arr = Array.isArray(j) ? j : Array.isArray(j.data) ? j.data : Array.isArray(j.messages) ? j.messages : null; if (arr) rows = arr.map((o) => o || {}); } catch { /* try CSV */ }
         if (!rows) {

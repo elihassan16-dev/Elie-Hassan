@@ -29,6 +29,100 @@ export default async function handler(req, res) {
   try {
     let numbers = {};
     try { numbers = JSON.parse(process.env.JIVETEL_NUMBERS || "{}"); } catch { /* empty */ }
+    // ?export=1 — the spec's one read route: GET /api/export (no params).
+    // If it's a message export (CSV or JSON carrying from/to/body), recover
+    // missing messages in this same visit; otherwise report its structure
+    // (field names only). Deduped by id AND by phone+text+minute so export
+    // rows can never duplicate what the webhook or send log already stored.
+    if (String(req.query.export || "") === "1") {
+      const days = Math.min(365, Math.max(1, Number(req.query.days) || 30));
+      const cutoff = Date.now() - days * 86400000;
+      const d10 = (x) => { const dd = String(x || "").replace(/\D/g, ""); return dd.length === 11 && dd.startsWith("1") ? dd.slice(1) : dd; };
+      const ourNums = new Set(Object.values(numbers).map(d10).filter(Boolean));
+      const client = db();
+      // Known messages, prefetched once: ids + content keys of recent writes.
+      const idSet = new Set(); const ckSet = new Set();
+      try {
+        const { data: known } = await client.from("sms_messages").select("id,phone,data").gte("updated_at", new Date(cutoff - 7 * 86400000).toISOString()).limit(4000);
+        (known || []).forEach((r0) => {
+          idSet.add(String(r0.id));
+          const dta = r0.data || {};
+          const mm = Math.round(new Date(dta.at || 0).getTime() / 60000);
+          ckSet.add(`${r0.phone}|${String(dta.text || "").slice(0, 80)}|${mm}`);
+        });
+      } catch { /* dedupe set is best-effort — id upsert still protects */ }
+      const report = [];
+      let parsed = 0, inWindow = 0, recovered = 0, capped = false;
+      for (const person of Object.keys(numbers)) {
+        const sfx = String(person).split(" ")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const token = process.env["JIVETEL_TOKEN_" + sfx] || process.env.JIVETEL_API_TOKEN || "";
+        if (!token) { report.push({ person, note: "no token" }); continue; }
+        const auth = token.includes(" ") ? token : `Bearer ${token}`;
+        let r, t;
+        try { r = await fetch("https://jivetel-txt.jivetel.com/api/export", { headers: { Authorization: auth, Accept: "*/*" } }); t = await r.text(); }
+        catch (e) { report.push({ person, err: String(e.message).slice(0, 80) }); continue; }
+        const ct = String(r.headers.get("content-type") || "");
+        if (!r.ok) { report.push({ person, status: r.status, ct, bytes: t.length }); continue; }
+        let rows = null;
+        try { const j = JSON.parse(t); const arr = Array.isArray(j) ? j : Array.isArray(j.data) ? j.data : Array.isArray(j.messages) ? j.messages : null; if (arr) rows = arr.map((o) => o || {}); } catch { /* try CSV */ }
+        if (!rows) {
+          const table = [];
+          let row = [], cell = "", q = false;
+          for (let i = 0; i < t.length; i++) {
+            const c = t[i];
+            if (q) { if (c === '"') { if (t[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+            else if (c === '"') q = true;
+            else if (c === ",") { row.push(cell); cell = ""; }
+            else if (c === "\n" || c === "\r") { if (c === "\r" && t[i + 1] === "\n") i++; row.push(cell); cell = ""; if (row.some(Boolean)) table.push(row); row = []; }
+            else cell += c;
+          }
+          if (cell !== "" || row.length) { row.push(cell); if (row.some(Boolean)) table.push(row); }
+          if (table.length > 1) {
+            const hdr = table[0].map((h) => String(h).trim().toLowerCase());
+            rows = table.slice(1).map((rw) => Object.fromEntries(hdr.map((h, i) => [h, rw[i] ?? ""])));
+          }
+        }
+        if (!rows) { report.push({ person, status: r.status, ct, bytes: t.length, note: "unparseable" }); continue; }
+        const keys = rows.length ? Object.keys(rows[0]) : [];
+        const kFind = (...pats) => keys.find((k) => pats.some((p) => p.test(String(k).toLowerCase()))) || "";
+        const kText = kFind(/^(message|body|text|messagebody|message_body)$/, /message/);
+        const kFrom = kFind(/^from/), kTo = kFind(/^to/);
+        const kAt = kFind(/date|created|sent|time/), kDir = kFind(/direction/), kId = kFind(/^(id|uuid|message_?id)$/);
+        const kName = kFind(/contact|name/), kMedia = kFind(/media|attach/);
+        if (!kText || (!kFrom && !kTo)) { report.push({ person, rows: rows.length, columns: keys.slice(0, 24), note: "not a message export" }); continue; }
+        report.push({ person, rows: rows.length, columns: keys.slice(0, 24) });
+        for (const m of rows) {
+          parsed++;
+          const text = String(m[kText] ?? "");
+          const from = String(kFrom ? m[kFrom] : ""), to = String(kTo ? m[kTo] : "");
+          const atRaw = kAt ? m[kAt] : null;
+          const at = (() => { try { const x = new Date(isNaN(Number(atRaw)) ? atRaw : Number(atRaw)); return atRaw && !isNaN(x.getTime()) ? x : null; } catch { return null; } })();
+          const mediaStr = String((kMedia && m[kMedia]) || "");
+          if (!text && !mediaStr) continue;
+          if (!at || at.getTime() < cutoff) continue;
+          inWindow++;
+          if (recovered >= 400) { capped = true; break; }
+          const dir = kDir ? (/out/i.test(String(m[kDir])) ? "out" : "in") : (ourNums.has(d10(from)) ? "out" : "in");
+          const phone = e164(dir === "in" ? from : to);
+          const id = String((kId && m[kId]) || "") || "jvexp-" + [d10(from), d10(to), at.getTime(), text.length].join("-");
+          if (idSet.has(id)) continue;
+          const mm = Math.round(at.getTime() / 60000);
+          const ckBase = `${phone}|${text.slice(0, 80)}|`;
+          if (ckSet.has(ckBase + mm) || ckSet.has(ckBase + (mm - 1)) || ckSet.has(ckBase + (mm + 1))) continue;
+          const media = mediaStr.split(/[,\s]+/).filter((u) => /^https?:/i.test(u));
+          await storeSms({
+            id, phone, direction: dir, text,
+            ...(media.length ? { media } : {}),
+            by: dir === "in" ? String((kName && m[kName]) || "") : person,
+            from: dir === "in" ? e164(to) : e164(from),
+            at: at.toISOString(), status: "",
+          }).catch(() => { /* one bad row must not stop the rest */ });
+          idSet.add(id); ckSet.add(ckBase + mm);
+          recovered++;
+        }
+      }
+      return res.status(200).json({ export: true, days, parsed, inWindow, recovered, capped, report });
+    }
     // ?docs=2 — the instance serves its OpenAPI spec at /docs/json: return
     // every path+method, and for message/conversation/export paths also the
     // parameter names and response-schema field names — everything needed to

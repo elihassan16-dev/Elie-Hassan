@@ -1,4 +1,4 @@
-import { requireAppUser, admin } from "../../lib/quickbooks.js";
+import { requireTeamUser, admin } from "../../lib/quickbooks.js";
 
 // While Intuit's monthly cap has live data paused, devices share their last
 // good snapshot through this endpoint: a device that still holds balances and
@@ -8,7 +8,7 @@ import { requireAppUser, admin } from "../../lib/quickbooks.js";
 // never sync directly (excluded by prefix in the DataProvider).
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
-  const user = await requireAppUser(req);
+  const user = await requireTeamUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   const db = admin();
   const ROW = "qb_cache_clientseed";

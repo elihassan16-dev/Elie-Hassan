@@ -1,4 +1,4 @@
-import { qbApi, requireAppUser, qbCached } from "../../lib/quickbooks.js";
+import { qbApi, requireTeamUser, qbCached } from "../../lib/quickbooks.js";
 
 // List the transactions posted to a single QuickBooks ACCOUNT (e.g. a construction
 // mortgage / loan liability), so the app can pin individual draws against it. The
@@ -6,7 +6,7 @@ import { qbApi, requireAppUser, qbCached } from "../../lib/quickbooks.js";
 // entries, so we use the General Ledger report filtered to the one account.
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
-  const user = await requireAppUser(req);
+  const user = await requireTeamUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   const account = req.query.account;
   if (!account) { res.status(400).json({ error: "Missing account id." }); return; }

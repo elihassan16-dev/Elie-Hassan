@@ -1,4 +1,4 @@
-import { qbApi, requireAppUser, qbCached } from "../../lib/quickbooks.js";
+import { qbApi, requireTeamUser, qbCached } from "../../lib/quickbooks.js";
 
 // Project attribution fans out one report call per project — give it room.
 export const config = { maxDuration: 60 };
@@ -20,7 +20,7 @@ export const config = { maxDuration: 60 };
 export default async function handler(req, res) {
   // Never let the browser cache this — otherwise a stale/empty result sticks (304).
   res.setHeader("Cache-Control", "no-store, max-age=0");
-  const user = await requireAppUser(req);
+  const user = await requireTeamUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   const customerId = req.query.customerId || "";
 

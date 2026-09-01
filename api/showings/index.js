@@ -1,7 +1,8 @@
-import { requireAppUser, fetchShowings, checkNewShowings } from "../../lib/showings.js";
+import { fetchShowings, checkNewShowings } from "../../lib/showings.js";
+import { requireTeamUser } from "../../lib/quickbooks.js";
 
 export default async function handler(req, res) {
-  const user = await requireAppUser(req);
+  const user = await requireTeamUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   try {
     const data = await fetchShowings();

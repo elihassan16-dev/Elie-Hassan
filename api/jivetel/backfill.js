@@ -29,6 +29,34 @@ export default async function handler(req, res) {
   try {
     let numbers = {};
     try { numbers = JSON.parse(process.env.JIVETEL_NUMBERS || "{}"); } catch { /* empty */ }
+    // ?docs=2 — the instance serves its OpenAPI spec at /docs/json: return
+    // every path+method, and for message/conversation/export paths also the
+    // parameter names and response-schema field names — everything needed to
+    // wire the list endpoint exactly. Structure only, never data.
+    if (String(req.query.docs || "") === "2") {
+      const r = await fetch("https://jivetel-txt.jivetel.com/docs/json", { headers: { Accept: "application/json" } });
+      const spec = await r.json().catch(() => null);
+      if (!spec || !spec.paths) return res.status(200).json({ docs2: true, error: "no spec", status: r.status });
+      const paths = Object.entries(spec.paths).map(([p, ops]) => `${Object.keys(ops || {}).join(",").toUpperCase()} ${p}`).sort();
+      const interesting = Object.entries(spec.paths)
+        .filter(([p]) => /message|conversation|export|history/i.test(p))
+        .map(([p, ops]) => {
+          const out = { p };
+          for (const [m, op] of Object.entries(ops || {})) {
+            if (!op || typeof op !== "object") continue;
+            out[m] = {
+              params: (op.parameters || []).map((x) => `${x.in || ""}:${x.name}${x.required ? "*" : ""}`),
+              resp: JSON.stringify((op.responses || {})["200"] || {}).slice(0, 1200),
+            };
+          }
+          return out;
+        });
+      const schemas = (spec.components && spec.components.schemas) || spec.definitions || {};
+      const msgSchemas = Object.entries(schemas)
+        .filter(([k]) => /message|conversation/i.test(k))
+        .map(([k, v]) => ({ k, props: Object.keys((v && v.properties) || {}).slice(0, 30) }));
+      return res.status(200).json({ docs2: true, count: paths.length, interesting, msgSchemas, paths });
+    }
     // ?docs=1 — Textable white-label instances serve their API reference at
     // /docs/html; scrape the ROUTE PATTERNS out of it (paths only, no other
     // content) so the real message-list endpoint can be wired without

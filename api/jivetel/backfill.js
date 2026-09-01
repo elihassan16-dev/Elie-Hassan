@@ -29,6 +29,28 @@ export default async function handler(req, res) {
   try {
     let numbers = {};
     try { numbers = JSON.parse(process.env.JIVETEL_NUMBERS || "{}"); } catch { /* empty */ }
+    // ?docs=1 — Textable white-label instances serve their API reference at
+    // /docs/html; scrape the ROUTE PATTERNS out of it (paths only, no other
+    // content) so the real message-list endpoint can be wired without
+    // guessing. The first probe's 404s proved the guessed routes wrong.
+    if (String(req.query.docs || "") === "1") {
+      const found = new Set();
+      const tried = [];
+      const first = Object.keys(numbers)[0] || "";
+      const sfx0 = first.split(" ")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const tok0 = process.env["JIVETEL_TOKEN_" + sfx0] || process.env.JIVETEL_API_TOKEN || "";
+      for (const path of ["/docs/html", "/docs", "/api/docs", "/docs/json", "/api"]) {
+        try {
+          const r = await fetch("https://jivetel-txt.jivetel.com" + path, { headers: { Accept: "text/html,application/json", ...(tok0 ? { Authorization: tok0.includes(" ") ? tok0 : `Bearer ${tok0}` } : {}) } });
+          const t = await r.text();
+          tried.push({ path, status: r.status, bytes: t.length });
+          if (!r.ok) continue;
+          (t.match(/(?:GET|POST|PUT|PATCH|DELETE)?\s*\/(?:api|v\d)[a-zA-Z0-9_\/:{}.\-]*/g) || []).forEach((m) => found.add(m.trim().slice(0, 80)));
+          (t.match(/"\/[a-zA-Z0-9_\/:{}.\-]{3,60}"/g) || []).forEach((m) => found.add(m.replace(/"/g, "").slice(0, 80)));
+        } catch (e) { tried.push({ path, err: String(e.message).slice(0, 60) }); }
+      }
+      return res.status(200).json({ docs: true, tried, routes: [...found].sort().slice(0, 200) });
+    }
     const notes = [];
     let seen = 0, recovered = 0;
     const client = db();

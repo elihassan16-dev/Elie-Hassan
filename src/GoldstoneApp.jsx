@@ -17637,9 +17637,13 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
         const ok=saleDraft.addr.trim()&&saleDraft.date;
         const usedQb=new Set((sharedProps||[]).map(p=>p.qbProjectId).filter(Boolean));
         const term=(saleDraft.q||"").trim().toLowerCase();
-        const projMatches=!saleDraft.manual&&term.length>=2
-          ?(qbProjList||[]).filter(x=>!usedQb.has(x.id)&&String(x.name||"").toLowerCase().includes(term)).slice(0,8)
-          :[];
+        const allMatches=!saleDraft.manual&&term.length>=2?(qbProjList||[]).filter(x=>String(x.name||"").toLowerCase().includes(term)):[];
+        const projMatches=allMatches.filter(x=>!usedQb.has(x.id)).slice(0,8);
+        // A matching project that's ALREADY linked to a property was invisible
+        // here — removed-from-report deals especially ("didn't load" was really
+        // "hidden"). Name it, and offer the one-tap restore instead.
+        const linkedMatches=allMatches.filter(x=>usedQb.has(x.id)).slice(0,4)
+          .map(x=>({proj:x,prop:(sharedProps||[]).find(p=>p.qbProjectId===x.id)})).filter(m=>m.prop);
         return(
           <div onClick={()=>setSaleDraft(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:256,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
             <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:460,maxWidth:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
@@ -17679,7 +17683,16 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                       {x.parent&&<div style={{fontSize:10.5,color:T.textTert}}>under {x.parent}</div>}
                     </div>
                   ))}
-                  {qbProjList!==null&&!qbProjErr&&term.length>=2&&projMatches.length===0&&<div style={{fontSize:12,color:T.textTert,padding:"4px 2px"}}>No unlinked QuickBooks project matches “{saleDraft.q}”.</div>}
+                  {linkedMatches.map(({proj,prop})=>(
+                    <div key={proj.id} style={{padding:"10px 12px",border:"1px solid #E8C15A",borderRadius:10,background:"#FFF8E6"}}>
+                      <div style={{fontSize:12.5,color:"#8A6D1A",lineHeight:1.5}}>
+                        <b>{proj.name}</b> is already in the app as <b>{prop.address}</b>{prop.soldExcluded?" — it was removed from this report.":prop.status==="Sold"&&!prop.archived?" (already on this report).":prop.status==="Sold"?" (already on this report).":` (status: ${prop.status||"active"} — mark it Sold from its property page).`}
+                      </div>
+                      {prop.soldExcluded&&<button onClick={()=>{updateProp(prop.id,"soldExcluded",false);setSaleDraft(null);}} style={{marginTop:6,padding:"7px 13px",borderRadius:9,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>↩ Restore it to the report</button>}
+                    </div>
+                  ))}
+                  {qbProjList!==null&&!qbProjErr&&term.length<2&&<div style={{fontSize:11.5,color:T.textTert,padding:"2px 2px"}}>{(qbProjList||[]).length} QuickBooks projects loaded — start typing an address.</div>}
+                  {qbProjList!==null&&!qbProjErr&&term.length>=2&&projMatches.length===0&&linkedMatches.length===0&&<div style={{fontSize:12,color:T.textTert,padding:"4px 2px"}}>No QuickBooks project matches “{saleDraft.q}”.</div>}
                   <button onClick={()=>setSaleDraft(d=>({...d,manual:true}))} style={{alignSelf:"flex-start",background:"none",border:"none",color:T.blue,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"2px 0"}}>No QuickBooks project? Type the address instead ›</button>
                 </>)}
                 {saleDraft.qbId&&(

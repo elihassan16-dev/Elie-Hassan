@@ -16881,7 +16881,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       :(q?(q.rows||[]).filter(r=>String(r.section||"").toLowerCase()!=="income"&&soldCatOfAcct(r.name)==="Debt service").map(r=>Number(r.amount)||0):[]);
     const qbDebtText=txDebt.map(t=>`${t.vendor} ${t.memo}`).join(" ").toLowerCase().replace(/[^a-z0-9]/g,"");
     const usedQbDebt=new Set();
-    const locDraws=drawsForProperty(p,draws||[]).map(d=>({funder:d.funderName||"—",interest:Math.round(drawInterest(d))})).filter(x=>x.interest>0).filter(x=>{
+    const locDraws=drawsForProperty(p,draws||[]).map(d=>({funder:d.funderName||"—",interest:Math.round(drawInterest(d))})).filter(x=>x.interest>0)
+      // Lines Elie removed by hand (× in the drill-down): QB already accounts
+      // for that lender's interest in a way the auto-dedupe can't match
+      // (e.g. one lump "Debt Service CDPH LLC" covering several draws).
+      .filter(x=>!(p.soldLocExcluded||[]).includes(x.funder))
+      .filter(x=>{
       // Lender's name shows in the QB debt payments → they're paid through the
       // books; the register line would double count ("Azaria Weinman debt
       // payment" $632.47 AND "LOC interest — Azaria Weinman" $632).
@@ -18056,7 +18061,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
             const qbItems=(soldTxns||[]).filter(t=>String(t.section||"").toLowerCase()!=="income"&&soldCatOfAcct(t.account)===cat)
               .sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
             const extras=[
-              ...(cat==="Debt service"?locDraws.map(x=>({vendor:`LOC interest — ${x.funder}`,account:"Draw register (app)",date:"",amount:x.interest})):[]),
+              ...(cat==="Debt service"?locDraws.map(x=>({vendor:`LOC interest — ${x.funder}`,account:"Draw register (app)",date:"",amount:x.interest,locFunder:x.funder})):[]),
               ...((soldSel.soldAdjust||[]).filter(a=>(SOLD_CATS.includes(a.cat)?a.cat:"Holding")===cat).map(a=>({vendor:`✎ ${a.label}`,account:"Custom adjustment",date:"",amount:Number(a.amount)||0,adjId:a.id}))),
             ];
             const ql=bucketQ.trim().toLowerCase();
@@ -18087,8 +18092,14 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                         </div>
                         <b style={{fontSize:13,flexShrink:0,color:(Number(t.amount)||0)<0?T.green:T.text}}>{fmtD(Math.abs(Number(t.amount)||0))}</b>
                         {t.adjId&&canEdit&&<button onClick={()=>delAdj(t.adjId)} title="Remove this adjustment" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0,padding:0}}>×</button>}
+                        {t.locFunder&&canEdit&&<button onClick={()=>updateProp(soldSel.id,"soldLocExcluded",[...(soldSel.soldLocExcluded||[]),t.locFunder])} title="Remove — QuickBooks already accounts for this lender's interest" style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0,padding:0}}>×</button>}
                       </div>
                     ))}
+                    {cat==="Debt service"&&canEdit&&(soldSel.soldLocExcluded||[]).length>0&&(
+                      <button onClick={()=>updateProp(soldSel.id,"soldLocExcluded",[])} style={{display:"block",width:"100%",minHeight:40,background:"transparent",border:"none",color:T.blue,cursor:"pointer",fontSize:12,fontFamily:"inherit",fontWeight:600}}>
+                        ↩ Restore {(soldSel.soldLocExcluded||[]).length} removed register interest line{(soldSel.soldLocExcluded||[]).length>1?"s":""}
+                      </button>
+                    )}
                   </div>
                   <div style={{padding:"11px 16px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
                     <span style={{fontSize:12.5,fontWeight:800,color:T.text}}>{shown.length} line item{shown.length!==1?"s":""}{ql?" (filtered)":""}</span>

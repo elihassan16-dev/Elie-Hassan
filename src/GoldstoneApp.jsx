@@ -16865,7 +16865,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     setSharedProps(prev=>prev.map(p=>{
       if(p.id!==soldSel.id)return p;
       const rm=(p.soldAdjust||[]).find(a=>a.id===id);
-      const tomb=rm&&rm.autoId?[...new Set([...(p.soldAutoRemoved||[]),rm.autoId])]:null;
+      // Deleting ANY Selling adjustment also blocks the flat-fee backfill:
+      // older (2025) flat fees carry no autoId, and removing a hand-entered
+      // Selling line used to leave the deal "in-house with no selling cost" —
+      // exactly what made the backfill add a fresh flat fee seconds later.
+      const isSelling=rm&&(SOLD_CATS.includes(rm.cat)?rm.cat:"Holding")==="Selling";
+      const tomb=rm&&(rm.autoId||isSelling)?[...new Set([...(p.soldAutoRemoved||[]),...(rm.autoId?[rm.autoId]:[]),...(isSelling?["inhouse-flatfee"]:[])])]:null;
       return {...p,soldAdjust:(p.soldAdjust||[]).filter(a=>a.id!==id),...(tomb?{soldAutoRemoved:tomb}:{})};
     }));
     if(flushProps)setTimeout(flushProps,0);

@@ -18522,7 +18522,11 @@ function AgentsCrmView({sharedProps,showings,isMobile,hotOnly=false}){
   const inWho=(c)=>who==="agents"?(!c.buyer||c.shows.length>0):who==="buyers"?!!c.buyer:true;
   // 🔥 Hot mode (the Hot leads tab reuses this whole view): only people whose
   // current status is live-hot, grouped hottest-first in the left list.
-  const bestLeadOf=(c)=>{const s=(c.statuses||[]).map(x=>x.lead).filter(l=>l&&l!=="not"&&l!=="badnum");if(!s.length)return "";s.sort((a,b)=>showingLeadRank(a)-showingLeadRank(b));return s[0];};
+  // A lead on a property that already SOLD is no longer a lead (Elie 9/1/26) —
+  // that status is spent, so it neither lists them here nor sets their group.
+  const soldAddrs=useMemo(()=>new Set((sharedProps||[]).filter(p=>p.status==="Sold"||p.archived).map(p=>String(p.address||"").toLowerCase().trim())),[sharedProps]);
+  const onSold=(st)=>soldAddrs.has(String(st.addr||"").toLowerCase().trim());
+  const bestLeadOf=(c)=>{const s=(c.statuses||[]).filter(x=>x.lead&&x.lead!=="not"&&x.lead!=="badnum"&&!onSold(x)).map(x=>x.lead);if(!s.length)return "";s.sort((a,b)=>showingLeadRank(a)-showingLeadRank(b));return s[0];};
   const shown=contacts.filter(c=>{
     if(term&&![c.name,c.phone,...c.addrs].join(" ").toLowerCase().includes(term))return false;
     if(!inWho(c))return false;
@@ -18768,7 +18772,7 @@ function AgentsCrmView({sharedProps,showings,isMobile,hotOnly=false}){
                   {(()=>{
                     // A set lead status shows right on the row (hottest one wins) —
                     // same chip the popup uses, so the list and popup always agree.
-                    const best=[...(c.statuses||[])].sort((a,b)=>showingLeadRank(a.lead)-showingLeadRank(b.lead))[0];
+                    const best=[...(c.statuses||[])].filter(st=>!hotOnly||!onSold(st)).sort((a,b)=>showingLeadRank(a.lead)-showingLeadRank(b.lead))[0];
                     const meta=best?SHOWING_LEADS.find(x=>x.key===best.lead):null;
                     return(<>
                       {c.unread>0&&chip(T.red,"#fff",`NEW REPLY · ${c.unread}`)}

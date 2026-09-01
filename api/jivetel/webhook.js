@@ -198,7 +198,20 @@ export default async function handler(req, res) {
       let who = null; try { who = await identifyPhone(m.from); } catch { /* number-only */ }
       // Name in the title; buyer/agent/lead + their property before the
       // message, so the banner answers "who and about what" at a glance.
-      const sub = whoSub(who);
+      // The property comes from THIS conversation when possible: outbound
+      // texts carry the prop they were sent from, which beats guessing from
+      // showing history (an agent who toured several houses got labeled with
+      // the wrong one). Fall back to the phone-book's best guess.
+      let sub = whoSub(who);
+      try {
+        const rows = (await client
+          .from("sms_messages").select("data")
+          .eq("phone", e164(m.from))
+          .order("updated_at", { ascending: false })
+          .limit(30)).data || [];
+        const tagged = rows.find((r) => r && r.data && r.data.prop);
+        if (tagged) sub = who ? whoSub({ ...who, addr: String(tagged.data.prop) }) : String(tagged.data.prop);
+      } catch { /* keep the phone-book guess */ }
       const label = mediaLabel(m.media);
       await notifyFanout(client, null, {
         ...(owner ? { recipientsFirst: [owner] } : { toTeam: true }),

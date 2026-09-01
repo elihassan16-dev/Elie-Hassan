@@ -911,7 +911,7 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
   const fmt = (iso) => { try { return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
   return (
       <div onClick={(e) => e.stopPropagation()} style={inline
-        ? { background: "#fff", height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }
+        ? { background: "#fff", height: "100%", flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }
         : { background: "#fff", borderRadius: 18, width: "min(480px,96vw)", height: "min(640px,90vh)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 48px rgba(0,0,0,0.25)" }}>
         <div style={{ padding: inline ? "10px 14px" : "13px 16px", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>

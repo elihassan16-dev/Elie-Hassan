@@ -18925,7 +18925,9 @@ function AgentsCrmView({sharedProps,showings,isMobile,hotOnly=false}){
       {/* Right: the activity log */}
       <div style={{flex:1,display:isMobile&&!sel?"none":"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
         {sel?(
-          <>
+          /* On desktop the person window is a capped-width card — full-bleed
+             chat across a wide monitor was dizzying (Elie 9/1/26). */
+          <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column",overflow:"hidden",...(isMobile?{}:{margin:14,maxWidth:860,background:T.card,border:`1px solid ${T.border}`,borderRadius:18,boxShadow:"0 1px 4px rgba(0,0,0,0.05)"})}}>
             <div style={{padding:"12px 16px",background:T.card,borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
               {isMobile&&<button onClick={()=>setSelKey(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:16,cursor:"pointer",padding:"2px 4px",flexShrink:0}}>‹</button>}
               <span style={{width:38,height:38,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:13,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(sel.name)}</span>
@@ -18963,7 +18965,7 @@ function AgentsCrmView({sharedProps,showings,isMobile,hotOnly=false}){
               </div>
               )}
             </div>
-          </>
+          </div>
         ):(
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:T.textSub}}>
             <div style={{width:64,height:64,borderRadius:18,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>👤</div>

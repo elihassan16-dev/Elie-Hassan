@@ -80,7 +80,13 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
           // onto it before saving. Best-effort — any hiccup falls back to the
           // plain write, which is exactly the old behavior.
           try {
-            const { data: freshRow } = await supabase.from(table).select("data").eq("id", id).maybeSingle();
+            // One retry before giving up: a single failed freshness read used to
+            // fall straight through to the blind whole-row write, letting a stale
+            // tab erase fields another device just saved (soldLocExcluded kept
+            // "reverting" this way).
+            let freshRow = null;
+            try { ({ data: freshRow } = await supabase.from(table).select("data").eq("id", id).maybeSingle()); }
+            catch { ({ data: freshRow } = await supabase.from(table).select("data").eq("id", id).maybeSingle()); }
             const baseStr = synced.current.get(id);
             const fresh = freshRow && freshRow.data ? freshRow.data : null;
             if (fresh && baseStr && JSON.stringify(fresh) !== baseStr) out = merge3(JSON.parse(baseStr), x, fresh);

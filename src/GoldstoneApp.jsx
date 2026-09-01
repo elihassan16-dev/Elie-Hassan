@@ -16650,7 +16650,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   useEffect(()=>{
     if(!connected)return;const ids=[...new Set(soldPropsAll.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
     const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
-      try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}`);
+      try{const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}&tier=sold`);
         if(!cancelled)setSoldPnl(m=>({...m,[id]:{income:Number(d.income)||0,cogs:Number(d.cogs)||0,expenses:Number(d.expenses)||0,net:Number(d.netIncome)||0,rows:d.rows||[]}}));
       }catch{/* keep cached */}}};
     Promise.all([run(),run()]);return ()=>{cancelled=true;};
@@ -16662,7 +16662,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   useEffect(()=>{
     if(!connected)return;const ids=[...new Set(soldPropsAll.map(p=>p.qbProjectId).filter(Boolean))];let cancelled=false;const queue=[...ids];
     const run=async()=>{while(queue.length&&!cancelled){const id=queue.shift();
-      try{const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`);
+      try{const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}&tier=sold`);
         const items=d.items||[];
         const isInc=(t)=>String(t.section||"").toLowerCase().includes("income");
         const dated=(list)=>list.filter(t=>/^\d{4}-\d{2}-\d{2}/.test(String(t.date||"")));
@@ -16718,7 +16718,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     const p=(sharedProps||[]).find(x=>x.id===soldFor);
     if(!p||!p.qbProjectId)return;
     let alive=true;
-    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(p.qbProjectId)}`).then(d=>{if(alive)setSoldTxns(d.items||[]);}).catch(()=>{if(alive)setSoldTxns([]);});
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(p.qbProjectId)}&tier=sold`).then(d=>{if(alive)setSoldTxns(d.items||[]);}).catch(()=>{if(alive)setSoldTxns([]);});
     return()=>{alive=false;};
   },[soldFor]); // eslint-disable-line react-hooks/exhaustive-deps
   // ＋ Add a past sale — deals sold before the app existed get created right

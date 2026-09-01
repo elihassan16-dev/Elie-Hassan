@@ -14,8 +14,9 @@ export default async function handler(req, res) {
     // Liability (loan accounts).
     const cls = req.query.class === "Equity" ? "Equity" : req.query.class === "Bank" ? "Bank" : "Liability";
     const q = "select Id, Name, FullyQualifiedName, AccountType, AccountSubType, CurrentBalance, Classification from Account maxresults 1000";
-    // 5-minute shared cache: every device used to spend one API call per poll.
-    const { data, cachedAt, stale } = await qbCached("accounts", req.query.fresh === "1" ? 0 : 5 * 60000, () => qbApi(`/query?query=${encodeURIComponent(q)}`));
+    // 30-minute shared cache (Elie's stored-data rules, 9/1): balances stay
+    // same-day fresh without the old every-5-minutes spend; ↻ bypasses.
+    const { data, cachedAt, stale } = await qbCached("accounts", req.query.fresh === "1" ? 0 : 30 * 60000, () => qbApi(`/query?query=${encodeURIComponent(q)}`));
     const items = (data.QueryResponse?.Account || [])
       .filter((a) => cls === "Bank" ? a.AccountType === "Bank" : a.Classification === cls)
       .map((a) => ({

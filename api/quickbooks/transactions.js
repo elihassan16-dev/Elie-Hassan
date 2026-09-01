@@ -28,14 +28,27 @@ export default async function handler(req, res) {
   const start = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.start || "")) ? req.query.start : "2010-01-01";
   const end = new Date().toISOString().slice(0, 10);
 
-  // One ProfitAndLossDetail run (customer-filtered or whole-company) → flat items.
+  // ProfitAndLossDetail (customer-filtered or whole-company) → flat items. A
+  // property's costs can split between the customer and its project twin
+  // (sub-customer), so per-customer pulls run ONE PLAIN REPORT PER family
+  // member and concatenate — the comma-joined filter form broke on some
+  // (inactive) ids, and a failed pull silently collapsed a deal's costs.
+  // Extra family members are best-effort: only the linked id's own failure
+  // propagates, so this can never do worse than the single-id pull.
   const computeItems = async () => {
-    // Whole customer family — parent + project sub-customers count as one property.
-    const custFilter = customerId ? (await qbCustomerFamily(customerId)).join(",") : "";
-    const rpt = await qbApi(
-      `/reports/ProfitAndLossDetail?${custFilter ? `customer=${encodeURIComponent(custFilter)}&` : ""}start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,cust_name,subt_nat_amount`
-    );
-
+    if (!customerId) return parseReport(await fetchDetail(""));
+    const fam = await qbCustomerFamily(customerId).catch(() => [String(customerId)]);
+    const items = [];
+    for (const cid of fam) {
+      try { items.push(...parseReport(await fetchDetail(cid))); }
+      catch (e) { if (String(cid) === String(customerId)) throw e; }
+    }
+    return items;
+  };
+  const fetchDetail = (cid) => qbApi(
+    `/reports/ProfitAndLossDetail?${cid ? `customer=${encodeURIComponent(cid)}&` : ""}start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,cust_name,subt_nat_amount`
+  );
+  const parseReport = (rpt) => {
     // Map each column to a lowercase key from its metadata (fall back to title).
     const cols = (rpt.Columns?.Column || []).map((c) => {
       const meta = (c.MetaData || []).find((m) => m.Name === "ColKey");
@@ -89,6 +102,7 @@ export default async function handler(req, res) {
     walk(rpt.Rows?.Row, "", "");
     return items;
   };
+  // (parseReport ends — computeItems above stitches the per-family-member results.)
 
   // ── Project attribution for the company-wide report ──────────────────────
   // QBO's ProfitAndLossDetail NEVER fills a customer column on the whole-

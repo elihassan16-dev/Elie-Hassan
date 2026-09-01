@@ -3258,28 +3258,10 @@ function ShowingsPage(){
     {view==="agents"?(
       <AgentsCrmView sharedProps={sharedProps} showings={showings} isMobile={isMobile}/>
     ):view==="hot"?(
-      <div style={{flex:1,overflowY:"auto",background:T.bg}}>
-        <div style={{maxWidth:640,margin:"0 auto",padding:"6px 16px 40px",boxSizing:"border-box"}}>
-          {hotRows.length===0&&<div style={{padding:"46px 20px",textAlign:"center",color:T.textTert,fontSize:13,lineHeight:1.6}}>No live leads yet.<br/>Set a lead status on a showing (anything except "Not interested") and it shows up here, hottest first.</div>}
-          {(()=>{let last=null;return hotRows.map(r=>{
-            const meta=SHOWING_LEADS.find(x=>x.key===r.lead)||{};
-            const hdr=r.lead!==last?meta.label:null;last=r.lead;
-            return(<Fragment key={String(r.p.id)+"|"+r.skey}>
-              {hdr&&<div style={{padding:"16px 2px 7px",display:"flex",alignItems:"center",gap:7}}>
-                <span style={{width:7,height:7,borderRadius:4,background:meta.color||T.textTert,flexShrink:0}}/>
-                <span style={{fontSize:13,fontWeight:650,color:T.text}}>{meta.short||hdr}</span>
-              </div>}
-              <div onClick={()=>setHotOpen({propId:r.p.id,skey:r.skey})} style={{display:"flex",alignItems:"center",gap:10,background:"#fff",border:`1px solid ${T.border}`,borderLeft:`3px solid ${meta.color||T.border}`,borderRadius:12,padding:"11px 13px",marginBottom:8,cursor:"pointer",boxShadow:T.shadow}}>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:14,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</div>
-                  <div style={{fontSize:11.5,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.p.address}{r.p.city?`, ${r.p.city}`:""}{r.when?` · ${fmtShowingTime(r.when)}`:""}</div>
-                </div>
-                <span style={{flexShrink:0,fontSize:10.5,fontWeight:800,color:meta.color,background:meta.bg,borderRadius:12,padding:"3px 9px"}}>{meta.short||r.lead}</span>
-              </div>
-            </Fragment>);
-          });})()}
-        </div>
-      </div>
+      /* 🔥 Hot leads = the By-agent CRM filtered to live-hot people: same
+         left list (grouped by status, hottest first) with the picked
+         person's chat + full activity history on the right (Elie 9/1). */
+      <AgentsCrmView sharedProps={sharedProps} showings={showings} isMobile={isMobile} hotOnly/>
     ):(
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
       {/* Left: property list */}
@@ -18378,7 +18360,7 @@ function classifySug(txt){
   if(/went (really |very |pretty )?(well|great)|beautiful|gorgeous|lovely|stunning|(loved|liked) the (house|home|place|property)|great (showing|house|home|place)|impressed/.test(s))return "interest";
   return null;
 }
-function AgentsCrmView({sharedProps,showings,isMobile}){
+function AgentsCrmView({sharedProps,showings,isMobile,hotOnly=false}){
   const {connected,threadFor,unreadFor,send:smsSend}=useSmsTexting();
   const {setSharedProps,flushProps,appSettings,setAppSettings,flushAppSettings,currentUser:CURRENT_USER}=useData();
   // 🚫 Removed from all lists — the permanent tombstone (by phone) that keeps
@@ -18538,9 +18520,13 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   // 👤/🛒 tab membership: buyers = BoldTrail inquiries; agents = anyone who
   // actually showed (a buyer who also toured counts on both sides).
   const inWho=(c)=>who==="agents"?(!c.buyer||c.shows.length>0):who==="buyers"?!!c.buyer:true;
+  // 🔥 Hot mode (the Hot leads tab reuses this whole view): only people whose
+  // current status is live-hot, grouped hottest-first in the left list.
+  const bestLeadOf=(c)=>{const s=(c.statuses||[]).map(x=>x.lead).filter(l=>l&&l!=="not"&&l!=="badnum");if(!s.length)return "";s.sort((a,b)=>showingLeadRank(a)-showingLeadRank(b));return s[0];};
   const shown=contacts.filter(c=>{
     if(term&&![c.name,c.phone,...c.addrs].join(" ").toLowerCase().includes(term))return false;
     if(!inWho(c))return false;
+    if(hotOnly&&!bestLeadOf(c))return false;
     if(c.dead)return !!term;               // removed from every pill — only an explicit search surfaces them
     if(filter==="upcoming")return c.future;
     if(c.future)return false;              // future stuff hides everywhere else
@@ -18558,6 +18544,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
   const actList=filter==="upcoming"?[]:shown.filter(c=>c.activeConvo&&!c.dead).sort((a,b)=>((b.unread>0)-(a.unread>0))||String(b.lastAt).localeCompare(String(a.lastAt)));
   const actSet=new Set(actList.map(c=>c.key));
   const restList=shown.filter(c=>!actSet.has(c.key)).sort((a,b)=>String(b.lastShow).localeCompare(String(a.lastShow))||String(b.act).localeCompare(String(a.act)));
+  const hotList=hotOnly?shown.slice().sort((a,b)=>showingLeadRank(bestLeadOf(a))-showingLeadRank(bestLeadOf(b))||String(b.act).localeCompare(String(a.act))):[];
   const sel=contacts.find(c=>c.key===selKey)||null;
   const chip=(bg,fg,txt)=><span style={{fontSize:10,fontWeight:800,background:bg,color:fg,borderRadius:8,padding:"2px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
   const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"?";
@@ -18795,6 +18782,20 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
               </div>
             );
           };
+          if(hotOnly){
+            // Grouped by status, hottest first — the Hot leads left column.
+            let lastL=null;
+            return(<>
+              {hotList.length===0&&<div style={{padding:"46px 20px",textAlign:"center",color:T.textTert,fontSize:13,lineHeight:1.6}}>No live leads yet.<br/>Set a lead status on a showing (anything except "Not interested") and it shows up here, hottest first.</div>}
+              {hotList.map(c=>{
+                const bl=bestLeadOf(c);
+                const meta=SHOWING_LEADS.find(x=>x.key===bl)||{};
+                const hdr=bl!==lastL?secHdr(`${meta.label||bl} · ${hotList.filter(x=>bestLeadOf(x)===bl).length}`,meta.color||T.gold):null;
+                lastL=bl;
+                return <Fragment key={"hot"+c.key}>{hdr}{row(c)}</Fragment>;
+              })}
+            </>);
+          }
           return(<>
             {actList.length>0&&secHdr(`💬 Active Conversations · ${actList.length}`,"#0F9D58")}
             {actList.map(row)}

@@ -1,4 +1,4 @@
-import { qbApi, requireAppUser, qbCached } from "../../lib/quickbooks.js";
+import { qbApi, requireAppUser, qbCached, qbCustomerFamily } from "../../lib/quickbooks.js";
 
 // Project attribution fans out one report call per project — give it room.
 export const config = { maxDuration: 60 };
@@ -30,8 +30,10 @@ export default async function handler(req, res) {
 
   // One ProfitAndLossDetail run (customer-filtered or whole-company) → flat items.
   const computeItems = async () => {
+    // Whole customer family — parent + project sub-customers count as one property.
+    const custFilter = customerId ? (await qbCustomerFamily(customerId)).join(",") : "";
     const rpt = await qbApi(
-      `/reports/ProfitAndLossDetail?${customerId ? `customer=${encodeURIComponent(customerId)}&` : ""}start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,cust_name,subt_nat_amount`
+      `/reports/ProfitAndLossDetail?${custFilter ? `customer=${encodeURIComponent(custFilter)}&` : ""}start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,cust_name,subt_nat_amount`
     );
 
     // Map each column to a lowercase key from its metadata (fall back to title).

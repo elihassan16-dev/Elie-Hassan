@@ -69,10 +69,29 @@ const listeners = new Set();
 const emit = () => listeners.forEach((fn) => { try { fn(); } catch { /* consumer gone */ } });
 let started = false, loadT = null;
 
+// ⚠ The old unlimited ascending query was silently capped at PostgREST's
+// 1000-row default — the OLDEST 1000 rows, so the day the table crossed
+// 1000 messages (campaign day), every NEW text became invisible while
+// being stored perfectly. Load the newest window instead, then fetch only
+// what changed since (far cheaper than re-downloading everything per event).
+let lastUpd = "";
 async function loadMsgs(retry = 0) {
-  const { data, error } = await supabase.from("sms_messages").select("id,phone,data").order("updated_at", { ascending: true });
+  const incremental = !!(lastUpd && store.msgs);
+  const q = incremental
+    ? supabase.from("sms_messages").select("id,phone,data,updated_at").gt("updated_at", lastUpd).order("updated_at", { ascending: true }).limit(1000)
+    : supabase.from("sms_messages").select("id,phone,data,updated_at").order("updated_at", { ascending: false }).limit(3000);
+  const { data, error } = await q;
   if (!error) {
-    const rows = (data || []).map((r) => ({ ...(r.data || {}), id: r.id, phone: r.phone || (r.data || {}).phone || "" }));
+    const fresh = (data || []).map((r) => ({ ...(r.data || {}), id: r.id, phone: r.phone || (r.data || {}).phone || "", _upd: String(r.updated_at || "") }));
+    fresh.forEach((r) => { if (r._upd > lastUpd) lastUpd = r._upd; });
+    let rows;
+    if (incremental) {
+      const byId = new Map((store.msgs || []).map((m) => [m.id, m]));
+      fresh.forEach((m) => byId.set(m.id, m)); // edits (delivery status) replace in place
+      rows = [...byId.values()].sort((a, b) => String(a._upd || a.at || "").localeCompare(String(b._upd || b.at || "")));
+    } else {
+      rows = fresh.reverse(); // back to oldest-first, like the old shape
+    }
     // One call can arrive as two CDR legs (two ids, same number/direction/
     // start/duration) — show it once, everywhere calls render.
     const seenCalls = [];

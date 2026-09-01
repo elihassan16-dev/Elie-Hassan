@@ -9,6 +9,20 @@ const SUPABASE_URL = process.env.SUPABASE_URL || "https://wtmsukjnuqsprtvfytin.s
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const db = () => createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } });
 
+// A campaign blast lands dozens of replies + delivery receipts at once —
+// give the handler headroom so contended writes can't cut a store short.
+export const config = { maxDuration: 30 };
+
+// Whose line is this number? (env-only — usable from GET replay too)
+const lineOwner = (num) => {
+  try {
+    const nums = JSON.parse(process.env.JIVETEL_NUMBERS || "{}");
+    const d10 = (x) => { const dd = String(x || "").replace(/\D/g, ""); return dd.length === 11 && dd.startsWith("1") ? dd.slice(1) : dd; };
+    const hit = Object.entries(nums).find(([, v]) => d10(v) && d10(v) === d10(num));
+    return hit ? hit[0] : null;
+  } catch { return null; }
+};
+
 // "a.b[].c:string" style paths — structure only, no values.
 function shapeOf(o, pre = "", out = new Set(), depth = 0) {
   if (depth > 5 || o == null) { if (pre) out.add(pre + ":" + (o === null ? "null" : "empty")); return out; }
@@ -66,6 +80,41 @@ export default async function handler(req, res) {
         const inStore = new Set((rows || []).map((r) => String(r.id)));
         recent.forEach((r) => { if (r.id) r.inStore = inStore.has(r.id); });
       }
+      // 🔁 ?replay=1 — re-parse the captured deliveries and store any message
+      // that never made it into the conversation store (a blast could time the
+      // handler out after the capture but before the store). Idempotent, no
+      // content in the response, no pings — safe to run repeatedly.
+      if (String(req.query.replay || "") === "1") {
+        let checked = 0, replayed = 0;
+        for (const e of ev) {
+          const b = e.body && typeof e.body === "object" && !Array.isArray(e.body) ? e.body : {};
+          const envl = b.data && typeof b.data === "object" && !Array.isArray(b.data) ? b.data : null;
+          const dd = envl || (b.MessageID || (b.MessageBody != null && b.MessageDirection) ? b : null);
+          if (!dd || !dd.MessageID) continue;
+          const mediaR = mediaOf(dd);
+          if (dd.MessageBody == null && !mediaR.length) continue; // receipt, not a message
+          checked++;
+          const id = String(dd.MessageID);
+          const { data: exist } = await client0.from("sms_messages").select("id").eq("id", id).maybeSingle();
+          if (exist) continue;
+          const dirR = /out/i.test(String(dd.MessageDirection || "")) ? "out" : "in";
+          const tsR = b.timestamp ?? dd.timestamp ?? dd.Timestamp ?? null;
+          const atR = (() => { try { const t = new Date(isNaN(Number(tsR)) ? tsR : Number(tsR)); return tsR && !isNaN(t.getTime()) ? t.toISOString() : e.at; } catch { return e.at; } })();
+          await storeSms({
+            id,
+            phone: e164(dirR === "in" ? String(dd.FromNumber || "") : String(dd.ToNumber || "")),
+            direction: dirR,
+            text: String(dd.MessageBody || ""),
+            ...(mediaR.length ? { media: mediaR } : {}),
+            by: dirR === "in" ? String(dd.ContactName || "") : lineOwner(String(dd.FromNumber || "")) || "",
+            from: dirR === "in" ? e164(String(dd.ToNumber || "")) : e164(String(dd.FromNumber || "")),
+            at: atR,
+            status: "",
+          }).catch(() => {});
+          replayed++;
+        }
+        return res.status(200).json({ replay: true, checked, recovered: replayed });
+      }
       return res.status(200).json({
         v: 5, // bump when the parser changes — proves which build is live
         configured: !!process.env.JIVETEL_WEBHOOK_SECRET,
@@ -83,10 +132,18 @@ export default async function handler(req, res) {
     const secret = process.env.JIVETEL_WEBHOOK_SECRET;
     if (!secret || String(req.query.key || "") !== secret) return res.status(401).json({ error: "bad key" });
     const client = db();
-    const row = (await client.from("app_settings").select("data").eq("id", "jivetel_events").maybeSingle()).data;
-    const ev = ((row && row.data && row.data.events) || []).slice(-99); // keep the last 100 raw
-    ev.push({ at: new Date().toISOString(), ct: req.headers["content-type"] || "", body: req.body ?? null });
-    await client.from("app_settings").upsert({ id: "jivetel_events", data: { events: ev }, updated_at: new Date().toISOString() });
+    // The raw capture is DIAGNOSTICS: a multi-MB row that every delivery used
+    // to rewrite before the message was stored. Under a campaign blast (dozens
+    // of replies + receipts at once) the contended write could stall past the
+    // function limit and the reply never reached the store — so it's guarded,
+    // trimmed, and must never block the real work.
+    let row = null, ev = [];
+    try {
+      row = (await client.from("app_settings").select("data").eq("id", "jivetel_events").maybeSingle()).data;
+      ev = ((row && row.data && row.data.events) || []).slice(-59); // keep the last 60 raw
+      ev.push({ at: new Date().toISOString(), ct: req.headers["content-type"] || "", body: req.body ?? null });
+      await client.from("app_settings").upsert({ id: "jivetel_events", data: { events: ev }, updated_at: new Date().toISOString() });
+    } catch { /* capture is best-effort */ }
 
     // Parse the Textable message shape into the app's Jivetel message log.
     // Two shapes arrive here: the original wrapped one —
@@ -165,14 +222,6 @@ export default async function handler(req, res) {
     };
     // Which teammate owns a line (their number in JIVETEL_NUMBERS) — labels
     // app-typed outgoing texts with the sender, keys inbound pings.
-    const lineOwner = (num) => {
-      try {
-        const nums = JSON.parse(process.env.JIVETEL_NUMBERS || "{}");
-        const d10 = (x) => { const dd = String(x || "").replace(/\D/g, ""); return dd.length === 11 && dd.startsWith("1") ? dd.slice(1) : dd; };
-        const hit = Object.entries(nums).find(([, v]) => d10(v) && d10(v) === d10(num));
-        return hit ? hit[0] : null;
-      } catch { return null; }
-    };
     // A picture with no caption has a null body — it's still a message.
     if (d && d.MessageID && (d.MessageBody != null || media.length)) {
       const dir = /out/i.test(String(d.MessageDirection || "")) ? "out" : "in";
@@ -190,20 +239,15 @@ export default async function handler(req, res) {
         userId: String(d.TextableUserID || ""),
       };
       trace.dir = dir;
-      trace.decision = "dup-relay-log";
-      const mrow = (await client.from("app_settings").select("data").eq("id", "jivetel_msgs").maybeSingle()).data;
-      const msgs = ((mrow && mrow.data && mrow.data.msgs) || []);
-      if (!msgs.some((m) => m.id === msg.id)) {
-        msgs.push(msg);
-        await client.from("app_settings").upsert({ id: "jivetel_msgs", data: { msgs: msgs.slice(-2000) }, updated_at: new Date().toISOString() });
-        // Into the app's conversation store too — the thread popups, badges
-        // and realtime updates all read sms_messages. The other party's
-        // number keys the thread. Skip ids the send endpoint already logged —
-        // its record is richer (author, property tag, sent status) and a
-        // relayed echo must not overwrite it.
-        const { data: exist } = await client.from("sms_messages").select("id").eq("id", msg.id).maybeSingle();
-        trace.decision = exist ? "dup-send-log" : "stored";
-        if (!exist) await storeSms({
+      // THE critical write comes FIRST: the conversation store (sms_messages —
+      // thread popups, badges and realtime all read it), race-safe by message
+      // id. Skip ids the send endpoint already logged — its record is richer
+      // (author, property tag, sent status) and a relayed echo must not
+      // overwrite it. Only then the informational log and the phone ping.
+      const { data: exist } = await client.from("sms_messages").select("id").eq("id", msg.id).maybeSingle();
+      trace.decision = exist ? "dup-send-log" : "stored";
+      if (!exist) {
+        await storeSms({
           id: msg.id,
           phone: e164(dir === "in" ? msg.from : msg.to),
           direction: dir,
@@ -216,11 +260,20 @@ export default async function handler(req, res) {
           from: dir === "in" ? e164(msg.to) : e164(msg.from),
           at: msg.at,
           status: "",
-        }).catch(() => {});
+        });
         // Ping whoever OWNS the line the text came in on (their number in
         // JIVETEL_NUMBERS); unknown line → the whole team.
         if (dir === "in") await pingInbound(msg);
       }
+      // Informational Jivetel log — best-effort, after the store.
+      try {
+        const mrow = (await client.from("app_settings").select("data").eq("id", "jivetel_msgs").maybeSingle()).data;
+        const msgs = ((mrow && mrow.data && mrow.data.msgs) || []);
+        if (!msgs.some((m) => m.id === msg.id)) {
+          msgs.push(msg);
+          await client.from("app_settings").upsert({ id: "jivetel_msgs", data: { msgs: msgs.slice(-2000) }, updated_at: new Date().toISOString() });
+        }
+      } catch { /* log is best-effort */ }
     }
     // ── App-originated relay: messages typed directly in the Jivetel SMS
     // app arrive with the same fields but NO MessageID — flat, or wrapped

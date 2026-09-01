@@ -18092,11 +18092,11 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                         </div>
                         <b style={{fontSize:13,flexShrink:0,color:(Number(t.amount)||0)<0?T.green:T.text}}>{fmtD(Math.abs(Number(t.amount)||0))}</b>
                         {t.adjId&&canEdit&&<button onClick={()=>delAdj(t.adjId)} title="Remove this adjustment" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0,padding:0}}>×</button>}
-                        {t.locFunder&&canEdit&&<button onClick={()=>updateProp(soldSel.id,"soldLocExcluded",[...(soldSel.soldLocExcluded||[]),t.locFunder])} title="Remove — QuickBooks already accounts for this lender's interest" style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0,padding:0}}>×</button>}
+                        {t.locFunder&&canEdit&&<button onClick={()=>{const fn=t.locFunder;setSharedProps(prev=>prev.map(p=>p.id===soldSel.id?{...p,soldLocExcluded:[...new Set([...(p.soldLocExcluded||[]),fn])]}:p));if(flushProps)setTimeout(flushProps,0);}} title="Remove — QuickBooks already accounts for this lender's interest" style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0,padding:0}}>×</button>}
                       </div>
                     ))}
                     {cat==="Debt service"&&canEdit&&(soldSel.soldLocExcluded||[]).length>0&&(
-                      <button onClick={()=>updateProp(soldSel.id,"soldLocExcluded",[])} style={{display:"block",width:"100%",minHeight:40,background:"transparent",border:"none",color:T.blue,cursor:"pointer",fontSize:12,fontFamily:"inherit",fontWeight:600}}>
+                      <button onClick={()=>{setSharedProps(prev=>prev.map(p=>p.id===soldSel.id?{...p,soldLocExcluded:[]}:p));if(flushProps)setTimeout(flushProps,0);}} style={{display:"block",width:"100%",minHeight:40,background:"transparent",border:"none",color:T.blue,cursor:"pointer",fontSize:12,fontFamily:"inherit",fontWeight:600}}>
                         ↩ Restore {(soldSel.soldLocExcluded||[]).length} removed register interest line{(soldSel.soldLocExcluded||[]).length>1?"s":""}
                       </button>
                     )}

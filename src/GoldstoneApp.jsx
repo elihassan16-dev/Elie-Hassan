@@ -16726,10 +16726,15 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   // shot) or type the address by hand; archived + Sold + selling date.
   const[saleDraft,setSaleDraft]=useState(null); // {q,qbId,addr,city,date,price,manual}
   const[qbProjList,setQbProjList]=useState(null);
+  const[qbProjErr,setQbProjErr]=useState("");
   const linkTarget=soldFor!=null&&!!(sharedProps||[]).find(x=>x.id===soldFor&&!x.qbProjectId);
   useEffect(()=>{
-    if((!saleDraft&&!linkTarget)||qbProjList!==null||!connected)return;
-    qbAuthFetch("/api/quickbooks/projects").then(d=>setQbProjList(d.items||[])).catch(()=>setQbProjList([]));
+    if((!saleDraft&&!linkTarget)||qbProjList!==null)return;
+    // Say WHY nothing loads instead of spinning forever: not connected is a
+    // reconnect problem, a failed fetch is a retry problem.
+    if(!connected){if(connected===false)setQbProjErr("QuickBooks isn't connected — open the Financial Section, hit Reconnect, then try again.");return;}
+    setQbProjErr("");
+    qbAuthFetch("/api/quickbooks/projects").then(d=>setQbProjList(d.items||[])).catch(e=>{setQbProjList([]);setQbProjErr(e.message||"Couldn't load QuickBooks projects.");});
   },[saleDraft,linkTarget,connected]); // eslint-disable-line react-hooks/exhaustive-deps
   // Auto-link: a Sold deal with no QuickBooks project gets matched to one by
   // address — unique, unused, ≥5-char prefix match, the same rule the
@@ -17645,7 +17650,13 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
               <div style={{padding:"14px 18px",display:"flex",flexDirection:"column",gap:9,overflowY:"auto",flex:1}}>
                 {!saleDraft.manual&&!saleDraft.qbId&&(<>
                   <input value={saleDraft.q||""} onChange={e=>setSaleDraft(d=>({...d,q:e.target.value}))} placeholder="🔍 Search QuickBooks projects (e.g. Montgomery)…" style={iS4} autoFocus/>
-                  {qbProjList===null&&term.length>=2&&<div style={{fontSize:12,color:T.textTert,padding:"4px 2px"}}>Loading QuickBooks projects…</div>}
+                  {qbProjErr&&(
+                    <div style={{padding:"9px 12px",background:"#FFF0EF",border:`1px solid ${T.red}`,borderRadius:10,color:T.red,fontSize:12,lineHeight:1.5}}>
+                      {qbProjErr}
+                      <button onClick={()=>{setQbProjErr("");setQbProjList(null);}} style={{display:"block",marginTop:6,padding:"6px 12px",borderRadius:8,border:"none",background:T.red,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>↻ Try again</button>
+                    </div>
+                  )}
+                  {qbProjList===null&&!qbProjErr&&<div style={{fontSize:12,color:T.textTert,padding:"4px 2px"}}>Loading QuickBooks projects…</div>}
                   {projMatches.map(x=>(
                     <div key={x.id} onClick={async()=>{
                       // Picking the project also finds the SOLD DATE in QuickBooks:
@@ -17668,7 +17679,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                       {x.parent&&<div style={{fontSize:10.5,color:T.textTert}}>under {x.parent}</div>}
                     </div>
                   ))}
-                  {qbProjList!==null&&term.length>=2&&projMatches.length===0&&<div style={{fontSize:12,color:T.textTert,padding:"4px 2px"}}>No unlinked QuickBooks project matches “{saleDraft.q}”.</div>}
+                  {qbProjList!==null&&!qbProjErr&&term.length>=2&&projMatches.length===0&&<div style={{fontSize:12,color:T.textTert,padding:"4px 2px"}}>No unlinked QuickBooks project matches “{saleDraft.q}”.</div>}
                   <button onClick={()=>setSaleDraft(d=>({...d,manual:true}))} style={{alignSelf:"flex-start",background:"none",border:"none",color:T.blue,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"2px 0"}}>No QuickBooks project? Type the address instead ›</button>
                 </>)}
                 {saleDraft.qbId&&(

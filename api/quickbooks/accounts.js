@@ -1,11 +1,11 @@
-import { qbApi, requireAppUser, qbCached, qbUsage, QB_LIMIT } from "../../lib/quickbooks.js";
+import { qbApi, requireTeamUser, qbCached, qbUsage, QB_LIMIT } from "../../lib/quickbooks.js";
 
 // Lists QuickBooks liability accounts (line of credit, hard-money notes, mortgages)
 // with their live CurrentBalance, so a property can be linked to the loan accounts
 // financing it and we can total the active debt.
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0"); // always return live loan balances
-  const user = await requireAppUser(req);
+  const user = await requireTeamUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   const num = (v) => { const x = parseFloat(String(v ?? "").replace(/,/g, "")); return isNaN(x) ? 0 : x; };
   try {

@@ -1,4 +1,4 @@
-import { qbApi, requireAppUser, qbCached } from "../../lib/quickbooks.js";
+import { qbApi, requireTeamUser, qbCached } from "../../lib/quickbooks.js";
 
 // Fetch the full line items (splits) of a single QuickBooks transaction, so the
 // client can pin only some lines of a journal entry / bill / check / deposit, etc.
@@ -46,7 +46,7 @@ function lineFields(line) {
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
-  const user = await requireAppUser(req);
+  const user = await requireTeamUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   const id = req.query.id;
   const type = req.query.type;

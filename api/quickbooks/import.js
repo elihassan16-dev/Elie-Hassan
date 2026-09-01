@@ -1,4 +1,4 @@
-import { requireAppUser, admin } from "../../lib/quickbooks.js";
+import { requireTeamUser, admin } from "../../lib/quickbooks.js";
 
 // The CSV-import stand-in (used during the Aug 2026 Intuit quota outage) is
 // retired: imported numbers kept fighting the real ones. This endpoint now
@@ -10,7 +10,7 @@ const PURGE_PREFIXES = ["qb_cache_txns_all_", "qb_cache_txns_cust_", "qb_cache_p
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
-  const user = await requireAppUser(req);
+  const user = await requireTeamUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   if (req.method !== "POST") { res.status(405).json({ error: "POST only." }); return; }
   let body = req.body;

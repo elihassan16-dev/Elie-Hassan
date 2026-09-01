@@ -1,8 +1,8 @@
-import { qbApi, requireAppUser, qbCached } from "../../lib/quickbooks.js";
+import { qbApi, requireTeamUser, qbCached } from "../../lib/quickbooks.js";
 
 // Lists QuickBooks customers + projects (projects are sub-customers) for mapping.
 export default async function handler(req, res) {
-  const user = await requireAppUser(req);
+  const user = await requireTeamUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
   try {
     const q = "select Id, DisplayName, FullyQualifiedName, Job, ParentRef from Customer maxresults 1000";

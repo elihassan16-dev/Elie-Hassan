@@ -18675,7 +18675,8 @@ function AgentsCrmView({sharedProps,showings,isMobile,hotOnly=false}){
     <div style={{display:"flex",flex:1,overflow:"hidden"}}>
       {/* Left: the people */}
       <div style={{width:isMobile?"100%":340,flexShrink:0,display:isMobile&&sel?"none":"flex",flexDirection:"column",borderRight:isMobile?"none":`1px solid ${T.border}`,background:T.card,overflow:"hidden"}}>
-        <div style={{padding:"12px 14px 8px",borderBottom:`1px solid ${T.border}`}}>
+        {/* Hot leads keeps it bare — just the list; the full CRM keeps its search + filters */}
+        {!hotOnly&&<div style={{padding:"12px 14px 8px",borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             <input value={q} onChange={e=>setQ(e.target.value)} placeholder="⌕ Search an agent, buyer, number, property…" style={{flex:1,minWidth:0,padding:"8px 11px",borderRadius:9,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",background:T.bg,color:T.text}}/>
             {connected&&<button onClick={()=>setCampOpen(true)} title="📣 Campaign — mass text by filters, no hand-picking" style={{padding:"7px 10px",borderRadius:9,border:"1px solid #C9A227",background:"#FBF3DD",color:"#8a6d1f",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>📣</button>}
@@ -18719,7 +18720,7 @@ function AgentsCrmView({sharedProps,showings,isMobile,hotOnly=false}){
               </div>
             )}
           </div>
-        </div>
+        </div>}
         <div style={{flex:1,overflowY:"auto"}}>
           {/* 📅 Follow-up calls due — pinned on top until checked off */}
           {myDue.length>0&&!selMode&&(

@@ -148,19 +148,22 @@ export default async function handler(req, res) {
     }
 
     if (customerId) {
-      const { data: items, cachedAt, stale } = await qbCached(`txns_cust_${customerId}_${start}`, req.query.fresh === "1" ? 0 : 15 * 60000, computeItems);
+      // Elie's refresh rules (9/1): active projects re-download once a DAY,
+      // sold/past deals once a MONTH; ↻ (fresh=1) bypasses.
+      const ttl = req.query.fresh === "1" ? 0 : req.query.tier === "sold" ? 30 * 86400000 : 24 * 3600000;
+      const { data: items, cachedAt, stale } = await qbCached(`txns_cust_${customerId}_${start}`, ttl, computeItems);
       res.status(200).json({ items, cachedAt, stale: !!stale });
       return;
     }
 
     // fresh=1 re-runs the company report (1 call) but keeps the cached 12h
     // attribution map — a manual refresh never re-triggers the 200-call sweep.
-    const { data: items, cachedAt, stale } = await qbCached(`txns_all_${start}`, req.query.fresh === "1" ? 0 : 30 * 60000, async () => {
+    const { data: items, cachedAt, stale } = await qbCached(`txns_all_${start}`, req.query.fresh === "1" ? 0 : 24 * 3600000, async () => {
       const items = await computeItems();
       if (items.length) {
         try {
           let alloc = null;
-          try { alloc = (await qbCached(`alloc_${start}`, 12 * 3600000, buildAlloc)).data; }
+          try { alloc = (await qbCached(`alloc_${start}`, 24 * 3600000, buildAlloc)).data; }
           catch (e) { alloc = e.partial || null; } // clipped sweep: use it, never cache it
           if (alloc) for (const t of items) { if (!t.project) { const hit = alloc[`${t.id}|${t.amount}`]; if (hit) t.project = hit; } }
         } catch (e) { console.error("[quickbooks] project attribution skipped:", e.message); }

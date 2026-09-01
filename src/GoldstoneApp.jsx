@@ -18380,7 +18380,17 @@ function classifySug(txt){
 }
 function AgentsCrmView({sharedProps,showings,isMobile}){
   const {connected,threadFor,unreadFor,send:smsSend}=useSmsTexting();
-  const {setSharedProps,flushProps,appSettings,setAppSettings,currentUser:CURRENT_USER}=useData();
+  const {setSharedProps,flushProps,appSettings,setAppSettings,flushAppSettings,currentUser:CURRENT_USER}=useData();
+  // 🚫 Removed from all lists — the permanent tombstone (by phone) that keeps
+  // the showings importer from resurrecting someone Elie deleted; the list
+  // itself stays viewable/restorable behind the "Removed" chip.
+  const crmRemovedItems=((appSettings||[]).find(x=>x.id==="crm_removed")||{}).items||[];
+  const removedSet=useMemo(()=>new Set(crmRemovedItems.map(r=>r.phone)),[appSettings]); // eslint-disable-line react-hooks/exhaustive-deps
+  const[rmOpen,setRmOpen]=useState(false);
+  const restoreRemoved=(phone)=>{
+    setAppSettings(prev=>{const cur=((prev||[]).find(x=>x.id==="crm_removed")||{}).items||[];return [...(prev||[]).filter(x=>x.id!=="crm_removed"),{id:"crm_removed",items:cur.filter(r=>r.phone!==phone)}];});
+    if(flushAppSettings)setTimeout(flushAppSettings,0);
+  };
   // 📅 Follow-up calls: "call me Monday" → pick the date; it pins to the top of
   // this list when due and pings your phone that morning (the 5-minute watcher).
   const followups=((appSettings||[]).find(x=>x.id==="followups")||{}).items||[];
@@ -18490,7 +18500,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
         String(l.phone||"").split(/[\/,;]| or /i).forEach(ph=>{const c=by[digits(ph)];if(c)c.statuses.push({lead:l.lead,addr:p.address,at:l.at||"",by:""});});
       });
     });
-    return Object.values(by).map(c=>{
+    return Object.values(by).filter(c=>!removedSet.has(c.key)).map(c=>{
       const t=connected?threadFor(c.phone):[];
       const last=t.filter(m=>m.kind!=="call").slice(-1)[0]||null;
       const lastAt=last?String(last.at||""):"";
@@ -18523,7 +18533,7 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
       ||((b.contacted?1:0)-(a.contacted?1:0))                       // reached-out people before not-contacted
       ||String(b.lastShow).localeCompare(String(a.lastShow))        // then most recent showing first
       ||String(b.act).localeCompare(String(a.act)));
-  },[showings,sharedProps,connected,btAll,sugDis,textOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[showings,sharedProps,connected,btAll,sugDis,textOpen,removedSet]); // eslint-disable-line react-hooks/exhaustive-deps
   const term=q.trim().toLowerCase();
   // 👤/🛒 tab membership: buyers = BoldTrail inquiries; agents = anyone who
   // actually showed (a buyer who also toured counts on both sides).
@@ -18694,6 +18704,33 @@ function AgentsCrmView({sharedProps,showings,isMobile}){
             {[["all",`All · ${counts.all}`],["new",`New replies · ${counts.new}`],["replied",`Replied · ${counts.replied}`],["noresp",`No response · ${counts.noresp}`],["upcoming",`📅 Upcoming · ${counts.upcoming}`]].map(([k,l])=>(
               <button key={k} onClick={()=>setFilter(k)} style={{...segTab(filter===k),fontSize:10.5,padding:"4px 10px",borderRadius:12,background:filter===k?"#fff":"rgba(118,118,128,0.08)",...(filter===k?{color:T.gold}:{})}}>{l}</button>
             ))}
+            {crmRemovedItems.length>0&&(
+              <button onClick={()=>setRmOpen(true)} title="People removed from every list — view or restore" style={{...segTab(false),fontSize:10.5,padding:"4px 10px",borderRadius:12,background:"rgba(118,118,128,0.08)",color:T.textTert}}>🚫 Removed · {crmRemovedItems.length}</button>
+            )}
+            {rmOpen&&(
+              <div onClick={()=>setRmOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)",padding:14}}>
+                <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:18,width:"min(420px,94vw)",maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:T.shadowMd}}>
+                  <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:15,fontWeight:800,color:T.text}}>🚫 Removed from all lists</div>
+                      <div style={{fontSize:11,color:T.textSub}}>They stay off every list and can't be re-imported. Restore brings one back.</div>
+                    </div>
+                    <button onClick={()=>setRmOpen(false)} style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+                  </div>
+                  <div style={{flex:1,overflowY:"auto"}}>
+                    {crmRemovedItems.map(r=>(
+                      <div key={r.phone} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:`1px solid ${T.border}55`}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name||fmtPh(r.phone)}</div>
+                          <div style={{fontSize:11,color:T.textTert}}>{fmtPh(r.phone)}{r.at?` · removed ${new Date(r.at).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`:""}{r.by?` by ${String(r.by).split(" ")[0]}`:""}</div>
+                        </div>
+                        <button onClick={()=>restoreRemoved(r.phone)} style={{padding:"6px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↩ Restore</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <div style={{flex:1,overflowY:"auto"}}>
@@ -21675,6 +21712,20 @@ export function GoldstoneShell(){
     notInterested:(t)=>setLeadStatusG("not",t),
     setStatus:(t,key)=>setLeadStatusG(key,t),
     statusFor:leadStatusOfG,
+    // 🚫 Permanent removal (Elie 9/1): off every list, tombstoned by phone so
+    // the showings importer can never bring them back; viewable/restorable
+    // from the Removed chip on the By-agent page. History stays.
+    removeFromLists:({phone,name})=>{
+      const key=digitsG(phone);
+      if(!key)return;
+      if(!window.confirm(`Remove ${name||phone} from ALL lists? They disappear from agents, campaigns and chase lists everywhere and can't be re-imported. Restore them anytime from 🚫 Removed on the agents page.`))return;
+      setAppSettings(prev=>{
+        const cur=((prev||[]).find(x=>x.id==="crm_removed")||{}).items||[];
+        if(cur.some(r=>r.phone===key))return prev;
+        return [...(prev||[]).filter(x=>x.id!=="crm_removed"),{id:"crm_removed",items:[...cur,{phone:key,name:name||"",at:new Date().toISOString(),by:CURRENT_USER||""}].slice(-500)}];
+      });
+      if(flushAppSettings)setTimeout(flushAppSettings,0);
+    },
     statusOptions:SHOWING_LEADS.map(({key,label,short,color,bg})=>({key,label,short,color,bg})),
     suggest:(txt)=>featOn("replySug")?classifySug(txt):null,
     callSugOff:!featOn("callTimeBanner"),

@@ -53,9 +53,15 @@ export default async function handler(req, res) {
       } catch { /* dedupe set is best-effort — id upsert still protects */ }
       const report = [];
       let parsed = 0, inWindow = 0, recovered = 0, capped = false;
-      for (const person of Object.keys(numbers)) {
+      // /api/export answers "must be an admin" to the per-line tokens. When
+      // Jivetel support issues an admin-scoped token, it goes in Vercel as
+      // JIVETEL_TOKEN_ADMIN — tried first here, so recovery becomes: add the
+      // env var, redeploy, visit ?export=1. Nothing else to build.
+      const adminTok = process.env.JIVETEL_TOKEN_ADMIN || "";
+      const people = adminTok ? ["ADMIN", ...Object.keys(numbers)] : Object.keys(numbers);
+      for (const person of people) {
         const sfx = String(person).split(" ")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
-        const token = process.env["JIVETEL_TOKEN_" + sfx] || process.env.JIVETEL_API_TOKEN || "";
+        const token = person === "ADMIN" ? adminTok : (process.env["JIVETEL_TOKEN_" + sfx] || process.env.JIVETEL_API_TOKEN || "");
         if (!token) { report.push({ person, note: "no token" }); continue; }
         const auth = token.includes(" ") ? token : `Bearer ${token}`;
         // The bare GET answers 400 — it wants parameters the spec doesn't

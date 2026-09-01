@@ -16587,6 +16587,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     let changed=false;
     setSharedProps(prev=>prev.map(p=>{
       if(p.status!=="Sold"||p.soldExcluded)return p;
+      if((p.soldAutoRemoved||[]).includes("inhouse-flatfee"))return p; // Elie deleted it — stay deleted
       const f=p.financials||{};
       const items=f.sellingCostItems||[];
       const flat=items.find(i=>i.autoType==="flatfee");
@@ -16856,7 +16857,19 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   };
   const soldSel=soldFor!=null?(sharedProps||[]).find(x=>x.id===soldFor):null;
   const addAdj=()=>{if(!canEdit||!soldSel||!(Number(adjDraft.amount)))return;updateProp(soldSel.id,"soldAdjust",[...(soldSel.soldAdjust||[]),{id:Date.now(),label:adjDraft.label.trim()||adjDraft.cat,amount:Number(adjDraft.amount)||0,cat:adjDraft.cat}]);setAdjDraft({label:"",amount:"",cat:adjDraft.cat});};
-  const delAdj=(id)=>canEdit&&soldSel&&updateProp(soldSel.id,"soldAdjust",(soldSel.soldAdjust||[]).filter(a=>a.id!==id));
+  // Deleting an AUTO-added adjustment leaves a tombstone (soldAutoRemoved) so
+  // the backfill can't quietly re-add it seconds later — deleting the in-house
+  // flat fee was impossible before this.
+  const delAdj=(id)=>{
+    if(!canEdit||!soldSel)return;
+    setSharedProps(prev=>prev.map(p=>{
+      if(p.id!==soldSel.id)return p;
+      const rm=(p.soldAdjust||[]).find(a=>a.id===id);
+      const tomb=rm&&rm.autoId?[...new Set([...(p.soldAutoRemoved||[]),rm.autoId])]:null;
+      return {...p,soldAdjust:(p.soldAdjust||[]).filter(a=>a.id!==id),...(tomb?{soldAutoRemoved:tomb}:{})};
+    }));
+    if(flushProps)setTimeout(flushProps,0);
+  };
   const soldNumbersOf=(p)=>{
     const f=p.financials||{};
     const q=p.qbProjectId?soldPnl[p.qbProjectId]:null;

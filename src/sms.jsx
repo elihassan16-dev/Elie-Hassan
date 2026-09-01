@@ -916,10 +916,17 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
               )}
             </div>
             {stOpen && (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
+              <div style={{ marginTop: 7, background: "#fff", border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: "0 10px 26px rgba(0,0,0,0.14)", overflow: "hidden", width: 252, maxWidth: "100%" }}>
                 {(smsActions.statusOptions || []).map((o) => (
-                  <button key={o.key} onClick={() => { setStOpen(false); if (o.key !== curKey) smsActions.setStatus({ phone, name: shownName }, o.key); }} style={{ padding: "6px 11px", borderRadius: 13, border: o.key === curKey ? `1.5px solid ${o.color}` : "none", background: o.bg, color: o.color, fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{o.key === curKey ? "✓ " : ""}{o.label}</button>
+                  <button key={o.key} onClick={() => { setStOpen(false); if (o.key !== curKey) smsActions.setStatus({ phone, name: shownName }, o.key); }} style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "10px 14px", border: "none", borderBottom: `1px solid ${T.border}55`, background: o.key === curKey ? "#FEF7E8" : "#fff", color: T.text, fontSize: 12.5, fontWeight: 650, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                    <span style={{ width: 9, height: 9, borderRadius: 5, background: o.color, flexShrink: 0 }} />
+                    {o.short || o.label}
+                    {o.key === curKey && <span style={{ marginLeft: "auto", color: "#B8912E", fontWeight: 900 }}>✓</span>}
+                  </button>
                 ))}
+                {smsActions.removeFromLists && (
+                  <button onClick={() => { setStOpen(false); smsActions.removeFromLists({ phone, name: shownName }); }} title="Drop this person from agents, campaigns and chase lists everywhere — restorable from the Removed list" style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "10px 14px", border: "none", borderTop: `6px solid ${T.bg}`, background: "#fff", color: "#B91C1C", fontSize: 12.5, fontWeight: 750, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>🚫 Remove from all lists</button>
+                )}
               </div>
             )}
           </div>

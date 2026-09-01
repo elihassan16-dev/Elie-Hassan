@@ -87,7 +87,16 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
           } catch { /* merge is best-effort */ }
           const { id: _omit, ...rest } = toRow(out);
           ({ error } = await supabase.from(table).update(rest).eq("id", id));
-        } else { ({ error } = await supabase.from(table).insert(toRow(x))); }
+        } else {
+          ({ error } = await supabase.from(table).insert(toRow(x)));
+          // Duplicate key: another device created this row between our load and
+          // this save (common now that settings sync across devices). The row
+          // exists — write ours as an update instead of surfacing an error.
+          if (error && (error.code === "23505" || /duplicate key/i.test(error.message || ""))) {
+            const { id: _omit2, ...rest2 } = toRow(x);
+            ({ error } = await supabase.from(table).update(rest2).eq("id", id));
+          }
+        }
         if (error) reportError(table, existed ? "update" : "insert", error);
         else {
           synced.current.set(id, JSON.stringify(out));

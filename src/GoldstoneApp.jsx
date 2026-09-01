@@ -16588,6 +16588,10 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     setSharedProps(prev=>prev.map(p=>{
       if(p.status!=="Sold"||p.soldExcluded)return p;
       if((p.soldAutoRemoved||[]).includes("inhouse-flatfee"))return p; // Elie deleted it — stay deleted
+      // Closed years are hand-curated — automation never touches them (9/1).
+      // Only deals sold THIS year (and not archived) are eligible.
+      const soldYr=(soldDatesOf(p).sell||"").slice(0,4);
+      if(p.archived||(soldYr&&soldYr<String(new Date().getFullYear())))return p;
       const f=p.financials||{};
       const items=f.sellingCostItems||[];
       const flat=items.find(i=>i.autoType==="flatfee");

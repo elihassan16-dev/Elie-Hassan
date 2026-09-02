@@ -36,7 +36,7 @@ export function SowPdfPreview({ job }) {
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1); zoomRef.current = zoom;
   const [state, setState] = useState("busy"); // busy | ok | error
-  const key = [job.scope, job.title, job.propertyAddress, job.scopeEditedAt, (job.scopeChangedLines || []).join("|")].join("\u0000");
+  const key = [job.scope, job.title, job.propertyAddress, job.scopeEditedAt, (job.scopeChangedLines || []).join("|"), job.specKey || ""].join("\u0000");
 
   // Build the PDF once per scope change; zooming reuses the parsed document.
   useEffect(() => {

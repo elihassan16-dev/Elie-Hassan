@@ -28,6 +28,20 @@ export const SOW_CATS = [
 ];
 export const catOf = (key) => SOW_CATS.find((c) => c.key === key) || SOW_CATS[SOW_CATS.length - 1];
 
+// Finish Spec Sheet categories (shared by the builder and the PDF).
+export const SPEC_CATS = [
+  { key: "flooring", label: "Flooring", emoji: "🪵" },
+  { key: "tile", label: "Tile", emoji: "🧱" },
+  { key: "kitchen", label: "Kitchen", emoji: "🍳" },
+  { key: "bath", label: "Bath", emoji: "🛁" },
+  { key: "plumbing", label: "Plumbing fixtures", emoji: "🚰" },
+  { key: "lighting", label: "Lighting", emoji: "💡" },
+  { key: "paint", label: "Paint", emoji: "🎨" },
+  { key: "doors", label: "Doors & hardware", emoji: "🚪" },
+  { key: "exterior", label: "Exterior", emoji: "🏠" },
+  { key: "other", label: "Other", emoji: "📦" },
+];
+
 export const SOW_STATUS = {
   in: { label: "Included", short: "", color: "#0F9D58", bg: "#EDFBF1" },
   asneeded: { label: "As needed", short: "as needed", color: "#0A66C2", bg: "#E8F4FF" },

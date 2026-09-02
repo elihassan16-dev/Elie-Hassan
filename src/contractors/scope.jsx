@@ -231,7 +231,7 @@ export function ScopeBuilder({ property, onUpdate, onClose, initialView = "pick"
           <div style={{ fontSize: 11.5, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{addrOf(property)} · {scopeSummary(sow)}</div>
         </div>
         <button onClick={() => setView(view === "preview" ? "review" : "preview")} style={btn(view === "preview" ? "gold" : undefined)}>📄 {view === "preview" ? "Back" : "Preview"}</button>
-        <button onClick={() => { if (!items.length) { setErr("Pick at least one line first."); return; } setShare(true); }} style={btn("gold")}>Share</button>
+        <button onClick={() => { if (!items.length && !specItems.length) { setErr("Pick at least one line or finish first."); return; } setShare(true); }} style={btn("gold")}>Share</button>
       </div>
       {/* Talk / type to the AI — pinned */}
       {view !== "preview" && (
@@ -315,7 +315,7 @@ export function ScopeBuilder({ property, onUpdate, onClose, initialView = "pick"
             )}
           </>
         )}
-        {view === "preview" && (items.length ? <SowPdfPreview job={previewJob} /> : <div style={{ padding: 40, textAlign: "center", color: T.textTert }}>Pick some lines first.</div>)}
+        {view === "preview" && (items.length || specItems.length ? <SowPdfPreview job={previewJob} /> : <div style={{ padding: 40, textAlign: "center", color: T.textTert }}>Pick some lines or finishes first.</div>)}
        </div>
       </div>
       {share && <ShareSheet property={property} sow={sow} items={items} changed={changed} previewJob={previewJob} currentUser={currentUser} setSow={setSow} onClose={() => setShare(false)} />}

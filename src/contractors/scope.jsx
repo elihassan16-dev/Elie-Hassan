@@ -15,11 +15,12 @@ import { supabase } from "../supabaseClient";
 import { notify, qbAuthFetch, uploadAttachment } from "../net";
 import { useSmsTexting } from "../sms";
 import { useContractorData } from "./data";
-import { SOW_CATS, SOW_STATUS, NEXT_STATUS, SOW_MAT, MAT_ORDER, NEXT_MAT, matOf, catOf, libraryFrom, libAdd, libEdit, libRemove, scopeToText, scopeCounts } from "./sowLibrary";
+import { SOW_CATS, SOW_STATUS, NEXT_STATUS, catOf, libraryFrom, libAdd, libEdit, libRemove, scopeToText, scopeCounts } from "./sowLibrary";
 import { sowPdfFile } from "./sowPdf";
 import { SowPdfPreview } from "./SowPdfPreview";
 import { useSpeechToText, micBtnStyle, micGlyph } from "../useSpeech";
 import { useOneDrive } from "../onedrive/useOneDrive";
+import { FinishesView, loadSpecImages } from "./spec";
 
 const uid = () => `l-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 const addrOf = (p) => `${p.address || ""}${p.city ? `, ${p.city}` : ""}`;
@@ -91,15 +92,25 @@ function StatusChip({ status, onCycle, small }) {
   );
 }
 
-export function ScopeBuilder({ property, onUpdate, onClose }) {
+export function ScopeBuilder({ property, onUpdate, onClose, initialView = "pick" }) {
   const { currentUser } = useData();
   const lib = useSowLibrary();
   const sow = property.sow || { v: 0, items: [], sent: [] };
   const items = sow.items || [];
   const setSow = (patch) => onUpdate(property.id, "sow", { v: 0, items: [], sent: [], ...sow, ...patch, updatedAt: new Date().toISOString(), updatedBy: currentUser });
   const setItems = (next) => setSow({ items: next });
+  // 🎨 Finishes ride along in the same builder and the same PDF.
+  const spec = property.spec || { items: [] };
+  const specItems = spec.items || [];
+  const setSpec = (next) => onUpdate(property.id, "spec", { ...next, updatedAt: new Date().toISOString(), updatedBy: currentUser });
+  const [specPhotos, setSpecPhotos] = useState({});
+  const specSig = specItems.map((it) => `${it.id}|${it.photo || ""}`).join(",");
+  useEffect(() => { let alive = true; loadSpecImages(specItems).then((m) => { if (alive) setSpecPhotos(m); }); return () => { alive = false; }; }, [specSig]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Desktop: categories down the left, lines on the right; phone: chips.
+  const [isWide, setIsWide] = useState(() => typeof window !== "undefined" && window.innerWidth >= 900);
+  useEffect(() => { const f = () => setIsWide(window.innerWidth >= 900); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []);
 
-  const [view, setView] = useState("pick"); // pick | review | preview
+  const [view, setView] = useState(initialView); // pick | spec | review | preview
   const [cat, setCat] = useState(SOW_CATS[0].key);
   const [editing, setEditing] = useState(null); // {id, text, note, toLib}
   const [own, setOwn] = useState("");
@@ -124,7 +135,6 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
   };
   const cycle = (id) => setItems(items.map((it) => (it.id === id ? { ...it, status: NEXT_STATUS[it.status || "in"] } : it)));
   const matDefault = sow.matDefault || "contractor";
-  const setMat = (id, mat) => setItems(items.map((it) => (it.id === id ? { ...it, mat: mat === matDefault ? undefined : mat } : it)));
   const removeLine = (id) => setItems(items.filter((it) => it.id !== id));
   const saveEdit = () => {
     if (!editing) return;
@@ -163,8 +173,9 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
   const previewJob = useMemo(() => ({
     propertyAddress: addrOf(property), sowItems: items, sowVersion: (sow.v || 0) + (changed.size || !sow.v ? 1 : 0), sowChanged: sow.v ? [...changed] : [], sowPrev: sow.v ? diff.prev : {}, sowRemoved: sow.v ? diff.removed : [], sowLatestUrl: sow.latestUrl || "", sowMatDefault: matDefault,
     scopeEditedAt: sow.updatedAt || new Date().toISOString(), scopeEditedBy: sow.updatedBy || currentUser,
+    specItems, specPhotos, specKey: `${specSig}|${Object.keys(specPhotos).length}|${specItems.map((it) => `${it.title}|${it.desc}|${it.buyer}|${it.choose ? 1 : 0}|${it.price}`).join(";")}`,
     scope: scopeToText(items, matDefault), scopeChangedLines: [...changed], // key fields for the preview's rebuild
-  }), [items, sow.v, sow.latestUrl, sow.updatedAt, sow.updatedBy, changed.size, property.address, property.city, currentUser, matDefault]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [items, sow.v, sow.latestUrl, sow.updatedAt, sow.updatedBy, changed.size, property.address, property.city, currentUser, matDefault, specItems, specPhotos]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const row = (it, li) => {
     // it = scope line (may be null when the library line isn't picked); li = library item (may be null for AI/custom-only lines)
@@ -178,7 +189,6 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
           <span style={{ flex: 1, minWidth: 0, fontSize: 14, lineHeight: 1.3, color: T.text }}>
             {it ? it.text : li.text}
             {it && it.note && <span style={{ display: "block", fontSize: 11.5, color: T.textSub, marginTop: 2 }}>Note: {it.note}</span>}
-            {it && matOf(it, matDefault) !== matDefault && <span style={{ display: "inline-block", fontSize: 10, fontWeight: 800, letterSpacing: "0.03em", color: "#8a6d1f", background: T.goldLight, borderRadius: 10, padding: "2px 7px", marginTop: 4 }}>🛒 {(SOW_MAT[matOf(it, matDefault)] || SOW_MAT.contractor).tag}</span>}
             {li && li.custom && <span style={{ display: "block", fontSize: 10.5, color: T.textTert, marginTop: 2 }}>✎ your line</span>}
           </span>
           {picked && <StatusChip status={it.status} onCycle={() => cycle(it.id)} small />}
@@ -188,7 +198,6 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "0 14px 10px 47px" }}>
             {it && <button onClick={() => { setMenuFor(null); setEditing({ scopeId: it.id, libId: it.libId || null, text: it.text, note: it.note || "", toLib: false }); }} style={btn()}>✎ Edit for this house</button>}
             {li && <button onClick={() => { setMenuFor(null); setEditing({ scopeId: it ? it.id : null, libId: li.id, text: it ? it.text : li.text, note: it ? it.note || "" : "", toLib: true }); }} style={btn()}>✎ Edit in library</button>}
-            {it && MAT_ORDER.filter((k) => k !== matOf(it, matDefault)).map((k) => <button key={k} onClick={() => { setMenuFor(null); setMat(it.id, k); }} style={btn()}>🛒 {SOW_MAT[k].label}{k === "finishes" ? "" : " materials"}</button>)}
             {it && <button onClick={() => { setMenuFor(null); removeLine(it.id); }} style={btn("ghost")}>Take out of this scope</button>}
             {li && <button onClick={() => { if (!window.confirm(`Remove "${li.text.slice(0, 60)}" from your library?`)) return; setMenuFor(null); lib.remove(li.id); if (it) removeLine(it.id); }} style={{ ...btn("ghost"), color: T.red }}>🗑 Remove from library</button>}
           </div>
@@ -234,7 +243,7 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
             <button onClick={() => genAi()} disabled={aiBusy || !brief.trim()} style={{ ...btn(), opacity: aiBusy || !brief.trim() ? 0.5 : 1 }}>✨</button>
           </div>
           <div style={{ display: "flex", gap: 2, marginTop: 10, padding: 3, borderRadius: 18, background: "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.05)" }}>
-            {[["pick", "Pick lines"], ["review", `Review · ${counts.total}`]].map(([k, l]) => (
+            {[["pick", "Pick lines"], ["spec", `Finishes${specItems.length ? ` · ${specItems.length}` : ""}`], ["review", `Review · ${counts.total}`]].map(([k, l]) => (
               <button key={k} onClick={() => setView(k)} style={{ flex: 1, padding: "7px 10px", borderRadius: 14, border: "none", background: view === k ? "#fff" : "transparent", color: view === k ? T.text : T.textSub, fontWeight: view === k ? 650 : 450, fontSize: 13, cursor: "pointer", fontFamily: "inherit", boxShadow: view === k ? "0 1px 4px rgba(0,0,0,0.14)" : "none", minHeight: 36 }}>{l}</button>
             ))}
           </div>
@@ -242,11 +251,23 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
       )}
       {/* Body */}
       <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px 40px" }}>
+       <div style={{ maxWidth: isWide ? 1100 : "none", margin: "0 auto" }}>
         {view === "pick" && (
-          <>
-            <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 10, scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
-              {SOW_CATS.map((c) => { const n = items.filter((it) => it.cat === c.key).length; return <button key={c.key} onClick={() => setCat(c.key)} style={chip(cat === c.key)}>{c.emoji} {c.label}{n ? ` · ${n}` : ""}</button>; })}
-            </div>
+          <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexDirection: isWide ? "row" : "column" }}>
+            {isWide ? (
+              <div style={{ width: 230, flexShrink: 0, position: "sticky", top: 0 }}>
+                {SOW_CATS.map((c) => { const n = items.filter((it) => it.cat === c.key).length; return (
+                  <button key={c.key} onClick={() => setCat(c.key)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 12, border: "none", background: cat === c.key ? "#fff" : "transparent", color: cat === c.key ? T.text : T.textSub, fontWeight: cat === c.key ? 700 : 500, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", boxShadow: cat === c.key ? "0 1px 4px rgba(0,0,0,0.12)" : "none", minHeight: 42 }}>
+                    <span>{c.emoji}</span><span style={{ flex: 1 }}>{c.label}</span>{n > 0 && <span style={{ fontSize: 11, fontWeight: 800, color: "#8a6d1f", background: T.goldLight, borderRadius: 10, padding: "1px 7px" }}>{n}</span>}
+                  </button>
+                ); })}
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 10, scrollbarWidth: "none", WebkitOverflowScrolling: "touch", width: "100%" }}>
+                {SOW_CATS.map((c) => { const n = items.filter((it) => it.cat === c.key).length; return <button key={c.key} onClick={() => setCat(c.key)} style={chip(cat === c.key)}>{c.emoji} {c.label}{n ? ` · ${n}` : ""}</button>; })}
+              </div>
+            )}
+            <div style={{ flex: 1, minWidth: 0, width: "100%" }}>
             <div style={card}>
               {hd(catOf(cat).long, `${pickedInCat} of ${inCat.length + items.filter((it) => it.cat === cat && !it.libId).length} picked`)}
               {catOf(cat).note && <div style={{ padding: "0 14px 10px", fontSize: 12, color: T.textSub, lineHeight: 1.45 }}>{catOf(cat).note} Write your own lines below — they're saved for next time.</div>}
@@ -257,22 +278,13 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
                 <button onClick={addOwn} disabled={!own.trim()} style={{ ...btn("gold"), opacity: own.trim() ? 1 : 0.5 }}>Add</button>
               </div>
             </div>
-          </>
+            </div>
+          </div>
         )}
+        {view === "spec" && <FinishesView property={property} spec={spec} setSpec={setSpec} isWide={isWide} />}
         {view === "review" && (
           <>
             {!items.length && <div style={{ padding: "46px 20px", textAlign: "center", color: T.textTert, fontSize: 13.5, lineHeight: 1.6 }}>Nothing picked yet.<br />Go to Pick lines, or tap the mic and describe the job.</div>}
-            {!!items.length && (
-              <div style={{ ...card, padding: "10px 14px" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: T.textSub, marginBottom: 7 }}>🛒 MATERIALS — who buys them unless a line says otherwise</div>
-                <div style={{ display: "flex", gap: 2, padding: 3, borderRadius: 18, background: "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.05)" }}>
-                  {MAT_ORDER.map((k) => (
-                    <button key={k} onClick={() => setSow({ matDefault: k })} style={{ flex: 1, padding: "7px 6px", borderRadius: 14, border: "none", background: matDefault === k ? "#fff" : "transparent", color: matDefault === k ? T.text : T.textSub, fontWeight: matDefault === k ? 650 : 450, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", boxShadow: matDefault === k ? "0 1px 4px rgba(0,0,0,0.14)" : "none", minHeight: 36, lineHeight: 1.15 }}>{SOW_MAT[k].label}</button>
-                  ))}
-                </div>
-                <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 7, lineHeight: 1.4 }}>{SOW_MAT[matDefault].legend.charAt(0).toUpperCase() + SOW_MAT[matDefault].legend.slice(1)}. Flip a single line from its ⋯ menu — it gets a tag in the PDF.</div>
-              </div>
-            )}
             {!!items.length && (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
                 <span style={chip(true, T.text)}>{counts.total} lines</span>
@@ -304,6 +316,7 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
           </>
         )}
         {view === "preview" && (items.length ? <SowPdfPreview job={previewJob} /> : <div style={{ padding: 40, textAlign: "center", color: T.textTert }}>Pick some lines first.</div>)}
+       </div>
       </div>
       {share && <ShareSheet property={property} sow={sow} items={items} changed={changed} previewJob={previewJob} currentUser={currentUser} setSow={setSow} onClose={() => setShare(false)} />}
     </div>
@@ -326,6 +339,8 @@ function ShareSheet({ property, sow, items, changed, previewJob, currentUser, se
   const od = useOneDrive();
   const folder = property.filesFolder && property.filesFolder.driveId ? property.filesFolder : null;
   const [highlight, setHighlight] = useState(true);
+  const [withSpec, setWithSpec] = useState(true); // one combined PDF: scope + finish spec sheet
+  const specN = (previewJob.specItems || []).length;
   const [built, setBuilt] = useState(null); // {file, url, latestUrl, v}
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
@@ -339,16 +354,16 @@ function ShareSheet({ property, sow, items, changed, previewJob, currentUser, se
   const nextV = needsBump ? (sow.v || 0) + 1 : sow.v;
 
   const build = async () => {
-    if (built && built.highlight === highlight) return built;
+    if (built && built.highlight === highlight && built.withSpec === withSpec) return built;
     setBusy("Building the PDF…"); setErr("");
     try {
       const latestUrlGuess = sow.latestUrl || supabase.storage.from("attachments").getPublicUrl(`sow/latest-${property.id}.pdf`).data.publicUrl;
-      const job = { ...previewJob, sowVersion: nextV, sowChanged: highlight && sow.v ? [...changed] : [], sowPrev: highlight && sow.v ? previewJob.sowPrev : {}, sowRemoved: highlight && sow.v ? previewJob.sowRemoved : [], sowLatestUrl: latestUrlGuess };
+      const job = { ...previewJob, sowVersion: nextV, sowChanged: highlight && sow.v ? [...changed] : [], sowPrev: highlight && sow.v ? previewJob.sowPrev : {}, sowRemoved: highlight && sow.v ? previewJob.sowRemoved : [], sowLatestUrl: latestUrlGuess, specItems: withSpec ? previewJob.specItems : [] };
       const file = await sowPdfFile(job);
       const up = await uploadAttachment(file, "sow");
       let latestUrl = latestUrlGuess;
       try { latestUrl = await uploadLatest(property.id, file); } catch { /* the versioned link still works */ }
-      const b = { file, url: up.url, latestUrl, v: nextV, highlight, filed: "" };
+      const b = { file, url: up.url, latestUrl, v: nextV, highlight, withSpec, filed: "" };
       // 📁 A copy of every version goes into the property's OneDrive Files
       // folder (Elie 9/2/26): "Scope of Work v2 — UPDATED Sep 4 …", with the
       // changes highlighted inside. Best-effort — the share still goes out.
@@ -376,7 +391,7 @@ function ShareSheet({ property, sow, items, changed, previewJob, currentUser, se
     });
     setDone(`Sent v${b.v} ${how}${to ? ` → ${to}` : ""}${b.filed ? " · copy saved to Files" : folder ? "" : " · (no Files folder linked, copy not saved)"}`);
   };
-  const msgText = (b) => `Scope of Work v${b.v} — ${addr}\n${b.url}\n(Always latest: ${b.latestUrl})`;
+  const msgText = (b) => `Scope of Work v${b.v}${b.withSpec && specN ? " + Finish Spec Sheet" : ""} — ${addr}\n${b.url}\n(Always latest: ${b.latestUrl})`;
 
   const doText = async () => {
     const digits = textTo.replace(/\D/g, "");
@@ -446,6 +461,11 @@ function ShareSheet({ property, sow, items, changed, previewJob, currentUser, se
             </div>
             <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: 17, border: "none", background: "rgba(118,118,128,0.1)", color: T.textSub, fontSize: 18, cursor: "pointer", fontFamily: "inherit", lineHeight: 1 }}>×</button>
           </div>
+          {specN > 0 && (
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12.5, color: T.textSub, cursor: "pointer" }}>
+              <input type="checkbox" checked={withSpec} onChange={(e) => { setWithSpec(e.target.checked); setBuilt(null); }} style={{ accentColor: T.gold, width: 17, height: 17 }} /> Include the Finish Spec Sheet ({specN} item{specN === 1 ? "" : "s"}) in the same PDF
+            </label>
+          )}
           {sow.v > 0 && changed.size > 0 && (
             <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12.5, color: T.textSub, cursor: "pointer" }}>
               <input type="checkbox" checked={highlight} onChange={(e) => { setHighlight(e.target.checked); setBuilt(null); }} style={{ accentColor: T.gold, width: 17, height: 17 }} /> Highlight the {changed.size} changed line{changed.size === 1 ? "" : "s"} in the PDF

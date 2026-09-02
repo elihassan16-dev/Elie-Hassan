@@ -7,7 +7,7 @@
 //    line per item, Included / As needed / To discuss), with a version number,
 //    highlighted changes since the last version, and a "latest version" link.
 //  • job.scope     — the older free-text scope (UPPERCASE headings + lines).
-import { SOW_CATS, SOW_MAT } from "./sowLibrary";
+import { SOW_CATS, SOW_MAT, SPEC_CATS } from "./sowLibrary";
 
 const GOLD = [184, 145, 46];
 const fmtDay = (d) => new Date(d || Date.now()).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
@@ -135,6 +135,61 @@ export async function sowPdfFile(job) {
       });
       gone.forEach((r) => struck("removed: ", r.text, margin + 20, maxW - 20));
     });
+
+    // ── 🎨 Finish Spec Sheet — same document, its own part ──
+    const spec = Array.isArray(job.specItems) ? job.specItems : [];
+    if (spec.length) {
+      const photos = job.specPhotos || {};
+      if (y > H - 260) { doc.addPage(); y = margin; } else { y += 18; }
+      doc.setFont("times", "bold"); doc.setFontSize(13); doc.setTextColor(60, 60, 60);
+      doc.text("Finish Spec Sheet", margin, y); y += 8;
+      doc.setDrawColor(...GOLD); doc.setLineWidth(1.4); doc.line(margin, y, W - margin, y); y += 14;
+      doc.setFont("times", "italic"); doc.setFontSize(9.5); doc.setTextColor(120, 120, 120);
+      const sl = doc.splitTextToSize("Install exactly these products unless a substitution is approved in writing. Each item says who buys it. Items marked CONTRACTOR TO CHOOSE: send your pick (photo or link) to Goldstone for approval before buying. Tap a product name to open its page.", maxW);
+      doc.text(sl, margin, y); y += 12 * sl.length + 8;
+      const thumb = 54, gap = 10;
+      SPEC_CATS.forEach((c) => {
+        const rows = spec.filter((it) => it.cat === c.key);
+        if (!rows.length) return;
+        ensure(thumb + 30);
+        y += 6;
+        doc.setFont("times", "bold"); doc.setFontSize(11.5); doc.setTextColor(25, 25, 25);
+        doc.text(c.label.toUpperCase(), margin, y); y += 14;
+        rows.forEach((it) => {
+          const ph = photos[it.id];
+          const tx = margin + (ph ? thumb + gap : 0);
+          const tw = maxW - (ph ? thumb + gap : 0);
+          doc.setFont("times", "bold"); doc.setFontSize(10.5);
+          const titleLines = doc.splitTextToSize(`${it.title || ""}${it.price ? `  ·  ${it.price}` : ""}`, tw);
+          doc.setFont("times", "normal"); doc.setFontSize(9.5);
+          const descLines = it.desc ? doc.splitTextToSize(it.desc, tw) : [];
+          const textH = 13 * titleLines.length + 12 * descLines.length + 14;
+          const rowH = Math.max(ph ? thumb : 0, textH) + 8;
+          ensure(rowH);
+          const top = y;
+          if (ph) {
+            try {
+              const r = Math.min(thumb / ph.w, thumb / ph.h); const dw = ph.w * r, dh = ph.h * r;
+              doc.addImage(ph.data, "JPEG", margin + (thumb - dw) / 2, top - 8 + (thumb - dh) / 2, dw, dh);
+            } catch { /* skip the picture */ }
+          }
+          let ty = top + 2;
+          doc.setFont("times", "bold"); doc.setFontSize(10.5);
+          if (it.link) { doc.setTextColor(10, 102, 194); titleLines.forEach((ln, i) => { if (i === 0) doc.textWithLink(ln, tx, ty, { url: it.link }); else doc.text(ln, tx, ty); ty += 13; }); }
+          else { doc.setTextColor(25, 25, 25); titleLines.forEach((ln) => { doc.text(ln, tx, ty); ty += 13; }); }
+          doc.setFont("times", "normal"); doc.setFontSize(9.5); doc.setTextColor(90, 90, 90);
+          descLines.forEach((ln) => { doc.text(ln, tx, ty); ty += 12; });
+          // tag
+          const t = it.choose ? { label: "CONTRACTOR TO CHOOSE — SEND TO GOLDSTONE FOR APPROVAL", fill: [253, 233, 200], color: [180, 83, 9] } : it.buyer === "contractor" ? { label: "CONTRACTOR BUYS", fill: [232, 244, 255], color: [10, 102, 194] } : { label: "GOLDSTONE BUYS", fill: [248, 241, 224], color: [138, 109, 31] };
+          doc.setFont("times", "bold"); doc.setFontSize(7.5);
+          const tW = doc.getTextWidth(t.label) + 12;
+          doc.setFillColor(...t.fill); doc.roundedRect(tx, ty - 6, tW, 11.5, 4, 4, "F");
+          doc.setTextColor(...t.color); doc.text(t.label, tx + tW / 2, ty + 2.3, { align: "center" });
+          doc.setFontSize(10.5); doc.setTextColor(25, 25, 25);
+          y = top + rowH;
+        });
+      });
+    }
   } else {
     // Edited since it was first sent → say so, and highlight what changed below.
     const changed = new Set(job.scopeChangedLines || []);

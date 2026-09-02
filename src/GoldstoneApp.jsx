@@ -5809,7 +5809,7 @@ function ContractorsTab({property,onUpdate}){
       {isAdmin&&(
         <Card style={{marginBottom:16}}>
           <div style={{padding:"12px 16px 8px",fontSize:12,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em"}}>📦 This house's package</div>
-          <div onClick={()=>setScopeOpen(true)} style={rowS}>
+          <div onClick={()=>setScopeOpen("pick")} style={rowS}>
             {ico("📄")}
             <span style={{flex:1,minWidth:0}}>
               <span style={{display:"block",fontSize:15,fontWeight:700,color:T.text}}>Scope of Work</span>
@@ -5818,18 +5818,19 @@ function ContractorsTab({property,onUpdate}){
             {n>0&&sow.v>0&&<span style={{fontSize:10.5,fontWeight:800,color:"#0F9D58",background:"#EDFBF1",borderRadius:20,padding:"3px 8px",flexShrink:0}}>v{sow.v}</span>}
             <span style={{color:T.textTert,fontSize:18}}>›</span>
           </div>
-          <div style={{...rowS,cursor:"default",opacity:0.55}}>
+          <div onClick={()=>setScopeOpen("spec")} style={rowS}>
             {ico("🎨")}
             <span style={{flex:1,minWidth:0}}>
               <span style={{display:"block",fontSize:15,fontWeight:700,color:T.text}}>Finish Spec Sheet</span>
-              <span style={{display:"block",fontSize:12,color:T.textSub,marginTop:2}}>Next round — photos, products, who buys what</span>
+              <span style={{display:"block",fontSize:12,color:T.textSub,marginTop:2}}>{(()=>{const s=(property.spec&&property.spec.items)||[];const ch=s.filter(x=>x.choose).length;return s.length?`${s.length} item${s.length===1?"":"s"}${ch?` · ${ch} contractor's choice`:""} · prints with the scope`:"Photos, products, who buys what — prints with the scope";})()}</span>
             </span>
+            <span style={{color:T.textTert,fontSize:18}}>›</span>
           </div>
           <div style={{padding:"8px 16px 12px",fontSize:11.5,color:T.textTert,lineHeight:1.45}}>Share the scope as a PDF by text, WhatsApp or email from inside it. 🧾 Request a bid below uses this scope automatically.</div>
         </Card>
       )}
       <PropertyContractorsCard property={property}/>
-      {scopeOpen&&<ScopeBuilder property={property} onUpdate={onUpdate} onClose={()=>setScopeOpen(false)}/>}
+      {scopeOpen&&<ScopeBuilder property={property} onUpdate={onUpdate} onClose={()=>setScopeOpen(false)} initialView={scopeOpen==="spec"?"spec":"pick"}/>}
     </div>
   );
 }

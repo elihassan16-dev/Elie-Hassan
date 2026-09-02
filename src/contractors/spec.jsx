@@ -26,6 +26,9 @@ const roomName = (r) => r || "Not in a room";
 export const roomsOf = (it) => (Array.isArray(it && it.rooms) ? it.rooms : (it && it.room ? [it.room] : [])).map((r) => String(r).trim()).filter(Boolean);
 const splitRooms = (txt) => String(txt || "").split(/[,;\n]+/).map((r) => r.trim()).filter(Boolean);
 const uid = () => `f-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+// "amazon.com/dp/…" pasted without https:// is a RELATIVE link inside a PDF —
+// it opened gpflips.com instead of Amazon. Always store and print absolute.
+export const absUrl = (u) => { const s = String(u || "").trim(); if (!s) return ""; return /^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s.replace(/^\/+/, "")}`; };
 
 // Pull every photo into a data URL so jsPDF can draw it (public storage
 // bucket + retailer images; anything that won't load is skipped quietly).
@@ -99,7 +102,7 @@ export function FinishesView({ property, spec, setSpec, isWide, sidebar }) {
     const title = (f.title || "").trim();
     if (!title && !f.choose && !f.photo) return;
     const rl = [...new Set([...(Array.isArray(f.rooms) ? f.rooms : []), ...splitRooms(f.roomDraft)])];
-    const base = { cat: f.cat, rooms: rl, room: rl.join(" · "), title: title || (f.choose ? "Contractor's choice" : "Finish"), desc: (f.desc || "").trim(), link: (f.link || "").trim(), photo: f.photo || "", price: (f.price || "").trim(), buyer: f.buyer, choose: !!f.choose };
+    const base = { cat: f.cat, rooms: rl, room: rl.join(" · "), title: title || (f.choose ? "Contractor's choice" : "Finish"), desc: (f.desc || "").trim(), link: absUrl(f.link), photo: f.photo || "", price: (f.price || "").trim(), buyer: f.buyer, choose: !!f.choose };
     if (f.id) setItems(items.map((it) => (it.id === f.id ? { ...it, ...base } : it)));
     else {
       const pickId = !f.choose ? picks.pin(base, addr) : null; // your picks, saved for next time
@@ -133,7 +136,7 @@ export function FinishesView({ property, spec, setSpec, isWide, sidebar }) {
         {it.desc && <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 3, lineHeight: 1.4 }}>{it.desc}</div>}
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
           {it.choose ? tag("CONTRACTOR TO CHOOSE · GOLDSTONE APPROVES", "#FDE9C8", "#B45309") : it.buyer === "contractor" ? tag(SPEC_BUYER.contractor, "#E8F4FF", "#0A66C2") : tag(SPEC_BUYER.goldstone, T.goldLight, "#8a6d1f")}
-          {it.link && <a href={it.link} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: T.blue, textDecoration: "none", fontWeight: 600 }}>🔗 Open product</a>}
+          {it.link && <a href={absUrl(it.link)} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: T.blue, textDecoration: "none", fontWeight: 600 }}>🔗 Open product</a>}
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>

@@ -65,8 +65,11 @@ export function SowPdfPreview({ job }) {
     let stale = false;
     (async () => {
       try {
-        const baseW = Math.min(wrapRef.current?.clientWidth || 320, 680);
-        const dpr = Math.min(window.devicePixelRatio || 1, 2); // 3x canvases blow iOS memory
+        // Raster at the width it's actually shown at (the old 680 cap left a
+        // desktop preview CSS-stretched and blurry), and never below 1.5x so
+        // text stays crisp on plain 1x monitors. 3x canvases blow iOS memory.
+        const baseW = Math.min(wrapRef.current?.clientWidth || 320, 960);
+        const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1.5), 2);
         // iOS also kills very large canvases — cap the raster; CSS stretches the rest.
         const px = Math.min(baseW * zoom * dpr, 2600);
         const pages = [];

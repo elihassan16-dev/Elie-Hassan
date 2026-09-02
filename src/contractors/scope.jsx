@@ -249,6 +249,7 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
             </div>
             <div style={card}>
               {hd(catOf(cat).long, `${pickedInCat} of ${inCat.length + items.filter((it) => it.cat === cat && !it.libId).length} picked`)}
+              {catOf(cat).note && <div style={{ padding: "0 14px 10px", fontSize: 12, color: T.textSub, lineHeight: 1.45 }}>{catOf(cat).note} Write your own lines below — they're saved for next time.</div>}
               {inCat.map((li) => row(byLib.get(li.id) || null, li))}
               {items.filter((it) => it.cat === cat && !it.libId).map((it) => row(it, null))}
               <div style={{ borderTop: `1px solid ${T.border}`, padding: "10px 14px", display: "flex", gap: 8, alignItems: "flex-start" }}>

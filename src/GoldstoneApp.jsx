@@ -26,6 +26,8 @@ import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as 
 import { sowPdfFile } from "./contractors/sowPdf";
 import { jvPdfFile } from "./jvPdf";
 import { SowPdfPreview } from "./contractors/SowPdfPreview";
+import { ScopeBuilder, scopeSummary } from "./contractors/scope";
+import { scopeToText } from "./contractors/sowLibrary";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -2317,7 +2319,7 @@ function FinOverview({property,onUpdate}){
 }
 
 // ─── Property Detail ──────────────────────────────────────────────────────────
-const PTABS=["Financial Overview","QuickBooks","Tasks","Contacts","Files","Emails"];
+const PTABS=["Financial Overview","QuickBooks","Tasks","Contractors","Contacts","Files","Emails"];
 
 // ─── Showings tab — pull ShowingTime calendar feed, match to this property ─────
 function showingMatchesProperty(text,p){
@@ -5691,11 +5693,13 @@ function PropertyStatusBoard({property,onClose}){
 // the job is, and the AI writes the full trade-by-trade SOW — shown right in
 // the popup as the actual PDF the contractor will receive (no text box).
 // Talk again to tell the AI what to change; the PDF re-renders each round.
-function BidRequestModal({property,orgs,onCreate,onClose}){
+function BidRequestModal({property,orgs,onCreate,onClose,initialScope=""}){
   // The draft survives iOS reloading the app mid-write (and accidental closes):
   // every field mirrors to this device and comes back when the popup reopens.
   const[draft,setDraft,clearDraft,hasDraft]=usePersistentDraft(`gs-bid-draft-${property.id}`,{orgId:"",title:"",brief:"",scope:""});
-  const orgId=draft.orgId||String(orgs[0]?.id||""),title=draft.title,brief=draft.brief,scope=draft.scope;
+  // Nothing typed here → the house's built scope (from the Contractors tab)
+  // is what goes out; createBid recognises it and ships the structured PDF.
+  const orgId=draft.orgId||String(orgs[0]?.id||""),title=draft.title,brief=draft.brief,scope=draft.scope||initialScope||"";
   const setOrgId=(v)=>setDraft(d=>({...d,orgId:v}));
   const setTitle=(v)=>setDraft(d=>({...d,title:v}));
   const setBrief=(v)=>setDraft(d=>({...d,brief:typeof v==="function"?v(d.brief):v}));
@@ -5790,6 +5794,45 @@ function BidRequestModal({property,orgs,onCreate,onClose}){
 
 // 👷 Contractors working THIS property — shown on the Contacts tab with full job
 // control (money, change orders, tasks, messages): the exact same popup as the
+// 👷 Contractors tab on a property (approved 9/2/26): this house's package —
+// the Scope of Work built from Elie's library (spec sheet + bids follow in
+// later rounds) — and the contractor jobs card that used to sit under Contacts.
+function ContractorsTab({property,onUpdate}){
+  const{isAdmin}=useAuth();
+  const[scopeOpen,setScopeOpen]=useState(false);
+  const sow=property.sow||null;
+  const n=(sow&&sow.items||[]).length;
+  const rowS={display:"flex",alignItems:"center",gap:12,padding:"12px 16px",minHeight:56,cursor:"pointer",borderTop:`1px solid ${T.border}`};
+  const ico=(g)=><span style={{width:38,height:38,borderRadius:11,background:T.goldLight,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:19,flexShrink:0}}>{g}</span>;
+  return(
+    <div>
+      {isAdmin&&(
+        <Card style={{marginBottom:16}}>
+          <div style={{padding:"12px 16px 8px",fontSize:12,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em"}}>📦 This house's package</div>
+          <div onClick={()=>setScopeOpen(true)} style={rowS}>
+            {ico("📄")}
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{display:"block",fontSize:15,fontWeight:700,color:T.text}}>Scope of Work</span>
+              <span style={{display:"block",fontSize:12,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{scopeSummary(sow)}</span>
+            </span>
+            {n>0&&sow.v>0&&<span style={{fontSize:10.5,fontWeight:800,color:"#0F9D58",background:"#EDFBF1",borderRadius:20,padding:"3px 8px",flexShrink:0}}>v{sow.v}</span>}
+            <span style={{color:T.textTert,fontSize:18}}>›</span>
+          </div>
+          <div style={{...rowS,cursor:"default",opacity:0.55}}>
+            {ico("🎨")}
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{display:"block",fontSize:15,fontWeight:700,color:T.text}}>Finish Spec Sheet</span>
+              <span style={{display:"block",fontSize:12,color:T.textSub,marginTop:2}}>Next round — photos, products, who buys what</span>
+            </span>
+          </div>
+          <div style={{padding:"8px 16px 12px",fontSize:11.5,color:T.textTert,lineHeight:1.45}}>Share the scope as a PDF by text, WhatsApp or email from inside it. 🧾 Request a bid below uses this scope automatically.</div>
+        </Card>
+      )}
+      <PropertyContractorsCard property={property}/>
+      {scopeOpen&&<ScopeBuilder property={property} onUpdate={onUpdate} onClose={()=>setScopeOpen(false)}/>}
+    </div>
+  );
+}
 // Contractors section, opened from the property. Plus 🧾 Request a bid.
 function PropertyContractorsCard({property}){
   const {isAdmin}=useAuth();
@@ -5807,6 +5850,11 @@ function PropertyContractorsCard({property}){
     const job={id:jobId,orgId,propertyId:property.id,propertyAddress:`${property.address||""}${property.city?`, ${property.city}`:""}`,title:title||"Bid request",scope,status:"bid",createdAt:new Date().toISOString(),bidRequestedBy:currentUser};
     // The SOW ships as a real PDF: uploaded once, linked on the job, filed in
     // documents, and attached to the thread message the contractor opens.
+    // No scope typed in the popup → this house's built scope goes out (the
+    // structured version: categories, statuses, version number).
+    if(property.sow&&(property.sow.items||[]).length&&(!String(scope||"").trim()||String(scope).trim()===scopeToText(property.sow.items).trim())){
+      job.scope=scopeToText(property.sow.items);job.sowItems=property.sow.items;job.sowVersion=property.sow.v||1;job.sowLatestUrl=property.sow.latestUrl||"";
+    }
     let pdf=null;
     try{pdf=await uploadAttachment(await sowPdfFile(job),"portal");}catch{/* job still goes out with inline scope */}
     if(pdf){job.sowPdfUrl=pdf.url;job.sowPdfName=pdf.name;}
@@ -5995,7 +6043,7 @@ function PropertyContractorsCard({property}){
           );
         })}
       </Card>
-      {bidOpen&&<BidRequestModal property={property} orgs={allOrgs} onCreate={createBid} onClose={()=>setBidOpen(false)}/>}
+      {bidOpen&&<BidRequestModal property={property} orgs={allOrgs} onCreate={createBid} onClose={()=>setBidOpen(false)} initialScope={property.sow&&(property.sow.items||[]).length?scopeToText(property.sow.items):""}/>}
       {addJobOpen&&(
         <div onClick={()=>setAddJobOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:390,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(400px,96vw)",boxShadow:"0 14px 44px rgba(0,0,0,0.22)",overflow:"hidden"}}>
@@ -6311,11 +6359,10 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
               </div>
             </Card>
             <AddFromDirectory avail={avail} onAdd={addC}/>
-            <div style={{height:16}}/>
-            <PropertyContractorsCard property={property}/>
           </div>
         )}
         {tab==="Files"&&<FilesTab property={property} onUpdate={onUpdate}/>}
+        {tab==="Contractors"&&<ContractorsTab property={property} onUpdate={onUpdate}/>}
         {tab==="Emails"&&<PropertyEmails property={property} onUpdate={onUpdate} isMobile={isMobile}/>}
         {tab==="QuickBooks"&&<QuickBooksTab property={property} onUpdate={onUpdate}/>}
       </div>

@@ -3,6 +3,16 @@
 // so pages render instead of erroring. Aliased in by vite.appdemo.config.js.
 export const attachmentKind = (mime = "") => mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "file";
 export const sanitizeName = (n = "file") => n;
+// Same labels as the real net.js — the harness broke on this missing export.
+export const attLabel = (a) => {
+  if (!a) return "";
+  const k = a.kind || attachmentKind(a.mime || "");
+  if (k === "images") { const n = (a.items || []).length; return n > 1 ? `📷 ${n} photos sent` : "📷 Photo sent"; }
+  if (k === "image") return "📷 Photo sent";
+  if (k === "video") return "🎥 Video sent";
+  if (k === "audio") return "🎤 Voice note sent";
+  return "📎 Attachment sent";
+};
 export const STREAM_VIDEO_CAP = 200 * 1024 * 1024;
 export async function notify() { /* preview */ }
 export async function compressImage(file) { return file; }

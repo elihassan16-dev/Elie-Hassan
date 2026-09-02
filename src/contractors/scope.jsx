@@ -19,6 +19,7 @@ import { SOW_CATS, SOW_STATUS, NEXT_STATUS, catOf, libraryFrom, libAdd, libEdit,
 import { sowPdfFile } from "./sowPdf";
 import { SowPdfPreview } from "./SowPdfPreview";
 import { useSpeechToText, micBtnStyle, micGlyph } from "../useSpeech";
+import { useOneDrive } from "../onedrive/useOneDrive";
 
 const uid = () => `l-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 const addrOf = (p) => `${p.address || ""}${p.city ? `, ${p.city}` : ""}`;
@@ -39,9 +40,27 @@ function useSowLibrary() {
 }
 
 // What changed since the last shared version — by line id, text or status.
-export function changedSince(sow) {
-  const snap = new Map(((sow && sow.snapshot) || []).map((s) => [s.id, s]));
-  return new Set(((sow && sow.items) || []).filter((it) => { const s = snap.get(it.id); return !s || s.text !== it.text || s.status !== it.status || (s.note || "") !== (it.note || ""); }).map((it) => it.id));
+export function changedSince(sow) { return diffSince(sow).changed; }
+// Full diff: changed ids, the PREVIOUS wording of each changed line (so the
+// PDF can show "was: …"), and lines that were in the last version but are
+// gone now (shown struck through under their category).
+export function diffSince(sow) {
+  const snapArr = (sow && sow.snapshot) || [];
+  const snap = new Map(snapArr.map((s) => [s.id, s]));
+  const items = (sow && sow.items) || [];
+  const changed = new Set();
+  const prev = {};
+  items.forEach((it) => {
+    const s = snap.get(it.id);
+    if (!s) { changed.add(it.id); return; }
+    if (s.text !== it.text || s.status !== it.status || (s.note || "") !== (it.note || "")) {
+      changed.add(it.id);
+      if (s.text !== it.text) prev[it.id] = s.text;
+    }
+  });
+  const have = new Set(items.map((it) => it.id));
+  const removed = snapArr.filter((s) => !have.has(s.id)).map((s) => ({ id: s.id, cat: s.cat || "general", text: s.text }));
+  return { changed, prev, removed };
 }
 
 // One-line summary for the property's Contractors card.
@@ -92,7 +111,8 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
   const itemsRef = useRef(items); itemsRef.current = items;
 
   const counts = scopeCounts(items);
-  const changed = changedSince(sow);
+  const diff = diffSince(sow);
+  const changed = diff.changed;
   const byLib = useMemo(() => new Map(items.filter((it) => it.libId).map((it) => [it.libId, it])), [items]);
   const inCat = lib.items.filter((it) => it.cat === cat);
   const pickedInCat = inCat.filter((it) => byLib.has(it.id)).length + items.filter((it) => it.cat === cat && !it.libId).length;
@@ -138,7 +158,7 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
   const { recOn, busy: recBusy, toggleRec } = useSpeechToText({ value: brief, onText: setBrief, onError: setErr, onDone: genAi });
 
   const previewJob = useMemo(() => ({
-    propertyAddress: addrOf(property), sowItems: items, sowVersion: (sow.v || 0) + (changed.size || !sow.v ? 1 : 0), sowChanged: sow.v ? [...changed] : [], sowLatestUrl: sow.latestUrl || "",
+    propertyAddress: addrOf(property), sowItems: items, sowVersion: (sow.v || 0) + (changed.size || !sow.v ? 1 : 0), sowChanged: sow.v ? [...changed] : [], sowPrev: sow.v ? diff.prev : {}, sowRemoved: sow.v ? diff.removed : [], sowLatestUrl: sow.latestUrl || "",
     scopeEditedAt: sow.updatedAt || new Date().toISOString(), scopeEditedBy: sow.updatedBy || currentUser,
     scope: scopeToText(items), scopeChangedLines: [...changed], // key fields for the preview's rebuild
   }), [items, sow.v, sow.latestUrl, sow.updatedAt, sow.updatedBy, changed.size, property.address, property.city, currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -286,6 +306,8 @@ async function uploadLatest(propertyId, file) {
 function ShareSheet({ property, sow, items, changed, previewJob, currentUser, setSow, onClose }) {
   const { orgs, jobs, save: ctrSave } = useContractorData();
   const { send: smsSend, connected: smsOn } = useSmsTexting();
+  const od = useOneDrive();
+  const folder = property.filesFolder && property.filesFolder.driveId ? property.filesFolder : null;
   const [highlight, setHighlight] = useState(true);
   const [built, setBuilt] = useState(null); // {file, url, latestUrl, v}
   const [busy, setBusy] = useState("");
@@ -304,12 +326,24 @@ function ShareSheet({ property, sow, items, changed, previewJob, currentUser, se
     setBusy("Building the PDF…"); setErr("");
     try {
       const latestUrlGuess = sow.latestUrl || supabase.storage.from("attachments").getPublicUrl(`sow/latest-${property.id}.pdf`).data.publicUrl;
-      const job = { ...previewJob, sowVersion: nextV, sowChanged: highlight && sow.v ? [...changed] : [], sowLatestUrl: latestUrlGuess };
+      const job = { ...previewJob, sowVersion: nextV, sowChanged: highlight && sow.v ? [...changed] : [], sowPrev: highlight && sow.v ? previewJob.sowPrev : {}, sowRemoved: highlight && sow.v ? previewJob.sowRemoved : [], sowLatestUrl: latestUrlGuess };
       const file = await sowPdfFile(job);
       const up = await uploadAttachment(file, "sow");
       let latestUrl = latestUrlGuess;
       try { latestUrl = await uploadLatest(property.id, file); } catch { /* the versioned link still works */ }
-      const b = { file, url: up.url, latestUrl, v: nextV, highlight };
+      const b = { file, url: up.url, latestUrl, v: nextV, highlight, filed: "" };
+      // 📁 A copy of every version goes into the property's OneDrive Files
+      // folder (Elie 9/2/26): "Scope of Work v2 — UPDATED Sep 4 …", with the
+      // changes highlighted inside. Best-effort — the share still goes out.
+      if (folder && od.isConnected) {
+        setBusy("Saving a copy to Files…");
+        try {
+          const day = new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" });
+          const named = new File([file], `Scope of Work v${nextV}${nextV > 1 ? ` — UPDATED ${day}` : ` — ${day}`}.pdf`, { type: "application/pdf" });
+          await od.uploadFile(folder.driveId, folder.id, named);
+          b.filed = named.name;
+        } catch { b.filed = ""; }
+      }
       setBuilt(b); setBusy("");
       return b;
     } catch (ex) { setErr(ex.message || "Couldn't build the PDF."); setBusy(""); return null; }
@@ -320,10 +354,10 @@ function ShareSheet({ property, sow, items, changed, previewJob, currentUser, se
     const committed = sow.v === b.v;
     setSow({
       v: b.v, latestUrl: b.latestUrl,
-      snapshot: committed ? sow.snapshot : items.map((it) => ({ id: it.id, text: it.text, status: it.status, note: it.note || "" })),
-      sent: [...(sow.sent || []), entry],
+      snapshot: committed ? sow.snapshot : items.map((it) => ({ id: it.id, cat: it.cat, text: it.text, status: it.status, note: it.note || "" })),
+      sent: [...(sow.sent || []), { ...entry, ...(b.filed ? { filed: b.filed } : {}) }],
     });
-    setDone(`Sent v${b.v} ${how}${to ? ` → ${to}` : ""}`);
+    setDone(`Sent v${b.v} ${how}${to ? ` → ${to}` : ""}${b.filed ? " · copy saved to Files" : folder ? "" : " · (no Files folder linked, copy not saved)"}`);
   };
   const msgText = (b) => `Scope of Work v${b.v} — ${addr}\n${b.url}\n(Always latest: ${b.latestUrl})`;
 

@@ -34,7 +34,7 @@ export async function qbAuthFetch(path, opts = {}) {
 // never blocks or throws into the UI. The sender is dropped server-side.
 // Extra targeting for the contractor portal: {toAdmins:true} notifies every
 // Goldstone admin; {toOrg:"<orgId>"} notifies a contractor company's logins.
-export async function notify(recipients, { title, body, tag, url, toAdmins, toTeam, toOrg } = {}) {
+export async function notify(recipients, { title, body, tag, url, toAdmins, toTeam, toOrg, att } = {}) {
   const list = [...new Set((recipients || []).filter(Boolean))];
   if (!list.length && !toAdmins && !toTeam && !toOrg) return;
   try {
@@ -44,7 +44,29 @@ export async function notify(recipients, { title, body, tag, url, toAdmins, toTe
       body: JSON.stringify({ recipients: list, title, body, url: url || "/", tag, toAdmins: !!toAdmins, toTeam: !!toTeam, toOrg: toOrg || null }),
     });
   } catch { /* notifications are best-effort */ }
+  // A video is still uploading when its message goes out — ping the same
+  // people again the moment Cloudflare has it playable (Elie 9/1/26), so the
+  // second banner means "tap now, it works". Best-effort: it fires from the
+  // sending device once the upload settles.
+  if (att && att.kind === "video" && att.pending && att.uploadId) {
+    const ready = /🎥 Video sent/.test(body || "") ? body.replace(/🎥 Video sent.*$/, "🎥 Video ready to watch") : `${body || ""} — 🎥 video ready to watch`;
+    import("./videoUpload").then((m) => m.onVideoReady(att.uploadId, () => notify(list, { title, body: ready, tag: tag ? `${tag}-video` : undefined, url, toAdmins, toTeam, toOrg }))).catch(() => {});
+  }
 }
+
+// What a chat attachment IS, for notification banners and quote previews —
+// "(attachment)" told nobody anything (Elie 9/1/26): a video says video,
+// photos say how many, a voice note says voice note; only real files are
+// "attachment".
+export const attLabel = (a) => {
+  if (!a) return "";
+  const k = a.kind || attachmentKind(a.mime || "");
+  if (k === "images") { const n = (a.items || []).length; return n > 1 ? `📷 ${n} photos sent` : "📷 Photo sent"; }
+  if (k === "image") return "📷 Photo sent";
+  if (k === "video") return "🎥 Video sent";
+  if (k === "audio") return "🎤 Voice note sent";
+  return "📎 Attachment sent";
+};
 
 // ── Chat attachment upload (Supabase Storage "attachments" bucket) ───────────
 export const attachmentKind = (mime = "") => mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "file";

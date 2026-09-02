@@ -7,7 +7,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { T } from "../theme";
 import { linkifyText, rescuePastedLink } from "../sms";
-import { notify, uploadAttachment, qbAuthFetch, STREAM_VIDEO_CAP } from "../net";
+import { notify, attLabel, uploadAttachment, qbAuthFetch, STREAM_VIDEO_CAP } from "../net";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "../push";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble, resumeVideoUploads } from "../videoUpload";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
@@ -845,7 +845,7 @@ export function ContractorPortal() {
     const msg = { id: Date.now(), jobId: selJob.id, orgId: contractorOrgId, author: displayName, side: "contractor", text: txt, at: new Date().toISOString(), readBy: [displayName] };
     if (pending) msg.attachment = resolveVideoAttachment(pending);
     if (msgTarget) { msg.taskRefId = msgTarget.id; msg.taskRefText = msgTarget.text; }
-    if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: (replyTo.text || (replyTo.attachment ? "📎 attachment" : "")).slice(0, 140) };
+    if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: (replyTo.text || (replyTo.attachment ? attLabel(replyTo.attachment) : "")).slice(0, 140) };
     if (msgTags.length) msg.mentions = msgTags;
     setDraft(""); setPending(null); setReplyTo(null); setMsgTags([]); setTagOpen(false);
     try { await save("contractor_messages", msg); }
@@ -860,11 +860,11 @@ export function ContractorPortal() {
     // Everyone hears every message: the whole Goldstone team, plus your own
     // crew on this job. Tagged people get an extra, louder @ ping on top.
     const title = `${org?.name || displayName} — ${msgTarget ? msgTarget.text : selJob.propertyAddress}`;
-    const body = `${(displayName || "").split(" ")[0]}: ${txt || "(attachment)"}`;
+    const body = `${(displayName || "").split(" ")[0]}: ${txt || attLabel(msg.attachment)}`;
     const url = `/?goto=chat:${selJob.propertyId || ""}`;
-    notify(null, { toTeam: true, title, body, url });
-    notify(null, { toOrg: contractorOrgId, title: `${displayName} — ${selJob.propertyAddress}`, body: txt || "(attachment)", url: `/?goto=job:${selJob.id}` });
-    if (msg.mentions && msg.mentions.length) notify(msg.mentions, { title: `📣 You were tagged — ${title}`, body, url });
+    notify(null, { toTeam: true, att: msg.attachment, title, body, url });
+    notify(null, { toOrg: contractorOrgId, att: msg.attachment, title: `${displayName} — ${selJob.propertyAddress}`, body: txt || attLabel(msg.attachment), url: `/?goto=job:${selJob.id}` });
+    if (msg.mentions && msg.mentions.length) notify(msg.mentions, { att: msg.attachment, title: `📣 You were tagged — ${title}`, body, url });
   };
 
   // ── Layout ──────────────────────────────────────────────────────────────────
@@ -1109,7 +1109,7 @@ export function ContractorPortal() {
                     })()}
                     {replyTo && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderLeft: `3px solid ${T.gold}`, borderRadius: 8, marginBottom: 8 }}>
-                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? "📎 attachment" : "")}</span>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? attLabel(replyTo.attachment) : "")}</span>
                         <button onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
                       </div>
                     )}

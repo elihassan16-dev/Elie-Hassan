@@ -91,10 +91,24 @@ async function patchCtrRow(msgId, uploadId, att) {
   } catch { /* best-effort — the bubble shows the stale state and the sender can resend */ }
 }
 
+// "Tell me when it's watchable" — notify() hangs the ready-to-watch banner on
+// this. Fires once, only for a successful upload; a failed one stays quiet
+// (the bubble already says so). In-memory only: an upload resumed after a
+// reload finishes silently.
+const readyFns = {};
+export function onVideoReady(uploadId, fn) {
+  const u = uploads[uploadId];
+  if (u && u.status === "done") { try { fn(); } catch { /* listener */ } return; }
+  if (u && u.status === "failed") return;
+  (readyFns[uploadId] = readyFns[uploadId] || []).push(fn);
+}
+
 function settle(uploadId) {
   const u = uploads[uploadId];
   const att = finalAtt(u);
   ping(u);
+  if (u.status === "done") (readyFns[uploadId] || []).forEach((fn) => { try { fn(); } catch { /* listener */ } });
+  delete readyFns[uploadId];
   // Patch the message now and again over the next minutes: right after a reload
   // the resumed upload can finish BEFORE the app's data loads, so an immediate
   // scan finds nothing. Re-applying is safe — only still-pending placeholders

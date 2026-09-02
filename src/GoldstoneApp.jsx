@@ -9,7 +9,7 @@ import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
 import { T } from "./theme";
-import { qbAuthFetch, notify, uploadAttachment, attachmentKind, STREAM_VIDEO_CAP, geocodeAddress } from "./net";
+import { qbAuthFetch, notify, uploadAttachment, attachmentKind, attLabel, STREAM_VIDEO_CAP, geocodeAddress } from "./net";
 import { WalkthroughModal, useWalkJob, useWalkCloudSync } from "./walkthrough";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { usePersistentDraft } from "./useDraft";
@@ -2555,7 +2555,7 @@ function PropertyShowings({property,showings,onUpdate,flush,onOpenSms,dense}){
     if(mn&&mn.length)msg.mentions=[...mn];
     onUpdate(property.id,"messages",[...(property.messages||[]),msg]);saveNow();
     const who=(msg.mentions&&msg.mentions.length?msg.mentions:(TEAM_MEMBERS||[])).filter(n=>n!==CURRENT_USER);
-    if(who.length)notify(who,{title:`👥 ${msgFor.label} · ${address}`,body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`showing-${property.id}`,url:`/?goto=chat:${property.id}`});
+    if(who.length)notify(who,{title:`👥 ${msgFor.label} · ${address}`,att,body:`${CURRENT_USER}: ${t||attLabel(att)}`,tag:`showing-${property.id}`,url:`/?goto=chat:${property.id}`});
   };
   // The 💬 pill on a row: shows the thread size, red-dots when there's something unread.
   const msgBtn=(key,label,snapData)=>{
@@ -8324,14 +8324,14 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
       if(att&&att.pending&&att.uploadId)bindCtrVideoMessage(att.uploadId,msg.id);
       // Tagged people (teammates and/or the contractor's crew) get pinged directly;
       // otherwise the whole company is notified as before.
-      if(tagged.length)notify(tagged,{title:`Goldstone — ${task.text||job.propertyAddress||""}`,body:`${currentUser}: ${t||"(attachment)"}`,url:`/?goto=job:${job.id}`});
-      else notify(null,{toOrg:job.orgId,title:`Goldstone — ${task.text||job.propertyAddress||""}`,body:t||"(attachment)",url:`/?goto=job:${job.id}`});
+      if(tagged.length)notify(tagged,{title:`Goldstone — ${task.text||job.propertyAddress||""}`,att,body:`${currentUser}: ${t||attLabel(att)}`,url:`/?goto=job:${job.id}`});
+      else notify(null,{toOrg:job.orgId,title:`Goldstone — ${task.text||job.propertyAddress||""}`,att,body:t||attLabel(att),url:`/?goto=job:${job.id}`});
     }else{
       const msg={id:Date.now(),author:currentUser,text:t,at:new Date().toISOString(),readBy:[currentUser],ctrTaskKey:task.id,ctrTaskLabel:`${orgName}: ${(task.text||"").slice(0,48)}`};
       if(att)msg.attachment=att;
       if(mentions&&mentions.length)msg.mentions=mentions;
       setSharedProps(prev=>prev.map(p=>p.id!==property.id?p:{...p,messages:[...(p.messages||[]),msg]}));
-      if(mentions&&mentions.length)notify(mentions.filter(n=>n!==currentUser),{title:`👷 ${orgName} task`,body:`${currentUser}: ${t||"(attachment)"}`,tag:`ctrnote-${task.id}`,url:`/?goto=chat:${property.id}`});
+      if(mentions&&mentions.length)notify(mentions.filter(n=>n!==currentUser),{title:`👷 ${orgName} task`,att,body:`${currentUser}: ${t||attLabel(att)}`,tag:`ctrnote-${task.id}`,url:`/?goto=chat:${property.id}`});
     }
   };
   const ext=mode==="external";
@@ -8568,7 +8568,7 @@ function PropertyTaskList({property}){
     })}));
     if(member&&member!==CURRENT_USER){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(t=>t.id===tid); const pN=sharedProps.find(p=>p.id===pid); const aN=pN?`${pN.address}${pN.city?`, ${pN.city}`:""}`:""; notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}${aN?` — 🏠 ${aN}`:""}`,tag:`task-${tid}`,url:`/?goto=task:${pid}:${tid}`}); }
   };
-  const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}; if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`task-${tid}`,url:`/?goto=chat:${pid}`}); } };
+  const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}; if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",att:attachment,body:`${CURRENT_USER}: ${t||attLabel(attachment)}`,tag:`task-${tid}`,url:`/?goto=chat:${pid}`}); } };
   const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
   useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
   const addTask=(text)=>{const t=(text||"").trim();if(!t)return;setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER,assignedAt:Date.now(),assignedBy:CURRENT_USER}]}));};
@@ -8973,11 +8973,11 @@ function TasksPage({onNavigate}){
       // task messages in, so it shows in both places and replies stay in sync.
       upOfficeTask(taskId,tk=>({...tk,messages:[...(tk.messages||[]),msg]}));
       const tsk=findLiveTask(propId,taskId);
-      notify((TEAM_MEMBERS||[]).filter(n=>n!==CURRENT_USER),{title:"📌 Office Chat",body:`${CURRENT_USER}: ${tsk?.text?`${tsk.text}: `:""}${t||"(attachment)"}`,tag:"office",url:"/?goto=chat:__office__"});
+      notify((TEAM_MEMBERS||[]).filter(n=>n!==CURRENT_USER),{title:"📌 Office Chat",att:attachment,body:`${CURRENT_USER}: ${tsk?.text?`${tsk.text}: `:""}${t||attLabel(attachment)}`,tag:"office",url:"/?goto=chat:__office__"});
       return;
     }
     setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,messages:[...(tk.messages||[]),msg]})}));
-    if(mentions&&mentions.length){ const tsk=findLiveTask(propId,taskId); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`task-${taskId}`,url:`/?goto=chat:${propId}`}); }
+    if(mentions&&mentions.length){ const tsk=findLiveTask(propId,taskId); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",att:attachment,body:`${CURRENT_USER}: ${t||attLabel(attachment)}`,tag:`task-${taskId}`,url:`/?goto=chat:${propId}`}); }
   }
   // A task has an owner (assignee = the original responsible person) and an optional
   // delegate (someone the owner handed the work to). role is "owner" or "delegate".
@@ -12446,7 +12446,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     if(postTaskId){setOfficeTasks(prev=>(prev||[]).map(tk=>tk.id!==postTaskId?tk:{...tk,messages:[...(tk.messages||[]),msg]}));saveOfficeTasks();}
     else setOfficeMessages(prev=>[...prev,msg]);
     // Office chat is the whole-team channel — notify everyone but the sender.
-    notify((TEAM_MEMBERS||[]).filter(n=>n!==CURRENT_USER),{title:"📌 Office Chat",body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:"office",url:"/?goto=chat:__office__"});
+    notify((TEAM_MEMBERS||[]).filter(n=>n!==CURRENT_USER),{title:"📌 Office Chat",att:attachment,body:`${CURRENT_USER}: ${t||attLabel(attachment)}`,tag:"office",url:"/?goto=chat:__office__"});
   };
   const officeDelete=(ids)=>{const s=new Set(ids);setOfficeMessages(prev=>prev.filter(m=>!s.has(m.id)));setOfficeTasks(prev=>(prev||[]).map(tk=>(tk.messages||[]).some(m=>s.has(m.id))?{...tk,messages:tk.messages.filter(m=>!s.has(m.id))}:tk));saveOfficeTasks();};
   const isMobile=useIsMobile();
@@ -12632,7 +12632,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       if(attachment)cm.attachment=attachment;
       // Quote the specific message being answered (and keep its task tag) so the
       // contractor sees the reply in context in their portal.
-      cm.replyTo={id:String(replyTarget.id||"").replace(/^ctr-/,""),author:replyTarget.author||"",text:(replyTarget.text||(replyTarget.attachment?"📎 attachment":"")).slice(0,140)};
+      cm.replyTo={id:String(replyTarget.id||"").replace(/^ctr-/,""),author:replyTarget.author||"",text:(replyTarget.text||(replyTarget.attachment?attLabel(replyTarget.attachment):"")).slice(0,140)};
       if(replyTarget.taskRefText)cm.taskRefText=replyTarget.taskRefText;
       // Tagging works here too: tagged names (their people and/or teammates) show
       // on the message and get pinged directly instead of the whole company.
@@ -12643,8 +12643,8 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       return ctrSave("contractor_messages",cm).then(()=>{
         // Background video: patch this portal row once the upload lands.
         if(cm.attachment&&cm.attachment.pending&&cm.attachment.uploadId)bindCtrVideoMessage(cm.attachment.uploadId,cm.id);
-        if(tagged.length)notify(tagged,{title:`Goldstone — ${sel.address}`,body:t||"(attachment)",url:`/?goto=job:${replyTarget.ctrJobId}`});
-        else notify(null,{toOrg:replyTarget.ctrOrgId,title:`Goldstone — ${sel.address}`,body:t||"(attachment)",url:`/?goto=job:${replyTarget.ctrJobId}`});
+        if(tagged.length)notify(tagged,{title:`Goldstone — ${sel.address}`,att:attachment,body:t||attLabel(attachment),url:`/?goto=job:${replyTarget.ctrJobId}`});
+        else notify(null,{toOrg:replyTarget.ctrOrgId,title:`Goldstone — ${sel.address}`,att:attachment,body:t||attLabel(attachment),url:`/?goto=job:${replyTarget.ctrJobId}`});
       });
     }
     const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
@@ -12670,7 +12670,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       setSharedProps(prev=>prev.map(p=>p.id!==sel.id?p:{...p,messages:[...(p.messages||[]),msg]}));
     }
     // Notify the people this message is addressed to (mentions + who you replied to).
-    if(msg.mentions&&msg.mentions.length){ const addr=`${sel.address}${sel.city?`, ${sel.city}`:""}`; notify(msg.mentions.filter(n=>n!==CURRENT_USER),{title:addr,body:`${CURRENT_USER}: ${t||"(attachment)"}`,tag:`prop-${sel.id}`,url:`/?goto=chat:${sel.id}`}); }
+    if(msg.mentions&&msg.mentions.length){ const addr=`${sel.address}${sel.city?`, ${sel.city}`:""}`; notify(msg.mentions.filter(n=>n!==CURRENT_USER),{title:addr,att:attachment,body:`${CURRENT_USER}: ${t||attLabel(attachment)}`,tag:`prop-${sel.id}`,url:`/?goto=chat:${sel.id}`}); }
   };
   const fmtShort=(iso)=>{if(!iso)return "";try{const d=new Date(iso),now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};

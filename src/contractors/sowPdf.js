@@ -7,7 +7,7 @@
 //    line per item, Included / As needed / To discuss), with a version number,
 //    highlighted changes since the last version, and a "latest version" link.
 //  • job.scope     — the older free-text scope (UPPERCASE headings + lines).
-import { SOW_CATS } from "./sowLibrary";
+import { SOW_CATS, SOW_MAT } from "./sowLibrary";
 
 const GOLD = [184, 145, 46];
 const fmtDay = (d) => new Date(d || Date.now()).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
@@ -51,9 +51,11 @@ export async function sowPdfFile(job) {
     doc.line(margin, y, W - margin, y); y += 14;
     // Legend
     doc.setFont("times", "italic"); doc.setFontSize(9.5); doc.setTextColor(120, 120, 120);
-    const matDef = job.sowMatDefault === "goldstone" ? "goldstone" : "contractor";
-    doc.text(`MATERIALS: ${matDef === "goldstone" ? "Goldstone buys the materials" : "the contractor supplies labor AND materials"} unless a line is tagged otherwise. Lines tagged AS NEEDED are confirmed on site; lines tagged TO DISCUSS need a call with Goldstone before pricing. No prices in this document — the bid is yours.`, margin, y, { maxWidth: maxW });
-    y += 38;
+    const matDef = SOW_MAT[job.sowMatDefault] ? job.sowMatDefault : "contractor";
+    const legend = `MATERIALS: ${SOW_MAT[matDef].legend} — unless a line is tagged otherwise. Lines tagged AS NEEDED are confirmed on site; lines tagged TO DISCUSS need a call with Goldstone before pricing. No prices in this document — the bid is yours.`;
+    const legendLines = doc.splitTextToSize(legend, maxW);
+    doc.text(legendLines, margin, y);
+    y += 12 * legendLines.length + 12;
 
     const lineH = 15;
     const tagsFor = (it) => {
@@ -61,7 +63,7 @@ export async function sowPdfFile(job) {
       if (it.status === "asneeded") t.push({ label: "AS NEEDED", fill: [232, 244, 255], color: [10, 102, 194] });
       if (it.status === "discuss") t.push({ label: "TO DISCUSS", fill: [253, 233, 200], color: [180, 83, 9] });
       const m = it.mat || matDef;
-      if (m !== matDef) t.push({ label: m === "goldstone" ? "GOLDSTONE BUYS MATERIALS" : "CONTRACTOR BUYS MATERIALS", fill: [248, 241, 224], color: [138, 109, 31] });
+      if (m !== matDef) t.push({ label: (SOW_MAT[m] || SOW_MAT.contractor).tag, fill: [248, 241, 224], color: [138, 109, 31] });
       return t;
     };
     const ensure = (need) => { if (y + need > H - margin - 10) { doc.addPage(); y = margin; } };

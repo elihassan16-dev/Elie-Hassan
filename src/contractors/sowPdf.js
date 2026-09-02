@@ -192,7 +192,8 @@ export async function sowPdfFile(job) {
           }
           let ty = top + 2;
           doc.setFont("times", "bold"); doc.setFontSize(10.5);
-          if (it.link) { doc.setTextColor(10, 102, 194); titleLines.forEach((ln, i) => { if (i === 0) doc.textWithLink(ln, tx, ty, { url: it.link }); else doc.text(ln, tx, ty); ty += 13; }); }
+          const href = it.link ? (/^[a-z][a-z0-9+.-]*:\/\//i.test(String(it.link).trim()) ? String(it.link).trim() : `https://${String(it.link).trim().replace(/^\/+/, "")}`) : "";
+          if (href) { doc.setTextColor(10, 102, 194); titleLines.forEach((ln, i) => { if (i === 0) doc.textWithLink(ln, tx, ty, { url: href }); else doc.text(ln, tx, ty); ty += 13; }); }
           else { doc.setTextColor(25, 25, 25); titleLines.forEach((ln) => { doc.text(ln, tx, ty); ty += 13; }); }
           doc.setFont("times", "normal"); doc.setFontSize(9.5); doc.setTextColor(90, 90, 90);
           descLines.forEach((ln) => { doc.text(ln, tx, ty); ty += 12; });

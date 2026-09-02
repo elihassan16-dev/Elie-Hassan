@@ -315,7 +315,7 @@ export function ScopeBuilder({ property, onUpdate, onClose, initialView = "pick"
             )}
           </>
         )}
-        {view === "preview" && (items.length || specItems.length ? <SowPdfPreview job={previewJob} /> : <div style={{ padding: 40, textAlign: "center", color: T.textTert }}>Pick some lines or finishes first.</div>)}
+        {view === "preview" && (items.length || specItems.length ? <div style={{ maxWidth: 860, margin: "0 auto" }}><SowPdfPreview job={previewJob} /></div> : <div style={{ padding: 40, textAlign: "center", color: T.textTert }}>Pick some lines or finishes first.</div>)}
        </div>
       </div>
       {share && <ShareSheet property={property} sow={sow} items={items} changed={changed} previewJob={previewJob} currentUser={currentUser} setSow={setSow} onClose={() => setShare(false)} />}

@@ -34,9 +34,11 @@ export async function sowPdfFile(job) {
 
   if (structured) {
     const changed = new Set(job.sowChanged || []);
-    if (changed.size && job.sowVersion > 1) {
+    const prev = job.sowPrev || {};
+    const removed = Array.isArray(job.sowRemoved) ? job.sowRemoved : [];
+    if ((changed.size || removed.length) && job.sowVersion > 1) {
       doc.setFont("times", "bold"); doc.setTextColor(180, 83, 9);
-      doc.text(`UPDATED — highlighted lines are new or changed since version ${job.sowVersion - 1}.`, margin, y); y += 14;
+      doc.text(`UPDATED — highlighted lines are new or changed since version ${job.sowVersion - 1}; struck-through lines came out.`, margin, y, { maxWidth: maxW }); y += 14;
     }
     if (job.sowLatestUrl) {
       doc.setFont("times", "normal"); doc.setTextColor(10, 102, 194);
@@ -55,9 +57,24 @@ export async function sowPdfFile(job) {
     const lineH = 15;
     const tagFor = (st) => st === "asneeded" ? { label: "AS NEEDED", fill: [232, 244, 255], color: [10, 102, 194] } : st === "discuss" ? { label: "TO DISCUSS", fill: [253, 233, 200], color: [180, 83, 9] } : null;
     const ensure = (need) => { if (y + need > H - margin - 10) { doc.addPage(); y = margin; } };
+    // Gray struck-through line — "was: …" under a reworded line, or a line
+    // that came out since the last version.
+    const struck = (label, text, x, width) => {
+      doc.setFont("times", "italic"); doc.setFontSize(9.5); doc.setTextColor(140, 140, 140);
+      const lines = doc.splitTextToSize(`${label}${text}`, width);
+      ensure(13 * lines.length);
+      lines.forEach((ln) => {
+        doc.text(ln, x, y);
+        const w = doc.getTextWidth(ln);
+        doc.setDrawColor(160, 160, 160); doc.setLineWidth(0.6); doc.line(x, y - 3, x + w, y - 3);
+        y += 13;
+      });
+      doc.setFont("times", "normal"); doc.setFontSize(10.5); doc.setTextColor(25, 25, 25);
+    };
     SOW_CATS.forEach((c) => {
       const rows = job.sowItems.filter((it) => it.cat === c.key);
-      if (!rows.length) return;
+      const gone = removed.filter((r) => r.cat === c.key);
+      if (!rows.length && !gone.length) return;
       ensure(lineH * 3);
       y += 8;
       doc.setFont("times", "bold"); doc.setFontSize(11.5); doc.setTextColor(25, 25, 25);
@@ -90,7 +107,9 @@ export async function sowPdfFile(job) {
           doc.setFont("times", "italic"); doc.setTextColor(110, 110, 110);
           noteLines.forEach((ln) => { doc.text(ln, margin + numW, y); y += lineH; });
         }
+        if (hl && prev[it.id]) struck("was: ", prev[it.id], margin + numW, textW);
       });
+      gone.forEach((r) => struck("removed: ", r.text, margin + 20, maxW - 20));
     });
   } else {
     // Edited since it was first sent → say so, and highlight what changed below.

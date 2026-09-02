@@ -156,11 +156,13 @@ export async function sowPdfFile(job) {
       const thumb = 54, gap = 10;
       // Grouped by ROOM when any finish names one (master bath reads as one
       // block: floor tile, wall tile, vanity…); otherwise by category.
-      const byRoom = spec.some((it) => it.room && String(it.room).trim());
-      const roomOf = (it) => (it.room && String(it.room).trim()) || "Whole house";
-      const groups = byRoom
-        ? [...new Set(spec.map(roomOf))].map((r) => ({ label: r.toUpperCase(), rows: spec.filter((it) => roomOf(it) === r).slice().sort((a, b) => SPEC_CATS.findIndex((c) => c.key === a.cat) - SPEC_CATS.findIndex((c) => c.key === b.cat)) }))
-        : SPEC_CATS.map((c) => ({ label: c.label.toUpperCase(), rows: spec.filter((it) => it.cat === c.key) })).filter((g) => g.rows.length);
+      // Finishes with no room named sit under their category (no room heading);
+      // named rooms follow, each as one block with the category as a prefix.
+      const roomOf = (it) => (it.room && String(it.room).trim()) || "";
+      const noRoom = spec.filter((it) => !roomOf(it));
+      const catGroups = SPEC_CATS.map((c) => ({ label: c.label.toUpperCase(), room: false, rows: noRoom.filter((it) => it.cat === c.key) })).filter((g) => g.rows.length);
+      const roomGroups = [...new Set(spec.map(roomOf).filter(Boolean))].map((r) => ({ label: r.toUpperCase(), room: true, rows: spec.filter((it) => roomOf(it) === r).slice().sort((a, b) => SPEC_CATS.findIndex((c) => c.key === a.cat) - SPEC_CATS.findIndex((c) => c.key === b.cat)) }));
+      const groups = [...catGroups, ...roomGroups];
       groups.forEach((g) => {
         const rows = g.rows;
         if (!rows.length) return;
@@ -169,7 +171,7 @@ export async function sowPdfFile(job) {
         doc.setFont("times", "bold"); doc.setFontSize(11.5); doc.setTextColor(25, 25, 25);
         doc.text(g.label, margin, y); y += 14;
         rows.forEach((it) => {
-          const catLbl = byRoom ? (SPEC_CATS.find((c) => c.key === it.cat) || {}).label || "" : "";
+          const catLbl = g.room ? (SPEC_CATS.find((c) => c.key === it.cat) || {}).label || "" : "";
           const ph = photos[it.id];
           const tx = margin + (ph ? thumb + gap : 0);
           const tw = maxW - (ph ? thumb + gap : 0);

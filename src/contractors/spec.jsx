@@ -19,8 +19,9 @@ export const specCatOf = (k) => SPEC_CATS.find((c) => c.key === k) || SPEC_CATS[
 export const SPEC_BUYER = { goldstone: "GOLDSTONE BUYS", contractor: "CONTRACTOR BUYS" };
 // Rooms / areas a finish belongs to (Elie 9/2/26: "hallway bathroom, master
 // bathroom, so on"). Quick picks; anything typed is a room too.
-export const ROOM_PICKS = ["Whole house", "Kitchen", "Hallway bath", "Master bath", "Half bath", "Living room", "Dining room", "Master bedroom", "Bedroom 2", "Bedroom 3", "Hallway & stairs", "Basement", "Laundry", "Garage", "Exterior"];
-export const roomLabel = (r) => (r && String(r).trim()) || "Whole house";
+export const ROOM_PICKS = ["Kitchen", "Hallway bath", "Master bath", "Half bath", "Living room", "Dining room", "Master bedroom", "Bedroom 2", "Bedroom 3", "Hallway & stairs", "Basement", "Laundry", "Garage", "Exterior"];
+export const roomLabel = (r) => (r && String(r).trim()) || "";
+const roomName = (r) => r || "Not in a room";
 const uid = () => `f-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
 // Pull every photo into a data URL so jsPDF can draw it (public storage
@@ -81,8 +82,8 @@ export function FinishesView({ property, spec, setSpec, isWide, sidebar }) {
   const items = (spec && spec.items) || [];
   const [cat, setCat] = useState("flooring");
   const [mode, setMode] = useState("cat"); // cat | room — how the left menu slices the house
-  const rooms = useMemo(() => [...new Set(items.map((it) => roomLabel(it.room)))], [items]);
-  const [room, setRoom] = useState(() => rooms[0] || "Whole house");
+  const rooms = useMemo(() => { const named = [...new Set(items.map((it) => roomLabel(it.room)).filter(Boolean))]; return items.some((it) => !roomLabel(it.room)) ? [...named, ""] : named; }, [items]);
+  const [room, setRoom] = useState(() => rooms[0] || "");
   const [form, setForm] = useState(null); // null | {id?, cat, room, title, desc, link, photo, buyer, choose, price}
   const addr = `${property.address || ""}${property.city ? `, ${property.city}` : ""}`;
   const inCat = mode === "cat" ? items.filter((it) => it.cat === cat) : items.filter((it) => roomLabel(it.room) === room);
@@ -106,7 +107,7 @@ export function FinishesView({ property, spec, setSpec, isWide, sidebar }) {
 
   const catList = mode === "cat"
     ? SPEC_CATS.map((c) => ({ ...c, n: items.filter((it) => it.cat === c.key).length }))
-    : [...rooms, ...(rooms.includes(room) ? [] : [room])].map((r) => ({ key: r, label: r, emoji: "🚪", n: items.filter((it) => roomLabel(it.room) === r).length }));
+    : [...rooms, ...(rooms.includes(room) ? [] : [room])].map((r) => ({ key: r, label: roomName(r), emoji: r ? "🚪" : "—", n: items.filter((it) => roomLabel(it.room) === r).length }));
   const selKey = mode === "cat" ? cat : room;
   const pick = (k) => (mode === "cat" ? setCat(k) : setRoom(k));
   const modeSwitch = (
@@ -123,7 +124,7 @@ export function FinishesView({ property, spec, setSpec, isWide, sidebar }) {
     <div key={it.id} style={{ display: "flex", gap: 12, padding: "12px 14px", borderTop: `1px solid ${T.border}`, alignItems: "flex-start" }}>
       <Photo src={it.photo} empty={it.choose ? "👷" : "📷"} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textTert, letterSpacing: "0.03em", marginBottom: 2 }}>{mode === "cat" ? `🚪 ${roomLabel(it.room).toUpperCase()}` : `${specCatOf(it.cat).emoji} ${specCatOf(it.cat).label.toUpperCase()}`}</div>
+        {(mode === "room" || roomLabel(it.room)) && <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textTert, letterSpacing: "0.03em", marginBottom: 2 }}>{mode === "cat" ? `🚪 ${roomLabel(it.room).toUpperCase()}` : `${specCatOf(it.cat).emoji} ${specCatOf(it.cat).label.toUpperCase()}`}</div>}
         <div style={{ fontSize: 14.5, fontWeight: 700, color: T.text, lineHeight: 1.25 }}>{it.title}{it.price ? <span style={{ fontWeight: 500, color: T.textSub }}> · {it.price}</span> : null}</div>
         {it.desc && <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 3, lineHeight: 1.4 }}>{it.desc}</div>}
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
@@ -164,14 +165,14 @@ export function FinishesView({ property, spec, setSpec, isWide, sidebar }) {
       <div style={{ flex: 1, minWidth: 0, width: "100%" }}>
         <div style={card}>
           <div style={{ padding: "11px 14px 8px", display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: T.textSub, letterSpacing: "0.02em", flex: 1 }}>{mode === "cat" ? `${specCatOf(cat).emoji} ${specCatOf(cat).label.toUpperCase()}` : `🚪 ${room.toUpperCase()}`} — THIS HOUSE</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: T.textSub, letterSpacing: "0.02em", flex: 1 }}>{mode === "cat" ? `${specCatOf(cat).emoji} ${specCatOf(cat).label.toUpperCase()}` : `${room ? "🚪 " : ""}${roomName(room).toUpperCase()}`} — THIS HOUSE</span>
             <button onClick={startAdd} style={btn("gold")}>＋ Add</button>
           </div>
-          {inCat.length === 0 && <div style={{ padding: "6px 14px 14px", fontSize: 12.5, color: T.textTert, lineHeight: 1.45 }}>Nothing picked for {mode === "cat" ? specCatOf(cat).label.toLowerCase() : `the ${room.toLowerCase()}`} yet. Add one, or tap a saved pick below.</div>}
+          {inCat.length === 0 && <div style={{ padding: "6px 14px 14px", fontSize: 12.5, color: T.textTert, lineHeight: 1.45 }}>Nothing picked for {mode === "cat" ? specCatOf(cat).label.toLowerCase() : room ? `the ${room.toLowerCase()}` : "this"} yet. Add one, or tap a saved pick below.</div>}
           {inCat.map(itemRow)}
         </div>
         <div style={card}>
-          <div style={{ padding: "11px 14px 8px", fontSize: 12, fontWeight: 700, color: T.textSub, letterSpacing: "0.02em" }}>📌 MY PICKS{mode === "cat" ? ` — ${specCatOf(cat).label.toUpperCase()}` : ""} <span style={{ fontWeight: 500, color: T.textTert }}>· tap to use {mode === "room" ? `in the ${room.toLowerCase()}` : "here"}</span></div>
+          <div style={{ padding: "11px 14px 8px", fontSize: 12, fontWeight: 700, color: T.textSub, letterSpacing: "0.02em" }}>📌 MY PICKS{mode === "cat" ? ` — ${specCatOf(cat).label.toUpperCase()}` : ""} <span style={{ fontWeight: 500, color: T.textTert }}>· tap to use {mode === "room" && room ? `in the ${room.toLowerCase()}` : "here"}</span></div>
           {picksInCat.length === 0 && <div style={{ padding: "0 14px 14px", fontSize: 12.5, color: T.textTert }}>Everything you add gets saved here with its picture.</div>}
           {picksInCat.length > 0 && (
             <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${isWide ? 150 : 110}px, 1fr))`, gap: 10, padding: "4px 14px 14px" }}>
@@ -260,7 +261,7 @@ function FinishForm({ form, setForm, onSave, onClose }) {
             <button onClick={fetchLink} disabled={!form.link.trim() || !!busy} style={{ ...btn(), opacity: form.link.trim() && !busy ? 1 : 0.5 }}>⬇ Get picture</button>
           </div>
           {lbl("ROOM / AREA")}
-          <input value={form.room || ""} onChange={(e) => up({ room: e.target.value })} placeholder="Whole house, Master bath, Hallway bath, Bedroom 2…" style={inp} />
+          <input value={form.room || ""} onChange={(e) => up({ room: e.target.value })} placeholder="Leave blank for the whole house — or Master bath, Hallway bath, Bedroom 2…" style={inp} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
             {[...new Set([...(form.rooms || []), ...ROOM_PICKS])].slice(0, 18).map((r) => <button key={r} onClick={() => up({ room: r })} style={{ ...chip(roomLabel(form.room) === r && !!form.room), padding: "4px 10px", minHeight: 28, fontSize: 11.5 }}>{r}</button>)}
           </div>

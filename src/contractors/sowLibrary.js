@@ -21,6 +21,9 @@ export const SOW_CATS = [
   { key: "paint", label: "Paint", emoji: "🎨", long: "PAINT" },
   { key: "trim", label: "Trim & Interior Doors", emoji: "📐", long: "TRIM, INTERIOR DOORS & HARDWARE" },
   { key: "site", label: "Landscaping & Final", emoji: "🌳", long: "LANDSCAPING, SITE & FINAL CLEAN" },
+  // Elie's own list of what Goldstone buys (9/2/26) — its own section in the
+  // PDF: the contractor installs these but does not price the material.
+  { key: "gsmat", label: "Goldstone buys", emoji: "🛒", long: "MATERIALS PROVIDED BY GOLDSTONE", note: "Goldstone buys and delivers these; the contractor installs them. Do not price these materials — labor to install only." },
   { key: "general", label: "General", emoji: "📋", long: "GENERAL CONDITIONS" },
 ];
 export const catOf = (key) => SOW_CATS.find((c) => c.key === key) || SOW_CATS[SOW_CATS.length - 1];
@@ -190,6 +193,19 @@ export const SOW_SEED = [
     "Grade soil away from foundation",
     "Final construction clean — whole house ready to show, windows inside and out",
   ]),
+  ...S("gsmat", [
+    "All flooring — LVP, tile and carpet",
+    "All tile — bathroom floors and walls, kitchen backsplash",
+    "Kitchen cabinets and hardware",
+    "Countertops",
+    "Appliance package — range, microwave, dishwasher, refrigerator",
+    "Bathroom vanities, tops and mirrors",
+    "Plumbing fixtures — faucets, shower/tub trim, toilets",
+    "Light fixtures and ceiling fans",
+    "Interior and exterior doors and door hardware",
+    "Paint — colors per spec sheet",
+    "Windows",
+  ]),
   ...S("general", [
     "Contractor is licensed and insured; provide certificate of insurance before start",
     "All permits pulled and inspections passed by contractor unless noted",
@@ -223,12 +239,14 @@ export const libRemove = (row, id) => ({ ...(row || { id: "sow_library" }), id: 
 // Plain-text rendering — what the contractor portal's line-by-line bid box
 // mirrors, and the fallback wherever only text is understood.
 export function scopeToText(items, matDefault = "contractor") {
-  const out = [`MATERIALS: ${(SOW_MAT[matDefault] || SOW_MAT.contractor).legend} — unless a line says otherwise.`];
+  const hasGs = (items || []).some((it) => it.cat === "gsmat");
+  const out = [`MATERIALS: ${(SOW_MAT[matDefault] || SOW_MAT.contractor).legend}${hasGs ? " — except the items listed under MATERIALS PROVIDED BY GOLDSTONE" : ""} — unless a line says otherwise.`];
   SOW_CATS.forEach((c) => {
     const rows = (items || []).filter((it) => it.cat === c.key);
     if (!rows.length) return;
     out.push("");
     out.push(c.long);
+    if (c.note) out.push(`(${c.note})`);
     rows.forEach((it, i) => {
       const m = matOf(it, matDefault);
       out.push(`${i + 1}. ${it.text}${it.status === "asneeded" ? " (as needed — confirm on site)" : it.status === "discuss" ? " — TO DISCUSS with Goldstone before pricing" : ""}${m !== matDefault ? ` (${(SOW_MAT[m] || SOW_MAT.contractor).line})` : ""}${it.note ? ` — ${it.note}` : ""}`);

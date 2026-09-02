@@ -31,7 +31,8 @@ Rules:
 - status: "in" normally; "asneeded" when the notes say as needed / if needed / where needed / confirm on site; "discuss" when the notes are unsure, say to discuss, TBD, maybe, not sure, or ask a question.
 - Only put in "remove" the ids of EXISTING scope lines the notes explicitly cancel ("take out the roof", "no deck").
 - Never repeat a line already in the scope unless the notes change its status or wording — then return it with its libId and the new status/text.
-- Keep it to what the notes say; do not pad with assumptions.`;
+- Keep it to what the notes say; do not pad with assumptions.
+- Category "gsmat" = MATERIALS PROVIDED BY GOLDSTONE: when the notes say Goldstone / "I" / "we" buy or supply an item, put that item there as its own line (e.g. "All flooring — LVP and tile") instead of setting mat on a work line.`;
 
 export default async function handler(req, res) {
   if (req.method !== "POST") { res.status(405).json({ error: "POST only" }); return; }

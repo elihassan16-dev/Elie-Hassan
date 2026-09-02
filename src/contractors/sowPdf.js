@@ -52,7 +52,8 @@ export async function sowPdfFile(job) {
     // Legend
     doc.setFont("times", "italic"); doc.setFontSize(9.5); doc.setTextColor(120, 120, 120);
     const matDef = SOW_MAT[job.sowMatDefault] ? job.sowMatDefault : "contractor";
-    const legend = `MATERIALS: ${SOW_MAT[matDef].legend} — unless a line is tagged otherwise. Lines tagged AS NEEDED are confirmed on site; lines tagged TO DISCUSS need a call with Goldstone before pricing. No prices in this document — the bid is yours.`;
+    const hasGs = job.sowItems.some((it) => it.cat === "gsmat");
+    const legend = `MATERIALS: ${SOW_MAT[matDef].legend}${hasGs ? " — except the items listed under MATERIALS PROVIDED BY GOLDSTONE below" : ""} — unless a line is tagged otherwise. Lines tagged AS NEEDED are confirmed on site; lines tagged TO DISCUSS need a call with Goldstone before pricing. No prices in this document — the bid is yours.`;
     const legendLines = doc.splitTextToSize(legend, maxW);
     doc.text(legendLines, margin, y);
     y += 12 * legendLines.length + 12;
@@ -63,7 +64,7 @@ export async function sowPdfFile(job) {
       if (it.status === "asneeded") t.push({ label: "AS NEEDED", fill: [232, 244, 255], color: [10, 102, 194] });
       if (it.status === "discuss") t.push({ label: "TO DISCUSS", fill: [253, 233, 200], color: [180, 83, 9] });
       const m = it.mat || matDef;
-      if (m !== matDef) t.push({ label: (SOW_MAT[m] || SOW_MAT.contractor).tag, fill: [248, 241, 224], color: [138, 109, 31] });
+      if (m !== matDef && it.cat !== "gsmat") t.push({ label: (SOW_MAT[m] || SOW_MAT.contractor).tag, fill: [248, 241, 224], color: [138, 109, 31] });
       return t;
     };
     const ensure = (need) => { if (y + need > H - margin - 10) { doc.addPage(); y = margin; } };
@@ -89,7 +90,13 @@ export async function sowPdfFile(job) {
       y += 8;
       doc.setFont("times", "bold"); doc.setFontSize(11.5); doc.setTextColor(25, 25, 25);
       doc.text(c.long, margin, y); y += lineH + 1;
-      doc.setFontSize(10.5);
+      if (c.note) {
+        doc.setFont("times", "italic"); doc.setFontSize(9.5); doc.setTextColor(120, 120, 120);
+        const nl = doc.splitTextToSize(c.note, maxW);
+        doc.text(nl, margin, y - 3); y += 12 * nl.length + 2;
+        doc.setTextColor(25, 25, 25);
+      }
+      doc.setFont("times", "normal"); doc.setFontSize(10.5);
       rows.forEach((it, i) => {
         const tags = tagsFor(it);
         doc.setFont("times", "bold"); doc.setFontSize(7.5);

@@ -4,10 +4,12 @@
 # so each run keeps checking once a minute for ~9 minutes: consecutive runs
 # overlap and cover the gaps. The endpoint throttles itself (45s), so
 # overlapping pings are harmless.
+# Off-peak minutes on purpose: GitHub delays scheduled runs badly when they
+# collide with everyone else's :00/:05 crons (runs were landing hours apart).
 name: Showing watcher
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -27,5 +29,7 @@ jobs:
           for i in 1 2 3 4 5 6 7 8 9; do
             curl -fsS -m 30 "https://gpflips.com/api/showings/watch" || true
             echo ""
-            [ "$i" -lt 9 ] && sleep 55
+            [ "$i" -lt 9 ] && sleep 55 || true
           done
+          # The test above is false on the last lap; without the "|| true" its
+          # exit code (1) became the step's and every run emailed "failed".

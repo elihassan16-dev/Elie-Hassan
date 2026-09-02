@@ -15,7 +15,7 @@ import { supabase } from "../supabaseClient";
 import { notify, qbAuthFetch, uploadAttachment } from "../net";
 import { useSmsTexting } from "../sms";
 import { useContractorData } from "./data";
-import { SOW_CATS, SOW_STATUS, NEXT_STATUS, catOf, libraryFrom, libAdd, libEdit, libRemove, scopeToText, scopeCounts } from "./sowLibrary";
+import { SOW_CATS, SOW_STATUS, NEXT_STATUS, SOW_MAT, matOf, catOf, libraryFrom, libAdd, libEdit, libRemove, scopeToText, scopeCounts } from "./sowLibrary";
 import { sowPdfFile } from "./sowPdf";
 import { SowPdfPreview } from "./SowPdfPreview";
 import { useSpeechToText, micBtnStyle, micGlyph } from "../useSpeech";
@@ -53,7 +53,7 @@ export function diffSince(sow) {
   items.forEach((it) => {
     const s = snap.get(it.id);
     if (!s) { changed.add(it.id); return; }
-    if (s.text !== it.text || s.status !== it.status || (s.note || "") !== (it.note || "")) {
+    if (s.text !== it.text || s.status !== it.status || (s.note || "") !== (it.note || "") || (s.mat || "") !== (it.mat || "")) {
       changed.add(it.id);
       if (s.text !== it.text) prev[it.id] = s.text;
     }
@@ -123,6 +123,8 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
     else setItems([...items, { id: uid(), libId: li.id, cat: li.cat, text: li.text, status: "in" }]);
   };
   const cycle = (id) => setItems(items.map((it) => (it.id === id ? { ...it, status: NEXT_STATUS[it.status || "in"] } : it)));
+  const matDefault = sow.matDefault || "contractor";
+  const setMat = (id, mat) => setItems(items.map((it) => (it.id === id ? { ...it, mat: mat === matDefault ? undefined : mat } : it)));
   const removeLine = (id) => setItems(items.filter((it) => it.id !== id));
   const saveEdit = () => {
     if (!editing) return;
@@ -148,8 +150,9 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
       let next = itemsRef.current.filter((it) => !(d.remove || []).includes(it.id));
       (d.items || []).forEach((ai) => {
         const have = ai.libId ? next.find((it) => it.libId === ai.libId) : next.find((it) => it.text.trim().toLowerCase() === ai.text.trim().toLowerCase());
-        if (have) next = next.map((it) => (it.id === have.id ? { ...it, text: ai.text, status: ai.status } : it));
-        else next.push({ id: uid(), libId: ai.libId || null, cat: ai.cat, text: ai.text, status: ai.status });
+        const matPatch = ai.mat ? { mat: ai.mat === matDefault ? undefined : ai.mat } : {};
+        if (have) next = next.map((it) => (it.id === have.id ? { ...it, text: ai.text, status: ai.status, ...matPatch } : it));
+        else next.push({ id: uid(), libId: ai.libId || null, cat: ai.cat, text: ai.text, status: ai.status, ...matPatch });
       });
       setItems(next); setBrief(""); setView("review");
     } catch (ex) { setErr(ex.message || "AI couldn't do that."); }
@@ -158,10 +161,10 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
   const { recOn, busy: recBusy, toggleRec } = useSpeechToText({ value: brief, onText: setBrief, onError: setErr, onDone: genAi });
 
   const previewJob = useMemo(() => ({
-    propertyAddress: addrOf(property), sowItems: items, sowVersion: (sow.v || 0) + (changed.size || !sow.v ? 1 : 0), sowChanged: sow.v ? [...changed] : [], sowPrev: sow.v ? diff.prev : {}, sowRemoved: sow.v ? diff.removed : [], sowLatestUrl: sow.latestUrl || "",
+    propertyAddress: addrOf(property), sowItems: items, sowVersion: (sow.v || 0) + (changed.size || !sow.v ? 1 : 0), sowChanged: sow.v ? [...changed] : [], sowPrev: sow.v ? diff.prev : {}, sowRemoved: sow.v ? diff.removed : [], sowLatestUrl: sow.latestUrl || "", sowMatDefault: matDefault,
     scopeEditedAt: sow.updatedAt || new Date().toISOString(), scopeEditedBy: sow.updatedBy || currentUser,
-    scope: scopeToText(items), scopeChangedLines: [...changed], // key fields for the preview's rebuild
-  }), [items, sow.v, sow.latestUrl, sow.updatedAt, sow.updatedBy, changed.size, property.address, property.city, currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
+    scope: scopeToText(items, matDefault), scopeChangedLines: [...changed], // key fields for the preview's rebuild
+  }), [items, sow.v, sow.latestUrl, sow.updatedAt, sow.updatedBy, changed.size, property.address, property.city, currentUser, matDefault]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const row = (it, li) => {
     // it = scope line (may be null when the library line isn't picked); li = library item (may be null for AI/custom-only lines)
@@ -175,6 +178,7 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
           <span style={{ flex: 1, minWidth: 0, fontSize: 14, lineHeight: 1.3, color: T.text }}>
             {it ? it.text : li.text}
             {it && it.note && <span style={{ display: "block", fontSize: 11.5, color: T.textSub, marginTop: 2 }}>Note: {it.note}</span>}
+            {it && matOf(it, matDefault) !== matDefault && <span style={{ display: "inline-block", fontSize: 10, fontWeight: 800, letterSpacing: "0.03em", color: "#8a6d1f", background: T.goldLight, borderRadius: 10, padding: "2px 7px", marginTop: 4 }}>🛒 {SOW_MAT[matOf(it, matDefault)].who.toUpperCase()} BUYS MATERIALS</span>}
             {li && li.custom && <span style={{ display: "block", fontSize: 10.5, color: T.textTert, marginTop: 2 }}>✎ your line</span>}
           </span>
           {picked && <StatusChip status={it.status} onCycle={() => cycle(it.id)} small />}
@@ -184,6 +188,7 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "0 14px 10px 47px" }}>
             {it && <button onClick={() => { setMenuFor(null); setEditing({ scopeId: it.id, libId: it.libId || null, text: it.text, note: it.note || "", toLib: false }); }} style={btn()}>✎ Edit for this house</button>}
             {li && <button onClick={() => { setMenuFor(null); setEditing({ scopeId: it ? it.id : null, libId: li.id, text: it ? it.text : li.text, note: it ? it.note || "" : "", toLib: true }); }} style={btn()}>✎ Edit in library</button>}
+            {it && <button onClick={() => { setMenuFor(null); setMat(it.id, matOf(it, matDefault) === "goldstone" ? "contractor" : "goldstone"); }} style={btn()}>🛒 {matOf(it, matDefault) === "goldstone" ? "Contractor buys materials" : "Goldstone buys materials"}</button>}
             {it && <button onClick={() => { setMenuFor(null); removeLine(it.id); }} style={btn("ghost")}>Take out of this scope</button>}
             {li && <button onClick={() => { if (!window.confirm(`Remove "${li.text.slice(0, 60)}" from your library?`)) return; setMenuFor(null); lib.remove(li.id); if (it) removeLine(it.id); }} style={{ ...btn("ghost"), color: T.red }}>🗑 Remove from library</button>}
           </div>
@@ -256,6 +261,17 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
         {view === "review" && (
           <>
             {!items.length && <div style={{ padding: "46px 20px", textAlign: "center", color: T.textTert, fontSize: 13.5, lineHeight: 1.6 }}>Nothing picked yet.<br />Go to Pick lines, or tap the mic and describe the job.</div>}
+            {!!items.length && (
+              <div style={{ ...card, padding: "10px 14px" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.textSub, marginBottom: 7 }}>🛒 MATERIALS — who buys them unless a line says otherwise</div>
+                <div style={{ display: "flex", gap: 2, padding: 3, borderRadius: 18, background: "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.05)" }}>
+                  {[["contractor", "Contractor buys"], ["goldstone", "Goldstone buys"]].map(([k, l]) => (
+                    <button key={k} onClick={() => setSow({ matDefault: k })} style={{ flex: 1, padding: "7px 10px", borderRadius: 14, border: "none", background: matDefault === k ? "#fff" : "transparent", color: matDefault === k ? T.text : T.textSub, fontWeight: matDefault === k ? 650 : 450, fontSize: 13, cursor: "pointer", fontFamily: "inherit", boxShadow: matDefault === k ? "0 1px 4px rgba(0,0,0,0.14)" : "none", minHeight: 36 }}>{l}</button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 7, lineHeight: 1.4 }}>Flip a single line the other way from its ⋯ menu — it gets a tag in the PDF.</div>
+              </div>
+            )}
             {!!items.length && (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
                 <span style={chip(true, T.text)}>{counts.total} lines</span>
@@ -354,7 +370,7 @@ function ShareSheet({ property, sow, items, changed, previewJob, currentUser, se
     const committed = sow.v === b.v;
     setSow({
       v: b.v, latestUrl: b.latestUrl,
-      snapshot: committed ? sow.snapshot : items.map((it) => ({ id: it.id, cat: it.cat, text: it.text, status: it.status, note: it.note || "" })),
+      snapshot: committed ? sow.snapshot : items.map((it) => ({ id: it.id, cat: it.cat, text: it.text, status: it.status, note: it.note || "", mat: it.mat || "" })),
       sent: [...(sow.sent || []), { ...entry, ...(b.filed ? { filed: b.filed } : {}) }],
     });
     setDone(`Sent v${b.v} ${how}${to ? ` → ${to}` : ""}${b.filed ? " · copy saved to Files" : folder ? "" : " · (no Files folder linked, copy not saved)"}`);
@@ -398,8 +414,8 @@ function ShareSheet({ property, sow, items, changed, previewJob, currentUser, se
     const b = await build(); if (!b) return;
     setBusy("Sending to their portal…");
     try {
-      const text = scopeToText(items);
-      await ctrSave("contractor_jobs", { ...j, scope: text, sowItems: items, sowVersion: b.v, sowPdfUrl: b.url, sowPdfName: b.file.name, scopeChangedLines: [], scopeEditedAt: new Date().toISOString(), scopeEditedBy: currentUser });
+      const text = scopeToText(items, sow.matDefault || "contractor");
+      await ctrSave("contractor_jobs", { ...j, scope: text, sowItems: items, sowMatDefault: sow.matDefault || "contractor", sowVersion: b.v, sowPdfUrl: b.url, sowPdfName: b.file.name, scopeChangedLines: [], scopeEditedAt: new Date().toISOString(), scopeEditedBy: currentUser });
       ctrSave("contractor_docs", { id: Date.now() + 1, jobId: j.id, orgId: j.orgId, name: b.file.name, url: b.url, mime: "application/pdf", by: currentUser, at: new Date().toISOString() }).catch(() => {});
       ctrSave("contractor_messages", { id: Date.now() + 2, jobId: j.id, orgId: j.orgId, author: currentUser, side: "team", text: `📄 Scope of Work v${b.v} — ${b.v > 1 ? "updated, changed lines are highlighted" : "please review and price it"}.`, at: new Date().toISOString(), readBy: [currentUser], attachment: { url: b.url, name: b.file.name, mime: "application/pdf", kind: "file" } }).catch(() => {});
       notify(null, { toOrg: j.orgId, title: b.v > 1 ? "Scope of work updated" : "Scope of work ready", body: `${addr}${j.title ? ` — ${j.title}` : ""} — open the PDF on the job.`, url: `/?goto=job:${j.id}` });

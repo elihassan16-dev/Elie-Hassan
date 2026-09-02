@@ -51,11 +51,19 @@ export async function sowPdfFile(job) {
     doc.line(margin, y, W - margin, y); y += 14;
     // Legend
     doc.setFont("times", "italic"); doc.setFontSize(9.5); doc.setTextColor(120, 120, 120);
-    doc.text("Lines tagged AS NEEDED are confirmed on site; lines tagged TO DISCUSS need a call with Goldstone before pricing. No prices in this document — the bid is yours.", margin, y, { maxWidth: maxW });
-    y += 26;
+    const matDef = job.sowMatDefault === "goldstone" ? "goldstone" : "contractor";
+    doc.text(`MATERIALS: ${matDef === "goldstone" ? "Goldstone buys the materials" : "the contractor supplies labor AND materials"} unless a line is tagged otherwise. Lines tagged AS NEEDED are confirmed on site; lines tagged TO DISCUSS need a call with Goldstone before pricing. No prices in this document — the bid is yours.`, margin, y, { maxWidth: maxW });
+    y += 38;
 
     const lineH = 15;
-    const tagFor = (st) => st === "asneeded" ? { label: "AS NEEDED", fill: [232, 244, 255], color: [10, 102, 194] } : st === "discuss" ? { label: "TO DISCUSS", fill: [253, 233, 200], color: [180, 83, 9] } : null;
+    const tagsFor = (it) => {
+      const t = [];
+      if (it.status === "asneeded") t.push({ label: "AS NEEDED", fill: [232, 244, 255], color: [10, 102, 194] });
+      if (it.status === "discuss") t.push({ label: "TO DISCUSS", fill: [253, 233, 200], color: [180, 83, 9] });
+      const m = it.mat || matDef;
+      if (m !== matDef) t.push({ label: m === "goldstone" ? "GOLDSTONE BUYS MATERIALS" : "CONTRACTOR BUYS MATERIALS", fill: [248, 241, 224], color: [138, 109, 31] });
+      return t;
+    };
     const ensure = (need) => { if (y + need > H - margin - 10) { doc.addPage(); y = margin; } };
     // Gray struck-through line — "was: …" under a reworded line, or a line
     // that came out since the last version.
@@ -81,11 +89,13 @@ export async function sowPdfFile(job) {
       doc.text(c.long, margin, y); y += lineH + 1;
       doc.setFontSize(10.5);
       rows.forEach((it, i) => {
-        const tag = tagFor(it.status);
-        doc.setFont("times", "bold");
-        const tagW = tag ? doc.getTextWidth(tag.label) * 0.78 + 12 : 0;
+        const tags = tagsFor(it);
+        doc.setFont("times", "bold"); doc.setFontSize(7.5);
+        tags.forEach((t) => { t.w = doc.getTextWidth(t.label) + 12; });
+        doc.setFontSize(10.5);
+        const tagW = tags.reduce((s, t) => s + t.w + 4, 0);
         const numW = 20;
-        const textW = maxW - numW - (tag ? tagW + 8 : 0);
+        const textW = maxW - numW - (tags.length ? tagW + 6 : 0);
         doc.setFont("times", "normal");
         const lines = doc.splitTextToSize(String(it.text || ""), textW);
         const noteLines = it.note ? doc.splitTextToSize(`Note: ${it.note}`, textW) : [];
@@ -95,11 +105,16 @@ export async function sowPdfFile(job) {
         doc.setTextColor(25, 25, 25); doc.setFont("times", "normal");
         doc.text(`${i + 1}.`, margin, y);
         lines.forEach((ln, li) => { doc.text(ln, margin + numW, y + li * lineH); });
-        if (tag) {
-          const tx = W - margin - tagW, ty = y - 8.5;
-          doc.setFillColor(...tag.fill); doc.roundedRect(tx, ty, tagW, 11.5, 4, 4, "F");
-          doc.setFont("times", "bold"); doc.setFontSize(7.5); doc.setTextColor(...tag.color);
-          doc.text(tag.label, tx + tagW / 2, ty + 8.3, { align: "center" });
+        if (tags.length) {
+          let tx = W - margin;
+          const ty = y - 8.5;
+          tags.slice().reverse().forEach((t) => {
+            tx -= t.w;
+            doc.setFillColor(...t.fill); doc.roundedRect(tx, ty, t.w, 11.5, 4, 4, "F");
+            doc.setFont("times", "bold"); doc.setFontSize(7.5); doc.setTextColor(...t.color);
+            doc.text(t.label, tx + t.w / 2, ty + 8.3, { align: "center" });
+            tx -= 4;
+          });
           doc.setFontSize(10.5);
         }
         y += lineH * lines.length;

@@ -5852,8 +5852,8 @@ function PropertyContractorsCard({property}){
     // documents, and attached to the thread message the contractor opens.
     // No scope typed in the popup → this house's built scope goes out (the
     // structured version: categories, statuses, version number).
-    if(property.sow&&(property.sow.items||[]).length&&(!String(scope||"").trim()||String(scope).trim()===scopeToText(property.sow.items).trim())){
-      job.scope=scopeToText(property.sow.items);job.sowItems=property.sow.items;job.sowVersion=property.sow.v||1;job.sowLatestUrl=property.sow.latestUrl||"";
+    if(property.sow&&(property.sow.items||[]).length&&(!String(scope||"").trim()||String(scope).trim()===scopeToText(property.sow.items,property.sow.matDefault||"contractor").trim())){
+      job.scope=scopeToText(property.sow.items,property.sow.matDefault||"contractor");job.sowItems=property.sow.items;job.sowMatDefault=property.sow.matDefault||"contractor";job.sowVersion=property.sow.v||1;job.sowLatestUrl=property.sow.latestUrl||"";
     }
     let pdf=null;
     try{pdf=await uploadAttachment(await sowPdfFile(job),"portal");}catch{/* job still goes out with inline scope */}
@@ -6043,7 +6043,7 @@ function PropertyContractorsCard({property}){
           );
         })}
       </Card>
-      {bidOpen&&<BidRequestModal property={property} orgs={allOrgs} onCreate={createBid} onClose={()=>setBidOpen(false)} initialScope={property.sow&&(property.sow.items||[]).length?scopeToText(property.sow.items):""}/>}
+      {bidOpen&&<BidRequestModal property={property} orgs={allOrgs} onCreate={createBid} onClose={()=>setBidOpen(false)} initialScope={property.sow&&(property.sow.items||[]).length?scopeToText(property.sow.items,property.sow.matDefault||"contractor"):""}/>}
       {addJobOpen&&(
         <div onClick={()=>setAddJobOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:390,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(400px,96vw)",boxShadow:"0 14px 44px rgba(0,0,0,0.22)",overflow:"hidden"}}>

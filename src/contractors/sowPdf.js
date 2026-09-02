@@ -17,12 +17,14 @@ export async function sowPdfFile(job) {
   const doc = new jsPDF({ unit: "pt", format: "letter" }); // 612 x 792
   const W = 612, H = 792, margin = 56, maxW = W - margin * 2;
   let y = margin;
-  const structured = Array.isArray(job.sowItems) && job.sowItems.length > 0;
+  const specN = Array.isArray(job.specItems) ? job.specItems.length : 0;
+  const structured = Array.isArray(job.sowItems) && (job.sowItems.length > 0 || specN > 0);
+  const hasScope = structured && job.sowItems.length > 0;
 
   doc.setFont("times", "bold"); doc.setFontSize(19); doc.setTextColor(...GOLD);
   doc.text("Goldstone Properties", margin, y); y += 20;
   doc.setFontSize(13); doc.setTextColor(60, 60, 60);
-  doc.text("Scope of Work", margin, y);
+  doc.text(structured && !hasScope ? "Finish Spec Sheet" : "Scope of Work", margin, y);
   if (structured && job.sowVersion) {
     doc.setFont("times", "normal"); doc.setFontSize(10.5); doc.setTextColor(120, 120, 120);
     doc.text(`Version ${job.sowVersion}`, W - margin, y, { align: "right" });
@@ -54,9 +56,11 @@ export async function sowPdfFile(job) {
     const matDef = SOW_MAT[job.sowMatDefault] ? job.sowMatDefault : "contractor";
     const hasGs = job.sowItems.some((it) => it.cat === "gsmat");
     const legend = `MATERIALS: ${SOW_MAT[matDef].legend}${hasGs ? " — except the items listed under MATERIALS PROVIDED BY GOLDSTONE below" : ""} — unless a line is tagged otherwise. Lines tagged AS NEEDED are confirmed on site; lines tagged TO DISCUSS need a call with Goldstone before pricing. No prices in this document — the bid is yours.`;
-    const legendLines = doc.splitTextToSize(legend, maxW);
-    doc.text(legendLines, margin, y);
-    y += 12 * legendLines.length + 12;
+    if (hasScope) {
+      const legendLines = doc.splitTextToSize(legend, maxW);
+      doc.text(legendLines, margin, y);
+      y += 12 * legendLines.length + 12;
+    } else { y -= 6; }
 
     const lineH = 15;
     const tagsFor = (it) => {
@@ -140,27 +144,37 @@ export async function sowPdfFile(job) {
     const spec = Array.isArray(job.specItems) ? job.specItems : [];
     if (spec.length) {
       const photos = job.specPhotos || {};
-      if (y > H - 260) { doc.addPage(); y = margin; } else { y += 18; }
-      doc.setFont("times", "bold"); doc.setFontSize(13); doc.setTextColor(60, 60, 60);
-      doc.text("Finish Spec Sheet", margin, y); y += 8;
-      doc.setDrawColor(...GOLD); doc.setLineWidth(1.4); doc.line(margin, y, W - margin, y); y += 14;
+      if (hasScope) {
+        if (y > H - 260) { doc.addPage(); y = margin; } else { y += 18; }
+        doc.setFont("times", "bold"); doc.setFontSize(13); doc.setTextColor(60, 60, 60);
+        doc.text("Finish Spec Sheet", margin, y); y += 8;
+        doc.setDrawColor(...GOLD); doc.setLineWidth(1.4); doc.line(margin, y, W - margin, y); y += 14;
+      }
       doc.setFont("times", "italic"); doc.setFontSize(9.5); doc.setTextColor(120, 120, 120);
       const sl = doc.splitTextToSize("Install exactly these products unless a substitution is approved in writing. Each item says who buys it. Items marked CONTRACTOR TO CHOOSE: send your pick (photo or link) to Goldstone for approval before buying. Tap a product name to open its page.", maxW);
       doc.text(sl, margin, y); y += 12 * sl.length + 8;
       const thumb = 54, gap = 10;
-      SPEC_CATS.forEach((c) => {
-        const rows = spec.filter((it) => it.cat === c.key);
+      // Grouped by ROOM when any finish names one (master bath reads as one
+      // block: floor tile, wall tile, vanity…); otherwise by category.
+      const byRoom = spec.some((it) => it.room && String(it.room).trim());
+      const roomOf = (it) => (it.room && String(it.room).trim()) || "Whole house";
+      const groups = byRoom
+        ? [...new Set(spec.map(roomOf))].map((r) => ({ label: r.toUpperCase(), rows: spec.filter((it) => roomOf(it) === r).slice().sort((a, b) => SPEC_CATS.findIndex((c) => c.key === a.cat) - SPEC_CATS.findIndex((c) => c.key === b.cat)) }))
+        : SPEC_CATS.map((c) => ({ label: c.label.toUpperCase(), rows: spec.filter((it) => it.cat === c.key) })).filter((g) => g.rows.length);
+      groups.forEach((g) => {
+        const rows = g.rows;
         if (!rows.length) return;
         ensure(thumb + 30);
         y += 6;
         doc.setFont("times", "bold"); doc.setFontSize(11.5); doc.setTextColor(25, 25, 25);
-        doc.text(c.label.toUpperCase(), margin, y); y += 14;
+        doc.text(g.label, margin, y); y += 14;
         rows.forEach((it) => {
+          const catLbl = byRoom ? (SPEC_CATS.find((c) => c.key === it.cat) || {}).label || "" : "";
           const ph = photos[it.id];
           const tx = margin + (ph ? thumb + gap : 0);
           const tw = maxW - (ph ? thumb + gap : 0);
           doc.setFont("times", "bold"); doc.setFontSize(10.5);
-          const titleLines = doc.splitTextToSize(`${it.title || ""}${it.price ? `  ·  ${it.price}` : ""}`, tw);
+          const titleLines = doc.splitTextToSize(`${catLbl ? `${catLbl}: ` : ""}${it.title || ""}${it.price ? `  ·  ${it.price}` : ""}`, tw);
           doc.setFont("times", "normal"); doc.setFontSize(9.5);
           const descLines = it.desc ? doc.splitTextToSize(it.desc, tw) : [];
           const textH = 13 * titleLines.length + 12 * descLines.length + 14;

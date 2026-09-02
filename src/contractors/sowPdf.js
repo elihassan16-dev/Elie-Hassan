@@ -158,10 +158,11 @@ export async function sowPdfFile(job) {
       // block: floor tile, wall tile, vanity…); otherwise by category.
       // Finishes with no room named sit under their category (no room heading);
       // named rooms follow, each as one block with the category as a prefix.
-      const roomOf = (it) => (it.room && String(it.room).trim()) || "";
-      const noRoom = spec.filter((it) => !roomOf(it));
+      // A finish can name several rooms — it prints under each of them.
+      const roomsOf = (it) => (Array.isArray(it.rooms) ? it.rooms : (it.room ? [it.room] : [])).map((r) => String(r).trim()).filter(Boolean);
+      const noRoom = spec.filter((it) => !roomsOf(it).length);
       const catGroups = SPEC_CATS.map((c) => ({ label: c.label.toUpperCase(), room: false, rows: noRoom.filter((it) => it.cat === c.key) })).filter((g) => g.rows.length);
-      const roomGroups = [...new Set(spec.map(roomOf).filter(Boolean))].map((r) => ({ label: r.toUpperCase(), room: true, rows: spec.filter((it) => roomOf(it) === r).slice().sort((a, b) => SPEC_CATS.findIndex((c) => c.key === a.cat) - SPEC_CATS.findIndex((c) => c.key === b.cat)) }));
+      const roomGroups = [...new Set(spec.flatMap(roomsOf))].map((r) => ({ label: r.toUpperCase(), room: true, rows: spec.filter((it) => roomsOf(it).includes(r)).slice().sort((a, b) => SPEC_CATS.findIndex((c) => c.key === a.cat) - SPEC_CATS.findIndex((c) => c.key === b.cat)) }));
       const groups = [...catGroups, ...roomGroups];
       groups.forEach((g) => {
         const rows = g.rows;

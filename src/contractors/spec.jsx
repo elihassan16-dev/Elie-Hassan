@@ -22,6 +22,9 @@ export const SPEC_BUYER = { goldstone: "GOLDSTONE BUYS", contractor: "CONTRACTOR
 export const ROOM_PICKS = ["Kitchen", "Hallway bath", "Master bath", "Half bath", "Living room", "Dining room", "Master bedroom", "Bedroom 2", "Bedroom 3", "Hallway & stairs", "Basement", "Laundry", "Garage", "Exterior"];
 export const roomLabel = (r) => (r && String(r).trim()) || "";
 const roomName = (r) => r || "Not in a room";
+// A finish can belong to several rooms (Elie 9/2/26) — rooms:[…]; older items carry a single room string.
+export const roomsOf = (it) => (Array.isArray(it && it.rooms) ? it.rooms : (it && it.room ? [it.room] : [])).map((r) => String(r).trim()).filter(Boolean);
+const splitRooms = (txt) => String(txt || "").split(/[,;\n]+/).map((r) => r.trim()).filter(Boolean);
 const uid = () => `f-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
 // Pull every photo into a data URL so jsPDF can draw it (public storage
@@ -82,32 +85,33 @@ export function FinishesView({ property, spec, setSpec, isWide, sidebar }) {
   const items = (spec && spec.items) || [];
   const [cat, setCat] = useState("flooring");
   const [mode, setMode] = useState("cat"); // cat | room — how the left menu slices the house
-  const rooms = useMemo(() => { const named = [...new Set(items.map((it) => roomLabel(it.room)).filter(Boolean))]; return items.some((it) => !roomLabel(it.room)) ? [...named, ""] : named; }, [items]);
+  const rooms = useMemo(() => { const named = [...new Set(items.flatMap(roomsOf))]; return items.some((it) => !roomsOf(it).length) ? [...named, ""] : named; }, [items]);
   const [room, setRoom] = useState(() => rooms[0] || "");
   const [form, setForm] = useState(null); // null | {id?, cat, room, title, desc, link, photo, buyer, choose, price}
   const addr = `${property.address || ""}${property.city ? `, ${property.city}` : ""}`;
-  const inCat = mode === "cat" ? items.filter((it) => it.cat === cat) : items.filter((it) => roomLabel(it.room) === room);
-  const picksInCat = picks.items.filter((p) => (mode === "cat" ? p.cat === cat : true) && !items.some((it) => it.pickId === p.id && (mode === "cat" || roomLabel(it.room) === room)));
+  const inCat = mode === "cat" ? items.filter((it) => it.cat === cat) : items.filter((it) => (room ? roomsOf(it).includes(room) : !roomsOf(it).length));
+  const picksInCat = picks.items.filter((p) => (mode === "cat" ? p.cat === cat : true) && !items.some((it) => it.pickId === p.id && (mode === "cat" || (room ? roomsOf(it).includes(room) : !roomsOf(it).length))));
   const setItems = (next) => setSpec({ ...(spec || {}), items: next });
 
-  const startAdd = () => setForm({ cat: mode === "cat" ? cat : "flooring", room: mode === "room" ? room : "", title: "", desc: "", link: "", photo: "", buyer: "goldstone", choose: false, price: "", rooms });
-  const usePick = (p) => setItems([...items, { id: uid(), cat: p.cat, room: mode === "room" ? room : "", title: p.title, desc: p.desc || "", link: p.link || "", photo: p.photo || "", price: p.price || "", buyer: "goldstone", choose: false, pickId: p.id, at: new Date().toISOString() }]);
+  const startAdd = () => setForm({ cat: mode === "cat" ? cat : "flooring", rooms: mode === "room" && room ? [room] : [], title: "", desc: "", link: "", photo: "", buyer: "goldstone", choose: false, price: "", known: rooms.filter(Boolean) });
+  const usePick = (p) => setItems([...items, { id: uid(), cat: p.cat, rooms: mode === "room" && room ? [room] : [], title: p.title, desc: p.desc || "", link: p.link || "", photo: p.photo || "", price: p.price || "", buyer: "goldstone", choose: false, pickId: p.id, at: new Date().toISOString() }]);
   const save = (f) => {
     const title = (f.title || "").trim();
     if (!title && !f.choose && !f.photo) return;
-    const base = { cat: f.cat, room: (f.room || "").trim(), title: title || (f.choose ? "Contractor's choice" : "Finish"), desc: (f.desc || "").trim(), link: (f.link || "").trim(), photo: f.photo || "", price: (f.price || "").trim(), buyer: f.buyer, choose: !!f.choose };
+    const rl = [...new Set([...(Array.isArray(f.rooms) ? f.rooms : []), ...splitRooms(f.roomDraft)])];
+    const base = { cat: f.cat, rooms: rl, room: rl.join(" · "), title: title || (f.choose ? "Contractor's choice" : "Finish"), desc: (f.desc || "").trim(), link: (f.link || "").trim(), photo: f.photo || "", price: (f.price || "").trim(), buyer: f.buyer, choose: !!f.choose };
     if (f.id) setItems(items.map((it) => (it.id === f.id ? { ...it, ...base } : it)));
     else {
       const pickId = !f.choose ? picks.pin(base, addr) : null; // your picks, saved for next time
       setItems([...items, { id: uid(), ...base, pickId, at: new Date().toISOString(), by: currentUser }]);
-      if (base.room && mode === "room") setRoom(base.room);
+      if (rl.length && mode === "room") setRoom(rl[0]);
     }
     setForm(null);
   };
 
   const catList = mode === "cat"
     ? SPEC_CATS.map((c) => ({ ...c, n: items.filter((it) => it.cat === c.key).length }))
-    : [...rooms, ...(rooms.includes(room) ? [] : [room])].map((r) => ({ key: r, label: roomName(r), emoji: r ? "🚪" : "—", n: items.filter((it) => roomLabel(it.room) === r).length }));
+    : [...rooms, ...(rooms.includes(room) ? [] : [room])].map((r) => ({ key: r, label: roomName(r), emoji: r ? "🚪" : "—", n: items.filter((it) => (r ? roomsOf(it).includes(r) : !roomsOf(it).length)).length }));
   const selKey = mode === "cat" ? cat : room;
   const pick = (k) => (mode === "cat" ? setCat(k) : setRoom(k));
   const modeSwitch = (
@@ -124,7 +128,7 @@ export function FinishesView({ property, spec, setSpec, isWide, sidebar }) {
     <div key={it.id} style={{ display: "flex", gap: 12, padding: "12px 14px", borderTop: `1px solid ${T.border}`, alignItems: "flex-start" }}>
       <Photo src={it.photo} empty={it.choose ? "👷" : "📷"} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        {(mode === "room" || roomLabel(it.room)) && <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textTert, letterSpacing: "0.03em", marginBottom: 2 }}>{mode === "cat" ? `🚪 ${roomLabel(it.room).toUpperCase()}` : `${specCatOf(it.cat).emoji} ${specCatOf(it.cat).label.toUpperCase()}`}</div>}
+        {(mode === "room" || roomsOf(it).length > 0) && <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textTert, letterSpacing: "0.03em", marginBottom: 2 }}>{mode === "cat" ? `🚪 ${roomsOf(it).join(" · ").toUpperCase()}` : `${specCatOf(it.cat).emoji} ${specCatOf(it.cat).label.toUpperCase()}`}</div>}
         <div style={{ fontSize: 14.5, fontWeight: 700, color: T.text, lineHeight: 1.25 }}>{it.title}{it.price ? <span style={{ fontWeight: 500, color: T.textSub }}> · {it.price}</span> : null}</div>
         {it.desc && <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 3, lineHeight: 1.4 }}>{it.desc}</div>}
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
@@ -133,7 +137,7 @@ export function FinishesView({ property, spec, setSpec, isWide, sidebar }) {
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
-        <button onClick={() => setForm({ ...it })} style={{ ...btn(), padding: "6px 10px", minHeight: 32, fontSize: 12 }}>✎</button>
+        <button onClick={() => setForm({ ...it, rooms: roomsOf(it), known: rooms.filter(Boolean) })} style={{ ...btn(), padding: "6px 10px", minHeight: 32, fontSize: 12 }}>✎</button>
         <button onClick={() => setItems(items.filter((x) => x.id !== it.id))} style={{ ...btn("ghost"), padding: "6px 10px", minHeight: 32, fontSize: 12, color: T.red }}>×</button>
       </div>
     </div>
@@ -260,10 +264,10 @@ function FinishForm({ form, setForm, onSave, onClose }) {
             <input value={form.link} onChange={(e) => up({ link: e.target.value })} placeholder="Paste the product page link" inputMode="url" style={{ ...inp, flex: 1 }} />
             <button onClick={fetchLink} disabled={!form.link.trim() || !!busy} style={{ ...btn(), opacity: form.link.trim() && !busy ? 1 : 0.5 }}>⬇ Get picture</button>
           </div>
-          {lbl("ROOM / AREA")}
-          <input value={form.room || ""} onChange={(e) => up({ room: e.target.value })} placeholder="Leave blank for the whole house — or Master bath, Hallway bath, Bedroom 2…" style={inp} />
+          {lbl("ROOMS / AREAS — tap all that apply, or leave empty for the whole house")}
+          <input value={form.roomDraft || ""} onChange={(e) => up({ roomDraft: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const add = splitRooms(form.roomDraft); if (add.length) up({ rooms: [...new Set([...(form.rooms || []), ...add])], roomDraft: "" }); } }} placeholder="Type another room and press Enter" style={inp} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-            {[...new Set([...(form.rooms || []), ...ROOM_PICKS])].slice(0, 18).map((r) => <button key={r} onClick={() => up({ room: r })} style={{ ...chip(roomLabel(form.room) === r && !!form.room), padding: "4px 10px", minHeight: 28, fontSize: 11.5 }}>{r}</button>)}
+            {[...new Set([...(form.rooms || []), ...(form.known || []), ...ROOM_PICKS])].filter(Boolean).slice(0, 24).map((r) => { const on = (form.rooms || []).includes(r); return <button key={r} onClick={() => up({ rooms: on ? (form.rooms || []).filter((x) => x !== r) : [...(form.rooms || []), r] })} style={{ ...chip(on), padding: "4px 10px", minHeight: 28, fontSize: 11.5 }}>{on ? "✓ " : ""}{r}</button>; })}
           </div>
           {lbl("WHAT IT IS")}
           <input value={form.title} onChange={(e) => up({ title: e.target.value })} placeholder={form.choose ? "e.g. Bath floor tile — contractor picks" : "e.g. LVP — Lifeproof Sterling Oak, 7mm"} style={inp} />

@@ -32,6 +32,14 @@ export const SOW_STATUS = {
 };
 export const NEXT_STATUS = { in: "asneeded", asneeded: "discuss", discuss: "in" };
 
+// Who buys the materials for a line. The scope has one default (sow.matDefault,
+// normally "contractor" = labor AND materials); a line can override it.
+export const SOW_MAT = {
+  contractor: { label: "Contractor buys materials", short: "CONTRACTOR MATERIALS", who: "Contractor" },
+  goldstone: { label: "Goldstone buys materials", short: "GOLDSTONE MATERIALS", who: "Goldstone" },
+};
+export const matOf = (it, def) => (it && it.mat) || def || "contractor";
+
 const S = (cat, lines) => lines.map((text, i) => ({ id: `s-${cat}-${i + 1}`, cat, text }));
 export const SOW_SEED = [
   ...S("demo", [
@@ -211,17 +219,16 @@ export const libRemove = (row, id) => ({ ...(row || { id: "sow_library" }), id: 
 
 // Plain-text rendering — what the contractor portal's line-by-line bid box
 // mirrors, and the fallback wherever only text is understood.
-export function scopeToText(items) {
-  const out = [];
+export function scopeToText(items, matDefault = "contractor") {
+  const out = [`MATERIALS: ${SOW_MAT[matDefault] ? SOW_MAT[matDefault].label.toLowerCase() : "contractor buys materials"} unless a line says otherwise.`];
   SOW_CATS.forEach((c) => {
     const rows = (items || []).filter((it) => it.cat === c.key);
     if (!rows.length) return;
-    if (out.length) out.push("");
+    out.push("");
     out.push(c.long);
     rows.forEach((it, i) => {
-      const st = SOW_STATUS[it.status] || SOW_STATUS.in;
-      out.push(`${i + 1}. ${it.text}${it.status === "asneeded" ? " (as needed — confirm on site)" : it.status === "discuss" ? " — TO DISCUSS with Goldstone before pricing" : ""}${it.note ? ` — ${it.note}` : ""}`);
-      void st;
+      const m = matOf(it, matDefault);
+      out.push(`${i + 1}. ${it.text}${it.status === "asneeded" ? " (as needed — confirm on site)" : it.status === "discuss" ? " — TO DISCUSS with Goldstone before pricing" : ""}${m !== matDefault ? ` (${SOW_MAT[m].who} buys the materials)` : ""}${it.note ? ` — ${it.note}` : ""}`);
     });
   });
   return out.join("\n");

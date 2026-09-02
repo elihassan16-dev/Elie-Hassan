@@ -15,7 +15,7 @@ import { supabase } from "../supabaseClient";
 import { notify, qbAuthFetch, uploadAttachment } from "../net";
 import { useSmsTexting } from "../sms";
 import { useContractorData } from "./data";
-import { SOW_CATS, SOW_STATUS, NEXT_STATUS, SOW_MAT, matOf, catOf, libraryFrom, libAdd, libEdit, libRemove, scopeToText, scopeCounts } from "./sowLibrary";
+import { SOW_CATS, SOW_STATUS, NEXT_STATUS, SOW_MAT, MAT_ORDER, NEXT_MAT, matOf, catOf, libraryFrom, libAdd, libEdit, libRemove, scopeToText, scopeCounts } from "./sowLibrary";
 import { sowPdfFile } from "./sowPdf";
 import { SowPdfPreview } from "./SowPdfPreview";
 import { useSpeechToText, micBtnStyle, micGlyph } from "../useSpeech";
@@ -178,7 +178,7 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
           <span style={{ flex: 1, minWidth: 0, fontSize: 14, lineHeight: 1.3, color: T.text }}>
             {it ? it.text : li.text}
             {it && it.note && <span style={{ display: "block", fontSize: 11.5, color: T.textSub, marginTop: 2 }}>Note: {it.note}</span>}
-            {it && matOf(it, matDefault) !== matDefault && <span style={{ display: "inline-block", fontSize: 10, fontWeight: 800, letterSpacing: "0.03em", color: "#8a6d1f", background: T.goldLight, borderRadius: 10, padding: "2px 7px", marginTop: 4 }}>🛒 {SOW_MAT[matOf(it, matDefault)].who.toUpperCase()} BUYS MATERIALS</span>}
+            {it && matOf(it, matDefault) !== matDefault && <span style={{ display: "inline-block", fontSize: 10, fontWeight: 800, letterSpacing: "0.03em", color: "#8a6d1f", background: T.goldLight, borderRadius: 10, padding: "2px 7px", marginTop: 4 }}>🛒 {(SOW_MAT[matOf(it, matDefault)] || SOW_MAT.contractor).tag}</span>}
             {li && li.custom && <span style={{ display: "block", fontSize: 10.5, color: T.textTert, marginTop: 2 }}>✎ your line</span>}
           </span>
           {picked && <StatusChip status={it.status} onCycle={() => cycle(it.id)} small />}
@@ -188,7 +188,7 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "0 14px 10px 47px" }}>
             {it && <button onClick={() => { setMenuFor(null); setEditing({ scopeId: it.id, libId: it.libId || null, text: it.text, note: it.note || "", toLib: false }); }} style={btn()}>✎ Edit for this house</button>}
             {li && <button onClick={() => { setMenuFor(null); setEditing({ scopeId: it ? it.id : null, libId: li.id, text: it ? it.text : li.text, note: it ? it.note || "" : "", toLib: true }); }} style={btn()}>✎ Edit in library</button>}
-            {it && <button onClick={() => { setMenuFor(null); setMat(it.id, matOf(it, matDefault) === "goldstone" ? "contractor" : "goldstone"); }} style={btn()}>🛒 {matOf(it, matDefault) === "goldstone" ? "Contractor buys materials" : "Goldstone buys materials"}</button>}
+            {it && MAT_ORDER.filter((k) => k !== matOf(it, matDefault)).map((k) => <button key={k} onClick={() => { setMenuFor(null); setMat(it.id, k); }} style={btn()}>🛒 {SOW_MAT[k].label}{k === "finishes" ? "" : " materials"}</button>)}
             {it && <button onClick={() => { setMenuFor(null); removeLine(it.id); }} style={btn("ghost")}>Take out of this scope</button>}
             {li && <button onClick={() => { if (!window.confirm(`Remove "${li.text.slice(0, 60)}" from your library?`)) return; setMenuFor(null); lib.remove(li.id); if (it) removeLine(it.id); }} style={{ ...btn("ghost"), color: T.red }}>🗑 Remove from library</button>}
           </div>
@@ -265,11 +265,11 @@ export function ScopeBuilder({ property, onUpdate, onClose }) {
               <div style={{ ...card, padding: "10px 14px" }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: T.textSub, marginBottom: 7 }}>🛒 MATERIALS — who buys them unless a line says otherwise</div>
                 <div style={{ display: "flex", gap: 2, padding: 3, borderRadius: 18, background: "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.05)" }}>
-                  {[["contractor", "Contractor buys"], ["goldstone", "Goldstone buys"]].map(([k, l]) => (
-                    <button key={k} onClick={() => setSow({ matDefault: k })} style={{ flex: 1, padding: "7px 10px", borderRadius: 14, border: "none", background: matDefault === k ? "#fff" : "transparent", color: matDefault === k ? T.text : T.textSub, fontWeight: matDefault === k ? 650 : 450, fontSize: 13, cursor: "pointer", fontFamily: "inherit", boxShadow: matDefault === k ? "0 1px 4px rgba(0,0,0,0.14)" : "none", minHeight: 36 }}>{l}</button>
+                  {MAT_ORDER.map((k) => (
+                    <button key={k} onClick={() => setSow({ matDefault: k })} style={{ flex: 1, padding: "7px 6px", borderRadius: 14, border: "none", background: matDefault === k ? "#fff" : "transparent", color: matDefault === k ? T.text : T.textSub, fontWeight: matDefault === k ? 650 : 450, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", boxShadow: matDefault === k ? "0 1px 4px rgba(0,0,0,0.14)" : "none", minHeight: 36, lineHeight: 1.15 }}>{SOW_MAT[k].label}</button>
                   ))}
                 </div>
-                <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 7, lineHeight: 1.4 }}>Flip a single line the other way from its ⋯ menu — it gets a tag in the PDF.</div>
+                <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 7, lineHeight: 1.4 }}>{SOW_MAT[matDefault].legend.charAt(0).toUpperCase() + SOW_MAT[matDefault].legend.slice(1)}. Flip a single line from its ⋯ menu — it gets a tag in the PDF.</div>
               </div>
             )}
             {!!items.length && (

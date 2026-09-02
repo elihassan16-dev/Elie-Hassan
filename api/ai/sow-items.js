@@ -22,8 +22,8 @@ async function readBody(req) {
 const SYSTEM = `You turn a house flipper's spoken notes into Scope-of-Work lines for contractors to price (Goldstone Properties, New Jersey).
 
 You get: the category keys, the flipper's LIBRARY of standard lines (id, cat, text), the lines ALREADY in this house's scope, and the new notes.
-Return ONLY a JSON object: {"items":[{"libId":"<library id or null>","cat":"<category key>","text":"<line text>","status":"in|asneeded|discuss","mat":"goldstone|contractor|null"}], "remove":["<scope line id>"]}
-- mat: "goldstone" when the notes say Goldstone / "I" / "we" buy, supply or provide the materials for that line; "contractor" when they say the contractor supplies them; null when the notes don't say.
+Return ONLY a JSON object: {"items":[{"libId":"<library id or null>","cat":"<category key>","text":"<line text>","status":"in|asneeded|discuss","mat":"goldstone|finishes|contractor|null"}], "remove":["<scope line id>"]}
+- mat: "goldstone" when the notes say Goldstone / "I" / "we" buy, supply or provide the materials for that line; "finishes" when Goldstone buys only the finish materials (tile, flooring, fixtures, cabinets, lighting) and the contractor the rough materials; "contractor" when they say the contractor supplies them; null when the notes don't say.
 
 Rules:
 - Prefer library lines: when a note matches a library line, return that line's libId and its exact text (edit the text only if the note clearly changes it).
@@ -74,7 +74,7 @@ export default async function handler(req, res) {
         cat: okCat.has(String(it.cat)) ? String(it.cat) : "general",
         text: String(it.text).trim().slice(0, 300),
         status: ["in", "asneeded", "discuss"].includes(it.status) ? it.status : "in",
-        ...(it.mat === "goldstone" || it.mat === "contractor" ? { mat: it.mat } : {}),
+        ...(["goldstone", "finishes", "contractor"].includes(it.mat) ? { mat: it.mat } : {}),
       }))
       .slice(0, 60);
     const remove = Array.isArray(parsed.remove) ? parsed.remove.map(String).slice(0, 60) : [];

@@ -35,9 +35,12 @@ export const NEXT_STATUS = { in: "asneeded", asneeded: "discuss", discuss: "in" 
 // Who buys the materials for a line. The scope has one default (sow.matDefault,
 // normally "contractor" = labor AND materials); a line can override it.
 export const SOW_MAT = {
-  contractor: { label: "Contractor buys materials", short: "CONTRACTOR MATERIALS", who: "Contractor" },
-  goldstone: { label: "Goldstone buys materials", short: "GOLDSTONE MATERIALS", who: "Goldstone" },
+  contractor: { label: "Contractor buys", tag: "CONTRACTOR BUYS MATERIALS", line: "Contractor buys the materials", legend: "the contractor supplies labor AND all materials" },
+  finishes: { label: "Goldstone buys finishes only", tag: "GOLDSTONE BUYS FINISHES", line: "Goldstone buys the finishes only", legend: "Goldstone buys the FINISH materials (flooring, tile, cabinets, counters, fixtures, lighting, hardware, paint); the contractor supplies labor and all rough/construction materials" },
+  goldstone: { label: "Goldstone buys", tag: "GOLDSTONE BUYS MATERIALS", line: "Goldstone buys the materials", legend: "Goldstone buys the materials; the contractor supplies labor" },
 };
+export const MAT_ORDER = ["contractor", "finishes", "goldstone"];
+export const NEXT_MAT = { contractor: "finishes", finishes: "goldstone", goldstone: "contractor" };
 export const matOf = (it, def) => (it && it.mat) || def || "contractor";
 
 const S = (cat, lines) => lines.map((text, i) => ({ id: `s-${cat}-${i + 1}`, cat, text }));
@@ -220,7 +223,7 @@ export const libRemove = (row, id) => ({ ...(row || { id: "sow_library" }), id: 
 // Plain-text rendering — what the contractor portal's line-by-line bid box
 // mirrors, and the fallback wherever only text is understood.
 export function scopeToText(items, matDefault = "contractor") {
-  const out = [`MATERIALS: ${SOW_MAT[matDefault] ? SOW_MAT[matDefault].label.toLowerCase() : "contractor buys materials"} unless a line says otherwise.`];
+  const out = [`MATERIALS: ${(SOW_MAT[matDefault] || SOW_MAT.contractor).legend} — unless a line says otherwise.`];
   SOW_CATS.forEach((c) => {
     const rows = (items || []).filter((it) => it.cat === c.key);
     if (!rows.length) return;
@@ -228,7 +231,7 @@ export function scopeToText(items, matDefault = "contractor") {
     out.push(c.long);
     rows.forEach((it, i) => {
       const m = matOf(it, matDefault);
-      out.push(`${i + 1}. ${it.text}${it.status === "asneeded" ? " (as needed — confirm on site)" : it.status === "discuss" ? " — TO DISCUSS with Goldstone before pricing" : ""}${m !== matDefault ? ` (${SOW_MAT[m].who} buys the materials)` : ""}${it.note ? ` — ${it.note}` : ""}`);
+      out.push(`${i + 1}. ${it.text}${it.status === "asneeded" ? " (as needed — confirm on site)" : it.status === "discuss" ? " — TO DISCUSS with Goldstone before pricing" : ""}${m !== matDefault ? ` (${(SOW_MAT[m] || SOW_MAT.contractor).line})` : ""}${it.note ? ` — ${it.note}` : ""}`);
     });
   });
   return out.join("\n");

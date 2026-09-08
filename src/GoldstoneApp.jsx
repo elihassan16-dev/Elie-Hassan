@@ -14177,20 +14177,37 @@ const txLegacyKey=(t)=>[t.date,t.type,t.num,t.vendor,t.amount].join("|");
 const txKeys=(t)=>t.lineKey?[t.lineKey,txLegacyKey(t)]:[txLegacyKey(t)];
 const txIn=(set,t)=>txKeys(t).some(k=>set.has(k));
 const txSame=(a,b)=>{const B=txKeys(b);return txKeys(a).some(k=>B.includes(k));};
-// id AND fingerprint together: the auto-pin "is anything different?" check must
-// still notice an edited amount on a row whose id did not change.
-const txSig=(t)=>txKey(t)+"::"+txLegacyKey(t);
-// Swap each legacy fingerprint in an exclusion list for the stable key of the
-// one live row it matches. A fingerprint matching several rows (two identical
-// payments on one day) is left alone - it was excluding all of them, and one
-// id could only carry one. Returns null when nothing changed.
+// The auto-pin "is anything different?" check (Elie 9/8, the 114 Oneida
+// flicker). Two open copies of the app - phone and a desktop tab - each
+// rebuilt this list and saved it, and disagreed: one held rows the server had
+// stamped with ids, the other still held rows without them. Comparing by id
+// made each copy see the other's save as "different" and write its own back,
+// forever. So: compare by the fingerprint (it carries the amount, so an edited
+// row still counts as changed), write ONCE to upgrade stored rows to their ids
+// when the live rows carry them, and never let a copy holding un-stamped rows
+// overwrite a list that already has ids.
+const txListSame=(cur,auto)=>{
+  const c=cur||[],a=auto||[];
+  const byLegacy=new Map();c.forEach(t=>{const k=txLegacyKey(t);if(!byLegacy.has(k))byLegacy.set(k,t);});
+  const seen=new Set(a.map(txLegacyKey));
+  if(seen.size!==new Set(c.map(txLegacyKey)).size)return false;
+  return a.every(t=>{const m=byLegacy.get(txLegacyKey(t));if(!m)return false;return !(t.lineKey&&!m.lineKey);});
+};
+// Add the stable key of the one live row each legacy fingerprint matches,
+// KEEPING the fingerprint beside it - a copy of the app still holding rows
+// without ids (a tab opened before the ids shipped, or rows from the server's
+// day-long cache) must still see the exclusion. A fingerprint matching several
+// rows (two identical payments on one day) is left alone - it was excluding
+// all of them, and one id could only carry one. Returns null when nothing
+// changed.
 const txMigrateEx=(exList,rows)=>{
   if(!exList||!exList.length)return null;
   const hits={};
   (rows||[]).forEach(t=>{if(!t||!t.lineKey)return;const k=txLegacyKey(t);(hits[k]=hits[k]||[]).push(t.lineKey);});
-  let changed=false;
-  const out=exList.map(k=>{const h=hits[k];if(h&&h.length===1&&h[0]!==k){changed=true;return h[0];}return k;});
-  return changed?[...new Set(out)]:null;
+  const have=new Set(exList);
+  const add=[];
+  exList.forEach(k=>{const h=hits[k];if(h&&h.length===1&&!have.has(h[0])){have.add(h[0]);add.push(h[0]);}});
+  return add.length?[...exList,...add]:null;
 };
 
 // ─── Pick QuickBooks transactions to pin (down payment, deposit, etc.) ──────────
@@ -14361,10 +14378,9 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
     const ex=new Set(mig||property.qbDebtExcluded||[]);
     const auto=txns.filter(t=>qbBucket(t.account)==="debt"&&!txIn(ex,t)).map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
     const cur=property.qbDebtTxns||[];
-    const ck=new Set(cur.map(txSig)),nk=new Set(auto.map(txSig));
-    const same=ck.size===nk.size&&[...nk].every(k=>ck.has(k));
+    const same=txListSame(cur,auto);
     if(!same)onUpdate(property.id,"qbDebtTxns",auto);
-  },[property.qbDebtAuto,txns,property.qbDebtExcluded]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[property.qbDebtAuto,txns,(property.qbDebtExcluded||[]).join("\n")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle=(id)=>{const has=pinned.includes(id);onUpdate(property.id,"qbLoanAccounts",has?pinned.filter(x=>x!==id):[...pinned,id]);};
   const addCustom=(key)=>{const label=draft.label.trim();const amount=num(draft.amount);if(!label&&!amount)return;const arr=property[key]||[];
@@ -15448,10 +15464,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const ex=new Set(mig||p.qbDebtExcluded||[]);
     const auto=autoTxns.filter(t=>qbBucket(t.account)==="debt"&&!txIn(ex,t)).map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
     const cur=p.qbDebtTxns||[];
-    const ck=new Set(cur.map(txSig)),nk=new Set(auto.map(txSig));
-    const same=ck.size===nk.size&&[...nk].every(k=>ck.has(k));
+    const same=txListSame(cur,auto);
     if(!same)updateProp(p.id,"qbDebtTxns",auto);
-  },[autoTxns,selForAuto&&selForAuto.qbDebtExcluded]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[autoTxns,selForAuto&&(selForAuto.qbDebtExcluded||[]).join("\n")]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
     if(!txPick){setPickTxns(null);return;}
     let alive=true;setPickTxns(null);
@@ -15469,10 +15484,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const ex=new Set(mig||p.dmRehabExcluded||[]);
     const auto=autoTxns.filter(t=>qbBucket(t.account)==="rehab"&&!txIn(ex,t)).map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
     const cur=p.dmConstrSpentTxns||[];
-    const ck=new Set(cur.map(txSig)),nk=new Set(auto.map(txSig));
-    const same=ck.size===nk.size&&[...nk].every(k=>ck.has(k));
+    const same=txListSame(cur,auto);
     if(!same)updateProp(p.id,"dmConstrSpentTxns",auto);
-  },[autoTxns,selForAuto&&selForAuto.dmRehabExcluded,selForAuto&&selForAuto.dmRehabAuto]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[autoTxns,selForAuto&&(selForAuto.dmRehabExcluded||[]).join("\n"),selForAuto&&selForAuto.dmRehabAuto]); // eslint-disable-line react-hooks/exhaustive-deps
   // Auto draws (dmDrawAuto): every credit that raises a BANK-job mortgage
   // account counts as a draw automatically (from the account's General Ledger),
   // minus hand-excluded ones (dmDrawExcluded, by txKey).
@@ -15511,10 +15525,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       .map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}))
       .filter(t=>!txIn(ex,t));
     const cur=p.qbDrawTxns||[];
-    const ck=new Set(cur.map(txSig)),nk=new Set(auto.map(txSig));
-    const same=ck.size===nk.size&&[...nk].every(k=>ck.has(k));
+    const same=txListSame(cur,auto);
     if(!same)updateProp(p.id,"qbDrawTxns",auto);
-  },[drawAcctTxns,selForAuto&&selForAuto.dmDrawExcluded,selForAuto&&selForAuto.dmDrawAuto]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[drawAcctTxns,selForAuto&&(selForAuto.dmDrawExcluded||[]).join("\n"),selForAuto&&selForAuto.dmDrawAuto]); // eslint-disable-line react-hooks/exhaustive-deps
   // A pending "bank sent a draw" entry clears itself once QuickBooks records
   // the real credit: same amount (within a dollar), dated no more than a few
   // days before the pending entry.

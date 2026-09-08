@@ -64,6 +64,16 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
 }
 .gs-scroll-x::-webkit-scrollbar { display: none; }
 
+/* 🔒 No sideways panning (Elie 9/8). A vertical scroller never scrolls
+   sideways: inline overflow-y:auto makes overflow-x compute to auto, and the
+   5px touch halo on any full-width button then leaves the pane a 5px-wide
+   horizontal scroller — enough for iOS to grab a drag and rubber-band the
+   whole list off to the side. Strips that scroll on purpose (tab rows, chip
+   rows) keep scrolling but never bounce at an edge, so a row that is only a
+   hair wider than its box can't be dragged either. */
+[style*="overflow-y: auto"], [style*="overflow-y: scroll"] { overflow-x: hidden; }
+[style*="overflow-x: auto"], .gs-scroll-x { overscroll-behavior-x: none !important; }
+
 /* Inset-grouped financial cards: rows carry a hairline top border so they
    divide each other, but the first row of a card must not draw one under the
    card's rounded top edge. */

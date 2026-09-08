@@ -14626,8 +14626,23 @@ const qbCache={
   get(key,fallback){try{const v=localStorage.getItem("gs_qbcache_"+key);return v?JSON.parse(v):fallback;}catch{return fallback;}},
   set(key,val){try{localStorage.setItem("gs_qbcache_"+key,JSON.stringify(val));}catch{/* ignore quota/private-mode */}},
 };
-// Slim the spend map to just {allIn} per project before caching (drop bulky pnl/loading).
-const slimSpend=(spend)=>Object.fromEntries(Object.entries(spend||{}).map(([k,v])=>[k,{allIn:v&&v.allIn!=null?v.allIn:null}]));
+// Cache the P&L ROWS too, not just the all-in total (Elie 9/8): the rehab-spent
+// figure reads those rows, so dropping them meant the page opened on pinned
+// numbers and then construction-left and true-equity CHANGED VALUE a second
+// later. Rows are small — {name, amount, section}; the raw Intuit report they
+// were flattened from is what we still leave behind. `at` is the vintage of the
+// stored scan, so a reload knows what it already has and can skip re-asking.
+const slimSpend=(spend)=>Object.fromEntries(Object.entries(spend||{}).map(([k,v])=>[k,{
+  allIn:v&&v.allIn!=null?v.allIn:null,
+  at:(v&&v.at)||null,
+  pnl:(v&&v.pnl&&Array.isArray(v.pnl.rows))?{rows:v.pnl.rows.map(r=>({name:r.name,amount:r.amount,section:r.section})),income:v.pnl.income,cogs:v.pnl.cogs,expenses:v.pnl.expenses,netIncome:v.pnl.netIncome}:null,
+}]));
+// How long a stored project scan stays good, by property status (Elie 9/8).
+// Anything NOT in this map never gets scanned at all: Under Contract has no
+// QuickBooks project yet, and Sold / Rental don't appear in the financial
+// section, so there is nothing on screen for a scan to feed.
+const QB_SPEND_TTL={"Under Construction":24*3600000,"Purchased":56*3600000,"On Market":56*3600000,"In Closing":56*3600000};
+const qbSpendTier=(status)=>QB_SPEND_TTL[status]==null?null:(QB_SPEND_TTL[status]<=24*3600000?"day":"slow");
 
 // ── Shared QuickBooks data layer ─────────────────────────────────────────────
 // ONE connected-status check, ONE accounts cache (localStorage warm start + a
@@ -14639,15 +14654,18 @@ const slimSpend=(spend)=>Object.fromEntries(Object.entries(spend||{}).map(([k,v]
 const qbStore={
   connected:null, accounts:qbCache.get("accounts",null), spend:qbCache.get("spend",{}),
   refreshing:false, subs:new Set(), statusStarted:false, loopStarted:false,
-  spendQueue:[], spendActive:0, spendAt:{},   // projectId -> ts of last completed scan
+  spendQueue:[], spendActive:0, scanning:false, spendTier:{},
+  // projectId -> vintage of the scan we already hold, restored from the stored
+  // copy so a reload doesn't re-ask for numbers it is already showing.
+  spendAt:Object.fromEntries(Object.entries(qbCache.get("spend",{})).filter(([,v])=>v&&v.at).map(([k,v])=>[k,v.at])),
   throttled:false, syncedAt:qbCache.get("accountsAt",null), // Intuit monthly cap hit; when balances last truly synced
 };
 const qbNotify=()=>{qbStore.subs.forEach(fn=>{try{fn();}catch{/* ignore */}});};
 async function qbRefreshAccounts(force){
   if(!qbStore.connected||qbStore.refreshing)return;
-  // The server caches balances for 5 min anyway — hitting it harder only
+  // The server caches balances for 30 min anyway — hitting it harder only
   // burns Intuit's monthly call quota. Skip if this device asked recently.
-  if(!force&&qbStore.accountsAt&&Date.now()-qbStore.accountsAt<4*60000)return;
+  if(!force&&qbStore.accountsAt&&Date.now()-qbStore.accountsAt<30*60000)return;
   qbStore.accountsAt=Date.now();
   qbStore.refreshing=true;qbNotify();
   try{
@@ -14696,38 +14714,57 @@ function qbEnsureStatus(){
 function qbStartLoop(){
   if(qbStore.loopStarted)return;qbStore.loopStarted=true;
   qbRefreshAccounts();
-  setInterval(()=>{if(document.visibilityState==="visible")qbRefreshAccounts();},5*60000);
-  const onShow=()=>{if(document.visibilityState==="visible")qbRefreshAccounts();};
-  window.addEventListener("focus",onShow);
-  document.addEventListener("visibilitychange",onShow);
+  // No refetch on window focus or tab switch (Elie 9/8): stepping away and
+  // coming back used to move the numbers under him mid-read. The server caches
+  // balances 30 minutes anyway, so a matching tick is as fresh as this data
+  // can actually get — and the ↻ button is there for "I want it now".
+  setInterval(()=>{if(document.visibilityState==="visible")qbRefreshAccounts();},30*60000);
 }
-// Ask for these projects' all-in spend. Fresh results (<2 min) are skipped unless
-// forced; the rest run through one global 4-worker queue.
-function qbRequestSpend(ids,force){
+// Ask for these properties' all-in spend. Takes property objects (so each one's
+// status sets how long its stored scan stays good — see QB_SPEND_TTL) or bare
+// project ids, which fall back to the daily rule. A project whose stored copy is
+// still inside its window is not re-asked at all: no request, no re-render, no
+// flicker. Whatever is left runs through one global 4-worker queue.
+function qbRequestSpend(items,force){
   if(!qbStore.connected)return;
-  const now=Date.now();
-  [...new Set((ids||[]).filter(Boolean))].forEach(id=>{
-    if(!force&&qbStore.spendAt[id]&&now-qbStore.spendAt[id]<15*60000)return;
+  const now=Date.now(),seen=new Set();
+  (items||[]).forEach(it=>{
+    const obj=it&&typeof it==="object";
+    const id=obj?(it.qbProjectId?String(it.qbProjectId):""):String(it||"");
+    if(!id||seen.has(id))return;seen.add(id);
+    const status=obj?(it.status||""):"";
+    const ttl=QB_SPEND_TTL[status];
+    if(!force&&status&&ttl==null)return;            // not shown in financials — never scanned
+    if(!force&&qbStore.spendAt[id]&&now-qbStore.spendAt[id]<(ttl||24*3600000))return;
     if(force)(qbStore.spendForce=qbStore.spendForce||new Set()).add(id);
+    qbStore.spendTier[id]=qbSpendTier(status)||"day";
     if(!qbStore.spendQueue.includes(id))qbStore.spendQueue.push(id);
   });
+  if(!qbStore.spendQueue.length)return;
+  qbStore.scanning=true;qbNotify();
   while(qbStore.spendActive<4&&qbStore.spendQueue.length)qbSpendWorker();
 }
 async function qbSpendWorker(){
   qbStore.spendActive++;
   while(qbStore.spendQueue.length){
     const id=qbStore.spendQueue.shift();
-    qbStore.spend={...qbStore.spend,[id]:{...(qbStore.spend[id]||{}),loading:true}};qbNotify();
+    // Deliberately NO notify per project (Elie 9/8): 20-odd results landing one at
+    // a time re-rendered every financial screen, so the numbers popped in over
+    // several seconds. The stored copy holds still until the batch is in.
+    qbStore.spend={...qbStore.spend,[id]:{...(qbStore.spend[id]||{}),loading:true}};
     try{
       const fresh=qbStore.spendForce&&qbStore.spendForce.delete(id);
-      const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}${fresh?"&fresh=1":""}`);
-      qbStore.spend={...qbStore.spend,[id]:{loading:false,allIn:(d?.expenses||0)+(d?.cogs||0),pnl:d}};
-      qbStore.spendAt[id]=Date.now();
+      const tier=qbStore.spendTier[id]||"day";
+      const d=await qbAuthFetch(`/api/quickbooks/pnl?customerId=${encodeURIComponent(id)}&tier=${tier}${fresh?"&fresh=1":""}`);
+      // Keep the SERVER's vintage, not "now" - it may have served a stored copy.
+      const at=(d&&d.cachedAt)||Date.now();
+      qbStore.spend={...qbStore.spend,[id]:{loading:false,at,allIn:(d?.expenses||0)+(d?.cogs||0),pnl:d}};
+      qbStore.spendAt[id]=at;
       qbCache.set("spend",slimSpend(qbStore.spend));
     }catch{qbStore.spend={...qbStore.spend,[id]:{...(qbStore.spend[id]||{}),loading:false}};}
-    qbNotify();
   }
   qbStore.spendActive--;
+  if(!qbStore.spendActive){qbStore.scanning=false;qbNotify();}   // one render, when it is all in
 }
 // The hook every financial section uses. Subscribes to the store, kicks the
 // status check on first mount, and re-renders on every store update.
@@ -14741,6 +14778,8 @@ function useQB(){
     refreshing:qbStore.refreshing,
     throttled:qbStore.throttled,
     syncedAt:qbStore.syncedAt,
+    spendAt:qbStore.spendAt,
+    scanning:qbStore.scanning,
     usage:qbStore.usage||null,
     requestSpend:qbRequestSpend,
     refresh:(ids)=>{qbRefreshAccounts(true);qbRequestSpend(ids,true);},
@@ -14757,8 +14796,8 @@ function FinPropertyBS({sharedProps,onNavigate,initialSelId,isMobile,canEdit=tru
     .sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")),[sharedProps]);
   const {connected,accounts,spend,requestSpend}=useQB();
   const projKey=props.map(p=>p.qbProjectId).filter(Boolean).join(",");
-  useEffect(()=>{if(connected)requestSpend(props.map(p=>p.qbProjectId));},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  return <><QbPausedNote/><FinDealMoney inline bsProps={props} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={dmHoldbackOf} initialSelId={initialSelId} isMobile={isMobile}/></>;
+  useEffect(()=>{if(connected)requestSpend(props);},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  return <><QbPausedNote/><QbFreshness props={props}/><FinDealMoney inline bsProps={props} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={dmHoldbackOf} initialSelId={initialSelId} isMobile={isMobile}/></>;
 }
 // ── Import a QuickBooks CSV export while the API is capped ───────────────────
 // Shown on QuickBooks-driven screens while Intuit's monthly call limit is hit:
@@ -14784,6 +14823,25 @@ function QbPausedNote(){
   );
   return null;
 }
+// Stored numbers are the truth between scans (Elie 9/8) - under construction
+// re-scans daily, the other live stages about 3x a week - so the financial
+// section says out loud how old what you are reading is, and gives you the one
+// button that goes and gets it now. Shows the OLDEST stamp on screen, since
+// that is the honest answer to "how current is this page".
+function QbFreshness({props}){
+  const {connected,syncedAt,spendAt,scanning,refreshing,refresh}=useQB();
+  if(!connected)return null;
+  const stamps=[syncedAt,...(props||[]).map(p=>p.qbProjectId&&spendAt&&spendAt[p.qbProjectId])].filter(Boolean);
+  const oldest=stamps.length?Math.min(...stamps):null;
+  const when=oldest?new Date(oldest).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):null;
+  const busy=!!(scanning||refreshing);
+  return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:10,margin:"0 0 10px"}}>
+      <span style={{fontSize:11.5,color:T.textTert}}>{busy?"Refreshing from QuickBooks..." :when?`Numbers as of ${when}`:"Not pulled yet"}</span>
+      <button onClick={()=>{if(!busy)refresh(props);}} disabled={busy} title="Pull fresh numbers from QuickBooks now" style={{minHeight:44,display:"inline-flex",alignItems:"center",gap:6,padding:"0 15px",borderRadius:22,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:700,fontSize:12.5,cursor:busy?"default":"pointer",fontFamily:"inherit",opacity:busy?0.55:1,flexShrink:0}}>{busy?"Refreshing":"↻ Refresh"}</button>
+    </div>
+  );
+}
 function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   const { bankAccounts, setBankAccounts:rawSetBankAccounts, flushBank }=useData();
   const setBankAccounts = canEdit ? rawSetBankAccounts : ()=>{};   // view-only: block writes
@@ -14798,7 +14856,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   const toggleCollapse=(id)=>setCollapsed(c=>({...c,[id]:!c[id]}));
   const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status)),[sharedProps]);
   const projKey=props.map(p=>p.qbProjectId).filter(Boolean).join(",");
-  useEffect(()=>{if(connected)requestSpend(props.map(p=>p.qbProjectId));},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(connected)requestSpend(props);},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const bank=[...(bankAccounts||[])].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   const addBank=()=>{const n=addName.trim();if(!n)return;setBankAccounts(prev=>[...prev,{id:Date.now(),name:n}]);setAddName("");save();};
@@ -16425,7 +16483,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   // Live QuickBooks balances + all-in spend from the shared layer (same data the
   // BS report / Bank Recon / Cash Flow read).
   const projKey=bsProps.map(p=>p.qbProjectId).filter(Boolean).join(",");
-  useEffect(()=>{if(connected)requestSpend(bsProps.map(p=>p.qbProjectId));},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(connected)requestSpend(bsProps);},[connected,projKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openDraws=useMemo(()=>(draws||[]).filter(d=>!d.paybackDate),[draws]);
   const propForDraw=(d)=>{if(d.propertyId!=null){const p=(sharedProps||[]).find(x=>String(x.id)===String(d.propertyId));if(p)return p;}return (sharedProps||[]).find(p=>drawsForProperty(p,[d]).length>0)||null;};

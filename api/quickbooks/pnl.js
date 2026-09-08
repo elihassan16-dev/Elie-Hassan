@@ -12,12 +12,16 @@ export default async function handler(req, res) {
   try {
     const start = "2010-01-01";
     const end = new Date().toISOString().slice(0, 10);
-    // 15-min shared cache — the BS report re-scans every project on each open.
-    // Elie's refresh rules (9/1): stored data is the truth; re-download active
-    // projects once a DAY, sold/past deals once a MONTH — a manual ↻ (fresh=1)
-    // bypasses either. This kills the constant rescanning, the quota burn, and
-    // the numbers shifting between logins.
-    const ttl = req.query.fresh === "1" ? 0 : req.query.tier === "sold" ? 30 * 86400000 : 24 * 3600000;
+    // Stored data is the truth; how long it stays good depends on which stage
+    // the property is at (Elie 9/1, per-status 9/8). The client sends the tier
+    // from the property's status: "day" for Under Construction, "slow" for
+    // Purchased / On Market / In Closing (about 3x a week), "sold" for past
+    // deals. A manual ↻ (fresh=1) bypasses all of it. Under Contract, Sold and
+    // Rental are not shown in the financial section, so the client never asks.
+    const ttl = req.query.fresh === "1" ? 0
+      : req.query.tier === "sold" ? 30 * 86400000
+      : req.query.tier === "slow" ? 56 * 3600000
+      : 24 * 3600000;
     const { data: rpt, cachedAt, stale } = await qbCached(`pnl_${customerId}`, ttl, () => qbApi(
       `/reports/ProfitAndLoss?customer=${encodeURIComponent(customerId)}&start_date=${start}&end_date=${end}&accounting_method=Accrual`
     ));

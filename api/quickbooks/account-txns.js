@@ -41,6 +41,7 @@ export default async function handler(req, res) {
     if (iAmt < 0) iAmt = cols.findIndex((c) => c.includes("amount") && !c.includes("balance"));
 
     const items = [];
+    const seen = {}; // "<txnId>#<line>" stable keys - see transactions.js
     function walk(rows) {
       if (!rows) return;
       for (const r of rows) {
@@ -50,7 +51,8 @@ export default async function handler(req, res) {
           // A real transaction row has a date or type (not a bare account subtotal).
           if (date || type) {
             const id = r.ColData[iDate >= 0 ? iDate : 0]?.id || r.ColData.find((c) => c && c.id)?.id || "";
-            items.push({ id, date, type, num: g(iNum), vendor, memo: g(iMemo), amount: num(g(iAmt)) });
+            const lineKey = id ? `${id}#${(seen[id] = (seen[id] || 0) + 1) - 1}` : undefined;
+            items.push({ id, date, type, num: g(iNum), vendor, memo: g(iMemo), amount: num(g(iAmt)), lineKey });
           }
         }
         if (r.Rows?.Row) walk(r.Rows.Row);

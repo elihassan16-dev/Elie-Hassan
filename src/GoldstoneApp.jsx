@@ -14594,11 +14594,18 @@ const BS_STATUSES=["Purchased","Under Construction","On Market","In Closing"];
 // QuickBooks account balances + all-in spend). Used by the BS report and Bank Recon.
 const bsAcctBal=(accounts,id)=>{const a=(accounts||[]).find(x=>x.id===id);return a?-(a.balance||0):0;};
 const bsSum=(arr)=>(arr||[]).reduce((s,l)=>s+(Number(l.amount)||0),0);
+// Pinned payment lists are magnitudes, not signed ledger lines: the feed paints
+// the direction itself (every debt/rehab row reads as money out), and QuickBooks
+// hands the same kind of payment back positive or negative depending on how it
+// was entered. Summing the raw signs let two mortgage payments cancel each other
+// out. bsSum stays where the sign is real - the +/- adjustments and the Deployed
+// pins, which have a flip button.
+const bsOut=(arr)=>(arr||[]).reduce((s,l)=>s+Math.abs(Number(l.amount)||0),0);
 function bsMetrics(p,accounts,spend,bankAccounts){
   const potIds=p.qbLocPotIds||[];
   const pot=(p.qbLoanAccounts||[]).filter(id=>potIds.includes(id)).reduce((s,id)=>s+bsAcctBal(accounts,id),0)+(p.qbLoanCustom||[]).filter(l=>potIds.includes("c"+l.id)).reduce((s,l)=>s+(Number(l.amount)||0),0);
   const deployed=bsSum(p.qbFloatTxns)+bsSum(p.qbFloatCustom);
-  const debt=bsSum(p.qbDebtTxns)+bsSum(p.qbDebtCustom);
+  const debt=bsOut(p.qbDebtTxns)+bsOut(p.qbDebtCustom);
   const reserve=Math.max(0,pot-deployed-debt);
   // Borrowed money linked from Bank Recon adjustments counts as a loan here
   // too (loans AND construction draws are debt either way) — except entries
@@ -15273,7 +15280,7 @@ function dmPotMath(p,accounts,spend,bankAccounts){
   const amt=parseFloat(String(p.dmReserveAmt??"").replace(/[^0-9.\-]/g,""));
   const reserve=mode==="all"?Math.max(0,leftPot):(isNaN(amt)?0:amt);
   const fromPot=(mode==="custom"&&p.dmRestToConstr)?Math.max(0,leftPot-reserve):0;
-  const paid=bsSum(p.qbDebtTxns)+bsSum(p.qbDebtCustom);
+  const paid=bsOut(p.qbDebtTxns)+bsOut(p.qbDebtCustom);
   // Same money math as the Construction card: draws include Bank-Recon
   // adjustments linked as draws, and spend prefers the live rehab actuals
   // from the QB project over hand-pinned payments.
@@ -15281,10 +15288,10 @@ function dmPotMath(p,accounts,spend,bankAccounts){
   const pnlRows=(p.qbProjectId&&spend&&spend[p.qbProjectId]&&spend[p.qbProjectId].pnl&&spend[p.qbProjectId].pnl.rows)||null;
   const rehabLive=pnlRows?pnlRows.filter(r=>r.section!=="Income"&&qbBucket(r.name)==="rehab").reduce((t,r)=>t+(Number(r.amount)||0),0):null;
   const rehabManual=parseFloat(String((p.financials||{}).actualRehabCosts??"").replace(/[^0-9.\-]/g,""));
-  const constrSpentPinned=bsSum(p.dmConstrSpentTxns)+bsSum(p.dmConstrSpentCustom);
+  const constrSpentPinned=bsOut(p.dmConstrSpentTxns)+bsOut(p.dmConstrSpentCustom);
   const constrSpent=rehabLive!=null?rehabLive:(!isNaN(rehabManual)&&rehabManual>0?rehabManual:constrSpentPinned);
   const pendDraws=(p.dmPendingDraws||[]).reduce((t,x)=>t+Math.abs(Number(x.amount)||0),0);
-  const draws=Math.abs(bsSum(p.qbDrawTxns))+Math.abs(bsSum(p.dmDrawCustom))+adjDraws+pendDraws;
+  const draws=bsOut(p.qbDrawTxns)+bsOut(p.dmDrawCustom)+adjDraws+pendDraws;
   const upfront=(p.dmFinType||"draws")==="upfront";
   if(upfront){
     // Funded up front: one formula — the loan minus actual spend to date is
@@ -15423,7 +15430,6 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   },[selForAuto&&JSON.stringify(selForAuto.qbDrawTxns||[]),selForAuto&&JSON.stringify(selForAuto.dmPendingDraws||[])]); // eslint-disable-line react-hooks/exhaustive-deps
   const money=(v)=>v==null?"—":`$${Math.round(v).toLocaleString()}`;
   const nn=(v)=>{const x=parseFloat(String(v??"").replace(/[^0-9.\-]/g,""));return isNaN(x)?0:x;};
-  const sumT=(arr)=>Math.abs(bsSum(arr));
   const acct=(id)=>(accounts||[]).find(x=>String(x.id)===String(id))||null;
   const bal=(id)=>{const a=acct(id);return a?Math.abs(Number(a.balance)||0):0;};
   const nameOf=(id)=>{const a=acct(id);return a?a.name:accounts==null?"loading QuickBooks…":"(account not found in QuickBooks)";};
@@ -15453,19 +15459,19 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const reserve=mode==="all"?Math.max(0,leftPot):nn(p.dmReserveAmt);
     const restAfterReserve=Math.max(0,leftPot-reserve);
     const constrFromPot=(mode==="custom"&&p.dmRestToConstr)?restAfterReserve:0;
-    const paid=bsSum(p.qbDebtTxns)+bsSum(p.qbDebtCustom);
+    const paid=bsOut(p.qbDebtTxns)+bsOut(p.qbDebtCustom);
     const left=reserve-paid;
     const hb=holdbackOf(p);
     const est=n((p.financials||{}).rehabCosts)||n((p.financials||{}).actualRehabCosts)||0;
     const constrTotal=constrBal+constrFromPot;
-    const constrSpent=bsSum(p.dmConstrSpentTxns)+bsSum(p.dmConstrSpentCustom);
+    const constrSpent=bsOut(p.dmConstrSpentTxns)+bsOut(p.dmConstrSpentCustom);
     // Bank Recon adjustments linked here as construction draws — money lent
     // from an account straight into the build.
     const adjDraws=(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind==="draw").map(a=>({...a,bankName:b.name})));
     const adjDrawSum=adjDraws.reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
     const pending=p.dmPendingDraws||[];
     const pendSum=pending.reduce((t,x)=>t+Math.abs(Number(x.amount)||0),0);
-    const draws=sumT(p.qbDrawTxns)+sumT(p.dmDrawCustom)+adjDrawSum+pendSum;
+    const draws=bsOut(p.qbDrawTxns)+bsOut(p.dmDrawCustom)+adjDrawSum+pendSum;
     const upfront=(p.dmFinType||"draws")==="upfront";
     const fundAuto=upfront&&!!p.dmFundAuto;
     const autoFund=Math.max(0,leftPot-reserve);
@@ -15675,7 +15681,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                     {canEdit&&!c.fundAuto&&sel.qbProjectId&&<button onClick={()=>setTxPick({propId:sel.id,kind:"fund",src:sel.qbProjectId})} style={chip(false)}>📌 Pin the money in</button>}
                     {canEdit&&!c.fundAuto&&<button onClick={()=>{setManualFor(manualFor==="draw"?null:"draw");}} style={chip(false)}>＋ Manual</button>}</span>
                     <span style={{...vS,color:"#15803D"}}>+{money(c.inFlow).slice(1)}</span></div>
-                  {!c.fundAuto&&(sel.qbDrawTxns||[]).length>0&&<div style={{...rowS,paddingLeft:14}}><button onClick={()=>setPinsOpen({field:"qbDrawTxns",title:"Construction money in — pinned"})} style={chip(true)}>✓ {(sel.qbDrawTxns||[]).length} pinned · {money(Math.abs(bsSum(sel.qbDrawTxns)))} ›</button></div>}
+                  {!c.fundAuto&&(sel.qbDrawTxns||[]).length>0&&<div style={{...rowS,paddingLeft:14}}><button onClick={()=>setPinsOpen({field:"qbDrawTxns",title:"Construction money in — pinned"})} style={chip(true)}>✓ {(sel.qbDrawTxns||[]).length} pinned · {money(bsOut(sel.qbDrawTxns))} ›</button></div>}
                   {(sel.dmDrawCustom||[]).map(l=>(
                     <div key={l.id} style={{...rowS,paddingLeft:14}}><span style={lS}>✎ {l.label||"Manual"}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Math.abs(Number(l.amount)||0))}</span>{canEdit&&removeChip(()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id)))}</span></div>
                   ))}
@@ -15744,7 +15750,8 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                   const autoField=(pinsOpen.field==="dmConstrSpentTxns"&&sel.dmRehabAuto)?"dmRehabExcluded":(pinsOpen.field==="qbDrawTxns"&&sel.dmDrawAuto)?"dmDrawExcluded":(pinsOpen.field==="qbDebtTxns"&&sel.qbDebtAuto)?"qbDebtExcluded":null;
                   const CUSTOM={qbFloatTxns:"qbFloatCustom",qbDrawTxns:"dmDrawCustom",dmConstrSpentTxns:"dmConstrSpentCustom",qbDebtTxns:"qbDebtCustom"}[pinsOpen.field];
                   const customs=CUSTOM?(sel[CUSTOM]||[]):[];
-                  const popTotal=(pinsOpen.field==="qbDrawTxns"?Math.abs(bsSum(arr)):bsSum(arr))+bsSum(customs);
+                  const signed=pinsOpen.field==="qbFloatTxns"; // only Deployed pins carry a real direction (± flip button)
+                  const popTotal=signed?bsSum(arr)+bsSum(customs):bsOut(arr)+bsOut(customs);
                   const pinTarget=pinsOpen.field==="qbFloatTxns"?(sel.qbProjectId?{kind:"float",src:sel.qbProjectId}:null)
                     :pinsOpen.field==="dmConstrSpentTxns"?(sel.qbProjectId?{kind:"cspent",src:sel.qbProjectId}:null)
                     :pinsOpen.field==="qbDebtTxns"?(sel.qbProjectId?{kind:"debt",src:sel.qbProjectId}:null)
@@ -15767,7 +15774,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                               <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account&&t.account!==t.vendor?t.account:null,t.memo&&t.memo!==t.vendor?String(t.memo).slice(0,40):null].filter(Boolean).join(" · ")}</div>
                             </div>
                             <span style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
-                            <b style={{fontSize:13,color:(Number(t.amount)||0)<0?T.red:T.text}}>{(Number(t.amount)||0)<0?`−${money(Math.abs(Number(t.amount)||0)).slice(1)}`:money(Number(t.amount)||0)}</b>
+                            <b style={{fontSize:13,color:(signed&&(Number(t.amount)||0)<0)?T.red:T.text}}>{(signed&&(Number(t.amount)||0)<0)?`−${money(Math.abs(Number(t.amount)||0)).slice(1)}`:money(Math.abs(Number(t.amount)||0))}</b>
                             {canEdit&&pinsOpen.field==="qbFloatTxns"&&<button onClick={()=>updateProp(sel.id,pinsOpen.field,arr.map(x=>txKey(x)===txKey(t)?{...x,amount:-(Number(x.amount)||0)}:x))} title="Flip direction — add vs subtract" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.textSub,cursor:"pointer",fontSize:11,fontWeight:800,lineHeight:1,padding:"2px 6px",fontFamily:"inherit"}}>±</button>}
                             {canEdit&&(autoField
                               ?<button onClick={()=>updateProp(sel.id,autoField,[...(sel[autoField]||[]),txKey(t)])} title="Exclude — auto will skip it" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>⊘</button>

@@ -14336,7 +14336,11 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
   useEffect(()=>{
     if(!property.qbProjectId){setTxns([]);return;}
     let alive=true;
-    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(property.qbProjectId)}`).then(d=>{if(alive)setTxns(d.items||[]);}).catch(()=>{if(alive)setTxns([]);});
+    // A failed pull is `false`, never []: the auto-pin writer below regenerates the
+    // stored list from this, and an empty array read as "QuickBooks has no
+    // transactions" - so a throttle, an expired session or a network blip wiped
+    // every pinned payment (Elie 9/8). Array.isArray(false) is false; it skips.
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(property.qbProjectId)}`).then(d=>{if(alive)setTxns(Array.isArray(d&&d.items)?d.items:false);}).catch(()=>{if(alive)setTxns(false);});
     return ()=>{alive=false;};
   },[property.qbProjectId]);
 
@@ -15428,7 +15432,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const p=selForAuto;
     if(!p||(!p.qbDebtAuto&&!p.dmRehabAuto)||!p.qbProjectId){setAutoTxns(null);return;}
     let alive=true;setAutoTxns(null);
-    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(p.qbProjectId)}`).then(d=>{if(alive)setAutoTxns(d.items||[]);}).catch(()=>{if(alive)setAutoTxns([]);});
+    // `false` on failure, never [] - see the same guard in the financing popup:
+    // the writers below would otherwise erase every pinned payment.
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(p.qbProjectId)}`).then(d=>{if(alive)setAutoTxns(Array.isArray(d&&d.items)?d.items:false);}).catch(()=>{if(alive)setAutoTxns(false);});
     return ()=>{alive=false;};
   },[selId,selForAuto&&selForAuto.qbDebtAuto,selForAuto&&selForAuto.dmRehabAuto]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
@@ -15474,8 +15480,10 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const ids=(p.qbLoanAccounts||[]).map(String).filter(id=>!((p.qbConstrIds||[]).map(String).includes(id))&&!((p.qbLocPotIds||[]).map(String).includes(id)));
     if(!ids.length){setDrawAcctTxns([]);return;}
     let alive=true;setDrawAcctTxns(null);
-    Promise.all(ids.map(id=>qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(id)}`).then(d=>(d.items||[]).map(t=>({...t,account:t.account||nameOf(id)}))).catch(()=>[])))
-      .then(rs=>{if(alive)setDrawAcctTxns(rs.flat());});
+    // Any ONE account failing poisons the whole pull: a short merged list would
+    // read as "those draws are gone" and the writer would unpin them.
+    Promise.all(ids.map(id=>qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(id)}`).then(d=>Array.isArray(d&&d.items)?d.items.map(t=>({...t,account:t.account||nameOf(id)})):null).catch(()=>null)))
+      .then(rs=>{if(alive)setDrawAcctTxns(rs.some(r=>r==null)?false:rs.flat());});
     return ()=>{alive=false;};
   },[selId,selForAuto&&selForAuto.dmDrawAuto,selForAuto&&JSON.stringify(selForAuto.qbLoanAccounts||[])]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{

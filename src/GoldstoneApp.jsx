@@ -14166,6 +14166,32 @@ function QbAllInBreakdownModal({pnl,total,projectId,onClose}){
 
 // Stable-ish key for a pinned QuickBooks transaction (or a single line of one).
 const txKey=(t)=>t.lineKey||[t.date,t.type,t.num,t.vendor,t.amount].join("|");
+// A pinned or excluded transaction used to be remembered ONLY by that five-field
+// fingerprint, so correcting its amount or payee in QuickBooks orphaned the
+// exclusion and the payment walked straight back in (Elie 9/8). The server now
+// stamps every row with QuickBooks' permanent id (`lineKey`, "<txnId>#<line>"),
+// and every stored-vs-fresh comparison below accepts EITHER key - so nothing
+// pinned or excluded before the ids existed is lost, and once a row has been
+// seen with its id the exclusion is re-keyed onto it (txMigrateEx).
+const txLegacyKey=(t)=>[t.date,t.type,t.num,t.vendor,t.amount].join("|");
+const txKeys=(t)=>t.lineKey?[t.lineKey,txLegacyKey(t)]:[txLegacyKey(t)];
+const txIn=(set,t)=>txKeys(t).some(k=>set.has(k));
+const txSame=(a,b)=>{const B=txKeys(b);return txKeys(a).some(k=>B.includes(k));};
+// id AND fingerprint together: the auto-pin "is anything different?" check must
+// still notice an edited amount on a row whose id did not change.
+const txSig=(t)=>txKey(t)+"::"+txLegacyKey(t);
+// Swap each legacy fingerprint in an exclusion list for the stable key of the
+// one live row it matches. A fingerprint matching several rows (two identical
+// payments on one day) is left alone - it was excluding all of them, and one
+// id could only carry one. Returns null when nothing changed.
+const txMigrateEx=(exList,rows)=>{
+  if(!exList||!exList.length)return null;
+  const hits={};
+  (rows||[]).forEach(t=>{if(!t||!t.lineKey)return;const k=txLegacyKey(t);(hits[k]=hits[k]||[]).push(t.lineKey);});
+  let changed=false;
+  const out=exList.map(k=>{const h=hits[k];if(h&&h.length===1&&h[0]!==k){changed=true;return h[0];}return k;});
+  return changed?[...new Set(out)]:null;
+};
 
 // ─── Pick QuickBooks transactions to pin (down payment, deposit, etc.) ──────────
 function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
@@ -14224,14 +14250,14 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
             const single=g.items.length===1;
             // Pinned count: from full splits if loaded, else from the P&L lines.
             const pinnedCount=full
-              ? full.filter(l=>pinnedKeys.has(txKey(fullLineOf(g,l)))).length
-              : g.items.filter((t,idx)=>pinnedKeys.has(txKey(single?t:lineOf(g,t,idx)))).length;
+              ? full.filter(l=>txIn(pinnedKeys,fullLineOf(g,l))).length
+              : g.items.filter((t,idx)=>txIn(pinnedKeys,single?t:lineOf(g,t,idx))).length;
             const total=g.items.reduce((s,t)=>s+t.amount,0);
             const openable=!!g.items[0]?.id;
             return(
               <div key={gi} style={{borderTop:gi===0?"none":`1px solid ${T.border}`,background:pinnedCount?T.goldLight:"transparent"}}>
                 <div style={{display:"flex",alignItems:"center",gap:12,padding:"11px 18px"}}>
-                  {single&&<input type="checkbox" checked={pinnedKeys.has(txKey(g.items[0]))} onChange={()=>onToggle(g.items[0])} style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>}
+                  {single&&<input type="checkbox" checked={txIn(pinnedKeys,g.items[0])} onChange={()=>onToggle(g.items[0])} style={{width:17,height:17,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>}
                   <div style={{flex:1,minWidth:0,cursor:openable?"pointer":"default"}} onClick={()=>openable&&openGroup(g)}>
                     <div style={{fontSize:13.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{single?(g.items[0].vendor||g.type||"—"):(g.type||"Journal Entry")}{!single&&<span style={{fontSize:11,color:T.textTert,fontWeight:400}}> · {g.items.length} lines</span>}</div>
                     <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[g.date,single?g.items[0].account:null,pinnedCount&&!single?`${pinnedCount} pinned`:null].filter(Boolean).join(" · ")}</div>
@@ -14244,7 +14270,7 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
                     {ld?.loading&&<div style={{fontSize:12,color:T.textTert,padding:"6px 0"}}>Loading line items…</div>}
                     {full
                       ? full.map((l,idx)=>{
-                          const lo=fullLineOf(g,l);const on=pinnedKeys.has(txKey(lo));
+                          const lo=fullLineOf(g,l);const on=txIn(pinnedKeys,lo);
                           return(
                             <label key={idx} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderTop:idx?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
                               <input type="checkbox" checked={on} onChange={()=>onToggle(lo)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
@@ -14257,7 +14283,7 @@ function QbTxnsPickerModal({txns,loading,pinnedKeys,onToggle,onClose}){
                           );
                         })
                       : (ld&&!ld.loading?g.items.map((t,idx)=>{
-                          const lo=single?t:lineOf(g,t,idx);const on=pinnedKeys.has(txKey(lo));
+                          const lo=single?t:lineOf(g,t,idx);const on=txIn(pinnedKeys,lo);
                           return(
                             <label key={idx} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderTop:idx?`1px solid ${T.border}`:"none",cursor:"pointer"}}>
                               <input type="checkbox" checked={on} onChange={()=>onToggle(lo)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
@@ -14321,15 +14347,17 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
   // fees that QuickBooks classifies as debt but aren't ongoing interest).
   const debtExcluded=property.qbDebtExcluded||[];
   const debtExcludedSet=new Set(debtExcluded);
-  const excludedDebtTxns=(txns||[]).filter(t=>qbBucket(t.account)==="debt"&&debtExcludedSet.has(txKey(t)));
+  const excludedDebtTxns=(txns||[]).filter(t=>qbBucket(t.account)==="debt"&&txIn(debtExcludedSet,t));
   const excludeDebtTx=(t)=>onUpdate(property.id,"qbDebtExcluded",[...debtExcluded,txKey(t)]);
-  const includeDebtTx=(key)=>onUpdate(property.id,"qbDebtExcluded",debtExcluded.filter(k=>k!==key));
+  const includeDebtTx=(t)=>onUpdate(property.id,"qbDebtExcluded",debtExcluded.filter(k=>!txKeys(t).includes(k)));
   useEffect(()=>{
     if(!property.qbDebtAuto||!Array.isArray(txns))return;
-    const ex=new Set(property.qbDebtExcluded||[]);
-    const auto=txns.filter(t=>qbBucket(t.account)==="debt"&&!ex.has(txKey(t))).map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
+    const mig=txMigrateEx(property.qbDebtExcluded||[],txns);
+    if(mig)onUpdate(property.id,"qbDebtExcluded",mig);
+    const ex=new Set(mig||property.qbDebtExcluded||[]);
+    const auto=txns.filter(t=>qbBucket(t.account)==="debt"&&!txIn(ex,t)).map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
     const cur=property.qbDebtTxns||[];
-    const ck=new Set(cur.map(txKey)),nk=new Set(auto.map(txKey));
+    const ck=new Set(cur.map(txSig)),nk=new Set(auto.map(txSig));
     const same=ck.size===nk.size&&[...nk].every(k=>ck.has(k));
     if(!same)onUpdate(property.id,"qbDebtTxns",auto);
   },[property.qbDebtAuto,txns,property.qbDebtExcluded]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -14339,7 +14367,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
     onUpdate(property.id,key,editId!=null?arr.map(l=>l.id===editId?{...l,label:label||"Adjustment",amount}:l):[...arr,{id:Date.now(),label:label||"Adjustment",amount}]);
     setDraft({label:"",amount:""});setAddFor("");setEditId(null);};
   const delCustom=(key,id)=>{onUpdate(property.id,key,(property[key]||[]).filter(l=>l.id!==id));};
-  const toggleTx=(field,arr,t)=>{const k=txKey(t);const has=arr.some(x=>txKey(x)===k);onUpdate(property.id,field,has?arr.filter(x=>txKey(x)!==k):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}]);};
+  const toggleTx=(field,arr,t)=>{const has=arr.some(x=>txSame(x,t));onUpdate(property.id,field,has?arr.filter(x=>!txSame(x,t)):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}]);};
   const inPot=(key)=>potIds.includes(key);
   const togglePot=(key)=>onUpdate(property.id,"qbLocPotIds",inPot(key)?potIds.filter(x=>x!==key):[...potIds,key]);
 
@@ -14565,7 +14593,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
                   <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[t.date,t.account].filter(Boolean).join(" · ")}</div>
                 </div>
                 <span style={{fontSize:13,fontWeight:700,color:T.textTert,textDecoration:"line-through"}}>{money(Number(t.amount)||0)}</span>
-                {canEdit?slot(<button onClick={()=>includeDebtTx(txKey(t))} title="Include again" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,lineHeight:1,padding:0}}>↩</button>):slot()}
+                {canEdit?slot(<button onClick={()=>includeDebtTx(t)} title="Include again" style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,lineHeight:1,padding:0}}>↩</button>):slot()}
               </div>
             ))}
           </div>
@@ -14581,8 +14609,8 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
       }))}
 
       {pickerOpen&&<QbAccountsPickerModal accounts={accounts} pinnedIds={pinned} address={`${property.address}${property.city?`, ${property.city}`:""}`} onToggle={toggle} onClose={()=>setPickerOpen(false)}/>}
-      {floatPicker&&<QbTxnsPickerModal txns={txns} loading={txns===null} pinnedKeys={new Set(floatTxns.map(txKey))} onToggle={t=>toggleTx("qbFloatTxns",floatTxns,t)} onClose={()=>setFloatPicker(false)}/>}
-      {debtPicker&&<QbTxnsPickerModal txns={txns} loading={txns===null} pinnedKeys={new Set(debtTxns.map(txKey))} onToggle={t=>toggleTx("qbDebtTxns",debtTxns,t)} onClose={()=>setDebtPicker(false)}/>}
+      {floatPicker&&<QbTxnsPickerModal txns={txns} loading={txns===null} pinnedKeys={new Set(floatTxns.flatMap(txKeys))} onToggle={t=>toggleTx("qbFloatTxns",floatTxns,t)} onClose={()=>setFloatPicker(false)}/>}
+      {debtPicker&&<QbTxnsPickerModal txns={txns} loading={txns===null} pinnedKeys={new Set(debtTxns.flatMap(txKeys))} onToggle={t=>toggleTx("qbDebtTxns",debtTxns,t)} onClose={()=>setDebtPicker(false)}/>}
       {showBreak&&pnl&&<QbAllInBreakdownModal pnl={pnl} total={allIn} projectId={property.qbProjectId} onClose={()=>setShowBreak(false)}/>}
     </div>
   );
@@ -15348,10 +15376,12 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   useEffect(()=>{
     const p=selForAuto;
     if(!p||!p.qbDebtAuto||!Array.isArray(autoTxns))return;
-    const ex=new Set(p.qbDebtExcluded||[]);
-    const auto=autoTxns.filter(t=>qbBucket(t.account)==="debt"&&!ex.has(txKey(t))).map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
+    const mig=txMigrateEx(p.qbDebtExcluded||[],autoTxns);
+    if(mig)updateProp(p.id,"qbDebtExcluded",mig);
+    const ex=new Set(mig||p.qbDebtExcluded||[]);
+    const auto=autoTxns.filter(t=>qbBucket(t.account)==="debt"&&!txIn(ex,t)).map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
     const cur=p.qbDebtTxns||[];
-    const ck=new Set(cur.map(txKey)),nk=new Set(auto.map(txKey));
+    const ck=new Set(cur.map(txSig)),nk=new Set(auto.map(txSig));
     const same=ck.size===nk.size&&[...nk].every(k=>ck.has(k));
     if(!same)updateProp(p.id,"qbDebtTxns",auto);
   },[autoTxns,selForAuto&&selForAuto.qbDebtExcluded]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -15367,10 +15397,12 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   useEffect(()=>{
     const p=selForAuto;
     if(!p||!p.dmRehabAuto||!Array.isArray(autoTxns))return;
-    const ex=new Set(p.dmRehabExcluded||[]);
-    const auto=autoTxns.filter(t=>qbBucket(t.account)==="rehab"&&!ex.has(txKey(t))).map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
+    const mig=txMigrateEx(p.dmRehabExcluded||[],autoTxns);
+    if(mig)updateProp(p.id,"dmRehabExcluded",mig);
+    const ex=new Set(mig||p.dmRehabExcluded||[]);
+    const auto=autoTxns.filter(t=>qbBucket(t.account)==="rehab"&&!txIn(ex,t)).map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}));
     const cur=p.dmConstrSpentTxns||[];
-    const ck=new Set(cur.map(txKey)),nk=new Set(auto.map(txKey));
+    const ck=new Set(cur.map(txSig)),nk=new Set(auto.map(txSig));
     const same=ck.size===nk.size&&[...nk].every(k=>ck.has(k));
     if(!same)updateProp(p.id,"dmConstrSpentTxns",auto);
   },[autoTxns,selForAuto&&selForAuto.dmRehabExcluded,selForAuto&&selForAuto.dmRehabAuto]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -15391,7 +15423,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   useEffect(()=>{
     const p=selForAuto;
     if(!p||!p.dmDrawAuto||!Array.isArray(drawAcctTxns))return;
-    const ex=new Set(p.dmDrawExcluded||[]);
+    const mig=txMigrateEx(p.dmDrawExcluded||[],drawAcctTxns);
+    if(mig)updateProp(p.id,"dmDrawExcluded",mig);
+    const ex=new Set(mig||p.dmDrawExcluded||[]);
     // The loan's original recording is a credit too — per account, drop the
     // earliest credit when it's also the largest (that's the mortgage itself,
     // not a draw), so auto never counts the principal as draw money.
@@ -15404,11 +15438,11 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       const max=Math.max(...list.map(t=>Number(t.amount)||0));
       if(first&&(Number(first.amount)||0)>=max)orig.add(txKey(first));
     });
-    const auto=credits.filter(t=>!orig.has(txKey(t)))
-      .map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount}))
-      .filter(t=>!ex.has(txKey(t)));
+    const auto=credits.filter(t=>!txIn(orig,t))
+      .map(t=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}))
+      .filter(t=>!txIn(ex,t));
     const cur=p.qbDrawTxns||[];
-    const ck=new Set(cur.map(txKey)),nk=new Set(auto.map(txKey));
+    const ck=new Set(cur.map(txSig)),nk=new Set(auto.map(txSig));
     const same=ck.size===nk.size&&[...nk].every(k=>ck.has(k));
     if(!same)updateProp(p.id,"qbDrawTxns",auto);
   },[drawAcctTxns,selForAuto&&selForAuto.dmDrawExcluded,selForAuto&&selForAuto.dmDrawAuto]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -15422,7 +15456,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const used=new Set();
     const keep=pend.filter(pd=>{
       const cut=new Date(new Date((pd.date||"1970-01-01")+"T00:00:00Z").getTime()-5*86400000).toISOString().slice(0,10);
-      const hit=qb.find(t=>!used.has(txKey(t))&&Math.abs(Math.abs(Number(t.amount)||0)-Math.abs(Number(pd.amount)||0))<=1&&String(t.date||"")>=cut);
+      const hit=qb.find(t=>!txIn(used,t)&&Math.abs(Math.abs(Number(t.amount)||0)-Math.abs(Number(pd.amount)||0))<=1&&String(t.date||"")>=cut);
       if(hit){used.add(txKey(hit));return false;}
       return true;
     });
@@ -15563,8 +15597,8 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   };
   const toggleTxn=(p,t)=>{
     const field=txPick.kind==="float"?"qbFloatTxns":txPick.kind==="cspent"?"dmConstrSpentTxns":(txPick.kind==="draw"||txPick.kind==="fund")?"qbDrawTxns":"qbDebtTxns";
-    const cur=p[field]||[];const k=txKey(t);const has=cur.some(x=>txKey(x)===k);
-    updateProp(p.id,field,has?cur.filter(x=>txKey(x)!==k):[...cur,slimT(t)]);
+    const cur=p[field]||[];const has=cur.some(x=>txSame(x,t));
+    updateProp(p.id,field,has?cur.filter(x=>!txSame(x,t)):[...cur,slimT(t)]);
   };
   const removeEntry=(p,e)=>{
     if(e.custom)updateProp(p.id,"qbLoanCustom",(p.qbLoanCustom||[]).filter(l=>"c"+l.id!==e.key));
@@ -15919,7 +15953,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const goldFoot=(label,val,col)=>(<div style={{padding:"11px 18px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt,display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:13.5}}><span style={{color:"#B8953F"}}>{label}</span><span style={{color:col}}>{val}</span></div>);
     if(detailPop==="reserve"){
       const exKeys=new Set(sel.qbDebtExcluded||[]);
-      const exRows=(autoTxns||[]).filter(t=>qbBucket(t.account)==="debt"&&exKeys.has(txKey(t)));
+      const exRows=(autoTxns||[]).filter(t=>qbBucket(t.account)==="debt"&&txIn(exKeys,t));
       const payRows=[...(sel.qbDebtTxns||[]).map(t=>({t,ex:false})),...exRows.map(t=>({t,ex:true}))].sort((x,y)=>String(y.t.date||"").localeCompare(String(x.t.date||"")));
       const monthsCover=c.monthlyInt>0?Math.max(0,(c.paid>0?c.left:c.reserve))/c.monthlyInt:null;
       return shell("⏳ Interest reserve — details",(<>
@@ -15935,7 +15969,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           <div key={txKey(t)+(ex?"x":"")} style={{...pr,...(ex?{opacity:.55}:{})}}>
             <span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:ex?"line-through":"none"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"payment"}</span>
             {ex
-              ?<button onClick={()=>canEdit&&updateProp(sel.id,"qbDebtExcluded",(sel.qbDebtExcluded||[]).filter(k=>k!==txKey(t)))} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:10.5,fontWeight:800,padding:"3px 8px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button>
+              ?<button onClick={()=>canEdit&&updateProp(sel.id,"qbDebtExcluded",(sel.qbDebtExcluded||[]).filter(k=>!txKeys(t).includes(k)))} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:10.5,fontWeight:800,padding:"3px 8px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button>
               :<b>−{money(Math.abs(Number(t.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>sel.qbDebtAuto?updateProp(sel.id,"qbDebtExcluded",[...(sel.qbDebtExcluded||[]),txKey(t)]):updateProp(sel.id,"qbDebtTxns",(sel.qbDebtTxns||[]).filter(x=>txKey(x)!==txKey(t)))} title={sel.qbDebtAuto?"Exclude — auto will skip it":"Unpin"} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>⊘</button>}</b>}
           </div>
         ))}
@@ -15950,7 +15984,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         <div style={{padding:"8px 18px 12px",fontSize:11,color:T.textTert,lineHeight:1.5}}>Every dollar the project spends comes out of the up-front funding automatically — no pinning needed.</div>
       </>),goldFoot(`Left${bankName(sel.bsBankAccount)?` · ${bankName(sel.bsBankAccount)}`:""}`,c.leftover==null?"—":money(c.leftover),(c.leftover||0)>=0?"#0F9D58":T.red));
       const dExKeys=new Set(sel.dmDrawExcluded||[]);
-      const dExRows=(drawAcctTxns||[]).filter(t=>(Number(t.amount)||0)>0&&dExKeys.has(txKey(t)));
+      const dExRows=(drawAcctTxns||[]).filter(t=>(Number(t.amount)||0)>0&&txIn(dExKeys,t));
       return shell("🔨 Construction — details",(<>
         <div style={{display:"flex",gap:10,padding:"12px 16px 2px"}}>
           <div style={{flex:1,borderRadius:12,padding:"11px 13px",background:"#EDFBF1",border:"1px solid #BFE8CD"}}>
@@ -15984,7 +16018,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         {(sel.dmDrawCustom||[]).map(l=>(<div key={l.id} style={pr}><span style={{color:T.textSub}}>✎ {l.label||"Manual draw"}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(l.amount)||0)).slice(1)}{canEdit&&<button onClick={()=>updateProp(sel.id,"dmDrawCustom",(sel.dmDrawCustom||[]).filter(x=>x.id!==l.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:12,marginLeft:6,padding:0}}>×</button>}</b></div>))}
         {(c.adjDraws||[]).map(a=>(<div key={"adj"+a.id} style={pr}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title="Linked from a Bank Recon adjustment — unlink it there">🏦 {a.label||"Borrowed"} — from {a.bankName}</span><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(a.amount)||0)).slice(1)}</b></div>))}
         {(c.pending||[]).map(x=>(<div key={"pd"+x.id} style={{...pr,background:"#FBF7EC"}}><span style={{color:"#8a6d1f",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>⏳ {fmtDay(x.date)} · Bank draw — waiting on QuickBooks</span><span style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}><b style={{color:"#0F9D58"}}>+{money(Math.abs(Number(x.amount)||0)).slice(1)}</b><span style={{fontSize:10,fontWeight:800,background:"#FDE9C8",color:"#B45309",borderRadius:8,padding:"2px 7px"}}>PENDING</span>{canEdit&&<button onClick={()=>updateProp(sel.id,"dmPendingDraws",(sel.dmPendingDraws||[]).filter(y=>y.id!==x.id))} title="Remove" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>×</button>}</span></div>))}
-        {dExRows.map(t=>(<div key={"x"+txKey(t)} style={{...pr,opacity:.55}}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"line-through"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><button onClick={()=>canEdit&&updateProp(sel.id,"dmDrawExcluded",(sel.dmDrawExcluded||[]).filter(k=>k!==txKey(t)))} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:10.5,fontWeight:800,padding:"3px 8px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button></div>))}
+        {dExRows.map(t=>(<div key={"x"+txKey(t)} style={{...pr,opacity:.55}}><span style={{color:T.textSub,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"line-through"}}>{fmtDay(t.date)} · {t.vendor||t.memo||"draw"}</span><button onClick={()=>canEdit&&updateProp(sel.id,"dmDrawExcluded",(sel.dmDrawExcluded||[]).filter(k=>!txKeys(t).includes(k)))} style={{background:"#F3F3F5",border:"none",borderRadius:8,color:"#98A0AA",fontSize:10.5,fontWeight:800,padding:"3px 8px",cursor:canEdit?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>excluded — tap to bring back</button></div>))}
         {(sel.qbDrawTxns||[]).length===0&&(sel.dmDrawCustom||[]).length===0&&dExRows.length===0&&<div style={{padding:"4px 18px 10px",fontSize:11.5,color:T.textTert}}>None yet.</div>}
         {c.rehabLive==null&&(<>
           <div style={{padding:"8px 18px 2px",fontSize:10,fontWeight:800,color:T.textTert,letterSpacing:"0.05em"}}>REHAB PAID OUT{sel.dmRehabAuto?" — AUTO-PINNED":""}</div>
@@ -16243,7 +16277,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     );
   })();
   const pickerTarget=txPick?bsProps.find(p=>p.id===txPick.propId):null;
-  const pickerPinned=txPick&&pickerTarget?new Set(((txPick.kind==="float"?pickerTarget.qbFloatTxns:txPick.kind==="cspent"?pickerTarget.dmConstrSpentTxns:(txPick.kind==="draw"||txPick.kind==="fund")?pickerTarget.qbDrawTxns:pickerTarget.qbDebtTxns)||[]).map(txKey)):new Set();
+  const pickerPinned=txPick&&pickerTarget?new Set(((txPick.kind==="float"?pickerTarget.qbFloatTxns:txPick.kind==="cspent"?pickerTarget.dmConstrSpentTxns:(txPick.kind==="draw"||txPick.kind==="fund")?pickerTarget.qbDrawTxns:pickerTarget.qbDebtTxns)||[]).flatMap(txKeys)):new Set();
   const txPicker=txPick&&pickerTarget&&<QbTxnsPickerModal txns={pickTxns} loading={pickTxns===null} pinnedKeys={pickerPinned} onToggle={t=>toggleTxn(pickerTarget,t)} onClose={()=>setTxPick(null)}/>;
   // ── Inline (Property Balance Sheet page): mail-style two panes ─────────────
   if(inline){
@@ -16442,7 +16476,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(p.qbProjectId)}`).then(d=>{if(alive)setHbTxns(d.items||[]);}).catch(()=>{if(alive)setHbTxns([]);});
     return ()=>{alive=false;};
   },[holdbackFor]); // eslint-disable-line react-hooks/exhaustive-deps
-  const toggleHb=(t)=>{if(!hbProp)return;const arr=hbProp.qbHoldbackTxns||[];const k=txKey(t);const has=arr.some(x=>txKey(x)===k);updateProp(hbProp.id,"qbHoldbackTxns",has?arr.filter(x=>txKey(x)!==k):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}]);};
+  const toggleHb=(t)=>{if(!hbProp)return;const arr=hbProp.qbHoldbackTxns||[];const has=arr.some(x=>txSame(x,t));updateProp(hbProp.id,"qbHoldbackTxns",has?arr.filter(x=>!txSame(x,t)):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey}]);};
 
   // Draw editor: pin individual transactions from a property's mortgage/loan account.
   const drawProp=drawFor!=null?(sharedProps||[]).find(x=>x.id===drawFor):null;
@@ -16456,7 +16490,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(drawAcct)}`).then(d=>{if(alive)setDrawTxns(d.items||[]);}).catch(()=>{if(alive)setDrawTxns([]);});
     return ()=>{alive=false;};
   },[drawAcct]); // eslint-disable-line react-hooks/exhaustive-deps
-  const toggleDraw=(t)=>{if(!drawProp)return;const arr=drawProp.qbDrawTxns||[];const k=txKey(t);const has=arr.some(x=>txKey(x)===k);updateProp(drawProp.id,"qbDrawTxns",has?arr.filter(x=>txKey(x)!==k):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account||drawAcct,amount:t.amount}]);};
+  const toggleDraw=(t)=>{if(!drawProp)return;const arr=drawProp.qbDrawTxns||[];const has=arr.some(x=>txSame(x,t));updateProp(drawProp.id,"qbDrawTxns",has?arr.filter(x=>!txSame(x,t)):[...arr,{date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account||drawAcct,amount:t.amount,lineKey:t.lineKey}]);};
   const holdbackOf=(p)=>{const raw=p.constrHoldback;const pins=bsSum(p.qbHoldbackTxns);const hasManual=raw!=null&&raw!=="";const hasPins=(p.qbHoldbackTxns||[]).length>0;return (hasPins||hasManual)?pins+(hasManual?Number(raw):0):null;};
   const toggleFunded=(propId)=>{const p=(sharedProps||[]).find(x=>x.id===propId);updateProp(propId,"holdbackFunded",!(p&&p.holdbackFunded));};
 
@@ -18220,12 +18254,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
           </div>
         );
       })()}
-      {hbPicker&&hbProp&&<QbTxnsPickerModal txns={hbTxns} loading={hbTxns===null} pinnedKeys={new Set((hbProp.qbHoldbackTxns||[]).map(txKey))} onToggle={toggleHb} onClose={()=>setHbPicker(false)}/>}
+      {hbPicker&&hbProp&&<QbTxnsPickerModal txns={hbTxns} loading={hbTxns===null} pinnedKeys={new Set((hbProp.qbHoldbackTxns||[]).flatMap(txKeys))} onToggle={toggleHb} onClose={()=>setHbPicker(false)}/>}
 
       {/* Draw editor — pin transactions from a property's mortgage account */}
       {drawProp&&(()=>{
         const pinned=drawProp.qbDrawTxns||[];
-        const pinnedKeys=new Set(pinned.map(txKey));
+        const pinnedKeys=new Set(pinned.flatMap(txKeys));
         const holdback=holdbackOf(drawProp);
         const drawn=bsSum(pinned);
         const remaining=holdback==null?null:holdback-drawn;
@@ -18268,7 +18302,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                     </div>
                     {drawTxns===null&&<div style={{padding:"18px",textAlign:"center",color:T.textTert,fontSize:13}}>Loading mortgage-account transactions…</div>}
                     {drawTxns&&shown.length===0&&<div style={{padding:"16px 18px",fontSize:12.5,color:T.textTert}}>{(drawTxns||[]).length===0?"No transactions on this account.":"No matches."}</div>}
-                    {shown.map((t,i)=>{const on=pinnedKeys.has(txKey(t));return(
+                    {shown.map((t,i)=>{const on=txIn(pinnedKeys,t);return(
                       <label key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 18px",borderTop:`1px solid ${T.border}`,cursor:"pointer",background:on?T.goldLight:"transparent"}}>
                         <input type="checkbox" checked={on} onChange={()=>toggleDraw(t)} style={{width:16,height:16,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>
                         <div style={{flex:1,minWidth:0}}>

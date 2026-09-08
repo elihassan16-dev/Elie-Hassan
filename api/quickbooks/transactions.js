@@ -53,6 +53,11 @@ export default async function handler(req, res) {
     // groups (e.g. "Cost of Goods Sold" → "Rehab Costs") overwrite as we descend,
     // so each transaction ends up tagged with its leaf account.
     const items = [];
+    // Stamp each line with QuickBooks' permanent transaction id plus its position
+    // among this transaction's lines here - the same "<txnId>#<line>" the app's
+    // picker already builds - so a pin or exclusion survives the amount or payee
+    // being corrected in QuickBooks (the five-field fingerprint did not).
+    const seen = {};
     const sectionName = (r, fallback) => (r.Header?.ColData ? (r.Header.ColData[0]?.value || fallback) : fallback);
     // Track BOTH the leaf account (deepest group, e.g. "Rental Income") and the
     // top-level P&L section (e.g. "Income" / "Expenses" / "Cost of Goods Sold"), so
@@ -78,7 +83,8 @@ export default async function handler(req, res) {
             // The tx_date cell carries the transaction's Id in detail reports; keep it
             // so the client can fetch the full transaction (all splits) on demand.
             const id = r.ColData[iDate >= 0 ? iDate : 0]?.id || r.ColData.find((c) => c && c.id)?.id || "";
-            items.push({ id, date, type, num: g(iNum), vendor, memo: g(iMemo), project: g(iCust), account: acct, section: sec, amount: num(g(iAmt)) });
+            const lineKey = id ? `${id}#${(seen[id] = (seen[id] || 0) + 1) - 1}` : undefined;
+            items.push({ id, date, type, num: g(iNum), vendor, memo: g(iMemo), project: g(iCust), account: acct, section: sec, amount: num(g(iAmt)), lineKey });
           }
         }
         if (r.Rows?.Row) walk(r.Rows.Row, acct, sec);

@@ -14838,7 +14838,7 @@ function QbPausedNote(){
   const {throttled,syncedAt,usage}=useQB();
   const wrap={margin:"0 0 12px",padding:"9px 13px",background:"#FFF8E6",border:"1px solid #E8C15A",borderRadius:T.radiusSm,color:"#8A6D1A",fontSize:12.5,lineHeight:1.5};
   if(throttled){
-    const when=syncedAt?new Date(syncedAt).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):null;
+    const when=syncedAt?new Date(syncedAt).toLocaleString("en-US",{timeZone:"America/New_York",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZoneName:"short"}):null;
     return(
       <div style={wrap}>
         ⏸ <b>QuickBooks is paused</b> — Intuit's monthly limit is used up until the 1st. Showing your last synced numbers{when?<> — <b>as of {when}</b></>:""}; anything entered in QuickBooks since then isn't reflected yet.
@@ -14865,12 +14865,15 @@ function QbFreshness({props}){
   if(!connected)return null;
   const stamps=[syncedAt,...(props||[]).map(p=>p.qbProjectId&&spendAt&&spendAt[p.qbProjectId])].filter(Boolean);
   const oldest=stamps.length?Math.min(...stamps):null;
-  const when=oldest?new Date(oldest).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):null;
+  const when=oldest?new Date(oldest).toLocaleString("en-US",{timeZone:"America/New_York",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZoneName:"short"}):null;
   const busy=!!(scanning||refreshing);
+  // A status caption, not a control row (Elie 9/8): centered tiny text like
+  // Mail's "Updated just now", with a bare gold ↻ glyph beside it. 36pt box +
+  // the coarse-pointer halo lands the tap target at 46pt.
   return(
-    <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:10,margin:"0 0 10px"}}>
-      <span style={{fontSize:11.5,color:T.textTert}}>{busy?"Refreshing from QuickBooks..." :when?`Numbers as of ${when}`:"Not pulled yet"}</span>
-      <button onClick={()=>{if(!busy)refresh(props);}} disabled={busy} title="Pull fresh numbers from QuickBooks now" style={{minHeight:44,display:"inline-flex",alignItems:"center",gap:6,padding:"0 15px",borderRadius:22,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:700,fontSize:12.5,cursor:busy?"default":"pointer",fontFamily:"inherit",opacity:busy?0.55:1,flexShrink:0}}>{busy?"Refreshing":"↻ Refresh"}</button>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:2,margin:"-2px 0 6px",minHeight:36}}>
+      <span style={{fontSize:11.5,color:T.textTert,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{busy?"Refreshing from QuickBooks..." :when?`Numbers as of ${when}`:"Not pulled yet"}</span>
+      <button onClick={()=>{if(!busy)refresh(props);}} disabled={busy} title="Pull fresh numbers from QuickBooks now" aria-label="Refresh numbers from QuickBooks" style={{width:36,height:36,minHeight:36,borderRadius:18,border:"none",background:"transparent",color:T.gold,fontWeight:700,fontSize:16,lineHeight:1,cursor:busy?"default":"pointer",fontFamily:"inherit",opacity:busy?0.4:1,flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0}}>↻</button>
     </div>
   );
 }
@@ -22244,7 +22247,7 @@ export function GoldstoneShell(){
         <div className="gs-topbar" style={{minHeight:54,padding:isMobile?"max(8px,env(safe-area-inset-top)) 16px 8px":"0 24px",borderBottom:`1px solid ${T.border}`,background:T.card,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,minWidth:0,flexShrink:1,overflow:"hidden",marginRight:8}}>
             {isMobile&&<button onClick={()=>setShowNavMenu(true)} title="Menu" aria-label="Open menu" style={{width:36,height:36,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer",padding:0,flexShrink:0,backgroundColor:"#fff",backgroundImage:"url(/logo.png)",backgroundRepeat:"no-repeat",backgroundSize:"185%",backgroundPosition:"50% 27%"}}/>}
-            <div style={{fontWeight:700,fontSize:17,color:T.text,whiteSpace:"nowrap"}}>{NAV.find(n=>n.key===active)?.label}</div>
+            <div style={{fontWeight:700,fontSize:17,color:T.text,whiteSpace:"nowrap",minWidth:0,flexShrink:1,overflow:"hidden",textOverflow:"ellipsis"}}>{NAV.find(n=>n.key===active)?.label}</div>
             <NavBackChip compact={isMobile} style={isMobile?undefined:{flexShrink:1,minWidth:0,maxWidth:150,overflow:"hidden"}}/>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>

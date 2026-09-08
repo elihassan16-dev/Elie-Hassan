@@ -94,6 +94,13 @@ export async function qbAuthFetch(path) {
       { id: "tx7", date: qd(3), vendor: "Shia Polak Construction", memo: "Returned materials — credit", account: "Construction", type: "Vendor Credit", amount: 2300, project: "1030 Hanover Blvd" },
     ] };
   }
+  // Preview shows a connected book with a same-day 10:45 AM Eastern vintage so
+  // the financial section's "Numbers as of" caption renders in screenshots.
+  if (p.includes("/api/quickbooks/status")) return { configured: true, connected: true };
+  if (p.includes("/api/quickbooks/accounts")) {
+    const et = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    return { items: [], cachedAt: new Date(`${et}T10:45:00-04:00`).getTime() };
+  }
   if (p.includes("/api/quickbooks")) return { connected: false, rows: [], income: 0, cogs: 0, expenses: 0, netIncome: 0 };
   if (p.includes("/api/boldtrail")) return { leads: [] };
   if (p.includes("/api/rentcast/value")) {
@@ -126,4 +133,17 @@ export async function geocodeAddress(q) {
   let h = 0;
   for (const ch of String(q)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return { lat: 39.85 + ((h % 1000) / 1000) * 0.45, lng: -75.05 + (((h >> 10) % 1000) / 1000) * 0.55 };
+}
+
+// The QuickBooks connected-probe goes through bare fetch(), not qbAuthFetch,
+// so the preview shims that one path — otherwise the dev server 404s it and
+// every financial screen renders as "not connected".
+if (typeof window !== "undefined" && window.fetch && !window.__gsDemoFetch) {
+  const real = window.fetch.bind(window);
+  window.__gsDemoFetch = true;
+  window.fetch = (input, init) => {
+    const u = String(typeof input === "string" ? input : (input && input.url) || "");
+    if (u.includes("/api/quickbooks/status")) return Promise.resolve(new Response(JSON.stringify({ configured: true, connected: true }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    return real(input, init);
+  };
 }

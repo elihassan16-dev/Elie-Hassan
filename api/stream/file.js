@@ -23,14 +23,17 @@ export default async function handler(req) {
   if (!r.ok || !d || d.status !== "ready" || !d.url) {
     return new Response(JSON.stringify({ error: "The video isn't ready to download yet — try again in a minute." }), { status: 409, headers: { "Content-Type": "application/json" } });
   }
-  const vid = await fetch(d.url);
-  if (!vid.ok || !vid.body) return new Response(JSON.stringify({ error: `Couldn't fetch the video (${vid.status}).` }), { status: 502 });
+  // Byte ranges pass through, so a <video> element can seek this URL (the
+  // walkthrough's frame adjuster scrubs a phone-sent video straight from here).
+  const range = req.headers.get("range") || "";
+  const vid = await fetch(d.url, range ? { headers: { Range: range } } : undefined);
+  if (!(vid.ok || vid.status === 206) || !vid.body) return new Response(JSON.stringify({ error: `Couldn't fetch the video (${vid.status}).` }), { status: 502 });
   const headers = {
     "Content-Type": "video/mp4",
     "Content-Disposition": `attachment; filename="${rawName}.mp4"`,
     "Cache-Control": "no-store",
+    "Accept-Ranges": "bytes",
   };
-  const len = vid.headers.get("content-length");
-  if (len) headers["Content-Length"] = len;
-  return new Response(vid.body, { status: 200, headers });
+  for (const h of ["content-length", "content-range"]) { const v = vid.headers.get(h); if (v) headers[h] = v; }
+  return new Response(vid.body, { status: vid.status === 206 ? 206 : 200, headers });
 }

@@ -153,18 +153,21 @@ export default async function handler(req, res) {
       return;
     }
 
+    // _k2: rows cached before the lineKey stamp shipped (9/8) have no ids and
+    // must never be served again - a client holding un-stamped rows can't match
+    // an id-keyed exclusion. New key, so the old entries simply age out.
     if (customerId) {
       // Elie's refresh rules (9/1): active projects re-download once a DAY,
       // sold/past deals once a MONTH; ↻ (fresh=1) bypasses.
       const ttl = req.query.fresh === "1" ? 0 : req.query.tier === "sold" ? 30 * 86400000 : 24 * 3600000;
-      const { data: items, cachedAt, stale } = await qbCached(`txns_cust_${customerId}_${start}`, ttl, computeItems);
+      const { data: items, cachedAt, stale } = await qbCached(`txns_cust_${customerId}_${start}_k2`, ttl, computeItems);
       res.status(200).json({ items, cachedAt, stale: !!stale });
       return;
     }
 
     // fresh=1 re-runs the company report (1 call) but keeps the cached 12h
     // attribution map — a manual refresh never re-triggers the 200-call sweep.
-    const { data: items, cachedAt, stale } = await qbCached(`txns_all_${start}`, req.query.fresh === "1" ? 0 : 24 * 3600000, async () => {
+    const { data: items, cachedAt, stale } = await qbCached(`txns_all_${start}_k2`, req.query.fresh === "1" ? 0 : 24 * 3600000, async () => {
       const items = await computeItems();
       if (items.length) {
         try {

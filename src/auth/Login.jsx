@@ -12,6 +12,9 @@ export default function Login() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [logoError, setLogoError] = useState(false);
+  // Set by IdleLogout right before it signs the app out — so the sign-in screen
+  // says why it's here instead of looking like a crash.
+  const [idleNote] = useState(() => { try { const v = sessionStorage.getItem("gs_idle_out"); sessionStorage.removeItem("gs_idle_out"); return v ? "Signed out after 2 hours without activity. Sign in to pick up where you left off." : ""; } catch { return ""; } });
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -113,6 +116,11 @@ export default function Login() {
             />
           </Field>
 
+          {idleNote && !err && (
+            <div style={{ background: GOLD_LIGHT, border: `1px solid ${GOLD_MID}`, color: "#6B5320", borderRadius: 10, padding: "10px 12px", fontSize: 13, fontWeight: 500 }}>
+              {idleNote}
+            </div>
+          )}
           {err && (
             <div
               style={{

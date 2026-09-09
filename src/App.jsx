@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import IdleLogout from "./IdleLogout";
 import { useAuth } from "./auth/AuthProvider";
 import Login from "./auth/Login";
 import { DataProvider } from "./data/DataProvider";
@@ -73,6 +74,7 @@ export default function Root() {
   return (
     <DataProvider>
       <GoldstoneShell />
+      <IdleLogout />
       {catcher}
     </DataProvider>
   );

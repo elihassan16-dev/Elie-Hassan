@@ -262,6 +262,12 @@ export function DataProvider({ children }) {
   // reference with the same id — don't reload all data or flip loading (which would
   // briefly unmount the whole app).
   const userId = user?.id;
+  // Every collection's pending edits, saved now. Used by the hide/unload safety
+  // net below and by the idle sign-out (nothing typed in the last two hours
+  // may be lost to the sign-out itself).
+  const flushAll = useCallback(() => Promise.all([propsC.flushNow(), leadsC.flushNow(), autosC.flushNow(), contactsC.flushNow(), fundersC.flushNow(), drawsC.flushNow(), officeC.flushNow(), officeTasksC.flushNow(), bankC.flushNow(), settingsC.flushNow(), rentalsC.flushNow()]),
+    [propsC.flushNow, leadsC.flushNow, autosC.flushNow, contactsC.flushNow, fundersC.flushNow, drawsC.flushNow, officeC.flushNow, officeTasksC.flushNow, bankC.flushNow, settingsC.flushNow, rentalsC.flushNow]);
+
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
@@ -299,7 +305,6 @@ export function DataProvider({ children }) {
 
     // Safety net: flush any pending edits when the tab is hidden or the page is
     // being unloaded/backgrounded (covers a PWA refresh or app switch).
-    const flushAll = () => { propsC.flushNow(); leadsC.flushNow(); autosC.flushNow(); contactsC.flushNow(); fundersC.flushNow(); drawsC.flushNow(); officeC.flushNow(); officeTasksC.flushNow(); bankC.flushNow(); settingsC.flushNow(); rentalsC.flushNow(); };
     const onHide = () => { if (document.visibilityState === "hidden") flushAll(); };
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("pagehide", flushAll);
@@ -328,7 +333,7 @@ export function DataProvider({ children }) {
       window.removeEventListener("pagehide", flushAll);
       supabase.removeChannel(channel);
     };
-  }, [userId, seedIfEmpty, propsC.load, leadsC.load, autosC.load, contactsC.load, fundersC.load, drawsC.load, officeC.load, officeTasksC.load, bankC.load, settingsC.load, rentalsC.load, propsC.flushNow, leadsC.flushNow, autosC.flushNow, contactsC.flushNow, fundersC.flushNow, drawsC.flushNow, officeC.flushNow, officeTasksC.flushNow, bankC.flushNow, settingsC.flushNow, rentalsC.flushNow, loadTeam]);
+  }, [userId, seedIfEmpty, propsC.load, leadsC.load, autosC.load, contactsC.load, fundersC.load, drawsC.load, officeC.load, officeTasksC.load, bankC.load, settingsC.load, rentalsC.load, propsC.flushNow, leadsC.flushNow, autosC.flushNow, contactsC.flushNow, fundersC.flushNow, drawsC.flushNow, officeC.flushNow, officeTasksC.flushNow, bankC.flushNow, settingsC.flushNow, rentalsC.flushNow, loadTeam, flushAll]);
 
   const teamMembers = Array.from(new Set([...team.map((u) => u.name || u.email).filter(Boolean), displayName].filter(Boolean)));
 
@@ -337,6 +342,7 @@ export function DataProvider({ children }) {
     sharedProps: propsC.items,
     setSharedProps: propsC.set,
     flushProps: propsC.flushNow,
+    flushAll,
     leads: leadsC.items,
     setLeads: leadsC.set,
     contacts: contactsC.items,

@@ -11,6 +11,7 @@ import "@fontsource-variable/manrope";
 import { AuthProvider } from "../auth/AuthProvider";
 import { DataProvider } from "../data/DataProvider";
 import { GoldstoneShell } from "../GoldstoneApp";
+import IdleLogout from "../IdleLogout";
 
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { err: null }; }
@@ -33,6 +34,7 @@ createRoot(document.getElementById("root")).render(
     <AuthProvider>
       <DataProvider>
         <GoldstoneShell />
+        <IdleLogout />
       </DataProvider>
     </AuthProvider>
   </ErrorBoundary>

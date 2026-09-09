@@ -312,6 +312,9 @@ try {
   const saved = JSON.parse(localStorage.getItem(WK_LS) || "{}");
   for (const k of Object.keys(saved)) wkJobs[k] = saved[k];
 } catch { /* ignore */ }
+// The shell's stale-build check asks this before reloading the page: a
+// reload mid-transcription throws the run away.
+if (typeof window !== "undefined") window.__gsWalkBusy = () => Object.values(wkJobs).some((j) => j && (j.status === "proc"));
 const wkSet = (pid, patch) => { wkJobs[pid] = { ...(wkJobs[pid] || { items: [], clips: 0, status: "idle", msg: "", err: "", tap: null }), ...patch }; wkPersist(); wkEmit(); };
 // A tombstone (not a delete) so the cloud-sync bridge knows to remove the
 // walk_<pid> row instead of re-uploading it.
@@ -365,6 +368,9 @@ export function useWalkCloudSync(appSettings, setAppSettings, flushAppSettings) 
     let t = null;
     const push = () => {
       clearTimeout(t);
+      // While a list is compiling here, every item write would otherwise ship
+      // a megabyte-plus row every 2.5s; pieces landing every 15s is plenty.
+      const busy = Object.values(wkJobs).some((j) => j && j.status === "proc");
       t = setTimeout(() => {
         for (const [pid, j] of Object.entries(wkJobs)) {
           const key = "walk_" + pid;
@@ -388,7 +394,7 @@ export function useWalkCloudSync(appSettings, setAppSettings, flushAppSettings) 
           setAppSettings((prev) => [...(prev || []).filter((x) => !(x && x.id === key)), { id: key, ...slice, at: Date.now() }]);
           if (flushAppSettings) setTimeout(flushAppSettings, 0);
         }
-      }, 2500);
+      }, busy ? 15000 : 2500);
     };
     wkSubs.add(push);
     push();

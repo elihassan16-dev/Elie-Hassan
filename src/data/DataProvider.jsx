@@ -174,7 +174,33 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
 
   const flushNow = useCallback(() => { clearTimeout(timer.current); return flush(); }, [flush]);
 
-  return { items, set, load, flushNow };
+  // Refresh ONE row in place (realtime told us which). The walkthrough's
+  // walk_<pid> settings rows carry every punch-list photo (a megabyte or more
+  // each), and re-fetching the whole settings table for each of their saves
+  // - every few seconds while a list compiles on another device - was
+  // re-rendering the entire app in a loop (Elie 9/9, the 579 Coral flicker).
+  const loadOne = useCallback(async (id) => {
+    const key = String(id);
+    if (dirty.current.has(key)) return;
+    const { data, error } = await supabase.from(table).select("*").eq("id", key).maybeSingle();
+    if (error) return;
+    const row = data ? mapRows([data])[0] : null;
+    const cur = ref.current;
+    const have = cur.findIndex((x) => String(x.id) === key);
+    let next;
+    if (!row) { if (have < 0) return; next = cur.filter((x) => String(x.id) !== key); synced.current.delete(key); }
+    else {
+      const js = JSON.stringify(row);
+      if (have >= 0 && synced.current.get(key) === js && JSON.stringify(cur[have]) === js) return; // nothing new
+      next = have >= 0 ? cur.map((x) => (String(x.id) === key ? row : x)) : [...cur, row];
+      synced.current.set(key, js);
+    }
+    ref.current = next;
+    setItems(next);
+    writeSnap(table, next);
+  }, [table, mapRows]);
+
+  return { items, set, load, flushNow, loadOne };
 }
 
 export function DataProvider({ children }) {
@@ -297,6 +323,9 @@ export function DataProvider({ children }) {
         // caches) — don't refetch every client's settings for those.
         const rid = String((payload && ((payload.new && payload.new.id) || (payload.old && payload.old.id))) || "");
         if (rid && (SERVER_ONLY_SETTINGS.includes(rid) || rid.startsWith("qb_cache"))) return;
+        // Punch-list rows are big and change often while a list compiles —
+        // refresh just that row rather than every setting for every client.
+        if (rid.startsWith("walk_")) { debounce("s:" + rid, () => settingsC.loadOne(rid)); return; }
         debounce("s", settingsC.load);
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "rentals" }, () => debounce("r", rentalsC.load))

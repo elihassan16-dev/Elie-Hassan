@@ -6128,17 +6128,23 @@ function PropertyContractorsCard({property}){
   );
 }
 
+// Which tab (and whether the walkthrough popup is open) per property, kept
+// outside the component: if anything remounts the detail mid-look (a data
+// reload swapping the row), it comes back on the same tab instead of
+// bouncing to Financial Overview (Elie 9/9).
+const PROP_VIEW_MEM=new Map();
 function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const { contacts: CONTACTS, teamMembers: TEAM_MEMBERS } = useData();
   const isMobile=useIsMobile();
-  const[tab,setTab]=useState("Financial Overview");
+  const[tab,setTab]=useState(()=>(PROP_VIEW_MEM.get(property.id)||{}).tab||"Financial Overview");
   const[taskPopup,setTaskPopup]=useState(null);
   const[showInfo,setShowInfo]=useState(false); // Property Info popup
   const[aiChat,setAiChat]=useState(false); // ✨ ask-AI-about-this-property popup
   const[statusBoard,setStatusBoard]=useState(false); // 🏗 utilities + permits board
   const[editAddr,setEditAddr]=useState(false);       // ✎ fix a typo'd address
   const[jumpNav,setJumpNav]=useState(false);         // tap the address → jump to this property's Showings / BS / chat
-  const[walk,setWalk]=useState(false);               // 🎥 narrated walkthrough → AI punch list
+  const[walk,setWalk]=useState(()=>!!(PROP_VIEW_MEM.get(property.id)||{}).walk); // 🎥 narrated walkthrough → AI punch list
+  useEffect(()=>{PROP_VIEW_MEM.set(property.id,{tab,walk});},[property.id,tab,walk]);
   const walkJob=useWalkJob(property.id);             // background transcription status for the Tasks-tab button
   const walkWaiting=(property.walkVideos||[]).filter(v=>v&&v.uid&&!v.done).length; // videos sent from the phone, not yet turned into a list
   // No QuickBooks file exists until the property is bought, so hide the QB tab while Under Contract.

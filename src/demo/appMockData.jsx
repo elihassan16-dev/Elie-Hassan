@@ -56,6 +56,18 @@ const PROPS = [
   },
   {
     id: 1003, address: "1030 Hanover Blvd", city: "Browns Mills", state: "NJ", zip: "08015", status: "On Market", qbProjectId: "qb-1003",
+    // Preview-only draws so the Construction popup's rows can be eyeballed
+    qbDrawTxns: [
+      { date: "2026-07-07", type: "Deposit", num: "", vendor: "FEDWIRE CREDIT VIA: BANK OF AMERICA, N.A./XXXXXX B/O: LOAN FUNDER LLC", memo: "", amount: 32275, lineKey: "dw1#0" },
+      { date: "2026-07-21", type: "Deposit", num: "", vendor: "Loan Funder", memo: "", amount: 17241, lineKey: "dw2#0" },
+      { date: "2026-08-10", type: "Deposit", num: "", vendor: "Loan Funder", memo: "", amount: 35631, lineKey: "dw3#0" },
+      { date: "2026-09-08", type: "Deposit", num: "", vendor: "Loan Funder", memo: "", amount: 6874, lineKey: "dw4#0" },
+    ],
+    dmDrawCustom: [{ id: 1, label: "Bridge wire from Chase", amount: 4000 }],
+    dmConstrSpentTxns: [
+      { date: "2026-06-17", type: "Expense", num: "", vendor: "MCD Builds LLC", memo: "", amount: -15000, lineKey: "rh1#0" },
+      { date: "2026-07-13", type: "Expense", num: "", vendor: "Flex Architecture LLC", memo: "", amount: -950, lineKey: "rh2#0" },
+    ],
     financials: FIN({ purchasePrice: "150000", rehabCosts: "72000", salePrice: "329900", holdPeriod: "7" }),
     propertyInfo: { type: "Single Family", beds: "3", baths: "1.5", sqft: "1290", yearBuilt: "1958", lot: "", parcel: "", lockboxCode: "1030", lockboxLocation: "Side rail", notes: "" },
     tasks: [{ id: 4, text: "Sign and lock box pickup", status: "Not Started", assignee: "Moshe Hamaoui", delegate: "", assignedAt: Date.now(), assignedBy: "Elie Hassan" }],

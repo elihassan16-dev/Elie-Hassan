@@ -15409,12 +15409,15 @@ function dmPotMath(p,accounts,spend,bankAccounts){
     // what's physically left in the holding account. Nothing else to track.
     const totalLoans=keys.reduce((t,e)=>t+e.bal,0);
     const allIn=bsMetrics(p,accounts,spend||{}).allIn;
-    return {reserveLeft:allIn==null?0:Math.max(0,totalLoans-allIn),constrHeld:0,upfront:true};
+    return {reserveLeft:allIn==null?0:Math.max(0,totalLoans-allIn),constrHeld:0,constrLoc:0,upfront:true};
   }
   const fundAuto=false;
   const inFlow=draws;
   const constrEff=constrBal+fromPot;
-  return {reserveLeft:Math.max(0,reserve-paid),constrHeld:Math.max(0,constrEff+inFlow-constrSpent),reserve,paid};
+  // constrLoc: line-of-credit money pointed at the build (accounts tagged
+  // construction + the rest of the pot) - the "+ LOC" in the Construction
+  // popup, and now in the Report Center's holdback report too (Elie 9/8).
+  return {reserveLeft:Math.max(0,reserve-paid),constrHeld:Math.max(0,constrEff+inFlow-constrSpent),constrLoc:constrEff,reserve,paid};
 }
 const dmHoldbackOf=(p)=>{const raw=p.constrHoldback;const pins=bsSum(p.qbHoldbackTxns);const hasManual=raw!=null&&raw!=="";const hasPins=(p.qbHoldbackTxns||[]).length>0;return (hasPins||hasManual)?pins+(hasManual?Number(raw):0):null;};
 // ─── Deal Money — per-property financing picture (PREVIEW) ────────────────────
@@ -15680,9 +15683,11 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     return {date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:amt,lineKey:t.lineKey};
   };
   const toggleTxn=(p,t)=>{
-    const field=txPick.kind==="float"?"qbFloatTxns":txPick.kind==="cspent"?"dmConstrSpentTxns":(txPick.kind==="draw"||txPick.kind==="fund")?"qbDrawTxns":"qbDebtTxns";
+    const field=txPick.kind==="float"?"qbFloatTxns":txPick.kind==="cspent"?"dmConstrSpentTxns":(txPick.kind==="draw"||txPick.kind==="fund")?"qbDrawTxns":txPick.kind==="holdback"?"qbHoldbackTxns":"qbDebtTxns";
     const cur=p[field]||[];const has=cur.some(x=>txSame(x,t));
-    updateProp(p.id,field,has?cur.filter(x=>!txSame(x,t)):[...cur,slimT(t)]);
+    // Holdback lines keep QuickBooks' own sign, exactly as the Report Center's
+    // holdback editor stores them (dmHoldbackOf sums them signed).
+    updateProp(p.id,field,has?cur.filter(x=>!txSame(x,t)):[...cur,txPick.kind==="holdback"?{...slimT(t),amount:t.amount}:slimT(t)]);
   };
   const removeEntry=(p,e)=>{
     if(e.custom)updateProp(p.id,"qbLoanCustom",(p.qbLoanCustom||[]).filter(l=>"c"+l.id!==e.key));
@@ -15694,7 +15699,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const renderSetup=(sel)=>{const c=calc(sel);
     const bankEntries=c.entries.filter(e=>!e.custom&&jobOf(sel,e.key)==="bank");
     const h={fontSize:10.5,fontWeight:800,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",padding:"8px 0 4px"};
-    const jobsSub=c.entries.length?c.entries.map(e=>`${e.name.split(":").pop().trim().slice(0,18)} ${money(e.bal)}`).join(" · "):"none yet — tap to add the mortgage + LOCs";
+    const jobsSub=(c.entries.length?c.entries.map(e=>`${e.name.split(":").pop().trim().slice(0,18)} ${money(e.bal)}`).join(" · "):"none yet — tap to add the mortgage + LOCs")+(c.hb!=null?` · holdback ${money(c.hb)}`:"");
     const splitSub=(sel.dmReserveMode||"all")==="all"?`everything left → interest reserve (${money(c.reserve)})`:`reserve ${money(c.reserve)}${sel.dmRestToConstr?` · rest → construction (${money(c.restAfterReserve)})`:""}`;
     const autoSub=c.upfront?(sel.dmFundAuto?"automatic — loan − deployed":"pin the wires in by hand"):`debt service ${sel.qbDebtAuto?"✓":"–"} · rehab ${sel.dmRehabAuto?"✓":"–"} · draws ${sel.dmDrawAuto?"✓":"–"}`;
     const sitsSub=`${c.upfront?"funds":"reserve"} → ${bankName(sel.bsBankAccount)||"pick a bank"}${c.upfront?"":` · construction → ${sel.dmConstrBank==="loc"?"on the LOC":bankName(sel.dmConstrBank)||"pick"}`}`;
@@ -15746,6 +15751,20 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
                 {manualFor==="loan"&&manualForm((nm,amt)=>updateProp(sel.id,"qbLoanCustom",[...(sel.qbLoanCustom||[]),{id:Date.now(),name:nm||"Manual entry",amount:amt}]))}
                 <div style={totRow}><span>Total loans</span><span style={{color:"#B8953F"}}>{money(c.totalLoans)}</span></div>
                 <div style={{fontSize:10.5,color:T.textTert,marginTop:6,lineHeight:1.5}}>BANK = the lender financing this deal (draws come from here). LINE OF CREDIT = your borrowed pot for down payment, reserve and construction.</div>
+                {/* Construction holdback lives here too (Elie 9/8): the same
+                    stored number the Report Center's holdback report and the
+                    Construction popup read - pin the closing-entry line or
+                    type it, and every screen agrees. */}
+                <div style={{...h,marginTop:12}}>🔨 Construction holdback — what the lender set aside for the build</div>
+                {(sel.qbHoldbackTxns||[]).map(t=>(
+                  <div key={txKey(t)} style={rowS}><span style={lS}>📌 {String(t.account||t.vendor||t.type||"—").split(":").pop().trim()}{t.date?<span style={{color:T.textTert}}>· {t.date}</span>:null}</span><span style={{display:"flex",gap:6,alignItems:"center"}}><span style={vS}>{money(Number(t.amount)||0)}</span>{canEdit&&removeChip(()=>updateProp(sel.id,"qbHoldbackTxns",(sel.qbHoldbackTxns||[]).filter(x=>!txSame(x,t))),"Unpin")}</span></div>
+                ))}
+                <div style={rowS}><span style={lS}>✎ Manual amount <span style={{color:T.textTert}}>adds to pinned lines</span></span>
+                  <input value={sel.constrHoldback??""} onChange={e=>canEdit&&updateProp(sel.id,"constrHoldback",e.target.value.replace(/[^0-9.-]/g,""))} readOnly={!canEdit} placeholder="0" inputMode="decimal" style={{width:96,padding:"6px 9px",borderRadius:8,border:`1px solid ${T.border}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",textAlign:"right",background:T.bg,color:T.text}}/></div>
+                {canEdit&&<div style={{display:"flex",gap:6,marginTop:7}}>
+                  {sel.qbProjectId?<button onClick={()=>setTxPick({propId:sel.id,kind:"holdback",src:sel.qbProjectId})} style={chip(false)}>📌 Pin from QuickBooks</button>:<span style={{fontSize:10.5,color:T.textTert}}>link the QB project to pin the closing-entry line</span>}
+                </div>}
+                <div style={totRow}><span>Holdback</span><span style={{color:"#B8953F"}}>{c.hb==null?"—":money(c.hb)}</span></div>
               </div>)}
               {setupStep===2&&(<div style={secBox}>
                 <div style={h}>🚀 Down payment & deposits — wires out of the pot</div>
@@ -16083,7 +16102,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
           </div>
         </div>
         <div style={{margin:"10px 16px 4px",background:"#F7F7F9",border:"1px solid #ECECEF",borderRadius:10,padding:"8px 12px",fontSize:11,color:"#5A6472",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-          <span>Budget {money(c.est)} · holdback {c.hb==null?"—":money(c.hb)} + LOC {money(c.constrTotalEff)}</span>
+          <span>Budget {money(c.est)} · <span onClick={canEdit?()=>{setDetailPop(null);setSetupOpen(true);setSetupStep(1);}:undefined} title={canEdit?"Set the holdback in Deal setup":undefined} style={canEdit?{textDecoration:"underline dotted",textUnderlineOffset:2,cursor:"pointer"}:undefined}>holdback {c.hb==null?"—":money(c.hb)}</span> + LOC {money(c.constrTotalEff)}</span>
           <b style={{color:c.funding==null?T.textTert:c.funding>=0?"#0F9D58":T.red,whiteSpace:"nowrap"}}>{c.funding==null?"—":c.funding>=0?"✓ covered":`short ${money(-c.funding).slice(1)}`}</b>
         </div>
         {(c.constrFromPot>0||c.constrBal>0)&&(<>
@@ -16361,7 +16380,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     );
   })();
   const pickerTarget=txPick?bsProps.find(p=>p.id===txPick.propId):null;
-  const pickerPinned=txPick&&pickerTarget?new Set(((txPick.kind==="float"?pickerTarget.qbFloatTxns:txPick.kind==="cspent"?pickerTarget.dmConstrSpentTxns:(txPick.kind==="draw"||txPick.kind==="fund")?pickerTarget.qbDrawTxns:pickerTarget.qbDebtTxns)||[]).flatMap(txKeys)):new Set();
+  const pickerPinned=txPick&&pickerTarget?new Set(((txPick.kind==="float"?pickerTarget.qbFloatTxns:txPick.kind==="cspent"?pickerTarget.dmConstrSpentTxns:(txPick.kind==="draw"||txPick.kind==="fund")?pickerTarget.qbDrawTxns:txPick.kind==="holdback"?pickerTarget.qbHoldbackTxns:pickerTarget.qbDebtTxns)||[]).flatMap(txKeys)):new Set();
   const txPicker=txPick&&pickerTarget&&<QbTxnsPickerModal txns={pickTxns} loading={pickTxns===null} pinnedKeys={pickerPinned} onToggle={t=>toggleTxn(pickerTarget,t)} onClose={()=>setTxPick(null)}/>;
   // ── Inline (Property Balance Sheet page): mail-style two panes ─────────────
   if(inline){
@@ -16629,12 +16648,17 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       const hasManual=raw!=null&&raw!=="";
       const hasPins=(p.qbHoldbackTxns||[]).length>0;
       const holdback=(hasPins||hasManual)?pins+(hasManual?Number(raw):0):null;
-      return {propId:p.id,address:p.address,est,holdback,pins:hasPins,funded:!!p.holdbackFunded,diff:holdback==null?null:holdback-est};
+      // Extra line-of-credit money aimed at the build counts toward covering
+      // the estimate, exactly as the Construction popup already shows it
+      // ("holdback + LOC") - one number, both places (Elie 9/8).
+      const loc=(p.dmFinType||"draws")==="upfront"?0:dmPotMath(p,accounts,spend,bankAccounts).constrLoc||0;
+      const covered=holdback==null&&!loc?null:(holdback||0)+loc;
+      return {propId:p.id,address:p.address,est,holdback,loc,pins:hasPins,funded:!!p.holdbackFunded,diff:covered==null?null:covered-est};
     });
     const total={est:0,hold:0,anyHold:false};
-    rows.forEach(r=>{total.est+=r.est;if(r.holdback!=null){total.hold+=r.holdback;total.anyHold=true;}});
+    rows.forEach(r=>{total.est+=r.est;if(r.holdback!=null||r.loc){total.hold+=(r.holdback||0)+r.loc;total.anyHold=true;}});
     return {rows,total};
-  },[bsProps,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[bsProps,sharedProps,accounts,spend,bankAccounts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Report 5 — construction draws: holdback vs the draw transactions pinned from
   // each property's mortgage account, and how much of the holdback is left.
@@ -17452,12 +17476,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     },
     hold:{
       title:"Construction Holdback vs Underwriting",
-      subtitle:"What the bank is holding back for construction versus what you underwrote it to cost (rehab estimate). Tap a holdback to pin it from QuickBooks or enter it. Difference = holdback − estimate (red = short of your estimate).",
+      subtitle:"What the bank is holding back for construction versus what you underwrote it to cost (rehab estimate). Tap a holdback to pin it from QuickBooks or enter it — the same number lives in Deal setup. Line-of-credit money aimed at the build shows under the holdback and counts too. Difference = holdback + LOC − estimate (red = short of your estimate).",
       cols:[{label:"Property"},{label:"Est. construction",align:"right"},{label:"Bank holdback",align:"right"},{label:"Difference",align:"right",gutter:true}],
       rows:rptHold.rows.map(r=>[
         {t:r.address},
         {t:fmtD(r.est),align:"right"},
-        {edit:{propId:r.propId},t:r.holdback==null?"Tap to set":(r.pins?fmtD(r.holdback)+" 📌":fmtD(r.holdback)),align:"right",color:r.holdback==null?T.blue:undefined},
+        {edit:{propId:r.propId},t:r.holdback==null?"Tap to set":(r.pins?fmtD(r.holdback)+" 📌":fmtD(r.holdback)),sub:r.loc>0?`+ LOC ${fmtD(r.loc)}`:"",align:"right",color:r.holdback==null?T.blue:undefined},
         {fund:{propId:r.propId,checked:r.funded,show:r.diff!=null&&r.diff<0},t:r.diff==null?"—":fmtD(r.diff),align:"right",strong:r.diff!=null,color:r.diff==null?T.textTert:(r.diff<0?T.red:T.green)},
       ]),
       foot:[[{t:"Portfolio",strong:true},{t:fmtD(rptHold.total.est),align:"right",strong:true},{t:rptHold.total.anyHold?fmtD(rptHold.total.hold):"—",align:"right",strong:true},{t:rptHold.total.anyHold?fmtD(rptHold.total.hold-rptHold.total.est):"—",align:"right",strong:true,color:(rptHold.total.hold-rptHold.total.est)<0?T.red:T.green}]],
@@ -17791,7 +17815,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                         ?<span onClick={(e)=>{e.stopPropagation();setSoldFor(c.soldCost.propId);}} title="Tap for the cost breakdown + adjustments" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>
                         :c.fund
                         ?<span style={{display:"inline-flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}><span style={{filter:c.fund.show&&c.fund.checked?"blur(1.6px)":"none",opacity:c.fund.show&&c.fund.checked?0.4:1,textDecoration:c.fund.show&&c.fund.checked?"line-through":"none"}}>{c.t}</span>{c.fund.show?<input type="checkbox" checked={c.fund.checked} disabled={!canEdit} onClick={(e)=>e.stopPropagation()} onChange={()=>toggleFunded(c.fund.propId)} title="Secured additional funding — dim the shortfall" style={{width:15,height:15,cursor:canEdit?"pointer":"default",accentColor:T.gold,flexShrink:0}}/>:<span style={{width:15,flexShrink:0,display:"inline-block"}}/>}</span>
-                        :c.t}</td>)}</tr>;})}
+                        :c.t}{c.sub?<div style={{fontSize:10.5,fontWeight:600,color:T.textTert,marginTop:1,whiteSpace:"nowrap"}}>{c.sub}</div>:null}</td>)}</tr>;})}
                   {rep.rows.length>0&&rep.foot&&rep.foot.map((frow,fi)=><tr key={"f"+fi}>{frow.map((c,ci)=><td key={ci} style={{textAlign:c.align||"left",padding:fi===0?"11px 10px 8px":"2px 10px 8px",...(fi===0?{borderTop:"2px solid rgba(0,0,0,0.15)"}:{}),fontWeight:c.strong?800:600,color:c.color||(c.gold?T.gold:T.text),whiteSpace:"nowrap",...(ci===0?{position:"sticky",left:0,zIndex:1,background:T.card,borderRight:`1px solid ${T.border}`}:{background:T.card})}}>{c.t}</td>)}</tr>)}
                 </tbody>
               </table>}

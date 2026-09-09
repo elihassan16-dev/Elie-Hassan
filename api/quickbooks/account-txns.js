@@ -1,4 +1,4 @@
-import { qbApi, requireTeamUser, qbCached } from "../../lib/quickbooks.js";
+import { qbApi, requireTeamUser, qbCached, qbMaxAge } from "../../lib/quickbooks.js";
 
 // List the transactions posted to a single QuickBooks ACCOUNT (e.g. a construction
 // mortgage / loan liability), so the app can pin individual draws against it. The
@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     const start = "2010-01-01";
     const end = new Date().toISOString().slice(0, 10);
     // 15-min shared cache per account — bank recon reloads these constantly.
-    const { data: rpt, cachedAt, stale } = await qbCached(`atx_${account}`, req.query.fresh === "1" ? 0 : 24 * 3600000, () => qbApi(
+    const { data: rpt, cachedAt, stale } = await qbCached(`atx_${account}`, qbMaxAge("day", req.query.fresh === "1"), () => qbApi(
       `/reports/GeneralLedger?account=${encodeURIComponent(account)}&start_date=${start}&end_date=${end}&columns=tx_date,txn_type,doc_num,name,memo,subt_nat_amount`
     ));
 

@@ -578,7 +578,7 @@ async function processClip(property, file, label, opts = {}) {
 // note it on the property (walkVideos) - and any device, usually the desktop,
 // picks it up from the property and runs the exact same pipeline on the MP4.
 const fmtMB = (n) => (n >= 1024 * 1024 * 1024 ? (n / 1024 / 1024 / 1024).toFixed(1) + " GB" : Math.round(n / 1024 / 1024) + " MB");
-export async function startWalkFromCloud(property, video, onUpdate) {
+export async function startWalkFromCloud(property, video, onUpdate, getLatest) {
   const pid = property.id;
   if (!video || !video.uid || wkGet(pid)?.status === "proc") return;
   wkSet(pid, { status: "proc", err: "", tap: null, msg: "Preparing the video in the cloud…" });
@@ -612,7 +612,12 @@ export async function startWalkFromCloud(property, video, onUpdate) {
     const file = new File([blob], (video.name || "walkthrough").replace(/\.[a-z0-9]+$/i, "") + ".mp4", { type: "video/mp4" });
     wkSet(pid, { status: "idle", msg: "" }); // startWalkClips declines to start while "proc"
     await startWalkClips(property, [file]);
-    if (onUpdate) onUpdate(pid, "walkVideos", (property.walkVideos || []).map((v) => (v.uid === video.uid ? { ...v, done: Date.now() } : v)));
+    // Mark it done on the FRESHEST copy of the list, not the one captured when
+    // Generate was pressed - videos sent from the phone during the run would
+    // otherwise be written over (Elie 9/9). Entries also carry id = uid so a
+    // save that does cross another device's merges item-by-item.
+    const latest = (getLatest && getLatest()) || property;
+    if (onUpdate) onUpdate(pid, "walkVideos", (latest.walkVideos || []).map((v) => (v.uid === video.uid ? { ...v, id: v.uid, done: Date.now() } : { ...v, id: v.id || v.uid })));
   } catch (e) {
     const has = (wkGet(pid)?.items || []).length;
     wkSet(pid, { status: has ? "ready" : "idle", err: e.message || "Couldn't fetch that video.", msg: "", tap: null });
@@ -661,6 +666,8 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   const [busy, setBusy] = useState("");
   const [showTx, setShowTx] = useState(false); // raw transcript — "did it hear me right?"
   const [sending, setSending] = useState(null); // {i, n, pct, name} while a video goes up to the cloud
+  const [recent, setRecent] = useState(null);   // recent cloud uploads, for putting a lost video back on this property
+  const latestRef = useRef(property); latestRef.current = property;
   const liveRef = useRef(null);
   const mrRef = useRef(null);
   const streamRef = useRef(null);
@@ -715,8 +722,8 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
         const f = fl[i];
         setSending({ i: i + 1, n: fl.length, pct: 0, name: f.name || "video" });
         const upd = await uploadStreamVideo(f, (pct) => setSending((s) => (s ? { ...s, pct } : s)));
-        list.push({ uid: upd.uid, name: f.name || "walkthrough", size: f.size, at: Date.now(), from: /iPhone|iPad|Android/i.test(navigator.userAgent) ? "phone" : "computer" });
-        onUpdate(property.id, "walkVideos", [...list]);
+        list.push({ id: upd.uid, uid: upd.uid, name: f.name || "walkthrough", size: f.size, at: Date.now(), from: /iPhone|iPad|Android/i.test(navigator.userAgent) ? "phone" : "computer" });
+        onUpdate(property.id, "walkVideos", [...(latestRef.current.walkVideos || []).filter((v) => !list.some((x) => x.uid === v.uid)), ...list].map((v) => ({ ...v, id: v.id || v.uid })));
       }
       setFlash(`✓ Sent. The phone's part is done — open this property's Walkthrough on the computer and press ⚡ Generate.`);
       setTimeout(() => setFlash(""), 7000);
@@ -725,7 +732,43 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   };
   const cloudPending = (property.walkVideos || []).filter((v) => v && v.uid && !v.done);
   const onPhone = typeof window !== "undefined" && window.innerWidth < 768;
-  const dropCloud = (uid) => onUpdate(property.id, "walkVideos", (property.walkVideos || []).filter((v) => v.uid !== uid));
+  const dropCloud = (uid) => onUpdate(property.id, "walkVideos", (latestRef.current.walkVideos || []).filter((v) => v.uid !== uid).map((v) => ({ ...v, id: v.id || v.uid })));
+  const findRecent = async () => {
+    setRecent("loading"); setErr("");
+    try {
+      const d = await qbAuthFetch("/api/stream/list");
+      const have = new Set((latestRef.current.walkVideos || []).map((v) => v.uid));
+      const cut = Date.now() - 14 * 86400000;
+      setRecent((d.items || []).filter((v) => v.at > cut && !have.has(v.uid)).slice(0, 12));
+    } catch (e) { setRecent(null); setErr(e.message || "Couldn't list recent videos."); }
+  };
+  const addRecent = (v) => {
+    const cur = (latestRef.current.walkVideos || []).map((x) => ({ ...x, id: x.id || x.uid }));
+    onUpdate(property.id, "walkVideos", [...cur, { id: v.uid, uid: v.uid, name: v.name, size: v.size, at: v.at || Date.now(), from: "phone" }]);
+    setRecent((r) => (Array.isArray(r) ? r.filter((x) => x.uid !== v.uid) : r));
+  };
+  const findBlock = job?.status !== "proc" ? (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {recent == null && <button onClick={findRecent} style={{ background: "none", border: "none", color: T.textSub, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", padding: "2px 4px", textAlign: "left", textDecoration: "underline dotted", textUnderlineOffset: 2 }}>Sent a video from the phone that isn't showing here? Find it</button>}
+      {recent === "loading" && <div style={{ fontSize: 11.5, color: T.textTert, padding: "2px 4px" }}>Looking at recent uploads…</div>}
+      {Array.isArray(recent) && (
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 800, color: T.text, display: "flex", justifyContent: "space-between", alignItems: "center" }}><span>Recent uploads not on this property</span><button onClick={() => setRecent(null)} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0 }}>×</button></div>
+          {recent.length === 0 && <div style={{ fontSize: 11.5, color: T.textTert }}>Nothing from the last two weeks that isn't already listed.</div>}
+          {recent.map((v) => (
+            <div key={v.uid} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</div>
+                <div style={{ fontSize: 10.5, color: T.textTert }}>{fmtWhen(v.at)}{v.size ? ` · ${fmtMB(v.size)}` : ""}{v.duration ? ` · ${fmtT(Math.round(v.duration))}` : ""}</div>
+              </div>
+              <button onClick={() => addRecent(v)} style={{ ...btn(T.bg, T.text), border: `1px solid ${T.border}`, padding: "7px 11px", fontSize: 12, flexShrink: 0 }}>＋ Add here</button>
+            </div>
+          ))}
+          <div style={{ fontSize: 10.5, color: T.textTert, lineHeight: 1.4 }}>Chat videos show up here too — go by the name and time.</div>
+        </div>
+      )}
+    </div>
+  ) : null;
   const fmtWhen = (t) => new Date(t).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
   const up = (id, k, v) => wkSet(property.id, { items: items.map((it) => (it.id === id ? { ...it, [k]: v } : it)) });
@@ -796,8 +839,8 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
             <div style={{ fontSize: 11, color: T.textTert }}>{fmtWhen(v.at)}{v.size ? ` · ${fmtMB(v.size)}` : ""}</div>
           </div>
           {onPhone
-            ? <button onClick={() => { if (window.confirm("Build the list on this phone? It is much slower than the computer and the app must stay on screen.")) { setErr(""); setAdding(false); startWalkFromCloud(property, v, onUpdate); } }} style={{ background: "none", border: "none", color: T.textSub, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", padding: "6px 4px", flexShrink: 0, textDecoration: "underline dotted", textUnderlineOffset: 2 }}>generate here instead</button>
-            : <button onClick={() => { setErr(""); setAdding(false); startWalkFromCloud(property, v, onUpdate); }} style={{ ...btn(T.gold, "#fff"), padding: "9px 13px", fontSize: 12.5, flexShrink: 0, boxShadow: `0 2px 10px ${T.gold}55` }}>⚡ Generate here</button>}
+            ? <button onClick={() => { if (window.confirm("Build the list on this phone? It is much slower than the computer and the app must stay on screen.")) { setErr(""); setAdding(false); startWalkFromCloud(property, v, onUpdate, () => latestRef.current); } }} style={{ background: "none", border: "none", color: T.textSub, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", padding: "6px 4px", flexShrink: 0, textDecoration: "underline dotted", textUnderlineOffset: 2 }}>generate here instead</button>
+            : <button onClick={() => { setErr(""); setAdding(false); startWalkFromCloud(property, v, onUpdate, () => latestRef.current); }} style={{ ...btn(T.gold, "#fff"), padding: "9px 13px", fontSize: 12.5, flexShrink: 0, boxShadow: `0 2px 10px ${T.gold}55` }}>⚡ Generate here</button>}
           <button onClick={() => { if (window.confirm("Remove this video from the list? (It stays in the cloud.)")) dropCloud(v.uid); }} title="Remove" style={{ background: "rgba(118,118,128,0.08)", border: "none", width: 28, height: 28, minHeight: 28, borderRadius: 14, color: T.textSub, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
         </div>
       ))}
@@ -839,6 +882,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
             )}
             {resumeBtn}
             {cloudCard}
+            {findBlock}
             {sending ? (
               <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
                 <div style={{ fontSize: 13.5, fontWeight: 800, color: T.text }}>📤 Sending{sending.n > 1 ? ` ${sending.i} of ${sending.n}` : ""} to the cloud… {sending.pct}%</div>
@@ -941,6 +985,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
             <div style={{ background: T.card, borderTop: `1px solid ${T.border}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
               {resumeBtn}
               {cloudCard}
+              {findBlock}
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => { setErr(""); setAdding(true); }} style={{ ...btn(T.bg, T.text), flex: 1, border: `1px solid ${T.border}`, padding: "9px 12px", fontSize: 12.5 }}>➕ Add another video</button>
                 <button onClick={() => { if (window.confirm("Throw away this punch list and start fresh?")) { setAdding(false); clearWalkJob(property.id); } }} title="Start over" style={{ ...btn(T.bg, T.red), border: `1px solid ${T.border}`, padding: "9px 14px", fontSize: 12.5 }}>🗑</button>

@@ -171,6 +171,33 @@ async function extractAudio(file, onMsg, playGate, startAt = 0) {
 // after the seek. Each grab also returns a sharpness score (sum of local
 // contrast) so the caller can compare candidate frames; a near-zero score
 // means blank/uniform, so give the decoder a beat and draw once more.
+// A seek on a PAUSED iPhone video often never presents the new frame at all:
+// requestVideoFrameCallback stays silent, the fallback timer fires, and the
+// canvas still holds the PREVIOUS item's picture - sharp, so the score check
+// waved it through, and four items in a row came out with the same door
+// (Elie 9/9, 579 Coral Ln). So every grab is fingerprinted and compared with
+// the last one; a repeat gets a nudge - play from the moment, muted, and
+// snap the first frame the phone actually presents.
+let lastGrabSig = null;
+const sigOf = (video) => {
+  try {
+    const c = document.createElement("canvas"); c.width = 16; c.height = 9;
+    const ctx = c.getContext("2d"); ctx.drawImage(video, 0, 0, 16, 9);
+    const px = ctx.getImageData(0, 0, 16, 9).data; const out = new Array(144);
+    for (let i = 0; i < 144; i++) out[i] = (px[i * 4] + px[i * 4 + 1] + px[i * 4 + 2]) / 3;
+    return out;
+  } catch { return null; }
+};
+const sameSig = (a, b) => { if (!a || !b) return false; let d = 0; for (let i = 0; i < a.length; i++) d += Math.abs(a[i] - b[i]); return d / a.length < 1.5; };
+const nudgeFrame = (video, t) => new Promise((res) => {
+  let done = false;
+  const fin = () => { if (done) return; done = true; try { video.pause(); } catch { /* ignore */ } res(); };
+  try { video.currentTime = Math.max(0.1, t); } catch { /* ignore */ }
+  const p = video.play();
+  if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(() => video.requestVideoFrameCallback(fin));
+  if (p && p.then) p.then(() => setTimeout(fin, 450)).catch(() => setTimeout(fin, 120)); else setTimeout(fin, 450);
+  setTimeout(fin, 1500);
+});
 function grabFrame(video, t) {
   const draw = () => {
     // Long side capped at 720 — plenty for the review row and the PDF, and
@@ -193,16 +220,23 @@ function grabFrame(video, t) {
         }
       }
     } catch { score = 1; }
-    return { data: c.toDataURL("image/jpeg", 0.72), score };
+    return { data: c.toDataURL("image/jpeg", 0.72), score, sig: sigOf(video) };
   };
   return new Promise((resolve) => {
     let settled = false;
+    const accept = (f) => { if (f && f.sig) lastGrabSig = f.sig; resolve(f); };
     const finish = () => {
       if (settled) return; settled = true;
       try {
         const first = draw();
-        if (first.score > 1500) { resolve(first); return; } // real detail painted
-        setTimeout(() => { try { resolve(draw()); } catch { resolve(first); } }, 280); // blank/uniform — let the decoder catch up
+        if (sameSig(first.sig, lastGrabSig)) {
+          // Same picture as the last grab: the seek never presented. Play a
+          // beat from this moment and take what the phone really shows.
+          nudgeFrame(video, t).then(() => { try { accept(draw()); } catch { accept(first); } });
+          return;
+        }
+        if (first.score > 1500) { accept(first); return; } // real detail painted
+        setTimeout(() => { try { accept(draw()); } catch { accept(first); } }, 280); // blank/uniform — let the decoder catch up
       } catch { resolve(null); }
     };
     const to = setTimeout(finish, 5000); // grab whatever is painted rather than nothing
@@ -218,16 +252,19 @@ function grabFrame(video, t) {
 }
 
 // Walking-and-talking video is motion-blurry: try three moments around t and
-// keep the sharpest frame.
-async function bestFrame(video, t, dur) {
-  const cands = [t, t - 1, t + 1]
-    .map((x) => Math.max(0.1, x))
-    .filter((x, i, arr) => arr.indexOf(x) === i && (!dur || x < dur - 0.05));
+// keep the sharpest frame. Candidates stay inside the item's own window
+// [lo, hi] so a short item never borrows its neighbour's picture.
+async function bestFrame(video, t, dur, lo = 0, hi = Infinity) {
+  const end = Math.min(hi, dur ? dur - 0.05 : Infinity);
+  const clamp = (x) => Math.min(Math.max(0.1, lo + 0.15, x), Math.max(0.1, end - 0.15, lo + 0.15));
+  const cands = [t, t - 0.8, t + 0.8].map(clamp)
+    .filter((x, i, arr) => arr.findIndex((y) => Math.abs(y - x) < 0.2) === i);
   let best = null;
   for (const x of cands) {
     const f = await grabFrame(video, x);
     if (f && (!best || f.score > best.score)) best = f;
   }
+  if (best && best.sig) lastGrabSig = best.sig;
   return best ? best.data : null;
 }
 
@@ -347,13 +384,18 @@ export function useWalkCloudSync(appSettings, setAppSettings, flushAppSettings) 
 // Re-attach screenshots to items that lost them (a list synced from another
 // device, or restored after a reload, has no photos): the user re-picks the
 // same video(s) and only the missing frames are grabbed — no re-transcribing.
-export async function healWalkPhotos(property, files) {
+// With all=true EVERY item's photo is re-grabbed from the same video (the
+// "↻ Re-pick photos" button) — the way out when a run came back with the
+// same frame repeated, without redoing the four-minute transcription.
+export async function healWalkPhotos(property, files, opts = {}) {
   const pid = property.id;
   const fl = Array.from(files || []).filter(Boolean);
   if (!fl.length || wkGet(pid)?.status === "proc") return;
-  wkSet(pid, { status: "proc", err: "", tap: null, msg: "Re-attaching photos…" });
+  const all = !!opts.all;
+  wkSet(pid, { status: "proc", err: "", tap: null, msg: all ? "Re-picking photos…" : "Re-attaching photos…" });
   try {
-    const clipsMissing = [...new Set((wkGet(pid)?.items || []).filter((it) => !it.image && it.title).map((it) => it.clip || 1))].sort((a, b) => a - b);
+    const wants = (it) => !!it.title && (all || !it.image);
+    const clipsMissing = [...new Set((wkGet(pid)?.items || []).filter(wants).map((it) => it.clip || 1))].sort((a, b) => a - b);
     for (let i = 0; i < fl.length && i < clipsMissing.length; i++) {
       const clipNo = clipsMissing[i];
       const url = URL.createObjectURL(fl[i]);
@@ -361,13 +403,14 @@ export async function healWalkPhotos(property, files) {
       vid.src = url; vid.muted = true; vid.playsInline = true; vid.preload = "auto";
       vid.style.cssText = "position:fixed;left:-9999px;width:2px;height:2px;opacity:0.01;pointer-events:none";
       document.body.appendChild(vid);
+      lastGrabSig = null;
       try {
         await new Promise((r) => { vid.onloadeddata = r; vid.onerror = r; setTimeout(r, 6000); });
         try { await vid.play(); await new Promise((r) => setTimeout(r, 200)); vid.pause(); } catch { /* ignore */ }
-        const missing = (wkGet(pid)?.items || []).filter((it) => (it.clip || 1) === clipNo && !it.image && it.title);
+        const missing = (wkGet(pid)?.items || []).filter((it) => (it.clip || 1) === clipNo && wants(it)).sort((a, b) => (a.start || 0) - (b.start || 0));
         for (const it of missing) {
           const s = Number(it.start) || 0, e = Number(it.end) || 0;
-          const img = await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || 0);
+          const img = await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || 0, s, e > s ? e : s + 2);
           if (img) wkSet(pid, { items: (wkGet(pid)?.items || []).map((p) => (p.id === it.id ? { ...p, image: img } : p)) });
         }
       } finally { vid.remove(); URL.revokeObjectURL(url); }
@@ -462,6 +505,7 @@ async function processClip(property, file, label, opts = {}) {
     vid.src = url; vid.muted = true; vid.playsInline = true; vid.preload = "auto";
     vid.style.cssText = "position:fixed;left:-9999px;width:2px;height:2px;opacity:0.01;pointer-events:none";
     document.body.appendChild(vid);
+    lastGrabSig = null;
     await new Promise((r) => { vid.onloadeddata = r; vid.onerror = r; setTimeout(r, 6000); });
     try { await vid.play(); await new Promise((r) => setTimeout(r, 200)); vid.pause(); } catch { /* ignore */ }
     const normTitle = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
@@ -498,7 +542,7 @@ async function processClip(property, file, label, opts = {}) {
         for (const it of list) {
           const s = Number(it.start) || 0, e = Number(it.end) || 0;
           // Mid-snippet, not the first word — by then the camera has settled on the thing.
-          it.image = await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || duration);
+          it.image = await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || duration, s, e > s ? e : s + 2);
         }
         // A resume re-reads a few overlap seconds — don't double-list the item at the seam.
         const cur = wkGet(pid)?.items || [];
@@ -512,7 +556,7 @@ async function processClip(property, file, label, opts = {}) {
     const missing = (wkGet(pid)?.items || []).filter((it) => it.clip === clipNo && !it.image);
     for (const it of missing) {
       const s = Number(it.start) || 0, e = Number(it.end) || 0;
-      const img = await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || duration);
+      const img = await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || duration, s, e > s ? e : s + 2);
       if (img) wkSet(pid, { items: (wkGet(pid)?.items || []).map((p) => (p.id === it.id ? { ...p, image: img } : p)) });
     }
     wkSet(pid, { partialClip: null });
@@ -786,12 +830,17 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
                 <button onClick={() => { setErr(""); setAdding(true); }} style={{ ...btn(T.bg, T.text), flex: 1, border: `1px solid ${T.border}`, padding: "9px 12px", fontSize: 12.5 }}>➕ Add another video</button>
                 <button onClick={() => { if (window.confirm("Throw away this punch list and start fresh?")) { setAdding(false); clearWalkJob(property.id); } }} title="Start over" style={{ ...btn(T.bg, T.red), border: `1px solid ${T.border}`, padding: "9px 14px", fontSize: 12.5 }}>🗑</button>
               </div>
-              {items.some((it) => it.title && !it.image) && (
-                <label style={{ ...btn(T.bg, T.textSub), border: `1px dashed ${T.border}`, padding: "9px 12px", fontSize: 12, textAlign: "center", display: "block" }}>
-                  📷 Some items are missing their photos — pick the same video{multiClip ? "s (in order)" : ""} to re-attach them
-                  <input type="file" accept="video/*,audio/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) { setErr(""); healWalkPhotos(property, fl); } e.target.value = ""; }} />
-                </label>
-              )}
+              {items.some((it) => it.title) && (() => {
+                const missing = items.some((it) => it.title && !it.image);
+                return (
+                  <label style={{ ...btn(T.bg, T.textSub), border: `1px dashed ${T.border}`, padding: "9px 12px", fontSize: 12, textAlign: "center", display: "block" }}>
+                    {missing
+                      ? <>📷 Some items are missing their photos — pick the same video{multiClip ? "s (in order)" : ""} to re-attach them</>
+                      : <>↻ Re-pick photos — same video{multiClip ? "s (in order)" : ""} from your camera roll, no re-transcribing</>}
+                    <input type="file" accept="video/*,audio/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) { setErr(""); healWalkPhotos(property, fl, { all: !missing }); } e.target.value = ""; }} />
+                  </label>
+                );
+              })()}
               <input value={contractor} onChange={(e) => setContractor(e.target.value)} placeholder='PDF "Prepared for" — contractor name (optional)' style={{ padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, fontSize: 12.5, outline: "none", fontFamily: "inherit" }} />
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={makeTasks} style={{ ...btn(T.bg, T.text), flex: 1, border: `1px solid ${T.border}` }}>→ Add as tasks</button>

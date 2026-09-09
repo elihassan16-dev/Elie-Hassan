@@ -718,12 +718,13 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
         list.push({ uid: upd.uid, name: f.name || "walkthrough", size: f.size, at: Date.now(), from: /iPhone|iPad|Android/i.test(navigator.userAgent) ? "phone" : "computer" });
         onUpdate(property.id, "walkVideos", [...list]);
       }
-      setFlash(`✓ Sent. Open Walkthrough on your computer and tap Generate — or generate here whenever you like.`);
+      setFlash(`✓ Sent. The phone's part is done — open this property's Walkthrough on the computer and press ⚡ Generate.`);
       setTimeout(() => setFlash(""), 7000);
     } catch (e) { setErr(e.message || "Upload failed — check your connection and try again."); }
     finally { setSending(null); try { lock && lock.release(); } catch { /* ignore */ } }
   };
   const cloudPending = (property.walkVideos || []).filter((v) => v && v.uid && !v.done);
+  const onPhone = typeof window !== "undefined" && window.innerWidth < 768;
   const dropCloud = (uid) => onUpdate(property.id, "walkVideos", (property.walkVideos || []).filter((v) => v.uid !== uid));
   const fmtWhen = (t) => new Date(t).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
@@ -785,18 +786,24 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   const btn = (bg, fg) => ({ padding: "12px", borderRadius: 12, border: "none", background: bg, color: fg, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" });
   const cloudCard = cloudPending.length > 0 && job?.status !== "proc" ? (
     <div style={{ background: T.card, border: `1px solid ${T.gold}`, borderRadius: 14, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 800, color: T.text }}>📥 {cloudPending.length} video{cloudPending.length !== 1 ? "s" : ""} from your {cloudPending.every((v) => v.from === "phone") ? "phone" : "other device"} — ready to turn into a punch list</div>
+      <div style={{ fontSize: 12.5, fontWeight: 800, color: T.text }}>{onPhone
+        ? <>✓ {cloudPending.length} video{cloudPending.length !== 1 ? "s" : ""} sent — waiting for you to generate {cloudPending.length !== 1 ? "them" : "it"} on the computer</>
+        : <>📥 {cloudPending.length} video{cloudPending.length !== 1 ? "s" : ""} from your {cloudPending.every((v) => v.from === "phone") ? "phone" : "other device"} — ready to turn into a punch list</>}</div>
       {cloudPending.map((v) => (
         <div key={v.uid} style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</div>
             <div style={{ fontSize: 11, color: T.textTert }}>{fmtWhen(v.at)}{v.size ? ` · ${fmtMB(v.size)}` : ""}</div>
           </div>
-          <button onClick={() => { setErr(""); setAdding(false); startWalkFromCloud(property, v, onUpdate); }} style={{ ...btn(T.gold, "#fff"), padding: "9px 13px", fontSize: 12.5, flexShrink: 0, boxShadow: `0 2px 10px ${T.gold}55` }}>⚡ Generate here</button>
+          {onPhone
+            ? <button onClick={() => { if (window.confirm("Build the list on this phone? It is much slower than the computer and the app must stay on screen.")) { setErr(""); setAdding(false); startWalkFromCloud(property, v, onUpdate); } }} style={{ background: "none", border: "none", color: T.textSub, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", padding: "6px 4px", flexShrink: 0, textDecoration: "underline dotted", textUnderlineOffset: 2 }}>generate here instead</button>
+            : <button onClick={() => { setErr(""); setAdding(false); startWalkFromCloud(property, v, onUpdate); }} style={{ ...btn(T.gold, "#fff"), padding: "9px 13px", fontSize: 12.5, flexShrink: 0, boxShadow: `0 2px 10px ${T.gold}55` }}>⚡ Generate here</button>}
           <button onClick={() => { if (window.confirm("Remove this video from the list? (It stays in the cloud.)")) dropCloud(v.uid); }} title="Remove" style={{ background: "rgba(118,118,128,0.08)", border: "none", width: 28, height: 28, minHeight: 28, borderRadius: 14, color: T.textSub, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
         </div>
       ))}
-      <div style={{ fontSize: 11, color: T.textSub, lineHeight: 1.5 }}>Generating pulls the video down and runs the same steps as a local upload — fastest on a computer. Leave this tab open until it finishes.</div>
+      <div style={{ fontSize: 11, color: T.textSub, lineHeight: 1.5 }}>{onPhone
+        ? "Open this property's Walkthrough on the computer and press ⚡ Generate there. The phone's part is done."
+        : "Generating pulls the video down and runs every step here — transcription, AI itemizing, photos. Leave this tab open until it finishes."}</div>
     </div>
   ) : null;
   const partial = job?.status !== "proc" ? job?.partialClip : null;
@@ -845,15 +852,18 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
               📁 Upload videos (camera roll / sent to you)
               <input type="file" accept="video/*,audio/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) { setErr(""); setAdding(false); startWalkClips(property, fl); } e.target.value = ""; }} />
             </label>
-            {typeof window !== "undefined" && window.innerWidth < 768 && <label style={{ ...btn(T.card, T.text), padding: 16, fontSize: 15, textAlign: "center", border: `1px solid ${T.border}` }}>
-              📤 Send to my computer — build the list there
-              <input type="file" accept="video/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) sendToComputer(fl); e.target.value = ""; }} />
-            </label>}
+            {onPhone && (
+              <label style={{ ...btn(T.card, T.text), padding: "14px 16px", fontSize: 15, textAlign: "center", border: `1px solid ${T.border}` }}>
+                📤 Send to my computer
+                <div style={{ fontSize: 11.5, fontWeight: 500, color: T.textSub, marginTop: 4 }}>Uploads the video only — no work is done on the phone.</div>
+                <input type="file" accept="video/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) sendToComputer(fl); e.target.value = ""; }} />
+              </label>
+            )}
             <div style={{ fontSize: 11.5, color: T.textSub, lineHeight: 1.55, padding: "2px 4px" }}>
               Talk naturally as you walk — "master bath, regrout the tub… replace this outlet cover". Long videos are fine (5–10 minutes).
               Pick several videos at once (exterior, interior…) — they all land on one punch list. Each item gets the video frame from the
-              moment you said it, plus the exact snippet time for the contractor. <b>Send to my computer</b> only uploads the video —
-              the heavy lifting happens wherever you tap Generate, and a computer does it in a fraction of the time.
+              moment you said it, plus the exact snippet time for the contractor.{onPhone ? <> <b>Send to my computer</b> is the fast way for
+              long videos: the phone only uploads, and the computer does all the work when you press Generate there.</> : null}
             </div>
             </>)}
           </div>

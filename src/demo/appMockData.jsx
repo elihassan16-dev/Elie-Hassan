@@ -56,6 +56,7 @@ const PROPS = [
   },
   {
     id: 1003, address: "1030 Hanover Blvd", city: "Browns Mills", state: "NJ", zip: "08015", status: "On Market", qbProjectId: "qb-1003",
+    walkVideos: [{ uid: "demowalk1", name: "IMG_4471.MOV", size: 487 * 1024 * 1024, at: Date.now() - 50 * 60000, from: "phone" }],
     // Preview-only draws so the Construction popup's rows can be eyeballed
     qbDrawTxns: [
       { date: "2026-07-07", type: "Deposit", num: "", vendor: "FEDWIRE CREDIT VIA: BANK OF AMERICA, N.A./XXXXXX B/O: LOAN FUNDER LLC", memo: "", amount: 32275, lineKey: "dw1#0" },

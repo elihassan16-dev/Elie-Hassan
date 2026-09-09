@@ -10,7 +10,7 @@
 // each chunk's timestamps by its position.
 import { useEffect, useRef, useState } from "react";
 import { T } from "./theme";
-import { qbAuthFetch } from "./net";
+import { qbAuthFetch, uploadStreamVideo } from "./net";
 import { useOutlookMail } from "./outlook/useOutlookMail";
 import { walkPdfFile, snippetLabel } from "./walkPdf";
 
@@ -570,6 +570,55 @@ async function processClip(property, file, label, opts = {}) {
   }
 }
 
+// ── Phone → computer hand-off (Elie 9/9) ─────────────────────────────────────
+// Long walkthroughs choke the phone: it decodes the audio out of a half-GB
+// file, uploads the narration in pieces, grabs every frame, and iOS suspends
+// all of it the moment the app leaves the screen. So the phone can do the ONE
+// cheap thing - push the video to Cloudflare Stream (resumable, up to 5 GB) and
+// note it on the property (walkVideos) - and any device, usually the desktop,
+// picks it up from the property and runs the exact same pipeline on the MP4.
+const fmtMB = (n) => (n >= 1024 * 1024 * 1024 ? (n / 1024 / 1024 / 1024).toFixed(1) + " GB" : Math.round(n / 1024 / 1024) + " MB");
+export async function startWalkFromCloud(property, video, onUpdate) {
+  const pid = property.id;
+  if (!video || !video.uid || wkGet(pid)?.status === "proc") return;
+  wkSet(pid, { status: "proc", err: "", tap: null, msg: "Preparing the video in the cloud…" });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  try {
+    // Stream serves playback as HLS; a single MP4 has to be rendered once.
+    // Ask, then wait for it (a 10-minute clip takes a minute or two the first time).
+    const t0 = Date.now();
+    let st = null;
+    while (Date.now() - t0 < 12 * 60000) {
+      st = await qbAuthFetch("/api/stream/download", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid: video.uid }) });
+      if (st && st.status === "ready") break;
+      wkSet(pid, { msg: `Preparing the video in the cloud…${st && st.percent ? " " + Math.round(st.percent) + "%" : ""}` });
+      await sleep(4000);
+    }
+    if (!st || st.status !== "ready") throw new Error("The video is still being prepared in the cloud — try again in a minute.");
+    wkSet(pid, { msg: "Downloading the video…" });
+    const r = await fetch(`/api/stream/file?uid=${encodeURIComponent(video.uid)}&name=${encodeURIComponent((video.name || "walkthrough").replace(/\.[a-z0-9]+$/i, ""))}`, { cache: "no-store" });
+    if (!r.ok || !r.body) throw new Error("Couldn't download the video from the cloud.");
+    const total = Number(r.headers.get("content-length")) || video.size || 0;
+    const reader = r.body.getReader();
+    const parts = []; let got = 0, lastPct = -1;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value); got += value.byteLength;
+      const pct = total ? Math.min(99, Math.round((got / total) * 100)) : -1;
+      if (pct !== lastPct && (pct < 0 ? got % (8 * 1024 * 1024) < value.byteLength : true)) { lastPct = pct; wkSet(pid, { msg: `Downloading the video… ${pct >= 0 ? pct + "%" : fmtMB(got)}` }); }
+    }
+    const blob = new Blob(parts, { type: "video/mp4" });
+    const file = new File([blob], (video.name || "walkthrough").replace(/\.[a-z0-9]+$/i, "") + ".mp4", { type: "video/mp4" });
+    wkSet(pid, { status: "idle", msg: "" }); // startWalkClips declines to start while "proc"
+    await startWalkClips(property, [file]);
+    if (onUpdate) onUpdate(pid, "walkVideos", (property.walkVideos || []).map((v) => (v.uid === video.uid ? { ...v, done: Date.now() } : v)));
+  } catch (e) {
+    const has = (wkGet(pid)?.items || []).length;
+    wkSet(pid, { status: has ? "ready" : "idle", err: e.message || "Couldn't fetch that video.", msg: "", tap: null });
+  }
+}
+
 // Kick off one or more videos for a property. Runs to completion whether or
 // not the popup stays open; items append across clips.
 export async function startWalkClips(property, files, opts = {}) {
@@ -611,6 +660,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   const [flash, setFlash] = useState("");
   const [busy, setBusy] = useState("");
   const [showTx, setShowTx] = useState(false); // raw transcript — "did it hear me right?"
+  const [sending, setSending] = useState(null); // {i, n, pct, name} while a video goes up to the cloud
   const liveRef = useRef(null);
   const mrRef = useRef(null);
   const streamRef = useRef(null);
@@ -653,6 +703,29 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
     }
   };
   const stopRec = () => { try { mrRef.current && mrRef.current.state !== "inactive" && mrRef.current.stop(); } catch { /* ignore */ } };
+
+  // Phone side of the hand-off: upload only, note it on the property, done.
+  const sendToComputer = async (fl) => {
+    setErr("");
+    let lock = null;
+    try { lock = await navigator.wakeLock?.request?.("screen"); } catch { /* ignore */ }
+    const list = [...(property.walkVideos || [])];
+    try {
+      for (let i = 0; i < fl.length; i++) {
+        const f = fl[i];
+        setSending({ i: i + 1, n: fl.length, pct: 0, name: f.name || "video" });
+        const upd = await uploadStreamVideo(f, (pct) => setSending((s) => (s ? { ...s, pct } : s)));
+        list.push({ uid: upd.uid, name: f.name || "walkthrough", size: f.size, at: Date.now(), from: /iPhone|iPad|Android/i.test(navigator.userAgent) ? "phone" : "computer" });
+        onUpdate(property.id, "walkVideos", [...list]);
+      }
+      setFlash(`✓ Sent. Open Walkthrough on your computer and tap Generate — or generate here whenever you like.`);
+      setTimeout(() => setFlash(""), 7000);
+    } catch (e) { setErr(e.message || "Upload failed — check your connection and try again."); }
+    finally { setSending(null); try { lock && lock.release(); } catch { /* ignore */ } }
+  };
+  const cloudPending = (property.walkVideos || []).filter((v) => v && v.uid && !v.done);
+  const dropCloud = (uid) => onUpdate(property.id, "walkVideos", (property.walkVideos || []).filter((v) => v.uid !== uid));
+  const fmtWhen = (t) => new Date(t).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
   const up = (id, k, v) => wkSet(property.id, { items: items.map((it) => (it.id === id ? { ...it, [k]: v } : it)) });
   const del = (id) => wkSet(property.id, { items: items.filter((it) => it.id !== id) });
@@ -710,6 +783,22 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   items.forEach((it) => { const r = it.room || "General"; if (!rooms.includes(r)) rooms.push(r); });
   const multiClip = items.some((i) => (i.clip || 1) > 1);
   const btn = (bg, fg) => ({ padding: "12px", borderRadius: 12, border: "none", background: bg, color: fg, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" });
+  const cloudCard = cloudPending.length > 0 && job?.status !== "proc" ? (
+    <div style={{ background: T.card, border: `1px solid ${T.gold}`, borderRadius: 14, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 800, color: T.text }}>📥 {cloudPending.length} video{cloudPending.length !== 1 ? "s" : ""} from your {cloudPending.every((v) => v.from === "phone") ? "phone" : "other device"} — ready to turn into a punch list</div>
+      {cloudPending.map((v) => (
+        <div key={v.uid} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</div>
+            <div style={{ fontSize: 11, color: T.textTert }}>{fmtWhen(v.at)}{v.size ? ` · ${fmtMB(v.size)}` : ""}</div>
+          </div>
+          <button onClick={() => { setErr(""); setAdding(false); startWalkFromCloud(property, v, onUpdate); }} style={{ ...btn(T.gold, "#fff"), padding: "9px 13px", fontSize: 12.5, flexShrink: 0, boxShadow: `0 2px 10px ${T.gold}55` }}>⚡ Generate here</button>
+          <button onClick={() => { if (window.confirm("Remove this video from the list? (It stays in the cloud.)")) dropCloud(v.uid); }} title="Remove" style={{ background: "rgba(118,118,128,0.08)", border: "none", width: 28, height: 28, minHeight: 28, borderRadius: 14, color: T.textSub, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+        </div>
+      ))}
+      <div style={{ fontSize: 11, color: T.textSub, lineHeight: 1.5 }}>Generating pulls the video down and runs the same steps as a local upload — fastest on a computer. Leave this tab open until it finishes.</div>
+    </div>
+  ) : null;
   const partial = job?.status !== "proc" ? job?.partialClip : null;
   const resumeBtn = partial ? (
     <label style={{ ...btn(T.gold, "#fff"), padding: 14, fontSize: 13.5, textAlign: "center", display: "block", boxShadow: `0 2px 10px ${T.gold}55` }}>
@@ -742,16 +831,31 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
               </button>
             )}
             {resumeBtn}
+            {cloudCard}
+            {sending ? (
+              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 800, color: T.text }}>📤 Sending{sending.n > 1 ? ` ${sending.i} of ${sending.n}` : ""} to the cloud… {sending.pct}%</div>
+                <div style={{ height: 8, borderRadius: 4, background: "rgba(118,118,128,0.14)", overflow: "hidden" }}><div style={{ width: `${sending.pct}%`, height: "100%", background: T.gold, transition: "width 0.3s" }} /></div>
+                <div style={{ fontSize: 11.5, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sending.name}</div>
+                <div style={{ fontSize: 11.5, color: T.textSub, lineHeight: 1.5 }}>Keep the app on screen until this finishes — the phone pauses uploads in the background.</div>
+              </div>
+            ) : (<>
             <button onClick={startRec} style={{ ...btn(T.gold, "#fff"), padding: 16, fontSize: 15, boxShadow: `0 2px 10px ${T.gold}55` }}>🎥 Record a walkthrough now</button>
             <label style={{ ...btn(T.card, T.text), padding: 16, fontSize: 15, textAlign: "center", border: `1px solid ${T.border}` }}>
               📁 Upload videos (camera roll / sent to you)
               <input type="file" accept="video/*,audio/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) { setErr(""); setAdding(false); startWalkClips(property, fl); } e.target.value = ""; }} />
             </label>
+            {typeof window !== "undefined" && window.innerWidth < 768 && <label style={{ ...btn(T.card, T.text), padding: 16, fontSize: 15, textAlign: "center", border: `1px solid ${T.border}` }}>
+              📤 Send to my computer — build the list there
+              <input type="file" accept="video/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) sendToComputer(fl); e.target.value = ""; }} />
+            </label>}
             <div style={{ fontSize: 11.5, color: T.textSub, lineHeight: 1.55, padding: "2px 4px" }}>
               Talk naturally as you walk — "master bath, regrout the tub… replace this outlet cover". Long videos are fine (5–10 minutes).
               Pick several videos at once (exterior, interior…) — they all land on one punch list. Each item gets the video frame from the
-              moment you said it, plus the exact snippet time for the contractor.
+              moment you said it, plus the exact snippet time for the contractor. <b>Send to my computer</b> only uploads the video —
+              the heavy lifting happens wherever you tap Generate, and a computer does it in a fraction of the time.
             </div>
+            </>)}
           </div>
         )}
 
@@ -826,6 +930,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
             </div>
             <div style={{ background: T.card, borderTop: `1px solid ${T.border}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
               {resumeBtn}
+              {cloudCard}
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => { setErr(""); setAdding(true); }} style={{ ...btn(T.bg, T.text), flex: 1, border: `1px solid ${T.border}`, padding: "9px 12px", fontSize: 12.5 }}>➕ Add another video</button>
                 <button onClick={() => { if (window.confirm("Throw away this punch list and start fresh?")) { setAdding(false); clearWalkJob(property.id); } }} title="Start over" style={{ ...btn(T.bg, T.red), border: `1px solid ${T.border}`, padding: "9px 14px", fontSize: 12.5 }}>🗑</button>

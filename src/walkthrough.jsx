@@ -179,6 +179,17 @@ async function extractAudio(file, onMsg, playGate, startAt = 0) {
 // the last one; a repeat gets a nudge - play from the moment, muted, and
 // snap the first frame the phone actually presents.
 let lastGrabSig = null;
+// The video behind each clip, kept for the frame adjuster (Elie 9/9): a blob
+// URL for a file picked on this device (lives until the page reloads), or a
+// cloud uid recorded on the job (clipUids) so a video sent from the phone can
+// be scrubbed straight from the cloud on any device, any time.
+const wkClipSrc = {};
+const wkKeepSrc = (pid, clipNo, url, name) => {
+  const m = (wkClipSrc[pid] = wkClipSrc[pid] || {});
+  if (m[clipNo] && m[clipNo].url !== url) { try { URL.revokeObjectURL(m[clipNo].url); } catch { /* ignore */ } }
+  m[clipNo] = { url, name: name || "" };
+};
+export const walkClipSrc = (pid, clipNo) => (wkClipSrc[pid] && wkClipSrc[pid][clipNo] && wkClipSrc[pid][clipNo].url) || null;
 const sigOf = (video) => {
   try {
     const c = document.createElement("canvas"); c.width = 16; c.height = 9;
@@ -198,30 +209,34 @@ const nudgeFrame = (video, t) => new Promise((res) => {
   if (p && p.then) p.then(() => setTimeout(fin, 450)).catch(() => setTimeout(fin, 120)); else setTimeout(fin, 450);
   setTimeout(fin, 1500);
 });
-function grabFrame(video, t) {
-  const draw = () => {
-    // Long side capped at 720 — plenty for the review row and the PDF, and
-    // small enough (~60-90KB each) for lists to sync between devices.
-    const vw = video.videoWidth || 960, vh = video.videoHeight || 540;
-    const k = Math.min(1, 720 / Math.max(vw, vh));
-    const w = Math.max(2, Math.round(vw * k)), h = Math.max(2, Math.round(vh * k));
-    const c = document.createElement("canvas");
-    c.width = w; c.height = h;
-    const ctx = c.getContext("2d");
-    ctx.drawImage(video, 0, 0, w, h);
-    let score = 0;
-    try {
-      const px = ctx.getImageData(0, 0, w, h).data;
-      for (let y = 2; y < h - 2; y += 6) {
-        const row = y * w;
-        for (let x = 2; x < w - 6; x += 6) {
-          const o = (row + x) * 4, p = o + 16;
-          score += Math.abs(px[o] + px[o + 1] + px[o + 2] - px[p] - px[p + 1] - px[p + 2]);
-        }
+// Snap whatever the element shows right now (720px long side, JPEG) plus a
+// sharpness score and a fingerprint. grabFrame seeks first; the frame
+// adjuster calls this straight on its on-screen video.
+function drawVideo(video) {
+  // Long side capped at 720 — plenty for the review row and the PDF, and
+  // small enough (~60-90KB each) for lists to sync between devices.
+  const vw = video.videoWidth || 960, vh = video.videoHeight || 540;
+  const k = Math.min(1, 720 / Math.max(vw, vh));
+  const w = Math.max(2, Math.round(vw * k)), h = Math.max(2, Math.round(vh * k));
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.drawImage(video, 0, 0, w, h);
+  let score = 0;
+  try {
+    const px = ctx.getImageData(0, 0, w, h).data;
+    for (let y = 2; y < h - 2; y += 6) {
+      const row = y * w;
+      for (let x = 2; x < w - 6; x += 6) {
+        const o = (row + x) * 4, p = o + 16;
+        score += Math.abs(px[o] + px[o + 1] + px[o + 2] - px[p] - px[p + 1] - px[p + 2]);
       }
-    } catch { score = 1; }
-    return { data: c.toDataURL("image/jpeg", 0.72), score, sig: sigOf(video) };
-  };
+    }
+  } catch { score = 1; }
+  return { data: c.toDataURL("image/jpeg", 0.72), score, sig: sigOf(video) };
+}
+function grabFrame(video, t) {
+  const draw = () => drawVideo(video);
   return new Promise((resolve) => {
     let settled = false;
     const accept = (f) => { if (f && f.sig) lastGrabSig = f.sig; resolve(f); };
@@ -312,7 +327,7 @@ export function useWalkJob(propertyId) {
 // compiling on the desktop shows up on the phone piece by piece and vice
 // versa. Mounted once in the admin shell (GoldstoneShell). A device that is
 // actively processing always wins over incoming remote state.
-const wkCloudSlice = (j) => ({ items: j.items || [], clips: j.clips || 0, transcript: j.transcript || [], partialClip: j.partialClip || null });
+const wkCloudSlice = (j) => ({ items: j.items || [], clips: j.clips || 0, transcript: j.transcript || [], partialClip: j.partialClip || null, clipUids: j.clipUids || {} });
 export function useWalkCloudSync(appSettings, setAppSettings, flushAppSettings) {
   const lastRef = useRef({});
   const sweptRef = useRef(false);
@@ -410,10 +425,13 @@ export async function healWalkPhotos(property, files, opts = {}) {
         const missing = (wkGet(pid)?.items || []).filter((it) => (it.clip || 1) === clipNo && wants(it)).sort((a, b) => (a.start || 0) - (b.start || 0));
         for (const it of missing) {
           const s = Number(it.start) || 0, e = Number(it.end) || 0;
-          const img = await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || 0, s, e > s ? e : s + 2);
+          // A frame Elie picked by hand (frameManual) is re-grabbed at that exact moment, never re-chosen.
+          const img = it.frameManual && it.frameAt != null
+            ? (await grabFrame(vid, it.frameAt))?.data || null
+            : await bestFrame(vid, e > s ? (s + e) / 2 : s + 0.5, vid.duration || 0, s, e > s ? e : s + 2);
           if (img) wkSet(pid, { items: (wkGet(pid)?.items || []).map((p) => (p.id === it.id ? { ...p, image: img } : p)) });
         }
-      } finally { vid.remove(); URL.revokeObjectURL(url); }
+      } finally { vid.remove(); wkKeepSrc(pid, clipNo, url, fl[i].name || ""); }
     }
     wkSet(pid, { status: "ready", msg: "" });
   } catch (e) {
@@ -486,7 +504,7 @@ async function processClip(property, file, label, opts = {}) {
     }, 300);
   });
   const url = URL.createObjectURL(file);
-  let vid = null;
+  let vid = null, keepClip = 0;
   try {
     say(resumeFrom ? `Picking up from ${fmtT(resumeFrom)}…` : "Reading the video's audio…");
     const { samples, rate, duration, scale = 1, offset = 0 } = await extractAudio(file, say, playGate, resumeFrom);
@@ -498,6 +516,7 @@ async function processClip(property, file, label, opts = {}) {
     const CHUNK_S = 80;
     const CHUNK = CHUNK_S * rate;
     const clipNo = opts.resumeClip || (wkGet(pid)?.clips || 0) + 1;
+    keepClip = clipNo;
     // Frame grabber — one hidden video element for the whole clip. It must be
     // in the DOM and have PLAYED (muted — no gesture needed) before iOS will
     // paint it into a canvas; a never-played video draws blank.
@@ -566,7 +585,7 @@ async function processClip(property, file, label, opts = {}) {
     }
   } finally {
     if (vid) vid.remove();
-    URL.revokeObjectURL(url);
+    if (keepClip) wkKeepSrc(pid, keepClip, url, file.name || ""); else URL.revokeObjectURL(url);
   }
 }
 
@@ -610,7 +629,8 @@ export async function startWalkFromCloud(property, video, onUpdate, getLatest) {
     }
     const blob = new Blob(parts, { type: "video/mp4" });
     const file = new File([blob], (video.name || "walkthrough").replace(/\.[a-z0-9]+$/i, "") + ".mp4", { type: "video/mp4" });
-    wkSet(pid, { status: "idle", msg: "" }); // startWalkClips declines to start while "proc"
+    const clipNo = (wkGet(pid)?.clips || 0) + 1;
+    wkSet(pid, { status: "idle", msg: "", clipUids: { ...(wkGet(pid)?.clipUids || {}), [clipNo]: video.uid } }); // startWalkClips declines to start while "proc"
     await startWalkClips(property, [file]);
     // Mark it done on the FRESHEST copy of the list, not the one captured when
     // Generate was pressed - videos sent from the phone during the run would
@@ -652,6 +672,86 @@ export async function startWalkClips(property, files, opts = {}) {
   }
 }
 
+// ── Frame adjuster (Elie 9/9) ─────────────────────────────────────────────────
+// Tap an item's photo → a ten-second window of the video around the moment it
+// was said, a scrubber, ±1s / ±0.2s nudges, play, and "Use this frame". The
+// pick is remembered on the item (frameAt + frameManual) so a later re-pick of
+// photos never overwrites it.
+function FrameAdjust({ src, item, onUse, onClose, onPickFile }) {
+  const vRef = useRef(null);
+  const s = Number(item.start) || 0, e = Number(item.end) || 0;
+  const lo = Math.max(0, s - 5);
+  const [hi, setHi] = useState((e > s ? e : s + 5) + 5);
+  const [t, setT] = useState(item.frameAt != null ? Number(item.frameAt) : (e > s ? (s + e) / 2 : s + 0.5));
+  const [playing, setPlaying] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [bad, setBad] = useState("");
+  useEffect(() => {
+    const v = vRef.current; if (!v || !src) return;
+    setReady(false); setBad("");
+    const onMeta = () => { setReady(true); if (v.duration && isFinite(v.duration)) setHi((h) => Math.min(h, Math.max(lo + 1, v.duration - 0.05))); try { v.currentTime = t; } catch { /* ignore */ } };
+    const onErr = () => setBad("Couldn't open that video here.");
+    v.addEventListener("loadedmetadata", onMeta); v.addEventListener("error", onErr);
+    return () => { v.removeEventListener("loadedmetadata", onMeta); v.removeEventListener("error", onErr); };
+  }, [src]); // eslint-disable-line react-hooks/exhaustive-deps
+  const seek = (x) => { const v = vRef.current; const nt = Math.min(hi, Math.max(lo, x)); setT(nt); if (v) { try { v.pause(); } catch { /* ignore */ } setPlaying(false); try { v.currentTime = nt; } catch { /* ignore */ } } };
+  const toggle = async () => { const v = vRef.current; if (!v) return; if (playing) { v.pause(); setPlaying(false); return; } if (v.currentTime >= hi - 0.05) { try { v.currentTime = lo; } catch { /* ignore */ } } try { await v.play(); setPlaying(true); } catch { /* ignore */ } };
+  const onTime = () => { const v = vRef.current; if (!v) return; setT(v.currentTime); if (!v.paused && v.currentTime >= hi) { v.pause(); setPlaying(false); } };
+  const use = async () => {
+    const v = vRef.current; if (!v) return;
+    setBusy(true);
+    try {
+      v.pause(); setPlaying(false);
+      // Make sure the frame on screen is the one at t: re-seek, wait for it to
+      // be presented (iPhone), then snap.
+      await new Promise((r) => { let done = false; const fin = () => { if (done) return; done = true; r(); }; const on = () => { v.removeEventListener("seeked", on); if (v.requestVideoFrameCallback) { v.requestVideoFrameCallback(fin); setTimeout(fin, 400); } else requestAnimationFrame(() => requestAnimationFrame(fin)); }; v.addEventListener("seeked", on); try { v.currentTime = Math.max(0.05, t) + 0.0001; } catch { fin(); } setTimeout(fin, 1500); });
+      const f = drawVideo(v);
+      if (f && f.data) onUse(f.data, v.currentTime);
+    } catch { setBad("Couldn't snap that frame — try nudging a little and again."); }
+    setBusy(false);
+  };
+  const nb = (label, dx) => <button onClick={() => seek(t + dx)} disabled={!ready} style={{ minWidth: 44, height: 36, minHeight: 36, borderRadius: 18, border: "none", background: "rgba(118,118,128,0.08)", color: T.text, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", padding: "0 10px" }}>{label}</button>;
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 480, display: "flex", alignItems: "center", justifyContent: "center", padding: 10, backdropFilter: "blur(4px)" }}>
+      <div onClick={(ev) => ev.stopPropagation()} style={{ background: T.bg, borderRadius: 18, width: "min(640px,96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: T.shadowMd }}>
+        <div style={{ padding: "13px 16px 10px", background: T.card, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 15, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🎞 Pick the photo — {item.title || "item"}</div>
+            <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 2 }}>Said at {fmtT(s)}{e > s ? `–${fmtT(e)}` : ""} · scrub the ten seconds around it</div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+        </div>
+        {src ? (
+          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+            <video ref={vRef} src={src} muted playsInline preload="auto" onTimeUpdate={onTime} onPause={() => setPlaying(false)} style={{ width: "100%", maxHeight: "50vh", background: "#000", borderRadius: 12, objectFit: "contain", display: "block" }} />
+            {bad && <div style={{ fontSize: 12, color: T.red }}>{bad}</div>}
+            <input type="range" min={lo} max={hi} step={0.05} value={Math.min(hi, Math.max(lo, t))} onChange={(ev) => seek(Number(ev.target.value))} disabled={!ready} style={{ width: "100%", accentColor: T.gold }} />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+              {nb("−1s", -1)}{nb("−0.2", -0.2)}
+              <button onClick={toggle} disabled={!ready} style={{ width: 44, height: 36, minHeight: 36, borderRadius: 18, border: "none", background: T.gold, color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>{playing ? "❚❚" : "▶"}</button>
+              {nb("+0.2", 0.2)}{nb("+1s", 1)}
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: T.textSub, fontVariantNumeric: "tabular-nums", marginLeft: 6 }}>{fmtT(t)}.{String(Math.floor((t % 1) * 10))}</span>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={onClose} style={{ flex: 1, padding: 12, borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.textSub, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+              <button onClick={use} disabled={!ready || busy} style={{ flex: 1.4, padding: 12, borderRadius: 12, border: "none", background: T.gold, color: "#fff", fontWeight: 800, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 2px 10px ${T.gold}55`, opacity: !ready || busy ? 0.6 : 1 }}>{busy ? "Snapping…" : "✓ Use this frame"}</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.55 }}>This video isn't open on this device any more. Pick the same video once and you can scrub it.</div>
+            <label style={{ padding: 14, borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontWeight: 700, fontSize: 14, textAlign: "center", cursor: "pointer", display: "block" }}>
+              📁 Pick the video
+              <input type="file" accept="video/*" style={{ display: "none" }} onChange={(ev) => { const f = ev.target.files && ev.target.files[0]; if (f) onPickFile(f); ev.target.value = ""; }} />
+            </label>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function WalkthroughModal({ property, onUpdate, onClose }) {
   const mail = useOutlookMail();
   const job = useWalkJob(property.id);
@@ -667,6 +767,10 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   const [showTx, setShowTx] = useState(false); // raw transcript — "did it hear me right?"
   const [sending, setSending] = useState(null); // {i, n, pct, name} while a video goes up to the cloud
   const [recent, setRecent] = useState(null);   // recent cloud uploads, for putting a lost video back on this property
+  const [adjust, setAdjust] = useState(null);   // item id whose photo is being re-picked
+  const [srcTick, setSrcTick] = useState(0);    // bumps when a clip's video is (re)opened on this device
+  const adjItem = adjust != null ? items.find((i) => i.id === adjust) : null;
+  const clipSrcFor = (clipNo) => walkClipSrc(property.id, clipNo) || ((job?.clipUids || {})[clipNo] ? `/api/stream/file?uid=${encodeURIComponent(job.clipUids[clipNo])}&name=walkthrough` : null);
   const latestRef = useRef(property); latestRef.current = property;
   const liveRef = useRef(null);
   const mrRef = useRef(null);
@@ -953,9 +1057,12 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
                   <div style={{ padding: "8px 14px 4px", fontSize: 10, fontWeight: 800, color: T.textTert, letterSpacing: "0.05em", background: T.bg }}>{room.toUpperCase()} · {items.filter((i) => (i.room || "General") === room).length}</div>
                   {items.filter((i) => (i.room || "General") === room).map((it) => (
                     <div key={it.id} style={{ display: "flex", gap: 10, padding: "10px 12px", background: T.card, borderBottom: `1px solid ${T.border}`, alignItems: "center" }}>
-                      {it.image
-                        ? <img src={it.image} alt="" style={{ width: 82, height: 58, objectFit: "cover", borderRadius: 9, flexShrink: 0 }} />
-                        : <div style={{ width: 82, height: 58, borderRadius: 9, background: T.bg, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📷</div>}
+                      <button onClick={() => setAdjust(it.id)} title="Tap to pick a better frame from the video" style={{ position: "relative", width: 82, height: 58, padding: 0, border: "none", borderRadius: 9, overflow: "hidden", background: T.bg, flexShrink: 0, cursor: "pointer", minHeight: 58 }}>
+                        {it.image
+                          ? <img src={it.image} alt="" style={{ width: 82, height: 58, objectFit: "cover", display: "block" }} />
+                          : <div style={{ width: 82, height: 58, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📷</div>}
+                        <span style={{ position: "absolute", right: 3, bottom: 3, width: 18, height: 18, borderRadius: 9, background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>🎞</span>
+                      </button>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <input value={it.title} onChange={(e) => up(it.id, "title", e.target.value)} placeholder="What needs doing…" style={{ width: "100%", border: "none", background: "transparent", fontSize: 13, fontWeight: 650, color: T.text, outline: "none", fontFamily: "inherit", padding: 0 }} />
                         <input value={it.detail} onChange={(e) => up(it.id, "detail", e.target.value)} placeholder="Detail for the contractor…" style={{ width: "100%", border: "none", background: "transparent", fontSize: 11, color: T.textSub, outline: "none", fontFamily: "inherit", padding: "2px 0 0" }} />
@@ -1016,6 +1123,16 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
           </>
         )}
       </div>
+      {adjItem && (
+        <FrameAdjust
+          key={adjItem.id + ":" + srcTick}
+          src={clipSrcFor(adjItem.clip || 1)}
+          item={adjItem}
+          onClose={() => setAdjust(null)}
+          onUse={(data, at) => { wkSet(property.id, { items: items.map((i) => (i.id === adjItem.id ? { ...i, image: data, frameAt: at, frameManual: true } : i)) }); setAdjust(null); setFlash("✓ Photo updated"); setTimeout(() => setFlash(""), 2000); }}
+          onPickFile={(f) => { wkKeepSrc(property.id, adjItem.clip || 1, URL.createObjectURL(f), f.name || ""); setSrcTick((x) => x + 1); }}
+        />
+      )}
     </div>
   );
 }

@@ -14691,8 +14691,22 @@ const slimSpend=(spend)=>Object.fromEntries(Object.entries(spend||{}).map(([k,v]
 // Anything NOT in this map never gets scanned at all: Under Contract has no
 // QuickBooks project yet, and Sold / Rental don't appear in the financial
 // section, so there is nothing on screen for a scan to feed.
-const QB_SPEND_TTL={"Under Construction":24*3600000,"Purchased":56*3600000,"On Market":56*3600000,"In Closing":56*3600000};
-const qbSpendTier=(status)=>QB_SPEND_TTL[status]==null?null:(QB_SPEND_TTL[status]<=24*3600000?"day":"slow");
+// Which stages get scanned, and how often: "day" = every morning, "slow" =
+// every other morning. Mornings, not rolling hours (Elie 9/9): a 7:35 PM pull
+// was still counted fresh at 8:35 the next day. A day starts at 5 AM Eastern
+// (same rule as the server, lib/quickbooks.js etDayStart).
+const QB_SPEND_TIER={"Under Construction":"day","Purchased":"slow","On Market":"slow","In Closing":"slow"};
+const qbSpendTier=(status)=>QB_SPEND_TIER[status]||null;
+const etDayStart=(daysBack=0,hour=5)=>{
+  const now=Date.now();
+  const parts=Object.fromEntries(new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).formatToParts(new Date(now)).map(x=>[x.type,x.value]));
+  const sinceMidnight=((Number(parts.hour)%24)*3600+Number(parts.minute)*60+Number(parts.second))*1000;
+  let start=now-sinceMidnight+hour*3600000;
+  if(start>now)start-=86400000;
+  return start-daysBack*86400000;
+};
+// A stored scan is still good if it was pulled since this tier's last morning.
+const qbSpendFresh=(at,tier)=>!!at&&at>=etDayStart(tier==="slow"?1:0);
 
 // ── Shared QuickBooks data layer ─────────────────────────────────────────────
 // ONE connected-status check, ONE accounts cache (localStorage warm start + a
@@ -14771,7 +14785,7 @@ function qbStartLoop(){
   setInterval(()=>{if(document.visibilityState==="visible")qbRefreshAccounts();},30*60000);
 }
 // Ask for these properties' all-in spend. Takes property objects (so each one's
-// status sets how long its stored scan stays good — see QB_SPEND_TTL) or bare
+// status sets how long its stored scan stays good — see QB_SPEND_TIER) or bare
 // project ids, which fall back to the daily rule. A project whose stored copy is
 // still inside its window is not re-asked at all: no request, no re-render, no
 // flicker. Whatever is left runs through one global 4-worker queue.
@@ -14783,9 +14797,9 @@ function qbRequestSpend(items,force){
     const id=obj?(it.qbProjectId?String(it.qbProjectId):""):String(it||"");
     if(!id||seen.has(id))return;seen.add(id);
     const status=obj?(it.status||""):"";
-    const ttl=QB_SPEND_TTL[status];
-    if(!force&&status&&ttl==null)return;            // not shown in financials — never scanned
-    if(!force&&qbStore.spendAt[id]&&now-qbStore.spendAt[id]<(ttl||24*3600000))return;
+    const tier=qbSpendTier(status);
+    if(!force&&status&&tier==null)return;            // not shown in financials — never scanned
+    if(!force&&qbSpendFresh(qbStore.spendAt[id],tier||"day"))return;
     if(force)(qbStore.spendForce=qbStore.spendForce||new Set()).add(id);
     qbStore.spendTier[id]=qbSpendTier(status)||"day";
     if(!qbStore.spendQueue.includes(id))qbStore.spendQueue.push(id);
@@ -14832,7 +14846,12 @@ function useQB(){
     scanning:qbStore.scanning,
     usage:qbStore.usage||null,
     requestSpend:qbRequestSpend,
-    refresh:(ids)=>{qbRefreshAccounts(true);qbRequestSpend(ids,true);},
+    // ↻ is a FULL pull (Elie 9/9): balances, each project's P&L, and the
+    // transaction lists behind the activity feed and the auto-pins - those
+    // used to sit behind their own day-long store that ↻ never touched, so a
+    // wire categorized this morning stayed invisible until the next day.
+    txnsFresh:qbStore.txnsFresh||0,
+    refresh:(ids)=>{qbStore.txnsFresh=Date.now();qbRefreshAccounts(true);qbRequestSpend(ids,true);qbNotify();},
   };
 }
 
@@ -15433,6 +15452,8 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   // New: qbConstrIds (accounts tagged 🔨 construction), dmReserveMode
   // ("all" | "custom") + dmReserveAmt for the left-in-the-pot choice.
   const[selId,setSelId]=useState(initialSelId);
+  const {txnsFresh}=useQB(); // bumped by ↻ - the lists below re-pull live when it moves
+  const liveQ=()=>txnsFresh&&Date.now()-txnsFresh<120000?"&fresh=1":"";
   const[bsJump,setBsJump]=useState(null); // tap the BS title → jump to this property's page/showings/chat
   const[listQ,setListQ]=useState(""); // property search in the left list
   const[bulkOpen,setBulkOpen]=useState(false); // ⚙ bank accounts for every property at once
@@ -15458,9 +15479,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     let alive=true;setAutoTxns(null);
     // `false` on failure, never [] - see the same guard in the financing popup:
     // the writers below would otherwise erase every pinned payment.
-    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(p.qbProjectId)}`).then(d=>{if(alive)setAutoTxns(Array.isArray(d&&d.items)?d.items:false);}).catch(()=>{if(alive)setAutoTxns(false);});
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(p.qbProjectId)}${liveQ()}`).then(d=>{if(alive)setAutoTxns(Array.isArray(d&&d.items)?d.items:false);}).catch(()=>{if(alive)setAutoTxns(false);});
     return ()=>{alive=false;};
-  },[selId,selForAuto&&selForAuto.qbDebtAuto,selForAuto&&selForAuto.dmRehabAuto]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[selId,selForAuto&&selForAuto.qbDebtAuto,selForAuto&&selForAuto.dmRehabAuto,txnsFresh]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
     const p=selForAuto;
     if(!p||!p.qbDebtAuto||!Array.isArray(autoTxns))return;
@@ -15475,9 +15496,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   useEffect(()=>{
     if(!txPick){setPickTxns(null);return;}
     let alive=true;setPickTxns(null);
-    const url=txPick.kind==="draw"
+    const url=(txPick.kind==="draw"
       ?`/api/quickbooks/account-txns?account=${encodeURIComponent(txPick.src)}`
-      :`/api/quickbooks/transactions?customerId=${encodeURIComponent(txPick.src)}`;
+      :`/api/quickbooks/transactions?customerId=${encodeURIComponent(txPick.src)}`)+liveQ();
     qbAuthFetch(url).then(d=>{if(alive)setPickTxns(d.items||[]);}).catch(()=>{if(alive)setPickTxns([]);});
     return ()=>{alive=false;};
   },[txPick]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -15504,10 +15525,10 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     let alive=true;setDrawAcctTxns(null);
     // Any ONE account failing poisons the whole pull: a short merged list would
     // read as "those draws are gone" and the writer would unpin them.
-    Promise.all(ids.map(id=>qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(id)}`).then(d=>Array.isArray(d&&d.items)?d.items.map(t=>({...t,account:t.account||nameOf(id)})):null).catch(()=>null)))
+    Promise.all(ids.map(id=>qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(id)}${liveQ()}`).then(d=>Array.isArray(d&&d.items)?d.items.map(t=>({...t,account:t.account||nameOf(id)})):null).catch(()=>null)))
       .then(rs=>{if(alive)setDrawAcctTxns(rs.some(r=>r==null)?false:rs.flat());});
     return ()=>{alive=false;};
-  },[selId,selForAuto&&selForAuto.dmDrawAuto,selForAuto&&JSON.stringify(selForAuto.qbLoanAccounts||[])]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[selId,selForAuto&&selForAuto.dmDrawAuto,selForAuto&&JSON.stringify(selForAuto.qbLoanAccounts||[]),txnsFresh]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
     const p=selForAuto;
     if(!p||!p.dmDrawAuto||!Array.isArray(drawAcctTxns))return;

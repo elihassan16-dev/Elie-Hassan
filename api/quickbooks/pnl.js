@@ -1,4 +1,4 @@
-import { qbApi, requireTeamUser, qbCached } from "../../lib/quickbooks.js";
+import { qbApi, requireTeamUser, qbCached, qbMaxAge } from "../../lib/quickbooks.js";
 
 // Profit & Loss for a single QuickBooks project/customer — flattened to rows.
 export default async function handler(req, res) {
@@ -18,10 +18,9 @@ export default async function handler(req, res) {
     // Purchased / On Market / In Closing (about 3x a week), "sold" for past
     // deals. A manual ↻ (fresh=1) bypasses all of it. Under Contract, Sold and
     // Rental are not shown in the financial section, so the client never asks.
-    const ttl = req.query.fresh === "1" ? 0
-      : req.query.tier === "sold" ? 30 * 86400000
-      : req.query.tier === "slow" ? 56 * 3600000
-      : 24 * 3600000;
+    // Windows are calendar mornings in Eastern time, not rolling hours:
+    // "day" = pulled since 5 AM today, "slow" = since 5 AM yesterday (Elie 9/9).
+    const ttl = qbMaxAge(req.query.tier, req.query.fresh === "1");
     const { data: rpt, cachedAt, stale } = await qbCached(`pnl_${customerId}`, ttl, () => qbApi(
       `/reports/ProfitAndLoss?customer=${encodeURIComponent(customerId)}&start_date=${start}&end_date=${end}&accounting_method=Accrual`
     ));

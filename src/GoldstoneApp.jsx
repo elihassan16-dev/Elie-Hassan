@@ -14178,36 +14178,38 @@ const txKeys=(t)=>t.lineKey?[t.lineKey,txLegacyKey(t)]:[txLegacyKey(t)];
 const txIn=(set,t)=>txKeys(t).some(k=>set.has(k));
 const txSame=(a,b)=>{const B=txKeys(b);return txKeys(a).some(k=>B.includes(k));};
 // The auto-pin "is anything different?" check (Elie 9/8, the 114 Oneida
-// flicker). Two open copies of the app - phone and a desktop tab - each
-// rebuilt this list and saved it, and disagreed: one held rows the server had
-// stamped with ids, the other still held rows without them. Comparing by id
-// made each copy see the other's save as "different" and write its own back,
-// forever. So: compare by the fingerprint (it carries the amount, so an edited
-// row still counts as changed), write ONCE to upgrade stored rows to their ids
-// when the live rows carry them, and never let a copy holding un-stamped rows
-// overwrite a list that already has ids.
+// flicker). The server only started stamping rows with ids this morning, and
+// it caches built rows for a day - so for a while some fetches hand back rows
+// WITH ids and some WITHOUT (a day-old cache entry, or a tab still holding
+// rows it pulled before the ids shipped). An exclusion made through the
+// payments popup is stored under the id alone, which un-stamped rows can never
+// match: that copy sees the payment as not excluded, writes it back, and the
+// next stamped copy takes it out again - the two numbers Elie watched trade
+// places. So the rule is: a list that already carries ids is only ever
+// rewritten by rows that carry ids. Un-stamped rows can't touch it, whatever
+// they compute. Beyond that, compare by fingerprint (it carries the amount, so
+// an edited row still counts as changed) and write once to upgrade a stored
+// list to ids when the live rows bring them.
 const txListSame=(cur,auto)=>{
   const c=cur||[],a=auto||[];
+  if(a.length&&!a.some(t=>t.lineKey)&&c.some(t=>t.lineKey))return true; // un-stamped rows never overwrite a stamped list
   const byLegacy=new Map();c.forEach(t=>{const k=txLegacyKey(t);if(!byLegacy.has(k))byLegacy.set(k,t);});
-  const seen=new Set(a.map(txLegacyKey));
-  if(seen.size!==new Set(c.map(txLegacyKey)).size)return false;
+  if(new Set(a.map(txLegacyKey)).size!==byLegacy.size)return false;
   return a.every(t=>{const m=byLegacy.get(txLegacyKey(t));if(!m)return false;return !(t.lineKey&&!m.lineKey);});
 };
-// Add the stable key of the one live row each legacy fingerprint matches,
-// KEEPING the fingerprint beside it - a copy of the app still holding rows
-// without ids (a tab opened before the ids shipped, or rows from the server's
-// day-long cache) must still see the exclusion. A fingerprint matching several
-// rows (two identical payments on one day) is left alone - it was excluding
-// all of them, and one id could only carry one. Returns null when nothing
-// changed.
+// Swap each legacy fingerprint in an exclusion list for the stable key of the
+// one live row it matches. A fingerprint matching several rows (two identical
+// payments on one day) is left alone - it was excluding all of them, and one
+// id could only carry one. Returns null when nothing changed. (An id-only
+// exclusion is safe against un-stamped rows because of txListSame above, so
+// the list stays one key per payment and "N excluded" counts payments.)
 const txMigrateEx=(exList,rows)=>{
   if(!exList||!exList.length)return null;
   const hits={};
   (rows||[]).forEach(t=>{if(!t||!t.lineKey)return;const k=txLegacyKey(t);(hits[k]=hits[k]||[]).push(t.lineKey);});
-  const have=new Set(exList);
-  const add=[];
-  exList.forEach(k=>{const h=hits[k];if(h&&h.length===1&&!have.has(h[0])){have.add(h[0]);add.push(h[0]);}});
-  return add.length?[...exList,...add]:null;
+  let changed=false;
+  const out=exList.map(k=>{const h=hits[k];if(h&&h.length===1&&h[0]!==k){changed=true;return h[0];}return k;});
+  return changed?[...new Set(out)]:null;
 };
 
 // ─── Pick QuickBooks transactions to pin (down payment, deposit, etc.) ──────────

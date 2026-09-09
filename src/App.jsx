@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import IdleLogout from "./IdleLogout";
 import { useAuth } from "./auth/AuthProvider";
 import Login from "./auth/Login";
@@ -36,6 +36,7 @@ export default function Root() {
   // way to catch up. Compare our running bundle against the live index.html
   // (no-store, bypasses every cache) shortly after launch, on re-focus, and
   // every 10 minutes; when a newer build is live, reload once into it.
+  const seen = useRef("");
   useEffect(() => {
     let busy = false;
     const check = async () => {
@@ -44,7 +45,13 @@ export default function Root() {
         const html = await fetch("/", { cache: "no-store" }).then((r) => (r.ok ? r.text() : ""));
         const live = (html.match(/\/assets\/[^"']+\.js/) || [])[0] || "";
         const mine = (document.querySelector('script[src*="/assets/"]')?.getAttribute("src")) || "";
+        // Never yank the page out from under a running walkthrough (the
+        // transcription lives in this tab) or a video upload.
+        try { if (window.__gsWalkBusy && window.__gsWalkBusy()) return; } catch { /* ignore */ }
+        // During a deploy the edge can hand back the old and new page in turns;
+        // only act when the same newer build shows up twice in a row.
         if (live && mine && !html.includes(mine)) {
+          if (seen.current !== live) { seen.current = live; return; }
           // one attempt per target build — if the reload loses the race again,
           // the next interval retries instead of loop-reloading
           const key = "gs_reload_for";

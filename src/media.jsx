@@ -27,11 +27,12 @@ const seg = (on) => ({ padding: "7px 14px", minHeight: 32, borderRadius: 15, bor
 const btn = (bg, fg, extra = {}) => ({ padding: "13px 14px", minHeight: 44, borderRadius: 14, border: bg === T.card ? `1px solid ${T.border}` : "none", background: bg, color: fg, fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, ...extra });
 
 // A four-tile collage for the folder row.
-function Collage({ list }) {
+function Collage({ list, small }) {
   const th = list.filter((m) => m.thumb).slice(0, 4);
-  if (!th.length) return <div style={{ width: 64, height: 64, borderRadius: 12, background: "#E9E9EE", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>📁</div>;
+  const sz = small ? 44 : 64;
+  if (!th.length) return <div style={{ width: sz, height: sz, borderRadius: small ? 9 : 12, background: "#E9E9EE", display: "flex", alignItems: "center", justifyContent: "center", fontSize: small ? 17 : 22, flexShrink: 0 }}>📁</div>;
   return (
-    <div style={{ width: 64, height: 64, borderRadius: 12, overflow: "hidden", display: "grid", gridTemplateColumns: th.length > 1 ? "1fr 1fr" : "1fr", gridTemplateRows: th.length > 2 ? "1fr 1fr" : "1fr", gap: 2, flexShrink: 0, background: "#E9E9EE" }}>
+    <div style={{ width: sz, height: sz, borderRadius: small ? 9 : 12, overflow: "hidden", display: "grid", gridTemplateColumns: th.length > 1 ? "1fr 1fr" : "1fr", gridTemplateRows: th.length > 2 ? "1fr 1fr" : "1fr", gap: 2, flexShrink: 0, background: "#E9E9EE" }}>
       {th.map((m) => <img key={m.id} src={m.thumb} alt="" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />)}
     </div>
   );
@@ -155,6 +156,8 @@ export function MediaPage({ isMobile, onOpenProperty }) {
     .filter(({ p }) => scope === "all" || (scope === "sold" ? p.status === "Sold" : p.status !== "Sold"))
     .filter(({ p }) => !q.trim() || `${p.address} ${p.city || ""}`.toLowerCase().includes(q.trim().toLowerCase()))
     .sort((a, b) => (b.last || 0) - (a.last || 0) || String(a.p.address).localeCompare(String(b.p.address))), [props, ctrJobs, ctrMessages, scope, q]);
+  // A computer shows list + folder side by side, so land on the newest folder instead of an empty pane.
+  useEffect(() => { if (!isMobile && selId == null && folders.length) setSelId((folders.find((f) => f.list.length) || folders[0]).p.id); }, [isMobile, folders.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const sel = selId != null ? props.find((p) => p.id === selId) : null;
   const list = useMemo(() => (sel ? mediaOf(sel, ctrJobs, ctrMessages) : []), [sel, ctrJobs, ctrMessages]);
   const shown = list.filter((m) => kind === "all" || m.kind === kind);
@@ -184,44 +187,52 @@ export function MediaPage({ isMobile, onOpenProperty }) {
   const h1 = { fontSize: isMobile ? 26 : 24, fontWeight: 800, color: T.text, margin: 0, display: "flex", alignItems: "center", gap: 10, minWidth: 0 };
   const priv = <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", background: T.gold, color: "#fff", borderRadius: 10, padding: "3px 9px" }}>PRIVATE</span>;
 
-  // ── Folder list ────────────────────────────────────────────────────────────
-  if (!sel) return (
+  // ── Folder list (the whole page on a phone; the left column on a computer) ──
+  const folderList = (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
-      <div style={{ padding: isMobile ? "10px 16px 6px" : "18px 24px 8px", flexShrink: 0 }}>
-        <h1 style={h1}>Media {priv}</h1>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Search properties…" style={{ width: "100%", boxSizing: "border-box", marginTop: 10, padding: "10px 12px", borderRadius: 12, border: "none", background: "#E9E9EE", fontSize: 14, outline: "none", fontFamily: "inherit", color: T.text }} />
+      <div style={{ padding: isMobile ? "10px 16px 6px" : "14px 14px 8px", flexShrink: 0, borderBottom: isMobile ? "none" : `1px solid ${T.border}` }}>
+        {isMobile ? <h1 style={h1}>Media {priv}</h1> : <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ fontWeight: 800, fontSize: 15, color: T.text, flex: 1 }}>Media</div>{priv}</div>}
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Search properties…" style={{ width: "100%", boxSizing: "border-box", marginTop: isMobile ? 10 : 8, padding: isMobile ? "10px 12px" : "7px 11px", borderRadius: isMobile ? 12 : 9, border: "none", background: "#E9E9EE", fontSize: isMobile ? 14 : 12.5, outline: "none", fontFamily: "inherit", color: T.text }} />
         <div style={{ ...SEG, marginTop: 8 }}>{[["active", "Active"], ["sold", "Sold"], ["all", "All"]].map(([k, l]) => <button key={k} onClick={() => setScope(k)} style={seg(scope === k)}>{l}</button>)}</div>
       </div>
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: isMobile ? "4px 16px 100px" : "4px 24px 24px" }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: isMobile ? "4px 16px 100px" : 0 }}>
         {folders.length === 0 && <div style={{ padding: 24, textAlign: "center", color: T.textTert, fontSize: 13 }}>No properties match.</div>}
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(340px, 1fr))", gap: 10 }}>
-          {folders.map(({ p, list, photos, videos, last, freshFrom }) => (
-            <button key={p.id} onClick={() => { setSelId(p.id); setKind("all"); }} style={{ background: T.card, border: "1px solid rgba(0,0,0,0.04)", borderRadius: 16, padding: 12, display: "flex", gap: 12, alignItems: "center", cursor: "pointer", textAlign: "left", fontFamily: "inherit", minHeight: 44, opacity: list.length ? 1 : 0.8 }}>
-              <Collage list={list} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 15, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.address}</div>
-                <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>{list.length ? `${photos} photo${photos !== 1 ? "s" : ""}${videos ? ` · ${videos} video${videos !== 1 ? "s" : ""}` : ""} · ${dayLabel(last).toLowerCase() === "today" ? "updated today" : dayLabel(last)}` : "Nothing yet — tap to add"}</div>
-                {freshFrom && <span style={{ display: "inline-block", marginTop: 5, fontSize: 11, fontWeight: 700, color: "#8a6d1f", background: T.goldLight, borderRadius: 9, padding: "2px 8px" }}>📥 {freshFrom.n} new from {freshFrom.who}</span>}
-              </div>
-              <span style={{ color: "#C7C7CC", fontSize: 18 }}>›</span>
-            </button>
-          ))}
+        <div style={{ display: isMobile ? "grid" : "block", gridTemplateColumns: "1fr", gap: 10 }}>
+          {folders.map(({ p, list, photos, videos, last, freshFrom }) => {
+            const active = !isMobile && sel && sel.id === p.id;
+            return (
+              <button key={p.id} onClick={() => { setSelId(p.id); setKind("all"); setOpen(null); }} style={isMobile
+                ? { background: T.card, border: "1px solid rgba(0,0,0,0.04)", borderRadius: 16, padding: 12, display: "flex", gap: 12, alignItems: "center", cursor: "pointer", textAlign: "left", fontFamily: "inherit", minHeight: 44, opacity: list.length ? 1 : 0.8, width: "100%" }
+                : { width: "100%", display: "flex", gap: 10, alignItems: "center", padding: "9px 12px 9px 11px", background: active ? T.goldLight : "transparent", border: "none", borderBottom: `1px solid ${T.border}`, borderLeft: active ? `3px solid ${T.gold}` : "3px solid transparent", cursor: "pointer", textAlign: "left", fontFamily: "inherit", opacity: list.length ? 1 : 0.75 }}>
+                {isMobile ? <Collage list={list} /> : <Collage list={list} small />}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: active ? 800 : 700, fontSize: isMobile ? 15 : 13, color: active ? T.gold : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.address}</div>
+                  <div style={{ fontSize: isMobile ? 12 : 11, color: T.textSub, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{list.length ? `${photos} photo${photos !== 1 ? "s" : ""}${videos ? ` · ${videos} video${videos !== 1 ? "s" : ""}` : ""} · ${dayLabel(last).toLowerCase() === "today" ? "updated today" : dayLabel(last)}` : "Nothing yet"}</div>
+                  {freshFrom && <span style={{ display: "inline-block", marginTop: 4, fontSize: 10.5, fontWeight: 700, color: "#8a6d1f", background: active ? "#fff" : T.goldLight, borderRadius: 9, padding: "2px 7px" }}>📥 {freshFrom.n} new from {freshFrom.who}</span>}
+                </div>
+                {isMobile && <span style={{ color: "#C7C7CC", fontSize: 18 }}>›</span>}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
   );
+  if (isMobile && !sel) return folderList;
 
   // ── One property's folder ─────────────────────────────────────────────────
-  const c = mediaCounts(list);
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+  const c = sel ? mediaCounts(list) : null;
+  const folderPane = !sel ? (
+    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: T.textTert, fontSize: 14, textAlign: "center", padding: 30, lineHeight: 1.6 }}>Pick a property on the left.<br />Its photos and videos open here.</div>
+  ) : (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, flex: 1 }}>
       <div style={{ padding: isMobile ? "8px 16px 6px" : "16px 24px 8px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <button onClick={() => { setSelId(null); setOpen(null); }} aria-label="Back to all properties" style={{ width: 32, height: 32, minHeight: 32, borderRadius: 16, border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", color: "#8a6d1f", fontWeight: 700, fontSize: 17, lineHeight: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, padding: 0 }}>‹</button>
-          <h1 style={{ ...h1, fontSize: isMobile ? 22 : 24, flex: 1 }}><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel.address}</span></h1>
+          {isMobile && <button onClick={() => { setSelId(null); setOpen(null); }} aria-label="Back to all properties" style={{ width: 32, height: 32, minHeight: 32, borderRadius: 16, border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", color: "#8a6d1f", fontWeight: 700, fontSize: 17, lineHeight: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, padding: 0 }}>‹</button>}
+          <h1 style={{ ...h1, fontSize: isMobile ? 22 : 22, flex: 1 }}><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel.address}</span></h1>
           {onOpenProperty && !isMobile && <button onClick={() => onOpenProperty(sel.id)} style={{ ...btn(T.card, T.textSub), padding: "8px 12px", minHeight: 36, fontSize: 12.5 }}>Property page ›</button>}
         </div>
-        <div style={{ fontSize: 12, color: T.textSub, margin: "2px 0 8px 40px" }}>{list.length ? `${c.photos} photo${c.photos !== 1 ? "s" : ""}${c.videos ? ` · ${c.videos} video${c.videos !== 1 ? "s" : ""}` : ""} · ` : ""}everything here is in the cloud, on every device</div>
+        <div style={{ fontSize: 12, color: T.textSub, margin: isMobile ? "2px 0 8px 40px" : "2px 0 8px" }}>{list.length ? `${c.photos} photo${c.photos !== 1 ? "s" : ""}${c.videos ? ` · ${c.videos} video${c.videos !== 1 ? "s" : ""}` : ""} · ` : ""}everything here is in the cloud, on every device</div>
         {err && <div style={{ margin: "0 0 8px", padding: "9px 12px", background: "#FFF0EF", border: `1px solid ${T.red}`, borderRadius: 10, color: T.red, fontSize: 12.5 }}>{err}</div>}
         {up ? (
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: "12px 14px", marginBottom: 8 }}>
@@ -248,9 +259,15 @@ export function MediaPage({ isMobile, onOpenProperty }) {
           </div>
         ))}
       </div>
-      {open && <ItemSheet property={sel} m={open} isMobile={isMobile} onClose={() => setOpen(null)} onDelete={del} onPunch={punch} />}
-      {rec && <RecorderSheet onClose={() => setRec(false)} onDone={(file) => { setRec(false); addFiles([file], "record"); }} />}
-      {walk && <WalkthroughModal property={sel} onUpdate={updateProp} onClose={() => setWalk(false)} />}
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", height: "100%", minHeight: 0 }}>
+      {!isMobile && <div style={{ width: 330, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.card, display: "flex", flexDirection: "column", minHeight: 0 }}>{folderList}</div>}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0, background: T.bg }}>{folderPane}</div>
+      {sel && open && <ItemSheet property={sel} m={open} isMobile={isMobile} onClose={() => setOpen(null)} onDelete={del} onPunch={punch} />}
+      {sel && rec && <RecorderSheet onClose={() => setRec(false)} onDone={(file) => { setRec(false); addFiles([file], "record"); }} />}
+      {sel && walk && <WalkthroughModal property={sel} onUpdate={updateProp} onClose={() => setWalk(false)} />}
     </div>
   );
 }

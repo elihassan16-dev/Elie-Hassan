@@ -311,7 +311,9 @@ const wkPersist = () => {
 };
 try {
   const saved = JSON.parse(localStorage.getItem(WK_LS) || "{}");
-  for (const k of Object.keys(saved)) wkJobs[k] = saved[k];
+  // fromCache: the photos were stripped for storage - this copy must never be
+  // pushed over the cloud's, and the cloud's photos are adopted on top of it.
+  for (const k of Object.keys(saved)) wkJobs[k] = { ...saved[k], fromCache: true };
 } catch { /* ignore */ }
 // The shell's stale-build check asks this before reloading the page: a
 // reload mid-transcription throws the run away.
@@ -350,7 +352,11 @@ export function useWalkCloudSync(appSettings, setAppSettings, flushAppSettings) 
       if (j && (j.status === "proc" || (j.cleared && j.cleared > (row.at || 0)))) return;
       lastRef.current[pid] = rs;
       if (!remote.items.length && !remote.partialClip) return;
-      wkSet(pid, { ...remote, status: "ready", msg: "", err: "", tap: null, cleared: 0 });
+      // Never lose a photo: if the cloud copy is missing one this device has
+      // for the same item, keep ours (Elie 9/10 - a list "went blank").
+      const mine = new Map(((j && j.items) || []).filter((it) => it && it.image).map((it) => [it.id, it.image]));
+      const items = remote.items.map((it) => (it && !it.image && mine.has(it.id) ? { ...it, image: mine.get(it.id) } : it));
+      wkSet(pid, { ...remote, items, status: "ready", msg: "", err: "", tap: null, cleared: 0, fromCache: false });
     });
     // One sweep per session: drop finished lists older than 30 days so the
     // startup payload can't grow forever (in-progress ones are kept).
@@ -386,8 +392,13 @@ export function useWalkCloudSync(appSettings, setAppSettings, flushAppSettings) 
           // Never clobber an imaged cloud copy with an imageless local one — a
           // reload restores items WITHOUT photos (localStorage strips them),
           // and the cloud row is the copy that still has them.
+          // Settings not loaded yet (fresh sign-in): we can't know what the cloud
+          // holds, so don't push anything - the adopt pass runs first.
+          if (!settingsRef.current || !settingsRef.current.length) continue;
           const cloudRow = (settingsRef.current || []).find((x) => x && x.id === key);
-          if (cloudRow && (cloudRow.items || []).some((i) => i && i.image) && !(j.items || []).some((i) => i && i.image)) continue;
+          const hasImg = (j.items || []).some((i) => i && i.image);
+          if (cloudRow && (cloudRow.items || []).some((i) => i && i.image) && !hasImg) continue;
+          if (j.fromCache && !hasImg) continue; // restored from this device's cache: photos stripped, nothing new to say
           const slice = wkCloudSlice(j);
           const s = JSON.stringify(slice);
           if (lastRef.current[pid] === s) continue;
@@ -414,7 +425,7 @@ export async function healWalkPhotos(property, files, opts = {}) {
   const fl = Array.from(files || []).filter(Boolean);
   if (!fl.length || wkGet(pid)?.status === "proc") return;
   const all = !!opts.all;
-  wkSet(pid, { status: "proc", err: "", tap: null, msg: all ? "Re-picking photos…" : "Re-attaching photos…" });
+  wkSet(pid, { status: "proc", err: "", tap: null, fromCache: false, msg: all ? "Re-picking photos…" : "Re-attaching photos…" });
   try {
     const wants = (it) => !!it.title && (all || !it.image);
     const clipsMissing = [...new Set((wkGet(pid)?.items || []).filter(wants).map((it) => it.clip || 1))].sort((a, b) => a - b);
@@ -658,7 +669,7 @@ export async function startWalkClips(property, files, opts = {}) {
   const pid = property.id;
   const fl = Array.from(files || []).filter(Boolean);
   if (!fl.length || wkGet(pid)?.status === "proc") return;
-  wkSet(pid, { status: "proc", err: "", tap: null });
+  wkSet(pid, { status: "proc", err: "", tap: null, fromCache: false });
   let lock = null;
   try { lock = await navigator.wakeLock?.request?.("screen"); } catch { /* ignore */ }
   try {
@@ -778,7 +789,20 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   const [adjust, setAdjust] = useState(null);   // item id whose photo is being re-picked
   const [srcTick, setSrcTick] = useState(0);    // bumps when a clip's video is (re)opened on this device
   const adjItem = adjust != null ? items.find((i) => i.id === adjust) : null;
-  const clipSrcFor = (clipNo) => walkClipSrc(property.id, clipNo) || ((job?.clipUids || {})[clipNo] ? `/api/stream/file?uid=${encodeURIComponent(job.clipUids[clipNo])}&name=walkthrough` : null);
+  const clipSrcFor = (clipNo) => {
+    const local = walkClipSrc(property.id, clipNo); if (local) return local;
+    let uid = (job?.clipUids || {})[clipNo];
+    if (!uid) {
+      // Lists generated before clips recorded their cloud uid: the property's
+      // processed cloud videos, in the order they were generated, are the clips.
+      const done = [
+        ...(property.walkVideos || []).filter((v) => v && v.uid && v.done).map((v) => ({ uid: v.uid, at: v.done })),
+        ...(property.media || []).filter((m) => m && m.kind === "video" && m.uid && m.punchAt).map((m) => ({ uid: m.uid, at: m.punchAt })),
+      ].sort((a, b) => a.at - b.at);
+      if (done.length === (job?.clips || 0) && done[clipNo - 1]) uid = done[clipNo - 1].uid;
+    }
+    return uid ? `/api/stream/file?uid=${encodeURIComponent(uid)}&name=walkthrough` : null;
+  };
   const latestRef = useRef(property); latestRef.current = property;
   const liveRef = useRef(null);
   const mrRef = useRef(null);

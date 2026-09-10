@@ -691,60 +691,115 @@ export async function startWalkClips(property, files, opts = {}) {
   }
 }
 
-// ── Frame adjuster (Elie 9/9) ─────────────────────────────────────────────────
+// ── Frame adjuster (Elie 9/9, zoom + mark + duplicate 9/10) ──────────────────
 // Tap an item's photo → a ten-second window of the video around the moment it
-// was said, a scrubber, ±1s / ±0.2s nudges, play, and "Use this frame". The
-// pick is remembered on the item (frameAt + frameManual) so a later re-pick of
-// photos never overwrites it.
+// was said, a scrubber, ±1s / ±0.2s nudges, play, zoom (drag to pan), a red
+// box or circle to point at the thing, and "Use this frame". "Save as a new
+// item" keeps this item and adds another with the same picture - a second
+// note about something else in the same shot. The pick is remembered on the
+// item (frameAt + frameManual) so a later re-pick of photos never overwrites it.
+const RED = "#FF3B30";
+// Snap the visible region (centre cx,cy in 0..1 of the frame, zoom z) and burn
+// the mark in, at up to 720px on the long side.
+function snapRegion(video, cx, cy, z, shape) {
+  const vw = video.videoWidth || 960, vh = video.videoHeight || 540;
+  const sw = vw / z, sh = vh / z, sx = Math.max(0, Math.min(vw - sw, cx * vw - sw / 2)), sy = Math.max(0, Math.min(vh - sh, cy * vh - sh / 2));
+  const k = Math.min(1, 720 / Math.max(sw, sh));
+  const w = Math.max(2, Math.round(sw * k)), h = Math.max(2, Math.round(sh * k));
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
+  if (shape && shape.w > 0.01 && shape.h > 0.01) {
+    ctx.strokeStyle = RED; ctx.lineWidth = Math.max(3, Math.round(w * 0.009)); ctx.lineJoin = "round";
+    const x = shape.x * w, y = shape.y * h, bw = shape.w * w, bh = shape.h * h;
+    ctx.beginPath();
+    if (shape.kind === "circle") ctx.ellipse(x + bw / 2, y + bh / 2, bw / 2, bh / 2, 0, 0, Math.PI * 2);
+    else { const r = Math.min(10, bw / 4, bh / 4); ctx.roundRect ? ctx.roundRect(x, y, bw, bh, r) : ctx.rect(x, y, bw, bh); }
+    ctx.stroke();
+  }
+  return c.toDataURL("image/jpeg", 0.8);
+}
 function FrameAdjust({ src, item, onUse, onClose, onPickFile }) {
-  const vRef = useRef(null);
+  const vRef = useRef(null), boxRef = useRef(null);
   const s = Number(item.start) || 0, e = Number(item.end) || 0;
   const lo = Math.max(0, s - 5);
   const [hi, setHi] = useState((e > s ? e : s + 5) + 5);
   const [t, setT] = useState(item.frameAt != null ? Number(item.frameAt) : (e > s ? (s + e) / 2 : s + 0.5));
   const [playing, setPlaying] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState("");
   const [ready, setReady] = useState(false);
   const [bad, setBad] = useState("");
+  const [ar, setAr] = useState(16 / 9);
+  const [zoom, setZoom] = useState(1);
+  const [cx, setCx] = useState(0.5); const [cy, setCy] = useState(0.5);
+  const [tool, setTool] = useState(null);      // null (drag = pan) | "rect" | "circle"
+  const [shape, setShape] = useState(null);    // {kind,x,y,w,h} in 0..1 of the visible box
+  const drag = useRef(null);
   useEffect(() => {
     const v = vRef.current; if (!v || !src) return;
     setReady(false); setBad("");
-    const onMeta = () => { setReady(true); if (v.duration && isFinite(v.duration)) setHi((h) => Math.min(h, Math.max(lo + 1, v.duration - 0.05))); try { v.currentTime = t; } catch { /* ignore */ } };
+    const onMeta = () => { setReady(true); if (v.videoWidth && v.videoHeight) setAr(v.videoWidth / v.videoHeight); if (v.duration && isFinite(v.duration)) setHi((h) => Math.min(h, Math.max(lo + 1, v.duration - 0.05))); try { v.currentTime = t; } catch { /* ignore */ } };
     const onErr = () => setBad("Couldn't open that video here.");
     v.addEventListener("loadedmetadata", onMeta); v.addEventListener("error", onErr);
     return () => { v.removeEventListener("loadedmetadata", onMeta); v.removeEventListener("error", onErr); };
   }, [src]); // eslint-disable-line react-hooks/exhaustive-deps
+  const clampC = (c, z) => Math.min(1 - 0.5 / z, Math.max(0.5 / z, c));
+  const setZ = (z) => { setZoom(z); setCx((c) => clampC(c, z)); setCy((c) => clampC(c, z)); };
   const seek = (x) => { const v = vRef.current; const nt = Math.min(hi, Math.max(lo, x)); setT(nt); if (v) { try { v.pause(); } catch { /* ignore */ } setPlaying(false); try { v.currentTime = nt; } catch { /* ignore */ } } };
   const toggle = async () => { const v = vRef.current; if (!v) return; if (playing) { v.pause(); setPlaying(false); return; } if (v.currentTime >= hi - 0.05) { try { v.currentTime = lo; } catch { /* ignore */ } } try { await v.play(); setPlaying(true); } catch { /* ignore */ } };
   const onTime = () => { const v = vRef.current; if (!v) return; setT(v.currentTime); if (!v.paused && v.currentTime >= hi) { v.pause(); setPlaying(false); } };
-  const use = async () => {
+  // Pointer on the frame: pan when zoomed, or draw the mark when a tool is on.
+  const pt = (ev) => { const r = boxRef.current.getBoundingClientRect(); return { x: Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height)) }; };
+  const down = (ev) => { if (!ready) return; ev.currentTarget.setPointerCapture(ev.pointerId); const p = pt(ev); drag.current = tool ? { kind: "draw", x0: p.x, y0: p.y } : { kind: "pan", x0: p.x, y0: p.y, cx0: cx, cy0: cy }; if (tool) setShape({ kind: tool, x: p.x, y: p.y, w: 0, h: 0 }); };
+  const move = (ev) => { const d = drag.current; if (!d) return; const p = pt(ev); if (d.kind === "draw") setShape({ kind: tool, x: Math.min(d.x0, p.x), y: Math.min(d.y0, p.y), w: Math.abs(p.x - d.x0), h: Math.abs(p.y - d.y0) }); else if (zoom > 1) { setCx(clampC(d.cx0 - (p.x - d.x0) / zoom, zoom)); setCy(clampC(d.cy0 - (p.y - d.y0) / zoom, zoom)); } };
+  const up = () => { const d = drag.current; drag.current = null; if (d && d.kind === "draw") { setShape((sh) => (sh && sh.w > 0.01 && sh.h > 0.01 ? sh : null)); setTool(null); } };
+  const snap = async (asNew) => {
     const v = vRef.current; if (!v) return;
-    setBusy(true);
+    setBusy(asNew ? "new" : "use");
     try {
       v.pause(); setPlaying(false);
-      // Make sure the frame on screen is the one at t: re-seek, wait for it to
-      // be presented (iPhone), then snap.
       await new Promise((r) => { let done = false; const fin = () => { if (done) return; done = true; r(); }; const on = () => { v.removeEventListener("seeked", on); if (v.requestVideoFrameCallback) { v.requestVideoFrameCallback(fin); setTimeout(fin, 400); } else requestAnimationFrame(() => requestAnimationFrame(fin)); }; v.addEventListener("seeked", on); try { v.currentTime = Math.max(0.05, t) + 0.0001; } catch { fin(); } setTimeout(fin, 1500); });
-      const f = drawVideo(v);
-      if (f && f.data) onUse(f.data, v.currentTime);
+      const data = snapRegion(v, cx, cy, zoom, shape);
+      if (data) onUse(data, v.currentTime, { asNew, zoom, cx, cy, shape });
     } catch { setBad("Couldn't snap that frame — try nudging a little and again."); }
-    setBusy(false);
+    setBusy("");
   };
   const nb = (label, dx) => <button onClick={() => seek(t + dx)} disabled={!ready} style={{ minWidth: 44, height: 36, minHeight: 36, borderRadius: 18, border: "none", background: "rgba(118,118,128,0.08)", color: T.text, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", padding: "0 10px" }}>{label}</button>;
+  const chip = (on, label, onClick, title) => <button onClick={onClick} title={title} disabled={!ready} style={{ height: 34, minHeight: 34, padding: "0 12px", borderRadius: 17, border: on ? `1.5px solid ${RED}` : `1px solid ${T.border}`, background: on ? "#FFF0EF" : "#fff", color: on ? RED : T.text, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>{label}</button>;
+  const tx = (0.5 - cx) * 100, ty = (0.5 - cy) * 100;
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 480, display: "flex", alignItems: "center", justifyContent: "center", padding: 10, backdropFilter: "blur(4px)" }}>
-      <div onClick={(ev) => ev.stopPropagation()} style={{ background: T.bg, borderRadius: 18, width: "min(640px,96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: T.shadowMd }}>
-        <div style={{ padding: "13px 16px 10px", background: T.card, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "flex-start", gap: 10 }}>
+      <div onClick={(ev) => ev.stopPropagation()} style={{ background: T.bg, borderRadius: 18, width: "min(680px,96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: T.shadowMd }}>
+        <div style={{ padding: "13px 16px 10px", background: T.card, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "flex-start", gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 15, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🎞 Pick the photo — {item.title || "item"}</div>
-            <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 2 }}>Said at {fmtT(s)}{e > s ? `–${fmtT(e)}` : ""} · scrub the ten seconds around it</div>
+            <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 2 }}>Said at {fmtT(s)}{e > s ? `–${fmtT(e)}` : ""} · scrub, zoom in, mark the spot</div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
         {src ? (
-          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-            <video ref={vRef} src={src} muted playsInline preload="auto" onTimeUpdate={onTime} onPause={() => setPlaying(false)} style={{ width: "100%", maxHeight: "50vh", background: "#000", borderRadius: 12, objectFit: "contain", display: "block" }} />
-            {bad && <div style={{ fontSize: 12, color: T.red }}>{bad}</div>}
+          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
+            <div ref={boxRef} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} style={{ position: "relative", width: "100%", aspectRatio: String(ar), maxHeight: "46vh", margin: "0 auto", background: "#000", borderRadius: 12, overflow: "hidden", touchAction: "none", cursor: tool ? "crosshair" : zoom > 1 ? "grab" : "default", userSelect: "none" }}>
+              <video ref={vRef} src={src} muted playsInline preload="auto" onTimeUpdate={onTime} onPause={() => setPlaying(false)} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", display: "block", transform: `scale(${zoom}) translate(${tx}%, ${ty}%)`, transformOrigin: "center", transition: drag.current ? "none" : "transform 0.12s" }} />
+              {shape && shape.w > 0 && (
+                <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+                  {shape.kind === "circle"
+                    ? <ellipse cx={(shape.x + shape.w / 2) * 100} cy={(shape.y + shape.h / 2) * 100} rx={shape.w * 50} ry={shape.h * 50} fill="none" stroke={RED} strokeWidth="1.1" vectorEffect="non-scaling-stroke" style={{ strokeWidth: 3 }} />
+                    : <rect x={shape.x * 100} y={shape.y * 100} width={shape.w * 100} height={shape.h * 100} rx="1.2" fill="none" stroke={RED} vectorEffect="non-scaling-stroke" style={{ strokeWidth: 3 }} />}
+                </svg>
+              )}
+              {tool && <div style={{ position: "absolute", left: 10, top: 10, background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 11.5, fontWeight: 700, borderRadius: 8, padding: "4px 9px", pointerEvents: "none" }}>Drag across the spot to draw the {tool === "circle" ? "circle" : "box"}</div>}
+              {!tool && zoom > 1 && <div style={{ position: "absolute", left: 10, top: 10, background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 11.5, fontWeight: 700, borderRadius: 8, padding: "4px 9px", pointerEvents: "none" }}>{zoom.toFixed(1)}× · drag to move</div>}
+            </div>
+            {bad && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 12, color: T.red, flex: 1, minWidth: 160 }}>{bad}</div>
+                <label style={{ padding: "8px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontWeight: 700, fontSize: 12.5, cursor: "pointer", minHeight: 36, display: "inline-flex", alignItems: "center" }}>
+                  📁 Pick the video
+                  <input type="file" accept="video/*" style={{ display: "none" }} onChange={(ev) => { const f = ev.target.files && ev.target.files[0]; if (f) onPickFile(f); ev.target.value = ""; }} />
+                </label>
+              </div>
+            )}
             <input type="range" min={lo} max={hi} step={0.05} value={Math.min(hi, Math.max(lo, t))} onChange={(ev) => seek(Number(ev.target.value))} disabled={!ready} style={{ width: "100%", accentColor: T.gold }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
               {nb("−1s", -1)}{nb("−0.2", -0.2)}
@@ -752,9 +807,19 @@ function FrameAdjust({ src, item, onUse, onClose, onPickFile }) {
               {nb("+0.2", 0.2)}{nb("+1s", 1)}
               <span style={{ fontSize: 12.5, fontWeight: 700, color: T.textSub, fontVariantNumeric: "tabular-nums", marginLeft: 6 }}>{fmtT(t)}.{String(Math.floor((t % 1) * 10))}</span>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={onClose} style={{ flex: 1, padding: 12, borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.textSub, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
-              <button onClick={use} disabled={!ready || busy} style={{ flex: 1.4, padding: 12, borderRadius: 12, border: "none", background: T.gold, color: "#fff", fontWeight: 800, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 2px 10px ${T.gold}55`, opacity: !ready || busy ? 0.6 : 1 }}>{busy ? "Snapping…" : "✓ Use this frame"}</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: T.textSub }}>🔍 Zoom</span>
+              <input type="range" min={1} max={3} step={0.1} value={zoom} onChange={(ev) => setZ(Number(ev.target.value))} disabled={!ready} style={{ flex: 1, minWidth: 120, accentColor: T.gold }} />
+              {zoom > 1 && <button onClick={() => { setZ(1); setCx(0.5); setCy(0.5); }} style={{ background: "none", border: "none", color: T.textSub, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "4px 6px" }}>reset</button>}
+              <span style={{ width: 1, height: 22, background: T.border }} />
+              {chip(tool === "rect", "▢ Box", () => setTool(tool === "rect" ? null : "rect"), "Draw a red box on the spot")}
+              {chip(tool === "circle", "◯ Circle", () => setTool(tool === "circle" ? null : "circle"), "Draw a red circle on the spot")}
+              {shape && <button onClick={() => { setShape(null); setTool(null); }} style={{ background: "none", border: "none", color: T.textSub, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "4px 6px" }}>clear mark</button>}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={onClose} style={{ flex: 1, minWidth: 90, padding: 12, borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.textSub, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+              <button onClick={() => snap(true)} disabled={!ready || !!busy} title="Keep this item as it is and add another item with this picture — a second note about something else in the same shot" style={{ flex: 1.2, minWidth: 150, padding: 12, borderRadius: 12, border: `1px solid ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontWeight: 800, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", opacity: !ready || busy ? 0.6 : 1 }}>{busy === "new" ? "Adding…" : "＋ Save as a new item"}</button>
+              <button onClick={() => snap(false)} disabled={!ready || !!busy} style={{ flex: 1.4, minWidth: 150, padding: 12, borderRadius: 12, border: "none", background: T.gold, color: "#fff", fontWeight: 800, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 2px 10px ${T.gold}55`, opacity: !ready || busy ? 0.6 : 1 }}>{busy === "use" ? "Snapping…" : "✓ Use this frame"}</button>
             </div>
           </div>
         ) : (
@@ -1099,6 +1164,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
                         <input value={it.detail} onChange={(e) => up(it.id, "detail", e.target.value)} placeholder="Detail for the contractor…" style={{ width: "100%", border: "none", background: "transparent", fontSize: 11, color: T.textSub, outline: "none", fontFamily: "inherit", padding: "2px 0 0" }} />
                         <div style={{ fontSize: 10, color: T.textTert, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{snippetLabel(it, multiClip)}{it.quote ? ` · "${it.quote}"` : ""}</div>
                       </div>
+                      <button onClick={() => { const idx = items.findIndex((i) => i.id === it.id); const copy = { ...it, id: Date.now(), title: "", detail: "", quote: "" }; wkSet(property.id, { items: [...items.slice(0, idx + 1), copy, ...items.slice(idx + 1)] }); }} title="Duplicate — another note with this same photo" style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer", width: 26, flexShrink: 0, padding: 0 }}>⧉</button>
                       <button onClick={() => del(it.id)} style={{ background: "none", border: "none", color: T.red, fontSize: 17, cursor: "pointer", width: 26, flexShrink: 0 }}>×</button>
                     </div>
                   ))}
@@ -1160,7 +1226,17 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
           src={clipSrcFor(adjItem.clip || 1)}
           item={adjItem}
           onClose={() => setAdjust(null)}
-          onUse={(data, at) => { wkSet(property.id, { items: items.map((i) => (i.id === adjItem.id ? { ...i, image: data, frameAt: at, frameManual: true } : i)) }); setAdjust(null); setFlash("✓ Photo updated"); setTimeout(() => setFlash(""), 2000); }}
+          onUse={(data, at, o) => {
+            if (o && o.asNew) {
+              // A second note about something else in the same shot: same clip, moment and room, blank text, this picture.
+              const idx = items.findIndex((i) => i.id === adjItem.id);
+              const copy = { ...adjItem, id: Date.now(), title: "", detail: "", quote: "", image: data, frameAt: at, frameManual: true };
+              wkSet(property.id, { items: [...items.slice(0, idx + 1), copy, ...items.slice(idx + 1)] });
+              setAdjust(null); setFlash("✓ New item added under this one — give it a title"); setTimeout(() => setFlash(""), 3000);
+              return;
+            }
+            wkSet(property.id, { items: items.map((i) => (i.id === adjItem.id ? { ...i, image: data, frameAt: at, frameManual: true } : i)) }); setAdjust(null); setFlash("✓ Photo updated"); setTimeout(() => setFlash(""), 2000);
+          }}
           onPickFile={(f) => { wkKeepSrc(property.id, adjItem.clip || 1, URL.createObjectURL(f), f.name || ""); setSrcTick((x) => x + 1); }}
         />
       )}

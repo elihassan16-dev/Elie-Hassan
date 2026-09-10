@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import { T } from "./theme";
 import { qbAuthFetch, uploadStreamVideo } from "./net";
+import { uploadToMedia } from "./mediaStore";
 import { useOutlookMail } from "./outlook/useOutlookMail";
 import { walkPdfFile, snippetLabel } from "./walkPdf";
 
@@ -603,7 +604,7 @@ async function processClip(property, file, label, opts = {}) {
 // note it on the property (walkVideos) - and any device, usually the desktop,
 // picks it up from the property and runs the exact same pipeline on the MP4.
 const fmtMB = (n) => (n >= 1024 * 1024 * 1024 ? (n / 1024 / 1024 / 1024).toFixed(1) + " GB" : Math.round(n / 1024 / 1024) + " MB");
-export async function startWalkFromCloud(property, video, onUpdate, getLatest) {
+export async function startWalkFromCloud(property, video, onUpdate, getLatest, opts = {}) {
   const pid = property.id;
   if (!video || !video.uid || wkGet(pid)?.status === "proc") return;
   wkSet(pid, { status: "proc", err: "", tap: null, msg: "Preparing the video in the cloud…" });
@@ -643,7 +644,8 @@ export async function startWalkFromCloud(property, video, onUpdate, getLatest) {
     // otherwise be written over (Elie 9/9). Entries also carry id = uid so a
     // save that does cross another device's merges item-by-item.
     const latest = (getLatest && getLatest()) || property;
-    if (onUpdate) onUpdate(pid, "walkVideos", (latest.walkVideos || []).map((v) => (v.uid === video.uid ? { ...v, id: v.uid, done: Date.now() } : { ...v, id: v.id || v.uid })));
+    if (onUpdate && (latest.walkVideos || []).some((v) => v && v.uid === video.uid)) onUpdate(pid, "walkVideos", (latest.walkVideos || []).map((v) => (v.uid === video.uid ? { ...v, id: v.uid, done: Date.now() } : { ...v, id: v.id || v.uid })));
+    if (opts.onDone) { try { opts.onDone(latest); } catch { /* ignore */ } }
   } catch (e) {
     const has = (wkGet(pid)?.items || []).length;
     wkSet(pid, { status: has ? "ready" : "idle", err: e.message || "Couldn't fetch that video.", msg: "", tap: null });
@@ -822,27 +824,26 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   const stopRec = () => { try { mrRef.current && mrRef.current.state !== "inactive" && mrRef.current.stop(); } catch { /* ignore */ } };
 
   // Phone side of the hand-off: upload only, note it on the property, done.
+  // Phone side of the hand-off: the video goes into the property's Media
+  // folder (Elie 9/10) - the same place the Media tab's Upload puts it - and
+  // any device can press Make punch list on it there or here.
   const sendToComputer = async (fl) => {
     setErr("");
     let lock = null;
     try { lock = await navigator.wakeLock?.request?.("screen"); } catch { /* ignore */ }
-    const list = [...(property.walkVideos || [])];
     try {
-      for (let i = 0; i < fl.length; i++) {
-        const f = fl[i];
-        setSending({ i: i + 1, n: fl.length, pct: 0, name: f.name || "video" });
-        const upd = await uploadStreamVideo(f, (pct) => setSending((s) => (s ? { ...s, pct } : s)));
-        list.push({ id: upd.uid, uid: upd.uid, name: f.name || "walkthrough", size: f.size, at: Date.now(), from: /iPhone|iPad|Android/i.test(navigator.userAgent) ? "phone" : "computer" });
-        onUpdate(property.id, "walkVideos", [...(latestRef.current.walkVideos || []).filter((v) => !list.some((x) => x.uid === v.uid)), ...list].map((v) => ({ ...v, id: v.id || v.uid })));
-      }
-      setFlash(`✓ Sent. The phone's part is done — open this property's Walkthrough on the computer and press ⚡ Generate.`);
+      await uploadToMedia(property, fl, { updateProp: onUpdate, getLatest: () => latestRef.current, by: "", src: "upload", onProgress: setSending });
+      setFlash(`✓ Sent to this property's Media. The phone's part is done — on the computer, open Media or this Walkthrough and press ⚡ Generate.`);
       setTimeout(() => setFlash(""), 7000);
     } catch (e) { setErr(e.message || "Upload failed — check your connection and try again."); }
     finally { setSending(null); try { lock && lock.release(); } catch { /* ignore */ } }
   };
-  const cloudPending = (property.walkVideos || []).filter((v) => v && v.uid && !v.done);
+  const cloudPending = [
+    ...(property.walkVideos || []).filter((v) => v && v.uid && !v.done),
+    ...(property.media || []).filter((m) => m && m.kind === "video" && m.uid && !m.punchAt && !(property.walkVideos || []).some((v) => v && v.uid === m.uid)).map((m) => ({ uid: m.uid, name: m.name, size: m.size, at: m.at, from: "media", mediaId: m.id })),
+  ];
   const onPhone = typeof window !== "undefined" && window.innerWidth < 768;
-  const dropCloud = (uid) => onUpdate(property.id, "walkVideos", (latestRef.current.walkVideos || []).filter((v) => v.uid !== uid).map((v) => ({ ...v, id: v.id || v.uid })));
+  const dropCloud = (uid) => { const cur = latestRef.current; if ((cur.walkVideos || []).some((v) => v && v.uid === uid)) onUpdate(property.id, "walkVideos", (cur.walkVideos || []).filter((v) => v.uid !== uid).map((v) => ({ ...v, id: v.id || v.uid }))); else onUpdate(property.id, "mediaHidden", [...(cur.mediaHidden || []), ...(cur.media || []).filter((m) => m && m.uid === uid).map((m) => m.id)]); };
   const findRecent = async () => {
     setRecent("loading"); setErr("");
     try {
@@ -940,8 +941,8 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   const cloudCard = cloudPending.length > 0 && job?.status !== "proc" ? (
     <div style={{ background: T.card, border: `1px solid ${T.gold}`, borderRadius: 14, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ fontSize: 12.5, fontWeight: 800, color: T.text }}>{onPhone
-        ? <>✓ {cloudPending.length} video{cloudPending.length !== 1 ? "s" : ""} sent — waiting for you to generate {cloudPending.length !== 1 ? "them" : "it"} on the computer</>
-        : <>📥 {cloudPending.length} video{cloudPending.length !== 1 ? "s" : ""} from your {cloudPending.every((v) => v.from === "phone") ? "phone" : "other device"} — ready to turn into a punch list</>}</div>
+        ? <>✓ {cloudPending.length} video{cloudPending.length !== 1 ? "s" : ""} in this property's Media — waiting for you to generate {cloudPending.length !== 1 ? "them" : "it"} on the computer</>
+        : <>📥 {cloudPending.length} video{cloudPending.length !== 1 ? "s" : ""} in this property's Media — ready to turn into a punch list</>}</div>
       {cloudPending.map((v) => (
         <div key={v.uid} style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -949,8 +950,8 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
             <div style={{ fontSize: 11, color: T.textTert }}>{fmtWhen(v.at)}{v.size ? ` · ${fmtMB(v.size)}` : ""}</div>
           </div>
           {onPhone
-            ? <button onClick={() => { if (window.confirm("Build the list on this phone? It is much slower than the computer and the app must stay on screen.")) { setErr(""); setAdding(false); startWalkFromCloud(property, v, onUpdate, () => latestRef.current); } }} style={{ background: "none", border: "none", color: T.textSub, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", padding: "6px 4px", flexShrink: 0, textDecoration: "underline dotted", textUnderlineOffset: 2 }}>generate here instead</button>
-            : <button onClick={() => { setErr(""); setAdding(false); startWalkFromCloud(property, v, onUpdate, () => latestRef.current); }} style={{ ...btn(T.gold, "#fff"), padding: "9px 13px", fontSize: 12.5, flexShrink: 0, boxShadow: `0 2px 10px ${T.gold}55` }}>⚡ Generate here</button>}
+            ? <button onClick={() => { if (window.confirm("Build the list on this phone? It is much slower than the computer and the app must stay on screen.")) { setErr(""); setAdding(false); startWalkFromCloud(property, v, onUpdate, () => latestRef.current, v.mediaId ? { onDone: (p) => onUpdate(property.id, "mediaPunch", { ...((p && p.mediaPunch) || {}), [v.mediaId]: Date.now() }) } : {}); } }} style={{ background: "none", border: "none", color: T.textSub, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", padding: "6px 4px", flexShrink: 0, textDecoration: "underline dotted", textUnderlineOffset: 2 }}>generate here instead</button>
+            : <button onClick={() => { setErr(""); setAdding(false); startWalkFromCloud(property, v, onUpdate, () => latestRef.current, v.mediaId ? { onDone: (p) => onUpdate(property.id, "mediaPunch", { ...((p && p.mediaPunch) || {}), [v.mediaId]: Date.now() }) } : {}); }} style={{ ...btn(T.gold, "#fff"), padding: "9px 13px", fontSize: 12.5, flexShrink: 0, boxShadow: `0 2px 10px ${T.gold}55` }}>⚡ Generate here</button>}
           <button onClick={() => { if (window.confirm("Remove this video from the list? (It stays in the cloud.)")) dropCloud(v.uid); }} title="Remove" style={{ background: "rgba(118,118,128,0.08)", border: "none", width: 28, height: 28, minHeight: 28, borderRadius: 14, color: T.textSub, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
         </div>
       ))}
@@ -1008,7 +1009,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
             </label>
             {onPhone && (
               <label style={{ ...btn(T.card, T.text), padding: "14px 16px", fontSize: 15, textAlign: "center", border: `1px solid ${T.border}` }}>
-                📤 Send to my computer
+                📤 Send to Media — build the list on the computer
                 <div style={{ fontSize: 11.5, fontWeight: 500, color: T.textSub, marginTop: 4 }}>Uploads the video only — no work is done on the phone.</div>
                 <input type="file" accept="video/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) sendToComputer(fl); e.target.value = ""; }} />
               </label>

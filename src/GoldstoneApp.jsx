@@ -11,6 +11,7 @@ import { registerServiceWorker, refreshSubscription, enablePush, notificationsSu
 import { T } from "./theme";
 import { qbAuthFetch, notify, uploadAttachment, attachmentKind, attLabel, STREAM_VIDEO_CAP, geocodeAddress } from "./net";
 import { WalkthroughModal, useWalkJob, useWalkCloudSync } from "./walkthrough";
+import { MediaPage } from "./media";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { usePersistentDraft } from "./useDraft";
 import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
@@ -471,6 +472,7 @@ const Ico=({p,p2,c,r,lines=[]})=>(
 );
 const ICONS={
   tasks:<Ico p="M9 11l3 3L22 4" p2="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>,
+  media:<Ico r={[3,5,18,14,2]} lines={[[3,10,21,10],[3,14,21,14],[8,5,8,19],[16,5,16,19]]}/>,
   portfolio:<Ico p="M18 20V10" p2="M12 20V4" lines={[[6,20,6,14]]}/>,
   leads:<Ico c={[11,11,8]} lines={[[21,21,16.65,16.65],[11,8,11,14],[8,11,14,11]]}/>,
   properties:<Ico p="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" p2="M9 22v-10h6v10"/>,
@@ -491,6 +493,7 @@ const NAV=[
   {key:"portfolio",label:"Portfolio Overview",short:"Portfolio",icon:ICONS.portfolio},
   {key:"leads",label:"New Leads",short:"Leads",icon:ICONS.leads},
   {key:"properties",label:"Properties",short:"Properties",icon:ICONS.properties},
+  {key:"media",label:"Media",short:"Media",icon:ICONS.media},
   {key:"rentals",label:"Rental Portfolio",short:"Rentals",icon:ICONS.rentals},
   {key:"calendar",label:"Calendar",short:"Calendar",icon:ICONS.calendar},
   {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
@@ -22288,6 +22291,7 @@ export function GoldstoneShell(){
     : active==="calendar" ? <CalendarPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage onNavigate={navigateToProperty}/>
+    : active==="media" ? <MediaPage isMobile={isMobile} onOpenProperty={navigateToProperty}/>
     : active==="routes" ? <RoutePlannerPage/>
     : active==="contacts" ? <ContactsPage/>
     : active==="email" ? <EmailPage isMobile={isMobile}/>

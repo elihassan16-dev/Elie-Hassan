@@ -15548,6 +15548,48 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     const same=txListSame(cur,auto);
     if(!same)updateProp(p.id,"dmConstrSpentTxns",auto);
   },[autoTxns,selForAuto&&(selForAuto.dmRehabExcluded||[]).join("\n"),selForAuto&&selForAuto.dmRehabAuto]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The two writers above only run for the SELECTED deal, so the left list
+  // showed each property's reserve from whatever was pinned the last time it
+  // was opened, and the number jumped the moment Elie tapped it (a new
+  // payment in QuickBooks since then). Sweep every auto-pinned deal once when
+  // the section opens (and on ↻) so the list already shows what the detail
+  // will. Same pin rule, same txListSame guard, a few at a time.
+  const bsPropsRef=useRef(bsProps);bsPropsRef.current=bsProps;
+  const sweepKey=bsProps.map(p=>`${p.id}:${p.qbDebtAuto?1:0}${p.dmRehabAuto?1:0}:${p.qbProjectId||""}`).join(",");
+  useEffect(()=>{
+    let alive=true;
+    const queue=bsProps.filter(p=>p.qbProjectId&&(p.qbDebtAuto||p.dmRehabAuto)&&String(p.id)!==String(selId)).map(p=>p.id);
+    if(!queue.length)return;
+    const live=liveQ();
+    const pinOne=(id,txns)=>{
+      const p=(bsPropsRef.current||[]).find(x=>String(x.id)===String(id)); if(!p||!Array.isArray(txns))return;
+      const row=(t)=>({date:t.date,type:t.type,num:t.num,vendor:t.vendor,memo:t.memo,account:t.account,amount:t.amount,lineKey:t.lineKey});
+      if(p.qbDebtAuto){
+        const mig=txMigrateEx(p.qbDebtExcluded||[],txns); if(mig)updateProp(p.id,"qbDebtExcluded",mig);
+        const ex=new Set(mig||p.qbDebtExcluded||[]);
+        const auto=txns.filter(t=>qbBucket(t.account)==="debt"&&!txIn(ex,t)).map(row);
+        if(!txListSame(p.qbDebtTxns||[],auto))updateProp(p.id,"qbDebtTxns",auto);
+      }
+      if(p.dmRehabAuto){
+        const mig=txMigrateEx(p.dmRehabExcluded||[],txns); if(mig)updateProp(p.id,"dmRehabExcluded",mig);
+        const ex=new Set(mig||p.dmRehabExcluded||[]);
+        const auto=txns.filter(t=>qbBucket(t.account)==="rehab"&&!txIn(ex,t)).map(row);
+        if(!txListSame(p.dmConstrSpentTxns||[],auto))updateProp(p.id,"dmConstrSpentTxns",auto);
+      }
+    };
+    const worker=async()=>{
+      while(alive&&queue.length){
+        const id=queue.shift();
+        const p=(bsPropsRef.current||[]).find(x=>String(x.id)===String(id)); if(!p)continue;
+        try{
+          const d=await qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(p.qbProjectId)}${live}`);
+          if(alive&&Array.isArray(d&&d.items))pinOne(id,d.items); // a failed pull never touches the pins
+        }catch{ /* keep what's pinned */ }
+      }
+    };
+    for(let i=0;i<3;i++)worker();
+    return()=>{alive=false;};
+  },[sweepKey,txnsFresh]); // eslint-disable-line react-hooks/exhaustive-deps
   // Auto draws (dmDrawAuto): every credit that raises a BANK-job mortgage
   // account counts as a draw automatically (from the account's General Ledger),
   // minus hand-excluded ones (dmDrawExcluded, by txKey).

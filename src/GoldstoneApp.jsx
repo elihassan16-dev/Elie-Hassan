@@ -12286,7 +12286,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
         {isMobile&&<button onClick={onBack} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit",padding:"2px 4px",flexShrink:0,minWidth:32,minHeight:32}}>‹</button>}
         <div style={{minWidth:0,flex:1}}><div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addr}</div>{property.status&&<span style={{fontSize:10,fontWeight:700,color:sc.color,background:sc.bg,padding:"2px 8px",borderRadius:20}}>{property.status}</span>}</div>
         {messages.length>0&&!selMode&&<button onClick={()=>setFindQ(findQ==null?"":null)} title="Search this conversation" style={{background:findQ!=null?T.goldLight:"none",border:`1px solid ${findQ!=null?T.gold:T.border}`,borderRadius:20,color:findQ!=null?"#8a6d1f":T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 11px",flexShrink:0}}>🔍</button>}
-        {mediaItems.length>0&&!selMode&&<button onClick={()=>setMediaOpen(true)} title="All photos & videos in this chat" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 12px",flexShrink:0}}>🖼 {mediaItems.length}</button>}
+        {mediaItems.length>0&&!selMode&&<button onClick={()=>{if(gsGo.media&&property&&property.id!=null)gsGo.media(property.id);else setMediaOpen(true);}} title="This property's Media — every photo & video, from chats and uploads" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 12px",flexShrink:0}}>🖼 {mediaItems.length}</button>}
         {messages.length>0&&!selMode&&<button onClick={()=>setSelMode(true)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,padding:"5px 12px",flexShrink:0}}>Select</button>}
       </div>
       {findQ!=null&&(
@@ -22234,6 +22234,7 @@ export function GoldstoneShell(){
     showings:(id)=>{try{window.__showingsTarget={propId:id,tab:"buyers"};}catch{/* no window */}pushPage("showings");},
     fin:isAdmin?(id)=>{try{if(id!=null)window.__finTarget={propId:id};}catch{/* no window */}pushPage("financials");}:null,
     chat:(id)=>{pushPage("messages");setNavChatId(id);},
+    media:(id)=>{try{if(id!=null)window.__mediaTarget={propId:id};}catch{/* no window */}pushPage("media");},
   });
 
   // When a background video upload finishes, swap its placeholder attachment for

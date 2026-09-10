@@ -148,6 +148,8 @@ export function MediaPage({ isMobile, onOpenProperty }) {
   const updateProp = (id, key, val) => { setSharedProps((prev) => prev.map((p) => (p.id === id ? { ...p, [key]: val } : p))); if (flushProps) setTimeout(flushProps, 0); };
   const getLatest = (id) => () => (latest.current || []).find((p) => p.id === id);
 
+  // Arriving from a chat's 🖼 button (or any cross-section jump): open that property's folder.
+  useEffect(() => { try { const t = window.__mediaTarget; if (t && t.propId != null) { delete window.__mediaTarget; setSelId(t.propId); setKind("all"); } } catch { /* no window */ } }, []);
   const props = useMemo(() => (sharedProps || []).filter((p) => !p.archived && p.status !== "New Leads"), [sharedProps]);
   const folders = useMemo(() => props.map((p) => { const list = mediaOf(p, ctrJobs, ctrMessages); const c = mediaCounts(list); const fresh = list.filter((m) => m.src === "contractor" && m.at > Date.now() - 2 * 86400000); return { p, list, ...c, freshFrom: fresh.length ? { n: fresh.length, who: fresh[0].by } : null }; })
     .filter(({ p }) => scope === "all" || (scope === "sold" ? p.status === "Sold" : p.status !== "Sold"))

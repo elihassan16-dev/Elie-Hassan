@@ -87,6 +87,13 @@ async function streamDetails(uid) {
   return info;
 }
 export async function uploadStreamVideo(file, onProgress) {
+  // The shell's stale-build check reads this: a page reload mid-upload throws
+  // the upload away (Elie 9/10 - "crashing in the middle").
+  try { window.__gsUploads = (window.__gsUploads || 0) + 1; } catch { /* no window */ }
+  try { return await uploadStreamVideoInner(file, onProgress); }
+  finally { try { window.__gsUploads = Math.max(0, (window.__gsUploads || 1) - 1); } catch { /* ignore */ } }
+}
+async function uploadStreamVideoInner(file, onProgress) {
   let uid;
   // The playback URLs live on the video record, which exists as soon as the
   // upload session is minted — fetch them WHILE the bytes go up so the message

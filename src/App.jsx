@@ -47,7 +47,7 @@ export default function Root() {
         const mine = (document.querySelector('script[src*="/assets/"]')?.getAttribute("src")) || "";
         // Never yank the page out from under a running walkthrough (the
         // transcription lives in this tab) or a video upload.
-        try { if (window.__gsWalkBusy && window.__gsWalkBusy()) return; } catch { /* ignore */ }
+        try { if ((window.__gsWalkBusy && window.__gsWalkBusy()) || (window.__gsUploads || 0) > 0) return; } catch { /* ignore */ }
         // During a deploy the edge can hand back the old and new page in turns;
         // only act when the same newer build shows up twice in a row.
         if (live && mine && !html.includes(mine)) {

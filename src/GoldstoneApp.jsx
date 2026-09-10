@@ -4487,10 +4487,24 @@ function QuickBooksTab({property,onUpdate}){
 
   useEffect(()=>{fetch("/api/quickbooks/status").then(r=>r.json()).then(setStatus).catch(()=>setStatus({configured:false,connected:false}));},[]);
 
+  // The project list is a shared daily cache on the server (QuickBooks bills
+  // per call). A project Elie just created in QuickBooks isn't in it yet, so
+  // the picker can pull a fresh copy: by hand (↻ button) and automatically
+  // once when this address has no match in the cached list.
+  const[projAt,setProjAt]=useState(0);         // when the list we're showing was pulled from QuickBooks
+  const[projFresh,setProjFresh]=useState(false);// a fresh pull is in flight
+  const autoFreshed=useRef(false);
+  const loadProjects=useCallback((fresh)=>{
+    if(fresh)setProjFresh(true);
+    return qbAuthFetch(`/api/quickbooks/projects${fresh?"?fresh=1":""}`)
+      .then(d=>{setProjects(d.items||[]);setProjAt(Number(d.cachedAt)||Date.now());})
+      .catch(e=>setError(e.message))
+      .finally(()=>{if(fresh)setProjFresh(false);});
+  },[]);
   useEffect(()=>{
     if(!status?.connected||projects)return;
-    qbAuthFetch("/api/quickbooks/projects").then(d=>setProjects(d.items||[])).catch(e=>setError(e.message));
-  },[status,projects]);
+    loadProjects(false);
+  },[status,projects,loadProjects]);
 
   // Ranked suggested projects for this property's address (best first).
   const suggestions=useMemo(()=>{
@@ -4501,6 +4515,15 @@ function QuickBooksTab({property,onUpdate}){
       .sort((a,b)=>b.score-a.score)
       .slice(0,3);
   },[projects,property.address]);
+  // Not linked yet and nothing in the (possibly day-old) cached list looks like
+  // this address → pull once straight from QuickBooks, in case it was just made.
+  useEffect(()=>{
+    if(!projects||property.qbProjectId||autoFreshed.current||projFresh)return;
+    if(suggestions.some(s=>s.score>=0.5))return;
+    if(Date.now()-projAt<2*60000)return; // the list is already fresh
+    autoFreshed.current=true;
+    loadProjects(true);
+  },[projects,suggestions,property.qbProjectId,projAt,projFresh,loadProjects]);
 
   const pick=useCallback((id)=>{
     setSel(id);
@@ -4630,8 +4653,10 @@ function QuickBooksTab({property,onUpdate}){
             {(projects||[]).map(p=>{const sg=suggestions.find(s=>s.id===p.id);return <option key={p.id} value={p.id}>{sg?"★ ":""}{p.name}{p.isProject?"":" (customer)"}{sg?` — ${qbConfidence(sg.score)}`:""}</option>;})}
           </select>
           {sel&&<button onClick={()=>loadPnl(sel,true)} title="Pull fresh from QuickBooks now" style={{padding:"8px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻</button>}
+          {!sel&&projects&&<button onClick={()=>loadProjects(true)} disabled={projFresh} title="Re-pull the project list from QuickBooks — use this after creating a project there" style={{padding:"8px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.textSub,fontSize:12.5,fontWeight:700,cursor:projFresh?"default":"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:projFresh?0.6:1}}>{projFresh?"Checking QuickBooks…":"↻ Refresh list"}</button>}
         </div>
         {!projects&&<div style={{padding:"0 16px 14px",fontSize:12,color:T.textTert}}>Loading projects…</div>}
+        {projects&&!sel&&!projFresh&&suggestions.length===0&&<div style={{padding:"0 16px 14px",fontSize:12,color:T.textTert,lineHeight:1.5}}>Nothing in QuickBooks looks like this address yet. Just created it there? Tap ↻ Refresh list — the list was pulled {projAt?(()=>{const m=Math.round((Date.now()-projAt)/60000);return m<2?"just now":m<60?`${m} min ago`:m<1440?`${Math.round(m/60)} hr ago`:`${Math.round(m/1440)} day${Math.round(m/1440)===1?"":"s"} ago`;})():"earlier"}.</div>}
         {/* Suggested matches — shown until a project is picked */}
         {projects&&!sel&&suggestions.length>0&&(
           <div style={{padding:"0 16px 14px"}}>
@@ -17955,7 +17980,12 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                     </div>
                   ))}
                   {qbProjList!==null&&!qbProjErr&&term.length<2&&<div style={{fontSize:11.5,color:T.textTert,padding:"2px 2px"}}>{(qbProjList||[]).length} QuickBooks projects loaded — start typing an address.</div>}
-                  {qbProjList!==null&&!qbProjErr&&term.length>=2&&projMatches.length===0&&linkedMatches.length===0&&<div style={{fontSize:12,color:T.textTert,padding:"4px 2px"}}>No QuickBooks project matches “{saleDraft.q}”.</div>}
+                  {qbProjList!==null&&!qbProjErr&&term.length>=2&&projMatches.length===0&&linkedMatches.length===0&&(
+                    <div style={{fontSize:12,color:T.textTert,padding:"4px 2px",lineHeight:1.5}}>
+                      No QuickBooks project matches “{saleDraft.q}”.{" "}
+                      <button onClick={()=>{setQbProjErr("");setQbProjList([]);qbAuthFetch("/api/quickbooks/projects?fresh=1").then(d=>setQbProjList(d.items||[])).catch(e=>{setQbProjList([]);setQbProjErr(e.message||"Couldn't load QuickBooks projects.");});}} style={{background:"none",border:"none",color:T.blue,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:0}}>Just created it in QuickBooks? ↻ Refresh the list</button>
+                    </div>
+                  )}
                   <button onClick={()=>setSaleDraft(d=>({...d,manual:true}))} style={{alignSelf:"flex-start",background:"none",border:"none",color:T.blue,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"2px 0"}}>No QuickBooks project? Type the address instead ›</button>
                 </>)}
                 {saleDraft.qbId&&(

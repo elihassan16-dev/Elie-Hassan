@@ -341,11 +341,34 @@ function calcA(f){
   return{total,interest,net:rev-total-interest-(rev*pct(f.actualSellingCosts))-n(f.actualSellingTransferTax)};
 }
 
+// The Financing popups also store a snapshot of the interest they computed
+// (hmInterest / locInterest / locLoan). Those snapshots went stale the moment
+// the hold period, prices or rates changed underneath them, and the Actual
+// popup wrote its own totals into the same fields - so the projected debt
+// service only moved after re-opening a popup and hitting Save (Elie 9/16).
+// The projected side is now always live from the inputs the popup saved; the
+// snapshot is only honoured for legacy rows that never had those inputs.
+const finSnapOnly=(f)=>f.hmLoanPct===undefined&&f.hmRate===undefined&&f.gapRate===undefined&&f.acHmLoanAmt===undefined;
+// "Paid so far + from today forward" hard-money interest, re-derived live from
+// what the popup saved (paid-so-far from QuickBooks and the day the forward
+// clock started) against the CURRENT closing date - so moving the sale date
+// moves the number without another Save. Older saves that only stored the
+// total keep it.
+function acHmFwdLive(f,close,loan,rate){
+  if(!f.acHmFromToday)return null;
+  if(!close||f.acHmPaidSoFar===undefined||f.acHmPaidSoFar===""||!f.acHmFwdStart)return n(f.hmInterest);
+  const perDay=loan*(rate/100)/365;
+  const fwd=Math.round(perDay*daysBetween(f.acHmFwdStart,close));
+  const pt=f.acHmPaidThrough||"";
+  const credit=(pt&&pt>close)?Math.round(perDay*daysBetween(close,pt)):0;
+  return Math.max(0,n(f.acHmPaidSoFar)+fwd-credit);
+}
+
 // ─── SINGLE SOURCE OF TRUTH for a property's profit ───────────────────────────
 // Used by BOTH the Financial Overview banner and the Portfolio Overview so the
 // two can never disagree. Mirrors the Financial Overview formulas exactly.
 // If you change a profit rule, change it HERE only.
-function finProfit(f,status){
+function finProfit(f,status,closingSched){
   if(!f) return {netProfit:0,acNet:0,effective:0,useActual:false,equityRequired:0};
   const buyingItems=f.buyingCostItems||[];
   const buyingTotal=buyingItems.length>0?calcBuyingTotal(buyingItems,f.purchasePrice):n(f.buyingCosts)||0;
@@ -379,7 +402,10 @@ function finProfit(f,status){
   // Debt service = interest + the lender's fees (origination + doc), matching the
   // Financing Breakdown popup and the Actual-financing math — fees are borrowing
   // costs and belong in the total (and in net profit).
-  const debtService=(n(f.hmInterest)||liveHmReserve)+liveHmOrigFee+liveHmDoc+(n(f.locInterest)||liveGapBalloon);
+  const snapOnly=finSnapOnly(f);
+  const hmInterestP=(snapOnly&&n(f.hmInterest))||liveHmReserve;
+  const gapInterestP=(snapOnly&&n(f.locInterest))||liveGapBalloon;
+  const debtService=hmInterestP+liveHmOrigFee+liveHmDoc+gapInterestP;
   const netProfit=n(f.salePrice)-sellingTotal-debtService-totalCosts;
 
   // ── Actual ──
@@ -391,7 +417,7 @@ function finProfit(f,status){
   const acHmRate=f.acHmRate!==undefined?n(f.acHmRate):n(f.hmRate||9);
   const acHmOrigPct=f.acHmOrigPct!==undefined?n(f.acHmOrigPct):n(f.hmOrigPct||0);
   const acHmDocAmt=f.acHmDocFee!==undefined?n(f.acHmDocFee):n(f.hmDocFee||1000);
-  const equityRequired=n(f.locLoan)||liveGapPrinc;
+  const equityRequired=(snapOnly&&n(f.locLoan))||liveGapPrinc;
   const acGapLoanAmt=n(f.acGapLoanAmt)||equityRequired;
   // Insurance is paid in full at closing (you're reimbursed the unused portion when
   // you cancel after the sale), so the whole annual premium is cash you need for the
@@ -407,7 +433,9 @@ function finProfit(f,status){
   // "From today forward" mode: total HM interest = paid so far (from QuickBooks) +
   // interest still to accrue to close. The popup computes and stores that total in
   // hmInterest, so read it back here rather than re-deriving without QuickBooks.
-  const acHmInterest=f.acHmInterestOverride!==undefined&&f.acHmInterestOverride!==""?n(f.acHmInterestOverride):(f.acHmFromToday?n(f.hmInterest):Math.round(acHmMonthlyInt*actualHoldMonths)+Math.round(acHmLoanAmt*(acHmOrigPct/100))+acHmDocAmt);
+  const acClose=closingSched||f.sellingDate||f.acHmPayoffDate||"";
+  const acHmFwd=acHmFwdLive(f,acClose,acHmLoanAmt,acHmRate);
+  const acHmInterest=f.acHmInterestOverride!==undefined&&f.acHmInterestOverride!==""?n(f.acHmInterestOverride):(acHmFwd!=null?acHmFwd:Math.round(acHmMonthlyInt*actualHoldMonths)+Math.round(acHmLoanAmt*(acHmOrigPct/100))+acHmDocAmt);
   const acGapBalloon=f.acGapInterestOverride!==undefined&&f.acGapInterestOverride!==""?n(f.acGapInterestOverride):Math.round(acGapLoanAmt*(acGapRate/100)/12*actualHoldMonths);
   const acNet=acSalePrice>0?acSalePrice-acSelling-(acHmInterest+acGapBalloon)-acCosts:0;
 
@@ -423,7 +451,7 @@ function finProfit(f,status){
     // Breakdown pieces (projected) — exposed for the Investor Packet so it prints
     // the exact same numbers as the Financial Overview, never a re-derivation.
     buyingTotal,sellingTotal,holdingTotal:Math.round(holdingTotal),debtService,hmLoanTotal:liveHmTotal,
-    hmInterest:n(f.hmInterest)||liveHmReserve,gapInterest:n(f.locInterest)||liveGapBalloon};
+    hmInterest:hmInterestP,gapInterest:gapInterestP};
 }
 
 // ─── NJ Realty Transfer Tax ───────────────────────────────────────────────────
@@ -1619,6 +1647,7 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
       acGapLoanAmt:gapLoanAmt, acGapRate:gapRate,
       acHmInterestOverride:hmIntOverride, acGapInterestOverride:gapIntOverride,
       acHmFromToday:useFwd, acHmPayoffDate:useFwd?closingDate:"",
+      acHmPaidSoFar:useFwd?String(paidSoFar):"", acHmFwdStart:useFwd?fwdStart:"", acHmPaidThrough:useFwd?(hmPaidThrough||""):"",
       hmInterest:String(finalHmInt), locInterest:String(finalGapInt), locLoan:gapLoanAmt,
     });
     onClose();
@@ -1737,7 +1766,7 @@ function InvestorPacketModal({property,onUpdate,onClose}){
   const {sharedProps}=useData();
   const {displayName,user}=useAuth();
   const f=property.financials||{};
-  const prof=finProfit(f,property.status);
+  const prof=finProfit(f,property.status,(property.propertyInfo||{}).closingDateScheduled);
   // Ask defaults to cash-to-close rounded UP to the next $1,000 — $61,350 → $62,000.
   const[ask,setAsk]=useState(String(Math.ceil((prof.equityRequired||0)/1000)*1000));
   const[rate,setRate]=useState(String(f.gapRate||15));
@@ -1935,7 +1964,7 @@ function WhatIfPopup({property,onClose}){
     if(sellingOverride!=null){c.sellingCostItems=[];c.sellingCosts=String(n(sellingOverride));}
     else if(!(f.sellingCostItems||[]).length&&n(f.salePrice)>0)c.sellingCosts=String(Math.round(n(f.sellingCosts)*(n(vals.salePrice)/n(f.salePrice))));
     if(!(f.holdingCostItems||[]).length&&n(f.holdPeriod)>0)c.annualHoldingCosts=String(Math.round(n(f.annualHoldingCosts)*(n(vals.holdPeriod)/n(f.holdPeriod))));
-    return finProfit(c,property.status);
+    return finProfit(c,property.status,(property.propertyInfo||{}).closingDateScheduled);
   };
   const planVals={purchasePrice:String(f.purchasePrice??""),rehabCosts:String(f.rehabCosts??""),salePrice:String(f.salePrice??""),holdPeriod:String(f.holdPeriod??"")};
   const base=run(planVals);
@@ -2144,12 +2173,12 @@ function FinOverview({property,onUpdate}){
                       + Math.round(n(f.rehabCosts)*(1-n(f.rehabFinPct||100)/100))
                       + buyingTotal+liveHmReserve+liveHmOrigFee+liveHmDoc;
   const liveGapBalloon= Math.round(liveGapPrinc*(n(f.gapRate||15)/100)/12*holdPeriodMonths);
-  const hmInterestFinal = n(f.hmInterest)||liveHmReserve;
-  const locInterestFinal= n(f.locInterest)||liveGapBalloon;
+  const _fp=finProfit(f,property.status,(property.propertyInfo||{}).closingDateScheduled); // single source of truth (matches Portfolio)
+  const hmInterestFinal = _fp.hmInterest;   // live from the saved inputs - moves with the hold period
+  const locInterestFinal= _fp.gapInterest;
   // Interest + lender fees (origination + doc) — same definition as the popup.
   const debtService=hmInterestFinal+liveHmOrigFee+liveHmDoc+locInterestFinal;
-  const equityRequired = n(f.locLoan)||liveGapPrinc;
-  const _fp=finProfit(f);                 // single source of truth (matches Portfolio)
+  const equityRequired = (finSnapOnly(f)&&n(f.locLoan))||liveGapPrinc;
   const netProfit=_fp.netProfit;
 
   // ── Actual hold period from dates ──
@@ -2184,9 +2213,10 @@ function FinOverview({property,onUpdate}){
   const acGapLoanAmt   = n(f.acGapLoanAmt)||equityRequired;
   const acGapRate      = f.acGapRate!==undefined?n(f.acGapRate):n(f.gapRate||15);
   const acHmMonthlyInt = Math.round(acHmLoanAmt*(acHmRate/100)/12);
+  const acHmFwd        = acHmFwdLive(f,(property.propertyInfo||{}).closingDateScheduled||f.sellingDate||f.acHmPayoffDate||"",acHmLoanAmt,acHmRate);
   const acHmInterest   = f.acHmInterestOverride!==undefined&&f.acHmInterestOverride!==""
     ? n(f.acHmInterestOverride)
-    : (f.acHmFromToday?n(f.hmInterest):Math.round(acHmMonthlyInt*actualHoldMonths)+Math.round(acHmLoanAmt*(acHmOrigPct/100))+acHmDocAmt);
+    : (acHmFwd!=null?acHmFwd:Math.round(acHmMonthlyInt*actualHoldMonths)+Math.round(acHmLoanAmt*(acHmOrigPct/100))+acHmDocAmt);
   const acGapBalloon   = f.acGapInterestOverride!==undefined&&f.acGapInterestOverride!==""
     ? n(f.acGapInterestOverride)
     : Math.round(acGapLoanAmt*(acGapRate/100)/12*actualHoldMonths);
@@ -5209,7 +5239,7 @@ function PropertyAiChat({property,onClose}){
     const p=property;
     let computed=null;
     try{
-      const pr=finProfit(p.financials||{},p.status);
+      const pr=finProfit(p.financials||{},p.status,(p.propertyInfo||{}).closingDateScheduled);
       computed={netProfit:pr.netProfit,effectiveProfit:pr.effective,equityRequired:pr.equityRequired,buyingCosts:pr.buyingTotal,sellingCosts:pr.sellingTotal,holdingCosts:pr.holdingTotal,hardMoneyLoan:pr.hmLoanTotal,hardMoneyInterest:pr.hmInterest,lineOfCreditInterest:pr.gapInterest};
     }catch{/* answer from raw fields only */}
     return JSON.stringify({
@@ -5327,7 +5357,7 @@ function GlobalAiChat({onClose}){
   const context=useMemo(()=>{
     const slimProp=(p)=>{
       let computed=null;
-      try{const pr=finProfit(p.financials||{},p.status);computed={netProfit:pr.netProfit,effectiveProfit:pr.effective,equityRequired:pr.equityRequired,hardMoneyLoan:pr.hmLoanTotal,hardMoneyInterest:pr.hmInterest,lineOfCreditInterest:pr.gapInterest};}catch{/* raw fields only */}
+      try{const pr=finProfit(p.financials||{},p.status,(p.propertyInfo||{}).closingDateScheduled);computed={netProfit:pr.netProfit,effectiveProfit:pr.effective,equityRequired:pr.equityRequired,hardMoneyLoan:pr.hmLoanTotal,hardMoneyInterest:pr.hmInterest,lineOfCreditInterest:pr.gapInterest};}catch{/* raw fields only */}
       return{id:String(p.id),address:p.address,city:p.city,status:p.status,
         propertyInfo:p.propertyInfo||{},financials:p.financials||{},computedProfit:computed||undefined,
         selectedBuyer:p.selectedBuyer||undefined,
@@ -6674,11 +6704,12 @@ function LeadDetail({lead,onUpdate}){
                      +Math.round(n(f.rehabCosts)*(1-n(f.rehabFinPct||100)/100))
                      +buyingTotal+liveHmReserve+liveHmOrigFee+liveHmDoc;
   const liveGapBalloon=Math.round(liveGapPrinc*(n(f.gapRate||15)/100)/12*holdPeriodMonths);
-  const hmInterestFinal=n(f.hmInterest)||liveHmReserve;
-  const locInterestFinal=n(f.locInterest)||liveGapBalloon;
+  const snapOnly=finSnapOnly(f);
+  const hmInterestFinal=(snapOnly&&n(f.hmInterest))||liveHmReserve;
+  const locInterestFinal=(snapOnly&&n(f.locInterest))||liveGapBalloon;
   // Interest + lender fees (origination + doc) — same definition as the popup.
   const debtService=hmInterestFinal+liveHmOrigFee+liveHmDoc+locInterestFinal;
-  const equityRequired=n(f.locLoan)||liveGapPrinc;
+  const equityRequired=(snapOnly&&n(f.locLoan))||liveGapPrinc;
   const netProfit=n(f.salePrice)-sellingTotal-debtService-totalCosts;
 
   const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
@@ -7188,11 +7219,11 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
 
   // Calculate net profit per property using same formula as FinOverview
   // Uses the shared finProfit() so this ALWAYS matches the property's Financial Overview.
-  function pfCalcProfit(p){ return finProfit(p.financials).effective; }
+  function pfCalcProfit(p){ return finProfit(p.financials,p.status,(p.propertyInfo||{}).closingDateScheduled).effective; }
   // Use the shared finProfit() so equity here ALWAYS matches the Financial Overview
   // and the Upcoming Closings report — including the full insurance premium and the
   // half-year property-tax escrow now folded into equity required.
-  function calcEquity(p){ return finProfit(p.financials,p.status).equityRequired; }
+  function calcEquity(p){ return finProfit(p.financials,p.status,(p.propertyInfo||{}).closingDateScheduled).equityRequired; }
 
   const totalYield=props.reduce((s,p)=>s+Math.max(0,pfCalcProfit(p)),0);
 
@@ -15226,7 +15257,7 @@ function JVAgreementModal({property,onClose}){
   const { funders }=useData();
   const mail=useOutlookMail();
   const f=property.financials||{};
-  const _fp=finProfit(f,property.status);
+  const _fp=finProfit(f,property.status,(property.propertyInfo||{}).closingDateScheduled);
   const dir=(funders||[]).slice().sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
   const[inv,setInv]=useState({name:"",address:"",email:""});
   const[emailing,setEmailing]=useState(""); // "" | "sending" | "sent" | error text
@@ -16822,7 +16853,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
           rows.push({address:p.address,funder:d.funderName||"—",type:"Sell",date:cfDate(p),back:plan==="takeback"?0:amt+(plan==="reinvest_plus"?interest:0),gross:amt,interest,plan,drawId:d.id,equity:null});
         });
       }else if(p.status==="Under Contract"){
-        const prof=finProfit(p.financials||{},p.status);
+        const prof=finProfit(p.financials||{},p.status,(p.propertyInfo||{}).closingDateScheduled);
         rows.push({address:p.address,funder:"",type:"Buy",date:(p.financials||{}).purchaseDate||"",back:null,gross:null,plan:null,drawId:null,equity:prof.equityRequired});
       }
     });

@@ -1571,7 +1571,7 @@ function AddFromDirectory({avail,onAdd}){
 }
 
 // ─── Actual Financing Popup — simple, user enters real loan amounts/rates ─────
-function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, locDraws=[], sellingDate, closingDate, bsHm, bsLoc, bsAvailable, hmPaidSoFar, hmPaidThrough, onSave, onClose}){
+function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, locDraws=[], excludedDraws=0, onExcludeDraw, onRestoreDraws, sellingDate, closingDate, bsHm, bsLoc, bsAvailable, hmPaidSoFar, hmPaidThrough, onSave, onClose}){
   // Auto-matched line of credit for this property → projected interest to a sell date.
   const[assumedSell,setAssumedSell]=useState(sellingDate||new Date().toISOString().slice(0,10));
   const locRows=(locDraws||[]).map(d=>{const end=d.paybackDate||assumedSell;const days=daysBetween(d.dateFunded,end);return {...d,end,days,balance:drawBalance(d),interest:drawInterest({...d,paybackDate:end})};}).sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
@@ -1699,7 +1699,7 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
             <span style={{fontSize:13,fontWeight:650,color:T.text}}>Gap / Outside Capital</span>
           </div>
           {/* Auto-matched private line of credit for this property (from the Financial Section) */}
-          {locDraws.length>0&&(()=>{const gcol="1fr 84px 84px";return(
+          {locDraws.length>0&&(()=>{const gcol=onExcludeDraw?"1fr 84px 84px 24px":"1fr 84px 84px";return(
             <div style={{margin:"8px 16px 4px",background:"#fff",border:`1px solid ${T.gold}`,borderRadius:12,overflow:"hidden",boxShadow:T.shadow}}>
               <div style={{padding:"9px 14px",background:T.cardAlt,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
                 <div style={{display:"flex",alignItems:"center",gap:7}}>
@@ -1711,7 +1711,7 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
                 </label>
               </div>
               <div style={{display:"grid",gridTemplateColumns:gcol,gap:10,padding:"7px 14px 4px",fontSize:10,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em"}}>
-                <span>Lender · Funded</span><span style={{textAlign:"right"}}>Amount</span><span style={{textAlign:"right"}}>Interest</span>
+                <span>Lender · Funded</span><span style={{textAlign:"right"}}>Amount</span><span style={{textAlign:"right"}}>Interest</span>{onExcludeDraw&&<span/>}
               </div>
               {locRows.map((r,i)=>(
                 <div key={i} style={{display:"grid",gridTemplateColumns:gcol,gap:10,padding:"7px 14px",borderTop:`1px solid ${T.border}`,alignItems:"center"}}>
@@ -1721,18 +1721,25 @@ function ActualFinancingPopup({f, liveHmTotal, liveGapPrinc, actualHoldMonths, l
                   </div>
                   <div style={{fontSize:13,fontWeight:600,color:T.text,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(r.balance)}</div>
                   <div style={{fontSize:13,fontWeight:700,color:T.gold,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(r.interest)}</div>
+                  {onExcludeDraw&&<button onClick={()=>onExcludeDraw(r.id)} title="Not this property's draw — hide it here" style={{width:24,height:24,borderRadius:12,border:`1px solid ${T.border}`,background:"#fff",color:T.textTert,fontSize:13,lineHeight:1,cursor:"pointer",fontFamily:"inherit",padding:0,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>×</button>}
                 </div>
               ))}
               <div style={{display:"grid",gridTemplateColumns:gcol,gap:10,padding:"9px 14px",borderTop:"1px solid rgba(0,0,0,0.08)",background:T.cardAlt,alignItems:"center"}}>
                 <span style={{fontSize:11,fontWeight:700,color:T.textSub}}>{locRows.length} draw{locRows.length===1?"":"s"}</span>
                 <span style={{fontSize:14,fontWeight:800,color:T.text,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(locFunded)}</span>
-                <span style={{fontSize:14,fontWeight:800,color:T.gold,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(locInterest)}</span>
+                <span style={{fontSize:14,fontWeight:800,color:T.gold,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtD(locInterest)}</span>{onExcludeDraw&&<span/>}
               </div>
               <div style={{padding:"10px 14px",borderTop:`1px solid ${T.border}`}}>
                 <button onClick={()=>{setGapLoanAmt(String(Math.round(locFunded)));setGapIntOverride(String(Math.round(locInterest)));}} style={{width:"100%",padding:"9px",borderRadius:8,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Use as gap financing&nbsp;↓</button>
               </div>
             </div>
           );})()}
+          {excludedDraws>0&&onRestoreDraws&&(
+            <div style={{margin:"4px 16px 6px",fontSize:11.5,color:T.textTert,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+              ⊘ {excludedDraws} line-of-credit draw{excludedDraws===1?"":"s"} hidden from this property —
+              <button onClick={onRestoreDraws} style={{background:"none",border:"none",color:T.blue,fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:0}}>bring back</button>
+            </div>
+          )}
           <div style={{background:T.card,paddingBottom:6}}>
             {iField("Gap Loan Amount",gapLoanAmt,setGapLoanAmt,"$","defaults to projected")}
             {mismatchFlag(gapLoanAmt,bsLoc,()=>setGapLoanAmt(String(Math.round(bsLoc))),"LOC")}
@@ -2233,7 +2240,11 @@ function FinOverview({property,onUpdate}){
       {showHolding&&<HoldingCostsPopup items={holdingItems} holdPeriod={f.holdPeriod} onChange={(items,total)=>upMany({holdingCostItems:items,annualHoldingCosts:String(total)})} onClose={()=>setShowHolding(false)}/>}
       {showActualSelling&&<SellingCostsPopup items={acSellingItems} salePrice={f.actualSalePrice||f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({actualSellingCostItems:items,actualSellingCosts:String(total)})} onClose={()=>setShowActualSelling(false)}/>}
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
-      {showActualFinancing&&<ActualFinancingPopup f={f} liveHmTotal={liveHmTotal} liveGapPrinc={equityRequired} actualHoldMonths={actualHoldMonths} locDraws={locDraws} sellingDate={f.sellingDate} closingDate={(property.propertyInfo||{}).closingDateScheduled||f.sellingDate}
+      {showActualFinancing&&<ActualFinancingPopup f={f} liveHmTotal={liveHmTotal} liveGapPrinc={equityRequired} actualHoldMonths={actualHoldMonths} locDraws={locDraws}
+        excludedDraws={(property.locDrawsExcluded||[]).filter(id=>(draws||[]).some(d=>String(d.id)===String(id))).length}
+        onExcludeDraw={(id)=>onUpdate(property.id,"locDrawsExcluded",[...(property.locDrawsExcluded||[]).filter(x=>String(x)!==String(id)),id])}
+        onRestoreDraws={()=>onUpdate(property.id,"locDrawsExcluded",[])}
+        sellingDate={f.sellingDate} closingDate={(property.propertyInfo||{}).closingDateScheduled||f.sellingDate}
         bsHm={bsHm} bsLoc={bsLoc} bsAvailable={bsAvailable} hmPaidSoFar={qbPaidInt?qbPaidInt.paid:null} hmPaidThrough={qbPaidInt?qbPaidInt.paidThrough:null}
         onSave={(vals)=>upMany(vals)} onClose={()=>setShowActualFinancing(false)}/>}
 
@@ -13451,9 +13462,18 @@ const sameName=(a,b)=>!!a&&!!b&&String(a).trim().toLowerCase()===String(b).trim(
 const drawsForProperty=(property,draws)=>{
   if(!property)return [];
   const addr=`${property.address||""} ${property.city||""}`.trim();
+  const ex=new Set((property.locDrawsExcluded||[]).map(String)); // ✕'d by hand in Actual Financing
+  const myNum=qbHouseNum(property.address||"");
   return (draws||[]).filter(d=>{
-    if(d.propertyId!=null&&String(d.propertyId)===String(property.id))return true;
+    if(ex.has(String(d.id)))return false;
+    // Linked to a property in the Financial Section = that property's, full stop.
+    if(d.propertyId!=null)return String(d.propertyId)===String(property.id);
     const label=d.propertyLabel||"";
+    // "77 Coral" is not "579 Coral": the street-name match used to win on its
+    // own (Streicher's paid-back 77 Coral draw showed on 579 Coral, Elie 9/16).
+    // When both sides carry a house number they have to agree.
+    const ln=qbHouseNum(label);
+    if(myNum&&ln&&myNum!==ln)return false;
     return qbMatchScore(addr,label)>=0.7||qbMatchScore(property.address||"",label)>=0.7;
   });
 };

@@ -10,6 +10,7 @@
 // image address can't blank them; "Recover missing pictures" re-copies the
 // older ones from each product's saved link.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { T } from "./theme";
 import { useData } from "./data/DataProvider";
 import { qbAuthFetch } from "./net";
@@ -225,7 +226,7 @@ export function ShowroomPage({ isMobile }) {
   // The page frame hides overflow (every page scrolls itself, like Media) —
   // without this the Showroom couldn't scroll on the phone (Elie 9/18/26).
   if (isMobile) return (
-    <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "0 0 110px", background: T.bg }}>
+    <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 0 110px", background: T.bg }}>
       {header}
       <div style={{ padding: "0 16px" }}>
         {searching ? rows(inCat, "No products match that.") : cat ? catBody : home}
@@ -268,7 +269,9 @@ export function ShowroomPicker({ property, initialCat, onHouseIds = [], onAdd, o
   const toggle = (p) => setSel((s) => (s.includes(p.id) ? s.filter((x) => x !== p.id) : [...s, p.id]));
   const addr = property.address || "this house";
   const counts = Object.fromEntries(SPEC_CATS.map((c) => [c.key, picks.items.filter((p) => p.cat === c.key).length]));
-  return (
+  // Sheets render at the document root: inside a scrolling page iOS can paint
+  // the tab bar over a fixed sheet's bottom row (Elie 9/18/26).
+  return createPortal(
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 480, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", justifyContent: "center", backdropFilter: "blur(4px)" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "rgba(255,255,255,0.96)", backdropFilter: "blur(20px)", width: "min(640px,100vw)", height: "min(88vh, 900px)", borderRadius: "24px 24px 0 0", boxShadow: "0 -8px 40px rgba(0,0,0,0.2)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: "10px 16px 0", flexShrink: 0 }}>
@@ -296,7 +299,8 @@ export function ShowroomPicker({ property, initialCat, onHouseIds = [], onAdd, o
           <div style={{ fontSize: 11.5, color: T.textTert, textAlign: "center", marginTop: 8 }}>Tap rows to select several · pick rooms after</div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -306,7 +310,7 @@ export function RoomsSheet({ count, known = [], onDone, onClose }) {
   const [draft, setDraft] = useState("");
   const all = [...new Set([...known, ...ROOM_PICKS])].filter(Boolean);
   const add = () => { const r = draft.trim(); if (!r) return; setRooms((s) => (s.includes(r) ? s : [...s, r])); setDraft(""); };
-  return (
+  return createPortal(
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 481, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", justifyContent: "center", backdropFilter: "blur(4px)" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "rgba(255,255,255,0.96)", backdropFilter: "blur(20px)", width: "min(560px,100vw)", maxHeight: "80vh", borderRadius: "24px 24px 0 0", boxShadow: "0 -8px 40px rgba(0,0,0,0.2)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: "10px 16px 0", flexShrink: 0 }}>
@@ -328,6 +332,7 @@ export function RoomsSheet({ count, known = [], onDone, onClose }) {
           <button onClick={() => onDone(rooms)} style={{ ...btn("gold"), flex: 2 }}>{rooms.length ? `Done · ${rooms.join(", ")}` : "Done"}</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

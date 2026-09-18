@@ -222,8 +222,10 @@ export function ShowroomPage({ isMobile }) {
     </>
   );
 
+  // The page frame hides overflow (every page scrolls itself, like Media) —
+  // without this the Showroom couldn't scroll on the phone (Elie 9/18/26).
   if (isMobile) return (
-    <div style={{ padding: "0 0 90px", background: T.bg, minHeight: "100%" }}>
+    <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "0 0 110px", background: T.bg }}>
       {header}
       <div style={{ padding: "0 16px" }}>
         {searching ? rows(inCat, "No products match that.") : cat ? catBody : home}
@@ -233,6 +235,7 @@ export function ShowroomPage({ isMobile }) {
     </div>
   );
   return (
+    <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
     <div style={{ padding: "18px 24px 40px", maxWidth: 1180, margin: "0 auto" }}>
       {header}
       <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
@@ -244,6 +247,7 @@ export function ShowroomPage({ isMobile }) {
         </div>
       </div>
       {form && <FinishForm form={form} setForm={setForm} onSave={save} onClose={() => setForm(null)} onDelete={form.id ? () => remove(form.id) : null} />}
+    </div>
     </div>
   );
 }

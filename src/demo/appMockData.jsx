@@ -137,6 +137,21 @@ const OFFICE_TASKS = [
 // re-render consumers exactly like the production DataProvider, otherwise a
 // Save can look like it "didn't take" in the harness while working fine live.
 const DemoCtx = createContext(null);
+// 🛋 Showroom sample products (photos are tiny inline SVGs so the preview is offline).
+const svgPhoto = (bg, fg) => "data:image/svg+xml;base64," + btoa(`<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><rect width='160' height='160' rx='20' fill='${bg}'/><circle cx='80' cy='70' r='30' fill='${fg}'/><rect x='40' y='112' width='80' height='14' rx='7' fill='${fg}'/></svg>`);
+const pAt = (d) => new Date(Date.now() - d * 86400000).toISOString();
+export const DEMO_PICKS = [
+  { id: "p-l1", cat: "lighting", title: "Globe Electric 3-light vanity, matte black", desc: "24\" bar, frosted glass shades, E26 bulbs", link: "https://www.homedepot.com/p/globe-electric-3-light", photo: svgPhoto("#F3E6C4", "#E0C98A"), price: "$68", at: pAt(2), usedOn: ["1030 Hanover Blvd", "417 Lakeview Ter", "32 Oakland Ave"] },
+  { id: "p-l2", cat: "lighting", title: "Hampton Bay 13\" LED flush mount", desc: "Bedrooms + hallway · 3000K, brushed nickel", link: "https://www.homedepot.com/p/hampton-bay-flush-mount", photo: svgPhoto("#E9EDC9", "#B7C36A"), price: "$24", at: pAt(9), usedOn: ["1030 Hanover Blvd", "417 Lakeview Ter", "19 Orchard St"] },
+  { id: "p-l3", cat: "lighting", title: "Kichler black pendant, 8\" clear glass", desc: "Over kitchen island · 3 per island", link: "https://www.amazon.com/dp/B0KICHLER", photo: svgPhoto("#E4E0D4", "#9A9484"), price: "$89", at: pAt(20), usedOn: ["417 Lakeview Ter"] },
+  { id: "p-l4", cat: "lighting", title: "Black exterior wall lantern, dusk-to-dawn", desc: "Front door + garage, 2 per house", link: "https://www.amazon.com/dp/B0LANTERN", photo: "", price: "$39", at: pAt(40), usedOn: ["19 Orchard St"] },
+  { id: "p-l5", cat: "lighting", title: "6\" ultra-thin recessed LED, 12-pack", desc: "Kitchen + living · 5000K selectable", link: "https://www.amazon.com/dp/B0RECESS", photo: svgPhoto("#EEE9DD", "#C8BFA6"), price: "$79", at: pAt(55), usedOn: [] },
+  { id: "p-f1", cat: "flooring", title: "Lifeproof Sterling Oak LVP 7mm", desc: "Whole house except baths · 22 sf/box", link: "https://www.homedepot.com/p/lifeproof-sterling-oak", photo: svgPhoto("#D9C4A8", "#A8896A"), price: "$3.10/sf", at: pAt(3), usedOn: ["1030 Hanover Blvd", "417 Lakeview Ter", "32 Oakland Ave", "19 Orchard St"] },
+  { id: "p-p1", cat: "plumbing", title: "Moen Adler kitchen faucet, chrome", desc: "Single handle, pull-down sprayer", link: "https://www.lowes.com/pd/moen-adler", photo: svgPhoto("#DFE7EE", "#8F9BA5"), price: "$129", at: pAt(12), usedOn: ["1030 Hanover Blvd"] },
+  { id: "p-p2", cat: "plumbing", title: "Delta Foundations bath faucet, chrome", desc: "Hallway + master baths", link: "https://www.homedepot.com/p/delta-foundations", photo: svgPhoto("#E3EAF0", "#A9B6C2"), price: "$59", at: pAt(30), usedOn: ["417 Lakeview Ter"] },
+  { id: "p-t1", cat: "tile", title: "12x24 matte white porcelain, bath floors", desc: "Both baths · straight lay", link: "https://www.flooranddecor.com/tile-white-porcelain", photo: svgPhoto("#EDEDED", "#CFCFCF"), price: "$1.49/sf", at: pAt(15), usedOn: ["1030 Hanover Blvd"] },
+];
+
 export function useData() { return useContext(DemoCtx) || window.__appDemoData; }
 
 export function DataProvider({ children }) {
@@ -149,7 +164,7 @@ export function DataProvider({ children }) {
   const [officeMessages, setOfficeMessages] = useState(OFFICE_MSGS);
   const [officeTasks, setOfficeTasks] = useState(OFFICE_TASKS);
   const [bankAccounts, setBankAccounts] = useState([]);
-  const [appSettings, setAppSettings] = useState([{ id: "features", flags: {}, who: {} }, { id: "followups", items: [] }]);
+  const [appSettings, setAppSettings] = useState([{ id: "features", flags: {}, who: {} }, { id: "followups", items: [] }, { id: "spec_picks", items: DEMO_PICKS }]);
   const [rentals, setRentals] = useState([]);
   const [team, setTeam] = useState(TEAM);
   const noop = () => {};

@@ -14,6 +14,7 @@ import { T } from "../theme";
 import { useData } from "../data/DataProvider";
 import { qbAuthFetch, uploadAttachment } from "../net";
 import { SPEC_CATS } from "./sowLibrary";
+import { ShowroomPicker, RoomsSheet, LinkBtn } from "../showroom";
 export { SPEC_CATS };
 export const specCatOf = (k) => SPEC_CATS.find((c) => c.key === k) || SPEC_CATS[SPEC_CATS.length - 1];
 export const SPEC_BUYER = { goldstone: "GOLDSTONE BUYS", contractor: "CONTRACTOR BUYS" };
@@ -29,6 +30,14 @@ const uid = () => `f-${Date.now().toString(36)}-${Math.random().toString(36).sli
 // "amazon.com/dp/…" pasted without https:// is a RELATIVE link inside a PDF —
 // it opened gpflips.com instead of Amazon. Always store and print absolute.
 export const absUrl = (u) => { const s = String(u || "").trim(); if (!s) return ""; return /^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : `https://${s.replace(/^\/+/, "")}`; };
+// A picture is safe only once it lives in Goldstone's own storage (or is an
+// inline data/blob picture). Store image addresses rotate or get blocked and
+// the product went blank (Elie 9/18/26) — mirrorPhoto copies them over.
+export const isOurPhoto = (u) => { const s = String(u || ""); return !s || s.startsWith("data:") || s.startsWith("blob:") || s.includes("/storage/v1/object/public/"); };
+export async function mirrorPhoto(u) {
+  const s = String(u || "").trim(); if (!s || isOurPhoto(s)) return s;
+  try { const d = await qbAuthFetch(`/api/spec/img?url=${encodeURIComponent(s)}`); return d && d.url ? d.url : s; } catch { return s; }
+}
 
 // Pull every photo into a data URL so jsPDF can draw it (public storage
 // bucket + retailer images; anything that won't load is skipped quietly).
@@ -50,7 +59,7 @@ export async function loadSpecImages(items) {
   return out;
 }
 
-function useSpecPicks() {
+export function useSpecPicks() {
   const { appSettings, setAppSettings, flushAppSettings } = useData();
   const row = (appSettings || []).find((x) => x.id === "spec_picks") || null;
   const items = useMemo(() => (row && row.items) || [], [row]);
@@ -65,6 +74,8 @@ function useSpecPicks() {
       return id;
     },
     unpin: (id) => write(items.filter((p) => p.id !== id)),
+    add: (it) => { const id = `p-${Date.now().toString(36)}`; write([...items, { id, cat: it.cat || "other", title: it.title || "", desc: it.desc || "", link: it.link || "", photo: it.photo || "", price: it.price || "", at: new Date().toISOString(), usedOn: [] }]); return id; },
+    update: (id, patch) => write(items.map((p) => (p.id === id ? { ...p, ...patch } : p))),
   };
 }
 
@@ -91,13 +102,24 @@ export function FinishesView({ property, spec, setSpec, isWide, sidebar }) {
   const rooms = useMemo(() => { const named = [...new Set(items.flatMap(roomsOf))]; return items.some((it) => !roomsOf(it).length) ? [...named, ""] : named; }, [items]);
   const [room, setRoom] = useState(() => rooms[0] || "");
   const [form, setForm] = useState(null); // null | {id?, cat, room, title, desc, link, photo, buyer, choose, price}
+  const [picker, setPicker] = useState(false); // 🛋 From the Showroom sheet
+  const [roomsFor, setRoomsFor] = useState(null); // products just picked, waiting for their rooms
   const addr = `${property.address || ""}${property.city ? `, ${property.city}` : ""}`;
   const inCat = mode === "cat" ? items.filter((it) => it.cat === cat) : items.filter((it) => (room ? roomsOf(it).includes(room) : !roomsOf(it).length));
   const picksInCat = picks.items.filter((p) => (mode === "cat" ? p.cat === cat : true) && !items.some((it) => it.pickId === p.id && (mode === "cat" || (room ? roomsOf(it).includes(room) : !roomsOf(it).length))));
   const setItems = (next) => setSpec({ ...(spec || {}), items: next });
 
   const startAdd = () => setForm({ cat: mode === "cat" ? cat : "flooring", rooms: mode === "room" && room ? [room] : [], title: "", desc: "", link: "", photo: "", buyer: "goldstone", choose: false, price: "", known: rooms.filter(Boolean) });
-  const usePick = (p) => setItems([...items, { id: uid(), cat: p.cat, rooms: mode === "room" && room ? [room] : [], title: p.title, desc: p.desc || "", link: p.link || "", photo: p.photo || "", price: p.price || "", buyer: "goldstone", choose: false, pickId: p.id, at: new Date().toISOString() }]);
+  // Picker → (rooms step) → several products land on the house at once.
+  const addPicked = (list, rl) => {
+    const now = new Date().toISOString();
+    const fresh = list.map((p) => ({ id: uid(), cat: p.cat, rooms: rl, room: rl.join(" · "), title: p.title, desc: p.desc || "", link: p.link || "", photo: p.photo || "", price: p.price || "", buyer: "goldstone", choose: false, pickId: p.id, at: now, by: currentUser }));
+    setItems([...items, ...fresh]);
+    list.forEach((p) => picks.pin({ ...p, pickId: p.id }, addr));
+    if (rl.length && mode === "room") setRoom(rl[0]);
+    else if (mode === "cat" && list.length && !list.some((p) => p.cat === cat)) setCat(list[0].cat);
+  };
+  const onPicked = (list) => { setPicker(false); if (mode === "room" && room) addPicked(list, [room]); else setRoomsFor(list); };
   const save = (f) => {
     const title = (f.title || "").trim();
     if (!title && !f.choose && !f.photo) return;
@@ -136,10 +158,10 @@ export function FinishesView({ property, spec, setSpec, isWide, sidebar }) {
         {it.desc && <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 3, lineHeight: 1.4 }}>{it.desc}</div>}
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
           {it.choose ? tag("CONTRACTOR TO CHOOSE · GOLDSTONE APPROVES", "#FDE9C8", "#B45309") : it.buyer === "contractor" ? tag(SPEC_BUYER.contractor, "#E8F4FF", "#0A66C2") : tag(SPEC_BUYER.goldstone, T.goldLight, "#8a6d1f")}
-          {it.link && <a href={absUrl(it.link)} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: T.blue, textDecoration: "none", fontWeight: 600 }}>🔗 Open product</a>}
         </div>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0, alignItems: "center" }}>
+        <LinkBtn link={it.link} size={32} />
         <button onClick={() => setForm({ ...it, rooms: roomsOf(it), known: rooms.filter(Boolean) })} style={{ ...btn(), padding: "6px 10px", minHeight: 32, fontSize: 12 }}>✎</button>
         <button onClick={() => setItems(items.filter((x) => x.id !== it.id))} style={{ ...btn("ghost"), padding: "6px 10px", minHeight: 32, fontSize: 12, color: T.red }}>×</button>
       </div>
@@ -173,36 +195,29 @@ export function FinishesView({ property, spec, setSpec, isWide, sidebar }) {
         <div style={card}>
           <div style={{ padding: "11px 14px 8px", display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: T.textSub, letterSpacing: "0.02em", flex: 1 }}>{mode === "cat" ? `${specCatOf(cat).emoji} ${specCatOf(cat).label.toUpperCase()}` : `${room ? "🚪 " : ""}${roomName(room).toUpperCase()}`} — THIS HOUSE</span>
-            <button onClick={startAdd} style={btn("gold")}>＋ Add</button>
+            <button onClick={() => setPicker(true)} style={btn("gold")}>＋ Add</button>
           </div>
           {inCat.length === 0 && <div style={{ padding: "6px 14px 14px", fontSize: 12.5, color: T.textTert, lineHeight: 1.45 }}>Nothing picked for {mode === "cat" ? specCatOf(cat).label.toLowerCase() : room ? `the ${room.toLowerCase()}` : "this"} yet. Add one, or tap a saved pick below.</div>}
           {inCat.map(itemRow)}
         </div>
-        <div style={card}>
-          <div style={{ padding: "11px 14px 8px", fontSize: 12, fontWeight: 700, color: T.textSub, letterSpacing: "0.02em" }}>📌 MY PICKS{mode === "cat" ? ` — ${specCatOf(cat).label.toUpperCase()}` : ""} <span style={{ fontWeight: 500, color: T.textTert }}>· tap to use {mode === "room" && room ? `in the ${room.toLowerCase()}` : "here"}</span></div>
-          {picksInCat.length === 0 && <div style={{ padding: "0 14px 14px", fontSize: 12.5, color: T.textTert }}>Everything you add gets saved here with its picture.</div>}
-          {picksInCat.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${isWide ? 150 : 110}px, 1fr))`, gap: 10, padding: "4px 14px 14px" }}>
-              {picksInCat.map((p) => (
-                <div key={p.id} style={{ position: "relative" }}>
-                  <button onClick={() => usePick(p)} style={{ width: "100%", textAlign: "left", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 12, padding: 8, cursor: "pointer", fontFamily: "inherit" }}>
-                    {p.photo ? <img src={p.photo} alt="" style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, display: "block", background: "#EEE" }} /> : <div style={{ width: "100%", aspectRatio: "1", borderRadius: 8, background: "#fff", border: `1.5px dashed ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, color: T.textTert }}>📷</div>}
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text, marginTop: 6, lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{p.title}</div>
-                    {(p.price || (p.usedOn || []).length > 0) && <div style={{ fontSize: 10.5, color: T.textTert, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[p.price, (p.usedOn || []).length ? `used on ${(p.usedOn || []).slice(-2).map((a) => String(a).split(",")[0]).join(", ")}` : ""].filter(Boolean).join(" · ")}</div>}
-                  </button>
-                  <button onClick={() => { if (window.confirm(`Remove "${p.title}" from My picks?`)) picks.unpin(p.id); }} title="Remove from My picks" style={{ position: "absolute", top: 4, right: 4, width: 24, height: 24, borderRadius: 12, border: "none", background: "rgba(0,0,0,0.45)", color: "#fff", fontSize: 13, cursor: "pointer", lineHeight: 1 }}>×</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <button onClick={() => setPicker(true)} style={{ ...card, display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", padding: "12px 14px", cursor: "pointer", fontFamily: "inherit", minHeight: 60 }}>
+          <span style={{ width: 38, height: 38, borderRadius: 11, background: T.goldLight, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 19, flexShrink: 0 }}>🛋</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 700, color: T.text }}>Browse the Showroom</span>
+            <span style={{ display: "block", fontSize: 12, color: T.textSub, marginTop: 2 }}>{picks.items.length} product{picks.items.length === 1 ? "" : "s"} you've used before · pick several at once</span>
+          </span>
+          <span style={{ color: T.textTert, fontSize: 18 }}>›</span>
+        </button>
       </div>
       {form && <FinishForm form={form} setForm={setForm} onSave={save} onClose={() => setForm(null)} />}
+      {picker && <ShowroomPicker property={property} initialCat={mode === "cat" ? cat : "lighting"} onHouseIds={items.map((it) => it.pickId).filter(Boolean)} onAdd={onPicked} onNew={() => { setPicker(false); startAdd(); }} onClose={() => setPicker(false)} />}
+      {roomsFor && <RoomsSheet count={roomsFor.length} known={rooms.filter(Boolean)} onDone={(rl) => { addPicked(roomsFor, rl); setRoomsFor(null); }} onClose={() => { addPicked(roomsFor, []); setRoomsFor(null); }} />}
     </div>
   );
 }
 
-function FinishForm({ form, setForm, onSave, onClose }) {
+export function FinishForm({ form, setForm, onSave, onClose, onDelete }) {
+  const showroom = !!form.showroom; // Showroom page: no rooms / buyer / contractor-choice sections
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
   const fileRef = useRef(null);
@@ -225,7 +240,7 @@ function FinishForm({ form, setForm, onSave, onClose }) {
     try {
       const d = await qbAuthFetch(`/api/spec/link?url=${encodeURIComponent(url)}`);
       const patch = {};
-      if (d.image && !form.photo) patch.photo = d.image;
+      if (d.image && !form.photo) { setBusy("Saving the picture…"); patch.photo = await mirrorPhoto(d.image); }
       if (d.title && !form.title.trim()) patch.title = d.title;
       if (d.desc && !form.desc.trim()) patch.desc = d.desc;
       if (d.price && !form.price) patch.price = d.price;
@@ -242,16 +257,16 @@ function FinishForm({ form, setForm, onSave, onClose }) {
         <div style={{ padding: "10px 16px 0", flexShrink: 0 }}>
           <div style={{ width: 38, height: 5, borderRadius: 3, background: "#C7C7CC", margin: "0 auto 12px" }} />
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ flex: 1, fontSize: 16, fontWeight: 800, color: T.text }}>{form.id ? "Edit finish" : "Add a finish"} · {specCatOf(form.cat).label}</div>
+            <div style={{ flex: 1, fontSize: 16, fontWeight: 800, color: T.text }}>{showroom ? (form.id ? "Edit product" : "Add a product") : (form.id ? "Edit finish" : "Add a finish")} · {specCatOf(form.cat).label}</div>
             <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: 17, border: "none", background: "rgba(118,118,128,0.1)", color: T.textSub, fontSize: 18, cursor: "pointer", fontFamily: "inherit", lineHeight: 1 }}>×</button>
           </div>
           {(busy || err) && <div style={{ marginTop: 6, fontSize: 12.5, color: err ? T.red : T.textSub }}>{busy || err}</div>}
         </div>
         <div style={{ overflowY: "auto", padding: "0 16px", paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 10, margin: "10px 0 4px", padding: "10px 12px", borderRadius: 12, background: form.choose ? "#FDE9C8" : T.bg, border: `1px solid ${form.choose ? "#E8B45A" : T.border}`, cursor: "pointer" }}>
+          {!showroom && <label style={{ display: "flex", alignItems: "center", gap: 10, margin: "10px 0 4px", padding: "10px 12px", borderRadius: 12, background: form.choose ? "#FDE9C8" : T.bg, border: `1px solid ${form.choose ? "#E8B45A" : T.border}`, cursor: "pointer" }}>
             <input type="checkbox" checked={!!form.choose} onChange={(e) => up({ choose: e.target.checked })} style={{ accentColor: T.gold, width: 18, height: 18 }} />
             <span style={{ fontSize: 13, color: T.text, lineHeight: 1.35 }}><b>👷 Contractor to choose</b> — they send their pick to Goldstone for approval</span>
-          </label>
+          </label>}
           {lbl("PICTURE")}
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <Photo src={form.photo} size={84} empty={form.choose ? "👷" : "📷"} />
@@ -267,11 +282,13 @@ function FinishForm({ form, setForm, onSave, onClose }) {
             <input value={form.link} onChange={(e) => up({ link: e.target.value })} placeholder="Paste the product page link" inputMode="url" style={{ ...inp, flex: 1 }} />
             <button onClick={fetchLink} disabled={!form.link.trim() || !!busy} style={{ ...btn(), opacity: form.link.trim() && !busy ? 1 : 0.5 }}>⬇ Get picture</button>
           </div>
+          {!showroom && <>
           {lbl("ROOMS / AREAS — tap all that apply, or leave empty for the whole house")}
           <input value={form.roomDraft || ""} onChange={(e) => up({ roomDraft: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const add = splitRooms(form.roomDraft); if (add.length) up({ rooms: [...new Set([...(form.rooms || []), ...add])], roomDraft: "" }); } }} placeholder="Type another room and press Enter" style={inp} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
             {[...new Set([...(form.rooms || []), ...(form.known || []), ...ROOM_PICKS])].filter(Boolean).slice(0, 24).map((r) => { const on = (form.rooms || []).includes(r); return <button key={r} onClick={() => up({ rooms: on ? (form.rooms || []).filter((x) => x !== r) : [...(form.rooms || []), r] })} style={{ ...chip(on), padding: "4px 10px", minHeight: 28, fontSize: 11.5 }}>{on ? "✓ " : ""}{r}</button>; })}
           </div>
+          </>}
           {lbl("WHAT IT IS")}
           <input value={form.title} onChange={(e) => up({ title: e.target.value })} placeholder={form.choose ? "e.g. Bath floor tile — contractor picks" : "e.g. LVP — Lifeproof Sterling Oak, 7mm"} style={inp} />
           {lbl("DESCRIPTION / WHERE IT GOES")}
@@ -282,7 +299,8 @@ function FinishForm({ form, setForm, onSave, onClose }) {
               <select value={form.cat} onChange={(e) => up({ cat: e.target.value })} style={{ ...inp, appearance: "auto" }}>{SPEC_CATS.map((c) => <option key={c.key} value={c.key}>{c.emoji} {c.label}</option>)}</select>
             </div>
           </div>
-          {!form.choose && (<>
+          {showroom && form.id && (form.houses || []).length > 0 && <>{lbl("USED ON")}<div style={{ fontSize: 12.5, color: T.textSub, lineHeight: 1.5 }}>{form.houses.join(" · ")}</div></>}
+          {!showroom && !form.choose && (<>
             {lbl("WHO BUYS IT")}
             <div style={{ display: "flex", gap: 2, padding: 3, borderRadius: 18, background: "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.05)" }}>
               {[["goldstone", "Goldstone buys"], ["contractor", "Contractor buys"]].map(([k, l]) => (
@@ -292,9 +310,10 @@ function FinishForm({ form, setForm, onSave, onClose }) {
           </>)}
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
             <button onClick={onClose} style={{ ...btn("ghost"), flex: 1 }}>Cancel</button>
-            <button onClick={() => onSave(form)} disabled={!!busy || (!form.title.trim() && !form.choose && !form.photo)} style={{ ...btn("gold"), flex: 2, opacity: busy || (!form.title.trim() && !form.choose && !form.photo) ? 0.5 : 1 }}>{form.id ? "Save" : "Add to this house"}</button>
+            <button onClick={() => onSave(form)} disabled={!!busy || (!form.title.trim() && !form.choose && !form.photo)} style={{ ...btn("gold"), flex: 2, opacity: busy || (!form.title.trim() && !form.choose && !form.photo) ? 0.5 : 1 }}>{form.id ? "Save" : showroom ? "Add to the Showroom" : "Add to this house"}</button>
           </div>
-          {!form.id && !form.choose && <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 8, textAlign: "center" }}>Also saved to My picks for next time.</div>}
+          {onDelete && form.id && <button onClick={() => { if (window.confirm(`Remove "${form.title || "this product"}" from the Showroom? Houses that already use it keep it.`)) onDelete(); }} style={{ ...btn("ghost"), width: "100%", marginTop: 8, color: T.red }}>Remove from the Showroom</button>}
+          {!form.id && !form.choose && !showroom && <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 8, textAlign: "center" }}>Also saved to the 🛋 Showroom for next time.</div>}
         </div>
       </div>
     </div>

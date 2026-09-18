@@ -10,6 +10,7 @@
 // Picks: app_settings row "spec_picks" { items:[{id, cat, title, desc, link,
 //   photo, price, at, usedOn:[address]}] }
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { T } from "../theme";
 import { useData } from "../data/DataProvider";
 import { qbAuthFetch, uploadAttachment } from "../net";
@@ -251,7 +252,9 @@ export function FinishForm({ form, setForm, onSave, onClose, onDelete }) {
   };
   useEffect(() => { document.addEventListener("paste", onPaste); return () => document.removeEventListener("paste", onPaste); }); // eslint-disable-line react-hooks/exhaustive-deps
   const lbl = (t) => <div style={{ fontSize: 11.5, fontWeight: 700, color: T.textSub, margin: "10px 0 5px" }}>{t}</div>;
-  return (
+  // Rendered at the document root so the phone tab bar can never paint over
+  // the Save row (it did on the Showroom page — Elie 9/18/26).
+  return createPortal(
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 480, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", justifyContent: "center", backdropFilter: "blur(4px)" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "rgba(255,255,255,0.96)", backdropFilter: "blur(20px)", width: "min(560px,100vw)", maxHeight: "92vh", borderRadius: "24px 24px 0 0", boxShadow: "0 -8px 40px rgba(0,0,0,0.2)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: "10px 16px 0", flexShrink: 0 }}>
@@ -317,5 +320,6 @@ export function FinishForm({ form, setForm, onSave, onClose, onDelete }) {
         </div>
       </div>
     </div>
+    , document.body
   );
 }

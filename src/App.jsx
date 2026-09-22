@@ -28,8 +28,25 @@ function Splash() {
   );
 }
 
+// iOS 26+ home-screen app: the system frosts the first ~35pt of the page
+// below the status bar no matter which status-bar setting the icon was added
+// with (re-adding confirmed it, Elie 9/22/26) — the top bar's logo, title and
+// icons sat inside that zone and read as faded. Tag the document so CSS can
+// drop the bar's contents below the zone on these phones only.
+function useIos26Tag() {
+  useEffect(() => {
+    try {
+      const ua = navigator.userAgent || "";
+      const m = ua.match(/(?:iPhone|iPad|iPod).*? OS (\d+)_/);
+      const standalone = window.navigator.standalone === true || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+      if (m && Number(m[1]) >= 26 && standalone) document.documentElement.classList.add("gs-ios26");
+    } catch { /* ignore */ }
+  }, []);
+}
+
 export default function Root() {
   const { loading, session, isContractor } = useAuth();
+  useIos26Tag();
   // ── Stale-build self-healing ────────────────────────────────────────────────
   // The service worker serves a cached shell when the network loses a 1.2s race
   // at launch — great for speed, but iOS PWAs then run DAYS-old builds with no

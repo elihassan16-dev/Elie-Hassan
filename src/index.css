@@ -271,3 +271,11 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
     border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
   }
 }
+
+/* iOS 26+ installed app (html.gs-ios26, set in App.jsx): the system frosts the
+   first ~35pt under the status bar whatever the status-bar setting. Push the
+   top bar's contents below that zone; the solid white strip keeps the zone
+   itself one flat colour. Other phones and older iOS: untouched. */
+html.gs-ios26 .gs-topbar {
+  padding-top: calc(env(safe-area-inset-top) + 34px) !important;
+}

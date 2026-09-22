@@ -11460,8 +11460,8 @@ function FeatSwitch({on,onTap,disabled}){
     </button>
   );
 }
-function SettingsModal({archived,onRestore,onDelete,onClose,team,setUserMuted,setUserSms,setUserChannels,displayName,teamMembers,onEditName,onEditEmail}){
-  const[section,setSection]=useState("features");
+function SettingsModal({archived,onRestore,onDelete,onClose,team,setUserMuted,setUserSms,setUserChannels,displayName,teamMembers,onEditName,onEditEmail,initialSection}){
+  const[section,setSection]=useState(initialSection||"features");
   const {isAdmin}=useAuth();
   const {appSettings,setAppSettings}=useData()||{};
   const fmtAddr=(p)=>`${p.address}${p.city?`, ${p.city}`:""}${p.state?`, ${p.state}`:""}${p.zip?` ${p.zip}`:""}`;
@@ -13127,7 +13127,7 @@ const SMS_GATEWAYS=[
   ["txt.att.net","AT&T"],
   ["msg.fi.google.com","Google Fi"],
 ];
-function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,setUserSms,setUserChannels,onEditName,onEditEmail,onAddTeammate,onSignOut,onClose}){
+function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,setUserSms,setUserChannels,onEditName,onEditEmail,onAddTeammate,onSignOut,onClose,asPage}){
   const initials=initialsOf(displayName)||"?";
   const others=(teamMembers||[]).filter(Boolean);
   const rows=(team&&team.length)?team:null; // full user rows (for the admin mute switch)
@@ -13164,22 +13164,8 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,set
     );
   };
   const rowBtn={display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 20px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:14,color:T.text,textAlign:"left"};
-  return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:410,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderTopLeftRadius:20,borderTopRightRadius:20,width:"100%",maxWidth:480,maxHeight:"82vh",overflowY:"auto",boxShadow:"0 -8px 40px rgba(0,0,0,0.2)",paddingBottom:"max(12px,env(safe-area-inset-bottom))"}}>
-        <div style={{padding:"18px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:14}}>
-          <div style={{width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#fff",flexShrink:0}}>{initials}</div>
-          <div style={{minWidth:0,flex:1}}>
-            <div style={{fontSize:16,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{displayName}</div>
-            <div style={{fontSize:12,color:T.textSub,textTransform:"capitalize"}}>{role}</div>
-          </div>
-          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
-        </div>
-        <button onClick={onEditName} style={rowBtn}><span style={{fontSize:16,width:22,textAlign:"center"}}>✎</span> Edit your name</button>
-        <button onClick={onEditEmail} style={rowBtn}><span style={{fontSize:16,width:22,textAlign:"center"}}>✉️</span> Change your email</button>
-        <NotificationToggle displayName={displayName} isAdmin={isAdmin}/>
-        {isAdmin&&<button onClick={onAddTeammate} style={{...rowBtn,color:T.gold,fontWeight:700,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:18,width:22,textAlign:"center"}}>＋</span> Add a teammate</button>}
-        <div style={{padding:"12px 20px 6px",fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",borderTop:`1px solid ${T.border}`}}>Team ({others.length}){isAdmin&&rows&&<span style={{textTransform:"none",fontWeight:400,letterSpacing:0}}> · tap 🔔 to mute someone</span>}</div>
+  const teamBlock=(<>
+        <div style={{padding:"12px 20px 6px",fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",borderTop:asPage?"none":`1px solid ${T.border}`}}>{asPage?null:<>Team ({others.length})</>}{isAdmin&&rows&&<span style={{textTransform:"none",fontWeight:400,letterSpacing:0}}>{asPage?"Tap 🔔 to mute someone · 📱 to add a cell":" · tap 🔔 to mute someone"}</span>}</div>
         <div style={{padding:"0 20px 8px",display:"flex",flexDirection:"column",gap:2}}>
           {isAdmin&&rows
             ? rows.map(u=>{const nm=u.name||u.email;const muted=!!u.notify_muted;const isSelf=nm===displayName;const hasSms=!!(u.sms_email||"").includes("@");return(
@@ -13237,14 +13223,82 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,set
                 </div>
               ))}
         </div>
+  </>);
+  if(asPage)return teamBlock; // the Settings page's Team group (Elie 9/22/26)
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:410,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderTopLeftRadius:20,borderTopRightRadius:20,width:"100%",maxWidth:480,maxHeight:"82vh",overflowY:"auto",boxShadow:"0 -8px 40px rgba(0,0,0,0.2)",paddingBottom:"max(12px,env(safe-area-inset-bottom))"}}>
+        <div style={{padding:"18px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:14}}>
+          <div style={{width:46,height:46,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#fff",flexShrink:0}}>{initials}</div>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{fontSize:16,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{displayName}</div>
+            <div style={{fontSize:12,color:T.textSub,textTransform:"capitalize"}}>{role}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <button onClick={onEditName} style={rowBtn}><span style={{fontSize:16,width:22,textAlign:"center"}}>✎</span> Edit your name</button>
+        <button onClick={onEditEmail} style={rowBtn}><span style={{fontSize:16,width:22,textAlign:"center"}}>✉️</span> Change your email</button>
+        <NotificationToggle displayName={displayName} isAdmin={isAdmin}/>
+        {isAdmin&&<button onClick={onAddTeammate} style={{...rowBtn,color:T.gold,fontWeight:700,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:18,width:22,textAlign:"center"}}>＋</span> Add a teammate</button>}
+{teamBlock}
         <button onClick={onSignOut} style={{...rowBtn,color:T.red,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:16,width:22,textAlign:"center"}}>⎋</span> Sign out</button>
         <div style={{padding:"7px 16px 10px",fontSize:10,color:T.textTert,textAlign:"center"}}>Build {typeof __GS_BUILD__!=="undefined"?__GS_BUILD__:"dev"}{typeof document!=="undefined"&&document.documentElement.classList.contains("gs-ios26")?" · iOS 26 layout":""}</div>
       </div>
     </div>
   );
 }
+// ⚙️ Settings — ONE page from the avatar (Elie 9/22/26): profile, this
+// phone's notifications + digests, the team, and the company sections (which
+// open the existing settings sections one at a time). Replaces the profile
+// sheet + gear on phones; grouped-list layout in the iOS language.
+function SettingsPage({displayName,role,email,isAdmin,teamMembers,team,setUserMuted,setUserSms,setUserChannels,onEditName,onEditEmail,onAddTeammate,onSignOut,onOpenSection}){
+  const initials=initialsOf(displayName)||"?";
+  const grp={background:"#fff",borderRadius:16,border:"1px solid rgba(0,0,0,0.05)",boxShadow:T.shadow,overflow:"hidden"};
+  const sec=(t)=><div style={{fontSize:11,fontWeight:800,color:T.textTert,letterSpacing:"0.06em",textTransform:"uppercase",margin:"18px 6px 6px"}}>{t}</div>;
+  const row=(icon,label,onClick,opts={})=>(
+    <button key={label} onClick={onClick} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"12px 14px",minHeight:48,border:"none",borderTop:opts.first?"none":`1px solid ${T.border}`,background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:15,color:opts.color||T.text,textAlign:"left",boxSizing:"border-box"}}>
+      <span style={{width:28,textAlign:"center",fontSize:17,flexShrink:0}}>{icon}</span>
+      <span style={{flex:1,minWidth:0,fontWeight:opts.bold?700:500}}>{label}</span>
+      {opts.right!==undefined?opts.right:<span style={{color:"#C7C7CC",fontSize:18}}>›</span>}
+    </button>
+  );
+  const company=[
+    ...(isAdmin?[["notif","🔔","Who gets which alerts"]]:[]),
+    ["features","🤖","Automations & AI"],["alerts","📅","Alerts"],["contractors","👷","Contractors"],["archived","🗄","Archived properties"],
+    ["gates","✅","Status requirements"],["files","📁","Property files"],["builder","🧾","Task automations"],
+  ];
+  const chip={padding:"7px 12px",borderRadius:14,border:"none",background:T.goldLight,color:"#8a6d1f",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",minHeight:32};
+  return(
+    <div style={{flex:1,minHeight:0,overflowY:"auto",background:T.bg}}>
+      <div style={{maxWidth:640,margin:"0 auto",padding:"6px 16px 110px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:14,padding:"12px 4px 4px"}}>
+          <div style={{width:64,height:64,borderRadius:32,background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:800,color:"#fff",flexShrink:0}}>{initials}</div>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{fontSize:22,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{displayName}</div>
+            <div style={{fontSize:13,color:T.textSub,marginTop:2,textTransform:"capitalize",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{role}{email?<span style={{textTransform:"none"}}> · {email}</span>:null}</div>
+            <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+              <button onClick={onEditName} style={chip}>✎ Edit name</button>
+              <button onClick={onEditEmail} style={chip}>✉ Change email</button>
+            </div>
+          </div>
+        </div>
+        {sec("Notifications")}
+        <div style={grp}><NotificationToggle displayName={displayName} isAdmin={isAdmin} flat/></div>
+        {sec(`Team · ${(teamMembers||[]).filter(Boolean).length}`)}
+        <div style={grp}>
+          <ProfileMenu asPage displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted} setUserSms={setUserSms} setUserChannels={setUserChannels}/>
+          {isAdmin&&row("＋","Add a teammate",onAddTeammate,{color:T.gold,bold:true,right:null})}
+        </div>
+        {sec("Company")}
+        <div style={grp}>{company.map(([k,ic,l],i)=>row(ic,l,()=>onOpenSection(k),{first:i===0}))}</div>
+        <div style={{...grp,marginTop:18}}>{row("⎋","Sign out",onSignOut,{color:T.red,bold:true,first:true,right:null})}</div>
+        <div style={{padding:"14px 0 0",fontSize:10.5,color:T.textTert,textAlign:"center"}}>Build {typeof __GS_BUILD__!=="undefined"?__GS_BUILD__:"dev"}{typeof document!=="undefined"&&document.documentElement.classList.contains("gs-ios26")?" · iOS 26 layout":""}</div>
+      </div>
+    </div>
+  );
+}
 // Enable/att-a-glance notification status inside the profile sheet.
-function NotificationToggle({displayName,isAdmin}){
+function NotificationToggle({displayName,isAdmin,flat}){
   const supported=notificationsSupported();
   const[perm,setPerm]=useState(supported?notificationPermission():"unsupported");
   const[busy,setBusy]=useState(false);
@@ -13291,7 +13345,7 @@ function NotificationToggle({displayName,isAdmin}){
   };
   const rowBtn={display:"flex",alignItems:"center",gap:12,width:"100%",padding:"13px 20px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",fontSize:14,color:T.text,textAlign:"left",borderTop:`1px solid ${T.border}`};
   return(
-    <div style={{borderTop:`1px solid ${T.border}`}}>
+    <div style={{borderTop:flat?"none":`1px solid ${T.border}`}}>
       <button onClick={on?undefined:enable} disabled={busy||on||!supported} style={{...rowBtn,borderTop:"none",cursor:on||!supported?"default":"pointer",opacity:busy?0.6:1}}>
         <span style={{fontSize:16,width:22,textAlign:"center"}}>🔔</span>
         <span style={{flex:1}}>{!supported?"Notifications not supported here":on?"Notifications are on":busy?"Enabling…":"Turn on notifications"}</span>
@@ -22273,7 +22327,7 @@ export function GoldstoneShell(){
   const[showAddTeammate,setShowAddTeammate]=useState(false);
   const[showNavMenu,setShowNavMenu]=useState(false);
   const[showAiAssistant,setShowAiAssistant]=useState(false); // ✨ global assistant (top bar)
-  useEffect(()=>{ if(!navItems.find(n=>n.key===active)) setActive(navItems[0]?.key||"tasks"); },[navItems,active]);
+  useEffect(()=>{ if(active!=="settings"&&!navItems.find(n=>n.key===active)) setActive(navItems[0]?.key||"tasks"); },[navItems,active]); // "settings" is a page without a nav entry
 
   // Which sections show on the mobile bottom bar (customizable via the ☰ menu).
   // Stored per-user on the account (prefs.pinnedTabs) so it persists across logins
@@ -22419,6 +22473,9 @@ export function GoldstoneShell(){
     : active==="portfolio" ? <PortfolioPage sharedProps={sharedProps} setSharedProps={setSharedProps} onNavigate={navigateToProperty}/>
     : active==="tasks" ? <TasksPage onNavigate={navigateToProperty}/>
     : active==="media" ? <MediaPage isMobile={isMobile} onOpenProperty={navigateToProperty}/>
+    : active==="settings" ? <SettingsPage displayName={displayName} role={role} email={user?.email} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted} setUserSms={setUserSms} setUserChannels={setUserChannels}
+        onEditName={()=>setShowProfile(true)} onEditEmail={()=>setShowEmail(true)} onAddTeammate={()=>setShowAddTeammate(true)} onSignOut={signOut}
+        onOpenSection={(k)=>setShowSettings(k)}/>
     : active==="showroom" ? <ShowroomPage isMobile={isMobile}/>
     : active==="routes" ? <RoutePlannerPage/>
     : active==="contacts" ? <ContactsPage/>
@@ -22472,11 +22529,19 @@ export function GoldstoneShell(){
         {/* Opaque white strip under the iPhone status bar — the glass top bar is
             translucent, so iOS 26+ would frost it; a solid edge gets extended instead
             (see the status-bar note in index.html). */}
-        {isMobile&&<div className="gs-status-edge" aria-hidden="true" style={{position:"fixed",top:0,left:0,right:0,height:"max(8px,env(safe-area-inset-top))",background:"#FFFFFF",zIndex:60,pointerEvents:"none"}}/>}
-        <div className="gs-topbar" style={{minHeight:54,padding:isMobile?"max(8px,env(safe-area-inset-top)) 16px 8px":"0 24px",borderBottom:`1px solid ${T.border}`,background:T.card,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+        {isMobile&&<div className="gs-status-edge" aria-hidden="true" style={{position:"fixed",top:0,left:0,right:0,height:"max(8px,env(safe-area-inset-top))",background:T.bg,zIndex:60,pointerEvents:"none"}}/>}
+        {/* Phones: the top bar is a detached floating pill like the bottom bar
+            (Option A, Elie 9/22/26). Same material and margins; no backdrop
+            filter here because search / phone / assistant overlays are DOM
+            children of the bar (see the note in index.css). The wrapper carries
+            the status-bar inset (plus the iOS 26 frost gap, html.gs-ios26). */}
+        <div className={isMobile?"gs-topwrap":undefined} style={isMobile?{padding:"max(8px,env(safe-area-inset-top)) 10px 6px",flexShrink:0}:{display:"contents"}}>
+        <div className={isMobile?"gs-topbar gs-pill":"gs-topbar"} style={isMobile
+          ?{minHeight:52,padding:"0 6px 0 8px",borderRadius:26,border:"1px solid rgba(255,255,255,0.9)",background:"rgba(255,255,255,0.72)",boxShadow:"0 8px 26px rgba(35,48,75,0.14)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}
+          :{minHeight:54,padding:"0 24px",borderBottom:`1px solid ${T.border}`,background:T.card,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,minWidth:0,flexShrink:1,overflow:"hidden",marginRight:8}}>
             {isMobile&&<button onClick={()=>setShowNavMenu(true)} title="Menu" aria-label="Open menu" style={{width:36,height:36,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer",padding:0,flexShrink:0,backgroundColor:"#fff",backgroundImage:"url(/logo.png)",backgroundRepeat:"no-repeat",backgroundSize:"185%",backgroundPosition:"50% 27%"}}/>}
-            <div style={{fontWeight:700,fontSize:17,color:T.text,whiteSpace:"nowrap",minWidth:0,flexShrink:1,overflow:"hidden",textOverflow:"ellipsis"}}>{NAV.find(n=>n.key===active)?.label}</div>
+            <div style={{fontWeight:700,fontSize:17,color:T.text,whiteSpace:"nowrap",minWidth:0,flexShrink:1,overflow:"hidden",textOverflow:"ellipsis"}}>{NAV.find(n=>n.key===active)?.label||(active==="settings"?"Settings":"")}</div>
             <NavBackChip compact={isMobile} style={isMobile?undefined:{flexShrink:1,minWidth:0,maxWidth:150,overflow:"hidden"}}/>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
@@ -22498,12 +22563,13 @@ export function GoldstoneShell(){
                   {isMobile&&searchEl}
                   <PhoneTopButton/>
                   <button onClick={()=>setShowAiAssistant(true)} title="Goldstone Assistant — ask AI anything" aria-label="AI assistant" style={{...TOPBAR_SEG,color:T.gold}}><SparkleIcon/></button>
-                  {isAdmin&&<button onClick={()=>setShowSettings(true)} title="Settings" aria-label="Settings" style={TOPBAR_SEG}><GearIcon/></button>}
-                  {isMobile&&<div role="button" onClick={()=>setShowProfileMenu(true)} title="Profile & team — sign out lives here" aria-label="Profile and team" style={{boxSizing:"border-box",lineHeight:1,width:30,height:30,minWidth:30,flex:"0 0 30px",margin:"0 3px 0 2px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#fff",cursor:"pointer"}}>{initials}</div>}
+                  {isAdmin&&!isMobile&&<button onClick={()=>setShowSettings(true)} title="Settings" aria-label="Settings" style={TOPBAR_SEG}><GearIcon/></button>}
+                  {isMobile&&<div role="button" onClick={()=>pushPage("settings")} title="Settings — profile, team, notifications, sign out" aria-label="Settings" style={{boxSizing:"border-box",lineHeight:1,width:30,height:30,minWidth:30,flex:"0 0 30px",margin:"0 3px 0 2px",borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#fff",cursor:"pointer"}}>{initials}</div>}
                 </div>
               </>);
             })()}
           </div>
+        </div>
         </div>
         <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
           {pageEl}
@@ -22554,7 +22620,7 @@ export function GoldstoneShell(){
       );})()}
       {showAiAssistant&&<GlobalAiChat onClose={()=>setShowAiAssistant(false)}/>}
       {showNavMenu&&<NavMenu items={navItems} active={active} isPinned={isPinned} onNavigate={(k)=>{pushPage(k);setShowNavMenu(false);}} onTogglePin={togglePin} onClose={()=>setShowNavMenu(false)}/>}
-      {showSettings&&<SettingsModal archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}
+      {showSettings&&<SettingsModal initialSection={typeof showSettings==="string"?showSettings:undefined} archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}
         team={team} setUserMuted={setUserMuted} setUserSms={setUserSms} setUserChannels={setUserChannels} displayName={displayName} teamMembers={teamMembers}
         onEditName={()=>{setShowSettings(false);setShowProfile(true);}} onEditEmail={()=>{setShowSettings(false);setShowEmail(true);}}/>}
       {showProfileMenu&&<ProfileMenu displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted} setUserSms={setUserSms} setUserChannels={setUserChannels}

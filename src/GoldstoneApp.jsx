@@ -22472,7 +22472,7 @@ export function GoldstoneShell(){
         {/* Opaque white strip under the iPhone status bar — the glass top bar is
             translucent, so iOS 26+ would frost it; a solid edge gets extended instead
             (see the status-bar note in index.html). */}
-        {isMobile&&<div className="gs-status-edge" aria-hidden="true" style={{position:"fixed",top:0,left:0,right:0,height:"env(safe-area-inset-top)",background:"#FFFFFF",zIndex:60,pointerEvents:"none"}}/>}
+        {isMobile&&<div className="gs-status-edge" aria-hidden="true" style={{position:"fixed",top:0,left:0,right:0,height:"max(8px,env(safe-area-inset-top))",background:"#FFFFFF",zIndex:60,pointerEvents:"none"}}/>}
         <div className="gs-topbar" style={{minHeight:54,padding:isMobile?"max(8px,env(safe-area-inset-top)) 16px 8px":"0 24px",borderBottom:`1px solid ${T.border}`,background:T.card,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,minWidth:0,flexShrink:1,overflow:"hidden",marginRight:8}}>
             {isMobile&&<button onClick={()=>setShowNavMenu(true)} title="Menu" aria-label="Open menu" style={{width:36,height:36,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer",padding:0,flexShrink:0,backgroundColor:"#fff",backgroundImage:"url(/logo.png)",backgroundRepeat:"no-repeat",backgroundSize:"185%",backgroundPosition:"50% 27%"}}/>}

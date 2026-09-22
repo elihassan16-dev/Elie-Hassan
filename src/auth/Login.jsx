@@ -47,7 +47,10 @@ export default function Login() {
         padding: "24px",
         paddingTop: "max(24px, env(safe-area-inset-top))",
         paddingBottom: "max(24px, env(safe-area-inset-bottom))",
-        background: `radial-gradient(120% 120% at 50% 0%, ${GOLD_MID} 0%, ${GOLD} 45%, #8C6F2D 100%)`,
+        // Flat band of the strip's exact gold across the top (status bar + the
+        // zone iOS 26 softens), then the old radial glow below it — one colour
+        // at the seam, so nothing to see there.
+        background: `linear-gradient(180deg, ${GOLD_MID} 0, ${GOLD_MID} 150px, rgba(212,168,67,0) 320px), radial-gradient(120% 120% at 50% 0%, ${GOLD_MID} 0%, ${GOLD} 45%, #8C6F2D 100%)`,
         fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif",
         boxSizing: "border-box",
       }}

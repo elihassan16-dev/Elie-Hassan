@@ -22537,10 +22537,10 @@ export function GoldstoneShell(){
             the status-bar inset (plus the iOS 26 frost gap, html.gs-ios26). */}
         <div className={isMobile?"gs-topwrap":undefined} style={isMobile?{padding:"max(8px,env(safe-area-inset-top)) 10px 6px",flexShrink:0}:{display:"contents"}}>
         <div className={isMobile?"gs-topbar gs-pill":"gs-topbar"} style={isMobile
-          ?{minHeight:52,padding:"0 6px 0 8px",borderRadius:26,border:"1px solid rgba(255,255,255,0.9)",background:"rgba(255,255,255,0.72)",boxShadow:"0 8px 26px rgba(35,48,75,0.14)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}
+          ?{minHeight:60,padding:"0 8px 0 8px",borderRadius:30,border:"1px solid rgba(255,255,255,0.9)",background:"rgba(255,255,255,0.72)",boxShadow:"0 8px 26px rgba(35,48,75,0.14)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}
           :{minHeight:54,padding:"0 24px",borderBottom:`1px solid ${T.border}`,background:T.card,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,minWidth:0,flexShrink:1,overflow:"hidden",marginRight:8}}>
-            {isMobile&&<button onClick={()=>setShowNavMenu(true)} title="Menu" aria-label="Open menu" style={{width:36,height:36,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer",padding:0,flexShrink:0,backgroundColor:"#fff",backgroundImage:"url(/logo.png)",backgroundRepeat:"no-repeat",backgroundSize:"185%",backgroundPosition:"50% 27%"}}/>}
+            {isMobile&&<button onClick={()=>setShowNavMenu(true)} title="Menu" aria-label="Open menu" style={{width:44,height:44,borderRadius:12,border:`1px solid ${T.border}`,cursor:"pointer",padding:0,flexShrink:0,backgroundColor:"#fff",backgroundImage:"url(/logo.png)",backgroundRepeat:"no-repeat",backgroundSize:"170%",backgroundPosition:"50% 27%"}}/>}
             <div style={{fontWeight:700,fontSize:17,color:T.text,whiteSpace:"nowrap",minWidth:0,flexShrink:1,overflow:"hidden",textOverflow:"ellipsis"}}>{NAV.find(n=>n.key===active)?.label||(active==="settings"?"Settings":"")}</div>
             <NavBackChip compact={isMobile} style={isMobile?undefined:{flexShrink:1,minWidth:0,maxWidth:150,overflow:"hidden"}}/>
           </div>

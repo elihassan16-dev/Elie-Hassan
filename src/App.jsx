@@ -33,13 +33,27 @@ function Splash() {
 // with (re-adding confirmed it, Elie 9/22/26) — the top bar's logo, title and
 // icons sat inside that zone and read as faded. Tag the document so CSS can
 // drop the bar's contents below the zone on these phones only.
+// Safari 26+ freezes the "iPhone OS 18_x" token in the user agent, so the OS
+// number can't be read from it any more; feature-detect the WebKit that ships
+// with iOS 26+ instead (WebGPU, CSS anchor positioning, or a Version/26+ token
+// where Safari still includes one).
+export function isIos26Plus() {
+  try {
+    const ua = navigator.userAgent || "";
+    const apple = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if (!apple) return false;
+    const v = ua.match(/Version\/(\d+)/);
+    if (v && Number(v[1]) >= 26) return true;
+    if (typeof navigator.gpu !== "undefined") return true;
+    if (window.CSS && CSS.supports && CSS.supports("anchor-name", "--gs")) return true;
+  } catch { /* ignore */ }
+  return false;
+}
 function useIos26Tag() {
   useEffect(() => {
     try {
-      const ua = navigator.userAgent || "";
-      const m = ua.match(/(?:iPhone|iPad|iPod).*? OS (\d+)_/);
       const standalone = window.navigator.standalone === true || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
-      if (m && Number(m[1]) >= 26 && standalone) document.documentElement.classList.add("gs-ios26");
+      if (standalone && isIos26Plus()) document.documentElement.classList.add("gs-ios26");
     } catch { /* ignore */ }
   }, []);
 }

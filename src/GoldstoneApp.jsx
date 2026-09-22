@@ -13238,7 +13238,7 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,set
               ))}
         </div>
         <button onClick={onSignOut} style={{...rowBtn,color:T.red,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:16,width:22,textAlign:"center"}}>⎋</span> Sign out</button>
-        <div style={{padding:"7px 16px 10px",fontSize:10,color:T.textTert,textAlign:"center"}}>Build {typeof __GS_BUILD__!=="undefined"?__GS_BUILD__:"dev"}</div>
+        <div style={{padding:"7px 16px 10px",fontSize:10,color:T.textTert,textAlign:"center"}}>Build {typeof __GS_BUILD__!=="undefined"?__GS_BUILD__:"dev"}{typeof document!=="undefined"&&document.documentElement.classList.contains("gs-ios26")?" · iOS 26 layout":""}</div>
       </div>
     </div>
   );

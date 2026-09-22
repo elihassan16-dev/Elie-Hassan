@@ -15,12 +15,15 @@
 
     <!-- iOS / Safari "Add to Home Screen" -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <!-- "default" (not black-translucent): iOS 26 draws a frosted blur over page
-         content that sits under the status bar in a black-translucent PWA — the
-         blurry band Elie saw on 9/22/26. With "default" the status bar gets its own
-         solid background from theme-color (white in the app, gold on sign-in — set
-         in App.jsx), and older iOS behaves exactly as before: a plain solid bar. -->
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- black-translucent: the page runs under the clock, so sign-in is gold edge
+         to edge (Elie's preference, 9/22/26). iOS 26+ samples the colour of an
+         OPAQUE fixed element at the page's top edge and extends it under the status
+         bar; where it finds a gradient or glass instead, it paints a frosted blur.
+         So Login.jsx and the app's top bar each pin a solid strip up there
+         (gs-status-edge). Older iOS ignores the strip — it just sits under the
+         status bar like the rest of the page. iOS reads this meta when the app is
+         added to the home screen, so a change here needs a delete + re-add. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Goldstone" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />

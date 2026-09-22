@@ -29,6 +29,7 @@ export default function Login() {
     <div
       style={{
         minHeight: "100dvh",
+        position: "relative",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -40,6 +41,9 @@ export default function Login() {
         boxSizing: "border-box",
       }}
     >
+      {/* Opaque solid strip under the iPhone status bar: iOS 26+ extends this exact
+          gold under the clock instead of frosting the gradient (see index.html). */}
+      <div className="gs-status-edge" aria-hidden="true" style={{ position: "fixed", top: 0, left: 0, right: 0, height: "env(safe-area-inset-top)", background: GOLD_MID, zIndex: 5, pointerEvents: "none" }} />
       <div
         style={{
           width: "100%",

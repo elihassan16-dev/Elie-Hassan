@@ -28,21 +28,8 @@ function Splash() {
   );
 }
 
-// The iOS status bar takes its colour from theme-color: gold behind the sign-in
-// screen, white behind the app's top bar (see the status-bar note in index.html).
-function useStatusBarColor(color) {
-  useEffect(() => {
-    try {
-      let m = document.querySelector('meta[name="theme-color"]');
-      if (!m) { m = document.createElement("meta"); m.setAttribute("name", "theme-color"); document.head.appendChild(m); }
-      m.setAttribute("content", color);
-    } catch { /* no document */ }
-  }, [color]);
-}
-
 export default function Root() {
   const { loading, session, isContractor } = useAuth();
-  useStatusBarColor(!loading && !session ? "#D4A843" : "#FFFFFF");
   // ── Stale-build self-healing ────────────────────────────────────────────────
   // The service worker serves a cached shell when the network loses a 1.2s race
   // at launch — great for speed, but iOS PWAs then run DAYS-old builds with no

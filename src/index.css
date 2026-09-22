@@ -277,5 +277,5 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
    top bar's contents below that zone; the solid white strip keeps the zone
    itself one flat colour. Other phones and older iOS: untouched. */
 html.gs-ios26 .gs-topbar {
-  padding-top: calc(env(safe-area-inset-top) + 34px) !important;
+  padding-top: calc(env(safe-area-inset-top) + 24px) !important; /* 34 → 24 (Elie: tighter, 9/22/26) */
 }

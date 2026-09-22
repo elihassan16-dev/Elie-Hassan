@@ -15,7 +15,12 @@
 
     <!-- iOS / Safari "Add to Home Screen" -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- "default" (not black-translucent): iOS 26 draws a frosted blur over page
+         content that sits under the status bar in a black-translucent PWA — the
+         blurry band Elie saw on 9/22/26. With "default" the status bar gets its own
+         solid background from theme-color (white in the app, gold on sign-in — set
+         in App.jsx), and older iOS behaves exactly as before: a plain solid bar. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Goldstone" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />

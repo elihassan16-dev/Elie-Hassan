@@ -251,3 +251,17 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
 @media (prefers-reduced-motion: no-preference) {
   [style*="cursor: pointer"], button { transition: filter 0.12s ease; }
 }
+
+/* ── iOS 26 status-bar edge ────────────────────────────────────────────────
+   In the installed (home-screen) app on a phone, iOS 26+ softens whatever is
+   translucent at the top edge and paints its own frost over it — the glass
+   top bar read as "faded" (Elie 9/22/26). Solid white there instead; glass
+   stays everywhere else. Older iOS: a white bar, same as reduced-transparency. */
+@media (display-mode: standalone) and (pointer: coarse) {
+  .gs-topbar {
+    background: #FFFFFF !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
+  }
+}

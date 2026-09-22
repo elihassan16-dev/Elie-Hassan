@@ -258,6 +258,12 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
    top bar read as "faded" (Elie 9/22/26). Solid white there instead; glass
    stays everywhere else. Older iOS: a white bar, same as reduced-transparency. */
 @media (display-mode: standalone) and (pointer: coarse) {
+  /* The colour iOS paints under the clock is sampled from the document
+     surface, and it blends that colour down into the top bar. With the
+     surface light grey and the bar white the seam showed as a faint fade;
+     white on white and there is nothing to see. (No !important: sign-in
+     paints html/body gold inline and must keep winning.) */
+  html, body, #root { background: #FFFFFF; }
   .gs-topbar {
     background: #FFFFFF !important;
     -webkit-backdrop-filter: none !important;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "./AuthProvider";
 
 const GOLD = "#B8953F";
@@ -25,6 +25,17 @@ export default function Login() {
     if (error) setErr(error.message || "Sign-in failed. Check your email and password.");
   }
 
+  // iOS 26+ picks the colour it paints under the status bar from the document
+  // surface / an opaque fixed element at the top edge. While sign-in is up the
+  // page itself is gold too, so there is nothing white or blurred to sample —
+  // whichever status-bar mode the home-screen icon was added in.
+  useEffect(() => {
+    const html = document.documentElement, body = document.body;
+    const prev = [html.style.background, body.style.background];
+    html.style.background = GOLD_MID; body.style.background = GOLD_MID;
+    return () => { html.style.background = prev[0]; body.style.background = prev[1]; };
+  }, []);
+
   return (
     <div
       style={{
@@ -43,7 +54,7 @@ export default function Login() {
     >
       {/* Opaque solid strip under the iPhone status bar: iOS 26+ extends this exact
           gold under the clock instead of frosting the gradient (see index.html). */}
-      <div className="gs-status-edge" aria-hidden="true" style={{ position: "fixed", top: 0, left: 0, right: 0, height: "env(safe-area-inset-top)", background: GOLD_MID, zIndex: 5, pointerEvents: "none" }} />
+      <div className="gs-status-edge" aria-hidden="true" style={{ position: "fixed", top: 0, left: 0, right: 0, height: "max(28px, env(safe-area-inset-top))", background: GOLD_MID, zIndex: 5, pointerEvents: "none" }} />
       <div
         style={{
           width: "100%",

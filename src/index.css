@@ -149,6 +149,8 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
      so any filter or z-index on it strands them under the page. */
   .gs-topbar {
     background: rgba(255, 255, 255, 0.72) !important;
+  }
+  .gs-topbar:not(.gs-pill) {
     border-bottom: 1px solid rgba(255, 255, 255, 0.85) !important;
   }
 }
@@ -257,25 +259,14 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
    translucent at the top edge and paints its own frost over it — the glass
    top bar read as "faded" (Elie 9/22/26). Solid white there instead; glass
    stays everywhere else. Older iOS: a white bar, same as reduced-transparency. */
-@media (display-mode: standalone) and (pointer: coarse) {
-  /* The colour iOS paints under the clock is sampled from the document
-     surface, and it blends that colour down into the top bar. With the
-     surface light grey and the bar white the seam showed as a faint fade;
-     white on white and there is nothing to see. (No !important: sign-in
-     paints html/body gold inline and must keep winning.) */
-  html, body, #root { background: #FFFFFF; }
-  .gs-topbar {
-    background: #FFFFFF !important;
-    -webkit-backdrop-filter: none !important;
-    backdrop-filter: none !important;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
-  }
-}
+/* (The installed app's top bar was solid white for a while to dodge the
+   iOS 26 frost; the floating pill now sits below that zone instead, and the
+   status-bar strip matches the page surface (#F2F2F7) — see gs-status-edge.) */
 
 /* iOS 26+ installed app (html.gs-ios26, set in App.jsx): the system frosts the
    first ~35pt under the status bar whatever the status-bar setting. Push the
    top bar's contents below that zone; the solid white strip keeps the zone
    itself one flat colour. Other phones and older iOS: untouched. */
-html.gs-ios26 .gs-topbar {
+html.gs-ios26 .gs-topwrap {
   padding-top: calc(env(safe-area-inset-top) + 24px) !important; /* 34 → 24 (Elie: tighter, 9/22/26) */
 }

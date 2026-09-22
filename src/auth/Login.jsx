@@ -4,6 +4,7 @@ import { useAuth } from "./AuthProvider";
 const GOLD = "#B8953F";
 const GOLD_MID = "#D4A843";
 const GOLD_LIGHT = "#F8F1E0";
+const GOLD_DEEP = "#9B7C33"; // the gradient where it meets the bottom of a phone screen
 
 export default function Login() {
   const { signIn } = useAuth();
@@ -50,7 +51,7 @@ export default function Login() {
         // Flat band of the strip's exact gold across the top (status bar + the
         // zone iOS 26 softens), then the old radial glow below it — one colour
         // at the seam, so nothing to see there.
-        background: `linear-gradient(180deg, ${GOLD_MID} 0, ${GOLD_MID} 150px, rgba(212,168,67,0) 320px), radial-gradient(120% 120% at 50% 0%, ${GOLD_MID} 0%, ${GOLD} 45%, #8C6F2D 100%)`,
+        background: `linear-gradient(180deg, ${GOLD_MID} 0, ${GOLD_MID} 150px, rgba(212,168,67,0) 320px), radial-gradient(120% 120% at 50% 0%, ${GOLD_MID} 0%, ${GOLD} 45%, ${GOLD_DEEP} 100%)`,
         fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif",
         boxSizing: "border-box",
       }}
@@ -58,10 +59,16 @@ export default function Login() {
       {/* Opaque solid strip under the iPhone status bar: iOS 26+ extends this exact
           gold under the clock instead of frosting the gradient (see index.html). */}
       <div className="gs-status-edge" aria-hidden="true" style={{ position: "fixed", top: 0, left: 0, right: 0, height: "max(28px, env(safe-area-inset-top))", background: GOLD_MID, zIndex: 5, pointerEvents: "none" }} />
+      {/* Same idea at the bottom: iOS fills the home-indicator zone from the
+          page background (the lighter gold), which showed as a band under the
+          dark end of the gradient. Pin the gradient's own end colour there. */}
+      <div className="gs-status-edge" aria-hidden="true" style={{ position: "fixed", bottom: 0, left: 0, right: 0, height: "max(34px, env(safe-area-inset-bottom))", background: GOLD_DEEP, zIndex: 5, pointerEvents: "none" }} />
       <div
         style={{
           width: "100%",
           maxWidth: 380,
+          position: "relative",
+          zIndex: 6, // above the pinned edge strips on short screens
           background: "#fff",
           borderRadius: 24,
           boxShadow: "0 24px 60px rgba(0,0,0,0.28)",

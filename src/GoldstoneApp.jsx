@@ -13279,6 +13279,7 @@ function SettingsPage({displayName,role,email,isAdmin,teamMembers,team,setUserMu
             <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
               <button onClick={onEditName} style={chip}>✎ Edit name</button>
               <button onClick={onEditEmail} style={chip}>✉ Change email</button>
+              <button onClick={onSignOut} style={{...chip,background:"#FFF0EF",color:T.red}}>⎋ Sign out</button>
             </div>
           </div>
         </div>
@@ -13291,7 +13292,6 @@ function SettingsPage({displayName,role,email,isAdmin,teamMembers,team,setUserMu
         </div>
         {sec("Company")}
         <div style={grp}>{company.map(([k,ic,l],i)=>row(ic,l,()=>onOpenSection(k),{first:i===0}))}</div>
-        <div style={{...grp,marginTop:18}}>{row("⎋","Sign out",onSignOut,{color:T.red,bold:true,first:true,right:null})}</div>
         <div style={{padding:"14px 0 0",fontSize:10.5,color:T.textTert,textAlign:"center"}}>Build {typeof __GS_BUILD__!=="undefined"?__GS_BUILD__:"dev"}{typeof document!=="undefined"&&document.documentElement.classList.contains("gs-ios26")?" · iOS 26 layout":""}</div>
       </div>
     </div>

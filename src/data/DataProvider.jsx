@@ -154,22 +154,33 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
     if (error || !data) return;
     const rows = mapRows(data);
     const dbIds = new Set(rows.map((r) => String(r.id)));
+    // Rows that didn't change keep their existing object, and a reload that
+    // changed nothing doesn't touch state at all. Every realtime echo and every
+    // return to the window used to hand the app brand-new copies of every row,
+    // so the whole app (the Financial Section's money math included)
+    // recomputed from scratch and a multi-MB offline copy was re-written —
+    // the freezes and white flashes on desktop (Elie 9/24/26).
+    const prev = new Map(ref.current.map((x) => [String(x.id), x]));
     const merged = [];
     rows.forEach((r) => {
       const id = String(r.id);
       if (dirty.current.has(id)) {
-        const local = ref.current.find((x) => String(x.id) === id);
+        const local = prev.get(id);
         if (local) merged.push(local); // keep unsaved edit; if deleted locally (no local) → omit
       } else {
-        merged.push(r);
-        synced.current.set(id, JSON.stringify(r));
+        const js = JSON.stringify(r);
+        const old = prev.get(id);
+        if (old && synced.current.get(id) === js) merged.push(old); // same as what we hold
+        else { merged.push(r); synced.current.set(id, js); }
       }
     });
     ref.current.forEach((x) => { const id = String(x.id); if (!dbIds.has(id) && dirty.current.has(id)) merged.push(x); }); // locally-created, unsaved
     [...synced.current.keys()].forEach((id) => { if (!dbIds.has(id) && !dirty.current.has(id)) synced.current.delete(id); });
+    const cur = ref.current;
+    if (merged.length === cur.length && merged.every((x, i) => x === cur[i])) return; // nothing new
     ref.current = merged;
     setItems(merged);
-    writeSnap(table, merged); // next launch paints instantly with this
+    writeSnap(table, merged); // next launch paints instantly with this (written when idle)
   }, [table, mapRows]);
 
   const flushNow = useCallback(() => { clearTimeout(timer.current); return flush(); }, [flush]);
@@ -345,11 +356,24 @@ export function DataProvider({ children }) {
     // and refetch every collection in place (no loading flip, dirty rows are
     // skipped by useSyncedCollection so unsaved local edits are never reverted).
     const reloadAll = () => { propsC.load(); leadsC.load(); contactsC.load(); autosC.load(); fundersC.load(); drawsC.load(); officeC.load(); officeTasksC.load(); bankC.load(); settingsC.load(); rentalsC.load(); loadTeam(); };
+    // On a desktop, "focus" fires every time you click back into the browser
+    // window. Only catch up when we were really away (a minute+) or the live
+    // connection dropped — while it's connected, realtime already delivered
+    // everything that changed.
+    let awayAt = 0;
+    const onAway = () => { if (!awayAt) awayAt = Date.now(); };
     const onShow = () => {
       if (document.visibilityState !== "visible") return;
-      try { if (!supabase.realtime.isConnected()) supabase.realtime.connect(); } catch { /* ignore */ }
+      const away = awayAt ? Date.now() - awayAt : 0;
+      awayAt = 0;
+      let live = true;
+      try { live = supabase.realtime.isConnected(); if (!live) supabase.realtime.connect(); } catch { /* ignore */ }
+      if (live && away < 60000) return;
       debounce("resume", reloadAll);
     };
+    const onHideAway = () => { if (document.visibilityState === "hidden") onAway(); };
+    document.addEventListener("visibilitychange", onHideAway);
+    window.addEventListener("blur", onAway);
     document.addEventListener("visibilitychange", onShow);
     window.addEventListener("focus", onShow);
 
@@ -358,6 +382,8 @@ export function DataProvider({ children }) {
       Object.values(timers).forEach(clearTimeout);
       document.removeEventListener("visibilitychange", onHide);
       document.removeEventListener("visibilitychange", onShow);
+      document.removeEventListener("visibilitychange", onHideAway);
+      window.removeEventListener("blur", onAway);
       window.removeEventListener("focus", onShow);
       window.removeEventListener("pagehide", flushAll);
       supabase.removeChannel(channel);

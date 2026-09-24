@@ -160,14 +160,18 @@ export default async function handler(req, res) {
           calls.push({ id: e.cdr_id, dir: inbound ? "in" : "out", phone: other, name, ext, at, talk, answered });
           dirty = true;
         }
-        if (missed) {
+        // One missed call can arrive as several leg records at once — only the
+        // first to claim it (same number, same start, within 2 min) alerts.
+        const { claimAlert, alertTag } = await import("../../lib/notify.js");
+        const missKey = `miss|${other}`;
+        if (missed && await claimAlert(client, missKey, { windowMs: 120000, at: atMs })) {
           let who = null; try { who = await identifyPhone(other); } catch { /* number-only */ }
           // Name in the title; buyer/agent/lead + their property in the body.
           const sub = whoSub(who);
           await notify(ext, {
             title: `📞 Missed call — ${(who && who.name) || name || pretty(other)}`,
             body: `${pretty(other)}${sub ? ` · ${sub}` : ""} · rang ext ${ext}`,
-            tag: `jvcall-${e.cdr_id}`.slice(0, 64),
+            tag: alertTag("jvmiss", `${missKey}|${Math.floor(atMs / 120000)}`),
           });
         }
         continue;
@@ -178,6 +182,10 @@ export default async function handler(req, res) {
       if (ringing && e.orig_callid && !rung.includes(e.orig_callid)) {
         rung.push(e.orig_callid);
         dirty = true;
+        // Parallel leg updates for the same ringing call each read `rung`
+        // before any wrote it — the database claim makes it once per call.
+        const { claimAlert } = await import("../../lib/notify.js");
+        if (!(await claimAlert(client, `ring|${e.orig_callid}`))) continue;
         const from = uriNum(e.orig_from_uri);
         let who = null; try { who = await identifyPhone(from); } catch { /* number-only */ }
         const sub = whoSub(who);

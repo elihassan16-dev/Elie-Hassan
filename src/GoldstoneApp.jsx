@@ -20,7 +20,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp, smsPropKey, setSmsPropTimeline } from "./sms";
+import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsFeedSheet, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp, smsPropKey, setSmsPropTimeline } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -8955,6 +8955,7 @@ function TasksPage({onNavigate}){
     return today;
   };
   const[dashText,setDashText]=useState(null); // {phone,name,address} → showing-agent conversation
+  const[dashFeed,setDashFeed]=useState(false); // 💬 every text in time order (the New texts tile)
   const dashCardHd=(icon,label,n,bg,fg,bd)=>(
     <div style={{padding:"12px 15px 10px",borderBottom:`1px solid ${T.border}`,fontSize:13,fontWeight:650,letterSpacing:"-0.01em",color:T.text,display:"flex",alignItems:"center",gap:6}}>{icon} {label}{n!=null&&<span style={{marginLeft:"auto",fontSize:10,fontWeight:650,background:bg,color:fg,border:`1px solid ${bd}`,borderRadius:10,padding:"2px 8px"}}>{n}</span>}</div>
   );
@@ -8979,7 +8980,7 @@ function TasksPage({onNavigate}){
       </div>
     );
   };
-  const dashTextPopup=()=>dashText&&(
+  const dashTextPopup=()=>dashFeed?<SmsFeedSheet isMobile={isMobile} onClose={()=>setDashFeed(false)}/>:dashText&&(
     <SmsThreadPopup phone={dashText.phone} name={dashText.name} prop={dashText.address?String(dashText.address).split(",")[0]:""} sub={["Agent",dashText.address?`🏠 ${dashText.address}`:""].filter(Boolean).join(" · ")} templates={showingTemplates(false,dashText.name,dashText.address)} onClose={()=>setDashText(null)}/>
   );
   const dashFupCard=()=>dashFups.length===0?null:(
@@ -8998,8 +8999,8 @@ function TasksPage({onNavigate}){
     </div>
   );
   const dashScrollTo=(id)=>{const el=document.getElementById(id);if(el)el.scrollIntoView({behavior:"smooth",block:"start"});};
-  const dashTile=(icon,bg,n,label,color,target)=>(
-    <div key={label} onClick={()=>dashScrollTo(target)} style={{background:T.card,borderRadius:16,padding:isMobile?"12px 14px":"15px 18px",boxShadow:T.shadow,display:"flex",alignItems:"center",gap:12,cursor:"pointer",minWidth:0}}>
+  const dashTile=(icon,bg,n,label,color,target,onOpen)=>(
+    <div key={label} onClick={()=>onOpen?onOpen():dashScrollTo(target)} style={{background:T.card,borderRadius:16,padding:isMobile?"12px 14px":"15px 18px",boxShadow:T.shadow,display:"flex",alignItems:"center",gap:12,cursor:"pointer",minWidth:0}}>
       <span style={{width:isMobile?34:40,height:isMobile?34:40,borderRadius:12,background:bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMobile?16:18,flexShrink:0}}>{icon}</span>
       <span style={{minWidth:0}}><div style={{fontSize:isMobile?22:28,fontWeight:650,letterSpacing:"-0.025em",fontVariantNumeric:"tabular-nums",color:color||T.text,lineHeight:1.05}}>{n}</div><div style={{fontSize:10,fontWeight:600,color:"#8E8E93",letterSpacing:"0.08em",whiteSpace:"nowrap",marginTop:2}}>{label}</div></span>
     </div>
@@ -9008,7 +9009,7 @@ function TasksPage({onNavigate}){
     <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,minmax(0,1fr))",gap:isMobile?9:12,marginBottom:14,maxWidth:1160}}>
       {dashTile("✅",T.goldLight,dashOpenTasks,"OPEN TASKS",null,"dash-tasks")}
       {dashTile("📅","#EDFBF1",dashTodayShows,"TODAY'S SHOWINGS",null,"dash-today")}
-      {dashTile("💬","#FDE9C8",dashCounts.texts,"NEW TEXTS",dashCounts.texts>0?"#B45309":null,"dash-cards")}
+      {dashTile("💬","#FDE9C8",dashCounts.texts,"NEW TEXTS",dashCounts.texts>0?"#B45309":null,"dash-cards",()=>setDashFeed(true))}
       {dashTile("📞","#FFE4D6",dashCounts.missed,"MISSED CALLS",dashCounts.missed>0?"#C2410C":null,"dash-cards")}
     </div>
   );

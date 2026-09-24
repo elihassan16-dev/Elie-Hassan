@@ -179,14 +179,11 @@ export default async function handler(req, res) {
       // without a MessageID) near-simultaneously — each raced past the store
       // dedupe and pinged, so phones buzzed twice. A short-lived alert log
       // keyed by sender+content collapses them regardless of arrival order.
-      try {
-        const key = `${e164(m.from)}|${String(m.text || "").slice(0, 80)}|${String((m.media || [])[0] || "").slice(0, 60)}`;
-        const { data: arow } = await client.from("app_settings").select("data").eq("id", "jivetel_text_alerts").maybeSingle();
-        const log = ((arow && arow.data && arow.data.log) || []).filter((x) => Date.now() - new Date(x.at).getTime() < 10 * 60000);
-        if (log.some((x) => x.k === key && Date.now() - new Date(x.at).getTime() < 3 * 60000)) return;
-        log.push({ k: key, at: new Date().toISOString() });
-        await client.from("app_settings").upsert({ id: "jivetel_text_alerts", data: { log: log.slice(-60) }, updated_at: new Date().toISOString() });
-      } catch { /* dedupe is best-effort — never blocks the alert */ }
+      // Atomic now (claimAlert): the old read-check-write log let two copies
+      // arriving at the same instant both through (Elie 9/24/26).
+      const key = `txt|${e164(m.from)}|${String(m.text || "").slice(0, 80)}|${String((m.media || [])[0] || "").slice(0, 60)}`;
+      const { claimAlert, alertTag } = await import("../../lib/notify.js");
+      if (!(await claimAlert(client, key, { windowMs: 3 * 60000 }))) return;
       // ⚙️ Feature switch (Settings portal): new-text alerts can be turned off.
       try {
         const { data: featR } = await client.from("app_settings").select("data").eq("id", "features").maybeSingle();
@@ -217,7 +214,9 @@ export default async function handler(req, res) {
         ...(owner ? { recipientsFirst: [owner] } : { toTeam: true }),
         title: `💬 New text — ${(who && who.name) || m.name || m.from}`,
         body: `${sub ? sub + " · " : ""}${[preview, label].filter(Boolean).join(" · ") || "(no text)"}`,
-        tag: `jvmsg-${m.id}`.slice(0, 64),
+        // Content-based, not the message id: the two encodings of one text
+        // carry different ids, so an id tag couldn't merge them on the phone.
+        tag: alertTag("jvtxt", key),
         url: "/",
       }).catch(() => {});
     };

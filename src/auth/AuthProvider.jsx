@@ -17,20 +17,21 @@ export function AuthProvider({ children }) {
     }
     // The users row is created by a DB trigger on sign-up. Fetch it (retry once
     // in case the trigger hasn't committed yet on a brand-new account).
-    let { data } = await supabase.from("users").select("*").eq("id", sess.user.id).maybeSingle();
+    let { data, error } = await supabase.from("users").select("*").eq("id", sess.user.id).maybeSingle();
     if (!data) {
       await new Promise((r) => setTimeout(r, 600));
-      ({ data } = await supabase.from("users").select("*").eq("id", sess.user.id).maybeSingle());
+      ({ data, error } = await supabase.from("users").select("*").eq("id", sess.user.id).maybeSingle());
     }
-    if (data) writeSnap(`profile-${sess.user.id}`, data); // next launch skips the splash wait
-    setProfile(
-      data || {
-        id: sess.user.id,
-        email: sess.user.email,
-        name: sess.user.email,
-        role: "member",
-      }
-    );
+    if (data) { writeSnap(`profile-${sess.user.id}`, data); setProfile(data); return; } // next launch skips the splash wait
+    // The lookup FAILED (network blip, token mid-refresh): keep whoever we
+    // already know this user is — the cached profile — instead of quietly
+    // demoting an admin to "member" until the next reload.
+    if (error) {
+      const known = readSnap(`profile-${sess.user.id}`);
+      setProfile((p) => (p && p.id === sess.user.id ? p : known || { id: sess.user.id, email: sess.user.email, name: sess.user.email, role: "member" }));
+      return;
+    }
+    setProfile({ id: sess.user.id, email: sess.user.email, name: sess.user.email, role: "member" });
   }, []);
 
   useEffect(() => {

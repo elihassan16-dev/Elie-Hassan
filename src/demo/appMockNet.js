@@ -73,6 +73,9 @@ export const DEMO_TEXTS = [
 export async function qbAuthFetch(path) {
   const p = String(path);
   // 🛋 Showroom: product-link reader + picture mirror answer instantly offline.
+  // Change-order sends answer like a slow phone connection, and are counted,
+  // so the preview can prove a double tap files one request.
+  if (p.includes("/api/contractors/co-request")) { try { window.__coPosts = (window.__coPosts || 0) + 1; } catch { /* no window */ } await new Promise((r) => setTimeout(r, 900)); return { ok: true }; }
   if (p.includes("/api/spec/link")) return { ok: true, image: "", title: "Sample product from the store page", desc: "Preview mode — the live site reads the real page.", price: "$49" };
   if (p.includes("/api/spec/img")) { const u = decodeURIComponent((p.split("url=")[1] || "")); return { url: u, mirrored: true }; }
   if (p.includes("/api/showings/status")) return { configured: true, feeds: [{ id: 1, label: "ShowingTime" }] };

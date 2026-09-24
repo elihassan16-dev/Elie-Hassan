@@ -1129,24 +1129,26 @@ export function SmsThreadPopup(props) {
   );
 }
 
-// ─── 💬 Texts feed — every text in time order (approved 9/24/26, option A) ───
-// The dashboard's "New texts" tile opens this: newest first, grouped by day,
-// All / Agents / Buyers / Unread, 20 at a time with "Load 20 older". Names,
-// roles and properties come from the app's directory (the same one the
-// conversation panes use); tapping a row opens that conversation to reply.
+// ─── 💬 Texts — one row per conversation, like the phone's Messages app ─────
+// The dashboard's "New texts" tile opens this. First built as a feed of every
+// text (option A, 9/24/26); Elie saw the same chat repeated row after row and
+// asked for a regular texting list — one row per person, newest conversation
+// on top, the latest message as the preview, an unread count, 20 at a time.
+// Names, roles and properties come from the app's directory (the same one the
+// conversation panes use); tapping a row opens the whole thread to reply.
 const FEED_PAGE = 20;
-const feedDay = (iso) => {
-  const d = new Date(iso); if (isNaN(d)) return "Earlier";
+const feedStamp = (iso) => {
+  const d = new Date(iso); if (isNaN(d)) return "";
   const k = (x) => x.toLocaleDateString("en-CA");
   const now = new Date(); const y = new Date(now); y.setDate(now.getDate() - 1);
-  if (k(d) === k(now)) return "Today";
+  if (k(d) === k(now)) return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   if (k(d) === k(y)) return "Yesterday";
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
+  if (now - d < 6 * 86400000) return d.toLocaleDateString("en-US", { weekday: "long" });
+  return d.toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "2-digit" });
 };
-const feedTime = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); };
 const prettyPh = (p) => { const d = String(p || "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : String(p || ""); };
 const ROLE_TAG = { agent: ["AGENT", "#E8F4FF", "#0A66C2", "#0A84FF"], buyer: ["BUYER", "#EDFBF1", "#15803D", "#34C759"], lead: ["LEAD", "#F3E8FF", "#7C3AED", "#AF52DE"] };
-const initialsOfName = (n) => { const w = String(n || "").trim().split(/\s+/).filter(Boolean); return w.length ? (w[0][0] + (w.length > 1 ? w[w.length - 1][0] : "")).toUpperCase() : "#"; };
+const initialsOfName = (n) => { const w = String(n || "").trim().split(/\s+/).filter((x) => /[A-Za-z]/.test(x)); return w.length ? (w[0][0] + (w.length > 1 ? w[w.length - 1][0] : "")).toUpperCase() : "#"; };
 
 export function SmsFeedSheet({ onClose, isMobile }) {
   const { msgs } = useSmsTexting();
@@ -1155,44 +1157,55 @@ export function SmsFeedSheet({ onClose, isMobile }) {
   const [open, setOpen] = useState(null); // {phone, name, sub}
   useEffect(() => { setShown(FEED_PAGE); }, [filter]);
   const who = (ph) => dirFor(ph) || null;
-  const isUnread = (m) => m.direction === "in" && String(m.at || "") > (readMap[e164(m.phone)] || "");
-  const texts = msgs.filter((m) => m.kind !== "call" && m.phone && m.at).slice().sort((a, b) => String(b.at).localeCompare(String(a.at)));
-  const list = texts.filter((m) => {
-    if (filter === "unread") return isUnread(m);
+  // One conversation per number: its latest text and how many are unread.
+  const convos = (() => {
+    const by = new Map();
+    msgs.forEach((m) => {
+      if (m.kind === "call" || !m.phone || !m.at) return;
+      const p = e164(m.phone); if (!p) return;
+      const c = by.get(p) || { phone: p, last: null, unread: 0 };
+      if (!c.last || String(m.at) > String(c.last.at)) c.last = m;
+      if (m.direction === "in" && String(m.at || "") > (readMap[p] || "")) c.unread++;
+      by.set(p, c);
+    });
+    return [...by.values()].sort((a, b) => String(b.last.at).localeCompare(String(a.last.at)));
+  })();
+  const list = convos.filter((c) => {
+    if (filter === "unread") return c.unread > 0;
     if (filter === "all") return true;
-    const r = (who(m.phone) || {}).role || "";
+    const r = (who(c.phone) || {}).role || "";
     return filter === "agents" ? r === "agent" : r === "buyer" || r === "lead";
   });
-  const unreadN = texts.filter(isUnread).length;
+  const unreadN = convos.filter((c) => c.unread > 0).length;
   const page = list.slice(0, shown);
-  const groups = [];
-  page.forEach((m) => { const d = feedDay(m.at); const g = groups[groups.length - 1]; if (g && g.day === d) g.items.push(m); else groups.push({ day: d, items: [m] }); });
   const seg = (k, l) => (
     <button key={k} onClick={() => setFilter(k)} style={{ flex: 1, padding: "7px 4px", borderRadius: 15, border: "none", background: filter === k ? "#fff" : "transparent", color: filter === k ? T.text : T.textSub, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", boxShadow: filter === k ? "0 1px 3px rgba(0,0,0,0.1)" : "none", minHeight: 32, whiteSpace: "nowrap" }}>{l}</button>
   );
-  const row = (m, first) => {
-    const w = who(m.phone);
+  const row = (c, first) => {
+    const m = c.last;
+    const w = who(c.phone);
     const out = m.direction !== "in";
-    const name = (w && w.name) || prettyPh(m.phone);
+    const name = (w && w.name) || prettyPh(c.phone);
     const tag = w && ROLE_TAG[w.role];
-    const unread = isUnread(m);
     const media = Array.isArray(m.media) && m.media.length ? (m.media.length > 1 ? `📎 ${m.media.length} attachments` : "📷 Photo") : "";
     const body = [String(m.text || "").trim(), media].filter(Boolean).join(" · ") || "(no text)";
-    const sub = [w && w.addr ? `🏠 ${w.addr}` : "", !w ? prettyPh(m.phone) === name ? "" : prettyPh(m.phone) : ""].filter(Boolean).join(" · ");
+    const sub = w && w.addr ? `🏠 ${w.addr}` : (w ? "" : "");
     return (
-      <button key={m.id || `${m.phone}-${m.at}`} onClick={() => setOpen({ phone: m.phone, name, sub: (w && w.sub) || "" })}
-        style={{ display: "flex", gap: 10, width: "100%", textAlign: "left", padding: "10px 12px", border: "none", borderTop: first ? "none" : `1px solid ${T.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", alignItems: "flex-start", minHeight: 60 }}>
-        <span style={{ width: 36, height: 36, borderRadius: 18, background: out ? T.gold : tag ? tag[3] : "#8E8E93", color: "#fff", fontSize: 12.5, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initialsOfName(out ? "" : name) === "#" && out ? "↗" : initialsOfName(name)}</span>
+      <button key={c.phone} onClick={() => setOpen({ phone: c.phone, name, sub: (w && w.sub) || "" })}
+        style={{ display: "flex", gap: 11, width: "100%", textAlign: "left", padding: "11px 12px", border: "none", borderTop: first ? "none" : `1px solid ${T.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", alignItems: "flex-start", minHeight: 64 }}>
+        <span style={{ width: 40, height: 40, borderRadius: 20, background: tag ? tag[3] : "#8E8E93", color: "#fff", fontSize: 13.5, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initialsOfName(w && w.name)}</span>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-            <b style={{ fontSize: 14, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{out ? `To ${name}` : name}</b>
+            <b style={{ fontSize: 14.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{name}</b>
             {tag && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.03em", borderRadius: 8, padding: "1px 6px", background: tag[1], color: tag[2], flexShrink: 0 }}>{tag[0]}</span>}
-            <span style={{ marginLeft: "auto", fontSize: 11.5, color: T.textTert, flexShrink: 0 }}>{feedTime(m.at)}</span>
+            <span style={{ marginLeft: "auto", fontSize: 11.5, color: c.unread ? T.blue : T.textTert, fontWeight: c.unread ? 700 : 500, flexShrink: 0 }}>{feedStamp(m.at)}</span>
           </span>
           {sub && <span style={{ display: "block", fontSize: 11.5, color: T.textTert, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</span>}
-          <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: 13, color: out ? T.textSub : T.text, marginTop: 3, lineHeight: 1.35, fontWeight: unread ? 600 : 400 }}>{out && <b style={{ color: "#8a6d1f" }}>You: </b>}{body}</span>
+          <span style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 3 }}>
+            <span style={{ flex: 1, minWidth: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: 13, color: c.unread ? T.text : T.textSub, lineHeight: 1.35, fontWeight: c.unread ? 600 : 400 }}>{out && <b style={{ color: "#8a6d1f" }}>You: </b>}{body}</span>
+            {c.unread > 0 && <span style={{ minWidth: 20, height: 20, borderRadius: 10, background: T.blue, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 6px", flexShrink: 0, boxSizing: "border-box" }}>{c.unread}</span>}
+          </span>
         </span>
-        {unread && <span style={{ width: 9, height: 9, borderRadius: 5, background: T.blue, marginTop: 14, flexShrink: 0 }} />}
       </button>
     );
   };
@@ -1206,20 +1219,15 @@ export function SmsFeedSheet({ onClose, isMobile }) {
               <div style={{ flex: 1, fontSize: 17, fontWeight: 800, color: T.text }}>💬 Texts</div>
               <button onClick={onClose} aria-label="Close" style={{ width: 34, height: 34, borderRadius: 17, border: "none", background: "rgba(118,118,128,0.1)", color: T.textSub, fontSize: 18, cursor: "pointer", fontFamily: "inherit", lineHeight: 1 }}>×</button>
             </div>
-            <div style={{ display: "flex", gap: 2, padding: 3, borderRadius: 18, background: "rgba(118,118,128,0.1)", marginBottom: 6 }}>
+            <div style={{ display: "flex", gap: 2, padding: 3, borderRadius: 18, background: "rgba(118,118,128,0.1)", marginBottom: 8 }}>
               {seg("all", "All")}{seg("agents", "Agents")}{seg("buyers", "Buyers")}{seg("unread", unreadN ? `Unread · ${unreadN}` : "Unread")}
             </div>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "0 12px" }}>
             {page.length === 0 && <div style={{ padding: "40px 16px", textAlign: "center", color: T.textTert, fontSize: 13, lineHeight: 1.5 }}>{filter === "unread" ? "You're all caught up." : "No texts here yet."}</div>}
-            {groups.map((g) => (
-              <div key={g.day}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: T.textTert, letterSpacing: "0.06em", textTransform: "uppercase", margin: "12px 6px 6px" }}>{g.day}</div>
-                <div style={{ background: "#fff", borderRadius: 16, border: "1px solid rgba(0,0,0,0.05)", overflow: "hidden" }}>{g.items.map((m, i) => row(m, i === 0))}</div>
-              </div>
-            ))}
-            {list.length > shown && <button onClick={() => setShown((n) => n + FEED_PAGE)} style={{ display: "block", width: "100%", margin: "14px 0 6px", padding: 12, borderRadius: 14, border: "none", background: T.goldLight, color: "#8a6d1f", fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>Load 20 older texts</button>}
-            {page.length > 0 && <div style={{ fontSize: 11, color: T.textTert, textAlign: "center", margin: "6px 0 28px" }}>Showing {page.length} of {list.length} · tap a text to open the conversation</div>}
+            {page.length > 0 && <div style={{ background: "#fff", borderRadius: 16, border: "1px solid rgba(0,0,0,0.05)", overflow: "hidden" }}>{page.map((c, i) => row(c, i === 0))}</div>}
+            {list.length > shown && <button onClick={() => setShown((n) => n + FEED_PAGE)} style={{ display: "block", width: "100%", margin: "14px 0 6px", padding: 12, borderRadius: 14, border: "none", background: T.goldLight, color: "#8a6d1f", fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>Load 20 more conversations</button>}
+            {page.length > 0 && <div style={{ fontSize: 11, color: T.textTert, textAlign: "center", margin: "6px 0 28px" }}>{page.length} of {list.length} conversation{list.length === 1 ? "" : "s"} · tap one to open the whole thread</div>}
           </div>
         </div>
       </div>

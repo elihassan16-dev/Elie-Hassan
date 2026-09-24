@@ -211,6 +211,12 @@ export function ContractorPortal() {
   const [coReqOpen, setCoReqOpen] = useState(false); // change-order request form
   const [coReq, setCoReq] = useState({ label: "", amount: "" });
   const [prAmt, setPrAmt] = useState({}); // price drafts for Goldstone-requested COs
+  // In-flight change-order sends: the button locks until the server answers.
+  // A second tap on a slow connection used to file the same request twice
+  // (Elie saw a double change-order request, 9/24/26).
+  const [coSending, setCoSending] = useState(""); // "" | "new" | requestId
+  const coKey = useRef(null); // one id per change order the contractor is sending
+  const coBusy = useRef(false); // instant lock — a double tap lands before state re-renders
   const [pricePop, setPricePop] = useState(false); // contract-price breakdown popup
   const [doneOpen, setDoneOpen] = useState(false); // ✓ completed-tasks popup
   const [err, setErr] = useState("");
@@ -531,11 +537,17 @@ export function ContractorPortal() {
             const reqs = (j.coRequests || []).filter((r) => r.status !== "approved").slice().sort((a, b) => b.id - a.id);
             const amt = Number(String(coReq.amount).replace(/[^0-9.]/g, ""));
             const sendReq = async () => {
-              if (!coReq.label.trim() || !amt) return;
+              if (!coReq.label.trim() || !amt || coBusy.current) return;
+              coBusy.current = true; setCoSending("new");
+              // Same id on a retry of the SAME change order, so the server can
+              // recognise a repeat and file it only once.
+              if (!coKey.current) coKey.current = `co-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
               try {
-                await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, label: coReq.label.trim(), amount: amt }) });
+                await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, label: coReq.label.trim(), amount: amt, clientKey: coKey.current }) });
+                coKey.current = null;
                 setCoReqOpen(false); setCoReq({ label: "", amount: "" }); // the API pings the admins server-side
               } catch (ex) { setErr(ex.message || "Couldn't send the request."); }
+              coBusy.current = false; setCoSending("");
             };
             return (<>
                             {(j.changeOrders || []).map((c) => (
@@ -547,11 +559,13 @@ export function ContractorPortal() {
               {reqs.filter((r) => r.status === "awaiting_price").map((r) => {
                 const a = Number(String(prAmt[r.id] || "").replace(/[^0-9.]/g, ""));
                 const sendPrice = async () => {
-                  if (!a) return;
+                  if (!a || coBusy.current) return;
+                  coBusy.current = true; setCoSending(String(r.id));
                   try {
                     await qbAuthFetch("/api/contractors/co-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, requestId: r.id, amount: a }) });
                     setPrAmt((p) => ({ ...p, [r.id]: "" })); // the API pings the admins server-side
                   } catch (ex) { setErr(ex.message || "Couldn't send the price."); }
+                  coBusy.current = false; setCoSending("");
                 };
                 return (
                   <div key={r.id} style={{ background: T.goldLight, border: `1.5px dashed ${T.gold}`, borderRadius: 10, padding: "9px 11px", margin: "8px 12px" }}>
@@ -559,7 +573,7 @@ export function ContractorPortal() {
                     <div style={{ fontSize: 10.5, color: "#8a6d1f", marginTop: 1 }}>Asked by {r.askedBy || "Goldstone"}{r.at ? ` · ${fmtDate(r.at)}` : ""} — send your price and they'll approve it.</div>
                     <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
                       <input value={prAmt[r.id] || ""} onChange={(e) => setPrAmt((p) => ({ ...p, [r.id]: e.target.value }))} inputMode="decimal" placeholder="$ your price" style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
-                      <button onClick={sendPrice} disabled={!a} style={{ padding: "8px 15px", borderRadius: 9, border: "none", background: a ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: a ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>Send price</button>
+                      <button onClick={sendPrice} disabled={!a || !!coSending} style={{ padding: "8px 15px", borderRadius: 9, border: "none", background: a ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: a ? "pointer" : "default", fontFamily: "inherit", flexShrink: 0 }}>Send price</button>
                     </div>
                   </div>
                 );
@@ -580,7 +594,7 @@ export function ContractorPortal() {
                   <input value={coReq.label} onChange={(e) => setCoReq((d) => ({ ...d, label: e.target.value }))} placeholder="What's the extra work? e.g. Replace rotted subfloor" style={{ padding: "8px 10px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
                   <div style={{ display: "flex", gap: 7 }}>
                     <input value={coReq.amount} onChange={(e) => setCoReq((d) => ({ ...d, amount: e.target.value }))} inputMode="decimal" placeholder="$ amount" style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
-                    <button onClick={sendReq} disabled={!coReq.label.trim() || !amt} style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: coReq.label.trim() && amt ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Send request</button>
+                    <button onClick={sendReq} disabled={!coReq.label.trim() || !amt || !!coSending} style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: coReq.label.trim() && amt ? T.gold : T.border, color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>{coSending === "new" ? "Sending…" : "Send request"}</button>
                     <button onClick={() => setCoReqOpen(false)} style={{ padding: "8px 12px", borderRadius: 9, border: `1px solid ${T.border}`, background: "#fff", color: T.textSub, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Cancel</button>
                   </div>
                   <div style={{ fontSize: 10.5, color: T.textTert }}>Goldstone approves or denies it — approval updates the contract price automatically.</div>

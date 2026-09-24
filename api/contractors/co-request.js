@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     const user = await requireAppUser(req);
     if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
     if (!SERVICE_ROLE) { res.status(503).json({ error: "Missing SUPABASE_SERVICE_ROLE_KEY env var." }); return; }
-    const { jobId, label, amount, note, requestId, bidAmount, bidItems } = req.body || {};
+    const { jobId, label, amount, note, requestId, bidAmount, bidItems, clientKey } = req.body || {};
     const amt = Number(amount);
     const bid = Number(bidAmount);
     if (!jobId || (!bid && !amt) || (!requestId && !bid && !String(label || "").trim())) { res.status(400).json({ error: "A description and amount are required." }); return; }
@@ -64,6 +64,8 @@ export default async function handler(req, res) {
       const reqs = (job.data || {}).coRequests || [];
       const target = reqs.find((x) => String(x.id) === String(requestId));
       if (!target) { res.status(404).json({ error: "That change-order request wasn't found." }); return; }
+      // Already priced at this amount (a double tap / retry) — nothing to redo.
+      if (target.status === "pending" && Number(target.amount) === amt) { res.status(200).json({ ok: true, duplicate: true }); return; }
       const updated = reqs.map((x) => String(x.id) === String(requestId) ? { ...x, amount: amt, by: u?.name || user.email || "", pricedAt: new Date().toISOString(), status: "pending" } : x);
       const { error: e2 } = await db.from("contractor_jobs").update({ data: { ...(job.data || {}), coRequests: updated } }).eq("id", job.id);
       if (e2) { res.status(500).json({ error: e2.message }); return; }
@@ -77,7 +79,16 @@ export default async function handler(req, res) {
       return;
     }
 
-    const request = { id: Date.now(), label: String(label).trim().slice(0, 200), amount: amt, note: String(note || "").trim().slice(0, 300), by: u?.name || user.email || "", at: new Date().toISOString(), status: "pending" };
+    // A repeat of a change order that's already filed — the same send retried,
+    // or a second tap on a slow connection — is acknowledged, not filed again:
+    // same clientKey, or the same person, description and amount still
+    // pending from the last 10 minutes (Elie saw a double request, 9/24/26).
+    const cleanLabel = String(label).trim().slice(0, 200);
+    const existing = ((job.data || {}).coRequests || []).find((x) =>
+      (clientKey && x.clientKey === clientKey) ||
+      (x.status === "pending" && x.by === (u?.name || user.email || "") && String(x.label || "").trim().toLowerCase() === cleanLabel.toLowerCase() && Number(x.amount) === amt && Date.now() - new Date(x.at || 0).getTime() < 10 * 60000));
+    if (existing) { res.status(200).json({ ok: true, request: existing, duplicate: true }); return; }
+    const request = { id: Date.now(), ...(clientKey ? { clientKey: String(clientKey).slice(0, 60) } : {}), label: cleanLabel, amount: amt, note: String(note || "").trim().slice(0, 300), by: u?.name || user.email || "", at: new Date().toISOString(), status: "pending" };
     const data = { ...(job.data || {}), coRequests: [...((job.data || {}).coRequests || []), request] };
     const { error } = await db.from("contractor_jobs").update({ data }).eq("id", job.id);
     if (error) { res.status(500).json({ error: error.message }); return; }

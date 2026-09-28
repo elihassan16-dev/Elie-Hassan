@@ -223,6 +223,9 @@ export function DataProvider({ children }) {
   // With snapshots on this device the shell renders immediately (data refreshes
   // in place); the "Loading Goldstone…" gate only holds on a truly first launch.
   const [loading, setLoading] = useState(() => !readSnap("properties"));
+  // True once this session's first load from the database finished (the
+  // offline snapshot can be stale) — background writers wait for it.
+  const [fresh, setFresh] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const seededRef = useRef(false);
 
@@ -312,7 +315,7 @@ export function DataProvider({ children }) {
     (async () => {
       await seedIfEmpty();
       await Promise.all([propsC.load(), leadsC.load(), contactsC.load(), autosC.load(), fundersC.load(), drawsC.load(), officeC.load(), officeTasksC.load(), bankC.load(), settingsC.load(), rentalsC.load(), loadTeam()]);
-      if (!cancelled) setLoading(false);
+      if (!cancelled) { setLoading(false); setFresh(true); }
     })();
 
     const timers = {};
@@ -394,6 +397,7 @@ export function DataProvider({ children }) {
 
   const value = {
     loading,
+    fresh,
     sharedProps: propsC.items,
     setSharedProps: propsC.set,
     flushProps: propsC.flushNow,

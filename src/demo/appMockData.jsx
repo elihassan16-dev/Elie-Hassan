@@ -170,6 +170,7 @@ export function DataProvider({ children }) {
   const noop = () => {};
   const value = {
     loading: false,
+    fresh: true,
     sharedProps, setSharedProps, flushProps: noop,
     leads, setLeads,
     contacts, setContacts, flushContacts: noop,

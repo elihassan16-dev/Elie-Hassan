@@ -3,6 +3,8 @@
 // were stored as the store's own image address, and stores rotate or block
 // those later. Team-only. Returns { url } — the durable public copy — or the
 // original address with { mirrored:false } when the store won't hand it over.
+// ?folder=media — the 📣 Social Posts page copying Zillow listing photos (the
+// links Elie's Cowork found) into a property's Media.
 import { createClient } from "@supabase/supabase-js";
 import { requireTeamUser } from "../../lib/quickbooks.js";
 
@@ -33,7 +35,9 @@ export default async function handler(req, res) {
     const buf = Buffer.from(await r.arrayBuffer());
     if (!buf.length || buf.length > MAX) { res.status(200).json({ url, mirrored: false, error: buf.length ? "Picture too big." : "Empty picture." }); return; }
     const ext = type === "image/png" ? "png" : type === "image/webp" ? "webp" : type === "image/gif" ? "gif" : type === "image/avif" ? "avif" : "jpg";
-    const path = `spec/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    // Social posts copy Zillow listing photos into a property's Media the same way.
+    const folder = req.query.folder === "media" ? "media" : "spec";
+    const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
     const { error } = await sb.storage.from("attachments").upload(path, buf, { contentType: type, upsert: false });
     if (error) throw error;

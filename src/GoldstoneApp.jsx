@@ -13,6 +13,7 @@ import { qbAuthFetch, notify, uploadAttachment, attachmentKind, attLabel, STREAM
 import { WalkthroughModal, useWalkJob, useWalkCloudSync } from "./walkthrough";
 import { MediaPage } from "./media";
 import { ShowroomPage } from "./showroom";
+import { PostsPage, PostsNudge, PostWatcher, PostButton } from "./flyers";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { usePersistentDraft } from "./useDraft";
 import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
@@ -502,6 +503,7 @@ const Ico=({p,p2,c,r,lines=[]})=>(
 const ICONS={
   tasks:<Ico p="M9 11l3 3L22 4" p2="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>,
   media:<Ico r={[3,5,18,14,2]} lines={[[3,10,21,10],[3,14,21,14],[8,5,8,19],[16,5,16,19]]}/>,
+  posts:<Ico p="M3 11v2a1 1 0 001 1h2l5 4V6L6 10H4a1 1 0 00-1 1z" p2="M15 8.5a4 4 0 010 7M18 6a8 8 0 010 12"/>,
   showroom:<Ico p="M4 10V8a2 2 0 012-2h12a2 2 0 012 2v2" p2="M3 10h18v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6z" lines={[[6,18,6,21],[18,18,18,21],[3,13,21,13]]}/>,
   portfolio:<Ico p="M18 20V10" p2="M12 20V4" lines={[[6,20,6,14]]}/>,
   leads:<Ico c={[11,11,8]} lines={[[21,21,16.65,16.65],[11,8,11,14],[8,11,14,11]]}/>,
@@ -525,6 +527,7 @@ const NAV=[
   {key:"properties",label:"Properties",short:"Properties",icon:ICONS.properties},
   {key:"media",label:"Media",short:"Media",icon:ICONS.media},
   {key:"showroom",label:"Showroom",short:"Showroom",icon:ICONS.showroom},
+  {key:"posts",label:"Social Posts",short:"Posts",icon:ICONS.posts},
   {key:"rentals",label:"Rental Portfolio",short:"Rentals",icon:ICONS.rentals},
   {key:"calendar",label:"Calendar",short:"Calendar",icon:ICONS.calendar},
   {key:"showings",label:"Showings",short:"Showings",icon:ICONS.showings},
@@ -534,7 +537,7 @@ const NAV=[
   {key:"routes",label:"Route Planner",short:"Routes",icon:ICONS.routes},
 ];
 // Sections only the admin (Elie) can see. Everyone else never gets these nav items.
-const ADMIN_ONLY_KEYS=new Set(["financials"]);
+const ADMIN_ONLY_KEYS=new Set(["financials","posts"]);
 
 // ─── UI Primitives ────────────────────────────────────────────────────────────
 function Card({children,style={}}){return <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",...style}}>{children}</div>;}
@@ -6276,7 +6279,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
             style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
         </div>
-        <div style={{marginBottom:14}}>
+        <div style={{marginBottom:14,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <StatusPicker value={property.status} property={property} onChange={v=>onUpdate(property.id,"status",v)}
             onGateSave={(to,answers,note,fieldValues)=>{
               const groups={};
@@ -6284,6 +6287,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
               Object.entries(groups).forEach(([top,val])=>onUpdate(property.id,top,val));
               onUpdate(property.id,"statusGates",{...(property.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}});
             }}/>
+          <PostButton property={property} isMobile={isMobile}/>
         </div>
         <div style={{...SEG_WRAP,width:"auto"}}>
           {tabs.map(t=>(
@@ -22258,6 +22262,7 @@ export function GoldstoneShell(){
     const i=pendingGoto.indexOf(":");
     const kind=i<0?pendingGoto:pendingGoto.slice(0,i),id=i<0?"":pendingGoto.slice(i+1);
     if(kind==="tasks"){setActive("tasks");setPendingGoto(null);return;}
+    if(kind==="posts"){setActive("posts");setPendingGoto(null);return;}
     // task:<propId|office>:<taskId> — open that property's task popup on the
     // Dashboard and light the exact task up in gold (email/push deep links).
     if(kind==="task"){const j=id.indexOf(":");const pid=j<0?id:id.slice(0,j),tid=j<0?"":id.slice(j+1);try{window.__taskTarget={propId:pid,taskId:tid};}catch{/* no window */}setActive("tasks");setPendingGoto(null);return;}
@@ -22504,6 +22509,7 @@ export function GoldstoneShell(){
         onEditName={()=>setShowProfile(true)} onEditEmail={()=>setShowEmail(true)} onAddTeammate={()=>setShowAddTeammate(true)} onSignOut={signOut}
         onOpenSection={(k)=>setShowSettings(k)}/>
     : active==="showroom" ? <ShowroomPage isMobile={isMobile}/>
+    : active==="posts"&&isAdmin ? <PostsPage isMobile={isMobile}/>
     : active==="routes" ? <RoutePlannerPage/>
     : active==="contacts" ? <ContactsPage/>
     : active==="email" ? <EmailPage isMobile={isMobile}/>
@@ -22599,6 +22605,8 @@ export function GoldstoneShell(){
         </div>
         </div>
         <PushNudge displayName={displayName}/>
+        <PostWatcher ready={!loading}/>
+        {(active==="tasks"||active==="properties")&&<PostsNudge onOpen={()=>pushPage("posts")}/>}
         <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
           {pageEl}
         </div>

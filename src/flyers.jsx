@@ -152,16 +152,12 @@ export function drawFlyer(ctx, d, ims, logo) {
 
   // Photos
   const n = ims.length;
-  const small = kind === "sold" ? ims.slice(2, 5) : ims.slice(1, 4);
+  // Sold is before / after unless Elie picked "After only" (Elie 9/29/26).
+  const pair = kind === "sold" && d.beforeAfter !== false;
+  const small = pair ? ims.slice(2, 5) : ims.slice(1, 4);
   const heroH = small.length || n === 0 ? 560 : 782;
-  if (kind === "sold") {
-    const hw = (IW - 22) / 2;
-    photo(ctx, ims[0], L, 236, hw, heroH, [20, 0, 0, 20]);
-    photo(ctx, ims[1], L + hw + 22, 236, hw, heroH, [0, 20, 20, 0]);
-    tag(ctx, "BEFORE", L + 22, 258, false);
-    tag(ctx, "AFTER", L + hw + 44, 258, true);
-    // SOLD stamp across the seam
-    ctx.save(); ctx.translate(W / 2, 236 + heroH * 0.46); ctx.rotate(-8 * Math.PI / 180);
+  const stamp = (cx, cy, k) => {
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(-8 * Math.PI / 180); ctx.scale(k, k);
     ctx.font = "700 96px GSCorm, serif"; const sw = spacedWidth(ctx, d.stamp || "SOLD", 13.4) + 82, sh = 112;
     ctx.shadowColor = "rgba(0,0,0,0.35)"; ctx.shadowBlur = 34; ctx.shadowOffsetY = 14;
     rr(ctx, -sw / 2, -sh / 2, sw, sh, 8); ctx.fillStyle = "rgba(21,23,27,0.92)"; ctx.fill(); ctx.shadowColor = "transparent";
@@ -169,6 +165,18 @@ export function drawFlyer(ctx, d, ims, logo) {
     ctx.lineWidth = 2; ctx.strokeStyle = "rgba(233,207,138,0.6)"; rr(ctx, -sw / 2 - 9, -sh / 2 - 9, sw + 18, sh + 18, 12); ctx.stroke();
     ctx.fillStyle = C.goldLt; ctx.textBaseline = "middle"; drawSpaced(ctx, d.stamp || "SOLD", 7, 6, 13.4, "center");
     ctx.restore();
+  };
+  if (kind === "sold" && !pair) {
+    // One big "after" photo, the stamp tucked into its top-right corner.
+    photo(ctx, ims[0], L, 236, IW, heroH, 20);
+    stamp(L + IW - 190, 236 + 96, 0.78);
+  } else if (kind === "sold") {
+    const hw = (IW - 22) / 2;
+    photo(ctx, ims[0], L, 236, hw, heroH, [20, 0, 0, 20]);
+    photo(ctx, ims[1], L + hw + 22, 236, hw, heroH, [0, 20, 20, 0]);
+    tag(ctx, "BEFORE", L + 22, 258, false);
+    tag(ctx, "AFTER", L + hw + 44, 258, true);
+    stamp(W / 2, 236 + heroH * 0.46, 1); // across the seam
   } else {
     photo(ctx, ims[0], L, 236, IW, heroH, 20);
     if (d.badgeBig) {
@@ -282,6 +290,7 @@ export function flyerSpec(f) {
     badgeSmall: kind === "purchased" ? "DAY ONE" : "SQ FT",
     stats: stats.filter((s) => s[0]),
     stamp: (f.kicker || "SOLD").toUpperCase() === "UNDER CONTRACT" ? "PENDING" : "SOLD",
+    beforeAfter: f.beforeAfter !== false,
   };
 }
 
@@ -384,12 +393,13 @@ export function PostWatcher({ ready }) {
 function photosOf(property, ctrJobs, ctrMessages) {
   return mediaOf(property, ctrJobs, ctrMessages).filter((m) => m.kind === "photo" && m.url).sort((a, b) => (a.at || 0) - (b.at || 0));
 }
-function defaultPicks(list, kind) {
+function defaultPicks(list, kind, fields) {
   const urls = list.map((m) => m.url);
   const newest = [...list].reverse();
   const zillow = newest.filter((m) => m.src === "zillow").map((m) => m.url);
   if (kind === "purchased") return urls.slice(0, 4);
   if (kind === "listed") return [...new Set([...zillow, ...newest.map((m) => m.url)])].slice(0, 4);
+  if (fields && fields.beforeAfter === false) return [...new Set([...zillow, ...newest.map((m) => m.url)])].slice(0, 4);
   const before = urls[0], after = zillow[0] || newest[0]?.url;
   const rest = [...new Set([...zillow, ...newest.map((m) => m.url)])].filter((u) => u !== before && u !== after);
   return [before, after, ...rest].filter(Boolean).slice(0, 5);
@@ -450,7 +460,7 @@ export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobi
   const itemId = `${property.id}:${kind}`;
   const saved = items.find((x) => x.id === itemId);
   const [fields, setFields] = useState(() => (saved && saved.fields) || defaultFields(live, kind));
-  const [picks, setPicks] = useState(() => (saved && saved.photos) || defaultPicks(all, kind));
+  const [picks, setPicks] = useState(() => (saved && saved.photos && saved.photos.length ? saved.photos : defaultPicks(all, kind, saved && saved.fields)));
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
   const [zUrl, setZUrl] = useState(live.zillowUrl || (saved && saved.zillowUrl) || "");
@@ -463,10 +473,10 @@ export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobi
     if (k === kind) return;
     saveDraft();
     const s = items.find((x) => x.id === `${property.id}:${k}`);
-    setKind(k); setFields((s && s.fields) || defaultFields(live, k)); setPicks((s && s.photos) || defaultPicks(all, k)); dirty.current = false;
+    setKind(k); setFields((s && s.fields) || defaultFields(live, k)); setPicks(s && s.photos && s.photos.length ? s.photos : defaultPicks(all, k, s && s.fields)); dirty.current = false;
   };
   // Media photos may arrive after open (first load / Zillow copy) — fill empty picks.
-  useEffect(() => { if (!picks.length && all.length) setPicks(defaultPicks(all, kind)); }, [all.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!picks.length && all.length) setPicks(defaultPicks(all, kind, fields)); }, [all.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k, v) => { dirty.current = true; setFields((f) => ({ ...f, [k]: v })); };
   const toggle = (url) => { dirty.current = true; setPicks((p) => (p.includes(url) ? p.filter((u) => u !== url) : [...p, url].slice(0, kind === "sold" ? 5 : 4))); };
   const cur = saved || { id: itemId, propId: property.id, kind, status: "draft" };
@@ -478,8 +488,15 @@ export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobi
     dirty.current = false;
   };
   const close = () => { saveDraft(); onClose(); };
-  const maxPicks = kind === "sold" ? 5 : 4;
-  const pickLabel = (i) => (kind === "sold" ? (i === 0 ? "BEFORE" : i === 1 ? "AFTER" : String(i + 1)) : String(i + 1));
+  const pair = kind === "sold" && fields.beforeAfter !== false;
+  const maxPicks = pair ? 5 : 4;
+  const pickLabel = (i) => (pair ? (i === 0 ? "BEFORE" : i === 1 ? "AFTER" : String(i + 1)) : String(i + 1));
+  // Sold: drop the before picture (or bring the oldest photo back as it).
+  const setPair = (on) => {
+    if (on === pair) return;
+    set("beforeAfter", on);
+    setPicks((p) => (on ? [all[0] && !p.includes(all[0].url) ? all[0].url : null, ...p].filter(Boolean).slice(0, 5) : p.slice(1)));
+  };
 
   const addFiles = async (files) => {
     if (!files || !files.length) return;
@@ -532,9 +549,9 @@ export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobi
 
   const footer = <>
     {err && <div style={{ color: T.red, fontSize: 13, fontWeight: 600, textAlign: "center" }}>{err}</div>}
-    {status === "approved" && <div style={{ fontSize: 13, color: T.textSub, textAlign: "center" }}>✓ Approved — waiting for Cowork to post it. Changed something? Tap Re-approve.</div>}
+    {status === "approved" && <div style={{ fontSize: 13, color: T.textSub, textAlign: "center" }}>✓ Approved — in Ready to post. It goes on Facebook when you tell Cowork “post my approved flyers” (or your scheduled task runs).</div>}
     {status === "posted" && <div style={{ fontSize: 13, color: T.green, textAlign: "center", fontWeight: 600 }}>✓ Posted {cur.postedAt ? new Date(cur.postedAt).toLocaleDateString() : ""}</div>}
-    <button disabled={!!busy} onClick={approve} style={{ ...BTN_P, opacity: busy ? 0.6 : 1 }}>{busy || (status === "approved" ? "✓ Re-approve with changes" : status === "posted" ? "✓ Approve again (post again)" : "✓ Approve — Cowork posts it")}</button>
+    <button disabled={!!busy} onClick={approve} style={{ ...BTN_P, opacity: busy ? 0.6 : 1 }}>{busy || (status === "approved" ? "✓ Re-approve with changes" : status === "posted" ? "✓ Approve again (post again)" : "✓ Approve — ready to post")}</button>
     <button disabled={!!busy} onClick={savePic} style={BTN_S}>Save picture</button>
   </>;
 
@@ -552,7 +569,11 @@ export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobi
       <div style={{ ...SEG, margin: "12px 0" }}>{POST_KINDS.map((k) => <button key={k.key} onClick={() => switchKind(k.key)} style={segBtn(kind === k.key)}>{k.label}</button>)}</div>
       <div style={{ maxWidth: isMobile ? 300 : 340, margin: "0 auto" }}><FlyerCanvas fields={fields} photos={picks} /></div>
 
-      <div style={LAB}>Photos · tap in order — {kind === "sold" ? "#1 before, #2 after" : "#1 is the big one"}</div>
+      {kind === "sold" && <div style={{ ...SEG, marginTop: 14 }}>
+        <button onClick={() => setPair(true)} style={segBtn(pair)}>Before &amp; after</button>
+        <button onClick={() => setPair(false)} style={segBtn(!pair)}>After only</button>
+      </div>}
+      <div style={LAB}>Photos · tap in order — {pair ? "#1 before, #2 after" : "#1 is the big one"}</div>
       <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, scrollbarWidth: "none" }}>
         <button onClick={() => fileRef.current && fileRef.current.click()} style={{ flex: "0 0 72px", height: 72, borderRadius: 12, border: `1.5px dashed ${T.gold}`, background: "#fff", color: T.gold, fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit", lineHeight: 1.2 }}>＋<br />Add photos</button>
         <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
@@ -678,7 +699,7 @@ export function PostsPage({ isMobile }) {
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: isMobile ? 24 : 28, fontWeight: 700, color: T.text, letterSpacing: "-0.4px" }}>Social Posts</div>
-            <div style={{ fontSize: 13, color: T.textSub }}>You approve · your Cowork posts to Facebook</div>
+            <div style={{ fontSize: 13, color: T.textSub }}>You approve · then say “post my approved flyers” in Cowork</div>
           </div>
           <button onClick={() => setPickNew(true)} style={{ minHeight: 40, padding: "0 16px", borderRadius: 20, border: "none", background: T.gold, color: "#fff", fontWeight: 650, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>＋ New post</button>
         </div>
@@ -720,6 +741,7 @@ export function PostsPage({ isMobile }) {
                 {it.status === "draft" && <button onClick={() => setEdit({ property: p, kind: it.kind })} style={{ minHeight: 36, padding: "0 16px", borderRadius: 18, border: "none", background: T.gold, color: "#fff", fontWeight: 650, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>Review</button>}
               </div>
               {it.status === "approved" && <>
+                <div style={{ fontSize: 13, color: T.gold, fontWeight: 600, marginTop: 10 }}>⏳ Waiting for Cowork — say “post my approved flyers” in Cowork</div>
                 {it.imageUrl && <img src={it.imageUrl} alt="Flyer" data-role="flyer-image" style={{ width: "100%", maxWidth: 360, display: "block", margin: "12px auto 0", borderRadius: 8 }} />}
                 <div data-role="caption" style={{ background: T.bg, borderRadius: 12, padding: "10px 12px", marginTop: 10, fontSize: 14, color: T.text, lineHeight: 1.4, whiteSpace: "pre-wrap", userSelect: "text" }}>{it.caption || ""}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>

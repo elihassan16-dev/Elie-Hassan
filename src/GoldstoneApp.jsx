@@ -13951,7 +13951,7 @@ function FinPaybackModal({draw,funder,onConfirm,onPartial,onClose}){
   const[holdWhat,setHoldWhat]=useState("both");
   const[showAdv,setShowAdv]=useState(false);
   const[holdAcct,setHoldAcct]=useState(""); // optional: which bank account holds the money that stays
-  const {bankAccounts,setBankAccounts,flushBank}=useData()||{};
+  const {bankAccounts,setBankAccounts,flushBank,draws:allDraws}=useData()||{};
   // 📄 Payoff statement PDF for the lender (Elie 9/30/26) — built from exactly
   // what's on screen (date + the option picked), previewed, then shared.
   const[showStmt,setShowStmt]=useState(false);
@@ -13963,6 +13963,13 @@ function FinPaybackModal({draw,funder,onConfirm,onPartial,onClose}){
   const prev={...draw,paybackDate:date};
   const pr=drawBalance(prev), paidSoFar=drawPaid(prev);
   const days=drawDays(prev), int=drawInterest(prev);
+  // Every funding this lender put into the same property (a second wire a
+  // couple of weeks later is its own draw) that's still open or paid back on
+  // this same date — each is its own line on the statement (Elie 9/30/26).
+  const sameProp=(d)=>draw.propertyId!=null&&d.propertyId!=null?String(d.propertyId)===String(draw.propertyId):String(d.propertyLabel||"").trim().toLowerCase()===String(draw.propertyLabel||"").trim().toLowerCase();
+  const sameLender=(d)=>draw.funderId!=null&&d.funderId!=null?String(d.funderId)===String(draw.funderId):sameName(d.funderName,draw.funderName);
+  const stmtLoans=[prev,...(mode==="part"?[]:(allDraws||[]).filter(d=>d.id!==draw.id&&d.dateFunded&&sameProp(d)&&sameLender(d)&&(!d.paybackDate||String(d.paybackDate).slice(0,10)===String(date).slice(0,10))&&String(d.dateFunded)<=String(date)))]
+    .map(d=>({amount:Number(d.amount)||0,dateFunded:d.dateFunded,payments:d.payments||[],rate:drawRate(d)}));
   // Money that STAYS with the company (kept principal + reinvested interest)
   // physically sits in one of the bank accounts — track which one so Bank
   // Recon expects it there.
@@ -14055,8 +14062,8 @@ function FinPaybackModal({draw,funder,onConfirm,onPartial,onClose}){
         </div>
       )}
       {mode&&<div style={{background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:11,padding:"9px 12px",fontSize:12.5,color:"#8a6d1f",lineHeight:1.6}}>{sentence}</div>}
-      {!bad&&(mode!=="part"||partOk)&&<button onClick={()=>setShowStmt(true)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,minHeight:44,borderRadius:12,border:`1px solid ${T.gold}`,background:"#fff",color:"#8a6d1f",fontWeight:700,fontSize:13.5,cursor:"pointer",fontFamily:"inherit"}}>📄 {mode==="part"?"Paydown":"Payoff"} statement — preview &amp; send</button>}
-      {showStmt&&<PayoffStatementSheet isMobile={stmtMobile} onClose={()=>setShowStmt(false)} spec={{funderName:(funder&&funder.name)||draw.funderName||"",property:draw.propertyLabel||"",dateFunded:draw.dateFunded,amount:Number(draw.amount)||0,payments:draw.payments||[],payoffDate:date,rate:drawRate(prev),mode,holdWhat,partAmount:partVal,preparedBy:meName||"Elie Hassan"}}/>}
+      {!bad&&(mode!=="part"||partOk)&&<button onClick={()=>setShowStmt(true)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,minHeight:44,borderRadius:12,border:`1px solid ${T.gold}`,background:"#fff",color:"#8a6d1f",fontWeight:700,fontSize:13.5,cursor:"pointer",fontFamily:"inherit"}}>📄 {mode==="part"?"Paydown":"Payoff"} statement — preview &amp; send{stmtLoans.length>1?` (${stmtLoans.length} fundings)`:""}</button>}
+      {showStmt&&<PayoffStatementSheet isMobile={stmtMobile} onClose={()=>setShowStmt(false)} spec={{funderName:(funder&&funder.name)||draw.funderName||"",property:draw.propertyLabel||"",loans:stmtLoans,payoffDate:date,mode,partAmount:partVal,preparedBy:meName||"Elie Hassan"}}/>}
       {/* Fine-tune radios live under Advanced — the chips cover the normal cases */}
       {mode!=="part"&&<button onClick={()=>setShowAdv(v=>!v)} style={{background:"none",border:"none",color:T.textTert,fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left",padding:"0 2px"}}>{showAdv?"▾":"›"} Advanced — fine-tune principal / interest</button>}
       {mode!=="part"&&showAdv&&<>

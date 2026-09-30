@@ -42,13 +42,20 @@ export async function payoffPdfFile(s) {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "letter" }); // 612 x 792
   const W = 612, H = 792, M = 64, R = W - M;
-  const rate = Number(s.rate) || 0;
-  const { periods, balance, paydowns } = payoffPeriods({ amount: s.amount, dateFunded: s.dateFunded, payments: s.payments, end: s.payoffDate, rate });
-  const interest = periods.reduce((t, p) => t + p.interest, 0);
+  // Every funding this lender put into the deal (a second wire a couple of
+  // weeks later is its own loan) — one line each, then the totals.
+  const loans = (s.loans && s.loans.length ? s.loans : [{ amount: s.amount, dateFunded: s.dateFunded, payments: s.payments, rate: s.rate }])
+    .map((l) => { const rate = Number(l.rate) || 0; const r = payoffPeriods({ amount: l.amount, dateFunded: l.dateFunded, payments: l.payments, end: s.payoffDate, rate });
+      return { ...l, rate, ...r, interest: r.periods.reduce((t, p) => t + p.interest, 0), days: days(l.dateFunded, s.payoffDate), perDiem: r.balance * rate / 365 }; })
+    .sort((a, b) => String(a.dateFunded).localeCompare(String(b.dateFunded)));
+  const multi = loans.length > 1;
+  const balance = loans.reduce((t, l) => t + l.balance, 0);
+  const interest = loans.reduce((t, l) => t + l.interest, 0);
   const total = balance + interest;
-  const perDiem = balance * rate / 365;
-  const termDays = days(s.dateFunded, s.payoffDate);
-  const pct = `${Math.round(rate * 10000) / 100}%`;
+  const perDiem = loans.reduce((t, l) => t + l.perDiem, 0);
+  const pctOf = (r) => `${Math.round(r * 10000) / 100}%`;
+  const sameRate = loans.every((l) => l.rate === loans[0].rate);
+  const pct = pctOf(loans[0].rate);
   const part = s.mode === "part";
   const who = String(s.funderName || "").trim();
 
@@ -79,15 +86,9 @@ export async function payoffPdfFile(s) {
   };
   para(`Dear ${who || "Partner"},`, { after: 6 });
   const place = s.property || "the property";
-  const lead = part
-    ? `We're writing to confirm a partial paydown on your loan for ${place}.`
-    : `We're pleased to let you know that we have completed the sale of ${place}.`;
-  const how = part ? ""
-    : s.mode === "int" ? " Your interest is being distributed, and your principal remains with Goldstone to redeploy into our next project."
-    : s.mode === "prin" ? " Your principal is being returned, and your interest is being reinvested onto your balance."
-    : s.mode === "hold" ? " Your funds will remain with Goldstone to redeploy into our next project."
-    : " Your loan has been paid off in full.";
-  para(`${lead}${how} Please see the breakdown of your ${part ? "paydown" : "distribution"} below.`, { after: 16 });
+  para(part
+    ? `We're writing to confirm a partial paydown on your loan for ${place}. Please see the breakdown below.`
+    : `We're pleased to let you know that we have completed the sale of ${place}. Please see the breakdown of your distribution below.`, { after: 16 });
 
   // ── Breakdown
   const row = (label, val, opts = {}) => {
@@ -99,20 +100,41 @@ export async function payoffPdfFile(s) {
     doc.setDrawColor(...LINE); doc.setLineWidth(0.5); if (!opts.noLine) doc.line(M, y + 7, R, y + 7);
     y += opts.gap || rowGap;
   };
-  // Tighter rows when a loan had paydowns (more lines) so it stays one page.
-  const rowGap = paydowns.length ? 18 : 22;
+  // Tighter rows when there are more lines (paydowns, several fundings) so it stays one page.
+  const lineCount = loans.reduce((t, l) => t + 2 + l.paydowns.length + (l.periods.length > 1 ? l.periods.length : 0), 0) + (multi ? 4 : 0);
+  const rowGap = lineCount > 13 ? 17 : lineCount > 10 ? 19 : 22;
+  const subGap = rowGap - 2;
   doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...SUB);
   doc.text("BREAKDOWN", M, y, { charSpace: 1.5 }); y += 8;
   doc.setDrawColor(...GOLD); doc.setLineWidth(1); doc.line(M, y, R, y); y += 18;
-  row(`Amount funded — ${longDate(s.dateFunded)}`, money(s.amount), { boldVal: true });
-  paydowns.forEach((p) => row(`Principal paid down — ${longDate(p.date)}`, `(${money(p.amount)})`, { color: SUB, indent: 12 }));
-  if (paydowns.length) row("Principal outstanding", money(balance), { boldVal: true });
-  row(part ? "Paydown date" : "Payback date", longDate(s.payoffDate), { boldVal: true });
-  row("Term", `${termDays} day${termDays === 1 ? "" : "s"}`);
-  row("Interest rate", `${pct} per year`);
-  row(`Daily interest${paydowns.length ? ` (on ${money(balance)})` : ""}`, `${money(perDiem)} per day`);
-  if (periods.length > 1) periods.forEach((p) => row(`${shortDate(p.from)} – ${shortDate(p.to)} · ${p.days} days on ${money(p.bal)}`, money(p.interest), { color: SUB, indent: 12, size: 9.5, gap: paydowns.length ? 16 : 18 }));
-  row("Total interest", money(interest), { boldVal: true });
+  const periodRows = (l) => { if (l.periods.length > 1) l.periods.forEach((p) => row(`${shortDate(p.from)} – ${shortDate(p.to)} · ${p.days} days on ${money(p.bal)}`, money(p.interest), { color: SUB, indent: 24, size: 9.5, gap: subGap })); };
+  if (!multi) {
+    const l = loans[0];
+    row(`Amount funded — ${longDate(l.dateFunded)}`, money(l.amount), { boldVal: true });
+    l.paydowns.forEach((p) => row(`Principal paid down — ${longDate(p.date)}`, `(${money(p.amount)})`, { color: SUB, indent: 12 }));
+    if (l.paydowns.length) row("Principal outstanding", money(l.balance), { boldVal: true });
+    row(part ? "Paydown date" : "Payback date", longDate(s.payoffDate), { boldVal: true });
+    row("Term", `${l.days} day${l.days === 1 ? "" : "s"}`);
+    row("Interest rate", `${pct} per year`);
+    row(`Daily interest${l.paydowns.length ? ` (on ${money(l.balance)})` : ""}`, `${money(perDiem)} per day`);
+    periodRows(l);
+    row("Total interest", money(interest), { boldVal: true });
+  } else {
+    // One block per funding: amount + date, its paydowns, its own days / daily / interest.
+    loans.forEach((l, i) => {
+      row(`Funding ${i + 1} — ${longDate(l.dateFunded)}`, money(l.amount), { bold: true });
+      l.paydowns.forEach((p) => row(`Principal paid down — ${longDate(p.date)}`, `(${money(p.amount)})`, { color: SUB, indent: 12, gap: subGap }));
+      row(`Interest · ${l.days} day${l.days === 1 ? "" : "s"} at ${money(l.perDiem)} per day${sameRate ? "" : ` (${pctOf(l.rate)})`}`, money(l.interest), { color: SUB, indent: 12, gap: subGap });
+      periodRows(l);
+      y += rowGap < 22 ? 2 : 6; // a breath between fundings
+    });
+    y += 2;
+    row(part ? "Paydown date" : "Payback date", longDate(s.payoffDate), { boldVal: true });
+    if (sameRate) row("Interest rate", `${pct} per year`);
+    row("Total principal", money(balance), { boldVal: true });
+    row("Daily interest", `${money(perDiem)} per day`);
+    row("Total interest", money(interest), { boldVal: true });
+  }
   y += 6;
 
   // ── Principal + interest box
@@ -125,19 +147,16 @@ export async function payoffPdfFile(s) {
   doc.text(`${money(balance)} principal + ${money(interest)} interest`, M + 18, y + 36);
   doc.setFont("times", "bold"); doc.setFontSize(26); doc.setTextColor(...INK);
   doc.text(money(total), R - 18, y + 34, { align: "right" });
-  y += boxH + (paydowns.length ? 14 : 20);
+  y += boxH + (rowGap < 22 ? 14 : 20);
 
-  // How the money moves, when it isn't simply everything paid out.
-  const pa = Number(s.partAmount) || 0;
-  const split = part ? [["Principal paid back now", money(pa)], ["Principal remaining on the loan", money(Math.max(0, balance - pa))]]
-    : s.mode === "int" ? [["Interest distributed to you", money(interest)], ["Principal remaining with Goldstone", money(balance)]]
-    : s.mode === "prin" ? [["Principal returned to you", money(balance)], ["Interest reinvested onto your balance", money(interest)]]
-    : s.mode === "hold" ? (s.holdWhat === "prin" ? [["Interest distributed to you", money(interest)], ["Principal remaining with Goldstone", money(balance)]]
-      : s.holdWhat === "int" ? [["Principal returned to you", money(balance)], ["Interest remaining with Goldstone", money(interest)]]
-      : [["Remaining with Goldstone", money(total)]])
-    : [];
-  split.forEach(([k, v]) => row(k, v, { boldVal: true }));
-  if (split.length) y += 4;
+  // A partial paydown: what comes back now and what's still on the loan.
+  // (Where the rest of the money sits is Goldstone's internal business — not on the letter.)
+  if (part) {
+    const pa = Number(s.partAmount) || 0;
+    row("Principal paid back now", money(pa), { boldVal: true });
+    row("Principal remaining on the loan", money(Math.max(0, balance - pa)), { boldVal: true });
+    y += 4;
+  }
 
   // ── Closing + signature (onto a second page only if a long history needs it)
   if (y + 108 > H - 70) { doc.addPage(); y = 90; } // closing + signature need ~108pt above the fine print
@@ -151,7 +170,7 @@ export async function payoffPdfFile(s) {
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i);
     doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...SUB);
-    doc.text(`Interest is simple interest at ${pct} per year on the outstanding principal, counted on actual days over a 365-day year.`, W / 2, H - 58, { align: "center" });
+    doc.text(`Interest is simple interest${sameRate ? ` at ${pct} per year` : ""} on the outstanding principal, counted on actual days over a 365-day year.`, W / 2, H - 58, { align: "center" });
     doc.setDrawColor(...GOLD); doc.setLineWidth(0.6); doc.line(M, H - 46, R, H - 46);
     doc.setFontSize(8); doc.text(`${CO.name}  ·  ${CO.addr}${pages > 1 ? `  ·  Page ${i} of ${pages}` : ""}`, W / 2, H - 32, { align: "center" });
   }

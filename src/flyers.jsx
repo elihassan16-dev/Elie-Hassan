@@ -154,7 +154,10 @@ export function drawFlyer(ctx, d, ims, logo) {
   const n = ims.length;
   // Sold is before / after unless Elie picked "After only" (Elie 9/29/26).
   const pair = kind === "sold" && d.beforeAfter !== false;
-  const small = pair ? ims.slice(2, 5) : ims.slice(1, 4);
+  // Stacked: before on top, after below, both full width — wide house photos
+  // keep their whole front instead of being cut to two tall halves (Elie 9/30/26).
+  const stacked = pair && d.soldLayout === "stack";
+  const small = stacked ? [] : pair ? ims.slice(2, 5) : ims.slice(1, 4);
   const heroH = small.length || n === 0 ? 560 : 782;
   const stamp = (cx, cy, k) => {
     ctx.save(); ctx.translate(cx, cy); ctx.rotate(-8 * Math.PI / 180); ctx.scale(k, k);
@@ -170,6 +173,13 @@ export function drawFlyer(ctx, d, ims, logo) {
     // One big "after" photo, the stamp tucked into its top-right corner.
     photo(ctx, ims[0], L, 236, IW, heroH, 20);
     stamp(L + IW - 190, 236 + 96, 0.78);
+  } else if (stacked) {
+    const g = 16, h = (heroH - g) / 2;
+    photo(ctx, ims[0], L, 236, IW, h, 20);
+    photo(ctx, ims[1], L, 236 + h + g, IW, h, 20);
+    tag(ctx, "BEFORE", L + 22, 258, false);
+    tag(ctx, "AFTER", L + 22, 236 + h + g + 22, true);
+    stamp(L + IW - 200, 236 + h + g / 2, 0.8); // on the seam, off to the right
   } else if (kind === "sold") {
     const hw = (IW - 22) / 2;
     photo(ctx, ims[0], L, 236, hw, heroH, [20, 0, 0, 20]);
@@ -291,6 +301,7 @@ export function flyerSpec(f) {
     stats: stats.filter((s) => s[0]),
     stamp: (f.kicker || "SOLD").toUpperCase() === "UNDER CONTRACT" ? "PENDING" : "SOLD",
     beforeAfter: f.beforeAfter !== false,
+    soldLayout: f.soldLayout || "side",
   };
 }
 
@@ -478,7 +489,7 @@ export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobi
   // Media photos may arrive after open (first load / Zillow copy) — fill empty picks.
   useEffect(() => { if (!picks.length && all.length) setPicks(defaultPicks(all, kind, fields)); }, [all.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k, v) => { dirty.current = true; setFields((f) => ({ ...f, [k]: v })); };
-  const toggle = (url) => { dirty.current = true; setPicks((p) => (p.includes(url) ? p.filter((u) => u !== url) : [...p, url].slice(0, kind === "sold" ? 5 : 4))); };
+  const toggle = (url) => { dirty.current = true; setPicks((p) => (p.includes(url) ? p.filter((u) => u !== url) : [...p, url].slice(0, maxPicks))); };
   const cur = saved || { id: itemId, propId: property.id, kind, status: "draft" };
   const saveDraft = (extra = {}) => {
     if (!dirty.current && !Object.keys(extra).length) return;
@@ -489,9 +500,18 @@ export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobi
   };
   const close = () => { saveDraft(); onClose(); };
   const pair = kind === "sold" && fields.beforeAfter !== false;
-  const maxPicks = pair ? 5 : 4;
+  const stacked = pair && fields.soldLayout === "stack";
+  const maxPicks = stacked ? 2 : pair ? 5 : 4;
   const pickLabel = (i) => (pair ? (i === 0 ? "BEFORE" : i === 1 ? "AFTER" : String(i + 1)) : String(i + 1));
   // Sold: drop the before picture (or bring the oldest photo back as it).
+  // Stacked holds just the two; the smaller ones come back on Side by side.
+  const spare = useRef([]);
+  const setLayout = (v) => {
+    if ((v === "stack") === stacked) return;
+    set("soldLayout", v);
+    if (v === "stack") { spare.current = picks.slice(2); setPicks(picks.slice(0, 2)); }
+    else { const back = spare.current; spare.current = []; setPicks((p) => [...new Set([...p, ...back])].slice(0, 5)); }
+  };
   const setPair = (on) => {
     if (on === pair) return;
     set("beforeAfter", on);
@@ -573,7 +593,11 @@ export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobi
         <button onClick={() => setPair(true)} style={segBtn(pair)}>Before &amp; after</button>
         <button onClick={() => setPair(false)} style={segBtn(!pair)}>After only</button>
       </div>}
-      <div style={LAB}>Photos · tap in order — {pair ? "#1 before, #2 after" : "#1 is the big one"}</div>
+      {pair && <div style={{ ...SEG, marginTop: 8 }}>
+        <button onClick={() => setLayout("side")} style={segBtn(!stacked)}>Side by side</button>
+        <button onClick={() => setLayout("stack")} style={segBtn(stacked)}>Stacked (wide)</button>
+      </div>}
+      <div style={LAB}>Photos · tap in order — {stacked ? "#1 before (top), #2 after" : pair ? "#1 before, #2 after" : "#1 is the big one"}</div>
       <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, scrollbarWidth: "none" }}>
         <button onClick={() => fileRef.current && fileRef.current.click()} style={{ flex: "0 0 72px", height: 72, borderRadius: 12, border: `1.5px dashed ${T.gold}`, background: "#fff", color: T.gold, fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit", lineHeight: 1.2 }}>＋<br />Add photos</button>
         <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />

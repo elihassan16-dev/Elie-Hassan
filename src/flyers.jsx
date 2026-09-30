@@ -98,16 +98,37 @@ function fitFont(ctx, text, maxW, size, make, min = 12) {
   while (s > min && ctx.measureText(text).width > maxW) { s -= 1; ctx.font = make(s); }
   return s;
 }
-function photo(ctx, im, x, y, w, h, r) {
-  ctx.save();
-  ctx.shadowColor = "rgba(30,25,15,0.16)"; ctx.shadowBlur = 28; ctx.shadowOffsetY = 12;
-  rr(ctx, x, y, w, h, r); ctx.fillStyle = "#D9CFBC"; ctx.fill();
-  ctx.restore();
+// Where a photo sits inside its box. cr = {z, px, py}: zoom (1 = fills the
+// box; below 1 shrinks toward showing the whole picture) and the point of the
+// picture at the box's centre (0–1). Pinch / drag in the editor sets these.
+export function cropMath(im, w, h, cr) {
+  const iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
+  const cover = Math.max(w / iw, h / ih), fit = Math.min(w / iw, h / ih);
+  const z = Math.min(5, Math.max(fit / cover, (cr && cr.z) || 1));
+  const dw = iw * cover * z, dh = ih * cover * z;
+  const px = cr && cr.px != null ? cr.px : 0.5, py = cr && cr.py != null ? cr.py : 0.5;
+  let dx = w / 2 - px * dw, dy = h / 2 - py * dh;
+  dx = dw >= w ? Math.min(0, Math.max(w - dw, dx)) : (w - dw) / 2;
+  dy = dh >= h ? Math.min(0, Math.max(h - dh, dy)) : (h - dh) / 2;
+  return { dx, dy, dw, dh, z, minZ: fit / cover };
+}
+function photo(ctx, im, x, y, w, h, r, cr, shadow = true) {
+  if (shadow) {
+    ctx.save();
+    ctx.shadowColor = "rgba(30,25,15,0.16)"; ctx.shadowBlur = 28; ctx.shadowOffsetY = 12;
+    rr(ctx, x, y, w, h, r); ctx.fillStyle = "#D9CFBC"; ctx.fill();
+    ctx.restore();
+  }
   ctx.save(); rr(ctx, x, y, w, h, r); ctx.clip();
   if (im) {
-    const s = Math.max(w / im.naturalWidth, h / im.naturalHeight);
-    const dw = im.naturalWidth * s, dh = im.naturalHeight * s;
-    ctx.drawImage(im, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+    const m = cropMath(im, w, h, cr);
+    if (m.dw < w - 0.5 || m.dh < h - 0.5) {
+      // Zoomed out past the box: a soft wash of the same picture behind it.
+      ctx.fillStyle = "#E9E2D3"; ctx.fillRect(x, y, w, h);
+      const c = cropMath(im, w, h, null);
+      ctx.globalAlpha = 0.28; ctx.drawImage(im, x + c.dx, y + c.dy, c.dw, c.dh); ctx.globalAlpha = 1;
+    }
+    ctx.drawImage(im, x + m.dx, y + m.dy, m.dw, m.dh);
   } else {
     const g = ctx.createLinearGradient(x, y, x + w, y + h); g.addColorStop(0, "#E4DCCB"); g.addColorStop(1, "#D3C8B2");
     ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
@@ -150,14 +171,26 @@ export function drawFlyer(ctx, d, ims, logo) {
   ctx.fillStyle = C.ink; fitFont(ctx, d.title || "", tw, 76, (s) => `600 ${s}px GSCorm, serif`, 36); ctx.fillText(d.title || "", tx, 118);
   ctx.fillStyle = C.sub; fitFont(ctx, d.sub || "", tw, 31, (s) => `italic 500 ${s}px GSCorm, serif`, 18); ctx.fillText(d.sub || "", tx, 176);
 
-  // Photos
+  // Photos. Every box is recorded in `slots` (i = which picked photo) so a tap
+  // on the preview can open that photo to pinch / drag it.
   const n = ims.length;
+  const urls = d.photoUrls || [];
+  const crops = d.crops || {};
+  const slots = [];
+  const ph = (i, x, y, w, h, r, hit, shadow = true) => {
+    photo(ctx, ims[i], x, y, w, h, r, crops[urls[i]], shadow);
+    slots.push({ i, x, y, w, h, hit: hit || [x, y, w, h] });
+  };
   // Sold is before / after unless Elie picked "After only" (Elie 9/29/26).
+  // Layouts (Elie 9/30/26): side = two tall halves, stack = before on top /
+  // after below (wide photos keep the whole front), corner = big after with a
+  // small before in its top-left corner, diagonal = one picture split on a
+  // slant, row = big after with the before as the first small photo.
   const pair = kind === "sold" && d.beforeAfter !== false;
-  // Stacked: before on top, after below, both full width — wide house photos
-  // keep their whole front instead of being cut to two tall halves (Elie 9/30/26).
-  const stacked = pair && d.soldLayout === "stack";
-  const small = stacked ? [] : pair ? ims.slice(2, 5) : ims.slice(1, 4);
+  const lay = pair ? (d.soldLayout || "side") : "";
+  const stacked = lay === "stack";
+  const smallIdx = stacked ? [] : lay === "row" ? [0, 2, 3] : pair ? [2, 3, 4] : [1, 2, 3];
+  const small = smallIdx.filter((i) => i < n);
   const heroH = small.length || n === 0 ? 560 : 782;
   const stamp = (cx, cy, k) => {
     ctx.save(); ctx.translate(cx, cy); ctx.rotate(-8 * Math.PI / 180); ctx.scale(k, k);
@@ -169,30 +202,55 @@ export function drawFlyer(ctx, d, ims, logo) {
     ctx.fillStyle = C.goldLt; ctx.textBaseline = "middle"; drawSpaced(ctx, d.stamp || "SOLD", 7, 6, 13.4, "center");
     ctx.restore();
   };
+  const tagW = (t) => { ctx.font = "800 15px GSInt, sans-serif"; return spacedWidth(ctx, t, 3.9) + 28; };
+  const Y = 236;
   if (kind === "sold" && !pair) {
     // One big "after" photo, the stamp tucked into its top-right corner.
-    photo(ctx, ims[0], L, 236, IW, heroH, 20);
-    stamp(L + IW - 190, 236 + 96, 0.78);
+    ph(0, L, Y, IW, heroH, 20);
+    stamp(L + IW - 190, Y + 96, 0.78);
   } else if (stacked) {
     const g = 16, h = (heroH - g) / 2;
-    photo(ctx, ims[0], L, 236, IW, h, 20);
-    photo(ctx, ims[1], L, 236 + h + g, IW, h, 20);
-    tag(ctx, "BEFORE", L + 22, 258, false);
-    tag(ctx, "AFTER", L + 22, 236 + h + g + 22, true);
-    stamp(L + IW - 200, 236 + h + g / 2, 0.8); // on the seam, off to the right
+    ph(0, L, Y, IW, h, 20);
+    ph(1, L, Y + h + g, IW, h, 20);
+    tag(ctx, "BEFORE", L + 22, Y + 22, false);
+    tag(ctx, "AFTER", L + 22, Y + h + g + 22, true);
+    stamp(L + IW - 200, Y + h + g / 2, 0.8); // on the seam, off to the right
+  } else if (lay === "corner") {
+    ph(1, L, Y, IW, heroH, 20);
+    const iw = 372, ih = 279, ix = L + 24, iy = Y + 24;
+    ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.3)"; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8;
+    rr(ctx, ix - 8, iy - 8, iw + 16, ih + 16, 18); ctx.fillStyle = C.bg; ctx.fill(); ctx.restore();
+    ph(0, ix, iy, iw, ih, 12, null, false);
+    tag(ctx, "BEFORE", ix + 14, iy + 14, false);
+    tag(ctx, "AFTER", L + 22, Y + heroH - 58, true);
+    stamp(L + IW - 190, Y + heroH - 96, 0.78);
+  } else if (lay === "diagonal") {
+    const t = 0.6, b2 = 0.4;
+    ph(1, L, Y, IW, heroH, 20, [L + IW / 2, Y, IW / 2, heroH]);
+    ctx.save(); ctx.beginPath(); ctx.moveTo(L, Y); ctx.lineTo(L + IW * t, Y); ctx.lineTo(L + IW * b2, Y + heroH); ctx.lineTo(L, Y + heroH); ctx.closePath(); ctx.clip();
+    ph(0, L, Y, IW, heroH, 20, [L, Y, IW / 2, heroH], false);
+    ctx.restore();
+    ctx.save(); ctx.strokeStyle = C.goldLt; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(L + IW * t, Y); ctx.lineTo(L + IW * b2, Y + heroH); ctx.stroke(); ctx.restore();
+    tag(ctx, "BEFORE", L + 22, Y + 22, false);
+    tag(ctx, "AFTER", L + IW - 22 - tagW("AFTER"), Y + 22, true);
+    stamp(L + IW - 190, Y + heroH - 96, 0.78);
+  } else if (lay === "row") {
+    ph(1, L, Y, IW, heroH, 20);
+    tag(ctx, "AFTER", L + 22, Y + 22, true);
+    stamp(L + IW - 190, Y + 96, 0.78);
   } else if (kind === "sold") {
     const hw = (IW - 22) / 2;
-    photo(ctx, ims[0], L, 236, hw, heroH, [20, 0, 0, 20]);
-    photo(ctx, ims[1], L + hw + 22, 236, hw, heroH, [0, 20, 20, 0]);
-    tag(ctx, "BEFORE", L + 22, 258, false);
-    tag(ctx, "AFTER", L + hw + 44, 258, true);
-    stamp(W / 2, 236 + heroH * 0.46, 1); // across the seam
+    ph(0, L, Y, hw, heroH, [20, 0, 0, 20]);
+    ph(1, L + hw + 22, Y, hw, heroH, [0, 20, 20, 0]);
+    tag(ctx, "BEFORE", L + 22, Y + 22, false);
+    tag(ctx, "AFTER", L + hw + 44, Y + 22, true);
+    stamp(W / 2, Y + heroH * 0.46, 1); // across the seam
   } else {
-    photo(ctx, ims[0], L, 236, IW, heroH, 20);
+    ph(0, L, Y, IW, heroH, 20);
     if (d.badgeBig) {
       ctx.font = "600 52px GSCorm, serif"; const bw1 = ctx.measureText(d.badgeBig).width;
       ctx.font = "700 14px GSInt, sans-serif"; const bw2 = d.badgeSmall ? spacedWidth(ctx, d.badgeSmall, 3.1) : 0;
-      const bw = 40 + bw1 + (bw2 ? 12 + bw2 : 0), bh = 80, bx = L + 24, by = 236 + heroH - 24 - bh;
+      const bw = 40 + bw1 + (bw2 ? 12 + bw2 : 0), bh = 80, bx = L + 24, by = Y + heroH - 24 - bh;
       rr(ctx, bx, by, bw, bh, 14); ctx.fillStyle = "rgba(21,23,27,0.86)"; ctx.fill();
       ctx.textBaseline = "alphabetic";
       ctx.fillStyle = C.goldLt; ctx.font = "600 52px GSCorm, serif"; ctx.fillText(d.badgeBig, bx + 20, by + 58);
@@ -202,7 +260,10 @@ export function drawFlyer(ctx, d, ims, logo) {
   }
   if (small.length) {
     const g = 22, w = (IW - g * (small.length - 1)) / small.length;
-    small.forEach((im, i) => photo(ctx, im, L + i * (w + g), 818, w, 200, 20));
+    small.forEach((idx, k) => {
+      ph(idx, L + k * (w + g), 818, w, 200, 20);
+      if (lay === "row" && idx === 0) tag(ctx, "BEFORE", L + k * (w + g) + 12, 830, false);
+    });
   }
 
   // Stats row — or the Purchased → Sold progress track on a purchase
@@ -250,6 +311,7 @@ export function drawFlyer(ctx, d, ims, logo) {
   x += 26; ctx.fillStyle = "rgba(233,207,138,0.5)"; ctx.fillRect(x, cy - 19, 1.5, 38); x += 27.5;
   ctx.font = d.phone ? "700 24px GSInt, sans-serif" : "800 16px GSInt, sans-serif"; ctx.fillStyle = C.goldLt; drawSpaced(ctx, right, x, cy, rsp);
   ctx.restore();
+  return slots;
 }
 
 // ── Flyer fields from a property (the editor starts from these) ──
@@ -302,12 +364,14 @@ export function flyerSpec(f) {
     stamp: (f.kicker || "SOLD").toUpperCase() === "UNDER CONTRACT" ? "PENDING" : "SOLD",
     beforeAfter: f.beforeAfter !== false,
     soldLayout: f.soldLayout || "side",
+    crops: f.crops || {},
   };
 }
 
 // Canvas that redraws whenever the fields or photos change.
-function FlyerCanvas({ fields, photos, style, canvasRef }) {
+function FlyerCanvas({ fields, photos, style, canvasRef, onTapSlot }) {
   const ref = useRef(null);
+  const slotsRef = useRef([]);
   const [ver, setVer] = useState(0);
   useEffect(() => {
     let dead = false;
@@ -316,12 +380,21 @@ function FlyerCanvas({ fields, photos, style, canvasRef }) {
       const [logo, ...ims] = await Promise.all([loadImg("/logo.png"), ...photos.map(loadImg)]);
       if (dead || !ref.current) return;
       const ctx = ref.current.getContext("2d");
-      drawFlyer(ctx, flyerSpec(fields), ims, logo);
+      slotsRef.current = drawFlyer(ctx, { ...flyerSpec(fields), photoUrls: photos }, ims, logo) || [];
     })();
     return () => { dead = true; };
   }, [fields, photos, ver]);
   useEffect(() => { if (document.fonts) document.fonts.ready.then(() => setVer((v) => v + 1)); }, []);
-  return <canvas ref={(el) => { ref.current = el; if (canvasRef) canvasRef.current = el; }} width={W} height={H} style={{ width: "100%", height: "auto", display: "block", borderRadius: 6, boxShadow: "0 6px 20px rgba(0,0,0,0.16)", ...style }} />;
+  // Tap a photo on the flyer → open it to pinch / drag (last-drawn box wins, so
+  // the small "before" in the corner layout beats the big photo under it).
+  const tap = (e) => {
+    if (!onTapSlot || !ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    const x = ((e.clientX - r.left) / r.width) * W, y = ((e.clientY - r.top) / r.height) * H;
+    const hit = [...slotsRef.current].reverse().find((s) => x >= s.hit[0] && x <= s.hit[0] + s.hit[2] && y >= s.hit[1] && y <= s.hit[1] + s.hit[3]);
+    if (hit && photos[hit.i]) onTapSlot(hit);
+  };
+  return <canvas ref={(el) => { ref.current = el; if (canvasRef) canvasRef.current = el; }} onClick={tap} width={W} height={H} style={{ width: "100%", height: "auto", display: "block", borderRadius: 6, boxShadow: "0 6px 20px rgba(0,0,0,0.16)", cursor: onTapSlot ? "pointer" : "default", ...style }} />;
 }
 
 // Full-size (2×) JPEG of a flyer for Facebook.
@@ -330,7 +403,7 @@ async function renderBlob(fields, photos) {
   const [logo, ...ims] = await Promise.all([loadImg("/logo.png"), ...photos.map(loadImg)]);
   const cv = document.createElement("canvas"); cv.width = W * 2; cv.height = H * 2;
   const ctx = cv.getContext("2d"); ctx.scale(2, 2);
-  drawFlyer(ctx, flyerSpec(fields), ims, logo);
+  drawFlyer(ctx, { ...flyerSpec(fields), photoUrls: photos }, ims, logo);
   return await new Promise((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error("Couldn't make the picture — a photo may not allow copying."))), "image/jpeg", 0.92));
 }
 const slug = (s) => String(s || "flyer").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 60) || "flyer";
@@ -458,6 +531,93 @@ function Sheet({ onClose, isMobile, children, footer }) {
     </div>, document.body);
 }
 
+// ── Sold before / after layouts ──
+const SOLD_LAYOUTS = [
+  { key: "side", label: "Side by side" },
+  { key: "stack", label: "Stacked" },
+  { key: "corner", label: "Before in corner" },
+  { key: "diagonal", label: "Diagonal" },
+  { key: "row", label: "Before below" },
+];
+function LayoutIcon({ k }) {
+  const B = "#A89C86", A = T.gold, S = "#D9CFBC";
+  const row = (first) => <>{[0, 1, 2].map((i) => <rect key={i} x={4 + i * 11} y={38} width={10} height={8} rx={1.5} fill={i === 0 && first ? B : S} />)}</>;
+  return (
+    <svg width="40" height="50" viewBox="0 0 40 50" aria-hidden="true">
+      <rect x="0.5" y="0.5" width="39" height="49" rx="4" fill="#F7F2E7" stroke="rgba(184,149,63,0.5)" />
+      {k === "side" && <><rect x="4" y="8" width="15.5" height="27" rx="2" fill={B} /><rect x="20.5" y="8" width="15.5" height="27" rx="2" fill={A} />{row(false)}</>}
+      {k === "stack" && <><rect x="4" y="8" width="32" height="18" rx="2" fill={B} /><rect x="4" y="27.5" width="32" height="18" rx="2" fill={A} /></>}
+      {k === "corner" && <><rect x="4" y="8" width="32" height="27" rx="2" fill={A} /><rect x="6.5" y="10.5" width="12" height="9" rx="1.5" fill={B} stroke="#F7F2E7" strokeWidth="1.2" />{row(false)}</>}
+      {k === "diagonal" && <><rect x="4" y="8" width="32" height="27" rx="2" fill={A} /><path d="M6 8 L23 8 L17 35 L6 35 Q4 35 4 33 L4 10 Q4 8 6 8 Z" fill={B} /><path d="M23 8 L17 35" stroke="#E9CF8A" strokeWidth="1.2" />{row(false)}</>}
+      {k === "row" && <><rect x="4" y="8" width="32" height="27" rx="2" fill={A} />{row(true)}</>}
+    </svg>
+  );
+}
+
+// 🤏 One photo, shaped like its box on the flyer: pinch (or scroll / ± on a
+// computer) to zoom, drag to move. Zooming out past the box shows the whole
+// picture with a soft wash behind it.
+function PhotoAdjust({ url, w, h, crop, onChange, onClose }) {
+  const cvRef = useRef(null);
+  const [im, setIm] = useState(null);
+  const [cr, setCr] = useState(() => ({ z: 1, px: 0.5, py: 0.5, ...(crop || {}) }));
+  const ptrs = useRef(new Map());
+  const start = useRef(null);
+  const boxW = Math.min(340, typeof window !== "undefined" ? window.innerWidth - 48 : 340);
+  const k = boxW / w, boxH = h * k;
+  useEffect(() => { let dead = false; loadImg(url).then((x) => { if (!dead) setIm(x); }); return () => { dead = true; }; }, [url]);
+  useEffect(() => {
+    const cv = cvRef.current; if (!cv || !im) return;
+    const ctx = cv.getContext("2d"); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.scale(cv.width / w, cv.height / h);
+    photo(ctx, im, 0, 0, w, h, 0, cr, false);
+  }, [im, cr, w, h]);
+  const clampZ = (z) => { if (!im) return z; const m = cropMath(im, w, h, { z: 0.0001 }); return Math.min(5, Math.max(m.minZ, z)); };
+  // Keep the centre point where the picture actually sits (no dead drag zone past the edge).
+  const norm = (c) => { if (!im) return c; const m = cropMath(im, w, h, c); return { z: m.z, px: (w / 2 - m.dx) / m.dw, py: (h / 2 - m.dy) / m.dh }; };
+  const commit = (next) => { const n2 = norm(next); setCr(n2); onChange(n2); };
+  const down = (e) => {
+    e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId);
+    ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    start.current = { cr: { ...cr }, pts: new Map(ptrs.current) };
+  };
+  const move = (e) => {
+    if (!ptrs.current.has(e.pointerId) || !im || !start.current) return;
+    ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const s0 = start.current, P = [...ptrs.current.values()], P0 = [...s0.pts.values()];
+    let z = s0.cr.z;
+    if (P.length >= 2 && P0.length >= 2) {
+      const d = Math.hypot(P[0].x - P[1].x, P[0].y - P[1].y), d0 = Math.hypot(P0[0].x - P0[1].x, P0[0].y - P0[1].y) || 1;
+      z = clampZ(s0.cr.z * (d / d0));
+    }
+    const c = (A) => ({ x: A.reduce((t, p) => t + p.x, 0) / A.length, y: A.reduce((t, p) => t + p.y, 0) / A.length });
+    const a = c(P), a0 = c(P0.slice(0, P.length));
+    const m = cropMath(im, w, h, { ...s0.cr, z });
+    setCr(norm({ z, px: s0.cr.px - (a.x - a0.x) / k / m.dw, py: s0.cr.py - (a.y - a0.y) / k / m.dh }));
+  };
+  const up = (e) => {
+    ptrs.current.delete(e.pointerId);
+    start.current = ptrs.current.size ? { cr: { ...cr }, pts: new Map(ptrs.current) } : null;
+    if (!ptrs.current.size) onChange(cr);
+  };
+  const wheel = (e) => { e.preventDefault(); commit({ ...cr, z: clampZ(cr.z * (e.deltaY < 0 ? 1.08 : 1 / 1.08)) }); };
+  useEffect(() => { const cv = cvRef.current; if (!cv) return; cv.addEventListener("wheel", wheel, { passive: false }); return () => cv.removeEventListener("wheel", wheel); });
+  const btn = { minWidth: 44, minHeight: 44, borderRadius: 22, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", fontSize: 20, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" };
+  return createPortal(
+    <div style={{ position: "fixed", inset: 0, zIndex: 3100, background: "rgba(10,10,12,0.92)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, padding: "24px 24px calc(24px + env(safe-area-inset-bottom))" }}>
+      <div style={{ color: "#fff", fontSize: 17, fontWeight: 650 }}>Adjust photo</div>
+      <canvas ref={cvRef} width={Math.round(boxW * 2)} height={Math.round(boxH * 2)} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
+        style={{ width: boxW, height: boxH, borderRadius: 14, touchAction: "none", cursor: "grab", boxShadow: "0 0 0 2px rgba(233,207,138,0.7)", background: "#E9E2D3" }} />
+      <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 13 }}>Pinch to zoom in or out · drag to move</div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <button aria-label="Zoom out" onClick={() => commit({ ...cr, z: clampZ(cr.z / 1.15) })} style={btn}>−</button>
+        <button aria-label="Zoom in" onClick={() => commit({ ...cr, z: clampZ(cr.z * 1.15) })} style={btn}>＋</button>
+        <button onClick={() => { const r = { z: 1, px: 0.5, py: 0.5 }; setCr(r); onChange(null); }} style={{ ...btn, fontSize: 15, padding: "0 18px" }}>Reset</button>
+        <button onClick={onClose} style={{ ...btn, fontSize: 15, padding: "0 22px", background: T.gold }}>Done</button>
+      </div>
+    </div>, document.body);
+}
+
 // ── The approve screen ──
 export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobile }) {
   const { sharedProps, setSharedProps, flushProps } = useData() || {};
@@ -500,18 +660,25 @@ export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobi
   };
   const close = () => { saveDraft(); onClose(); };
   const pair = kind === "sold" && fields.beforeAfter !== false;
-  const stacked = pair && fields.soldLayout === "stack";
-  const maxPicks = stacked ? 2 : pair ? 5 : 4;
+  const layout = pair ? (fields.soldLayout || "side") : "";
+  const stacked = layout === "stack";
+  const maxFor = (v) => (v === "stack" ? 2 : v === "row" ? 4 : 5);
+  const maxPicks = pair ? maxFor(layout) : 4;
   const pickLabel = (i) => (pair ? (i === 0 ? "BEFORE" : i === 1 ? "AFTER" : String(i + 1)) : String(i + 1));
   // Sold: drop the before picture (or bring the oldest photo back as it).
-  // Stacked holds just the two; the smaller ones come back on Side by side.
+  // A layout with fewer boxes sets the extra picks aside; they come back on
+  // a layout with room for them.
   const spare = useRef([]);
   const setLayout = (v) => {
-    if ((v === "stack") === stacked) return;
+    if (v === layout) return;
     set("soldLayout", v);
-    if (v === "stack") { spare.current = picks.slice(2); setPicks(picks.slice(0, 2)); }
-    else { const back = spare.current; spare.current = []; setPicks((p) => [...new Set([...p, ...back])].slice(0, 5)); }
+    const mx = maxFor(v);
+    if (picks.length > mx) { spare.current = [...picks.slice(mx), ...spare.current]; setPicks(picks.slice(0, mx)); }
+    else if (spare.current.length) { const all2 = [...new Set([...picks, ...spare.current])]; setPicks(all2.slice(0, mx)); spare.current = all2.slice(mx); }
   };
+  // 🤏 Pinch / drag a photo on the flyer (Elie 9/30/26) — saved per photo.
+  const [adjust, setAdjust] = useState(null); // slot {i, w, h}
+  const setCrop = (url, cr) => { dirty.current = true; setFields((f) => { const c = { ...(f.crops || {}) }; if (cr) c[url] = cr; else delete c[url]; return { ...f, crops: c }; }); };
   const setPair = (on) => {
     if (on === pair) return;
     set("beforeAfter", on);
@@ -587,17 +754,23 @@ export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobi
         </button>
       </div>
       <div style={{ ...SEG, margin: "12px 0" }}>{POST_KINDS.map((k) => <button key={k.key} onClick={() => switchKind(k.key)} style={segBtn(kind === k.key)}>{k.label}</button>)}</div>
-      <div style={{ maxWidth: isMobile ? 300 : 340, margin: "0 auto" }}><FlyerCanvas fields={fields} photos={picks} /></div>
+      <div style={{ maxWidth: isMobile ? 300 : 340, margin: "0 auto" }}><FlyerCanvas fields={fields} photos={picks} onTapSlot={(sl) => setAdjust(sl)} /></div>
+      {picks.length > 0 && <div style={{ fontSize: 12, color: T.textSub, textAlign: "center", marginTop: 8 }}>Tap a photo on the flyer to zoom or move it</div>}
+      {adjust && picks[adjust.i] && <PhotoAdjust url={picks[adjust.i]} w={adjust.w} h={adjust.h} crop={(fields.crops || {})[picks[adjust.i]]} onChange={(cr) => setCrop(picks[adjust.i], cr)} onClose={() => setAdjust(null)} />}
 
       {kind === "sold" && <div style={{ ...SEG, marginTop: 14 }}>
         <button onClick={() => setPair(true)} style={segBtn(pair)}>Before &amp; after</button>
         <button onClick={() => setPair(false)} style={segBtn(!pair)}>After only</button>
       </div>}
-      {pair && <div style={{ ...SEG, marginTop: 8 }}>
-        <button onClick={() => setLayout("side")} style={segBtn(!stacked)}>Side by side</button>
-        <button onClick={() => setLayout("stack")} style={segBtn(stacked)}>Stacked (wide)</button>
+      {pair && <div style={{ display: "flex", gap: 8, overflowX: "auto", marginTop: 10, paddingBottom: 2, scrollbarWidth: "none" }}>
+        {SOLD_LAYOUTS.map((o) => (
+          <button key={o.key} onClick={() => setLayout(o.key)} aria-label={o.label} style={{ flex: "0 0 76px", minHeight: 92, borderRadius: 14, border: "none", background: layout === o.key ? "#fff" : "rgba(118,118,128,0.08)", boxShadow: layout === o.key ? `0 0 0 2px ${T.gold}` : "none", padding: "8px 4px 6px", cursor: "pointer", fontFamily: "inherit", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
+            <LayoutIcon k={o.key} />
+            <span style={{ fontSize: 11, fontWeight: layout === o.key ? 700 : 500, color: layout === o.key ? T.text : T.textSub, lineHeight: 1.15, textAlign: "center" }}>{o.label}</span>
+          </button>
+        ))}
       </div>}
-      <div style={LAB}>Photos · tap in order — {stacked ? "#1 before (top), #2 after" : pair ? "#1 before, #2 after" : "#1 is the big one"}</div>
+      <div style={LAB}>Photos · tap in order — {pair ? "#1 before, #2 after" : "#1 is the big one"}</div>
       <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, scrollbarWidth: "none" }}>
         <button onClick={() => fileRef.current && fileRef.current.click()} style={{ flex: "0 0 72px", height: 72, borderRadius: 12, border: `1.5px dashed ${T.gold}`, background: "#fff", color: T.gold, fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit", lineHeight: 1.2 }}>＋<br />Add photos</button>
         <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />

@@ -13,6 +13,7 @@ import { qbAuthFetch, notify, uploadAttachment, attachmentKind, attLabel, STREAM
 import { WalkthroughModal, useWalkJob, useWalkCloudSync } from "./walkthrough";
 import { MediaPage } from "./media";
 import { ShowroomPage } from "./showroom";
+import { PayoffStatementSheet } from "./payoffSheet";
 import { PostsPage, PostsNudge, PostWatcher, PostButton } from "./flyers";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { usePersistentDraft } from "./useDraft";
@@ -13951,6 +13952,11 @@ function FinPaybackModal({draw,funder,onConfirm,onPartial,onClose}){
   const[showAdv,setShowAdv]=useState(false);
   const[holdAcct,setHoldAcct]=useState(""); // optional: which bank account holds the money that stays
   const {bankAccounts,setBankAccounts,flushBank}=useData()||{};
+  // 📄 Payoff statement PDF for the lender (Elie 9/30/26) — built from exactly
+  // what's on screen (date + the option picked), previewed, then shared.
+  const[showStmt,setShowStmt]=useState(false);
+  const{displayName:meName}=useAuth()||{};
+  const stmtMobile=useIsMobile();
   // Keep the FULL draw (with its partial-payback history) so the interest is the
   // real tiered calc — the bigger balance accrues only until each paydown, the
   // smaller balance after it. Only the payback date is overridden.
@@ -14049,6 +14055,8 @@ function FinPaybackModal({draw,funder,onConfirm,onPartial,onClose}){
         </div>
       )}
       {mode&&<div style={{background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:11,padding:"9px 12px",fontSize:12.5,color:"#8a6d1f",lineHeight:1.6}}>{sentence}</div>}
+      {!bad&&(mode!=="part"||partOk)&&<button onClick={()=>setShowStmt(true)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,minHeight:44,borderRadius:12,border:`1px solid ${T.gold}`,background:"#fff",color:"#8a6d1f",fontWeight:700,fontSize:13.5,cursor:"pointer",fontFamily:"inherit"}}>📄 {mode==="part"?"Paydown":"Payoff"} statement — preview &amp; send</button>}
+      {showStmt&&<PayoffStatementSheet isMobile={stmtMobile} onClose={()=>setShowStmt(false)} spec={{funderName:(funder&&funder.name)||draw.funderName||"",property:draw.propertyLabel||"",dateFunded:draw.dateFunded,amount:Number(draw.amount)||0,payments:draw.payments||[],payoffDate:date,rate:drawRate(prev),mode,holdWhat,partAmount:partVal,preparedBy:meName||"Elie Hassan"}}/>}
       {/* Fine-tune radios live under Advanced — the chips cover the normal cases */}
       {mode!=="part"&&<button onClick={()=>setShowAdv(v=>!v)} style={{background:"none",border:"none",color:T.textTert,fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left",padding:"0 2px"}}>{showAdv?"▾":"›"} Advanced — fine-tune principal / interest</button>}
       {mode!=="part"&&showAdv&&<>

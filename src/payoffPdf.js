@@ -1,7 +1,10 @@
-// 📄 Payoff statement for a private lender (Elie 9/30/26): a one-page PDF from
-// the Record payback popup — same numbers the popup shows (simple interest,
-// actual days / 365, tiered on each balance when there were paydowns), laid out
-// as a proper letter he can preview and WhatsApp / email to the funder.
+// 📄 Payoff statement for a private lender (Elie 9/30/26): a one-page letter
+// from the Record payback popup, dated the day it's made — "we're pleased to
+// let you know we completed the sale of …", then the breakdown (amount funded
+// and when, payback date, days, daily interest, total interest, principal +
+// interest) and a sign-off. No wire details, by request. Same numbers the
+// popup shows: simple interest, actual days / 365, tiered on each balance
+// when there were paydowns.
 // jsPDF loads on demand so it never weighs down app launch.
 
 const GOLD = [184, 145, 46], INK = [28, 28, 30], SUB = [96, 96, 100], LINE = [226, 214, 180];
@@ -38,118 +41,122 @@ const logoData = () => {
 export async function payoffPdfFile(s) {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "letter" }); // 612 x 792
-  const W = 612, H = 792, M = 56, R = W - M;
+  const W = 612, H = 792, M = 64, R = W - M;
   const rate = Number(s.rate) || 0;
   const { periods, balance, paydowns } = payoffPeriods({ amount: s.amount, dateFunded: s.dateFunded, payments: s.payments, end: s.payoffDate, rate });
   const interest = periods.reduce((t, p) => t + p.interest, 0);
   const total = balance + interest;
   const perDiem = balance * rate / 365;
+  const termDays = days(s.dateFunded, s.payoffDate);
   const pct = `${Math.round(rate * 10000) / 100}%`;
+  const part = s.mode === "part";
+  const who = String(s.funderName || "").trim();
 
-  // ── Letterhead
+  // ── Letterhead: logo, company, address, gold rule
   const logo = await logoData();
-  if (logo) { try { doc.addImage(logo, "PNG", M, 40, 54, 54); } catch { /* no logo */ } }
-  const hx = logo ? M + 68 : M;
-  doc.setFont("times", "bold"); doc.setFontSize(20); doc.setTextColor(...INK);
-  doc.text("Goldstone Properties", hx, 66);
+  if (logo) { try { doc.addImage(logo, "PNG", M, 38, 56, 56); } catch { /* no logo */ } }
+  const hx = logo ? M + 70 : M;
+  doc.setFont("times", "bold"); doc.setFontSize(21); doc.setTextColor(...INK);
+  doc.text("Goldstone Properties", hx, 64);
   doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...SUB);
-  doc.text(`${CO.name}  ·  ${CO.addr}`, hx, 82);
-  doc.setDrawColor(...GOLD); doc.setLineWidth(1.4); doc.line(M, 108, R, 108);
+  doc.text(CO.addr, hx, 80);
+  doc.setDrawColor(...GOLD); doc.setLineWidth(1.4); doc.line(M, 106, R, 106);
 
-  // ── Title + details
-  let y = 146;
-  doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...GOLD);
-  doc.text(s.mode === "part" ? "PAYDOWN STATEMENT" : "PAYOFF STATEMENT", M, y, { charSpace: 2 });
-  doc.setFont("times", "bold"); doc.setFontSize(22); doc.setTextColor(...INK);
-  doc.text(s.property || "Loan", M, y + 28, { maxWidth: R - M });
+  // ── Date, title, addressee
+  let y = 138;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...SUB);
+  doc.text(longDate(new Date().toISOString()), R, y, { align: "right" });
+  doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); doc.setTextColor(...GOLD);
+  doc.text(part ? "PAYDOWN STATEMENT" : "PAYOFF STATEMENT", M, y, { charSpace: 2 });
+  doc.setFont("times", "bold"); doc.setFontSize(21); doc.setTextColor(...INK);
+  doc.text(s.property || "Loan", M, y + 26, { maxWidth: R - M });
   y += 58;
-  const meta = [
-    ["Lender", s.funderName || "—"],
-    ["Statement date", longDate(new Date().toISOString())],
-    ["Loan funded", longDate(s.dateFunded)],
-    [s.mode === "part" ? "Paydown date" : "Good through", longDate(s.payoffDate)],
-    ["Interest", `${pct} per year, simple — actual days / 365`],
-  ];
-  doc.setFontSize(10.5);
-  meta.forEach(([k, v], i) => {
-    const yy = y + i * 17;
-    doc.setFont("helvetica", "normal"); doc.setTextColor(...SUB); doc.text(k, M, yy);
-    doc.setFont("helvetica", "bold"); doc.setTextColor(...INK); doc.text(String(v), M + 110, yy);
-  });
-  y += meta.length * 17 + 16;
 
-  // ── The math, line by line
-  const row = (label, amt, opts = {}) => {
+  // ── The letter
+  const para = (t, opts = {}) => {
+    doc.setFont(opts.font || "times", opts.style || "normal"); doc.setFontSize(opts.size || 11.5); doc.setTextColor(...(opts.color || INK));
+    const ls = doc.splitTextToSize(t, R - M); doc.text(ls, M, y, { lineHeightFactor: 1.45 }); y += ls.length * (opts.size || 11.5) * 1.45 + (opts.after != null ? opts.after : 10);
+  };
+  para(`Dear ${who || "Partner"},`, { after: 6 });
+  const place = s.property || "the property";
+  const lead = part
+    ? `We're writing to confirm a partial paydown on your loan for ${place}.`
+    : `We're pleased to let you know that we have completed the sale of ${place}.`;
+  const how = part ? ""
+    : s.mode === "int" ? " Your interest is being distributed, and your principal remains with Goldstone to redeploy into our next project."
+    : s.mode === "prin" ? " Your principal is being returned, and your interest is being reinvested onto your balance."
+    : s.mode === "hold" ? " Your funds will remain with Goldstone to redeploy into our next project."
+    : " Your loan has been paid off in full.";
+  para(`${lead}${how} Please see the breakdown of your ${part ? "paydown" : "distribution"} below.`, { after: 16 });
+
+  // ── Breakdown
+  const row = (label, val, opts = {}) => {
     doc.setFont("helvetica", opts.bold ? "bold" : "normal"); doc.setFontSize(opts.size || 10.5);
     doc.setTextColor(...(opts.color || INK));
-    doc.text(label, M + (opts.indent || 0), y, { maxWidth: R - M - 140 });
-    if (amt != null) doc.text(amt, R, y, { align: "right" });
-    y += opts.gap || 18;
+    doc.text(label, M + (opts.indent || 0), y);
+    doc.setFont("helvetica", opts.bold || opts.boldVal ? "bold" : "normal");
+    doc.text(val, R, y, { align: "right" });
+    doc.setDrawColor(...LINE); doc.setLineWidth(0.5); if (!opts.noLine) doc.line(M, y + 7, R, y + 7);
+    y += opts.gap || rowGap;
   };
-  const rule = (c = LINE, w = 0.8) => { doc.setDrawColor(...c); doc.setLineWidth(w); doc.line(M, y - 11, R, y - 11); y += 4; };
-  doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...SUB); doc.text("DETAIL", M, y, { charSpace: 1.5 }); doc.text("AMOUNT", R - doc.getTextWidth("AMOUNT") - 1.5 * 5, y, { charSpace: 1.5 }); y += 16;
-  rule();
-  row("Original principal", money(s.amount));
-  paydowns.forEach((p) => row(`Less principal paid down ${shortDate(p.date)}`, `(${money(p.amount)})`, { color: SUB, indent: 12 }));
-  if (paydowns.length) row("Principal outstanding", money(balance), { bold: true });
-  y += 2;
-  periods.forEach((p) => row(`Interest ${shortDate(p.from)} – ${shortDate(p.to)} · ${p.days} day${p.days === 1 ? "" : "s"} on ${money(p.bal)}`, money(p.interest), { color: periods.length > 1 ? SUB : INK, indent: periods.length > 1 ? 12 : 0 }));
-  if (periods.length > 1) row("Total interest", money(interest), { bold: true });
-  y += 6; rule(GOLD, 1);
+  // Tighter rows when a loan had paydowns (more lines) so it stays one page.
+  const rowGap = paydowns.length ? 18 : 22;
+  doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...SUB);
+  doc.text("BREAKDOWN", M, y, { charSpace: 1.5 }); y += 8;
+  doc.setDrawColor(...GOLD); doc.setLineWidth(1); doc.line(M, y, R, y); y += 18;
+  row(`Amount funded — ${longDate(s.dateFunded)}`, money(s.amount), { boldVal: true });
+  paydowns.forEach((p) => row(`Principal paid down — ${longDate(p.date)}`, `(${money(p.amount)})`, { color: SUB, indent: 12 }));
+  if (paydowns.length) row("Principal outstanding", money(balance), { boldVal: true });
+  row(part ? "Paydown date" : "Payback date", longDate(s.payoffDate), { boldVal: true });
+  row("Term", `${termDays} day${termDays === 1 ? "" : "s"}`);
+  row("Interest rate", `${pct} per year`);
+  row(`Daily interest${paydowns.length ? ` (on ${money(balance)})` : ""}`, `${money(perDiem)} per day`);
+  if (periods.length > 1) periods.forEach((p) => row(`${shortDate(p.from)} – ${shortDate(p.to)} · ${p.days} days on ${money(p.bal)}`, money(p.interest), { color: SUB, indent: 12, size: 9.5, gap: paydowns.length ? 16 : 18 }));
+  row("Total interest", money(interest), { boldVal: true });
+  y += 6;
 
-  // ── Total box
-  const boxH = 54;
+  // ── Principal + interest box
+  const boxH = 62;
   doc.setFillColor(248, 241, 224); doc.setDrawColor(...GOLD); doc.setLineWidth(1);
-  doc.roundedRect(M, y - 4, R - M, boxH, 6, 6, "FD");
-  doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...GOLD);
-  doc.text(s.mode === "part" ? "BALANCE + INTEREST TO DATE" : "TOTAL PAYOFF", M + 16, y + 20, { charSpace: 1.5 });
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...SUB);
-  doc.text(`Principal ${money(balance)} + interest ${money(interest)}`, M + 16, y + 36);
-  doc.setFont("times", "bold"); doc.setFontSize(24); doc.setTextColor(...INK);
-  doc.text(money(total), R - 16, y + 32, { align: "right" });
-  y += boxH + 24;
+  doc.roundedRect(M, y - 6, R - M, boxH, 6, 6, "FD");
+  doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); doc.setTextColor(...GOLD);
+  doc.text("PRINCIPAL + INTEREST", M + 18, y + 18, { charSpace: 1.5 });
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(...SUB);
+  doc.text(`${money(balance)} principal + ${money(interest)} interest`, M + 18, y + 36);
+  doc.setFont("times", "bold"); doc.setFontSize(26); doc.setTextColor(...INK);
+  doc.text(money(total), R - 18, y + 34, { align: "right" });
+  y += boxH + (paydowns.length ? 14 : 20);
 
-  // ── How it's being settled (the option picked in the popup)
-  const settle = (() => {
-    const pa = Number(s.partAmount) || 0;
-    if (s.mode === "part") return [["Principal paid back now", money(pa)], ["Principal remaining on the loan", money(Math.max(0, balance - pa))], ["Interest", "continues on the remaining balance"]];
-    if (s.mode === "int") return [["Interest paid to you", money(interest)], ["Principal kept with Goldstone to redeploy", money(balance)]];
-    if (s.mode === "prin") return [["Principal paid back to you", money(balance)], ["Interest reinvested onto your balance", money(interest)]];
-    if (s.mode === "hold") {
-      if (s.holdWhat === "prin") return [["Interest paid to you", money(interest)], ["Principal held with Goldstone", money(balance)]];
-      if (s.holdWhat === "int") return [["Principal paid back to you", money(balance)], ["Interest held with Goldstone", money(interest)]];
-      return [["Held with Goldstone (principal + interest)", money(total)], ["Paid out now", money(0)]];
-    }
-    return [["Principal paid back to you", money(balance)], ["Interest paid to you", money(interest)], ["Total paid to you", money(total)]];
-  })();
-  doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...SUB); doc.text("SETTLEMENT", M, y, { charSpace: 1.5 }); y += 16;
-  rule();
-  settle.forEach(([k, v], i) => row(k, v, { bold: i === settle.length - 1 && s.mode === "both" }));
-  y += 8;
+  // How the money moves, when it isn't simply everything paid out.
+  const pa = Number(s.partAmount) || 0;
+  const split = part ? [["Principal paid back now", money(pa)], ["Principal remaining on the loan", money(Math.max(0, balance - pa))]]
+    : s.mode === "int" ? [["Interest distributed to you", money(interest)], ["Principal remaining with Goldstone", money(balance)]]
+    : s.mode === "prin" ? [["Principal returned to you", money(balance)], ["Interest reinvested onto your balance", money(interest)]]
+    : s.mode === "hold" ? (s.holdWhat === "prin" ? [["Interest distributed to you", money(interest)], ["Principal remaining with Goldstone", money(balance)]]
+      : s.holdWhat === "int" ? [["Principal returned to you", money(balance)], ["Interest remaining with Goldstone", money(interest)]]
+      : [["Remaining with Goldstone", money(total)]])
+    : [];
+  split.forEach(([k, v]) => row(k, v, { boldVal: true }));
+  if (split.length) y += 4;
 
-  // ── Notes + sign-off
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...SUB);
-  const notes = [
-    s.mode === "part"
-      ? `Interest keeps accruing on the remaining principal from ${longDate(s.payoffDate)}.`
-      : `Figures are good through ${longDate(s.payoffDate)}. If the payoff lands later, add ${money(perDiem)} per day (per diem).`,
-    `Interest is simple interest at ${pct} per year on the outstanding principal, counted on actual days elapsed over a 365-day year${paydowns.length ? ", on each balance for the days it was outstanding" : ""}.`,
-    "Please reach out with any questions about this statement.",
-  ];
-  notes.forEach((t) => { const ls = doc.splitTextToSize(t, R - M); doc.text(ls, M, y); y += ls.length * 12 + 4; });
-  y = Math.max(y + 18, H - 150);
-  doc.setFont("times", "italic"); doc.setFontSize(12); doc.setTextColor(...INK);
-  doc.text("Thank you for your partnership,", M, y); y += 34;
-  doc.setDrawColor(...LINE); doc.setLineWidth(0.8); doc.line(M, y, M + 200, y); y += 15;
-  doc.setFont("helvetica", "bold"); doc.setFontSize(10.5); doc.text(s.preparedBy || "Elie Hassan", M, y); y += 13;
+  // ── Closing + signature (onto a second page only if a long history needs it)
+  if (y + 108 > H - 70) { doc.addPage(); y = 90; } // closing + signature need ~108pt above the fine print
+  para(`If you have any questions or concerns, please don't hesitate to reach out. Thank you for your continued partnership — we look forward to the next one.`, { after: 18 });
+  para("Sincerely,", { after: 22 });
+  doc.setFont("times", "bold"); doc.setFontSize(12); doc.setTextColor(...INK); doc.text(s.preparedBy || "Elie Hassan", M, y); y += 15;
   doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(...SUB); doc.text(CO.name, M, y);
 
-  // Footer
-  doc.setDrawColor(...GOLD); doc.setLineWidth(0.6); doc.line(M, H - 44, R, H - 44);
-  doc.setFontSize(8); doc.setTextColor(...SUB);
-  doc.text(`${CO.name} · ${CO.addr}`, W / 2, H - 30, { align: "center" });
+  // Footer on every page: the fine print + company line
+  const pages = doc.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...SUB);
+    doc.text(`Interest is simple interest at ${pct} per year on the outstanding principal, counted on actual days over a 365-day year.`, W / 2, H - 58, { align: "center" });
+    doc.setDrawColor(...GOLD); doc.setLineWidth(0.6); doc.line(M, H - 46, R, H - 46);
+    doc.setFontSize(8); doc.text(`${CO.name}  ·  ${CO.addr}${pages > 1 ? `  ·  Page ${i} of ${pages}` : ""}`, W / 2, H - 32, { align: "center" });
+  }
 
   const safe = (s.property || "loan").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
-  const name = `Payoff-${safe}-${String(s.payoffDate || "").slice(0, 10)}.pdf`;
+  const name = `${part ? "Paydown" : "Payoff"}-${safe}-${String(s.payoffDate || "").slice(0, 10)}.pdf`;
   return new File([doc.output("blob")], name, { type: "application/pdf" });
 }

@@ -15926,7 +15926,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     ...(p.qbLoanCustom||[]).map(l=>({key:"c"+l.id,custom:true,bal:Math.abs(Number(l.amount)||0),name:l.name||"Manual entry",raw:l})),
     // Borrowed money linked from Bank Recon adjustments — counts as a loan on
     // this deal (job fixed to BANK; unlink it back in Bank Recon).
-    ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind!=="none").map(a=>({key:`adj${b.id}_${a.id}`,custom:true,adj:true,bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — from ${b.name}${a.linkKind==="draw"?" · 🔨 construction draw":a.linkKind==="bridge"?" · 🌉 bridge (repaid by draws)":a.tag?` · ${a.tag}`:""}`}))),
+    ...(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind!=="none").map(a=>({key:`adj${b.id}_${a.id}`,custom:true,adj:true,bridge:a.linkKind==="bridge",bal:Math.abs(Number(a.amount)||0),name:`${a.label||"Borrowed"} — from ${b.name}${a.linkKind==="draw"?" · 🔨 construction draw":a.linkKind==="bridge"?" · 🌉 bridge (repaid by draws)":a.tag?` · ${a.tag}`:""}`}))),
   ];
   const jobOf=(p,key)=>((p.qbConstrIds||[]).map(String).includes(key)?"constr":(p.qbLocPotIds||[]).map(String).includes(key)?"pot":"bank");
   const setJob=(p,key,job)=>{
@@ -15979,7 +15979,9 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     // charges interest on the committed draw money even before it's taken).
     const fin2=(p.financials||{});
     const rate=n(fin2.acHmRate!==undefined&&fin2.acHmRate!==""?fin2.acHmRate:fin2.hmRate)||9;
-    const bankBal=entries.filter(e=>jobOf(p,e.key)==="bank").reduce((t,e)=>t+e.bal,0);
+    // Floats/bridges (🌉, incl. auto-float) are his own money moved between
+    // accounts — the hard-money lender charges nothing on them (Elie 10/5/26).
+    const bankBal=entries.filter(e=>jobOf(p,e.key)==="bank"&&!e.bridge).reduce((t,e)=>t+e.bal,0);
     const fullLoan=bankBal+Math.max(0,(hb||0)-draws);
     const monthlyInt=fullLoan>0?fullLoan*(rate/100)/12:0;
     const holdMonths=n(fin2.holdPeriod)||6;

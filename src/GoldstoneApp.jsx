@@ -22714,7 +22714,8 @@ export function GoldstoneShell(){
   // "Open in Financial Section" from a LOC-reconcile task popup (admins only).
   useEffect(()=>{const f=()=>{if(isAdmin)setActive("financials");};window.addEventListener("gs-open-financials",f);return()=>window.removeEventListener("gs-open-financials",f);},[isAdmin]);
   // Seed the seen-set the first time so pre-existing tasks don't all count as new.
-  useEffect(()=>{ if(taskSeen===null && myTaskIds.length>0) savePrefs({taskSeenIds:myTaskIds}); },[taskSeen,myTaskIds.length]); // eslint-disable-line
+  // (_bigReady: wait for the per-user prefs row, or loading looks like "never seen".)
+  useEffect(()=>{ if(prefs._bigReady && taskSeen===null && myTaskIds.length>0) savePrefs({taskSeenIds:myTaskIds}); },[prefs._bigReady,taskSeen,myTaskIds.length]); // eslint-disable-line
   // Opening the Tasks tab marks everything currently assigned to me as seen.
   useEffect(()=>{ if(active==="tasks" && taskSeen!==null && newTaskCount>0) savePrefs({taskSeenIds:myTaskIds}); },[active,newTaskCount]); // eslint-disable-line
 

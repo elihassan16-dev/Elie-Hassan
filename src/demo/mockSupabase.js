@@ -37,6 +37,12 @@ const channel = {
   unsubscribe() {},
 };
 
+// Per-user prefs rows (app_settings "uprefs_<uid>") — read stamps for the
+// texting store: every demo thread read except Dominique's, so exactly her
+// two fresh texts badge as unread.
+const uprefs = { "uprefs_demo-elie": { smsRead: { "+19085550142": new Date().toISOString(), "+17325550164": new Date().toISOString(), "+18485550102": new Date().toISOString(), "+16095550155": new Date().toISOString() } } };
+if (typeof window !== "undefined") window.__uprefs = uprefs;
+
 export const supabase = {
   // The texting store reads call/text history from sms_messages — hand the
   // phone popup its demo call log; every other table stays empty.
@@ -51,6 +57,12 @@ export const supabase = {
       ];
       q.res = { data: U, error: null, count: U.length };
       q.eq = (col, val) => { if (col === "contractor_org_id") q.res = { ...q.res, data: U.filter(r => r._org === String(val)) }; return q; };
+    }
+    if (table === "app_settings") {
+      let id = null;
+      q.eq = (col, val) => { if (col === "id") id = String(val); return q; };
+      q.maybeSingle = () => { q.res = { data: id && uprefs[id] ? { id, data: uprefs[id] } : null, error: null }; return q; };
+      q.upsert = (row) => { if (row && String(row.id || "").startsWith("uprefs_")) uprefs[row.id] = row.data; return q; };
     }
     return q;
   },

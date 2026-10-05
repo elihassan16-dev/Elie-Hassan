@@ -108,6 +108,8 @@ export async function qbAuthFetch(path) {
     const et = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
     return { items: [], cachedAt: new Date(`${et}T10:45:00-04:00`).getTime() };
   }
+  // 🌉 preview: 1030 Hanover has spent past its draws (auto-float demo).
+  if (p.includes("/api/quickbooks/pnl") && p.includes("qb-1003")) return { connected: true, rows: [{ section: "Expenses", name: "Rehab — contractor", amount: 114261 }], income: 0, cogs: 0, expenses: 114261, netIncome: -114261 };
   if (p.includes("/api/quickbooks")) return { connected: false, rows: [], income: 0, cogs: 0, expenses: 0, netIncome: 0 };
   if (p.includes("/api/boldtrail")) return { leads: [] };
   if (p.includes("/api/rentcast/value")) {

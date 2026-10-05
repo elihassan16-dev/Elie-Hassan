@@ -3977,6 +3977,14 @@ function RentalPortfolioPage(){
       mortgage:{lender:"",amount:"",rate:"",payment:""},mgmtFee:"",ledger:[]}]);
     setShowAdd(false);setForm({address:"",city:"",state:"NJ",zip:"",type:"single"});setSelId(id);saveNow();
   };
+  // ＋ Add from the Platinum card — a property Platinum manages that isn't here yet (e.g. 6 S 4th St, 5 units).
+  const addFromPlatinum=({name,units})=>{
+    const id=Date.now();const cnt=Math.max(1,Math.round(units||1));
+    setRentals(prev=>[...(prev||[]),{id,address:name,city:"",state:"NJ",zip:"",type:cnt>1?"multi":"single",
+      units:Array.from({length:cnt},(_,i)=>({id:id+1+i,label:cnt>1?`Unit ${i+1}`:"Unit",rent:"",leaseStart:"",leaseEnd:"",leaseLink:"",tenant:{name:"",phone:"",email:""}})),
+      mortgage:{lender:"",amount:"",rate:"",payment:""},mgmtFee:"",ledger:[]}]);
+    saveNow();
+  };
   const delRental=(id)=>{if(!window.confirm("Delete this rental? This can't be undone."))return;setRentals(prev=>prev.filter(r=>String(r.id)!==String(id)));setSelId(null);saveNow();};
 
   // One-tap import of properties marked status "Rental" that aren't here yet.
@@ -4025,8 +4033,10 @@ function RentalPortfolioPage(){
     const rowLbl={fontSize:12,color:T.textSub,fontWeight:600,marginBottom:4,display:"block"};
     const num=(v)=>n(v);
     const platView=plat.viewFor(sel,list);
-    const platOn=!!platView&&platTabFor===sel.id;
-    const platSeg=platView&&<div style={{...SEG_WRAP,display:"flex",marginBottom:14}}>
+    const platKey=plat.liveKeyFor(sel,list);
+    const platHas=!!platView||!!(plat.live&&platKey);
+    const platOn=platHas&&platTabFor===sel.id;
+    const platSeg=platHas&&<div style={{...SEG_WRAP,display:"flex",marginBottom:14}}>
       {[[false,"Details"],[true,"🏢 Platinum"]].map(([k,l])=><button key={l} onClick={()=>setPlatTabFor(k?sel.id:null)} style={{...segTab(platOn===k),flex:1,minHeight:36}}>{l}</button>)}
     </div>;
     if(platOn)return(
@@ -4036,7 +4046,7 @@ function RentalPortfolioPage(){
           <div style={{fontSize:20,fontWeight:800,color:T.text}}>{sel.address}</div>
           <div style={{fontSize:13,color:T.textSub,marginBottom:14}}>{[sel.city,sel.state,sel.zip].filter(Boolean).join(", ")}</div>
           {platSeg}
-          <PlatinumTab view={platView}/>
+          <PlatinumTab view={platView} live={plat.live} liveKey={platKey}/>
         </div>
       </div>
     );
@@ -4404,7 +4414,7 @@ function RentalPortfolioPage(){
           </div>
         </div>
 
-        <PlatinumCard rentals={list} onOpen={(id)=>{setSelId(id);setPlatTabFor(id);}} isMobile={isMobile}/>
+        <PlatinumCard rentals={list} onOpen={(id)=>{setSelId(id);setPlatTabFor(id);}} onAddRental={addFromPlatinum} isMobile={isMobile}/>
 
         {/* Date range */}
         <div style={{...card,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
@@ -4439,7 +4449,7 @@ function RentalPortfolioPage(){
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:14.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}{r.city?`, ${r.city}`:""}{finChev}</div>
                   <div style={{fontSize:12,color:T.textSub}}>{r.type==="multi"?`${(r.units||[]).length} units`:"Single family"} · {fmtD(exp)}/mo</div>
-                  <PlatinumChips view={plat.viewFor(r,list)}/>
+                  <PlatinumChips view={plat.viewFor(r,list)} live={plat.live} liveKey={plat.liveKeyFor(r,list)}/>
                 </div>
                 <div style={{textAlign:"right",flexShrink:0}}>
                   <div style={{fontSize:13,fontWeight:700,color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{fmtD(rec)}</div>

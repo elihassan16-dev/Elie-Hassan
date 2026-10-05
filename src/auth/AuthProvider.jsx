@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "../supabaseClient";
 import { readSnap, writeSnap, ensureSnapOwner } from "../snapshot";
+import { BIG_KEYS, loadBigPrefs, saveBigPrefs, splitBig, staleBigKeys, moveBigPrefs, clearBigMeta } from "../userBigPrefs";
 
 export const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
@@ -116,11 +117,52 @@ export function AuthProvider({ children }) {
 
   // Per-user UI preferences, stored in auth user_metadata (persists across devices
   // and logins, and is unique to each account). savePrefs merges the given keys.
+  // Keys that grow (BIG_KEYS) go to their own app_settings row instead —
+  // user_metadata rides inside the login token on every request.
+  const uid = session?.user?.id || null;
+  // bigReady stays false until the row has loaded, so "never seen anything
+  // yet" logic (taskSeenIds) doesn't mistake loading for a brand-new account.
+  const [bigPrefs, setBigPrefs] = useState({});
+  const [bigReady, setBigReady] = useState(false);
+  useEffect(() => {
+    setBigReady(false);
+    if (!uid) { setBigPrefs({}); return; }
+    let dead = false;
+    const user = session?.user;
+    (async () => {
+      for (let i = 0; i < 4 && !dead; i++) {
+        try {
+          const stale = staleBigKeys(user).length > 0;
+          const row = stale ? await moveBigPrefs(user) : await loadBigPrefs(uid);
+          if (dead) return;
+          setBigPrefs(row || {}); setBigReady(true);
+          if (stale) clearBigMeta(user).catch(() => {});
+          return;
+        } catch { await new Promise((r) => setTimeout(r, 2000 * (i + 1))); }
+      }
+    })();
+    return () => { dead = true; };
+  }, [uid]); // eslint-disable-line react-hooks/exhaustive-deps
   const savePrefs = useCallback(async (patch) => {
-    const { data, error } = await supabase.auth.updateUser({ data: patch });
-    if (!error && data?.user) setSession((s) => (s ? { ...s, user: data.user } : s));
-    return error;
-  }, []);
+    const { big, small } = splitBig(patch);
+    let err = null;
+    if (Object.keys(big).length && uid) {
+      setBigPrefs((b) => ({ ...b, ...big }));
+      try { await saveBigPrefs(uid, big); } catch (e) { err = e; }
+    }
+    if (Object.keys(small).length) {
+      const { data, error } = await supabase.auth.updateUser({ data: small });
+      if (!error && data?.user) setSession((s) => (s ? { ...s, user: data.user } : s));
+      if (error) err = error;
+    }
+    return err;
+  }, [uid]);
+  const meta = session?.user?.user_metadata || null;
+  const prefs = useMemo(() => {
+    const m = { ...(meta || {}) };
+    BIG_KEYS.forEach((k) => { if (m[k] == null) delete m[k]; });
+    return { ...m, ...bigPrefs, _bigReady: bigReady };
+  }, [meta, bigPrefs, bigReady]);
 
   const value = {
     session,
@@ -131,7 +173,7 @@ export function AuthProvider({ children }) {
     isContractor: profile?.role === "contractor",
     contractorOrgId: profile?.contractor_org_id || null,
     displayName: profile?.name || session?.user?.email || "",
-    prefs: session?.user?.user_metadata || {},
+    prefs,
     savePrefs,
     loading,
     signIn,

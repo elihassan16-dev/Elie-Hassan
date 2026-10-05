@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "./supabaseClient";
 import { qbAuthFetch, uploadAttachment } from "./net";
+import { sessionUid, loadBigPrefs, saveBigPrefs } from "./userBigPrefs";
 import { T } from "./theme";
 import { SmsChatIcon } from "./icons";
 
@@ -116,8 +117,8 @@ async function loadMsgs(retry = 0) {
 // stamp per thread wins, so a thread just tapped HERE never flickers back.
 async function loadReadMap() {
   try {
-    const { data } = await supabase.auth.getUser();
-    const m = data?.user?.user_metadata?.smsRead;
+    const row = await loadBigPrefs(await sessionUid());
+    const m = row && row.smsRead;
     if (!m) return;
     const merged = { ...m };
     Object.entries(readMap).forEach(([k, v]) => { if (!merged[k] || String(v) > String(merged[k])) merged[k] = v; });
@@ -143,7 +144,9 @@ function start() {
     if (inited) return;
     inited = true;
     loadMsgs();
-    supabase.auth.getUser().then(({ data }) => { readMap = (data?.user?.user_metadata?.smsRead) || {}; emit(); }).catch(() => {});
+    // Old accounts still carry the map in user_metadata until AuthProvider
+    // moves it — seed from there, then loadReadMap merges the new row.
+    supabase.auth.getSession().then(({ data }) => { readMap = { ...((data?.session?.user?.user_metadata?.smsRead) || {}), ...readMap }; emit(); loadReadMap(); }).catch(() => {});
     let ch = supabase.channel("sms-shared");
     ch.on("postgres_changes", { event: "*", schema: "public", table: "sms_messages" }, scheduleLoad);
     ch.subscribe();
@@ -197,7 +200,13 @@ function markThreadRead(phone) {
   if (!p) return;
   readMap = { ...readMap, [p]: new Date().toISOString() };
   emit();
-  supabase.auth.updateUser({ data: { smsRead: readMap } }).catch(() => {});
+  sessionUid().then(async (uid) => {
+    // merge with the row — newest stamp per thread wins across devices
+    const row = (await loadBigPrefs(uid)) || {};
+    const merged = { ...(row.smsRead || {}) };
+    Object.entries(readMap).forEach(([k, v]) => { if (!merged[k] || String(v) > String(merged[k])) merged[k] = v; });
+    await saveBigPrefs(uid, { smsRead: merged });
+  }).catch(() => {});
 }
 
 export function useSmsTexting() {

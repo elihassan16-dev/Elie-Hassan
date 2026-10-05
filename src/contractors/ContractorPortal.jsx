@@ -7,7 +7,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { T } from "../theme";
 import { linkifyText, rescuePastedLink } from "../sms";
-import { notify, attLabel, uploadAttachment, qbAuthFetch, STREAM_VIDEO_CAP } from "../net";
+import { notify, attLabel, uploadAttachment, qbAuthFetch, STREAM_VIDEO_CAP, urgentPing } from "../net";
+import { UrgentChip, UrgentTag, UrgentPopup, readSeen, addSeen, RED as URGENT_RED } from "../urgent";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "../push";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble, resumeVideoUploads } from "../videoUpload";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
@@ -193,6 +194,15 @@ export function ContractorPortal() {
   const myUserId = user?.id;
   const org = (orgs || []).find((o) => String(o.id) === String(contractorOrgId)) || null;
   const myJobs = useMemo(() => (jobs || []).filter((j) => j.orgId === contractorOrgId && j.status !== "removed" && (!Array.isArray(j.crew) || !j.crew.length || j.crew.includes(myUserId))).sort((a, b) => (a.status === "complete") - (b.status === "complete") || String(b.createdAt || "").localeCompare(String(a.createdAt || ""))), [jobs, contractorOrgId, myUserId]);
+  // 🚨 Urgent messages from Goldstone (Elie 10/5/26) on my jobs that nobody on
+  // my side has answered yet and I haven't been shown — a red pop-up on open.
+  const [, bumpUrgent] = useState(0);
+  const urgentForMe = useMemo(() => {
+    const ids = new Set(myJobs.map((j) => String(j.id)));
+    const list = (messages || []).filter((m) => m && m.orgId === contractorOrgId && ids.has(String(m.jobId)));
+    return list.filter((m) => m.side !== "contractor" && m.urgent && !m.urgentDone && !list.some((x) => String(x.jobId) === String(m.jobId) && x.side === "contractor" && (Date.parse(x.at) || 0) > (Date.parse(m.at) || 0)))
+      .sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0));
+  }, [messages, myJobs, contractorOrgId]);
   // 🔗 Notification deep links: tapping a push opens /?goto=job:<jobId> — land
   // straight on that job's messages. Read at mount (BEFORE the desktop
   // auto-select effect, which would otherwise override it), then URL cleaned.
@@ -759,6 +769,7 @@ export function ContractorPortal() {
   // Same toolkit the Goldstone team has: general thread or a specific task,
   // photos/videos (camera or library), files, and 🎤 voice notes.
   const [draft, setDraft] = useState("");
+  const [msgUrgent, setMsgUrgent] = useState(false); // 🚨 next message goes out URGENT
   const [pending, setPending] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msgTarget, setMsgTarget] = useState(null); // {id,text} → tag the message to that task
@@ -861,12 +872,13 @@ export function ContractorPortal() {
     if (msgTarget) { msg.taskRefId = msgTarget.id; msg.taskRefText = msgTarget.text; }
     if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: (replyTo.text || (replyTo.attachment ? attLabel(replyTo.attachment) : "")).slice(0, 140) };
     if (msgTags.length) msg.mentions = msgTags;
-    setDraft(""); setPending(null); setReplyTo(null); setMsgTags([]); setTagOpen(false);
+    if (msgUrgent) { msg.urgent = true; urgentPing.until = Date.now() + 8000; }
+    setDraft(""); setPending(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setMsgUrgent(false);
     try { await save("contractor_messages", msg); }
     catch (ex) {
       // Put everything back and show why — a silent failure looks like the
       // message just disappeared.
-      setDraft(txt); if (msg.attachment) setPending(msg.attachment);
+      setDraft(txt); if (msg.attachment) setPending(msg.attachment); if (msg.urgent) setMsgUrgent(true);
       setErr(`Couldn't send — ${ex.message || "try again."}`);
       return;
     }
@@ -887,6 +899,16 @@ export function ContractorPortal() {
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: T.bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif" }}>
       <input ref={sowRef} type="file" accept="application/pdf,image/*" onChange={uploadDoc} style={{ display: "none" }} />
+      {(() => {
+        const seen = readSeen(displayName);
+        const fresh = urgentForMe.filter((m) => !seen.has(`cm:${m.id}`));
+        if (!fresh.length) return null;
+        const m = fresh[0];
+        const job = myJobs.find((j) => String(j.id) === String(m.jobId)) || {};
+        const done = () => { addSeen(displayName, `cm:${m.id}`); bumpUrgent((v) => v + 1); };
+        return <UrgentPopup item={{ kind: "msg", text: m.text || attLabel(m.attachment) || "", author: m.author || "Goldstone", at: m.at, label: job.propertyAddress || "" }} index={0} count={fresh.length}
+          onOpen={() => { done(); setSelJobId(m.jobId); setTab("messages"); }} onLater={done} openLabel="Open the message" />;
+      })()}
       {/* Header */}
       <div style={{ background: T.card, borderBottom: `1px solid ${T.border}`, padding: "max(10px,env(safe-area-inset-top)) 16px 10px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
         <img src="/logo.png" alt="Goldstone Properties" style={{ height: 42, width: "auto", display: "block", filter: "contrast(1.15) saturate(1.1)", flexShrink: 0 }} />
@@ -1070,7 +1092,8 @@ export function ContractorPortal() {
                                       {m.author || "Goldstone"}{sameCo ? " (your team)" : ""}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)}
                                     </div>}
                                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexDirection: mine ? "row-reverse" : "row" }}>
-                                      <div style={{ background: mine ? T.gold : sameCo ? "#FBF3DD" : T.bg, color: mine ? "#fff" : T.text, borderRadius: 18, padding: "9px 14px", fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", border: mine ? "none" : `1px solid ${sameCo ? "#EAD9A9" : "rgba(0,0,0,0.055)"}` }}>
+                                      <div style={{ background: mine ? T.gold : sameCo ? "#FBF3DD" : T.bg, color: mine ? "#fff" : T.text, borderRadius: 18, padding: "9px 14px", fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", border: mine ? "none" : `1px solid ${sameCo ? "#EAD9A9" : "rgba(0,0,0,0.055)"}` , ...(m.urgent ? { boxShadow: `0 0 0 2px ${URGENT_RED}`, ...(mine ? {} : { background: "#FFF5F4" }) } : {})}}>
+                                        {m.urgent && <div style={{ marginBottom: 4 }}><UrgentTag /></div>}
                                         {m.replyTo && <div style={{ fontSize: 11.5, marginBottom: 5, padding: "5px 9px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 6, background: mine ? "rgba(255,255,255,0.15)" : "#fff", color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
                                         {linkifyText(m.text, mine)}
                                         <Att att={m.attachment} />
@@ -1163,6 +1186,10 @@ export function ContractorPortal() {
                         </div>
                       );
                     })()}
+                    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
+                      {msgUrgent && <span style={{ fontSize: 11.5, fontWeight: 700, color: "#D70015" }}>Goes out URGENT</span>}
+                      <UrgentChip on={msgUrgent} onToggle={() => setMsgUrgent((v) => !v)} />
+                    </div>
                     <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
                       <input ref={attRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
                       <button onClick={() => setMoreOpen((v) => !v)} disabled={busy} title="Attach, voice note, tag & more" style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${moreOpen || msgTags.length ? T.gold : T.border}`, background: moreOpen || msgTags.length ? T.goldLight : T.bg, fontSize: 20, fontWeight: 600, color: moreOpen || msgTags.length ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit", lineHeight: 1 }}>{moreOpen ? "×" : "＋"}</button>

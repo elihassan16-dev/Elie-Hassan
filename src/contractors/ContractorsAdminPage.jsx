@@ -10,7 +10,8 @@ import { useAuth } from "../auth/AuthProvider";
 import { useData } from "../data/DataProvider";
 import { T } from "../theme";
 import { linkifyText, rescuePastedLink, SmsThreadPopup } from "../sms";
-import { notify, qbAuthFetch, uploadAttachment, STREAM_VIDEO_CAP } from "../net";
+import { notify, qbAuthFetch, uploadAttachment, STREAM_VIDEO_CAP, urgentPing } from "../net";
+import { UrgentChip, UrgentTag, RED as URGENT_RED } from "../urgent";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble } from "../videoUpload";
 import { usePersistentDraft } from "../useDraft";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
@@ -626,6 +627,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [taskDraft, setTaskDraft] = useState("");
   const [msgDraft, setMsgDraft] = useState("");
+  const [msgUrgent, setMsgUrgent] = useState(false); // 🚨 next message goes out URGENT
   const [pending, setPending] = useState(null);
   const [replyTo, setReplyTo] = useState(null); // {id,author,text} → quote-reply
   const [busy, setBusy] = useState(false);
@@ -773,7 +775,8 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
     const msg = { id: Date.now(), jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: txt, at: new Date().toISOString(), readBy: [displayName] };
     if (pending) msg.attachment = resolveVideoAttachment(pending);
     if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: (replyTo.text || (replyTo.attachment ? "📎 attachment" : "")).slice(0, 140) };
-    setMsgDraft(""); setPending(null); setReplyTo(null);
+    if (msgUrgent) { msg.urgent = true; urgentPing.until = Date.now() + 8000; }
+    setMsgDraft(""); setPending(null); setReplyTo(null); setMsgUrgent(false);
     try { await save("contractor_messages", msg); }
     catch (ex) {
       setMsgDraft(txt); if (msg.attachment) setPending(msg.attachment);
@@ -1053,7 +1056,8 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
             <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "86%" }}>
               {!mine && <div style={{ fontSize: 10, color: T.textTert, margin: "0 0 2px 8px" }}>{(m.author || "").split(" ")[0]}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)}</div>}
               <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: mine ? "row-reverse" : "row" }}>
-                <div style={{ background: mine ? T.gold : "#fff", color: mine ? "#fff" : T.text, border: mine ? "none" : "1px solid rgba(0,0,0,0.06)", borderRadius: 18, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", boxShadow: "0 1px 2px rgba(0,0,0,0.05)", minWidth: 0 }}>
+                <div style={{ background: mine ? T.gold : "#fff", color: mine ? "#fff" : T.text, border: mine ? "none" : "1px solid rgba(0,0,0,0.06)", borderRadius: 18, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", boxShadow: m.urgent ? `0 0 0 2px ${URGENT_RED}` : "0 1px 2px rgba(0,0,0,0.05)", minWidth: 0 }}>
+                  {m.urgent && <div style={{ marginBottom: 4 }}><UrgentTag /></div>}
                   {m.replyTo && <div style={{ fontSize: 11, marginBottom: 4, padding: "4px 8px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 5, background: mine ? "rgba(255,255,255,0.15)" : T.cardAlt, color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
                   {m.taskRefText && <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 3, color: mine ? "rgba(255,255,255,0.9)" : "#8a6d1f" }}>↳ Task: {m.taskRefText}</div>}
                   {linkifyText(m.text, mine)}
@@ -1079,6 +1083,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
         </div>
         {replyTo && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.cardAlt, borderLeft: `3px solid ${T.gold}`, borderRadius: 8 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? "📎 attachment" : "")}</span><button onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
         {pending && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}55`, borderRadius: 10 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pending.pending ? "🎬 " : "📎 "}{pending.name}{pending.pending ? " — uploading in background, OK to send" : ""}</span><button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
+        {!isRemoved && <div style={{ display: "flex", justifyContent: "flex-end" }}><UrgentChip on={msgUrgent} onToggle={() => setMsgUrgent((v) => !v)} /></div>}
         {isRemoved ? <div style={{ fontSize: 12.5, color: T.textTert, textAlign: "center", padding: "8px 0" }}>Contractor removed — the thread is kept as a record. Restore them to message again.</div> : <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
           <input ref={attRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
           <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", fontSize: 15, cursor: "pointer" }}>📎</button>

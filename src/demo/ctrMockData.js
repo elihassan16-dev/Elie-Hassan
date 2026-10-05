@@ -29,6 +29,9 @@ const MESSAGES = [
   { id: "m1", jobId: "j1", side: "team", author: "Moshe Hamaoui", text: "Morning — inspector confirmed Friday 9am for the rough plumbing.", at: days(-1.2), readBy: [] },
   { id: "m2", jobId: "j1", side: "contractor", author: "Shia Polak", text: "We'll be ready. Framing passed yesterday 👍", at: days(-1.1), readBy: ["Moshe Hamaoui"] },
   { id: "m3", jobId: "j1", side: "team", author: "Elie Hassan", text: "Looking great guys. Send me pics of the beam when it's in.", at: days(-0.2), readBy: [] },
+  // 🚨 preview: an urgent note each way (Goldstone → contractor on j2, contractor → Goldstone on j4)
+  { id: "m5", jobId: "j2", orgId: "org1", side: "team", author: "Elie Hassan", text: "Inspector is coming at 1 — the panel cover needs to be on", at: days(-0.05), readBy: [], urgent: true },
+  { id: "m6", jobId: "j4", orgId: "org2", side: "contractor", author: "Mendel Davids", text: "Water heater is leaking — need approval to replace today", at: days(-0.03), readBy: [], urgent: true },
 ];
 const SITE = [{ id: "1003", address: "1055 Huntingdon Dr, Westampton", utilities: { water: "on", electric: "on", gas: "off" }, utilitiesBy: {}, permits: {}, permitsBy: {}, events: [
   { id: 1, type: "rough", trade: "Plumbing", date: day10(2), time: "09:00", note: "", by: "Shia Polak", orgName: "Shia Polak Construction", at: days(-1) },

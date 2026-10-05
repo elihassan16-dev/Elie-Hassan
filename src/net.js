@@ -34,9 +34,14 @@ export async function qbAuthFetch(path, opts = {}) {
 // never blocks or throws into the UI. The sender is dropped server-side.
 // Extra targeting for the contractor portal: {toAdmins:true} notifies every
 // Goldstone admin; {toOrg:"<orgId>"} notifies a contractor company's logins.
+// 🚨 Urgent (Elie 10/5/26): a message sent with the composer's Urgent switch
+// arms this for a few seconds, so the notification that goes out for it —
+// whichever code path sends it — is titled "🚨 URGENT".
+export const urgentPing = { until: 0 };
 export async function notify(recipients, { title, body, tag, url, toAdmins, toTeam, toOrg, att } = {}) {
   const list = [...new Set((recipients || []).filter(Boolean))];
   if (!list.length && !toAdmins && !toTeam && !toOrg) return;
+  if (urgentPing.until > Date.now() && !/^🚨/.test(title || "")) title = `🚨 URGENT — ${title || "Goldstone"}`;
   try {
     await qbAuthFetch("/api/notify/send", {
       method: "POST",

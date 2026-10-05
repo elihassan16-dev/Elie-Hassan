@@ -14,7 +14,8 @@ export const attLabel = (a) => {
   return "📎 Attachment sent";
 };
 export const STREAM_VIDEO_CAP = 200 * 1024 * 1024;
-export async function notify() { /* preview */ }
+export const urgentPing = { until: 0 };
+export async function notify(recipients, opts = {}) { try { (window.__notifs = window.__notifs || []).push({ recipients, ...opts, urgent: urgentPing.until > Date.now() }); } catch { /* preview */ } }
 export async function compressImage(file) { return file; }
 export async function waitStreamReady() { return true; }
 export async function uploadAttachment(file) {

@@ -13,6 +13,7 @@ import { qbAuthFetch, notify, uploadAttachment, attachmentKind, attLabel, STREAM
 import { WalkthroughModal, useWalkJob, useWalkCloudSync } from "./walkthrough";
 import { MediaPage } from "./media";
 import { ShowroomPage } from "./showroom";
+import { urgentNext, urgentMark, UrgentChip, UrgentTag, UrgentTile, UrgentSheet, UrgentAlert, useSetTaskUrgent, RED as URGENT_RED, RED_TEXT as URGENT_TEXT } from "./urgent";
 import { PayoffStatementSheet } from "./payoffSheet";
 import { PostsPage, PostsNudge, PostWatcher, PostButton } from "./flyers";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
@@ -2603,7 +2604,7 @@ function PropertyShowings({property,showings,onUpdate,flush,onOpenSms,dense}){
   };
   const sendShowingMsg=(txt,att,mn)=>{
     const t=(txt||"").trim();if((!t&&!att)||!msgFor)return;
-    const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER],showingKey:msgFor.key,showingLabel:msgFor.label};
+    const msg=urgentMark({id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER],showingKey:msgFor.key,showingLabel:msgFor.label});
     if(att)msg.attachment=att;
     if(mn&&mn.length)msg.mentions=[...mn];
     onUpdate(property.id,"messages",[...(property.messages||[]),msg]);saveNow();
@@ -7495,13 +7496,13 @@ function DoerAvatar({assignee,delegate,size=24}){
 
 // Custom status picker — colored options + a red Delete at the bottom (native
 // <select> can't color options on iOS, and we want a Delete action in here).
-function TaskStatusPicker({value,onChange,onDelete,small,dim}){
+function TaskStatusPicker({value,onChange,onDelete,small,dim,urgent,onUrgent}){
   const[open,setOpen]=useState(false);
   const[pos,setPos]=useState({top:0,left:0});
   const btnRef=useRef(null);
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[value]||TASK_STATUS_COLORS["Not Started"];
-  const MENU_W=160,MENU_H=250;
+  const MENU_W=180,MENU_H=onUrgent?300:250;
   const openMenu=()=>{
     const r=btnRef.current?.getBoundingClientRect();
     const vw=typeof window!=="undefined"?window.innerWidth:360;
@@ -7531,6 +7532,7 @@ function TaskStatusPicker({value,onChange,onDelete,small,dim}){
             </button>
           );})}
           <div style={{borderTop:`1px solid ${T.border}`,margin:"4px 6px"}}/>
+          {onUrgent&&<button onClick={()=>{setOpen(false);onUrgent(!urgent);}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:7,border:"none",background:urgent?"#FFF5F4":"transparent",color:URGENT_TEXT,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>🚨 {urgent?"Not urgent anymore":"Mark urgent"}</button>}
           <button onClick={()=>{setOpen(false);onDelete();}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:7,border:"none",background:"transparent",color:T.red,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>🗑 Delete</button>
         </div>
       </>,document.body)}
@@ -7598,6 +7600,9 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   // with appearance:none. A div sidesteps that entirely.
   compact=compact||!!grid;
   const D=compact?22:24; // circular icon size — same as AssigneeAvatar size below
+  // 🚨 Urgent (Elie 10/5/26): red title + URGENT pill; set from the status menu.
+  const setUrgent=useSetTaskUrgent();
+  const urg=!!t.urgent&&!dim;
   // Tap the title → popup with the FULL text (long tasks get cut off in the row),
   // with an Edit mode inside the popup (multiline) instead of the old one-line
   // inline edit that made long tasks unreadable while typing too.
@@ -7683,7 +7688,8 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       <div style={{display:"grid",gridTemplateColumns:grid,columnGap:8,alignItems:"center",padding:"5px 12px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
         {selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>}
         <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
-          <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:500,color:dim?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
+          {urg&&<UrgentTag style={{flexShrink:0}}/>}
+          <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:urg?650:500,color:dim?T.textTert:urg?URGENT_TEXT:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
           {t.autoId&&<span style={{flexShrink:0,fontSize:10.5,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
         </span>
         <span onClick={()=>!isOfficeRow&&onNavigate&&t.propId&&onNavigate(t.propId)} title={isOfficeRow?undefined:"Open this property"} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11.5,color:T.textSub,cursor:isOfficeRow?"default":"pointer"}}>{isOfficeRow?"Company":(t.propAddr||"")}</span>
@@ -7695,7 +7701,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
           </button>
         </span>
         {msgBtnEl}
-        <span style={{justifySelf:"end"}}><TaskStatusPicker small value={t.status||"Not Started"} onChange={(st)=>onStatusChange(t.propId,t.id,st)} onDelete={()=>onDelete(t.propId,t.id)}/></span>
+        <span style={{justifySelf:"end"}}><TaskStatusPicker small value={t.status||"Not Started"} onChange={(st)=>onStatusChange(t.propId,t.id,st)} onDelete={()=>onDelete(t.propId,t.id)} urgent={!!t.urgent} onUrgent={(on)=>setUrgent(t,on)}/></span>
         {viewerEl}
       </div>
       </SwipeToDelete>
@@ -7711,7 +7717,8 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       {selBox}
       {/* The AUTO pill sits OUTSIDE the truncating text so a long title can't clip it. */}
       <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
-        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:emph?700:500,color:(dim||faded)?T.textTert:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
+        {urg&&<UrgentTag style={{flexShrink:0}}/>}
+        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:urg?700:emph?700:500,color:(dim||faded)?T.textTert:urg?URGENT_TEXT:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
         {t.autoId&&<span style={{flexShrink:0,fontSize:10.5,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
       </span>
       {t.delegate&&t.delegate===currentUser&&t.assignee
@@ -7724,7 +7731,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       </button>
       {contactBtnEl}
       {msgBtnEl}
-      <TaskStatusPicker small={compact} dim={faded} value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)}/>
+      <TaskStatusPicker small={compact} dim={faded} value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)} urgent={!!t.urgent} onUrgent={(on)=>setUrgent(t,on)}/>
     </div>
     {viewerEl}
     </SwipeToDelete>
@@ -7805,9 +7812,9 @@ function AddTaskInline({onAdd,placeholder,compact}){
 // sets who's responsible — it does NOT mark the task as "delegated by me".
 function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
   const[propId,setPropId]=useState(initialPropId||(properties[0]?.id||""));
-  const[rows,setRows]=useState([{text:"",assignee:"",delegate:""}]);
+  const[rows,setRows]=useState([{text:"",assignee:"",delegate:"",urgent:false}]);
   const setRow=(i,k,v)=>setRows(rs=>rs.map((r,j)=>j===i?{...r,[k]:v,...(k==="assignee"&&v===r.delegate?{delegate:""}:{})}:r));
-  const addRow=()=>setRows(rs=>[...rs,{text:"",assignee:"",delegate:""}]);
+  const addRow=()=>setRows(rs=>[...rs,{text:"",assignee:"",delegate:"",urgent:false}]);
   const removeRow=(i)=>setRows(rs=>rs.length>1?rs.filter((_,j)=>j!==i):rs);
   const valid=propId&&rows.some(r=>r.text.trim());
   const save=()=>{ if(!valid)return; onAdd(propId,rows); onClose(); };
@@ -7852,6 +7859,12 @@ function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
                     </select>
                   </div>
                 </div>
+                {/* 🚨 Urgent — red everywhere + pops up for whoever's doing it */}
+                <button type="button" onClick={()=>setRow(i,"urgent",!r.urgent)} aria-pressed={!!r.urgent} style={{display:"flex",alignItems:"center",gap:10,width:"100%",minHeight:44,padding:"6px 10px",borderRadius:T.radiusSm,border:`1px solid ${r.urgent?URGENT_RED:T.border}`,background:r.urgent?"#FFF5F4":"#fff",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                  <span style={{fontSize:18}}>🚨</span>
+                  <span style={{flex:1,minWidth:0}}><span style={{display:"block",fontSize:13.5,fontWeight:700,color:r.urgent?URGENT_TEXT:T.text}}>Urgent</span><span style={{display:"block",fontSize:11.5,color:T.textSub}}>Shows in red and pops up for {r.delegate||r.assignee||"the team"}</span></span>
+                  <span style={{width:46,height:28,borderRadius:14,background:r.urgent?URGENT_RED:"#E9E9EB",position:"relative",flexShrink:0,transition:"background .15s"}}><span style={{position:"absolute",top:2,left:r.urgent?20:2,width:24,height:24,borderRadius:"50%",background:"#fff",boxShadow:"0 2px 4px rgba(0,0,0,0.2)",transition:"left .15s"}}/></span>
+                </button>
               </div>
             ))}
           </div>
@@ -7906,7 +7919,8 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
           {messages.map(m=>{const mine=m.author===currentUser;return(
             <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
               {!mine&&<div style={{fontSize:10,color:T.textTert,marginBottom:2,paddingLeft:4}}>{(m.author||"—").split(" ")[0]} · {fmt(m.at)}</div>}
-              <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:18,padding:"8px 13px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+              <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:18,padding:"8px 13px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",...(m.urgent?{boxShadow:`0 0 0 2px ${URGENT_RED}`,...(mine?{}:{background:"#FFF5F4"})}:{})}}>
+                {m.urgent&&<div style={{marginBottom:4}}><UrgentTag/></div>}
                 {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.55)":T.gold}`,paddingLeft:8,marginBottom:5,opacity:0.9,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}><b>{m.replyTo.author?m.replyTo.author.split(" ")[0]:"—"}:</b> {m.replyTo.text}</div>}
                 {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                 {linkifyText(m.text,mine)}
@@ -8450,7 +8464,7 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
     if(mode==="external"){
       // Carry the task reference so the contractor sees WHICH task this is about.
       const tagged=[...new Set(mentions||[])].filter(n=>n&&n!==currentUser);
-      const msg={id:Date.now(),jobId:job.id,orgId:job.orgId,author:currentUser,side:"team",text:t,at:new Date().toISOString(),readBy:[currentUser],taskRefId:task.id,taskRefText:task.text};
+      const msg=urgentMark({id:Date.now(),jobId:job.id,orgId:job.orgId,author:currentUser,side:"team",text:t,at:new Date().toISOString(),readBy:[currentUser],taskRefId:task.id,taskRefText:task.text});
       if(att)msg.attachment=att;
       if(tagged.length)msg.mentions=tagged;
       await ctrSave("contractor_messages",msg);
@@ -8460,7 +8474,7 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
       if(tagged.length)notify(tagged,{title:`Goldstone — ${task.text||job.propertyAddress||""}`,att,body:`${currentUser}: ${t||attLabel(att)}`,url:`/?goto=job:${job.id}`});
       else notify(null,{toOrg:job.orgId,title:`Goldstone — ${task.text||job.propertyAddress||""}`,att,body:t||attLabel(att),url:`/?goto=job:${job.id}`});
     }else{
-      const msg={id:Date.now(),author:currentUser,text:t,at:new Date().toISOString(),readBy:[currentUser],ctrTaskKey:task.id,ctrTaskLabel:`${orgName}: ${(task.text||"").slice(0,48)}`};
+      const msg=urgentMark({id:Date.now(),author:currentUser,text:t,at:new Date().toISOString(),readBy:[currentUser],ctrTaskKey:task.id,ctrTaskLabel:`${orgName}: ${(task.text||"").slice(0,48)}`});
       if(att)msg.attachment=att;
       if(mentions&&mentions.length)msg.mentions=mentions;
       setSharedProps(prev=>prev.map(p=>p.id!==property.id?p:{...p,messages:[...(p.messages||[]),msg]}));
@@ -8494,7 +8508,8 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
             return(
             <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
               <div style={{fontSize:10,color:T.textTert,marginBottom:2,textAlign:mine?"right":"left"}}>{m.author||"—"}{sameSide&&!mine?" (your team)":""} · {fmt(m.at)}</div>
-              <div style={{background:mine?(ext?T.gold:T.blue):sameSide?"#FBF3DD":"#F2F2F7",color:mine?"#fff":T.text,border:sameSide&&!mine?"1px solid #EAD9A9":"none",borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+              <div style={{background:mine?(ext?T.gold:T.blue):sameSide?"#FBF3DD":"#F2F2F7",color:mine?"#fff":T.text,border:sameSide&&!mine?"1px solid #EAD9A9":"none",borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",...(m.urgent?{boxShadow:`0 0 0 2px ${URGENT_RED}`,...(mine?{}:{background:"#FFF5F4"})}:{})}}>
+                {m.urgent&&<div style={{marginBottom:4}}><UrgentTag/></div>}
                 {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:3,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
                 {linkifyText(m.text,mine)}
                 {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
@@ -8701,7 +8716,7 @@ function PropertyTaskList({property}){
     })}));
     if(member&&member!==CURRENT_USER){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(t=>t.id===tid); const pN=sharedProps.find(p=>p.id===pid); const aN=pN?`${pN.address}${pN.city?`, ${pN.city}`:""}`:""; notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}${aN?` — 🏠 ${aN}`:""}`,tag:`task-${tid}`,url:`/?goto=task:${pid}:${tid}`}); }
   };
-  const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}; if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",att:attachment,body:`${CURRENT_USER}: ${t||attLabel(attachment)}`,tag:`task-${tid}`,url:`/?goto=chat:${pid}`}); } };
+  const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg=urgentMark({id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}); if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",att:attachment,body:`${CURRENT_USER}: ${t||attLabel(attachment)}`,tag:`task-${tid}`,url:`/?goto=chat:${pid}`}); } };
   const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
   useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
   const addTask=(text)=>{const t=(text||"").trim();if(!t)return;setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER,assignedAt:Date.now(),assignedBy:CURRENT_USER}]}));};
@@ -8878,6 +8893,12 @@ function TasksPage({onNavigate}){
   const setViewMode=(m)=>{setTaskViewMode(m);try{localStorage.setItem("tasksViewMode",m);}catch{/* ignore */}if(savePrefs)savePrefs({tasksViewMode:m});};
   // 📬 Email/push deep link: open the property's task popup and glow the task.
   const[hlTaskId,setHlTaskId]=useState(null);
+  // 🚨 The red Urgent window's list (Elie 10/5/26).
+  const[urgentOpen,setUrgentOpen]=useState(false);
+  // A deep link arriving while the Dashboard is already open (the urgent pop-up /
+  // list) re-runs the same open-and-glow below.
+  const[taskTargetTick,setTaskTargetTick]=useState(0);
+  useEffect(()=>{const f=()=>setTaskTargetTick(v=>v+1);window.addEventListener("gs-task-target",f);return()=>window.removeEventListener("gs-task-target",f);},[]);
   useEffect(()=>{
     try{
       const t=window.__taskTarget;
@@ -8891,7 +8912,7 @@ function TasksPage({onNavigate}){
       if(t.taskId){setHlTaskId(String(t.taskId));setTimeout(()=>setHlTaskId(null),8000);}
     }catch{/* no window */}
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[sharedProps]);
+  },[sharedProps,taskTargetTick]);
   // Phones can't show the spreadsheet — a saved "grid" pick falls back to the list there.
   const byProp=taskViewMode==="byprop"||(isMobile&&taskViewMode==="grid");
   const compact=!isMobile&&taskViewMode==="grid";
@@ -9012,6 +9033,7 @@ function TasksPage({onNavigate}){
   );
   const dashTiles=()=>(
     <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,minmax(0,1fr))",gap:isMobile?9:12,marginBottom:14,maxWidth:1160}}>
+      <UrgentTile isMobile={isMobile} onOpen={()=>setUrgentOpen(true)}/>
       {dashTile("✅",T.goldLight,dashOpenTasks,"OPEN TASKS",null,"dash-tasks")}
       {dashTile("📅","#EDFBF1",dashTodayShows,"TODAY'S SHOWINGS",null,"dash-today")}
       {dashTile("💬","#FDE9C8",dashCounts.texts,"NEW TEXTS",dashCounts.texts>0?"#B45309":null,"dash-cards",()=>setDashFeed(true))}
@@ -9099,7 +9121,7 @@ function TasksPage({onNavigate}){
   const toggleSelect=(t)=>setSelectedKeys(p=>{const n=new Set(p);const k=selKey(t);n.has(k)?n.delete(k):n.add(k);return n;});
   function addTaskMessage(propId,taskId,text,attachment,mentions){
     const t=(text||"").trim();if(!t&&!attachment)return;
-    const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
+    const msg=urgentMark({id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]});
     if(attachment)msg.attachment=attachment;
     if(mentions&&mentions.length)msg.mentions=mentions;
     if(isOffice(propId)){
@@ -9247,15 +9269,15 @@ function TasksPage({onNavigate}){
   // Bulk-add tasks to any property. Assigning here just sets who's responsible — it
   // does NOT set assignedBy, so these don't show up as "delegated by me".
   function addTasksBulk(propId,rows){
-    const clean=(rows||[]).map(r=>({text:(r.text||"").trim(),assignee:r.assignee||"",delegate:r.delegate||""})).filter(r=>r.text);
+    const clean=(rows||[]).map(r=>({text:(r.text||"").trim(),assignee:r.assignee||"",delegate:r.delegate||"",urgent:!!r.urgent})).filter(r=>r.text);
     if(!propId||!clean.length)return;
     const at=Date.now();
     // NOTE: the <select> hands back a STRING id, property ids are numbers — coerce
     // both so the task lands on the right property instead of being dropped.
     const rows2=clean.map((r,i)=>({...r,id:at+i}));
-    setSharedProps(prev=>prev.map(p=>String(p.id)!==String(propId)?p:{...p,tasks:[...(p.tasks||[]),...rows2.map(r=>({id:r.id,text:r.text,status:"Not Started",assignee:r.assignee,delegate:(r.delegate&&r.delegate!==r.assignee)?r.delegate:"",cat:"Custom",assignedAt:at,assignedBy:CURRENT_USER}))]}));
+    setSharedProps(prev=>prev.map(p=>String(p.id)!==String(propId)?p:{...p,tasks:[...(p.tasks||[]),...rows2.map(r=>({id:r.id,text:r.text,status:"Not Started",assignee:r.assignee,delegate:(r.delegate&&r.delegate!==r.assignee)?r.delegate:"",cat:"Custom",assignedAt:at,assignedBy:CURRENT_USER,...(r.urgent?{urgent:true,urgentAt:at,urgentBy:CURRENT_USER}:{})}))]}));
     const pAddrB=(()=>{const p=(sharedProps||[]).find(x=>String(x.id)===String(propId));return p?`${p.address}${p.city?`, ${p.city}`:""}`:"";})();
-    rows2.forEach(r=>{const who=[...new Set([r.assignee,r.delegate].filter(n=>n&&n!==CURRENT_USER))];if(who.length)notify(who,{title:"New task for you",body:`${CURRENT_USER}: ${r.text}${pAddrB?` — 🏠 ${pAddrB}`:""}`,tag:`newtask-${r.id}`,url:`/?goto=task:${propId}:${r.id}`});});
+    rows2.forEach(r=>{const who=[...new Set([r.assignee,r.delegate].filter(n=>n&&n!==CURRENT_USER))];if(who.length)notify(who,{title:r.urgent?"🚨 URGENT task for you":"New task for you",body:`${CURRENT_USER}: ${r.text}${pAddrB?` — 🏠 ${pAddrB}`:""}`,tag:`newtask-${r.id}`,url:`/?goto=task:${propId}:${r.id}`});else if(r.urgent)notify(null,{toTeam:true,title:"🚨 URGENT task",body:`${CURRENT_USER}: ${r.text}${pAddrB?` — 🏠 ${pAddrB}`:""}`,tag:`newtask-${r.id}`,url:`/?goto=task:${propId}:${r.id}`});});
   }
 
   // On my plate = I'm the delegate, or I'm the owner and it isn't delegated away.
@@ -9289,6 +9311,7 @@ function TasksPage({onNavigate}){
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",background:T.bg,overflow:"hidden"}}>
       {/* Bulk add-tasks popup */}
+      {urgentOpen&&<UrgentSheet isMobile={isMobile} onClose={()=>setUrgentOpen(false)}/>}
       {showAddTasks&&<AddTasksModal properties={[...sharedProps.filter(p=>!p.archived)].sort((a,b)=>(a.address||"").localeCompare(b.address||""))} teamMembers={TEAM_MEMBERS} onAdd={addTasksBulk} onClose={()=>setShowAddTasks(false)}/>}
       {/* Assign / delegate popup — owner (original) + optional delegate */}
       {taskAssignTarget&&(()=>{
@@ -11789,7 +11812,9 @@ function SpFilePicker({folder,onPick,onClose}){
     </div>
   );
 }
-function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,templates=[],defaultMention=null,quickLinks=[],aiContext="",filesFolder=null}){
+function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,templates=[],defaultMention=null,quickLinks=[],aiContext="",filesFolder=null,urgentable=true}){
+  // 🚨 The next message goes out URGENT (Elie 10/5/26) — resets after each send.
+  const[urgent,setUrgent]=useState(false);
   const isMobile=useIsMobile();
   const[text,setText]=useState("");
   const[busy,setBusy]=useState(false);
@@ -11856,13 +11881,17 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     if(pendingAtt&&pendingAtt.uploadId&&videoUploadState(pendingAtt.uploadId)?.status==="failed"){setErr("The video didn't upload — remove it (×) and try again.");return;}
     const att=resolveVideoAttachment(pendingAtt),mn=mentions;
     setText("");setPendingAtt(null);setMentions([]);setShowTag(false);setErr("");setAtQuery(null);
+    const wasUrgent=urgent;setUrgent(false);
+    // The send handler stamps the message it builds (urgentMark) synchronously.
+    urgentNext.on=wasUrgent;
     try{ await onSend(t,att||null,mn); }
     catch(ex){
       // Put the message back so nothing is lost, and say WHY it failed —
       // a silent failure looks like the message just disappeared.
-      setText(t);if(att)setPendingAtt(att);setMentions(mn);
+      setText(t);if(att)setPendingAtt(att);setMentions(mn);setUrgent(wasUrgent);
       setErr(ex&&ex.message?`Couldn't send — ${ex.message}`:"Send failed. Try again.");
     }
+    finally{ urgentNext.on=false; }
   };
   // Stage any file (from the picker, a paste, or a drop). Pasted images often have
   // no filename → give them one so they upload with a real extension.
@@ -12104,6 +12133,12 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
           </div>
         );
       })()}
+      {urgentable&&!recording&&(
+        <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:8,padding:"0 2px"}}>
+          {urgent&&<span style={{fontSize:11.5,fontWeight:700,color:URGENT_TEXT}}>Goes out URGENT</span>}
+          <UrgentChip on={urgent} onToggle={()=>setUrgent(v=>!v)}/>
+        </div>
+      )}
       {(()=>{
         // Mobile: compact circles + a short placeholder so the input keeps its
         // width and single-line height instead of ballooning into a tall pill.
@@ -12145,10 +12180,10 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
             </>)}
             <textarea ref={taRef} rows={1} value={text} onChange={e=>{setText(e.target.value);detectAt(e.target.value,e.target.selectionStart);}} onPaste={onPasteFiles}
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(canSend)send();}if(e.key==="Escape")setAtQuery(null);}}
-              placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":ph)} disabled={busy}
-              style={{flex:1,minWidth:0,padding:isMobile?"8px 12px":"11px 14px",borderRadius:18,border:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
+              placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":urgent?"Urgent message…":ph)} disabled={busy}
+              style={{flex:1,minWidth:0,padding:isMobile?"8px 12px":"11px 14px",borderRadius:18,border:urgent?`1.5px solid ${URGENT_RED}`:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
             {isMobile&&<button onClick={startRec} disabled={busy} title="Record a voice note" style={{...ib,width:36,height:36,color:T.textSub}}><MicIcon size={21}/></button>}
-            <button onClick={()=>send()} disabled={!canSend} style={isMobile?{width:36,height:36,borderRadius:"50%",background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:0}:{padding:"10px 18px",borderRadius:22,background:canSend?T.gold:T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{isMobile?"➤":"Send"}</button>
+            <button onClick={()=>send()} disabled={!canSend} style={isMobile?{width:36,height:36,borderRadius:"50%",background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:0}:{padding:"10px 18px",borderRadius:22,background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{isMobile?"➤":"Send"}</button>
           </>
         )}
       </div>
@@ -12409,7 +12444,8 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                 {!mine&&<div style={{fontSize:10,color:T.textTert,marginBottom:2,paddingLeft:4}}>{(m.author||"—").split(" ")[0]} · {fmt(m.at)}</div>}
                 <div style={{display:"flex",alignItems:"center",gap:8,flexDirection:mine?"row-reverse":"row"}}>
                   {selMode&&<span style={{width:20,height:20,flexShrink:0,borderRadius:"50%",border:`2px solid ${picked?T.gold:T.border}`,background:picked?T.gold:"transparent",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800}}>{picked?"✓":""}</span>}
-                  <div onClick={coReq?()=>setCoPopup({jobId:coJob.id,reqId:coReq.id}):sowJob?()=>openScopePdf(sowJob):undefined} style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:18,padding:small?"7px 12px":"9px 14px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:String(m.id)===flashId?`0 0 0 3px ${T.gold}`:(onCard?"none":"0 1px 2px rgba(0,0,0,0.04)"),transition:"box-shadow 0.35s",border:mine?"none":"1px solid rgba(0,0,0,0.055)",opacity:selMode&&!picked?0.55:1,cursor:coReq||sowJob?"pointer":undefined}}>
+                  <div onClick={coReq?()=>setCoPopup({jobId:coJob.id,reqId:coReq.id}):sowJob?()=>openScopePdf(sowJob):undefined} style={{background:mine?T.gold:theirBg,color:mine?"#fff":T.text,borderRadius:18,padding:small?"7px 12px":"9px 14px",fontSize:small?13:14,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word",boxShadow:String(m.id)===flashId?`0 0 0 3px ${T.gold}`:(onCard?"none":"0 1px 2px rgba(0,0,0,0.04)"),transition:"box-shadow 0.35s",border:mine?"none":"1px solid rgba(0,0,0,0.055)",opacity:selMode&&!picked?0.55:1,cursor:coReq||sowJob?"pointer":undefined,...(m.urgent?{boxShadow:`0 0 0 2px ${URGENT_RED}`,...(mine?{}:{background:"#FFF5F4"})}:{})}}>
+                    {m.urgent&&<div style={{marginBottom:4}}><UrgentTag/></div>}
                     {m.replyTo&&(()=>{const jumpable=!selMode&&(m.replyToId!=null||(m.replyTo&&m.replyTo.id!=null));return(
                       <div onClick={jumpable?(e)=>{e.stopPropagation();jumpToOriginal(m);}:undefined} title={jumpable?"Tap to jump to the original message":undefined}
                         style={{fontSize:11,marginBottom:4,padding:"4px 8px",borderLeft:`3px solid ${mine?"rgba(255,255,255,0.6)":T.gold}`,borderRadius:5,background:mine?"rgba(255,255,255,0.15)":T.bg,color:mine?"rgba(255,255,255,0.92)":T.textSub,overflow:"hidden",cursor:jumpable?"pointer":undefined}}>
@@ -12569,7 +12605,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const saveOfficeTasks=()=>{if(flushOfficeTasks)setTimeout(flushOfficeTasks,0);};
   const officeSend=(text,replyTarget,attachment,mentions,targetTaskId)=>{
     const t=(text||"").trim();if(!t&&!attachment)return;
-    const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
+    const msg=urgentMark({id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]});
     if(attachment)msg.attachment=attachment;
     const tagged=new Set(mentions||[]);
     if(replyTarget&&replyTarget.author&&replyTarget.author!==CURRENT_USER)tagged.add(replyTarget.author);
@@ -12762,7 +12798,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     // Replying inside a contractor thread posts to the portal (and pings their team)
     // instead of the property's internal messages.
     if(replyTarget&&replyTarget.ctrJobId){
-      const cm={id:Date.now(),jobId:replyTarget.ctrJobId,orgId:replyTarget.ctrOrgId,author:CURRENT_USER,side:"team",text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
+      const cm=urgentMark({id:Date.now(),jobId:replyTarget.ctrJobId,orgId:replyTarget.ctrOrgId,author:CURRENT_USER,side:"team",text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]});
       if(attachment)cm.attachment=attachment;
       // Quote the specific message being answered (and keep its task tag) so the
       // contractor sees the reply in context in their portal.
@@ -12781,7 +12817,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
         else notify(null,{toOrg:replyTarget.ctrOrgId,title:`Goldstone — ${sel.address}`,att:attachment,body:t||attLabel(attachment),url:`/?goto=job:${replyTarget.ctrJobId}`});
       });
     }
-    const msg={id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]};
+    const msg=urgentMark({id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]});
     if(attachment)msg.attachment=attachment;
     // Replying to someone auto-notifies just that person (plus anyone you tagged),
     // instead of pinging the whole team like an untagged message.
@@ -12805,6 +12841,8 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
     }
     // Notify the people this message is addressed to (mentions + who you replied to).
     if(msg.mentions&&msg.mentions.length){ const addr=`${sel.address}${sel.city?`, ${sel.city}`:""}`; notify(msg.mentions.filter(n=>n!==CURRENT_USER),{title:addr,att:attachment,body:`${CURRENT_USER}: ${t||attLabel(attachment)}`,tag:`prop-${sel.id}`,url:`/?goto=chat:${sel.id}`}); }
+    // 🚨 An untagged URGENT message still reaches the whole team's phones.
+    else if(msg.urgent){ const addr=`${sel.address}${sel.city?`, ${sel.city}`:""}`; notify((TEAM_MEMBERS||[]).filter(n=>n&&n!==CURRENT_USER),{title:addr,att:attachment,body:`${CURRENT_USER}: ${t||attLabel(attachment)}`,tag:`prop-${sel.id}`,url:`/?goto=chat:${sel.id}`}); }
   };
   const fmtShort=(iso)=>{if(!iso)return "";try{const d=new Date(iso),now=new Date();const sameDay=d.toDateString()===now.toDateString();return sameDay?d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "";}};
   const iS={width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
@@ -22272,6 +22310,8 @@ export function GoldstoneShell(){
       return g||null;
     }catch{return null;}
   });
+  // In-app jumps (🚨 urgent list / pop-up) reuse the notification deep links.
+  useEffect(()=>{const f=(e)=>{if(e&&e.detail)setPendingGoto(String(e.detail));};window.addEventListener("gs-goto",f);return()=>window.removeEventListener("gs-goto",f);},[]);
   useEffect(()=>{
     if(!pendingGoto)return;
     const i=pendingGoto.indexOf(":");
@@ -22280,7 +22320,7 @@ export function GoldstoneShell(){
     if(kind==="posts"){setActive("posts");setPendingGoto(null);return;}
     // task:<propId|office>:<taskId> — open that property's task popup on the
     // Dashboard and light the exact task up in gold (email/push deep links).
-    if(kind==="task"){const j=id.indexOf(":");const pid=j<0?id:id.slice(0,j),tid=j<0?"":id.slice(j+1);try{window.__taskTarget={propId:pid,taskId:tid};}catch{/* no window */}setActive("tasks");setPendingGoto(null);return;}
+    if(kind==="task"){const j=id.indexOf(":");const pid=j<0?id:id.slice(0,j),tid=j<0?"":id.slice(j+1);try{window.__taskTarget={propId:pid,taskId:tid};setTimeout(()=>window.dispatchEvent(new Event("gs-task-target")),0);}catch{/* no window */}setActive("tasks");setPendingGoto(null);return;}
     if(kind==="showings"){if(id){try{window.__showingsTarget={propId:id,tab:"buyers"};}catch{/* no window */}}setActive("showings");setPendingGoto(null);return;}
     if(kind==="chat"&&id==="__office__"){setActive("messages");setNavChatId("__office__");setPendingGoto(null);return;}
     if(kind==="chat"||kind==="prop"){
@@ -22621,6 +22661,7 @@ export function GoldstoneShell(){
         </div>
         <PushNudge displayName={displayName}/>
         <PostWatcher ready={!loading}/>
+        <UrgentAlert/>
         {(active==="tasks"||active==="properties")&&<PostsNudge onOpen={()=>pushPage("posts")}/>}
         <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
           {pageEl}

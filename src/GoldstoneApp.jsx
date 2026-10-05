@@ -4476,7 +4476,10 @@ function qbBucket(name){
 const QB_STOP=new Set(["st","street","ave","avenue","rd","road","dr","drive","ln","lane","ct","court","blvd","boulevard","pl","place","ter","terrace","way","cir","circle","hwy","highway","pkwy","parkway","sq","square","trl","trail","apt","unit","ste","suite","fl","floor","n","s","e","w","north","south","east","west"]);
 const qbNorm=(s)=>(s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
 const qbTokens=(s)=>qbNorm(s).split(" ").filter(Boolean);
-const qbHouseNum=(s)=>{const m=qbNorm(s).match(/\b(\d+)\b/);return m?m[1]:null;};
+// House number, letter suffix kept ("24A Dewey Dr" → "24a"). A digits-only
+// match skipped "24A" and grabbed the zip code instead, so 24A Dewey's
+// ShowingTime showings never matched the property (Elie 10/6/26).
+const qbHouseNum=(s)=>{const m=qbNorm(s).match(/\b(\d+[a-z]?)\b/);return m?m[1]:null;};
 const qbStreetWords=(s)=>qbTokens(s).filter(t=>!/^\d+$/.test(t)&&!QB_STOP.has(t));
 // Score 0..1 for how well a property address matches a QB project name.
 function qbMatchScore(address,name){

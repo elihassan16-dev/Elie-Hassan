@@ -268,7 +268,7 @@ const addrParts = (s) => {
   first.forEach((x) => { if (/^\d+[a-z]?$/.test(x)) nums.push(x); });
   // "516-518" in afKey becomes "516 518"
   let i = 0; while (i < t.length && /^\d+[a-z]?$/.test(t[i])) { nums.push(t[i]); i++; }
-  const words = t.slice(i).filter((w) => !STREET_NOISE.has(w) && !/^\d/.test(w));
+  const words = t.slice(i).filter((w) => !STREET_NOISE.has(w) && !/^\d+$/.test(w)); // keep "4th"
   return { nums: [...new Set(nums)], word: words[0] || "" };
 };
 export function matchRental(afName, rentals) {

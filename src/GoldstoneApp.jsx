@@ -15257,7 +15257,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
                   <option value="none">not a loan — just tracked</option>
                 </select>;
               const held=isHeldAdj(a);
-              const tagChip=(a.tag||a.linkKind==="bridge"||held)&&<span style={{fontSize:10,fontWeight:800,borderRadius:8,padding:"2px 7px",background:(a.linkKind==="bridge"||held)?"#FDF9EE":a.tag==="Debt service"?"#EDE9FE":"#DBEAFE",color:(a.linkKind==="bridge"||held)?"#8a6d1f":a.tag==="Debt service"?"#6D28D9":"#2563EB",border:(a.linkKind==="bridge"||held)?"1px solid #EAD9A9":"none",whiteSpace:"nowrap",flexShrink:0}}>{a.linkKind==="bridge"?"🌉 BRIDGE":held?"🏦 HELD":`${a.tag==="Debt service"?"🏦":"🏗"} ${a.tag.toUpperCase()}`}</span>;
+              const tagChip=(a.tag||a.linkKind==="bridge"||held)&&<span style={{fontSize:10,fontWeight:800,borderRadius:8,padding:"2px 7px",background:(a.linkKind==="bridge"||held)?"#FDF9EE":a.tag==="Debt service"?"#EDE9FE":"#DBEAFE",color:(a.linkKind==="bridge"||held)?"#8a6d1f":a.tag==="Debt service"?"#6D28D9":"#2563EB",border:(a.linkKind==="bridge"||held)?"1px solid #EAD9A9":"none",whiteSpace:"nowrap",flexShrink:0}}>{a.linkKind==="bridge"?(a.autoFloat?"🌉 AUTO-FLOAT":"🌉 BRIDGE"):held?"🏦 HELD":`${a.tag==="Debt service"?"🏦":"🏗"} ${a.tag.toUpperCase()}`}</span>;
               // The held line's in-and-out history — every hold adds, every deployment subtracts.
               const heldHist=held&&(a.borrows||[]).length>0&&(
                 <div style={{padding:"0 16px 8px",fontSize:10.5,color:T.textTert,lineHeight:1.8,background:(list.length+ai)%2?T.goldLight+"55":"transparent"}}>
@@ -15663,7 +15663,70 @@ function dmPotMath(p,accounts,spend,bankAccounts){
   // constrLoc: line-of-credit money pointed at the build (accounts tagged
   // construction + the rest of the pot) - the "+ LOC" in the Construction
   // popup, and now in the Report Center's holdback report too (Elie 9/8).
-  return {reserveLeft:Math.max(0,reserve-paid),constrHeld:Math.max(0,constrEff+inFlow-constrSpent),constrLoc:constrEff,reserve,paid};
+  return {reserveLeft:Math.max(0,reserve-paid),constrHeld:Math.max(0,constrEff+inFlow-constrSpent),constrLoc:constrEff,reserve,paid,constrRaw:constrEff+inFlow-constrSpent};
+}
+// ── 🌉 Auto-float (Elie 10/5/26) ──────────────────────────────────────────────
+// Per property: when QuickBooks shows the build has spent past the money in
+// (draws + construction credit), borrow the difference from the account Elie
+// picked — kept as ONE live 🌉 bridge line on that Bank-Recon account
+// (adjustment {linkKind:"bridge", autoFloat:true}). It grows as spending
+// outruns the draws and shrinks to $0 when a draw lands (from QuickBooks or
+// 💸 Bank sent a draw), each change logged in its history. Hand-made bridges
+// on the same deal count first; auto only covers what's left.
+const afNeed=(p,accounts,spend,bankAccounts)=>{
+  const m=dmPotMath(p,accounts,spend,bankAccounts);
+  if(m.upfront||m.constrRaw==null)return null;
+  const manual=(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(p.id)&&a.linkKind==="bridge"&&!a.autoFloat)).reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
+  return Math.max(0,Math.round((-m.constrRaw-manual)*100)/100);
+};
+const afOn=(p)=>!!(p&&p.dmAutoFloat&&p.dmAutoFloat.on&&p.dmAutoFloat.bankId&&(p.dmFinType||"draws")!=="upfront");
+// Runs while the Financial Section is open: keeps every auto-float line equal
+// to what that deal needs right now. Waits for the project's QuickBooks
+// numbers so a half-loaded screen never logs a fake borrow/repay.
+function AutoFloatSync(){
+  const {sharedProps,bankAccounts,setBankAccounts,flushBank}=useData()||{};
+  const {connected,accounts,spend,requestSpend,syncedAt}=useQB();
+  const on=(sharedProps||[]).filter(p=>!p.archived&&afOn(p)&&p.qbProjectId);
+  const key=on.map(p=>p.qbProjectId).join(",");
+  useEffect(()=>{if(connected&&on.length)requestSpend(on);},[connected,key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{
+    if(!setBankAccounts||!on.length||!connected||!syncedAt||!(bankAccounts||[]).length)return; // QuickBooks balances in
+    const plans=[];
+    on.forEach(p=>{
+      const sp=spend&&spend[p.qbProjectId];
+      if(!sp||sp.loading||!sp.pnl)return;
+      const need=afNeed(p,accounts,spend,bankAccounts);
+      if(need!=null)plans.push({p,need,bankId:String(p.dmAutoFloat.bankId)});
+    });
+    if(!plans.length)return;
+    const at=new Date().toISOString();
+    let changed=false,n=0;
+    const next=bankAccounts.map(b=>{
+      let adjs=b.adjustments||[];
+      plans.forEach(({p,need,bankId})=>{
+        const idx=adjs.findIndex(a=>a.autoFloat&&String(a.propertyId||"")===String(p.id));
+        if(String(b.id)===bankId){
+          if(idx<0){
+            if(need>0.5){adjs=[...adjs,{id:Date.now()+(n++),label:`${p.address} — floated until next draw`,amount:-need,propertyId:p.id,linkKind:"bridge",autoFloat:true,floatSince:at,borrows:[{amount:need,at,note:"spent past draws (QuickBooks)"}]}];changed=true;}
+          }else{
+            const a=adjs[idx],cur=Math.abs(Number(a.amount)||0);
+            if(Math.abs(cur-need)>0.5){
+              const d=Math.round((need-cur)*100)/100;
+              adjs=adjs.map((x,i)=>i!==idx?x:{...x,amount:-need,floatSince:need>0.5?(cur>0.5?(x.floatSince||at):at):null,borrows:[...(x.borrows||[]),{amount:d,at,note:d>0?"spent past draws (QuickBooks)":"repaid by draw"}].slice(-60)});
+              changed=true;
+            }
+          }
+        }else if(idx>=0){
+          // Elie switched accounts — close it out here; the new account takes over.
+          const a=adjs[idx],cur=Math.abs(Number(a.amount)||0);
+          if(cur>0.5){adjs=adjs.map((x,i)=>i!==idx?x:{...x,amount:0,floatSince:null,borrows:[...(x.borrows||[]),{amount:-cur,at,note:"moved to another account"}]});changed=true;}
+        }
+      });
+      return adjs===(b.adjustments||[])?b:{...b,adjustments:adjs};
+    });
+    if(changed){setBankAccounts(next);if(flushBank)setTimeout(flushBank,0);}
+  },[sharedProps,bankAccounts,accounts,spend,connected,syncedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
 }
 const dmHoldbackOf=(p)=>{const raw=p.constrHoldback;const pins=bsSum(p.qbHoldbackTxns);const hasManual=raw!=null&&raw!=="";const hasPins=(p.qbHoldbackTxns||[]).length>0;return (hasPins||hasManual)?pins+(hasManual?Number(raw):0):null;};
 // ─── Deal Money — per-property financing picture (PREVIEW) ────────────────────
@@ -15688,6 +15751,17 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
   const[dsBorrow,setDsBorrow]=useState(null); // {p,amt,bankId,tag,countLoan,other}
   const[dsHist,setDsHist]=useState(null);   // property id whose borrow history is open
   const {bankAccounts,setBankAccounts,flushBank}=useData()||{};
+  // 🌉 Auto-float switch per deal (the AutoFloatSync above keeps the amount).
+  const[floatOpen,setFloatOpen]=useState(false);
+  const lastFloatBank=()=>{try{return localStorage.getItem("gs_float_bank")||"";}catch{return "";}};
+  const setAutoFloat=(p,on,bankId)=>{
+    const b=bankId!=null?String(bankId):String((p.dmAutoFloat||{}).bankId||lastFloatBank()||"");
+    updateProp(p.id,"dmAutoFloat",{on:!!on,bankId:b});
+    if(b)try{localStorage.setItem("gs_float_bank",b);}catch{/* private mode */}
+    // Off = back to by hand: the live line stays as an ordinary bridge.
+    if(!on&&setBankAccounts){setBankAccounts(prev=>(prev||[]).map(bk=>({...bk,adjustments:(bk.adjustments||[]).map(a=>a.autoFloat&&String(a.propertyId||"")===String(p.id)?{...a,autoFloat:false}:a)})));if(flushBank)setTimeout(flushBank,0);}
+  };
+  const floatDays=(iso)=>{const t=Date.parse(iso||"");return t?Math.max(0,Math.floor((Date.now()-t)/86400000)):null;};
   const[pickLoan,setPickLoan]=useState(false);
   const[q,setQ]=useState("");
   const[manualFor,setManualFor]=useState(null); // "loan" | "float" | "debt"
@@ -16295,13 +16369,15 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
             const brSum=brs.reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
             const shown=c.constrEquity+brSum;
             const brBanks=[...new Set(brs.map(b=>b.bankName))].join(", ");
+            const autoBr=brs.filter(a=>a.autoFloat);
+            const fd=autoBr.length?floatDays(autoBr.map(a=>a.floatSince).filter(Boolean).sort()[0]):null;
             return(
             <button onClick={()=>setDetailPop("constr")} style={cardS}>
               <div style={hdS}><span style={lbS}>🔨 CONSTRUCTION EQUITY</span>{openTag}</div>
-              <div style={vS2(shown>=0?"#B8953F":T.red)}>{money(shown)}</div>
+              <div style={vS2(shown>=0?"#B8953F":T.red)}>{money(shown)}{brSum>0&&Math.abs(shown)<1&&<span style={{fontSize:13,fontWeight:700,color:"#8a6d1f",marginLeft:6}}>covered by float</span>}</div>
               {gauge([{w:(c.constrTotalEff+c.inFlow)>0?100*Math.max(0,c.spentReal)/(c.constrTotalEff+c.inFlow):0,c:"#C9A227"},{w:(c.constrTotalEff+c.inFlow)>0?100*Math.max(0,shown)/(c.constrTotalEff+c.inFlow):0,c:"#EAD9A9"}])}
               {brSum>0
-                ?<div style={{fontSize:10.5,fontWeight:700,marginTop:7,color:"#8a6d1f",background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:9,padding:"5px 9px",lineHeight:1.45,textAlign:"left"}}>🌉 Floated {money(brSum)} — bridged from {brBanks}. The next draw pays it back first.</div>
+                ?<div style={{fontSize:10.5,fontWeight:700,marginTop:7,color:"#8a6d1f",background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:9,padding:"5px 9px",lineHeight:1.45,textAlign:"left"}}>{autoBr.length?<>🌉 Auto-floating {money(brSum)} from {brBanks}{fd!=null?` · ${fd} day${fd===1?"":"s"}`:""}<br/>Spent {money(c.spentReal)} vs. money in {money(c.constrTotalEff+c.inFlow)} — the next draw pays it back first, automatically.</>:<>🌉 Floated {money(brSum)} — bridged from {brBanks}. The next draw pays it back first.</>}</div>
                 :<div style={{fontSize:11,fontWeight:700,marginTop:7,color:c.funding==null?T.textTert:c.funding>=0?"#0F9D58":T.red}}>{c.funding==null?" ":c.funding>=0?"✓ budget covered":`budget short ${money(-c.funding).slice(1)}`}</div>}
             </button>
           );})()}
@@ -16444,11 +16520,51 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
             action:canEdit&&ghostBtn(()=>sel.dmRehabAuto?updateProp(sel.id,"dmRehabExcluded",[...(sel.dmRehabExcluded||[]),txKey(t)]):updateProp(sel.id,"dmConstrSpentTxns",(sel.dmConstrSpentTxns||[]).filter(x=>txKey(x)!==txKey(t))),"⊘",sel.dmRehabAuto?"Exclude — auto will skip it":"Unpin")}))}
           {(sel.dmConstrSpentTxns||[]).length===0&&<div style={{padding:"4px 18px 10px",fontSize:11.5,color:T.textTert}}>None pinned — link the QB project and the live rehab actuals take over automatically.</div>}
         </>)}
-        {(()=>{const brs=bridgesOf(sel);if(!brs.length)return null;const brSum=brs.reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);return(
-          <div style={{margin:"8px 18px 4px",background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:10,padding:"8px 12px",fontSize:11.5,lineHeight:1.5,color:"#8a6d1f"}}>
-            🌉 <b>Bridged with borrowed money — {money(brSum)}</b> ({[...new Set(brs.map(b=>b.bankName))].join(", ")}). Not counted as a draw; the next 💸 bank draw pays it back first and shrinks it automatically.
-          </div>
-        );})()}
+        {!c.upfront&&(()=>{
+          // 🌉 Auto-float — one switch per deal, the account it borrows from,
+          // what's floating now and its history.
+          const af=sel.dmAutoFloat||{};const on=!!af.on;
+          const allAdj=(bankAccounts||[]).flatMap(b=>(b.adjustments||[]).filter(a=>String(a.propertyId||"")===String(sel.id)&&a.autoFloat).map(a=>({...a,bankName:b.name})));
+          const live=allAdj.find(a=>String((bankAccounts||[]).find(b=>(b.adjustments||[]).some(x=>x.id===a.id))?.id)===String(af.bankId))||allAdj[0]||null;
+          const nowAmt=live?Math.abs(Number(live.amount)||0):0;
+          const manual=bridgesOf(sel).filter(a=>!a.autoFloat);
+          const manualSum=manual.reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
+          const short=Math.max(0,-(c.constrEquity+manualSum+nowAmt));
+          const hist=allAdj.flatMap(a=>(a.borrows||[]).map(x=>({...x,bankName:a.bankName}))).sort((x,y)=>String(y.at||"").localeCompare(String(x.at||""))).slice(0,6);
+          const fd=live&&nowAmt>0.5?floatDays(live.floatSince):null;
+          const rw={display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"9px 12px",fontSize:12.5,borderTop:"1px solid #F0F0F3"};
+          const sw=(v)=>({width:48,height:29,borderRadius:15,background:v?"#34C759":"#E9E9EB",position:"relative",border:"none",cursor:canEdit?"pointer":"default",flexShrink:0,padding:0,transition:"background .15s"});
+          const bks=[...(bankAccounts||[])].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+          return(<>
+            <div style={{margin:"10px 16px 4px",border:`1.5px solid ${on?"#C9A227":"#E5E5EA"}`,borderRadius:14,overflow:"hidden"}}>
+              <div style={{background:on?"#FDF9EE":"#FAFAFB",padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:19}}>🌉</span>
+                <div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,fontWeight:800,color:on?"#8a6d1f":T.text}}>Auto-float</div><div style={{fontSize:10.5,color:"#8A8F98",marginTop:1,lineHeight:1.35}}>Borrow the shortfall automatically until the next draw</div></div>
+                <button disabled={!canEdit} onClick={()=>setAutoFloat(sel,!on)} aria-pressed={on} aria-label="Auto-float" style={sw(on)}><span style={{position:"absolute",top:2,left:on?21:2,width:25,height:25,borderRadius:"50%",background:"#fff",boxShadow:"0 2px 4px rgba(0,0,0,0.2)",transition:"left .15s"}}/></button>
+              </div>
+              {on&&<>
+                <div style={rw}><span style={{color:T.textSub}}>Borrow from</span>
+                  <select disabled={!canEdit} value={af.bankId||""} onChange={e=>setAutoFloat(sel,true,e.target.value)} style={{padding:"6px 9px",borderRadius:9,border:`1px solid ${af.bankId?"#C9A227":T.red}`,fontSize:12,fontWeight:700,color:"#8a6d1f",background:"#fff",fontFamily:"inherit",maxWidth:"60%"}}>
+                    <option value="">Pick an account…</option>
+                    {bks.map(b=><option key={b.id} value={String(b.id)}>{b.name}</option>)}
+                  </select>
+                </div>
+                {!af.bankId&&<div style={{padding:"0 12px 9px",fontSize:11,color:T.red,fontWeight:600}}>Pick the account you float from — then it runs by itself.</div>}
+                {af.bankId&&<div style={rw}><span style={{color:T.textSub}}>Floating right now</span><b style={{color:nowAmt>0.5?T.red:"#0F9D58"}}>{nowAmt>0.5?money(nowAmt):"$0 — nothing floated"}</b></div>}
+                {fd!=null&&<div style={rw}><span style={{color:T.textSub}}>Since</span><b>{fmtDay(String(live.floatSince).slice(0,10))} · {fd} day{fd===1?"":"s"}</b></div>}
+                {hist.length>0&&<>
+                  <div style={{...rw,background:"#FAFAFB",fontSize:10.5,fontWeight:800,color:"#8A8F98",letterSpacing:"0.04em"}}>HISTORY</div>
+                  {hist.map((h,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"5px 12px",fontSize:11.5,color:"#5A6472"}}><span>{fmtDay(String(h.at||"").slice(0,10))} · {h.note||""}</span><b style={{color:(Number(h.amount)||0)>0?T.red:"#0F9D58",whiteSpace:"nowrap"}}>{(Number(h.amount)||0)>0?`+${money(h.amount).slice(1)} borrowed`:`−${money(-h.amount).slice(1)} paid back`}</b></div>)}
+                </>}
+              </>}
+              {!on&&short>0.5&&<div style={{...rw,color:T.red,fontWeight:600}}>Short {money(short)} right now — turn this on and it's covered automatically.</div>}
+            </div>
+            {on&&<div style={{padding:"2px 18px 6px",fontSize:10.5,color:T.textTert,lineHeight:1.5}}>It goes up when QuickBooks shows more construction spending, and back to $0 when a draw lands. Bank Recon shows it as a 🌉 bridge on that account, so your balances stay right. Updates while the Financial Section is open.</div>}
+            {manual.length>0&&<div style={{margin:"8px 18px 4px",background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:10,padding:"8px 12px",fontSize:11.5,lineHeight:1.5,color:"#8a6d1f"}}>
+              🌉 <b>Bridged by hand — {money(manualSum)}</b> ({[...new Set(manual.map(b=>b.bankName))].join(", ")}). Not counted as a draw; the next 💸 bank draw pays it back first and shrinks it automatically.
+            </div>}
+          </>);
+        })()}
       </>),(()=>{const brSum=bridgeSumOf(sel);return goldFoot("Your construction equity — left",money(c.constrEquity+brSum),(c.constrEquity+brSum)>=0?"#0F9D58":T.red);})());
     }
     if(detailPop==="equity"){
@@ -16604,6 +16720,53 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
     if(flushBank)setTimeout(flushBank,0);
     setDsBorrow(null);
   };
+  // 🌉 Floating now — every deal carrying borrowed construction money, per account.
+  const floatRows=(bsProps||[]).filter(p=>(p.dmFinType||"draws")!=="upfront").map(p=>{
+    const brs=bridgesOf(p);const sum=brs.reduce((t,a)=>t+Math.abs(Number(a.amount)||0),0);
+    const c2=calc(p);const short=Math.max(0,-((c2.constrEquity||0)+sum));
+    const since=brs.map(a=>a.floatSince).filter(Boolean).sort()[0]||null;
+    return {p,brs,sum,short,auto:afOn(p),since};
+  }).filter(r=>r.sum>0.5||r.short>0.5);
+  const floatCount=floatRows.filter(r=>r.sum>0.5).length;
+  const floatPop=floatOpen&&(()=>{
+    const floating=floatRows.filter(r=>r.sum>0.5).sort((a,b)=>b.sum-a.sum);
+    const shortOnly=floatRows.filter(r=>r.sum<=0.5&&r.short>0.5);
+    const byBank={};floating.forEach(r=>r.brs.forEach(a=>{const k=a.bankName||"—";byBank[k]=byBank[k]||{sum:0,deals:new Set()};byBank[k].sum+=Math.abs(Number(a.amount)||0);byBank[k].deals.add(r.p.id);}));
+    const total=floating.reduce((t,r)=>t+r.sum,0);
+    const lr={display:"flex",alignItems:"center",gap:10,padding:"11px 16px",borderTop:"1px solid #F0F0F3",cursor:"pointer"};
+    const tot={display:"flex",justifyContent:"space-between",padding:"10px 16px",fontSize:12.5,color:"#8a6d1f",fontWeight:800,background:"#FDF9EE",borderTop:"1px solid #EAD9A9"};
+    const openDeal=(p)=>{setFloatOpen(false);setSelId(p.id);setDetailPop("constr");};
+    return(
+      <div onClick={()=>setFloatOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:472,display:"flex",alignItems:"center",justifyContent:"center",padding:14,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(460px,97vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 14px 44px rgba(0,0,0,0.22)"}}>
+          <div style={{padding:"13px 16px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+            <span style={{fontSize:17}}>🌉</span>
+            <div style={{flex:1,minWidth:0}}><b style={{fontSize:15}}>Floating now</b><div style={{fontSize:10.5,color:T.textTert,marginTop:1}}>construction money you've borrowed until the next draw</div></div>
+            <button onClick={()=>setFloatOpen(false)} aria-label="Close" style={{background:"none",border:"none",fontSize:20,color:T.textTert,cursor:"pointer",lineHeight:1,minWidth:32,minHeight:32}}>×</button>
+          </div>
+          <div style={{overflowY:"auto",flex:1}}>
+            {!floating.length&&!shortOnly.length&&<div style={{padding:"26px 16px",textAlign:"center",fontSize:13,color:T.textTert}}>Nothing floating — every deal is covered by its draws. 🎉</div>}
+            {floating.map(r=>{const d=floatDays(r.since);return(
+              <div key={r.p.id} onClick={()=>openDeal(r.p)} style={lr}>
+                <div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.p.address}</div><div style={{fontSize:11,color:"#8A8F98"}}>{[...new Set(r.brs.map(a=>a.bankName))].join(", ")}{d!=null?` · since ${fmtDay(String(r.since).slice(0,10))} (${d} day${d===1?"":"s"})`:""}</div></div>
+                <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:14,fontWeight:800,color:T.red}}>{money(r.sum)}</div><div style={{fontSize:10.5,fontWeight:600,color:"#8A8F98"}}>{r.auto?"auto":"by hand"}</div></div>
+              </div>
+            );})}
+            {shortOnly.map(r=>(
+              <div key={"s"+r.p.id} onClick={()=>openDeal(r.p)} style={{...lr,opacity:0.75}}>
+                <div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,fontWeight:700,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.p.address}</div><div style={{fontSize:11,color:"#8A8F98"}}>Auto-float off · short {money(r.short)}</div></div>
+                <span style={{fontSize:12.5,fontWeight:800,color:"#8a6d1f",flexShrink:0}}>Turn on ›</span>
+              </div>
+            ))}
+            {floating.length>0&&<div style={{borderTop:"2px solid #C9A227"}}>
+              {Object.entries(byBank).sort((a,b)=>b[1].sum-a[1].sum).map(([k,v])=><div key={k} style={tot}><span>{k}</span><span>{money(v.sum)} across {v.deals.size} deal{v.deals.size===1?"":"s"}</span></div>)}
+              {Object.keys(byBank).length>1&&<div style={{...tot,fontSize:13.5}}><span>Total floating</span><span>{money(total)}</span></div>}
+            </div>}
+          </div>
+        </div>
+      </div>
+    );
+  })();
   const dsPop=dsOpen&&(()=>{
     const mName=new Date().toLocaleDateString(undefined,{month:"long"});
     const chip=(bg,fg,txt,bd)=><span style={{fontSize:10,fontWeight:800,borderRadius:9,padding:"2.5px 8px",background:bg,color:fg,border:bd?`1px solid ${bd}`:"none",whiteSpace:"nowrap",flexShrink:0}}>{txt}</span>;
@@ -16710,6 +16873,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               {canEdit&&<div style={CAPS_ROW}>
                 <button onClick={()=>setDsOpen(true)} title="🏦 Debt service — covered or short, borrow in one tap" style={capsSeg()}>🏦{dsShortCount>0&&<span style={{position:"absolute",top:0,right:0,minWidth:15,height:15,borderRadius:8,background:T.red,color:"#fff",fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px",boxSizing:"border-box"}}>{dsShortCount}</span>}</button>
                 <button onClick={()=>setDrawIn({propId:(selP&&selP.id)||"",amt:""})} title="💸 Bank sent a draw — the reimburse/transfer split" style={capsSeg()}>💸</button>
+                <button onClick={()=>setFloatOpen(true)} title="🌉 Floating now — every deal you're floating, and from which account" style={{...capsSeg(),position:"relative"}}>🌉{floatCount>0&&<span style={{position:"absolute",top:0,right:0,minWidth:15,height:15,borderRadius:8,background:"#C9A227",color:"#fff",fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px",boxSizing:"border-box"}}>{floatCount}</span>}</button>
                 <button onClick={()=>setBulkOpen(true)} title="⚙ Bank accounts — every property at once" style={capsSeg()}><GearIcon size={16}/></button>
               </div>}
             </div>
@@ -16752,7 +16916,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
         )}
         {txPicker}
         {drawInPop}
-        {dsPop}
+        {dsPop}{floatPop}
         {selP&&dealPopups(selP)}
         {selP&&setupSheet(selP)}
         {bulkOpen&&(
@@ -16846,7 +17010,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
       </div>
       {txPicker}
       {drawInPop}
-      {dsPop}
+      {dsPop}{floatPop}
       {sel&&dealPopups(sel)}
       {sel&&setupSheet(sel)}
     </div>
@@ -20024,6 +20188,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
 
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
+      {canEdit&&<AutoFloatSync/>}
       {funderModal&&<FinFunderModal funder={funderModal.id?funderModal:null} onSave={(f)=>funderModal.id?updateFunder(f):addFunder(f)} onClose={()=>setFunderModal(null)}/>}
       {ledgerModal&&sel&&<FinLedgerModal funderName={sel.name} onSave={(e)=>addLedger(sel.id,e)} onClose={()=>setLedgerModal(false)}/>}
       {registerImport&&sel&&<FinRegisterImport funder={sel} onImport={(entries)=>addLedgerBulk(sel.id,entries)} onClose={()=>setRegisterImport(false)}/>}

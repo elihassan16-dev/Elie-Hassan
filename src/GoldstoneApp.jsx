@@ -34,6 +34,7 @@ import { SowPdfPreview } from "./contractors/SowPdfPreview";
 import { ScopeBuilder, scopeSummary } from "./contractors/scope";
 import { scopeToText } from "./contractors/sowLibrary";
 import { PlatinumCard, PlatinumChips, PlatinumTab, usePlatinum } from "./platinum";
+import { useRentalRange, RentalsOverview, MonthsTable, RentalPL, RangeCapsule, RangeChips, RangeSheet } from "./rentalsPL";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -3853,7 +3854,14 @@ function RentalPortfolioPage(){
   const[form,setForm]=useState({address:"",city:"",state:"NJ",zip:"",type:"single"});
   // 🏢 Platinum (AppFolio) statements — view-only (Esti books them in QB).
   const plat=usePlatinum();
-  const[platTabFor,setPlatTabFor]=useState(null);
+  // 📊 P&L views (Elie 10/5/26): one date range for the whole page; overview ↔
+  // all-properties monthly table; each rental opens on its P&L tab.
+  const range=useRentalRange();
+  const[ovView,setOvView]=useState("list");
+  const[tablePid,setTablePid]=useState("all");
+  const[detailTab,setDetailTab]=useState("pl");
+  const[rangeSheet,setRangeSheet]=useState(false);
+  const[platOpen,setPlatOpen]=useState(false);
   const thisMonth=localISO().slice(0,7);
   const[from,setFrom]=useState(thisMonth);
   const[to,setTo]=useState(thisMonth);
@@ -3967,6 +3975,7 @@ function RentalPortfolioPage(){
 
   const list=useMemo(()=>[...(rentals||[])].sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[rentals]);
   const sel=selId!=null?list.find(r=>String(r.id)===String(selId)):null;
+  const plCtx={live:plat.live,keyFor:(r)=>plat.liveKeyFor(r,list),bAmt};
   const saveNow=()=>{if(flushRentals)setTimeout(flushRentals,0);};
   const upd=(id,patch)=>{setRentals(prev=>prev.map(r=>String(r.id)===String(id)?{...r,...patch}:r));saveNow();};
   const addRental=()=>{
@@ -4035,18 +4044,31 @@ function RentalPortfolioPage(){
     const platView=plat.viewFor(sel,list);
     const platKey=plat.liveKeyFor(sel,list);
     const platHas=!!platView||!!(plat.live&&platKey);
-    const platOn=platHas&&platTabFor===sel.id;
-    const platSeg=platHas&&<div style={{...SEG_WRAP,display:"flex",marginBottom:14}}>
-      {[[false,"Details"],[true,"🏢 Platinum"]].map(([k,l])=><button key={l} onClick={()=>setPlatTabFor(k?sel.id:null)} style={{...segTab(platOn===k),flex:1,minHeight:36}}>{l}</button>)}
+    const platSeg=<div style={{...SEG_WRAP,display:"flex",width:"100%",boxSizing:"border-box",marginBottom:14}}>
+      {[["pl","P&L"],["months","Months"],["tenants","Tenants"],["details","Details"]].map(([k,l])=><button key={k} onClick={()=>setDetailTab(k)} style={{...segTab(detailTab===k),flex:1,minHeight:36}}>{l}</button>)}
     </div>;
-    if(platOn)return(
+    if(detailTab!=="details")return(
       <div style={{flex:1,overflowY:"auto",background:T.bg}}>
         <div style={wrap}>
-          <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"inherit",padding:0,marginBottom:12}}>‹ All rentals</button>
-          <div style={{fontSize:20,fontWeight:800,color:T.text}}>{sel.address}</div>
-          <div style={{fontSize:13,color:T.textSub,marginBottom:14}}>{[sel.city,sel.state,sel.zip].filter(Boolean).join(", ")}</div>
+          <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,fontWeight:500,fontFamily:"inherit",padding:0,marginBottom:8,minHeight:32}}>‹ Rentals</button>
+          <div style={{fontSize:26,fontWeight:800,letterSpacing:"-0.02em",color:T.text}}>{sel.address}</div>
+          <div style={{fontSize:13,color:T.textSub,marginBottom:14}}>{[[sel.city,sel.state].filter(Boolean).join(", "),units.length>1?`${units.length} units`:"1 unit",rentExpected(sel)?`${fmtD(rentExpected(sel))}/mo`:"",platHas?"Platinum":""].filter(Boolean).join(" · ")}</div>
           {platSeg}
-          <PlatinumTab view={platView} live={plat.live} liveKey={platKey}/>
+          {detailTab==="pl"&&<RentalPL rental={sel} ctx={plCtx} range={range}/>}
+          {detailTab==="months"&&<>
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><RangeCapsule range={range} onOpen={()=>setRangeSheet(true)}/></div>
+            <RangeChips range={range}/>
+            <MonthsTable rentals={[sel]} ctx={plCtx} range={range}/>
+          </>}
+          {detailTab==="tenants"&&(platHas
+            ?<PlatinumTab view={platView} live={plat.live} liveKey={platKey}/>
+            :<div style={{...card,borderRadius:18}}>
+              {units.map((u,i)=>(<div key={u.id} style={{padding:"11px 16px",borderTop:i?`1px solid ${T.border}`:"none"}}>
+                <div style={{display:"flex",gap:8,alignItems:"baseline"}}><b style={{flex:1,fontSize:15,color:T.text}}>{u.label?`${u.label} · `:""}{u.tenant?.name||"Vacant"}</b><span style={{fontSize:14,fontWeight:650,fontVariantNumeric:"tabular-nums"}}>{u.rent?`${fmtD(n(u.rent))}/mo`:""}</span></div>
+                <div style={{fontSize:12.5,color:T.textSub}}>{[u.leaseEnd?`lease to ${u.leaseEnd}`:"",u.tenant?.phone||""].filter(Boolean).join(" · ")||"Add tenant details under Details"}</div>
+              </div>))}
+            </div>)}
+          {rangeSheet&&<RangeSheet range={range} isMobile={isMobile} onClose={()=>setRangeSheet(false)}/>}
         </div>
       </div>
     );
@@ -4384,81 +4406,53 @@ function RentalPortfolioPage(){
   }
 
   // ── Overview + list ──
-  const months=rentMonthsBetween(from,to);
-  const totalUnits=list.reduce((s,r)=>s+(r.units||[]).length,0);
-  const expectedMo=list.reduce((s,r)=>s+rentExpected(r),0);
-  let expectedRange=0,receivedRange=0,netRange=0;
-  list.forEach(r=>{months.forEach(mo=>{
-    expectedRange+=rentExpected(r);
-    const L=rentLedgerFor(r,mo);
-    if(L){receivedRange+=bAmt(L,"rent","rentReceived");netRange+=ledgerNet(L);}
-  });});
-  const collectedPct=expectedRange>0?Math.round(receivedRange/expectedRange*100):0;
-  const stat=(label,val,color,dot)=>(
-    <div style={{...card,borderRadius:14,padding:"12px 16px 11px",flex:"1 1 140px",minWidth:0}}>
-      <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0,marginBottom:4}}>
-        <span style={{width:6,height:6,borderRadius:3,background:dot||color||T.textTert,flexShrink:0,display:"inline-block"}}/>
-        <span style={{fontSize:11.5,color:T.textSub,fontWeight:650,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+  const pl=plat.live;
+  const platSub=pl?`Checked ${new Date(pl.latest.at).toLocaleString(undefined,{weekday:"short",hour:"numeric",minute:"2-digit"})}${pl.fresh.filter(t=>t.dir==="in").length?` · ${pl.fresh.filter(t=>t.dir==="in").length} new payments`:""}${pl.billChanges.added.length?` · ${pl.billChanges.added.length} new bill${pl.billChanges.added.length>1?"s":""}`:""}`:(plat.latest?"Monthly packets":"Owner portal updates from Cowork");
+  const openRental=(id)=>{setSelId(id);setDetailTab("pl");};
+  if(ovView==="table"){
+    const shown=tablePid==="all"?list:list.filter(r=>String(r.id)===String(tablePid));
+    return(
+      <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+        <div style={{...wrap,maxWidth:980}}>
+          <button onClick={()=>setOvView("list")} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,fontWeight:500,fontFamily:"inherit",padding:0,marginBottom:8,minHeight:32}}>‹ Rentals</button>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:10}}>
+            <div style={{flex:1,fontSize:26,fontWeight:800,letterSpacing:"-0.02em",color:T.text}}>Monthly P&amp;L</div>
+            <select value={tablePid} onChange={e=>setTablePid(e.target.value)} aria-label="Which property" style={{minHeight:36,borderRadius:18,border:"none",background:"rgba(118,118,128,0.12)",fontSize:14,fontWeight:600,padding:"0 12px",fontFamily:"inherit",color:T.text}}>
+              <option value="all">All properties</option>
+              {list.map(r=><option key={r.id} value={r.id}>{r.address}</option>)}
+            </select>
+            <RangeCapsule range={range} onOpen={()=>setRangeSheet(true)}/>
+          </div>
+          <RangeChips range={range}/>
+          <MonthsTable rentals={shown} ctx={plCtx} range={range}/>
+          {rangeSheet&&<RangeSheet range={range} isMobile={isMobile} onClose={()=>setRangeSheet(false)}/>}
+        </div>
       </div>
-      <div style={{fontSize:19,fontWeight:750,letterSpacing:"-0.01em",color:color||T.text,fontVariantNumeric:"tabular-nums"}}>{val}</div>
-    </div>
-  );
+    );
+  }
   return(
     <div style={{flex:1,overflowY:"auto",background:T.bg}}>
       <div style={wrap}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-          <div style={{fontSize:20,fontWeight:800,color:T.text}}>Rental Portfolio</div>
+          <div style={{fontSize:30,fontWeight:800,letterSpacing:"-0.02em",color:T.text}}>Rentals</div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             {importable.length>0&&<button onClick={importFromProps} style={{padding:"9px 14px",borderRadius:T.radiusSm,background:T.goldLight,border:`1px solid ${T.gold}`,color:T.gold,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>⬇ Import {importable.length} from Properties</button>}
             <button onClick={()=>setShowAdd(true)} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:"pointer",fontFamily:"inherit"}}>+ Add rental</button>
           </div>
         </div>
 
-        <PlatinumCard rentals={list} onOpen={(id)=>{setSelId(id);setPlatTabFor(id);}} onAddRental={addFromPlatinum} isMobile={isMobile}/>
+        <RentalsOverview rentals={list} ctx={plCtx} range={range} onOpen={openRental} onTable={()=>setOvView("table")} isMobile={isMobile}
+          chipsFor={(r)=><PlatinumChips view={plat.viewFor(r,list)} live={plat.live} liveKey={plat.liveKeyFor(r,list)}/>}/>
 
-        {/* Date range */}
-        <div style={{...card,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <span style={{fontSize:12.5,color:T.textSub,fontWeight:600,flexShrink:0}}>Range</span>
-          <input type="month" value={from} onChange={e=>setFrom(e.target.value)} style={{...iS,width:"auto",flex:"1 1 118px",minWidth:0,fontSize:13}}/>
-          <span style={{color:T.textTert,flexShrink:0}}>→</span>
-          <input type="month" value={to} onChange={e=>setTo(e.target.value)} style={{...iS,width:"auto",flex:"1 1 118px",minWidth:0,fontSize:13}}/>
-          <span style={{marginLeft:"auto",fontSize:12,color:T.textTert,flexShrink:0}}>{months.length} month{months.length!==1?"s":""}</span>
+        {/* 🏢 Platinum: since-last-check, trends, bills, packets, Update — one row, opens in place */}
+        <div style={{...card,borderRadius:18,marginTop:12}}>
+          <button onClick={()=>setPlatOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",minHeight:56,padding:"8px 16px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+            <span style={{fontSize:20}}>🏢</span>
+            <span style={{flex:1,minWidth:0}}><span style={{display:"block",fontSize:15,fontWeight:600,color:T.text}}>Platinum updates</span><span style={{display:"block",fontSize:12.5,color:T.textSub}}>{platSub}</span></span>
+            <span style={{color:"#C7C7CC",fontSize:20,transform:platOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>›</span>
+          </button>
         </div>
-
-        {/* Metrics */}
-        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-          {stat("Properties",list.length)}
-          {stat("Units",totalUnits)}
-          {stat("Expected / Mo",fmtD(expectedMo),T.gold)}
-          {stat(`Collected (${collectedPct}%)`,fmtD(receivedRange),GREEN_TXT)}
-          {stat("Net (Range)",(netRange>=0?"+":"")+fmtD(netRange),netRange>=0?GREEN_TXT:T.red)}
-        </div>
-
-        {/* Property list — inset-grouped: title above the card */}
-        <div style={{display:"flex",alignItems:"center",gap:7,margin:"0 6px 7px"}}>
-          <span style={{width:7,height:7,borderRadius:4,background:T.gold,flexShrink:0}}/>
-          <span style={{fontSize:13.5,fontWeight:650,color:T.text}}>Properties</span>
-        </div>
-        <div style={card}>
-          {list.length===0&&<div style={{padding:"26px 16px",textAlign:"center",fontSize:13.5,color:T.textTert}}>No rentals yet. Tap “+ Add rental” to start your portfolio.</div>}
-          {list.map((r,i)=>{
-            const exp=rentExpected(r);
-            const rec=months.reduce((s,mo)=>{const L=rentLedgerFor(r,mo);return s+(L?bAmt(L,"rent","rentReceived"):0);},0);
-            return(
-              <div key={r.id} onClick={()=>setSelId(r.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderTop:i?FIN_HAIR:"none",cursor:"pointer",minHeight:46,boxSizing:"border-box"}}>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:14.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}{r.city?`, ${r.city}`:""}{finChev}</div>
-                  <div style={{fontSize:12,color:T.textSub}}>{r.type==="multi"?`${(r.units||[]).length} units`:"Single family"} · {fmtD(exp)}/mo</div>
-                  <PlatinumChips view={plat.viewFor(r,list)} live={plat.live} liveKey={plat.liveKeyFor(r,list)}/>
-                </div>
-                <div style={{textAlign:"right",flexShrink:0}}>
-                  <div style={{fontSize:13,fontWeight:700,color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{fmtD(rec)}</div>
-                  <div style={{fontSize:10.5,color:T.textTert}}>collected · range</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {platOpen&&<PlatinumCard rentals={list} onOpen={(id)=>{setSelId(id);setDetailTab("tenants");}} onAddRental={addFromPlatinum} isMobile={isMobile}/>}
       </div>
 
       {showAdd&&(

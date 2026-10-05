@@ -541,7 +541,7 @@ function PropsTable({ live, plat, rentals, onOpen, onAddRental }) {
   );
 }
 
-function Sheet({ title, sub, onClose, isMobile, children }) {
+export function Sheet({ title, sub, onClose, isMobile, children }) {
   return createPortal(
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 3200, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: T.bg, width: isMobile ? "100%" : 520, maxHeight: isMobile ? "90vh" : "86vh", borderRadius: isMobile ? "28px 28px 0 0" : 24, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>

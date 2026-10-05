@@ -62,7 +62,7 @@ export const supabase = {
       let id = null;
       q.eq = (col, val) => { if (col === "id") id = String(val); return q; };
       q.maybeSingle = () => { q.res = { data: id && uprefs[id] ? { id, data: uprefs[id] } : null, error: null }; return q; };
-      q.upsert = (row) => { if (row && String(row.id || "").startsWith("uprefs_")) uprefs[row.id] = row.data; return q; };
+      q.upsert = (row) => { if (row && /^(uprefs_|appfolio$)/.test(String(row.id || ""))) uprefs[row.id] = row.data; return q; };
     }
     return q;
   },
@@ -70,7 +70,7 @@ export const supabase = {
   channel() { return channel; },
   removeChannel() {},
   realtime: { isConnected: () => true, connect() {}, disconnect() {} },
-  storage: { from() { return { upload: async () => ({ data: null, error: null }), getPublicUrl: () => ({ data: { publicUrl: "" } }) }; } },
+  storage: { from() { return { upload: async () => ({ data: null, error: null }), getPublicUrl: (path) => ({ data: { publicUrl: "https://example.com/" + path } }) }; } },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "demo", user: { id: "demo-elie", email: "elie@goldstonepropertiesnj.com", user_metadata: {} } } } }),
     // Read stamps for the texting store: every demo thread read except

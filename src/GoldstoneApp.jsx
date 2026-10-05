@@ -33,6 +33,7 @@ import { jvPdfFile } from "./jvPdf";
 import { SowPdfPreview } from "./contractors/SowPdfPreview";
 import { ScopeBuilder, scopeSummary } from "./contractors/scope";
 import { scopeToText } from "./contractors/sowLibrary";
+import { PlatinumCard, PlatinumChips, PlatinumTab, usePlatinum } from "./platinum";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -3850,6 +3851,9 @@ function RentalPortfolioPage(){
   const[selId,setSelId]=useState(null);
   const[showAdd,setShowAdd]=useState(false);
   const[form,setForm]=useState({address:"",city:"",state:"NJ",zip:"",type:"single"});
+  // 🏢 Platinum (AppFolio) statements — view-only (Esti books them in QB).
+  const plat=usePlatinum();
+  const[platTabFor,setPlatTabFor]=useState(null);
   const thisMonth=localISO().slice(0,7);
   const[from,setFrom]=useState(thisMonth);
   const[to,setTo]=useState(thisMonth);
@@ -4020,6 +4024,22 @@ function RentalPortfolioPage(){
     const delLedger=(lid)=>upd(sel.id,{ledger:(sel.ledger||[]).filter(x=>x.id!==lid)});
     const rowLbl={fontSize:12,color:T.textSub,fontWeight:600,marginBottom:4,display:"block"};
     const num=(v)=>n(v);
+    const platView=plat.viewFor(sel,list);
+    const platOn=!!platView&&platTabFor===sel.id;
+    const platSeg=platView&&<div style={{...SEG_WRAP,display:"flex",marginBottom:14}}>
+      {[[false,"Details"],[true,"🏢 Platinum"]].map(([k,l])=><button key={l} onClick={()=>setPlatTabFor(k?sel.id:null)} style={{...segTab(platOn===k),flex:1,minHeight:36}}>{l}</button>)}
+    </div>;
+    if(platOn)return(
+      <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+        <div style={wrap}>
+          <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"inherit",padding:0,marginBottom:12}}>‹ All rentals</button>
+          <div style={{fontSize:20,fontWeight:800,color:T.text}}>{sel.address}</div>
+          <div style={{fontSize:13,color:T.textSub,marginBottom:14}}>{[sel.city,sel.state,sel.zip].filter(Boolean).join(", ")}</div>
+          {platSeg}
+          <PlatinumTab view={platView}/>
+        </div>
+      </div>
+    );
     return(
       <div style={{flex:1,overflowY:"auto",background:T.bg}}>
         <div style={wrap}>
@@ -4031,6 +4051,8 @@ function RentalPortfolioPage(){
             </div>
             <button onClick={()=>delRental(sel.id)} style={{flexShrink:0,padding:"7px 12px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.red,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
           </div>
+
+          {platSeg}
 
           {/* Type toggle */}
           <div style={{...card,marginBottom:16,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
@@ -4382,6 +4404,8 @@ function RentalPortfolioPage(){
           </div>
         </div>
 
+        <PlatinumCard rentals={list} onOpen={(id)=>{setSelId(id);setPlatTabFor(id);}} isMobile={isMobile}/>
+
         {/* Date range */}
         <div style={{...card,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <span style={{fontSize:12.5,color:T.textSub,fontWeight:600,flexShrink:0}}>Range</span>
@@ -4415,6 +4439,7 @@ function RentalPortfolioPage(){
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:14.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}{r.city?`, ${r.city}`:""}{finChev}</div>
                   <div style={{fontSize:12,color:T.textSub}}>{r.type==="multi"?`${(r.units||[]).length} units`:"Single family"} · {fmtD(exp)}/mo</div>
+                  <PlatinumChips view={plat.viewFor(r,list)}/>
                 </div>
                 <div style={{textAlign:"right",flexShrink:0}}>
                   <div style={{fontSize:13,fontWeight:700,color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{fmtD(rec)}</div>
@@ -22488,6 +22513,7 @@ export function GoldstoneShell(){
     const kind=i<0?pendingGoto:pendingGoto.slice(0,i),id=i<0?"":pendingGoto.slice(i+1);
     if(kind==="tasks"){setActive("tasks");setPendingGoto(null);return;}
     if(kind==="posts"){setActive("posts");setPendingGoto(null);return;}
+    if(kind==="rentals"){setActive("rentals");setPendingGoto(null);return;}
     // task:<propId|office>:<taskId> — open that property's task popup on the
     // Dashboard and light the exact task up in gold (email/push deep links).
     if(kind==="task"){const j=id.indexOf(":");const pid=j<0?id:id.slice(0,j),tid=j<0?"":id.slice(j+1);try{window.__taskTarget={propId:pid,taskId:tid};setTimeout(()=>window.dispatchEvent(new Event("gs-task-target")),0);}catch{/* no window */}setActive("tasks");setPendingGoto(null);return;}

@@ -90,18 +90,47 @@ export const sortIncome = (list) => list.sort((a, b) => rankIn(a.cat) - rankIn(b
 // Across several properties, per-unit rent lines fold back into one "Rent".
 export const foldUnits = (cat) => (cat.startsWith("Rent – ") ? "Rent" : cat);
 
+// ── Reversals (Elie 10/6/26): an NSF / bounced / returned payment shows up
+// as "Rental Income - NSF reversal receipt for Reference #…" (negative in
+// AppFolio's Cash Out). It cancels an earlier payment: match it to the most
+// recent un-reversed income line of the same property and amount (≤45 days
+// before) and take away that line's money in that line's month + category.
+const REV = /\bnsf\b|reversal|returned (payment|check|item)|bounced|chargeback/i;
+const INCOME_DESC = /^(rental income|late fees?|subsidized rent|legal fees-income|other income|tenant)/i;
+export const isReversal = (t) => REV.test(String(t.desc || "")) || (t.neg && (t.dir === "in" || INCOME_DESC.test(String(t.desc || ""))));
+const effCache = new WeakMap();
+function effTxns(live, key) {
+  let byKey = effCache.get(live);
+  if (!byKey) { byKey = new Map(); effCache.set(live, byKey); }
+  if (byKey.has(key)) return byKey.get(key);
+  const all = live.txns.filter((t) => t.key === key).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const used = new Set();
+  const days = (a, b) => (new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000;
+  const out = all.map((t) => {
+    if (!isReversal(t)) return { t, ym: forMonth(t), rev: false };
+    const isLate = /late fee/i.test(t.desc || "");
+    const cands = all.filter((o) => o !== t && !isReversal(o) && o.dir === "in" && !used.has(o) && Math.abs(o.amount - t.amount) < 0.005 && o.date <= t.date && days(o.date, t.date) <= 45 && (/late fee/i.test(o.desc || "") === isLate));
+    const o = cands[cands.length - 1] || null;
+    if (o) used.add(o);
+    return { t, ym: o ? forMonth(o) : forMonth(t), rev: true, orig: o };
+  });
+  byKey.set(key, out);
+  return out;
+}
+
 // ── the P&L for one rental, one month ──
 // ctx = { live, keyFor(rental) → Platinum key|null, bAmt(L,bucket,field) }
 export function rentalMonthPL(r, ym, ctx) {
   const income = new Map(), expenses = new Map();
-  const add = (map, cat, amount, tx) => { if (!(amount > 0.004)) return; const e = map.get(cat) || { cat, amount: 0, tx: [] }; e.amount += amount; if (tx) e.tx.push(tx); map.set(cat, e); };
+  const add = (map, cat, amount, tx) => { if (!(Math.abs(amount) > 0.004)) return; const e = map.get(cat) || { cat, amount: 0, tx: [] }; e.amount += amount; if (tx) e.tx.push(tx); map.set(cat, e); };
   let source = "none";
   const key = ctx.live && ctx.keyFor ? ctx.keyFor(r) : null;
   if (key) {
     const pm = propMonth(ctx.live, key, ym);
     const notOwner = (t) => !OWNER.test(`${t.desc} ${t.payee}`);
-    const tx = pm.tx.filter(notOwner); // by the month each payment is FOR
-    const paid = pm.paidTx.filter(notOwner); // by payment date (portal totals)
+    const eff = effTxns(ctx.live, key).filter((x) => x.ym === ym && notOwner(x.t)); // by the month each line is FOR
+    const tx = eff.map((x) => x.t);
+    const paid = pm.paidTx.filter((t) => notOwner(t) && !isReversal(t)); // by payment date (portal totals)
     const m = ctx.live.months[ym];
     const dash = m && m.props && m.props[key];
     if (tx.length || (dash && (dash.cashIn != null || dash.cashOut != null))) {
@@ -117,10 +146,17 @@ export function rentalMonthPL(r, ym, ctx) {
         ctx.live.txns.forEach((t) => { if (t.key === key && t.dir === "in" && isHap(t)) { const u = unitLabel(t); if (u !== "unit not listed") cnt[u] = (cnt[u] || 0) + 1; } });
         hapUnit = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
       }
-      tx.forEach((t) => {
+      const catOf = (t) => {
         let c = categorize(t);
         if (multi && t.dir === "in" && c === "Rent") { let u = unitLabel(t); if (u === "unit not listed" && hapUnit && isHap(t)) u = hapUnit; c = `Rent – ${u}`; }
-        add(t.dir === "in" ? income : expenses, c, t.amount, t);
+        return c;
+      };
+      eff.forEach(({ t, rev, orig }) => {
+        if (!rev) { add(t.dir === "in" ? income : expenses, catOf(t), t.amount, t); return; }
+        // A reversal takes money away from the line it cancels (or, unmatched,
+        // from the income category its own description names).
+        const base = orig || { ...t, dir: "in" };
+        add(income, catOf(base), -t.amount, { ...t, dir: "in", amount: -t.amount, rev: true, forYm: ym, reverses: orig ? `${orig.date} payment` : "" });
       });
       // The portal's month totals count payments by DATE, so compare them with
       // what was paid this month, not with what's assigned to it.

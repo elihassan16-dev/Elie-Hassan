@@ -157,15 +157,35 @@ export function liveModel(row) {
 
 // Money in/out for one property in one month — the dashboard's number when
 // Cowork read it, else added up from the transactions.
+// The month a payment is FOR (Elie 10/6/26): "Rental Income - May 2026" paid
+// Aug 28 belongs to May; "Management Fee for 08/2026" to August. No month in
+// the description (or one more than two years off) → the payment date.
+const MON3 = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+export function forMonth(t) {
+  const paid = monthOf(t.date);
+  const s = String(t.desc || "");
+  let ym = null;
+  let m = s.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?,?\s+(20\d{2})\b/i);
+  if (m) ym = `${m[2]}-${String(MON3[m[1].slice(0, 3).toLowerCase()]).padStart(2, "0")}`;
+  if (!ym) { m = s.match(/\b(0?[1-9]|1[0-2])\/(20\d{2})\b/); if (m) ym = `${m[2]}-${m[1].padStart(2, "0")}`; }
+  if (!ym || !paid) return paid;
+  const [a, b] = [ym, paid].map((x) => Number(x.slice(0, 4)) * 12 + Number(x.slice(5, 7)));
+  return Math.abs(a - b) > 24 ? paid : ym;
+}
+
+// tx = the transactions FOR this month (P&L); paidTx = paid IN this month
+// (cash — what the portal's dashboard totals count).
 export function propMonth(model, key, ym) {
   const m = model.months[ym];
   const p = m && m.props && m.props[key];
-  const tx = model.txns.filter((t) => t.key === key && monthOf(t.date) === ym);
-  const sum = (dir) => round2(tx.filter((t) => t.dir === dir).reduce((s, t) => s + t.amount, 0));
+  const mine = model.txns.filter((t) => t.key === key);
+  const tx = mine.filter((t) => forMonth(t) === ym);
+  const paidTx = mine.filter((t) => monthOf(t.date) === ym);
+  const sum = (dir) => round2(paidTx.filter((t) => t.dir === dir).reduce((s, t) => s + t.amount, 0));
   return {
     cashIn: p && p.cashIn != null ? p.cashIn : sum("in"),
     cashOut: p && p.cashOut != null ? p.cashOut : sum("out"),
     rentCollected: p ? p.rentCollected : null, rentDue: p ? p.rentDue : null,
-    unitsTotal: p ? p.unitsTotal : null, tx,
+    unitsTotal: p ? p.unitsTotal : null, tx, paidTx,
   };
 }

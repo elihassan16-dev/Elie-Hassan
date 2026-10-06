@@ -17,7 +17,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { T } from "./theme";
 import { Sheet } from "./platinum";
-import { propMonth } from "./platinumLive.js";
+import { propMonth, forMonth } from "./platinumLive.js";
 
 // ── months & ranges ──
 const pad = (n) => String(n).padStart(2, "0");
@@ -98,7 +98,9 @@ export function rentalMonthPL(r, ym, ctx) {
   const key = ctx.live && ctx.keyFor ? ctx.keyFor(r) : null;
   if (key) {
     const pm = propMonth(ctx.live, key, ym);
-    const tx = pm.tx.filter((t) => !OWNER.test(`${t.desc} ${t.payee}`));
+    const notOwner = (t) => !OWNER.test(`${t.desc} ${t.payee}`);
+    const tx = pm.tx.filter(notOwner); // by the month each payment is FOR
+    const paid = pm.paidTx.filter(notOwner); // by payment date (portal totals)
     const m = ctx.live.months[ym];
     const dash = m && m.props && m.props[key];
     if (tx.length || (dash && (dash.cashIn != null || dash.cashOut != null))) {
@@ -106,9 +108,11 @@ export function rentalMonthPL(r, ym, ctx) {
       // Multi-unit buildings: one Rent line per unit (Elie 10/6/26).
       const multi = (r.units || []).length > 1;
       tx.forEach((t) => { let c = categorize(t); if (multi && t.dir === "in" && c === "Rent") c = `Rent – ${unitLabel(t)}`; add(t.dir === "in" ? income : expenses, c, t.amount, t); });
-      const sum = (map) => [...map.values()].reduce((s, e) => s + e.amount, 0);
-      if (dash && dash.cashIn != null && dash.cashIn - sum(income) > 1) add(income, "Other (not itemized)", dash.cashIn - sum(income));
-      if (dash && dash.cashOut != null && dash.cashOut - sum(expenses) > 1) add(expenses, "Other (not itemized)", dash.cashOut - sum(expenses));
+      // The portal's month totals count payments by DATE, so compare them with
+      // what was paid this month, not with what's assigned to it.
+      const paidSum = (dir) => paid.filter((t) => t.dir === dir).reduce((s, t) => s + t.amount, 0);
+      if (dash && dash.cashIn != null && dash.cashIn - paidSum("in") > 1) add(income, "Other (not itemized)", dash.cashIn - paidSum("in"));
+      if (dash && dash.cashOut != null && dash.cashOut - paidSum("out") > 1) add(expenses, "Other (not itemized)", dash.cashOut - paidSum("out"));
     }
   }
   const L = (r.ledger || []).find((x) => x.month === ym);
@@ -120,7 +124,7 @@ export function rentalMonthPL(r, ym, ctx) {
   }
   // 📌 QuickBooks transactions pinned to this rental (mortgage, insurance,
   // taxes, outside bills…). A pinned mortgage replaces the ledger/loan figure.
-  const pins = (r.qbPins || []).filter((p) => String(p.date || "").slice(0, 7) === ym);
+  const pins = (r.qbPins || []).filter((p) => forMonth(p) === ym);
   let pinnedMtg = 0;
   pins.forEach((p) => {
     const t = { dir: p.cat === "Other income" ? "in" : "out", date: p.date, desc: p.desc || "", payee: p.accountName || "QuickBooks", amount: Math.abs(Number(p.amount) || 0), pinned: true };

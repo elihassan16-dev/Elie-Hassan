@@ -80,8 +80,11 @@ function tenantLedger(tn, pays, opt) {
   rows.forEach((w) => { if (pool > 0.004 && w.due > 0.004) { const x = Math.min(pool, w.due); w.due = r2(w.due - x); w.applied.push(x); pool -= x; } });
   const credit = r2(pool);
   const owed = r2(rows.reduce((s, w) => s + w.due, 0) - credit);
-  // Aging by how long each month's rent has been unpaid (due the 1st). The
-  // packet's opening balance is aged in rent-size pieces, newest month first.
+  return { rows, owed, credit, aging: agingOf(rows, tn, asOf), loose };
+}
+// Aging by how long each month's rent has been unpaid (due the 1st). The
+// packet's opening balance is aged in rent-size pieces, newest month first.
+function agingOf(rows, tn, asOf) {
   const aging = [0, 0, 0, 0];
   rows.forEach((w) => {
     if (!(w.due > 0.004)) return;
@@ -91,11 +94,12 @@ function tenantLedger(tn, pays, opt) {
       while (left > 0.004) { const x = floor && ym <= floor ? left : Math.min(left, tn.rent); aging[bucketOf(dayDiff(`${ym}-01`, asOf))] += x; left -= x; ym = addMonths(ym, -1); }
     } else aging[bucketOf(dayDiff(`${w.ym}-01`, asOf))] += w.due;
   });
-  return { rows, owed, credit, aging: aging.map(r2), loose };
+  return aging.map(r2);
 }
 
-// The whole report as of a date.
-export function delinquency(rentals, ctx, asOf = todayIso()) {
+// The whole report as of a date. range = {from, to} months (Elie 10/6/26):
+// only the rent FOR those months — charged, paid, and still unpaid today.
+export function delinquency(rentals, ctx, asOf = todayIso(), range = null) {
   const endYm = asOf.slice(0, 7);
   const props = [];
   (rentals || []).forEach((r) => {
@@ -128,7 +132,20 @@ export function delinquency(rentals, ctx, asOf = todayIso()) {
       t.mark = (r.dqMarks || {})[t.key || "_"] || null;
       const fresh = t.mark && !t.mark.vacant && /^\d{4}-\d{2}$/.test(t.mark.startYm || "") ? t.mark.startYm : null;
       const mine = (byT.get(t) || []).filter((p) => !fresh || (p.kind !== "late" && p.forYm >= fresh));
-      const L = tenantLedger(t, mine, { asOf, packet: fresh ? null : packet, startYm: fresh || (firstYm && firstYm <= endYm ? firstYm : endYm) });
+      let L = tenantLedger(t, mine, { asOf, packet: fresh ? null : packet, startYm: fresh || (firstYm && firstYm <= endYm ? firstYm : endYm) });
+      let rangeCharged = 0, rangePaid = 0;
+      if (range) {
+        // The packet's balance can hold older months too: keep only the
+        // rent-size pieces (newest first) that fall inside the range.
+        const rows = L.rows.filter((w) => w.ym >= range.from && w.ym <= range.to).map((w) => {
+          if (!w.open || !(t.rent > 0)) return w;
+          const cap = t.rent * monthsBetween(range.from, w.ym).length;
+          return { ...w, charged: Math.min(w.charged, cap), due: Math.min(w.due, cap), label: `${w.label} (${mLabel(range.from)}–${mLabel(w.ym)} part)` };
+        });
+        rangeCharged = r2(rows.reduce((s, w) => s + Math.max(0, w.charged), 0));
+        rangePaid = r2(rows.reduce((s, w) => s + Math.max(0, w.charged) - w.due, 0));
+        L = { ...L, rows, owed: r2(rows.reduce((s, w) => s + w.due, 0)), credit: 0, aging: agingOf(rows, t, asOf) };
+      }
       const allMine = all.filter((p) => (multi ? (t.key === "?" ? !tenants.some((x) => x !== t && x.key === unitKey(p.unit)) : t.key === unitKey(p.unit)) : true) && p.date <= asOf && (!fresh || (p.kind !== "late" && p.forYm >= fresh)));
       // Last paid = the latest day with a payment, that whole day's total.
       const lastDay = [...allMine].reverse().find((p) => !p.rev && p.amount > 0)?.date;
@@ -151,7 +168,7 @@ export function delinquency(rentals, ctx, asOf = todayIso()) {
       else if (L.owed < -0.5) tags.push({ t: "Paid ahead", c: "gr" });
       else if (L.owed <= 0.5 && !t.late && !bounced && t.rent > 0) tags.push({ t: "On time", c: "gr" });
       if (vacant) { L.owed = 0; L.aging = [0, 0, 0, 0]; }
-      return { ...t, rental: r, ...L, vacant, marked, fresh, last, bounced, hap, tags, curCharged: cur ? cur.charged : 0, curPaid: cur ? r2(cur.charged - cur.due) : 0 };
+      return { ...t, rental: r, ...L, rangeCharged, rangePaid, vacant, marked, fresh, last, bounced, hap, tags, curCharged: cur ? cur.charged : 0, curPaid: cur ? r2(cur.charged - cur.due) : 0 };
     }).filter((t) => t.rent > 0 || t.rows.length || Math.abs(t.owed) > 0.004);
     if (!out.length) return;
     const owed = r2(out.reduce((s, t) => s + Math.max(0, t.owed), 0));
@@ -163,8 +180,8 @@ export function delinquency(rentals, ctx, asOf = todayIso()) {
   const aging = [0, 1, 2, 3].map((i) => r2(props.reduce((s, p) => s + p.aging[i], 0)));
   const behind = tenants.filter((t) => t.owed > 0.5);
   const occupied = tenants.filter((t) => t.rent > 0 && t.key !== "?" && !t.vacant).length;
-  const monthRent = r2(tenants.reduce((s, t) => s + (t.vacant ? 0 : t.curCharged), 0)), monthPaid = r2(tenants.reduce((s, t) => s + (t.vacant ? 0 : Math.max(0, t.curPaid)), 0));
-  return { asOf, props, tenants, total, aging, behind, occupied, monthRent, monthPaid };
+  const monthRent = r2(tenants.reduce((s, t) => s + (t.vacant ? 0 : range ? t.rangeCharged : t.curCharged), 0)), monthPaid = r2(tenants.reduce((s, t) => s + (t.vacant ? 0 : Math.max(0, range ? t.rangePaid : t.curPaid)), 0));
+  return { asOf, range, props, tenants, total, aging, behind, occupied, monthRent, monthPaid };
 }
 // Sidebar numbers: what each rental's tenants owe today.
 export function owedByRental(rentals, ctx) {
@@ -196,13 +213,20 @@ function asOfChoices() {
 export function DelinquencyReport({ rentals, ctx, isMobile, header, onOpen, onUpdate }) {
   const [propSel, setPropSel] = useState("all");
   const [asSel, setAsSel] = useState("today");
+  const nowYm = todayIso().slice(0, 7);
+  const [rFrom, setRFrom] = useState(() => addMonths(nowYm, -2));
+  const [rTo, setRTo] = useState(nowYm);
   const [open, setOpen] = useState(() => new Set());
   const [busy, setBusy] = useState(false);
-  const asOf = asSel === "today" ? todayIso() : asSel;
+  // "Date range" (Elie 10/6/26): only the rent for those months, still unpaid today.
+  const isRange = asSel === "range";
+  const range = isRange ? { from: rFrom <= rTo ? rFrom : rTo, to: rFrom <= rTo ? rTo : rFrom } : null;
+  const rangeLabel = range ? (range.from === range.to ? `${mLabel(range.from)} ${range.from.slice(0, 4)}` : `${mLabel(range.from)}${range.from.slice(0, 4) !== range.to.slice(0, 4) ? ` ${range.from.slice(0, 4)}` : ""} – ${mLabel(range.to)} ${range.to.slice(0, 4)}`) : "";
+  const asOf = asSel === "today" || isRange ? todayIso() : asSel;
   const set = propSel === "all" ? rentals : rentals.filter((r) => String(r.id) === String(propSel));
-  const d = useMemo(() => delinquency(set, ctx, asOf), [set, ctx, asOf]);
-  const wk = useMemo(() => delinquency(set, ctx, shiftDays(asOf, -7)), [set, ctx, asOf]);
-  const change = r2(d.total - wk.total);
+  const d = useMemo(() => delinquency(set, ctx, asOf, range), [set, ctx, asOf, rangeLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+  const wk = useMemo(() => (isRange ? null : delinquency(set, ctx, shiftDays(asOf, -7))), [set, ctx, asOf, isRange]);
+  const change = wk ? r2(d.total - wk.total) : 0;
   const over60 = r2(d.aging[2] + d.aging[3]);
   const toggle = (id) => setOpen((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const behindProps = d.props.filter((p) => p.owed > 0.5).sort((a, b) => b.owed - a.owed);
@@ -231,14 +255,14 @@ export function DelinquencyReport({ rentals, ctx, isMobile, header, onOpen, onUp
     rows.push([]); rows.push(["Month by month"]); rows.push(["Property", "Tenant", "Month", "Rent charged", "Paid for it", "Payments", "Still owed"]);
     d.props.forEach((p) => p.tenants.forEach((t) => t.rows.forEach((w) => rows.push([p.r.address, tenantName(t), w.label, w.charged, r2(w.charged - w.due), w.pays.map((x) => payTxt(x)).join(" · "), w.due]))));
     const csv = "\ufeff" + rows.map((r) => r.map((x) => (/[",\n]/.test(String(x ?? "")) ? `"${String(x).replace(/"/g, '""')}"` : x ?? "")).join(",")).join("\n");
-    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = `Delinquency report ${asOf}.csv`;
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = `Delinquency report ${String(isRange ? rangeLabel : asOf).replace(/[^\w ]+/g, "-")}.csv`;
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
   };
   const exportPdf = async () => {
     if (busy) return; setBusy(true);
     try {
       const { delinquencyPdfFile } = await import("./delinqPdf.js");
-      const file = await delinquencyPdfFile(d, { title, asOf, change, over60, pctCollected });
+      const file = await delinquencyPdfFile(d, { title, asOf, change, over60, pctCollected, rangeLabel });
       const canShare = isMobile && navigator.canShare && navigator.canShare({ files: [file] });
       if (canShare) { try { await navigator.share({ files: [file], title }); } catch { /* cancelled */ } }
       else { const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); }
@@ -327,7 +351,7 @@ export function DelinquencyReport({ rentals, ctx, isMobile, header, onOpen, onUp
         <div style={{ flex: "1 1 260px", minWidth: 0 }}>
           {header}
           <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em", color: T.text }}>Delinquency report</div>
-          <div style={{ fontSize: 13, color: T.textSub }}>As of {dShort(asOf, true)} · rent from each lease minus every payment (Platinum + paid to you) · bounced payments taken back out</div>
+          <div style={{ fontSize: 13, color: T.textSub }}>{isRange ? <>Rent for <b style={{ color: T.text }}>{rangeLabel}</b> still unpaid as of {dShort(asOf, true)}</> : <>As of {dShort(asOf, true)}</>} · rent from each lease minus every payment (Platinum + paid to you) · bounced payments taken back out</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <select aria-label="Property" value={propSel} onChange={(e) => setPropSel(e.target.value)} style={capsule}>
@@ -336,16 +360,27 @@ export function DelinquencyReport({ rentals, ctx, isMobile, header, onOpen, onUp
           </select>
           <select aria-label="As of" value={asSel} onChange={(e) => setAsSel(e.target.value)} style={capsule}>
             {asOfChoices().map((c) => <option key={c.v} value={c.v}>📅 {c.l}</option>)}
+            <option value="range">📅 Date range…</option>
           </select>
+          {isRange && <>
+            <select aria-label="From month" value={rFrom} onChange={(e) => setRFrom(e.target.value)} style={capsule}>
+              {monthsBetween(addMonths(nowYm, -35), nowYm).reverse().map((ym) => <option key={ym} value={ym}>From {mLabel(ym)} {ym.slice(0, 4)}</option>)}
+            </select>
+            <select aria-label="To month" value={rTo} onChange={(e) => setRTo(e.target.value)} style={capsule}>
+              {monthsBetween(addMonths(nowYm, -35), nowYm).reverse().map((ym) => <option key={ym} value={ym}>To {mLabel(ym)} {ym.slice(0, 4)}</option>)}
+            </select>
+          </>}
           <button onClick={exportCsv} style={btn(false)}>⬇ Excel</button>
           <button onClick={exportPdf} style={btn(true)}>{busy ? "Making PDF…" : "📄 PDF to send"}</button>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,1fr)", gap: 10, marginBottom: 12 }}>
-        {kpi("Total owed", money(d.total), d.total > 0.5 ? RED : GREEN, Math.abs(change) > 0.5 ? `${change > 0 ? "↑" : "↓"} ${money(Math.abs(change))} since last week` : "same as last week")}
+        {isRange
+          ? kpi(`Unpaid for ${rangeLabel}`, money(d.total), d.total > 0.5 ? RED : GREEN, `of ${money(d.monthRent)} rent charged`)
+          : kpi("Total owed", money(d.total), d.total > 0.5 ? RED : GREEN, Math.abs(change) > 0.5 ? `${change > 0 ? "↑" : "↓"} ${money(Math.abs(change))} since last week` : "same as last week")}
         {kpi("Tenants behind", `${d.behind.length} of ${d.occupied}`, null, "occupied units")}
         {kpi("Over 60 days", money(over60), over60 > 0.5 ? RED : T.text, d.total > 0.5 ? `${Math.round((over60 / d.total) * 100)}% of what's owed` : "nothing")}
-        {kpi(`${mLabel(asOf.slice(0, 7), "long")} collected`, pctCollected == null ? "—" : `${pctCollected}%`, null, `${money(d.monthPaid)} of ${money(d.monthRent)}`)}
+        {kpi(isRange ? "Collected for those months" : `${mLabel(asOf.slice(0, 7), "long")} collected`, pctCollected == null ? "—" : `${pctCollected}%`, null, `${money(d.monthPaid)} of ${money(d.monthRent)}`)}
       </div>
       <div style={{ ...card, padding: "4px 14px 10px", overflowX: "auto" }}>
         {!d.tenants.length ? <div style={{ padding: "26px 8px", textAlign: "center", color: T.textSub, fontSize: 14 }}>No rent data yet — add tenants' rent on each rental, or upload a Platinum packet / update.</div> : (

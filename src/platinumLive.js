@@ -168,6 +168,17 @@ export function forMonth(t) {
   let m = s.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?,?\s+(20\d{2})\b/i);
   if (m) ym = `${m[2]}-${String(MON3[m[1].slice(0, 3).toLowerCase()]).padStart(2, "0")}`;
   if (!ym) { m = s.match(/\b(0?[1-9]|1[0-2])\/(20\d{2})\b/); if (m) ym = `${m[2]}-${m[1].padStart(2, "0")}`; }
+  // A month with no year ("July Rent HAP" entered Jun 30) — only next to a
+  // rent/fee word, and only if it's within 6 months of the entry date; the
+  // year is whichever puts it closest.
+  if (!ym && paid && /rent|hap|fee|subsid/i.test(s)) {
+    m = s.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b\.?(?!\s*\d{1,2}\b)/i);
+    if (m) {
+      const mo = MON3[m[1].slice(0, 3).toLowerCase()], py = Number(paid.slice(0, 4)), pm = Number(paid.slice(5, 7));
+      const best = [py - 1, py, py + 1].map((y) => ({ y, d: Math.abs(y * 12 + mo - (py * 12 + pm)) })).sort((a, b) => a.d - b.d)[0];
+      if (best.d <= 6) ym = `${best.y}-${String(mo).padStart(2, "0")}`;
+    }
+  }
   if (!ym || !paid) return paid;
   const [a, b] = [ym, paid].map((x) => Number(x.slice(0, 4)) * 12 + Number(x.slice(5, 7)));
   return Math.abs(a - b) > 24 ? paid : ym;

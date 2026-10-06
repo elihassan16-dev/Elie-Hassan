@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { T } from "./theme";
 import { Sheet } from "./platinum";
 import { qbAuthFetch } from "./net";
-import { mLabel, pinMonth, addMonths, monthsBetween } from "./rentalsPL";
+import { mLabel, pinMonth, addMonths, monthsBetween, validSplit } from "./rentalsPL";
 import { forMonth } from "./platinumLive.js";
 
 const ALL_ACCTS = { id: "__all__", name: "All bank & credit-card accounts", classification: "Asset", type: "Bank", all: true };
@@ -173,18 +173,27 @@ export function PinnedList({ rental, onSave }) {
   if (!rules.length && !pins.length) return null;
   const loose = pins.filter((p) => !p.rule || !rules.some((r) => r.id === p.rule));
   const shown = all ? loose : loose.slice(0, 6);
-  // "For" month (Elie 10/6/26): which month a pinned line counts toward.
-  const setMonth = (p, ym) => onSave({ qbPins: (rental.qbPins || []).map((x) => (x.key === p.key ? { ...x, forYm: ym || undefined } : x)) });
+  // "For" month (Elie 10/6/26): which month a pinned line counts toward —
+  // or "Split across months…" for one deposit that covers several.
+  const [splitting, setSplitting] = useState(null);
+  const setMonth = (p, ym) => {
+    if (ym === "__split") { setSplitting(p); return; }
+    onSave({ qbPins: (rental.qbPins || []).map((x) => (x.key === p.key ? { ...x, forYm: ym || undefined, split: undefined } : x)) });
+  };
+  const saveSplit = (p, split) => { onSave({ qbPins: (rental.qbPins || []).map((x) => (x.key === p.key ? { ...x, split: split || undefined, forYm: undefined } : x)) }); setSplitting(null); };
   const monthPick = (p) => {
     const auto = forMonth(p), cur = pinMonth(p), d = String(p.date).slice(0, 7);
+    const isSplit = validSplit(p);
     const opts = monthsBetween(addMonths(d, -24), addMonths(d, 12)).reverse();
     if (cur && !opts.includes(cur)) opts.push(cur);
     const lbl = (ym) => `${mLabel(ym)} ${ym.slice(0, 4)}`;
+    const on = isSplit || !!p.forYm;
     return (
-      <label title="Which month this counts for" style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 3, minHeight: 30, padding: "0 10px", borderRadius: 15, background: p.forYm ? "#FDF9EE" : "rgba(118,118,128,0.12)", border: p.forYm ? "1px solid #EAD9A9" : "1px solid transparent", color: p.forYm ? "#8a6d1f" : T.text, fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", flexShrink: 0 }}>
-        For {lbl(cur)} <span style={{ fontSize: 10, opacity: 0.7 }}>▼</span>
-        <select aria-label="Counts for month" value={p.forYm || ""} onChange={(e) => setMonth(p, e.target.value)} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", fontSize: 16 }}>
+      <label title="Which month this counts for" style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 3, minHeight: 30, padding: "0 10px", borderRadius: 15, background: on ? "#FDF9EE" : "rgba(118,118,128,0.12)", border: on ? "1px solid #EAD9A9" : "1px solid transparent", color: on ? "#8a6d1f" : T.text, fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", flexShrink: 0 }}>
+        {isSplit ? `Split · ${p.split.length} months` : `For ${lbl(cur)}`} <span style={{ fontSize: 10, opacity: 0.7 }}>▼</span>
+        <select aria-label="Counts for month" value={isSplit ? "__split" : p.forYm || ""} onChange={(e) => setMonth(p, e.target.value)} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", fontSize: 16 }}>
           <option value="">Automatic · {lbl(auto)}</option>
+          <option value="__split">{isSplit ? "Edit the split…" : "Split across months…"}</option>
           {opts.map((ym) => <option key={ym} value={ym}>{lbl(ym)}</option>)}
         </select>
       </label>
@@ -213,7 +222,82 @@ export function PinnedList({ rental, onSave }) {
       {rules.some((r) => pins.some((p) => p.rule === r.id)) && <details style={{ marginTop: 4 }}><summary style={{ fontSize: 12.5, color: T.textSub, cursor: "pointer", minHeight: 28 }}>Auto-pinned transactions</summary>
         {pins.filter((p) => p.rule && rules.some((r) => r.id === p.rule)).map((p, i) => row(p.key, i, "📌", <>{dshort(p.date)} · {p.desc} <span style={{ color: T.textSub }}>· {p.cat}</span></>, <>{monthPick(p)}<span style={{ fontSize: 13, fontVariantNumeric: "tabular-nums", color: T.textSub }}>{money(p.amount)}</span></>, () => unpin(p), "Unpin"))}
       </details>}
+      {splitting && <SplitSheet pin={splitting} rental={rental} onSave={(split) => saveSplit(splitting, split)} onClose={() => setSplitting(null)} />}
     </div>
+  );
+}
+
+// ✂️ Split one pinned deposit across several months (Elie 10/6/26). Starts
+// with the unit's monthly rent going back from the payment's month (the rest
+// on the oldest), or half and half; must add up to the deposit.
+const unitKeyOf = (s) => { const t = String(s || "").trim().toLowerCase(); let m = t.match(/#\s*([\w-]+)/); if (m) return m[1]; m = t.match(/^(?:unit|apt)\.?\s*([\w-]+)/); if (m) return m[1]; return t.split(/\s+/)[0] || ""; };
+function rentHint(rental, cat) {
+  const units = rental.units || [];
+  const num = (v) => Number(String(v ?? "").replace(/[$,\s]/g, "")) || 0;
+  if (String(cat).startsWith("Rent – ")) { const k = unitKeyOf(cat.slice(7)); const u = units.find((x) => unitKeyOf(x.label) === k); return u ? num(u.rent) : 0; }
+  if (/^Rent\b/.test(cat || "") && units.length === 1) return num(units[0].rent);
+  return 0;
+}
+function SplitSheet({ pin, rental, onSave, onClose }) {
+  const total = Math.round(Math.abs(Number(pin.amount) || 0) * 100) / 100;
+  const start = pinMonth(pin), d = String(pin.date).slice(0, 7);
+  const [rows, setRows] = useState(() => {
+    if (validSplit(pin)) return pin.split.map((x) => ({ ym: x.ym, amount: String(x.amount) }));
+    const rent = rentHint(rental, pin.cat);
+    if (rent > 0 && total > rent + 0.5) {
+      const out = []; let left = total, ym = start;
+      while (left > 0.004 && out.length < 24) { const x = left - rent < rent * 0.25 && out.length ? left : Math.min(left, rent); out.unshift({ ym, amount: (Math.round(x * 100) / 100).toFixed(2) }); left = Math.round((left - x) * 100) / 100; ym = addMonths(ym, -1); }
+      return out;
+    }
+    const half = Math.round((total / 2) * 100) / 100;
+    return [{ ym: addMonths(start, -1), amount: half.toFixed(2) }, { ym: start, amount: (total - half).toFixed(2) }];
+  });
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
+  const sum = Math.round(rows.reduce((s, r) => s + (Number(r.amount) || 0), 0) * 100) / 100;
+  const left = Math.round((total - sum) * 100) / 100;
+  const ok = Math.abs(left) < 0.01 && rows.every((r) => Number(r.amount) > 0);
+  const opts = monthsBetween(addMonths(d, -36), addMonths(d, 12)).reverse();
+  const lbl = (ym) => `${mLabel(ym)} ${ym.slice(0, 4)}`;
+  const upd = (i, k, v) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  const even = () => setRows((rs) => { const n = rs.length; const each = Math.floor((total / n) * 100) / 100; return rs.map((r, i) => ({ ...r, amount: (i === n - 1 ? Math.round((total - each * (n - 1)) * 100) / 100 : each).toFixed(2) })); });
+  const addRow = () => setRows((rs) => { const first = rs.map((r) => r.ym).sort()[0] || start; return [{ ym: addMonths(first, -1), amount: left > 0 ? left.toFixed(2) : "" }, ...rs]; });
+  const save = () => {
+    const m = new Map();
+    rows.forEach((r) => m.set(r.ym, Math.round(((m.get(r.ym) || 0) + Number(r.amount)) * 100) / 100));
+    const split = [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([ym, amount]) => ({ ym, amount }));
+    onSave(split.length > 1 ? split : null);
+  };
+  const field = { minHeight: 44, borderRadius: 10, border: `1px solid ${T.border}`, background: T.card, padding: "0 10px", fontSize: 16, fontFamily: "inherit", color: T.text, boxSizing: "border-box" };
+  const pill = (primary, dis) => ({ minHeight: 44, padding: "0 16px", borderRadius: 22, border: "none", background: primary ? "#B8953F" : "rgba(118,118,128,0.12)", color: primary ? "#fff" : T.text, fontSize: 15, fontWeight: 650, fontFamily: "inherit", cursor: dis ? "default" : "pointer", opacity: dis ? 0.5 : 1 });
+  return (
+    <Sheet title="Split across months" sub={`${dshort(pin.date)} · ${pin.desc || ""} · ${money(total)}`} onClose={onClose} isMobile={isMobile}>
+      <div style={{ fontSize: 13, color: T.textSub, margin: "0 2px 10px" }}>How much of this deposit was for each month. It counts toward those months in the P&amp;L and the delinquency report.</div>
+      <div style={{ background: T.card, borderRadius: 14, border: `1px solid ${T.border}`, padding: "4px 12px" }}>
+        {rows.map((r, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderTop: i ? `1px solid ${T.border}` : "none" }}>
+            <select aria-label={`Month ${i + 1}`} value={r.ym} onChange={(e) => upd(i, "ym", e.target.value)} style={{ ...field, flex: 1, minWidth: 0 }}>
+              {(opts.includes(r.ym) ? opts : [r.ym, ...opts]).map((ym) => <option key={ym} value={ym}>{lbl(ym)}</option>)}
+            </select>
+            <div style={{ position: "relative", width: 132, flexShrink: 0 }}>
+              <span style={{ position: "absolute", left: 10, top: 12, color: T.textSub, fontSize: 15 }}>$</span>
+              <input aria-label={`Amount ${i + 1}`} inputMode="decimal" value={r.amount} onChange={(e) => upd(i, "amount", e.target.value.replace(/[^\d.]/g, ""))} style={{ ...field, width: "100%", paddingLeft: 22, textAlign: "right", fontVariantNumeric: "tabular-nums" }} />
+            </div>
+            <button onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} disabled={rows.length < 2} aria-label="Remove month" style={{ width: 36, height: 44, border: "none", background: "none", color: T.textTert, fontSize: 16, cursor: rows.length < 2 ? "default" : "pointer", opacity: rows.length < 2 ? 0.3 : 1 }}>✕</button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8, margin: "10px 0", flexWrap: "wrap" }}>
+        <button onClick={addRow} style={{ ...pill(false), minHeight: 36, fontSize: 13.5 }}>＋ Add month</button>
+        <button onClick={even} style={{ ...pill(false), minHeight: 36, fontSize: 13.5 }}>Split evenly</button>
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 600, margin: "4px 2px 12px", color: Math.abs(left) < 0.01 ? "#248A3D" : "#D70015" }}>
+        {Math.abs(left) < 0.01 ? `✓ Adds up to ${money(total)}` : left > 0 ? `${money(left)} still to assign (of ${money(total)})` : `${money(-left)} too much (deposit is ${money(total)})`}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        {validSplit(pin) && <button onClick={() => onSave(null)} style={{ ...pill(false), flex: 1 }}>Don't split</button>}
+        <button onClick={ok ? save : undefined} disabled={!ok} style={{ ...pill(true, !ok), flex: 2 }}>Save split</button>
+      </div>
+    </Sheet>
   );
 }
 

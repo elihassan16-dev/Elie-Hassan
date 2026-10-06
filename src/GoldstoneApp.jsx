@@ -3972,8 +3972,8 @@ function RentalPortfolioPage(){
 
   const list=useMemo(()=>[...(rentals||[])].sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[rentals]);
   const sel=selId!=null?list.find(r=>String(r.id)===String(selId)):null;
-  const plCtx={live:plat.live,keyFor:(r)=>plat.liveKeyFor(r,list),bAmt,packets:plat.statements,rentalFor:(p)=>plat.rentalFor(p,list)};
   const period=useDashPeriod(firstDataMonth(list,plat.live));
+  const plCtx={live:plat.live,keyFor:(r)=>plat.liveKeyFor(r,list),bAmt,packets:plat.statements,rentalFor:(p)=>plat.rentalFor(p,list),basis:period.basis||"for"};
   const saveNow=()=>{if(flushRentals)setTimeout(flushRentals,0);};
   const upd=(id,patch)=>{setRentals(prev=>prev.map(r=>String(r.id)===String(id)?{...r,...patch}:r));saveNow();};
   useQbPinSync(list,upd); // 📌 auto rules: pin new matching QuickBooks payments

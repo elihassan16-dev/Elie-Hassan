@@ -245,6 +245,14 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
           {[["month", "Month"], ["quarter", "Quarter"], ["year", "Year"]].map(([k, l]) => <button key={k} onClick={() => period.set((s) => ({ ...s, by: k }))} style={segBtn((period.by || "month") === k)}>{l}</button>)}
         </div>
       </div>
+      {/* Count by (Elie 10/6/26): the month each payment is FOR, or the date it was entered (matches AppFolio) */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: -4 }}>
+        <span style={{ fontSize: 12.5, color: T.textSub }}>Count by</span>
+        <div style={segWrap} role="tablist" aria-label="Count by">
+          {[["for", "Month it's for"], ["entry", "Entry date"]].map(([k, l]) => <button key={k} onClick={() => period.set((s) => ({ ...s, basis: k }))} style={segBtn((period.basis || "for") === k)}>{l}</button>)}
+        </div>
+        <span style={{ fontSize: 12, color: T.textSub }}>{period.basis === "entry" ? "Each payment in the month it was entered — same as AppFolio's Transactions page." : "Each payment in the month written on it (rent for May paid in June counts in May)."}</span>
+      </div>
       {!tot.any && <div style={{ ...card, fontSize: 14, color: T.textSub }}>No numbers for {period.label} yet. Platinum properties fill in when Cowork sends updates; other rentals from their monthly ledger (Details tab){single && onUpdateRental ? <> — or <button onClick={() => setPinOpen(true)} style={{ border: "none", background: "none", color: T.blue, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>📌 pin transactions from QuickBooks</button></> : null}.</div>}
       {tot.any && <>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))", gap: 10 }}>
@@ -278,7 +286,7 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
         </div>
         <div style={card}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
-            <b style={{ flex: 1, fontSize: 14.5, color: T.text }}>P&amp;L by {period.by || "month"}</b>
+            <b style={{ flex: 1, fontSize: 14.5, color: T.text }}>P&amp;L by {period.by || "month"}{period.basis === "entry" ? <span style={{ fontWeight: 600, fontSize: 12, color: "#8a6d1f", background: "#FDF9EE", border: "1px solid #EAD9A9", borderRadius: 6, padding: "1px 6px", marginLeft: 8 }}>by entry date</span> : null}</b>
             <span style={{ fontSize: 12, color: T.textSub }}>click a number for the payments</span>
             {single && onUpdateRental && <button onClick={() => setPinOpen(true)} style={{ minHeight: 30, padding: "0 12px", borderRadius: 15, border: "none", background: GOLD, fontSize: 12.5, fontWeight: 650, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>📌 Pin from QuickBooks</button>}
             <button onClick={exportCsv} style={{ minHeight: 30, padding: "0 10px", borderRadius: 15, border: `1px solid ${T.border}`, background: T.card, fontSize: 12.5, fontWeight: 600, color: T.text, cursor: "pointer", fontFamily: "inherit" }}>⬇ Export</button>

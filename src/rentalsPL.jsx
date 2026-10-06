@@ -99,10 +99,14 @@ const REV = /\bnsf\b|reversal|returned (payment|check|item)|bounced|chargeback/i
 const INCOME_DESC = /^(rental income|late fees?|subsidized rent|legal fees-income|other income|tenant)/i;
 export const isReversal = (t) => REV.test(String(t.desc || "")) || (t.neg && (t.dir === "in" || INCOME_DESC.test(String(t.desc || ""))));
 const effCache = new WeakMap();
-function effTxns(live, key) {
+// basis "entry" (Elie 10/6/26 — to cross-check with AppFolio): every line in
+// the month it was ENTERED, a bounced payment in the month it bounced.
+function effTxns(live, key, basis) {
   let byKey = effCache.get(live);
   if (!byKey) { byKey = new Map(); effCache.set(live, byKey); }
-  if (byKey.has(key)) return byKey.get(key);
+  const ck = `${key}|${basis === "entry" ? "entry" : "for"}`;
+  if (byKey.has(ck)) return byKey.get(ck);
+  if (basis === "entry") { const out = effTxns(live, key).map((x) => ({ ...x, ym: String(x.t.date).slice(0, 7) })); byKey.set(ck, out); return out; }
   const all = live.txns.filter((t) => t.key === key).sort((a, b) => String(a.date).localeCompare(String(b.date)));
   const used = new Set();
   const days = (a, b) => (new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000;
@@ -114,7 +118,7 @@ function effTxns(live, key) {
     if (o) used.add(o);
     return { t, ym: o ? forMonth(o) : forMonth(t), rev: true, orig: o };
   });
-  byKey.set(key, out);
+  byKey.set(ck, out);
   return out;
 }
 
@@ -195,7 +199,7 @@ export function rentalMonthPL(r, ym, ctx) {
   if (key) {
     const pm = propMonth(ctx.live, key, ym);
     const notOwner = (t) => !OWNER.test(`${t.desc} ${t.payee}`);
-    const eff = effTxns(ctx.live, key).filter((x) => x.ym === ym && notOwner(x.t)); // by the month each line is FOR
+    const eff = effTxns(ctx.live, key, ctx.basis).filter((x) => x.ym === ym && notOwner(x.t)); // by the month each line is FOR (or entered)
     const tx = eff.map((x) => x.t);
     const paid = pm.paidTx.filter((t) => notOwner(t) && !isReversal(t)); // by payment date (portal totals)
     const m = ctx.live.months[ym];
@@ -210,7 +214,7 @@ export function rentalMonthPL(r, ym, ctx) {
         // A reversal takes money away from the line it cancels (or, unmatched,
         // from the income category its own description names).
         const base = orig || { ...t, dir: "in" };
-        add(income, catOf(base), -t.amount, { ...t, dir: "in", amount: -t.amount, rev: true, forYm: ym, reverses: orig ? `${orig.date} payment` : "" });
+        add(income, catOf(base), -t.amount, { ...t, dir: "in", amount: -t.amount, rev: true, forYm: orig ? forMonth(orig) : ym, reverses: orig ? `${orig.date} payment` : "" });
       });
       // The portal's month totals count payments by DATE, so compare them with
       // what was paid this month, not with what's assigned to it.
@@ -229,7 +233,7 @@ export function rentalMonthPL(r, ym, ctx) {
   // 📌 QuickBooks transactions pinned to this rental (mortgage, insurance,
   // taxes, outside bills…). A pinned mortgage replaces the ledger/loan figure.
   const pins = [];
-  (r.qbPins || []).forEach((p) => pinParts(p).forEach((x) => { if (x.ym === ym) pins.push({ p, x }); }));
+  (r.qbPins || []).forEach((p) => (ctx.basis === "entry" ? [{ ym: String(p.date).slice(0, 7), amount: Math.abs(Number(p.amount) || 0), split: false }] : pinParts(p)).forEach((x) => { if (x.ym === ym) pins.push({ p, x }); }));
   let pinnedMtg = 0;
   pins.forEach(({ p, x }) => {
     const t = { dir: /^(Rent\b|Late fees|Deposits|Other income)/.test(p.cat || "") ? "in" : "out", date: p.date, desc: `${p.desc || ""}${x.split ? ` (part of ${Math.abs(Number(p.amount) || 0).toLocaleString(undefined, { style: "currency", currency: "USD" })})` : ""}`, payee: p.accountName || "QuickBooks", amount: x.amount, pinned: true, forYm: ym };

@@ -341,7 +341,7 @@ function TxList({ tx, plain }) {
   const list = [...tx].sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const yr = new Date().getFullYear();
   const day = (d) => { const x = new Date(String(d).slice(0, 10) + "T00:00:00"); return isNaN(x) ? d : x.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(x.getFullYear() !== yr ? { year: "2-digit" } : {}) }); };
-  const forLbl = (t) => { const f = forMonth(t); return f ? `${mLabel(f)} ${f.slice(0, 4)}` : ""; };
+  const forLbl = (t) => { const f = t.forYm || forMonth(t); return f ? `${mLabel(f)} ${f.slice(0, 4)}` : ""; };
   const head = { fontSize: 11, fontWeight: 600, color: T.textSub, textTransform: "none" };
   return (
     <div style={{ background: plain ? "transparent" : T.bg, borderRadius: 10, padding: plain ? 0 : "2px 10px", margin: plain ? 0 : "2px 0 6px" }}>
@@ -352,13 +352,13 @@ function TxList({ tx, plain }) {
         <span style={{ ...head, width: 80, textAlign: "right", flexShrink: 0 }}>Amount</span>
       </div>
       {list.map((t, j) => {
-        const f = forMonth(t), moved = f && f !== String(t.date).slice(0, 7);
+        const f = t.forYm || forMonth(t), moved = f && f !== String(t.date).slice(0, 7);
         return (
           <div key={j} style={{ display: "flex", gap: 10, fontSize: 12.5, padding: "6px 0", borderTop: `1px solid ${T.border}`, alignItems: "baseline" }}>
             <span style={{ color: T.textSub, width: 62, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{day(t.date)}</span>
-            <span style={{ flex: 1, minWidth: 0, color: T.text }}>{t.payee ? `${t.payee} — ` : ""}{t.desc}{t.name ? <span style={{ color: T.textSub }}> · {t.name}{t.unit ? ` ${(String(t.unit).match(/#\S+$/) || [""])[0]}` : ""}</span> : null}{t.pinned ? <span title="From QuickBooks"> 📌</span> : null}</span>
+            <span style={{ flex: 1, minWidth: 0, color: T.text }}>{t.payee ? `${t.payee} — ` : ""}{t.desc}{t.name ? <span style={{ color: T.textSub }}> · {t.name}{t.unit ? ` ${(String(t.unit).match(/#\S+$/) || [""])[0]}` : ""}</span> : null}{t.pinned ? <span title="From QuickBooks"> 📌</span> : null}{t.rev ? <span style={{ display: "block", fontSize: 11.5, color: RED }}>Bounced — cancels the {t.reverses ? new Date(t.reverses.slice(0, 10) + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " payment" : "payment"}</span> : null}</span>
             <span style={{ width: 70, flexShrink: 0, color: moved ? "#B45309" : T.textSub, fontWeight: moved ? 650 : 400 }}>{forLbl(t)}</span>
-            <span style={{ width: 80, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{money(t.amount, true)}</span>
+            <span style={{ width: 80, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums", fontWeight: 600, color: t.amount < 0 ? RED : T.text }}>{money(t.amount, true)}</span>
           </div>
         );
       })}

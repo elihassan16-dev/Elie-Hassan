@@ -47,6 +47,9 @@ const nums = (o) => {
 const txList = (list, dir) => (Array.isArray(list) ? list : []).map((t) => ({
   dir, date: normDate(t.date), key: propKeyOf(t.property), name: propNameOf(t.property), unit: unitOf(t.property),
   desc: String(t.description || t.desc || "").trim(), payee: String(t.payee || "").trim(), amount: Math.abs(toNum(t.amount) || 0),
+  // AppFolio lists a bounced (NSF) rent payment under Cash Out as a negative
+  // "Rental Income - NSF reversal …" — keep that sign; the P&L subtracts it.
+  ...((toNum(t.amount) || 0) < 0 ? { neg: true } : {}),
 })).filter((t) => t.date && t.key && t.amount);
 
 // Accepts the object, or the text Cowork pastes (code fences allowed).

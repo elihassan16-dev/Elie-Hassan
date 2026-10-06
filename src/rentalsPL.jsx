@@ -203,9 +203,9 @@ export function RangeSheet({ range, isMobile, onClose }) {
 }
 
 // Money in vs expenses per month (two series, legend, tap a month for numbers).
-function GroupBars({ rows }) {
+export function GroupBars({ rows, W = 330, H = 120 }) {
   const [hi, setHi] = useState(null);
-  const W = 330, H = 120, base = 98, top = 10;
+  const base = H - 22, top = 10;
   const max = Math.max(1, ...rows.flatMap((r) => [r.in, r.out]));
   const step = (W - 4) / Math.max(1, rows.length);
   const bw = Math.max(4, Math.min(22, step / 2 - 4));
@@ -228,7 +228,7 @@ function GroupBars({ rows }) {
             <g key={r.ym} onPointerEnter={() => setHi(i)} onClick={() => setHi(i)} style={{ cursor: "pointer" }}>
               <rect x={2 + i * step} y={0} width={step} height={H} fill="transparent" />
               {bar(cx - bw - 1, r.in, IN_C)}{bar(cx + 1, r.out, OUT_C)}
-              {(rows.length <= 8 || i % Math.ceil(rows.length / 8) === 0) && <text x={cx} y={H - 4} fontSize="10.5" fill={hi === i ? T.text : "#6E6E73"} fontWeight={hi === i ? 700 : 400} textAnchor="middle">{r.label}{r.partial ? "*" : ""}</text>}
+              {(rows.length <= (W > 400 ? 14 : 8) || i % Math.ceil(rows.length / (W > 400 ? 14 : 8)) === 0) && <text x={cx} y={H - 4} fontSize="10.5" fill={hi === i ? T.text : "#6E6E73"} fontWeight={hi === i ? 700 : 400} textAnchor="middle">{r.label}{r.partial ? "*" : ""}</text>}
             </g>
           );
         })}

@@ -34,7 +34,7 @@ import { SowPdfPreview } from "./contractors/SowPdfPreview";
 import { ScopeBuilder, scopeSummary } from "./contractors/scope";
 import { scopeToText } from "./contractors/sowLibrary";
 import { PlatinumCard, PlatinumChips, PlatinumTab, usePlatinum } from "./platinum";
-import { useRentalRange, RentalsOverview, MonthsTable, RentalPL, RangeCapsule, RangeChips, RangeSheet } from "./rentalsPL";
+import { RentalsSidebar, RentalsDashboard, useDashPeriod, firstDataMonth } from "./rentalsDash";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -3856,12 +3856,7 @@ function RentalPortfolioPage(){
   const plat=usePlatinum();
   // 📊 P&L views (Elie 10/5/26): one date range for the whole page; overview ↔
   // all-properties monthly table; each rental opens on its P&L tab.
-  const range=useRentalRange();
-  const[ovView,setOvView]=useState("list");
-  const[tablePid,setTablePid]=useState("all");
-  const[detailTab,setDetailTab]=useState("pl");
-  const[rangeSheet,setRangeSheet]=useState(false);
-  const[platOpen,setPlatOpen]=useState(false);
+  const[detailTab,setDetailTab]=useState("overview");
   const thisMonth=localISO().slice(0,7);
   const[from,setFrom]=useState(thisMonth);
   const[to,setTo]=useState(thisMonth);
@@ -3976,6 +3971,7 @@ function RentalPortfolioPage(){
   const list=useMemo(()=>[...(rentals||[])].sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[rentals]);
   const sel=selId!=null?list.find(r=>String(r.id)===String(selId)):null;
   const plCtx={live:plat.live,keyFor:(r)=>plat.liveKeyFor(r,list),bAmt};
+  const period=useDashPeriod(firstDataMonth(list,plat.live));
   const saveNow=()=>{if(flushRentals)setTimeout(flushRentals,0);};
   const upd=(id,patch)=>{setRentals(prev=>prev.map(r=>String(r.id)===String(id)?{...r,...patch}:r));saveNow();};
   const addRental=()=>{
@@ -4018,6 +4014,47 @@ function RentalPortfolioPage(){
   const card={background:T.card,borderRadius:T.radius,boxShadow:T.shadow,border:`1px solid ${T.border}`,overflow:"hidden"};
   const wrap={padding:isMobile?"14px 14px 44px":"18px 24px 44px",maxWidth:sel?720:820,margin:"0 auto",width:"100%",boxSizing:"border-box"};
 
+  // 🏘 Layout (Elie 10/6/26): properties list on the left, dashboard on the right;
+  // phones show the list as its own screen.
+  const pl=plat.live;
+  const platSub=pl?`Checked ${new Date(pl.latest.at).toLocaleString(undefined,{weekday:"short",hour:"numeric",minute:"2-digit"})}${pl.fresh.filter(t=>t.dir==="in").length?` · ${pl.fresh.filter(t=>t.dir==="in").length} new payments`:""}`:(plat.latest?"Monthly packets":"Owner portal updates");
+  const openRental=(id)=>{setSelId(id);setDetailTab("overview");};
+  const dashWrap={padding:isMobile?"14px 14px 44px":"18px 22px 44px",maxWidth:1240,margin:"0 auto",width:"100%",boxSizing:"border-box"};
+  const sidebar=<RentalsSidebar rentals={list} ctx={plCtx} period={period} selId={selId} isMobile={isMobile} platSub={platSub}
+    onSelect={(id)=>{setSelId(id==="all"&&!isMobile?null:id);setDetailTab("overview");}} onAdd={()=>setShowAdd(true)}
+    importBtn={importable.length>0&&<button onClick={importFromProps} title="Import rentals from Properties" style={{minHeight:32,padding:"0 10px",borderRadius:16,border:`1px solid ${T.gold}`,background:T.goldLight,color:T.gold,fontSize:12.5,fontWeight:650,cursor:"pointer",fontFamily:"inherit"}}>⬇ {importable.length}</button>}/>;
+  const addModal=showAdd&&(
+        <div onClick={()=>setShowAdd(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)",padding:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:20,padding:24,width:440,maxWidth:"100%",boxShadow:T.shadowMd}}>
+            <div style={{fontWeight:800,fontSize:18,marginBottom:14,color:T.text}}>Add Rental Property</div>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <input style={iS} value={form.address} onChange={e=>setForm(f=>({...f,address:e.target.value}))} placeholder="Street address" autoFocus/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 70px 90px",gap:10}}>
+                <input style={iS} value={form.city} onChange={e=>setForm(f=>({...f,city:e.target.value}))} placeholder="City"/>
+                <input style={iS} value={form.state} onChange={e=>setForm(f=>({...f,state:e.target.value}))} placeholder="State"/>
+                <input style={iS} value={form.zip} onChange={e=>setForm(f=>({...f,zip:e.target.value}))} placeholder="Zip"/>
+              </div>
+              <div style={SEG_WRAP}>
+                {[["single","Single Family"],["multi","Multi-Unit"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>setForm(f=>({...f,type:k}))} style={segTab(form.type===k)}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:22,justifyContent:"flex-end"}}>
+              <button onClick={()=>setShowAdd(false)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
+              <button onClick={addRental} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Add</button>
+            </div>
+          </div>
+        </div>
+      );
+  const shell=(content)=>isMobile
+    ?<>{content}{addModal}</>
+    :<div style={{flex:1,display:"flex",minHeight:0,background:T.bg}}>
+      <div style={{width:300,flexShrink:0,borderRight:`1px solid ${T.border}`,overflowY:"auto"}}>{sidebar}</div>
+      <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",minHeight:0}}>{content}</div>
+      {addModal}
+    </div>;
+
   // ── Detail view ──
   if(sel){
     const units=sel.units||[];
@@ -4044,35 +4081,36 @@ function RentalPortfolioPage(){
     const platView=plat.viewFor(sel,list);
     const platKey=plat.liveKeyFor(sel,list);
     const platHas=!!platView||!!(plat.live&&platKey);
-    const platSeg=<div style={{...SEG_WRAP,display:"flex",width:"100%",boxSizing:"border-box",marginBottom:14}}>
-      {[["pl","P&L"],["months","Months"],["tenants","Tenants"],["details","Details"]].map(([k,l])=><button key={k} onClick={()=>setDetailTab(k)} style={{...segTab(detailTab===k),flex:1,minHeight:36}}>{l}</button>)}
+    const platSeg=<div style={{...SEG_WRAP,display:"flex",width:"100%",boxSizing:"border-box",marginBottom:detailTab==="details"?14:0}}>
+      {[["overview","Overview"],["tenants","Tenants"],["details","Details"]].map(([k,l])=><button key={k} onClick={()=>setDetailTab(k)} style={{...segTab(detailTab===k),flex:1,minHeight:36}}>{l}</button>)}
     </div>;
-    if(detailTab!=="details")return(
+    const head=<div>
+      <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,fontWeight:500,fontFamily:"inherit",padding:0,marginBottom:6,minHeight:32}}>‹ {isMobile?"Rentals":"All properties"}</button>
+      <div style={{display:"flex",alignItems:"flex-end",gap:12,flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 260px",minWidth:0}}>
+          <div style={{fontSize:24,fontWeight:800,letterSpacing:"-0.02em",color:T.text}}>{sel.address}</div>
+          <div style={{fontSize:13,color:T.textSub}}>{[[sel.city,sel.state].filter(Boolean).join(", "),units.length>1?`${units.length} units`:"1 unit",(units.length===1&&units[0].tenant?.name)||"",rentExpected(sel)?`${fmtD(rentExpected(sel))}/mo`:"",platHas?"Platinum":""].filter(Boolean).join(" · ")}</div>
+        </div>
+        <div style={{flex:isMobile?"1 1 100%":"0 0 300px"}}>{platSeg}</div>
+      </div>
+    </div>;
+    if(detailTab!=="details")return shell(
       <div style={{flex:1,overflowY:"auto",background:T.bg}}>
-        <div style={wrap}>
-          <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,fontWeight:500,fontFamily:"inherit",padding:0,marginBottom:8,minHeight:32}}>‹ Rentals</button>
-          <div style={{fontSize:26,fontWeight:800,letterSpacing:"-0.02em",color:T.text}}>{sel.address}</div>
-          <div style={{fontSize:13,color:T.textSub,marginBottom:14}}>{[[sel.city,sel.state].filter(Boolean).join(", "),units.length>1?`${units.length} units`:"1 unit",rentExpected(sel)?`${fmtD(rentExpected(sel))}/mo`:"",platHas?"Platinum":""].filter(Boolean).join(" · ")}</div>
-          {platSeg}
-          {detailTab==="pl"&&<RentalPL rental={sel} ctx={plCtx} range={range}/>}
-          {detailTab==="months"&&<>
-            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><RangeCapsule range={range} onOpen={()=>setRangeSheet(true)}/></div>
-            <RangeChips range={range}/>
-            <MonthsTable rentals={[sel]} ctx={plCtx} range={range}/>
-          </>}
-          {detailTab==="tenants"&&(platHas
+        <div style={dashWrap}>
+          {detailTab==="overview"&&<RentalsDashboard rental={sel} rentals={list} ctx={plCtx} period={period} isMobile={isMobile} onOpen={openRental} header={head}/>}
+          {detailTab==="tenants"&&<>{head}<div style={{height:12}}/>
+          {(platHas
             ?<PlatinumTab view={platView} live={plat.live} liveKey={platKey}/>
             :<div style={{...card,borderRadius:18}}>
               {units.map((u,i)=>(<div key={u.id} style={{padding:"11px 16px",borderTop:i?`1px solid ${T.border}`:"none"}}>
                 <div style={{display:"flex",gap:8,alignItems:"baseline"}}><b style={{flex:1,fontSize:15,color:T.text}}>{u.label?`${u.label} · `:""}{u.tenant?.name||"Vacant"}</b><span style={{fontSize:14,fontWeight:650,fontVariantNumeric:"tabular-nums"}}>{u.rent?`${fmtD(n(u.rent))}/mo`:""}</span></div>
                 <div style={{fontSize:12.5,color:T.textSub}}>{[u.leaseEnd?`lease to ${u.leaseEnd}`:"",u.tenant?.phone||""].filter(Boolean).join(" · ")||"Add tenant details under Details"}</div>
               </div>))}
-            </div>)}
-          {rangeSheet&&<RangeSheet range={range} isMobile={isMobile} onClose={()=>setRangeSheet(false)}/>}
+            </div>)}</>}
         </div>
       </div>
     );
-    return(
+    return shell(
       <div style={{flex:1,overflowY:"auto",background:T.bg}}>
         <div style={wrap}>
           <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"inherit",padding:0,marginBottom:12}}>‹ All rentals</button>
@@ -4405,80 +4443,28 @@ function RentalPortfolioPage(){
     );
   }
 
-  // ── Overview + list ──
-  const pl=plat.live;
-  const platSub=pl?`Checked ${new Date(pl.latest.at).toLocaleString(undefined,{weekday:"short",hour:"numeric",minute:"2-digit"})}${pl.fresh.filter(t=>t.dir==="in").length?` · ${pl.fresh.filter(t=>t.dir==="in").length} new payments`:""}${pl.billChanges.added.length?` · ${pl.billChanges.added.length} new bill${pl.billChanges.added.length>1?"s":""}`:""}`:(plat.latest?"Monthly packets":"Owner portal updates from Cowork");
-  const openRental=(id)=>{setSelId(id);setDetailTab("pl");};
-  if(ovView==="table"){
-    const shown=tablePid==="all"?list:list.filter(r=>String(r.id)===String(tablePid));
-    return(
-      <div style={{flex:1,overflowY:"auto",background:T.bg}}>
-        <div style={{...wrap,maxWidth:980}}>
-          <button onClick={()=>setOvView("list")} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,fontWeight:500,fontFamily:"inherit",padding:0,marginBottom:8,minHeight:32}}>‹ Rentals</button>
-          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:10}}>
-            <div style={{flex:1,fontSize:26,fontWeight:800,letterSpacing:"-0.02em",color:T.text}}>Monthly P&amp;L</div>
-            <select value={tablePid} onChange={e=>setTablePid(e.target.value)} aria-label="Which property" style={{minHeight:36,borderRadius:18,border:"none",background:"rgba(118,118,128,0.12)",fontSize:14,fontWeight:600,padding:"0 12px",fontFamily:"inherit",color:T.text}}>
-              <option value="all">All properties</option>
-              {list.map(r=><option key={r.id} value={r.id}>{r.address}</option>)}
-            </select>
-            <RangeCapsule range={range} onOpen={()=>setRangeSheet(true)}/>
-          </div>
-          <RangeChips range={range}/>
-          <MonthsTable rentals={shown} ctx={plCtx} range={range}/>
-          {rangeSheet&&<RangeSheet range={range} isMobile={isMobile} onClose={()=>setRangeSheet(false)}/>}
-        </div>
-      </div>
-    );
-  }
-  return(
+  // ── No rental selected: All properties dashboard (phones: the list), or Platinum ──
+  if(selId==="platinum")return shell(
     <div style={{flex:1,overflowY:"auto",background:T.bg}}>
-      <div style={wrap}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-          <div style={{fontSize:30,fontWeight:800,letterSpacing:"-0.02em",color:T.text}}>Rentals</div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            {importable.length>0&&<button onClick={importFromProps} style={{padding:"9px 14px",borderRadius:T.radiusSm,background:T.goldLight,border:`1px solid ${T.gold}`,color:T.gold,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>⬇ Import {importable.length} from Properties</button>}
-            <button onClick={()=>setShowAdd(true)} style={{padding:"9px 16px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13.5,cursor:"pointer",fontFamily:"inherit"}}>+ Add rental</button>
-          </div>
-        </div>
-
-        <RentalsOverview rentals={list} ctx={plCtx} range={range} onOpen={openRental} onTable={()=>setOvView("table")} isMobile={isMobile}
-          chipsFor={(r)=><PlatinumChips view={plat.viewFor(r,list)} live={plat.live} liveKey={plat.liveKeyFor(r,list)}/>}/>
-
-        {/* 🏢 Platinum: since-last-check, trends, bills, packets, Update — one row, opens in place */}
-        <div style={{...card,borderRadius:18,marginTop:12}}>
-          <button onClick={()=>setPlatOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",minHeight:56,padding:"8px 16px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
-            <span style={{fontSize:20}}>🏢</span>
-            <span style={{flex:1,minWidth:0}}><span style={{display:"block",fontSize:15,fontWeight:600,color:T.text}}>Platinum updates</span><span style={{display:"block",fontSize:12.5,color:T.textSub}}>{platSub}</span></span>
-            <span style={{color:"#C7C7CC",fontSize:20,transform:platOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>›</span>
-          </button>
-        </div>
-        {platOpen&&<PlatinumCard rentals={list} onOpen={(id)=>{setSelId(id);setDetailTab("tenants");}} onAddRental={addFromPlatinum} isMobile={isMobile}/>}
+      <div style={{...wrap,maxWidth:900}}>
+        {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,fontWeight:500,fontFamily:"inherit",padding:0,marginBottom:8,minHeight:32}}>‹ Rentals</button>}
+        <div style={{fontSize:24,fontWeight:800,letterSpacing:"-0.02em",color:T.text,marginBottom:12}}>Platinum updates</div>
+        <PlatinumCard rentals={list} onOpen={(id)=>{setSelId(id);setDetailTab("tenants");}} onAddRental={addFromPlatinum} isMobile={isMobile}/>
       </div>
-
-      {showAdd&&(
-        <div onClick={()=>setShowAdd(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)",padding:16,boxSizing:"border-box"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:20,padding:24,width:440,maxWidth:"100%",boxShadow:T.shadowMd}}>
-            <div style={{fontWeight:800,fontSize:18,marginBottom:14,color:T.text}}>Add Rental Property</div>
-            <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              <input style={iS} value={form.address} onChange={e=>setForm(f=>({...f,address:e.target.value}))} placeholder="Street address" autoFocus/>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 70px 90px",gap:10}}>
-                <input style={iS} value={form.city} onChange={e=>setForm(f=>({...f,city:e.target.value}))} placeholder="City"/>
-                <input style={iS} value={form.state} onChange={e=>setForm(f=>({...f,state:e.target.value}))} placeholder="State"/>
-                <input style={iS} value={form.zip} onChange={e=>setForm(f=>({...f,zip:e.target.value}))} placeholder="Zip"/>
-              </div>
-              <div style={SEG_WRAP}>
-                {[["single","Single Family"],["multi","Multi-Unit"]].map(([k,l])=>(
-                  <button key={k} onClick={()=>setForm(f=>({...f,type:k}))} style={segTab(form.type===k)}>{l}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{display:"flex",gap:10,marginTop:22,justifyContent:"flex-end"}}>
-              <button onClick={()=>setShowAdd(false)} style={{padding:"10px 20px",borderRadius:T.radiusSm,background:T.bg,border:"none",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Cancel</button>
-              <button onClick={addRental} style={{padding:"10px 22px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:14}}>Add</button>
-            </div>
-          </div>
-        </div>
-      )}
+    </div>
+  );
+  if(isMobile&&selId!=="all")return shell(<div style={{flex:1,overflowY:"auto",background:T.bg}}>{sidebar}</div>);
+  const units=list.reduce((s,r)=>s+(r.units||[]).length,0);
+  return shell(
+    <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+      <div style={dashWrap}>
+        <RentalsDashboard rentals={list} ctx={plCtx} period={period} isMobile={isMobile} onOpen={openRental}
+          header={<div>
+            {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,fontWeight:500,fontFamily:"inherit",padding:0,marginBottom:6,minHeight:32}}>‹ Rentals</button>}
+            <div style={{fontSize:24,fontWeight:800,letterSpacing:"-0.02em",color:T.text}}>All properties</div>
+            <div style={{fontSize:13,color:T.textSub}}>{list.length} properties · {units} units{list.reduce((s,r)=>s+rentExpected(r),0)?` · ${fmtD(list.reduce((s,r)=>s+rentExpected(r),0))}/mo rent due`:""}</div>
+          </div>}/>
+      </div>
     </div>
   );
 }

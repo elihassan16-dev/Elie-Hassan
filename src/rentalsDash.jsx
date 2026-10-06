@@ -13,6 +13,7 @@ import { T } from "./theme";
 import { Sheet } from "./platinum";
 import { rentalMonthPL, portfolioMonth, ymNow, addMonths, monthsBetween, mLabel, GroupBars, sortIncome } from "./rentalsPL";
 import { PinSheet, PinnedList } from "./rentalPins";
+import { forMonth } from "./platinumLive.js";
 
 // ── period + grouping (remembered) ──
 const LS = "gs_rentals_dash";
@@ -370,6 +371,6 @@ export function firstDataMonth(rentals, live) {
   let m = null;
   const take = (x) => { if (x && (!m || x < m)) m = x; };
   rentals.forEach((r) => (r.ledger || []).forEach((L) => take(L.month)));
-  if (live) { (live.monthList || []).forEach(take); live.txns.forEach((t) => take(String(t.date).slice(0, 7))); }
+  if (live) { (live.monthList || []).forEach(take); live.txns.forEach((t) => take(forMonth(t))); }
   return m;
 }

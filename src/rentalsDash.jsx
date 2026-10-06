@@ -11,7 +11,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { T } from "./theme";
 import { Sheet } from "./platinum";
-import { rentalMonthPL, portfolioMonth, ymNow, addMonths, monthsBetween, mLabel, GroupBars, sortIncome, rentCatsFor } from "./rentalsPL";
+import { rentalMonthPL, portfolioMonth, ymNow, addMonths, monthsBetween, mLabel, GroupBars, sortIncome, rentCatsFor, pinMonth } from "./rentalsPL";
 import { PinSheet, PinnedList } from "./rentalPins";
 import { forMonth } from "./platinumLive.js";
 import { owedByRental } from "./rentalsDelinq";
@@ -392,7 +392,7 @@ function CustomSheet({ period, isMobile, onClose }) {
 export function firstDataMonth(rentals, live) {
   let m = null;
   const take = (x) => { if (x && (!m || x < m)) m = x; };
-  rentals.forEach((r) => (r.ledger || []).forEach((L) => take(L.month)));
+  rentals.forEach((r) => { (r.ledger || []).forEach((L) => take(L.month)); (r.qbPins || []).forEach((p) => take(pinMonth(p))); });
   if (live) { (live.monthList || []).forEach(take); live.txns.forEach((t) => take(forMonth(t))); }
   return m;
 }

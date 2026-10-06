@@ -10,7 +10,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { T } from "./theme";
 import { Sheet } from "./platinum";
 import { qbAuthFetch } from "./net";
-import { mLabel } from "./rentalsPL";
+import { mLabel, pinMonth, addMonths, monthsBetween } from "./rentalsPL";
+import { forMonth } from "./platinumLive.js";
 
 const ALL_ACCTS = { id: "__all__", name: "All bank & credit-card accounts", classification: "Asset", type: "Bank", all: true };
 export const PIN_CATS = ["Mortgage", "Insurance", "Property taxes", "Utilities", "Repairs & maintenance", "HOA", "Other expenses", "Other income"];
@@ -172,6 +173,23 @@ export function PinnedList({ rental, onSave }) {
   if (!rules.length && !pins.length) return null;
   const loose = pins.filter((p) => !p.rule || !rules.some((r) => r.id === p.rule));
   const shown = all ? loose : loose.slice(0, 6);
+  // "For" month (Elie 10/6/26): which month a pinned line counts toward.
+  const setMonth = (p, ym) => onSave({ qbPins: (rental.qbPins || []).map((x) => (x.key === p.key ? { ...x, forYm: ym || undefined } : x)) });
+  const monthPick = (p) => {
+    const auto = forMonth(p), cur = pinMonth(p), d = String(p.date).slice(0, 7);
+    const opts = monthsBetween(addMonths(d, -24), addMonths(d, 12)).reverse();
+    if (cur && !opts.includes(cur)) opts.push(cur);
+    const lbl = (ym) => `${mLabel(ym)} ${ym.slice(0, 4)}`;
+    return (
+      <label title="Which month this counts for" style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 3, minHeight: 30, padding: "0 10px", borderRadius: 15, background: p.forYm ? "#FDF9EE" : "rgba(118,118,128,0.12)", border: p.forYm ? "1px solid #EAD9A9" : "1px solid transparent", color: p.forYm ? "#8a6d1f" : T.text, fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", flexShrink: 0 }}>
+        For {lbl(cur)} <span style={{ fontSize: 10, opacity: 0.7 }}>▼</span>
+        <select aria-label="Counts for month" value={p.forYm || ""} onChange={(e) => setMonth(p, e.target.value)} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", fontSize: 16 }}>
+          <option value="">Automatic · {lbl(auto)}</option>
+          {opts.map((ym) => <option key={ym} value={ym}>{lbl(ym)}</option>)}
+        </select>
+      </label>
+    );
+  };
   const unpin = (p) => onSave({ qbPins: (rental.qbPins || []).filter((x) => x.key !== p.key), qbPinSkip: [...new Set([...(rental.qbPinSkip || []), p.key])] });
   const stopRule = (r) => {
     if (!window.confirm(`Stop pinning new ${r.cat.toLowerCase()} transactions from ${r.accountName}? The ones already pinned stay (you can unpin them too).`)) return;
@@ -190,10 +208,10 @@ export function PinnedList({ rental, onSave }) {
         const n = pins.filter((p) => p.rule === r.id).length;
         return row(`r${r.id}`, i, "🔁", <><b>{r.cat}</b> · every {r.match ? <>“{r.match}” </> : ""}payment from <b>{r.accountName}</b></>, <><span style={{ fontSize: 10.5, fontWeight: 700, borderRadius: 6, padding: "1px 6px", background: "#FDF9EE", color: "#8a6d1f", border: "1px solid #EAD9A9" }}>AUTO</span><span style={{ fontSize: 12.5, color: T.textSub, whiteSpace: "nowrap" }}>{n} pinned</span></>, () => stopRule(r), "Stop auto-pinning");
       })}
-      {shown.map((p, i) => row(p.key, rules.length + i, "📌", <><b>{p.cat}</b> · {dshort(p.date)} · {p.desc} <span style={{ color: T.textSub }}>· {p.accountName}</span></>, <span style={{ fontSize: 13, fontVariantNumeric: "tabular-nums", color: T.textSub }}>{money(p.amount)}</span>, () => unpin(p), "Unpin"))}
+      {shown.map((p, i) => row(p.key, rules.length + i, "📌", <><b>{p.cat}</b> · {dshort(p.date)} · {p.desc} <span style={{ color: T.textSub }}>· {p.accountName}</span></>, <>{monthPick(p)}<span style={{ fontSize: 13, fontVariantNumeric: "tabular-nums", color: T.textSub }}>{money(p.amount)}</span></>, () => unpin(p), "Unpin"))}
       {loose.length > 6 && <button onClick={() => setAll((v) => !v)} style={{ border: "none", background: "none", color: T.blue, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", minHeight: 32, padding: 0 }}>{all ? "Show fewer" : `Show all ${loose.length}`}</button>}
       {rules.some((r) => pins.some((p) => p.rule === r.id)) && <details style={{ marginTop: 4 }}><summary style={{ fontSize: 12.5, color: T.textSub, cursor: "pointer", minHeight: 28 }}>Auto-pinned transactions</summary>
-        {pins.filter((p) => p.rule && rules.some((r) => r.id === p.rule)).map((p, i) => row(p.key, i, "📌", <>{dshort(p.date)} · {p.desc} <span style={{ color: T.textSub }}>· {p.cat}</span></>, <span style={{ fontSize: 13, fontVariantNumeric: "tabular-nums", color: T.textSub }}>{money(p.amount)}</span>, () => unpin(p), "Unpin"))}
+        {pins.filter((p) => p.rule && rules.some((r) => r.id === p.rule)).map((p, i) => row(p.key, i, "📌", <>{dshort(p.date)} · {p.desc} <span style={{ color: T.textSub }}>· {p.cat}</span></>, <>{monthPick(p)}<span style={{ fontSize: 13, fontVariantNumeric: "tabular-nums", color: T.textSub }}>{money(p.amount)}</span></>, () => unpin(p), "Unpin"))}
       </details>}
     </div>
   );

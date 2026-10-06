@@ -55,7 +55,8 @@ export function categorize(t) {
   const s = `${t.desc || ""} ${t.payee || ""}`.toLowerCase();
   if (t.dir === "in") {
     if (/late fee/.test(s)) return "Late fees";
-    if (/prepa/.test(s)) return "Prepaid rent";
+    // "Tenant Prepayments … - July Rent HAP" is July's rent, paid early.
+    if (/prepa/.test(s) && !/\b(rent|hap)\b/.test(s.replace(/prepa\w*/g, ""))) return "Prepaid rent";
     if (/deposit/.test(s)) return "Deposits";
     if (/rent|hap|subsid|section 8/.test(s)) return "Rent";
     return "Other income";
@@ -107,7 +108,20 @@ export function rentalMonthPL(r, ym, ctx) {
       source = "platinum";
       // Multi-unit buildings: one Rent line per unit (Elie 10/6/26).
       const multi = (r.units || []).length > 1;
-      tx.forEach((t) => { let c = categorize(t); if (multi && t.dir === "in" && c === "Rent") c = `Rent – ${unitLabel(t)}`; add(t.dir === "in" ? income : expenses, c, t.amount, t); });
+      // Section 8 (HAP) lines that don't name a unit go to the unit the other
+      // Section 8 payments name (516-518: "516 N High St - Subsidized Rent").
+      const isHap = (t) => /\bhap\b|subsid|sec(tion)?\s?8/i.test(`${t.desc} ${t.ref || ""}`);
+      let hapUnit = null;
+      if (multi) {
+        const cnt = {};
+        ctx.live.txns.forEach((t) => { if (t.key === key && t.dir === "in" && isHap(t)) { const u = unitLabel(t); if (u !== "unit not listed") cnt[u] = (cnt[u] || 0) + 1; } });
+        hapUnit = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+      }
+      tx.forEach((t) => {
+        let c = categorize(t);
+        if (multi && t.dir === "in" && c === "Rent") { let u = unitLabel(t); if (u === "unit not listed" && hapUnit && isHap(t)) u = hapUnit; c = `Rent – ${u}`; }
+        add(t.dir === "in" ? income : expenses, c, t.amount, t);
+      });
       // The portal's month totals count payments by DATE, so compare them with
       // what was paid this month, not with what's assigned to it.
       const paidSum = (dir) => paid.filter((t) => t.dir === dir).reduce((s, t) => s + t.amount, 0);

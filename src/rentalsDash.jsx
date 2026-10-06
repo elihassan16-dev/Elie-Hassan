@@ -11,7 +11,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { T } from "./theme";
 import { Sheet } from "./platinum";
-import { rentalMonthPL, portfolioMonth, ymNow, addMonths, monthsBetween, mLabel, GroupBars } from "./rentalsPL";
+import { rentalMonthPL, portfolioMonth, ymNow, addMonths, monthsBetween, mLabel, GroupBars, sortIncome } from "./rentalsPL";
 import { PinSheet, PinnedList } from "./rentalPins";
 
 // ── period + grouping (remembered) ──
@@ -75,7 +75,7 @@ function sumPL(rentals, months, ctx, single) {
     totalIn += p.totalIn; totalOut += p.totalOut; mortgage += p.mortgage;
   });
   const sort = (m) => [...m.values()].sort((a, b) => b.amount - a.amount);
-  return { any, income: sort(income), expenses: sort(expenses), totalIn, totalOut, net: totalIn - totalOut, mortgage, cashFlow: totalIn - totalOut - mortgage };
+  return { any, income: sortIncome([...income.values()]), expenses: sort(expenses), totalIn, totalOut, net: totalIn - totalOut, mortgage, cashFlow: totalIn - totalOut - mortgage };
 }
 
 // This month's rent status for a rental (Platinum live).

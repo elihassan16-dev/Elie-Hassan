@@ -72,6 +72,22 @@ export function categorize(t) {
   return "Repairs & maintenance";
 }
 const IN_ORDER = ["Rent", "Prepaid rent", "Late fees", "Deposits", "Other income", "Other (not itemized)"];
+// "6 S 4th St #4" → "#4"; "518 N High St" → "518 N High"; else the address in
+// the description ("516 N High St - Rental Income - …").
+export function unitLabel(t) {
+  const u = String(t.unit || "").trim();
+  const hash = u.match(/#\s*[\w-]+$/);
+  if (hash) return hash[0].replace(/\s+/g, "");
+  const strip = (x) => x.replace(/\s+(St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Ct|Court|Blvd|Ter|Pl|Way)\.?$/i, "").trim();
+  if (u) return strip(u);
+  const m = String(t.desc || "").match(/^(\d+[A-Za-z]?\s[^-]{2,40}?)\s+-\s/);
+  return m ? strip(m[1]) : "unit not listed";
+}
+const rankIn = (c) => { const i = IN_ORDER.indexOf(String(c).split(" – ")[0]); return i < 0 ? 50 : i; };
+// Rent first (units in order), then prepaid, late fees, deposits, other.
+export const sortIncome = (list) => list.sort((a, b) => rankIn(a.cat) - rankIn(b.cat) || (a.cat.startsWith("Rent – ") && b.cat.startsWith("Rent – ") ? a.cat.localeCompare(b.cat, undefined, { numeric: true }) : b.amount - a.amount));
+// Across several properties, per-unit rent lines fold back into one "Rent".
+export const foldUnits = (cat) => (cat.startsWith("Rent – ") ? "Rent" : cat);
 
 // ── the P&L for one rental, one month ──
 // ctx = { live, keyFor(rental) → Platinum key|null, bAmt(L,bucket,field) }
@@ -87,7 +103,9 @@ export function rentalMonthPL(r, ym, ctx) {
     const dash = m && m.props && m.props[key];
     if (tx.length || (dash && (dash.cashIn != null || dash.cashOut != null))) {
       source = "platinum";
-      tx.forEach((t) => add(t.dir === "in" ? income : expenses, categorize(t), t.amount, t));
+      // Multi-unit buildings: one Rent line per unit (Elie 10/6/26).
+      const multi = (r.units || []).length > 1;
+      tx.forEach((t) => { let c = categorize(t); if (multi && t.dir === "in" && c === "Rent") c = `Rent – ${unitLabel(t)}`; add(t.dir === "in" ? income : expenses, c, t.amount, t); });
       const sum = (map) => [...map.values()].reduce((s, e) => s + e.amount, 0);
       if (dash && dash.cashIn != null && dash.cashIn - sum(income) > 1) add(income, "Other (not itemized)", dash.cashIn - sum(income));
       if (dash && dash.cashOut != null && dash.cashOut - sum(expenses) > 1) add(expenses, "Other (not itemized)", dash.cashOut - sum(expenses));
@@ -110,8 +128,7 @@ export function rentalMonthPL(r, ym, ctx) {
     else add(t.dir === "in" ? income : expenses, p.cat || "Other expenses", t.amount, t);
   });
   if (pins.length && source === "none") source = "pins";
-  const rank = (c) => { const i = IN_ORDER.indexOf(c); return i < 0 ? 50 : i; };
-  const inc = [...income.values()].sort((a, b) => rank(a.cat) - rank(b.cat) || b.amount - a.amount);
+  const inc = sortIncome([...income.values()]);
   const exp = [...expenses.values()].sort((a, b) => (a.cat === "Other (not itemized)") - (b.cat === "Other (not itemized)") || b.amount - a.amount);
   const totalIn = inc.reduce((s, e) => s + e.amount, 0), totalOut = exp.reduce((s, e) => s + e.amount, 0);
   let mortgage = 0;
@@ -148,7 +165,7 @@ export function portfolioMonth(rentals, ym, ctx) {
     const ti = all.cashIn || 0, to = all.cashOut || 0;
     b = { ...b, any: true, income: ti ? [{ cat: "Other (not itemized)", amount: ti, tx: [] }] : [], expenses: to ? [{ cat: "Other (not itemized)", amount: to, tx: [] }] : [], totalIn: ti, totalOut: to };
   }
-  const merge = (side) => { const m = new Map(); [...a[side], ...b[side]].forEach((e) => { const x = m.get(e.cat) || { cat: e.cat, amount: 0, tx: [] }; x.amount += e.amount; x.tx.push(...(e.tx || [])); m.set(e.cat, x); }); return [...m.values()].sort((p, q) => q.amount - p.amount); };
+  const merge = (side) => { const m = new Map(); [...a[side], ...b[side]].forEach((e) => { const k = foldUnits(e.cat); const x = m.get(k) || { cat: k, amount: 0, tx: [] }; x.amount += e.amount; x.tx.push(...(e.tx || [])); m.set(k, x); }); const out = [...m.values()]; return side === "income" ? sortIncome(out) : out.sort((p, q) => q.amount - p.amount); };
   const totalIn = a.totalIn + b.totalIn, totalOut = a.totalOut + b.totalOut, mortgage = a.mortgage + b.mortgage;
   return { any: a.any || b.any, income: merge("income"), expenses: merge("expenses"), totalIn, totalOut, net: totalIn - totalOut, mortgage, cashFlow: totalIn - totalOut - mortgage };
 }

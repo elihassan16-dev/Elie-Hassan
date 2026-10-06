@@ -4460,7 +4460,7 @@ function RentalPortfolioPage(){
   if(selId==="delinquency")return shell(
     <div style={{flex:1,overflowY:"auto",background:T.bg}}>
       <div style={dashWrap}>
-        <DelinquencyReport rentals={list} ctx={plCtx} isMobile={isMobile} onOpen={openRental}
+        <DelinquencyReport rentals={list} ctx={plCtx} isMobile={isMobile} onOpen={openRental} onUpdate={(id,patch)=>upd(id,patch)}
           header={isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,fontWeight:500,fontFamily:"inherit",padding:0,marginBottom:6,minHeight:32}}>‹ Rentals</button>}/>
       </div>
     </div>

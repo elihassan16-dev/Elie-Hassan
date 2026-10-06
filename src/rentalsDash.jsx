@@ -14,6 +14,7 @@ import { Sheet } from "./platinum";
 import { rentalMonthPL, portfolioMonth, ymNow, addMonths, monthsBetween, mLabel, GroupBars, sortIncome, rentCatsFor } from "./rentalsPL";
 import { PinSheet, PinnedList } from "./rentalPins";
 import { forMonth } from "./platinumLive.js";
+import { owedByRental } from "./rentalsDelinq";
 
 // ── period + grouping (remembered) ──
 const LS = "gs_rentals_dash";
@@ -97,6 +98,7 @@ export function RentalsSidebar({ rentals, ctx, period, selId, onSelect, onAdd, i
     return { r, net: p.net, any: p.any, st: rentStatus(ctx.live, ctx.keyFor ? ctx.keyFor(r) : null) };
   }), [rentals, ctx, period.months.join()]); // eslint-disable-line react-hooks/exhaustive-deps
   const all = useMemo(() => sumPL(rentals, period.months, ctx, false), [rentals, ctx, period.months.join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  const dq = useMemo(() => owedByRental(rentals, ctx), [rentals, ctx]);
   const units = rentals.reduce((s, r) => s + (r.units || []).length, 0);
   const shown = rows.filter((x) => !q || `${x.r.address} ${x.r.city || ""}`.toLowerCase().includes(q.toLowerCase())).sort((a, b) => (b.any - a.any) || b.net - a.net);
   const item = (key, on, icon, title, sub, val, valColor, onClick, i) => (
@@ -122,6 +124,7 @@ export function RentalsSidebar({ rentals, ctx, period, selId, onSelect, onAdd, i
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search properties" aria-label="Search properties" style={{ minHeight: 36, borderRadius: 10, border: "none", background: "rgba(118,118,128,0.12)", padding: "0 12px", fontSize: 14, fontFamily: "inherit", color: T.text, outline: "none" }} />
       <div style={{ background: T.card, borderRadius: 14, overflow: "hidden", border: `1px solid ${T.border}` }}>
         {item("all", allOn, "🏘", "All properties", `${rentals.length} properties · ${units} units`, all.any ? signed(all.net) : "—", netColor(all.net), () => onSelect("all"), 0)}
+        {item("delinquency", selId === "delinquency", "📋", "Delinquency report", dq.report.behind.length ? `${dq.report.behind.length} tenant${dq.report.behind.length > 1 ? "s" : ""} behind` : dq.report.tenants.length ? "Everyone's paid up" : "Who owes what, per tenant", dq.report.total > 0.5 ? money(dq.report.total) : "", T.text, () => onSelect("delinquency"), 1)}
       </div>
       <div style={{ fontSize: 12.5, fontWeight: 600, color: T.textSub, padding: "2px 8px 0" }}>Net · {period.label}</div>
       <div style={{ background: T.card, borderRadius: 14, overflow: "hidden", border: `1px solid ${T.border}` }}>
@@ -129,7 +132,10 @@ export function RentalsSidebar({ rentals, ctx, period, selId, onSelect, onAdd, i
         {shown.map((x, i) => {
           const on = String(selId) === String(x.r.id);
           const n = (x.r.units || []).length;
-          const sub = <>{n > 1 ? `${n} units${x.st ? " · " : ""}` : ""}{dot(x.st, on)}{!x.st && n <= 1 ? (x.r.city || "") : ""}</>;
+          // What its tenants owe (delinquency report) beats this month's rent dot.
+          const ow = dq.by.get(String(x.r.id));
+          const st = ow && ow.owed > 0.5 ? { color: ow.old > 0.5 ? "#FF3B30" : "#FF9500", text: `owes ${money(ow.owed)}` } : x.st;
+          const sub = <>{n > 1 ? `${n} units${st ? " · " : ""}` : ""}{dot(st, on)}{!st && n <= 1 ? (x.r.city || "") : ""}</>;
           return item(x.r.id, on, n > 1 ? "🏢" : "🏠", x.r.address, sub, x.any ? signed(x.net) : "—", x.any ? netColor(x.net) : T.textTert, () => onSelect(x.r.id), i);
         })}
       </div>

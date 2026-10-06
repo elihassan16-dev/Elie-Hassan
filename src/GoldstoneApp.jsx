@@ -35,6 +35,7 @@ import { ScopeBuilder, scopeSummary } from "./contractors/scope";
 import { scopeToText } from "./contractors/sowLibrary";
 import { PlatinumCard, PlatinumChips, PlatinumTab, usePlatinum } from "./platinum";
 import { RentalsSidebar, RentalsDashboard, useDashPeriod, firstDataMonth } from "./rentalsDash";
+import { DelinquencyReport } from "./rentalsDelinq";
 import { useQbPinSync } from "./rentalPins";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
@@ -3971,7 +3972,7 @@ function RentalPortfolioPage(){
 
   const list=useMemo(()=>[...(rentals||[])].sort((a,b)=>(a.address||"").localeCompare(b.address||"")),[rentals]);
   const sel=selId!=null?list.find(r=>String(r.id)===String(selId)):null;
-  const plCtx={live:plat.live,keyFor:(r)=>plat.liveKeyFor(r,list),bAmt};
+  const plCtx={live:plat.live,keyFor:(r)=>plat.liveKeyFor(r,list),bAmt,packets:plat.statements,rentalFor:(p)=>plat.rentalFor(p,list)};
   const period=useDashPeriod(firstDataMonth(list,plat.live));
   const saveNow=()=>{if(flushRentals)setTimeout(flushRentals,0);};
   const upd=(id,patch)=>{setRentals(prev=>prev.map(r=>String(r.id)===String(id)?{...r,...patch}:r));saveNow();};
@@ -4452,6 +4453,15 @@ function RentalPortfolioPage(){
         {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,fontWeight:500,fontFamily:"inherit",padding:0,marginBottom:8,minHeight:32}}>‹ Rentals</button>}
         <div style={{fontSize:24,fontWeight:800,letterSpacing:"-0.02em",color:T.text,marginBottom:12}}>Platinum updates</div>
         <PlatinumCard rentals={list} onOpen={(id)=>{setSelId(id);setDetailTab("tenants");}} onAddRental={addFromPlatinum} isMobile={isMobile}/>
+      </div>
+    </div>
+  );
+  // 📋 Delinquency report (Elie 10/6/26): who owes what, per property per tenant.
+  if(selId==="delinquency")return shell(
+    <div style={{flex:1,overflowY:"auto",background:T.bg}}>
+      <div style={dashWrap}>
+        <DelinquencyReport rentals={list} ctx={plCtx} isMobile={isMobile} onOpen={openRental}
+          header={isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",fontSize:15,fontWeight:500,fontFamily:"inherit",padding:0,marginBottom:6,minHeight:32}}>‹ Rentals</button>}/>
       </div>
     </div>
   );

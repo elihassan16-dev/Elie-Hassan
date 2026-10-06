@@ -118,6 +118,52 @@ function effTxns(live, key) {
   return out;
 }
 
+// Rent lines → "Rent – <unit>" on multi-unit buildings. Section 8 (HAP)
+// lines that don't name a unit go to the unit the other Section 8 payments
+// name (516-518: "516 N High St - Subsidized Rent").
+const isHap = (t) => /\bhap\b|subsid|sec(tion)?\s?8/i.test(`${t.desc} ${t.ref || ""}`);
+function rentCatFn(live, key, multi) {
+  let hapUnit = null;
+  if (multi) {
+    const cnt = {};
+    live.txns.forEach((t) => { if (t.key === key && t.dir === "in" && isHap(t)) { const u = unitLabel(t); if (u !== "unit not listed") cnt[u] = (cnt[u] || 0) + 1; } });
+    hapUnit = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  }
+  return (t) => {
+    let c = categorize(t);
+    if (multi && t.dir === "in" && c === "Rent") { let u = unitLabel(t); if (u === "unit not listed" && hapUnit && isHap(t)) u = hapUnit; c = `Rent – ${u}`; }
+    return c;
+  };
+}
+// Does the description name the month it's for? (else a payment "for" its
+// own payment month really means "no month written").
+const NAMES_MONTH = /\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\b|\b(0?[1-9]|1[0-2])\/20\d{2}\b/i;
+// Every rent payment for one rental (delinquency report): Platinum's rent
+// lines (bounced ones negative, in the month of the payment they cancel),
+// prepaid rent, late fees, and rent pinned from QuickBooks (paid to Elie
+// directly). unit = "" or the "Rent – X" unit.
+export function rentPaymentsFor(r, ctx) {
+  const out = [];
+  const key = ctx && ctx.live && ctx.keyFor ? ctx.keyFor(r) : null;
+  if (key) {
+    const catOf = rentCatFn(ctx.live, key, true);
+    const kindOf = (c) => (c.startsWith("Rent") ? "rent" : c === "Prepaid rent" ? "prepaid" : c === "Late fees" ? "late" : null);
+    effTxns(ctx.live, key).forEach(({ t, ym, rev, orig }) => {
+      const base = rev ? (orig || { ...t, dir: "in" }) : t;
+      if (base.dir !== "in" || OWNER.test(`${t.desc} ${t.payee}`)) return;
+      const c = catOf(base), kind = kindOf(c);
+      if (!kind) return;
+      out.push({ date: t.date, forYm: ym, explicit: kind !== "prepaid" && (rev ? true : NAMES_MONTH.test(t.desc || "")), unit: c.startsWith("Rent – ") ? c.slice(7) : "", kind, amount: rev ? -t.amount : t.amount, desc: t.desc, rev, hap: isHap(base), src: "platinum" });
+    });
+  }
+  (r.qbPins || []).forEach((p) => {
+    const c = p.cat || "";
+    if (!/^Rent\b|^Late fees/.test(c)) return;
+    out.push({ date: p.date, forYm: forMonth(p), explicit: NAMES_MONTH.test(p.desc || ""), unit: c.startsWith("Rent – ") ? c.slice(7) : "", kind: c.startsWith("Rent") ? "rent" : "late", amount: Math.abs(Number(p.amount) || 0), desc: p.desc || p.accountName || "Paid to you (QuickBooks)", rev: false, hap: false, src: "pin" });
+  });
+  return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
 // "Count them as" choices for income pinned from QuickBooks: one per unit on a
 // multi-unit rental (the units Platinum's rent names, then the rental's own
 // unit list), with the tenant's name when the rental has it.
@@ -151,20 +197,7 @@ export function rentalMonthPL(r, ym, ctx) {
       source = "platinum";
       // Multi-unit buildings: one Rent line per unit (Elie 10/6/26).
       const multi = (r.units || []).length > 1;
-      // Section 8 (HAP) lines that don't name a unit go to the unit the other
-      // Section 8 payments name (516-518: "516 N High St - Subsidized Rent").
-      const isHap = (t) => /\bhap\b|subsid|sec(tion)?\s?8/i.test(`${t.desc} ${t.ref || ""}`);
-      let hapUnit = null;
-      if (multi) {
-        const cnt = {};
-        ctx.live.txns.forEach((t) => { if (t.key === key && t.dir === "in" && isHap(t)) { const u = unitLabel(t); if (u !== "unit not listed") cnt[u] = (cnt[u] || 0) + 1; } });
-        hapUnit = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
-      }
-      const catOf = (t) => {
-        let c = categorize(t);
-        if (multi && t.dir === "in" && c === "Rent") { let u = unitLabel(t); if (u === "unit not listed" && hapUnit && isHap(t)) u = hapUnit; c = `Rent – ${u}`; }
-        return c;
-      };
+      const catOf = rentCatFn(ctx.live, key, multi);
       eff.forEach(({ t, rev, orig }) => {
         if (!rev) { add(t.dir === "in" ? income : expenses, catOf(t), t.amount, t); return; }
         // A reversal takes money away from the line it cancels (or, unmatched,

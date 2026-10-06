@@ -122,16 +122,22 @@ export function delinquency(rentals, ctx, asOf = todayIso()) {
     const firstYm = all.filter((p) => p.kind !== "late").map((p) => p.forYm).sort()[0] || null;
     if (!packet && !firstYm) return; // no rent data yet
     const out = tenants.map((t) => {
-      const mine = byT.get(t) || [];
-      const L = tenantLedger(t, mine, { asOf, packet, startYm: firstYm && firstYm <= endYm ? firstYm : endYm });
-      const allMine = all.filter((p) => (multi ? (t.key === "?" ? !tenants.some((x) => x !== t && x.key === unitKey(p.unit)) : t.key === unitKey(p.unit)) : true) && p.date <= asOf);
+      // Elie's marks (10/6/26), r.dqMarks[unit key or "_"]: {vacant} = the unit
+      // is empty — its balance is wiped and it isn't counted; {startYm} = a new
+      // tenant moved in — their ledger starts fresh that month.
+      t.mark = (r.dqMarks || {})[t.key || "_"] || null;
+      const fresh = t.mark && !t.mark.vacant && /^\d{4}-\d{2}$/.test(t.mark.startYm || "") ? t.mark.startYm : null;
+      const mine = (byT.get(t) || []).filter((p) => !fresh || (p.kind !== "late" && p.forYm >= fresh));
+      const L = tenantLedger(t, mine, { asOf, packet: fresh ? null : packet, startYm: fresh || (firstYm && firstYm <= endYm ? firstYm : endYm) });
+      const allMine = all.filter((p) => (multi ? (t.key === "?" ? !tenants.some((x) => x !== t && x.key === unitKey(p.unit)) : t.key === unitKey(p.unit)) : true) && p.date <= asOf && (!fresh || (p.kind !== "late" && p.forYm >= fresh)));
       // Last paid = the latest day with a payment, that whole day's total.
       const lastDay = [...allMine].reverse().find((p) => !p.rev && p.amount > 0)?.date;
       const lastPays = lastDay ? allMine.filter((p) => !p.rev && p.date === lastDay) : [];
       const last = lastDay ? { date: lastDay, amount: r2(lastPays.reduce((s, p) => s + p.amount, 0)), hap: lastPays.length > 0 && lastPays.every((p) => p.hap) } : null;
       const bounced = new Set(allMine.filter((p) => p.rev).map((p) => p.date)).size; // one bounced check = one reversal date
       // No packet, no tenant name and never a payment on record → probably vacant; shown, not counted.
-      const vacant = !packet && !t.name && t.key !== "?" && !allMine.some((p) => p.kind !== "late");
+      const marked = !!(t.mark && t.mark.vacant);
+      const vacant = marked || (!packet && !fresh && !t.name && t.key !== "?" && !allMine.some((p) => p.kind !== "late"));
       const cur = L.rows.find((w) => !w.open && w.ym === endYm);
       const hap = allMine.some((p) => p.hap);
       const tags = [];
@@ -139,11 +145,13 @@ export function delinquency(rentals, ctx, asOf = todayIso()) {
       if (bounced) tags.push({ t: `Bounced ${bounced}×`, c: "red" });
       if (hap && L.owed > 0.5) tags.push({ t: "Tenant part late", c: "or" });
       else if (cur && cur.charged > 0 && cur.paid > 0.004 && cur.due > 0.5) tags.push({ t: "Partial", c: "or" });
-      if (vacant) tags.push({ t: "Vacant? No payments on record", c: "mu" });
+      if (marked) tags.splice(0, tags.length, { t: `Vacant · marked ${dShort(String(t.mark.at || "").slice(0, 10))}`, c: "mu" });
+      else if (vacant) tags.push({ t: "Vacant? No payments on record", c: "mu" });
+      else if (fresh) tags.unshift({ t: `New tenant from ${mLabel(fresh)} ${fresh.slice(0, 4)}`, c: "gr" });
       else if (L.owed < -0.5) tags.push({ t: "Paid ahead", c: "gr" });
       else if (L.owed <= 0.5 && !t.late && !bounced && t.rent > 0) tags.push({ t: "On time", c: "gr" });
       if (vacant) { L.owed = 0; L.aging = [0, 0, 0, 0]; }
-      return { ...t, rental: r, ...L, vacant, last, bounced, hap, tags, curCharged: cur ? cur.charged : 0, curPaid: cur ? r2(cur.charged - cur.due) : 0 };
+      return { ...t, rental: r, ...L, vacant, marked, fresh, last, bounced, hap, tags, curCharged: cur ? cur.charged : 0, curPaid: cur ? r2(cur.charged - cur.due) : 0 };
     }).filter((t) => t.rent > 0 || t.rows.length || Math.abs(t.owed) > 0.004);
     if (!out.length) return;
     const owed = r2(out.reduce((s, t) => s + Math.max(0, t.owed), 0));
@@ -155,7 +163,7 @@ export function delinquency(rentals, ctx, asOf = todayIso()) {
   const aging = [0, 1, 2, 3].map((i) => r2(props.reduce((s, p) => s + p.aging[i], 0)));
   const behind = tenants.filter((t) => t.owed > 0.5);
   const occupied = tenants.filter((t) => t.rent > 0 && t.key !== "?" && !t.vacant).length;
-  const monthRent = r2(tenants.reduce((s, t) => s + (t.vacant ? 0 : t.curCharged), 0)), monthPaid = r2(tenants.reduce((s, t) => s + Math.max(0, t.curPaid), 0));
+  const monthRent = r2(tenants.reduce((s, t) => s + (t.vacant ? 0 : t.curCharged), 0)), monthPaid = r2(tenants.reduce((s, t) => s + (t.vacant ? 0 : Math.max(0, t.curPaid)), 0));
   return { asOf, props, tenants, total, aging, behind, occupied, monthRent, monthPaid };
 }
 // Sidebar numbers: what each rental's tenants owe today.
@@ -185,7 +193,7 @@ function asOfChoices() {
   return out;
 }
 
-export function DelinquencyReport({ rentals, ctx, isMobile, header, onOpen }) {
+export function DelinquencyReport({ rentals, ctx, isMobile, header, onOpen, onUpdate }) {
   const [propSel, setPropSel] = useState("all");
   const [asSel, setAsSel] = useState("today");
   const [open, setOpen] = useState(() => new Set());
@@ -198,7 +206,21 @@ export function DelinquencyReport({ rentals, ctx, isMobile, header, onOpen }) {
   const over60 = r2(d.aging[2] + d.aging[3]);
   const toggle = (id) => setOpen((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const behindProps = d.props.filter((p) => p.owed > 0.5).sort((a, b) => b.owed - a.owed);
-  const currentTenants = d.props.flatMap((p) => p.tenants.filter((t) => !(t.owed > 0.5)));
+  const currentTenants = d.props.flatMap((p) => p.tenants.filter((t) => !(t.owed > 0.5) && !t.vacant));
+  const vacantTenants = d.props.flatMap((p) => p.tenants.filter((t) => t.vacant));
+  // Mark a unit vacant (wipes what's owed) / a new tenant moved in / undo.
+  const setMark = (t, val) => {
+    if (!onUpdate) return;
+    const k = t.key || "_";
+    const marks = { ...(t.rental.dqMarks || {}) };
+    if (val) marks[k] = { ...val, at: new Date().toISOString() }; else delete marks[k];
+    onUpdate(t.rental.id, { dqMarks: marks });
+  };
+  const markVacant = (t) => {
+    const who = `${tenantName(t)}${t.label ? ` (${t.label})` : ""} at ${t.rental.address}`;
+    if (!window.confirm(`Mark ${who} vacant?\n\n${t.owed > 0.5 ? `The ${money(t.owed)} they owe will be wiped out of this report. ` : ""}No rent is counted while it's vacant. You can undo this any time.`)) return;
+    setMark(t, { vacant: true });
+  };
   const pctCollected = d.monthRent > 0 ? Math.round((d.monthPaid / d.monthRent) * 100) : null;
   const title = `Delinquency report${propSel !== "all" && set[0] ? ` — ${set[0].address}` : ""}`;
 
@@ -276,7 +298,23 @@ export function DelinquencyReport({ rentals, ctx, isMobile, header, onOpen }) {
                 {!t.rows.length && <tr><td colSpan={5} style={{ ...td(true), fontSize: 12.5, color: T.textSub }}>Nothing charged or paid since {d.props.find((p) => p.r === t.rental)?.packet ? "the packet" : "the start of the data"}.</td></tr>}
               </tbody>
             </table>
-            <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 4 }}>Payments count toward the month written on them; a payment with no month goes to the oldest month still owed.{t.af ? ` Starts from AppFolio's past due on ${dShort(t.af.asOf, true)}.` : ""}</div>
+            <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 4 }}>Payments count toward the month written on them; a payment with no month goes to the oldest month still owed.{t.af && !t.fresh ? ` Starts from AppFolio's past due on ${dShort(t.af.asOf, true)}.` : ""}{t.fresh ? ` New tenant — starts fresh in ${mLabel(t.fresh)} ${t.fresh.slice(0, 4)}.` : ""}</div>
+            {onUpdate && t.key !== "?" && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+              {t.marked ? <>
+                <span style={{ fontSize: 12.5, color: T.textSub }}>Marked vacant — not counted.</span>
+                <button onClick={() => setMark(t, null)} style={btn(false)}>Undo vacant</button>
+                <label style={{ ...btn(false), position: "relative", display: "inline-flex", alignItems: "center" }}>New tenant moved in… ▾
+                  <select aria-label="New tenant from month" value="" onChange={(e) => e.target.value && setMark(t, { startYm: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", fontSize: 16 }}>
+                    <option value="">Starting which month?</option>
+                    {monthsBetween(addMonths(asOf.slice(0, 7), -12), addMonths(asOf.slice(0, 7), 1)).reverse().map((ym) => <option key={ym} value={ym}>{mLabel(ym)} {ym.slice(0, 4)}</option>)}
+                  </select>
+                </label>
+              </> : t.fresh ? <>
+                <span style={{ fontSize: 12.5, color: T.textSub }}>New tenant from {mLabel(t.fresh)} {t.fresh.slice(0, 4)}.</span>
+                <button onClick={() => setMark(t, null)} style={btn(false)}>Undo</button>
+                <button onClick={() => markVacant(t)} style={btn(false)}>Mark vacant</button>
+              </> : <button onClick={() => markVacant(t)} style={btn(false)}>{t.vacant ? "Yes, it's vacant" : "Mark vacant — wipes what's owed"}</button>}
+            </div>}
           </div>
         </td></tr>}
       </Fragment>
@@ -326,7 +364,11 @@ export function DelinquencyReport({ rentals, ctx, isMobile, header, onOpen }) {
               ))}
               {currentTenants.length > 0 && <>
                 {groupRow("Current / paid ahead", 0, GREEN, null, "gcur")}
-                {currentTenants.sort((a, b) => a.vacant - b.vacant || a.owed - b.owed).map((t, i) => tenantRow(t, 100 + i, true))}
+                {currentTenants.sort((a, b) => a.owed - b.owed).map((t, i) => tenantRow(t, 100 + i, true))}
+              </>}
+              {vacantTenants.length > 0 && <>
+                {groupRow("Vacant — not counted", 0, T.textSub, null, "gvac")}
+                {vacantTenants.map((t, i) => tenantRow(t, 200 + i, true))}
               </>}
               <tr>
                 <td colSpan={3} style={{ ...td(true), ...sticky, fontWeight: 700, background: "#FAFAFB" }}>Total</td>

@@ -68,7 +68,7 @@ export async function delinquencyPdfFile(d, { title, asOf, change, over60, pctCo
   };
   const behindProps = d.props.filter((p) => p.owed > 0.5).sort((a, b) => b.owed - a.owed);
   behindProps.forEach((p) => { group(p.r.address, p.owed, RED); p.tenants.filter((t) => t.owed > 0.5).sort((a, b) => b.owed - a.owed).forEach((t) => row(t, false)); });
-  const cur = d.props.flatMap((p) => p.tenants.filter((t) => !(t.owed > 0.5)));
+  const cur = d.props.flatMap((p) => p.tenants.filter((t) => !(t.owed > 0.5) && !t.vacant));
   if (cur.length) { group("Current / paid ahead", 0, GREEN); cur.sort((a, b) => a.owed - b.owed).forEach((t) => row(t, true)); }
   if (room(18)) header();
   line(); doc.setFillColor(...BAND); doc.rect(M, y - 11, R - M, 16, "F");

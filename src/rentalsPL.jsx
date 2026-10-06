@@ -135,6 +135,9 @@ function rentCatFn(live, key, multi) {
     return c;
   };
 }
+// The month a pinned QuickBooks line counts for: the one Elie picked (📌 list
+// "For" menu, 10/6/26), else the month in its description, else its date.
+export const pinMonth = (p) => p.forYm || forMonth(p);
 // Does the description name the month it's for? (else a payment "for" its
 // own payment month really means "no month written").
 const NAMES_MONTH = /\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\b|\b(0?[1-9]|1[0-2])\/20\d{2}\b/i;
@@ -159,7 +162,7 @@ export function rentPaymentsFor(r, ctx) {
   (r.qbPins || []).forEach((p) => {
     const c = p.cat || "";
     if (!/^Rent\b|^Late fees/.test(c)) return;
-    out.push({ date: p.date, forYm: forMonth(p), explicit: NAMES_MONTH.test(p.desc || ""), unit: c.startsWith("Rent – ") ? c.slice(7) : "", kind: c.startsWith("Rent") ? "rent" : "late", amount: Math.abs(Number(p.amount) || 0), desc: p.desc || p.accountName || "Paid to you (QuickBooks)", rev: false, hap: false, src: "pin" });
+    out.push({ date: p.date, forYm: pinMonth(p), explicit: !!p.forYm || NAMES_MONTH.test(p.desc || ""), unit: c.startsWith("Rent – ") ? c.slice(7) : "", kind: c.startsWith("Rent") ? "rent" : "late", amount: Math.abs(Number(p.amount) || 0), desc: p.desc || p.accountName || "Paid to you (QuickBooks)", rev: false, hap: false, src: "pin" });
   });
   return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
@@ -221,10 +224,10 @@ export function rentalMonthPL(r, ym, ctx) {
   }
   // 📌 QuickBooks transactions pinned to this rental (mortgage, insurance,
   // taxes, outside bills…). A pinned mortgage replaces the ledger/loan figure.
-  const pins = (r.qbPins || []).filter((p) => forMonth(p) === ym);
+  const pins = (r.qbPins || []).filter((p) => pinMonth(p) === ym);
   let pinnedMtg = 0;
   pins.forEach((p) => {
-    const t = { dir: /^(Rent\b|Late fees|Deposits|Other income)/.test(p.cat || "") ? "in" : "out", date: p.date, desc: p.desc || "", payee: p.accountName || "QuickBooks", amount: Math.abs(Number(p.amount) || 0), pinned: true };
+    const t = { dir: /^(Rent\b|Late fees|Deposits|Other income)/.test(p.cat || "") ? "in" : "out", date: p.date, desc: p.desc || "", payee: p.accountName || "QuickBooks", amount: Math.abs(Number(p.amount) || 0), pinned: true, forYm: ym };
     if (p.cat === "Mortgage") pinnedMtg += t.amount;
     else add(t.dir === "in" ? income : expenses, p.cat || "Other expenses", t.amount, t);
   });

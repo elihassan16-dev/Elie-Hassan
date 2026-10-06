@@ -138,6 +138,10 @@ function rentCatFn(live, key, multi) {
 // The month a pinned QuickBooks line counts for: the one Elie picked (📌 list
 // "For" menu, 10/6/26), else the month in its description, else its date.
 export const pinMonth = (p) => p.forYm || forMonth(p);
+// A pin split across months (Elie 10/6/26 — one deposit covering several
+// months) → [{ym, amount, split}]; otherwise the whole amount in pinMonth.
+export const validSplit = (p) => Array.isArray(p.split) && p.split.length > 0 && p.split.every((x) => /^\d{4}-\d{2}$/.test(x.ym) && Number(x.amount) > 0) && Math.abs(p.split.reduce((s, x) => s + Number(x.amount), 0) - Math.abs(Number(p.amount) || 0)) < 0.01;
+export const pinParts = (p) => (validSplit(p) ? p.split.map((x) => ({ ym: x.ym, amount: Number(x.amount), split: true })) : [{ ym: pinMonth(p), amount: Math.abs(Number(p.amount) || 0), split: false }]);
 // Does the description name the month it's for? (else a payment "for" its
 // own payment month really means "no month written").
 const NAMES_MONTH = /\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\b|\b(0?[1-9]|1[0-2])\/20\d{2}\b/i;
@@ -162,7 +166,7 @@ export function rentPaymentsFor(r, ctx) {
   (r.qbPins || []).forEach((p) => {
     const c = p.cat || "";
     if (!/^Rent\b|^Late fees/.test(c)) return;
-    out.push({ date: p.date, forYm: pinMonth(p), explicit: !!p.forYm || NAMES_MONTH.test(p.desc || ""), unit: c.startsWith("Rent – ") ? c.slice(7) : "", kind: c.startsWith("Rent") ? "rent" : "late", amount: Math.abs(Number(p.amount) || 0), desc: p.desc || p.accountName || "Paid to you (QuickBooks)", rev: false, hap: false, src: "pin" });
+    pinParts(p).forEach((x) => out.push({ date: p.date, forYm: x.ym, explicit: x.split || !!p.forYm || NAMES_MONTH.test(p.desc || ""), unit: c.startsWith("Rent – ") ? c.slice(7) : "", kind: c.startsWith("Rent") ? "rent" : "late", amount: x.amount, desc: p.desc || p.accountName || "Paid to you (QuickBooks)", rev: false, hap: false, src: "pin", part: x.split }));
   });
   return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
@@ -224,10 +228,11 @@ export function rentalMonthPL(r, ym, ctx) {
   }
   // 📌 QuickBooks transactions pinned to this rental (mortgage, insurance,
   // taxes, outside bills…). A pinned mortgage replaces the ledger/loan figure.
-  const pins = (r.qbPins || []).filter((p) => pinMonth(p) === ym);
+  const pins = [];
+  (r.qbPins || []).forEach((p) => pinParts(p).forEach((x) => { if (x.ym === ym) pins.push({ p, x }); }));
   let pinnedMtg = 0;
-  pins.forEach((p) => {
-    const t = { dir: /^(Rent\b|Late fees|Deposits|Other income)/.test(p.cat || "") ? "in" : "out", date: p.date, desc: p.desc || "", payee: p.accountName || "QuickBooks", amount: Math.abs(Number(p.amount) || 0), pinned: true, forYm: ym };
+  pins.forEach(({ p, x }) => {
+    const t = { dir: /^(Rent\b|Late fees|Deposits|Other income)/.test(p.cat || "") ? "in" : "out", date: p.date, desc: `${p.desc || ""}${x.split ? ` (part of ${Math.abs(Number(p.amount) || 0).toLocaleString(undefined, { style: "currency", currency: "USD" })})` : ""}`, payee: p.accountName || "QuickBooks", amount: x.amount, pinned: true, forYm: ym };
     if (p.cat === "Mortgage") pinnedMtg += t.amount;
     else add(t.dir === "in" ? income : expenses, p.cat || "Other expenses", t.amount, t);
   });

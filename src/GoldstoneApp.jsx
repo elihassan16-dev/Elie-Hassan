@@ -35,6 +35,7 @@ import { ScopeBuilder, scopeSummary } from "./contractors/scope";
 import { scopeToText } from "./contractors/sowLibrary";
 import { PlatinumCard, PlatinumChips, PlatinumTab, usePlatinum } from "./platinum";
 import { RentalsSidebar, RentalsDashboard, useDashPeriod, firstDataMonth } from "./rentalsDash";
+import { useQbPinSync } from "./rentalPins";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -3974,6 +3975,7 @@ function RentalPortfolioPage(){
   const period=useDashPeriod(firstDataMonth(list,plat.live));
   const saveNow=()=>{if(flushRentals)setTimeout(flushRentals,0);};
   const upd=(id,patch)=>{setRentals(prev=>prev.map(r=>String(r.id)===String(id)?{...r,...patch}:r));saveNow();};
+  useQbPinSync(list,upd); // 📌 auto rules: pin new matching QuickBooks payments
   const addRental=()=>{
     if(!form.address.trim())return;
     const id=Date.now();
@@ -4097,7 +4099,7 @@ function RentalPortfolioPage(){
     if(detailTab!=="details")return shell(
       <div style={{flex:1,overflowY:"auto",background:T.bg}}>
         <div style={dashWrap}>
-          {detailTab==="overview"&&<RentalsDashboard rental={sel} rentals={list} ctx={plCtx} period={period} isMobile={isMobile} onOpen={openRental} header={head}/>}
+          {detailTab==="overview"&&<RentalsDashboard rental={sel} rentals={list} ctx={plCtx} period={period} isMobile={isMobile} onOpen={openRental} header={head} onUpdateRental={(patch)=>upd(sel.id,patch)}/>}
           {detailTab==="tenants"&&<>{head}<div style={{height:12}}/>
           {(platHas
             ?<PlatinumTab view={platView} live={plat.live} liveKey={platKey}/>

@@ -12,6 +12,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { T } from "./theme";
 import { Sheet } from "./platinum";
 import { rentalMonthPL, portfolioMonth, ymNow, addMonths, monthsBetween, mLabel, GroupBars } from "./rentalsPL";
+import { PinSheet, PinnedList } from "./rentalPins";
 
 // ── period + grouping (remembered) ──
 const LS = "gs_rentals_dash";
@@ -139,7 +140,8 @@ export function RentalsSidebar({ rentals, ctx, period, selId, onSelect, onAdd, i
 }
 
 // ── right: the dashboard ──
-export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobile, header }) {
+export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobile, header, onUpdateRental }) {
+  const [pinOpen, setPinOpen] = useState(false);
   const single = !!rental;
   const set = single ? [rental] : rentals;
   const allCols = buckets(period.months, period.by || "month");
@@ -162,6 +164,7 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
   const pct = (a, b) => (b > 0.5 ? Math.round(((a - b) / b) * 100) : null);
   const vsLY = (a, b, upBad) => { const p = ly.any ? pct(a, b) : null; if (p == null) return <span style={{ color: T.textSub }}>&nbsp;</span>; const bad = upBad ? p > 0 : p < 0; return <span style={{ color: p === 0 ? T.textSub : bad ? RED : GREEN }}>{p > 0 ? "↑" : p < 0 ? "↓" : ""} {Math.abs(p)}% vs last year</span>; };
   const margin = tot.totalIn > 0.5 ? Math.round((tot.net / tot.totalIn) * 100) : null;
+  const mtgPinned = set.some((r) => (r.qbPins || []).some((p) => p.cat === "Mortgage" && period.months.includes(String(p.date).slice(0, 7))));
   // 4th tile: cash flow after mortgage (one property) / this month's rent collected (all)
   const live = ctx.live;
   const la = live && live.latest.all;
@@ -194,7 +197,7 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
   const clickCell = (title, e) => e && e.tx && e.tx.length ? () => setCell({ title, tx: e.tx }) : undefined;
   const catLine = (side, c) => (
     <tr key={side + c}>
-      <td style={{ ...td, ...first }}>{c}</td>
+      <td style={{ ...td, ...first }}>{c}{(val(tot, side, c)?.tx || []).some((t) => t.pinned) ? <span title="From QuickBooks" style={{ marginLeft: 4 }}>📌</span> : null}</td>
       {per.map((p, i) => { const e = val(p, side, c); const f = clickCell(`${c} · ${cols[i].long}`, e); return <td key={cols[i].key} onClick={f} style={{ ...td, cursor: f ? "pointer" : "default", textDecoration: f ? "underline dotted #C7C7CC" : "none", textUnderlineOffset: 3 }}>{num0(e ? e.amount : 0)}</td>; })}
       {(() => { const e = val(tot, side, c); const f = clickCell(`${c} · ${period.label}`, e); return <td onClick={f} style={{ ...td, ...totC, cursor: f ? "pointer" : "default" }}>{num0(e ? e.amount : 0)}</td>; })()}
     </tr>
@@ -218,7 +221,7 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
     const A = g(a), B = g(b);
     return (typeof A === "string" ? A.localeCompare(B) : A - B) * sort.d;
   });
-  const sortTh = (k, label, extra = {}) => <th onClick={() => setSort((s) => ({ k, d: s.k === k ? -s.d : -1 }))} style={{ ...th, cursor: "pointer", ...extra }}>{label}{sort.k === k ? (sort.d < 0 ? " ▾" : " ▴") : ""}</th>;
+  const sortTh = (k, label, extra = {}) => <th key={k} onClick={() => setSort((s) => ({ k, d: s.k === k ? -s.d : -1 }))} style={{ ...th, cursor: "pointer", ...extra }}>{label}{sort.k === k ? (sort.d < 0 ? " ▾" : " ▴") : ""}</th>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -235,7 +238,7 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
           {[["month", "Month"], ["quarter", "Quarter"], ["year", "Year"]].map(([k, l]) => <button key={k} onClick={() => period.set((s) => ({ ...s, by: k }))} style={segBtn((period.by || "month") === k)}>{l}</button>)}
         </div>
       </div>
-      {!tot.any && <div style={{ ...card, fontSize: 14, color: T.textSub }}>No numbers for {period.label} yet. Platinum properties fill in when Cowork sends updates; other rentals from their monthly ledger (Details tab).</div>}
+      {!tot.any && <div style={{ ...card, fontSize: 14, color: T.textSub }}>No numbers for {period.label} yet. Platinum properties fill in when Cowork sends updates; other rentals from their monthly ledger (Details tab){single && onUpdateRental ? <> — or <button onClick={() => setPinOpen(true)} style={{ border: "none", background: "none", color: T.blue, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>📌 pin transactions from QuickBooks</button></> : null}.</div>}
       {tot.any && <>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))", gap: 10 }}>
           {kpi("Money in", money(tot.totalIn), null, vsLY(tot.totalIn, ly.totalIn, false))}
@@ -270,6 +273,7 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
             <b style={{ flex: 1, fontSize: 14.5, color: T.text }}>P&amp;L by {period.by || "month"}</b>
             <span style={{ fontSize: 12, color: T.textSub }}>click a number for the payments</span>
+            {single && onUpdateRental && <button onClick={() => setPinOpen(true)} style={{ minHeight: 30, padding: "0 12px", borderRadius: 15, border: "none", background: GOLD, fontSize: 12.5, fontWeight: 650, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>📌 Pin from QuickBooks</button>}
             <button onClick={exportCsv} style={{ minHeight: 30, padding: "0 10px", borderRadius: 15, border: `1px solid ${T.border}`, background: T.card, fontSize: 12.5, fontWeight: 600, color: T.text, cursor: "pointer", fontFamily: "inherit" }}>⬇ Export</button>
           </div>
           <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
@@ -283,13 +287,14 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
                 {cats("expenses").map((c) => catLine("expenses", c))}
                 {sumLine("Total expenses", (p) => p.totalOut)}
                 {sumLine("Net", (p) => p.net, { color: true, signed: true })}
-                {tot.mortgage > 0.5 && sumLine("Mortgage", (p) => -p.mortgage, { signed: true, bold: false })}
+                {tot.mortgage > 0.5 && sumLine(mtgPinned ? "Mortgage 📌" : "Mortgage", (p) => -p.mortgage, { signed: true, bold: false })}
                 {tot.mortgage > 0.5 && sumLine("Cash flow", (p) => p.cashFlow, { color: true, signed: true })}
               </tbody>
             </table>
           </div>
           {cols.some((b) => b.partial) && <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 6 }}>* {mLabel(ymNow(), "long")} so far</div>}
         </div>
+        {single && onUpdateRental && <PinnedList rental={rental} onSave={onUpdateRental} />}
         {!single && <div style={card}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}><b style={{ flex: 1, fontSize: 14.5, color: T.text }}>Compare properties</b><span style={{ fontSize: 12, color: T.textSub }}>click a column to sort · a row to open</span></div>
           <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
@@ -324,6 +329,7 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
       </>}
       {cell && <Sheet title={cell.title} sub={`${cell.tx.length} payment${cell.tx.length === 1 ? "" : "s"}`} isMobile={isMobile} onClose={() => setCell(null)}><div style={{ ...card, padding: "4px 14px" }}><TxList tx={cell.tx} plain /></div></Sheet>}
       {customOpen && <CustomSheet period={period} isMobile={isMobile} onClose={() => setCustomOpen(false)} />}
+      {pinOpen && single && <PinSheet rental={rental} period={period} isMobile={isMobile} onSave={onUpdateRental} onClose={() => setPinOpen(false)} />}
     </div>
   );
 }

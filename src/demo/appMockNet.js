@@ -104,6 +104,22 @@ export async function qbAuthFetch(path) {
   // Preview shows a connected book with a same-day 10:45 AM Eastern vintage so
   // the financial section's "Numbers as of" caption renders in screenshots.
   if (p.includes("/api/quickbooks/status")) return { configured: true, connected: true };
+  // 📌 Pin from QuickBooks preview: a few accounts + their transactions.
+  if (p.includes("/api/quickbooks/accounts") && p.includes("class=All")) return { items: [
+    { id: "acct-loan", name: "Loan #4471 – 420 Philadelphia", type: "Long Term Liability", subType: "NotesPayable", classification: "Liability", balance: 212400 },
+    { id: "acct-chk", name: "Operating Checking", type: "Bank", subType: "Checking", classification: "Asset", balance: 48210 },
+    { id: "acct-amex", name: "Amex Business", type: "Credit Card", subType: "CreditCard", classification: "Liability", balance: 3120 },
+    { id: "acct-ins", name: "Insurance Expense", type: "Expense", subType: "Insurance", classification: "Expense", balance: 0 },
+  ] };
+  if (p.includes("/api/quickbooks/account-txns")) {
+    if (p.includes("acct-loan")) return { items: ["2026-05-01", "2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01", "2026-10-01"].map((d, i) => ({ id: `ml${i}`, date: d, type: "Check", vendor: "Mortgage payment", memo: "loan #4471", amount: -2401, lineKey: `ml${i}#0` })) };
+    if (p.includes("acct-chk")) return { items: [
+      { id: "c1", date: "2026-07-14", type: "Check", vendor: "Hartford", memo: "policy renewal — 420 Philadelphia", amount: -1284, lineKey: "c1#0" },
+      { id: "c2", date: "2026-08-01", type: "Check", vendor: "Egg Harbor City tax collector", memo: "Q3 taxes", amount: -1912, lineKey: "c2#0" },
+      { id: "c3", date: "2026-09-03", type: "Deposit", vendor: "Platinum Management", memo: "owner draw", amount: 4200, lineKey: "c3#0" },
+    ] };
+    return { items: [] };
+  }
   if (p.includes("/api/quickbooks/accounts")) {
     const et = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
     return { items: [], cachedAt: new Date(`${et}T10:45:00-04:00`).getTime() };

@@ -9,7 +9,7 @@ const CO = { name: "Goldstone Properties LLC", addr: "17 Natures Way, Lakewood, 
 const m0 = (v) => { const n = Math.round(Number(v) || 0); return n === 0 ? "—" : `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("en-US")}`; };
 const tName = (t) => t.name || (t.label ? `${t.label} tenant` : "Tenant");
 
-export async function delinquencyPdfFile(d, { title, asOf, change, over60, pctCollected }) {
+export async function delinquencyPdfFile(d, { title, asOf, change, over60, pctCollected, rangeLabel }) {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "letter", orientation: "landscape" });
   const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 40, R = W - M;
@@ -17,7 +17,7 @@ export async function delinquencyPdfFile(d, { title, asOf, change, over60, pctCo
   const head = () => {
     doc.setFont("times", "bold"); doc.setFontSize(18); doc.setTextColor(...INK); doc.text("Goldstone Properties", M, 46);
     doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...GOLD); doc.text("DELINQUENCY REPORT", R, 40, { align: "right", charSpace: 1.5 });
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...SUB); doc.text(`As of ${dShort(asOf, true)}`, R, 54, { align: "right" });
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...SUB); doc.text(rangeLabel ? `Rent for ${rangeLabel} · unpaid as of ${dShort(asOf, true)}` : `As of ${dShort(asOf, true)}`, R, 54, { align: "right" });
     doc.setDrawColor(...GOLD); doc.setLineWidth(1); doc.line(M, 62, R, 62);
     y = 82;
   };
@@ -25,7 +25,7 @@ export async function delinquencyPdfFile(d, { title, asOf, change, over60, pctCo
   head();
   doc.setFont("times", "bold"); doc.setFontSize(16); doc.setTextColor(...INK); doc.text(title, M, y); y += 20;
   // KPI strip
-  const kp = [["Total owed", m0(d.total)], ["Tenants behind", `${d.behind.length} of ${d.occupied}`], ["Over 60 days", m0(over60)], [`Collected this month`, pctCollected == null ? "—" : `${pctCollected}%  (${m0(d.monthPaid)} of ${m0(d.monthRent)})`]];
+  const kp = [[rangeLabel ? `Unpaid for ${rangeLabel}` : "Total owed", m0(d.total)], ["Tenants behind", `${d.behind.length} of ${d.occupied}`], ["Over 60 days", m0(over60)], [rangeLabel ? "Collected for those months" : "Collected this month", pctCollected == null ? "—" : `${pctCollected}%  (${m0(d.monthPaid)} of ${m0(d.monthRent)})`]];
   const kw = (R - M) / 4;
   kp.forEach(([l, v], i) => {
     const x = M + i * kw;
@@ -119,5 +119,5 @@ export async function delinquencyPdfFile(d, { title, asOf, change, over60, pctCo
     doc.text("Rent charged from each lease minus every payment received (bounced payments taken back out). A payment counts toward the month written on it; one with no month goes to the oldest month owed.", W / 2, H - 34, { align: "center" });
     doc.text(`${CO.name}  ·  ${CO.addr}${pages > 1 ? `  ·  Page ${i} of ${pages}` : ""}`, W / 2, H - 22, { align: "center" });
   }
-  return new File([doc.output("blob")], `Delinquency report ${asOf}.pdf`, { type: "application/pdf" });
+  return new File([doc.output("blob")], `Delinquency report ${String(rangeLabel || asOf).replace(/[^\w ]+/g, "-")}.pdf`, { type: "application/pdf" });
 }

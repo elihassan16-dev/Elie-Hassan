@@ -117,6 +117,8 @@ export async function qbAuthFetch(path) {
       { id: "c1", date: "2026-07-14", type: "Check", vendor: "Hartford", memo: "policy renewal — 420 Philadelphia", amount: -1284, lineKey: "c1#0" },
       { id: "c2", date: "2026-08-01", type: "Check", vendor: "Egg Harbor City tax collector", memo: "Q3 taxes", amount: -1912, lineKey: "c2#0" },
       { id: "c3", date: "2026-09-03", type: "Deposit", vendor: "Platinum Management", memo: "owner draw", amount: 4200, lineKey: "c3#0" },
+      { id: "c4", date: "2026-09-01", type: "Check", vendor: "Lakeside Mortgage Servicing", memo: "mortgage — 420 Philadelphia", amount: -2401, lineKey: "c4#0" },
+      { id: "c5", date: "2026-10-01", type: "Check", vendor: "Lakeside Mortgage Servicing", memo: "mortgage — 420 Philadelphia", amount: -2401, lineKey: "c5#0" },
     ] };
     return { items: [] };
   }

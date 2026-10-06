@@ -168,6 +168,7 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose, rentCats }
 // ── what's pinned to this rental ──
 export function PinnedList({ rental, onSave }) {
   const [all, setAll] = useState(false);
+  const [splitting, setSplitting] = useState(null); // hooks before the early return below
   const rules = rental.qbPinRules || [];
   const pins = [...(rental.qbPins || [])].sort((a, b) => String(b.date).localeCompare(String(a.date)));
   if (!rules.length && !pins.length) return null;
@@ -175,7 +176,6 @@ export function PinnedList({ rental, onSave }) {
   const shown = all ? loose : loose.slice(0, 6);
   // "For" month (Elie 10/6/26): which month a pinned line counts toward —
   // or "Split across months…" for one deposit that covers several.
-  const [splitting, setSplitting] = useState(null);
   const setMonth = (p, ym) => {
     if (ym === "__split") { setSplitting(p); return; }
     onSave({ qbPins: (rental.qbPins || []).map((x) => (x.key === p.key ? { ...x, forYm: ym || undefined, split: undefined } : x)) });

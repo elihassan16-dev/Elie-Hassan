@@ -110,9 +110,14 @@ export async function qbAuthFetch(path) {
     { id: "acct-chk", name: "Operating Checking", type: "Bank", subType: "Checking", classification: "Asset", balance: 48210 },
     { id: "acct-amex", name: "Amex Business", type: "Credit Card", subType: "CreditCard", classification: "Liability", balance: 3120 },
     { id: "acct-ins", name: "Insurance Expense", type: "Expense", subType: "Insurance", classification: "Expense", balance: 0 },
+    { id: "acct-rent", name: "Rental Income – direct", type: "Income", subType: "ServiceFeeIncome", classification: "Revenue", balance: 0 },
   ] };
   if (p.includes("/api/quickbooks/account-txns")) {
     if (p.includes("acct-loan")) return { items: ["2026-05-01", "2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01", "2026-10-01"].map((d, i) => ({ id: `ml${i}`, date: d, type: "Check", vendor: "Mortgage payment", memo: "loan #4471", amount: -2401, lineKey: `ml${i}#0` })) };
+    if (p.includes("acct-rent")) return { items: [
+      { id: "r1", date: "2026-09-04", type: "Deposit", vendor: "Tyla Bailey", memo: "Sept rent paid direct (Zelle)", amount: 753, lineKey: "r1#0" },
+      { id: "r2", date: "2026-10-03", type: "Deposit", vendor: "Tina Hammer", memo: "October rent cash", amount: 1200, lineKey: "r2#0" },
+    ] };
     if (p.includes("acct-chk")) return { items: [
       { id: "c1", date: "2026-07-14", type: "Check", vendor: "Hartford", memo: "policy renewal — 420 Philadelphia", amount: -1284, lineKey: "c1#0" },
       { id: "c2", date: "2026-08-01", type: "Check", vendor: "Egg Harbor City tax collector", memo: "Q3 taxes", amount: -1912, lineKey: "c2#0" },

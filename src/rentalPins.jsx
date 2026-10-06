@@ -14,9 +14,12 @@ import { mLabel } from "./rentalsPL";
 
 const ALL_ACCTS = { id: "__all__", name: "All bank & credit-card accounts", classification: "Asset", type: "Bank", all: true };
 export const PIN_CATS = ["Mortgage", "Insurance", "Property taxes", "Utilities", "Repairs & maintenance", "HOA", "Other expenses", "Other income"];
+// Income a tenant paid straight to Elie (Elie 10/6/26) pins as "Rent – <unit>"
+// on multi-unit rentals (same rows as Platinum's), else "Rent" — see rentCatsFor.
 export const pinKey = (accountId, t) => `${accountId}|${t.lineKey || t.id || `${t.date}|${t.amount}`}`;
-const guessCat = (acct) => {
+const guessCat = (acct, rentCats) => {
   const s = `${acct?.name || ""} ${acct?.type || ""} ${acct?.subType || ""}`.toLowerCase();
+  if (acct?.classification === "Revenue" || acct?.classification === "Income" || /rent|income/.test(s)) return (rentCats && rentCats[0] && rentCats[0].cat) || "Rent";
   if (/mortgage|loan|note/.test(s) || acct?.classification === "Liability" && !/credit ?card/.test(s)) return "Mortgage";
   if (/insur/.test(s)) return "Insurance";
   if (/tax/.test(s)) return "Property taxes";
@@ -37,7 +40,7 @@ const ruleMatches = (rule, t) => {
 };
 
 // ── the sheet ──
-export function PinSheet({ rental, period, isMobile, onSave, onClose }) {
+export function PinSheet({ rental, period, isMobile, onSave, onClose, rentCats }) {
   const [accounts, setAccounts] = useState(null);
   const [acct, setAcct] = useState(null);
   const [txns, setTxns] = useState(null);
@@ -57,7 +60,7 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose }) {
   useEffect(() => {
     if (!acct) return;
     setTxns(null); setPicked(new Set()); setErr("");
-    if (!fresh) { const c = acct.all ? "Mortgage" : guessCat(acct); setCat(c); setAuto(c === "Mortgage"); }
+    if (!fresh) { const c = acct.all ? "Mortgage" : guessCat(acct, rentCats); setCat(c); setAuto(c === "Mortgage"); }
     const list = acct.all ? (accounts || []).filter((a) => a.type === "Bank" || a.type === "Credit Card") : [acct];
     let dead = false;
     Promise.all(list.map((a) => qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(a.id)}${fresh ? "&fresh=1" : ""}`)
@@ -69,9 +72,9 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose }) {
   }, [acct && acct.id, fresh]); // eslint-disable-line react-hooks/exhaustive-deps
   const pinned = useMemo(() => new Set((rental.qbPins || []).map((p) => p.key)), [rental.qbPins]);
   const groups = useMemo(() => {
-    const g = { Loans: [], Bank: [], "Credit cards": [], Expenses: [], Other: [] };
+    const g = { Loans: [], Bank: [], "Credit cards": [], Income: [], Expenses: [], Other: [] };
     (accounts || []).forEach((a) => {
-      const k = a.type === "Bank" ? "Bank" : a.type === "Credit Card" ? "Credit cards" : a.classification === "Liability" ? "Loans" : a.classification === "Expense" ? "Expenses" : "Other";
+      const k = a.type === "Bank" ? "Bank" : a.type === "Credit Card" ? "Credit cards" : a.classification === "Liability" ? "Loans" : a.classification === "Revenue" || a.classification === "Income" ? "Income" : a.classification === "Expense" ? "Expenses" : "Other";
       g[k].push(a);
     });
     return Object.entries(g).filter(([, v]) => v.length);
@@ -79,7 +82,14 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose }) {
   const from = period.from, to = period.to;
   const shown0 = (txns || []).filter((t) => (allDates || (t.date.slice(0, 7) >= from && t.date.slice(0, 7) <= to)) && (!q || `${t.vendor} ${t.memo} ${t.type} ${t.amount}`.toLowerCase().includes(q.toLowerCase()))).sort((a, b) => b.date.localeCompare(a.date));
   const shown = shown0.slice(0, 300);
-  const toggle = (k) => setPicked((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const toggle = (k) => {
+    setPicked((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+    // A tenant paid you directly → pick that tenant's unit when the payer matches.
+    const t = (txns || []).find((x) => pinKey(x._acct.id, x) === k);
+    const who = `${t?.vendor || ""} ${t?.memo || ""}`.toLowerCase();
+    const hit = t && (rentCats || []).find((r) => r.tenant && r.tenant.split(/\s+/).filter((w) => w.length > 2).some((w) => who.includes(w.toLowerCase())));
+    if (hit && /^Rent\b/.test(cat)) setCat(hit.cat);
+  };
   const save = () => {
     const chosen = (txns || []).filter((t) => picked.has(pinKey(t._acct.id, t)));
     if (!chosen.length) return;
@@ -119,7 +129,7 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose }) {
           {!txns && !err && <div style={{ padding: 14, fontSize: 13.5, color: T.textSub }}>Loading from QuickBooks…</div>}
           {txns && shown0.length > 300 && <div style={{ padding: "8px 14px", fontSize: 12.5, color: T.textSub, borderBottom: `1px solid ${T.border}` }}>Showing the newest 300 of {shown0.length} — search to narrow it down.</div>}
           {txns && shown.length === 0 && <div style={{ padding: 14, fontSize: 13.5, color: T.textSub }}>No transactions{allDates ? "" : " in this period — tap Show all dates"}.</div>}
-          {txns && !acct.all && txns.length <= 2 && <div style={{ padding: "10px 14px", fontSize: 13, color: "#8a6d1f", background: "#FDF9EE", borderBottom: `1px solid ${T.border}` }}>Only {txns.length} transaction{txns.length === 1 ? "" : "s"} in this account. If the monthly payments come out of a bank account, <button onClick={() => { setAcct(ALL_ACCTS); setAllDates(true); setQ("mortgage"); }} style={{ border: "none", background: "none", color: T.blue, fontWeight: 650, fontSize: 13, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>search all bank &amp; card accounts for “mortgage”</button> (or the lender's name).</div>}
+          {txns && !acct.all && txns.length <= 2 && guessCat(acct) === "Mortgage" && <div style={{ padding: "10px 14px", fontSize: 13, color: "#8a6d1f", background: "#FDF9EE", borderBottom: `1px solid ${T.border}` }}>Only {txns.length} transaction{txns.length === 1 ? "" : "s"} in this account. If the monthly payments come out of a bank account, <button onClick={() => { setAcct(ALL_ACCTS); setAllDates(true); setQ("mortgage"); }} style={{ border: "none", background: "none", color: T.blue, fontWeight: 650, fontSize: 13, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>search all bank &amp; card accounts for “mortgage”</button> (or the lender's name).</div>}
           {shown.map((t, i) => {
             const k = pinKey(t._acct.id, t), already = pinned.has(k), on = already || picked.has(k);
             return (
@@ -133,7 +143,14 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose }) {
           })}
         </div>
         <div style={lab}>Count them as</div>
-        <select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Count them as" style={sel}>{PIN_CATS.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+        <select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Count them as" style={sel}>
+          <optgroup label="Income — paid to you directly">
+            {(rentCats && rentCats.length ? rentCats : [{ cat: "Rent", label: "Rent" }]).map((r) => <option key={r.cat} value={r.cat}>{r.label}</option>)}
+            <option value="Late fees">Late fees</option>
+            <option value="Other income">Other income</option>
+          </optgroup>
+          <optgroup label="Expenses">{PIN_CATS.filter((c) => c !== "Other income").map((c) => <option key={c} value={c}>{c}</option>)}</optgroup>
+        </select>
         <button onClick={() => setAuto((v) => !v)} role="switch" aria-checked={auto} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 56, marginTop: 10, padding: "8px 14px", borderRadius: 14, border: `1px solid ${T.border}`, background: T.card, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
           <span style={{ flex: 1 }}><span style={{ display: "block", fontSize: 15, fontWeight: 650, color: T.text }}>Keep pinning new ones automatically</span><span style={{ display: "block", fontSize: 12.5, color: T.textSub }}>{acct.classification === "Liability" && acct.type !== "Credit Card" ? "every new payment from this account lands here by itself" : "new ones from the same payee in this account land here by themselves"}</span></span>
           <span style={{ width: 50, height: 30, borderRadius: 15, background: auto ? "#34C759" : "#E9E9EB", position: "relative", flexShrink: 0, transition: "background .15s" }}><span style={{ position: "absolute", top: 2, left: auto ? 22 : 2, width: 26, height: 26, borderRadius: 13, background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.25)", transition: "left .15s" }} /></span>

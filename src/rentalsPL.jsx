@@ -100,13 +100,24 @@ export function rentalMonthPL(r, ym, ctx) {
     add(expenses, "Management fee", ctx.bAmt(L, "management", "mgmtPaid"));
     add(expenses, "Repairs & maintenance", ctx.bAmt(L, "service", "serviceCalls"));
   }
+  // 📌 QuickBooks transactions pinned to this rental (mortgage, insurance,
+  // taxes, outside bills…). A pinned mortgage replaces the ledger/loan figure.
+  const pins = (r.qbPins || []).filter((p) => String(p.date || "").slice(0, 7) === ym);
+  let pinnedMtg = 0;
+  pins.forEach((p) => {
+    const t = { dir: p.cat === "Other income" ? "in" : "out", date: p.date, desc: p.desc || "", payee: p.accountName || "QuickBooks", amount: Math.abs(Number(p.amount) || 0), pinned: true };
+    if (p.cat === "Mortgage") pinnedMtg += t.amount;
+    else add(t.dir === "in" ? income : expenses, p.cat || "Other expenses", t.amount, t);
+  });
+  if (pins.length && source === "none") source = "pins";
   const rank = (c) => { const i = IN_ORDER.indexOf(c); return i < 0 ? 50 : i; };
   const inc = [...income.values()].sort((a, b) => rank(a.cat) - rank(b.cat) || b.amount - a.amount);
   const exp = [...expenses.values()].sort((a, b) => (a.cat === "Other (not itemized)") - (b.cat === "Other (not itemized)") || b.amount - a.amount);
   const totalIn = inc.reduce((s, e) => s + e.amount, 0), totalOut = exp.reduce((s, e) => s + e.amount, 0);
   let mortgage = 0;
   const ledgerMtg = L ? ctx.bAmt(L, "mortgage", "mortgagePaid") : 0;
-  if (ledgerMtg > 0) mortgage = ledgerMtg;
+  if (pinnedMtg > 0) mortgage = pinnedMtg;
+  else if (ledgerMtg > 0) mortgage = ledgerMtg;
   else if (source !== "none") mortgage = Number(String((r.mortgage || {}).payment || "").replace(/[$,]/g, "")) || 0;
   return { ym, source, income: inc, expenses: exp, totalIn, totalOut, net: totalIn - totalOut, mortgage, cashFlow: totalIn - totalOut - mortgage };
 }

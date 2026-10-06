@@ -118,6 +118,20 @@ function effTxns(live, key) {
   return out;
 }
 
+// "Count them as" choices for income pinned from QuickBooks: one per unit on a
+// multi-unit rental (the units Platinum's rent names, then the rental's own
+// unit list), with the tenant's name when the rental has it.
+export function rentCatsFor(r, ctx) {
+  const units = r.units || [];
+  if (units.length <= 1) { const tn = units[0]?.tenant?.name; return [{ cat: "Rent", label: `Rent${tn ? ` · ${tn}` : ""}`, tenant: tn || "" }]; }
+  const seen = new Set();
+  const key = ctx && ctx.live && ctx.keyFor ? ctx.keyFor(r) : null;
+  if (key) ctx.live.txns.forEach((t) => { if (t.key === key && t.dir === "in" && categorize(t) === "Rent") { const u = unitLabel(t); if (u !== "unit not listed") seen.add(u); } });
+  const tenantFor = (u) => { const n = String(u).replace(/^#/, "").split(" ")[0].toLowerCase(); const x = units.find((v) => String(v.label || "").replace(/^#/, "").toLowerCase().split(" ")[0] === n || String(v.label || "").toLowerCase() === String(u).toLowerCase()); return x?.tenant?.name || ""; };
+  if (!seen.size) units.forEach((u, i) => seen.add(u.label || `Unit ${i + 1}`));
+  return [...seen].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map((u) => { const tn = tenantFor(u); return { cat: `Rent – ${u}`, label: `Rent – ${u}${tn ? ` · ${tn}` : ""}`, tenant: tn }; });
+}
+
 // ── the P&L for one rental, one month ──
 // ctx = { live, keyFor(rental) → Platinum key|null, bAmt(L,bucket,field) }
 export function rentalMonthPL(r, ym, ctx) {
@@ -177,7 +191,7 @@ export function rentalMonthPL(r, ym, ctx) {
   const pins = (r.qbPins || []).filter((p) => forMonth(p) === ym);
   let pinnedMtg = 0;
   pins.forEach((p) => {
-    const t = { dir: p.cat === "Other income" ? "in" : "out", date: p.date, desc: p.desc || "", payee: p.accountName || "QuickBooks", amount: Math.abs(Number(p.amount) || 0), pinned: true };
+    const t = { dir: /^(Rent\b|Late fees|Deposits|Other income)/.test(p.cat || "") ? "in" : "out", date: p.date, desc: p.desc || "", payee: p.accountName || "QuickBooks", amount: Math.abs(Number(p.amount) || 0), pinned: true };
     if (p.cat === "Mortgage") pinnedMtg += t.amount;
     else add(t.dir === "in" ? income : expenses, p.cat || "Other expenses", t.amount, t);
   });

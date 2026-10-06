@@ -11,7 +11,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { T } from "./theme";
 import { Sheet } from "./platinum";
-import { rentalMonthPL, portfolioMonth, ymNow, addMonths, monthsBetween, mLabel, GroupBars, sortIncome } from "./rentalsPL";
+import { rentalMonthPL, portfolioMonth, ymNow, addMonths, monthsBetween, mLabel, GroupBars, sortIncome, rentCatsFor } from "./rentalsPL";
 import { PinSheet, PinnedList } from "./rentalPins";
 import { forMonth } from "./platinumLive.js";
 
@@ -330,7 +330,7 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
       </>}
       {cell && <Sheet title={cell.title} sub={`${cell.tx.length} payment${cell.tx.length === 1 ? "" : "s"}`} isMobile={isMobile} onClose={() => setCell(null)}><div style={{ ...card, padding: "4px 14px" }}><TxList tx={cell.tx} plain /></div></Sheet>}
       {customOpen && <CustomSheet period={period} isMobile={isMobile} onClose={() => setCustomOpen(false)} />}
-      {pinOpen && single && <PinSheet rental={rental} period={period} isMobile={isMobile} onSave={onUpdateRental} onClose={() => setPinOpen(false)} />}
+      {pinOpen && single && <PinSheet rental={rental} period={period} isMobile={isMobile} onSave={onUpdateRental} onClose={() => setPinOpen(false)} rentCats={rentCatsFor(rental, ctx)} />}
     </div>
   );
 }

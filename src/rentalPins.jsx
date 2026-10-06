@@ -12,6 +12,7 @@ import { Sheet } from "./platinum";
 import { qbAuthFetch } from "./net";
 import { mLabel } from "./rentalsPL";
 
+const ALL_ACCTS = { id: "__all__", name: "All bank & credit-card accounts", classification: "Asset", type: "Bank", all: true };
 export const PIN_CATS = ["Mortgage", "Insurance", "Property taxes", "Utilities", "Repairs & maintenance", "HOA", "Other expenses", "Other income"];
 export const pinKey = (accountId, t) => `${accountId}|${t.lineKey || t.id || `${t.date}|${t.amount}`}`;
 const guessCat = (acct) => {
@@ -49,12 +50,23 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose }) {
   useEffect(() => {
     qbAuthFetch("/api/quickbooks/accounts?class=All").then((d) => setAccounts(d.items || [])).catch((e) => setErr(e.message || "Couldn't reach QuickBooks."));
   }, []);
+  const [fresh, setFresh] = useState(0);
+  // One account, or (Elie 10/6/26 — the loan account only held the opening
+  // journal entry; the payments come out of a bank account) every bank and
+  // credit-card account at once. Each line remembers its own account.
   useEffect(() => {
     if (!acct) return;
     setTxns(null); setPicked(new Set()); setErr("");
-    setCat(guessCat(acct)); setAuto(guessCat(acct) === "Mortgage");
-    qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(acct.id)}`).then((d) => setTxns((d.items || []).map((t) => ({ ...t, date: normDate(t.date) })))).catch((e) => setErr(e.message || "Couldn't load that account."));
-  }, [acct && acct.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!fresh) { const c = acct.all ? "Mortgage" : guessCat(acct); setCat(c); setAuto(c === "Mortgage"); }
+    const list = acct.all ? (accounts || []).filter((a) => a.type === "Bank" || a.type === "Credit Card") : [acct];
+    let dead = false;
+    Promise.all(list.map((a) => qbAuthFetch(`/api/quickbooks/account-txns?account=${encodeURIComponent(a.id)}${fresh ? "&fresh=1" : ""}`)
+      .then((d) => (d.items || []).map((t) => ({ ...t, date: normDate(t.date), _acct: a })))
+      .catch(() => (acct.all ? [] : Promise.reject(new Error("Couldn't load that account."))))))
+      .then((rows) => { if (!dead) setTxns(rows.flat()); })
+      .catch((e) => { if (!dead) setErr(e.message || "Couldn't load that account."); });
+    return () => { dead = true; };
+  }, [acct && acct.id, fresh]); // eslint-disable-line react-hooks/exhaustive-deps
   const pinned = useMemo(() => new Set((rental.qbPins || []).map((p) => p.key)), [rental.qbPins]);
   const groups = useMemo(() => {
     const g = { Loans: [], Bank: [], "Credit cards": [], Expenses: [], Other: [] };
@@ -65,19 +77,21 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose }) {
     return Object.entries(g).filter(([, v]) => v.length);
   }, [accounts]);
   const from = period.from, to = period.to;
-  const shown = (txns || []).filter((t) => (allDates || (t.date.slice(0, 7) >= from && t.date.slice(0, 7) <= to)) && (!q || `${t.vendor} ${t.memo} ${t.type} ${t.amount}`.toLowerCase().includes(q.toLowerCase()))).sort((a, b) => b.date.localeCompare(a.date));
+  const shown0 = (txns || []).filter((t) => (allDates || (t.date.slice(0, 7) >= from && t.date.slice(0, 7) <= to)) && (!q || `${t.vendor} ${t.memo} ${t.type} ${t.amount}`.toLowerCase().includes(q.toLowerCase()))).sort((a, b) => b.date.localeCompare(a.date));
+  const shown = shown0.slice(0, 300);
   const toggle = (k) => setPicked((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const save = () => {
-    const chosen = (txns || []).filter((t) => picked.has(pinKey(acct.id, t)));
+    const chosen = (txns || []).filter((t) => picked.has(pinKey(t._acct.id, t)));
     if (!chosen.length) return;
     const at = new Date().toISOString();
     const ruleId = auto ? `r${Date.now()}` : null;
-    const newPins = chosen.map((t) => ({ key: pinKey(acct.id, t), accountId: acct.id, accountName: acct.name, date: t.date, amount: Math.abs(Number(t.amount) || 0), desc: descOf(t), cat, at, ...(ruleId ? { rule: ruleId } : {}) }));
+    const newPins = chosen.map((t) => ({ key: pinKey(t._acct.id, t), accountId: t._acct.id, accountName: t._acct.name, date: t.date, amount: Math.abs(Number(t.amount) || 0), desc: descOf(t), cat, at, ...(ruleId ? { rule: ruleId } : {}) }));
     const patch = { qbPins: [...(rental.qbPins || []).filter((p) => !newPins.some((n) => n.key === p.key)), ...newPins] };
     if (ruleId) {
       const first = [...chosen].sort((a, b) => a.date.localeCompare(b.date))[0];
-      const isLoan = acct.classification === "Liability" && acct.type !== "Credit Card";
-      patch.qbPinRules = [...(rental.qbPinRules || []), { id: ruleId, accountId: acct.id, accountName: acct.name, cat, since: first.date, sign: Math.sign(Number(first.amount) || 0) || 0, match: isLoan ? "" : (first.vendor || "").trim(), at }];
+      const ra = first._acct;
+      const isLoan = ra.classification === "Liability" && ra.type !== "Credit Card";
+      patch.qbPinRules = [...(rental.qbPinRules || []), { id: ruleId, accountId: ra.id, accountName: ra.name, cat, since: first.date, sign: Math.sign(Number(first.amount) || 0) || 0, match: isLoan ? "" : (first.vendor || "").trim(), at }];
     }
     onSave(patch); onClose();
   };
@@ -87,10 +101,14 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose }) {
     <Sheet title="Pin from QuickBooks" sub={`${rental.address} · transactions from any QuickBooks account`} isMobile={isMobile} onClose={onClose}>
       {err && <div style={{ fontSize: 13.5, color: T.red, margin: "0 4px 8px" }}>{err}</div>}
       <div style={{ ...lab, marginTop: 0 }}>Account</div>
-      <select value={acct ? acct.id : ""} onChange={(e) => setAcct((accounts || []).find((a) => a.id === e.target.value) || null)} aria-label="QuickBooks account" style={sel}>
-        <option value="">{accounts ? "Choose an account…" : "Loading accounts…"}</option>
-        {groups.map(([g, list]) => <optgroup key={g} label={g}>{list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>)}
-      </select>
+      <div style={{ display: "flex", gap: 8 }}>
+        <select value={acct ? acct.id : ""} onChange={(e) => { setFresh(0); setAcct(e.target.value === "__all__" ? ALL_ACCTS : (accounts || []).find((a) => a.id === e.target.value) || null); }} aria-label="QuickBooks account" style={{ ...sel, flex: 1 }}>
+          <option value="">{accounts ? "Choose an account…" : "Loading accounts…"}</option>
+          {accounts && <option value="__all__">🔍 All bank &amp; credit-card accounts</option>}
+          {groups.map(([g, list]) => <optgroup key={g} label={g}>{list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>)}
+        </select>
+        {acct && <button onClick={() => setFresh((x) => x + 1)} title="Reload from QuickBooks" aria-label="Reload from QuickBooks" style={{ width: 44, minHeight: 44, borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, fontSize: 17, cursor: "pointer", color: T.text }}>↻</button>}
+      </div>
       {acct && <>
         <div style={lab}>
           <span style={{ flex: 1 }}>Transactions · {allDates ? "all dates" : (from === to ? mLabel(from, "long") : `${mLabel(from)} – ${mLabel(to)} ${to.slice(0, 4)}`)}</span>
@@ -99,14 +117,16 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose }) {
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search payee, memo or amount" aria-label="Search transactions" style={{ ...sel, minHeight: 38, marginBottom: 8, background: "rgba(118,118,128,0.12)", border: "none" }} />
         <div style={{ background: T.card, borderRadius: 14, overflow: "hidden", border: `1px solid ${T.border}`, maxHeight: 320, overflowY: "auto" }}>
           {!txns && !err && <div style={{ padding: 14, fontSize: 13.5, color: T.textSub }}>Loading from QuickBooks…</div>}
+          {txns && shown0.length > 300 && <div style={{ padding: "8px 14px", fontSize: 12.5, color: T.textSub, borderBottom: `1px solid ${T.border}` }}>Showing the newest 300 of {shown0.length} — search to narrow it down.</div>}
           {txns && shown.length === 0 && <div style={{ padding: 14, fontSize: 13.5, color: T.textSub }}>No transactions{allDates ? "" : " in this period — tap Show all dates"}.</div>}
+          {txns && !acct.all && txns.length <= 2 && <div style={{ padding: "10px 14px", fontSize: 13, color: "#8a6d1f", background: "#FDF9EE", borderBottom: `1px solid ${T.border}` }}>Only {txns.length} transaction{txns.length === 1 ? "" : "s"} in this account. If the monthly payments come out of a bank account, <button onClick={() => { setAcct(ALL_ACCTS); setAllDates(true); setQ("mortgage"); }} style={{ border: "none", background: "none", color: T.blue, fontWeight: 650, fontSize: 13, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>search all bank &amp; card accounts for “mortgage”</button> (or the lender's name).</div>}
           {shown.map((t, i) => {
-            const k = pinKey(acct.id, t), already = pinned.has(k), on = already || picked.has(k);
+            const k = pinKey(t._acct.id, t), already = pinned.has(k), on = already || picked.has(k);
             return (
               <button key={k} disabled={already} onClick={() => toggle(k)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 46, padding: "8px 14px", border: "none", borderTop: i ? `1px solid ${T.border}` : "none", background: "none", cursor: already ? "default" : "pointer", fontFamily: "inherit", textAlign: "left", opacity: already ? 0.55 : 1 }}>
                 <span style={{ width: 22, height: 22, borderRadius: 11, border: `1.5px solid ${on ? T.gold : "#C7C7CC"}`, background: on ? T.gold : "transparent", color: "#fff", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{on ? "✓" : ""}</span>
                 <span style={{ width: 54, fontSize: 13, color: T.textSub, flexShrink: 0 }}>{dshort(t.date)}</span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: T.text }}>{descOf(t)}{already && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, borderRadius: 6, padding: "1px 6px", background: "#FDF9EE", color: "#8a6d1f", border: "1px solid #EAD9A9" }}>ALREADY IN</span>}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: T.text }}>{descOf(t)}{acct.all ? <span style={{ display: "block", fontSize: 12, color: T.textSub }}>{t._acct.name}</span> : null}{already && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, borderRadius: 6, padding: "1px 6px", background: "#FDF9EE", color: "#8a6d1f", border: "1px solid #EAD9A9" }}>ALREADY IN</span>}</span>
                 <span style={{ fontSize: 14, fontWeight: 650, fontVariantNumeric: "tabular-nums", color: T.text }}>{money(t.amount)}</span>
               </button>
             );

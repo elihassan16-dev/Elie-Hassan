@@ -208,9 +208,13 @@ export function rentalMonthPL(r, ym, ctx) {
       source = "platinum";
       // Multi-unit buildings: one Rent line per unit (Elie 10/6/26).
       const multi = (r.units || []).length > 1;
-      const catOf = rentCatFn(ctx.live, key, multi);
+      // Prepaid rent (Elie 10/7/26) counts as plain Rent — the unit's line on a
+      // multi-unit building — and is tagged "Prepaid" in the payments popup.
+      const rentCat = rentCatFn(ctx.live, key, multi);
+      const isPrepaid = (t) => t.dir === "in" && categorize(t) === "Prepaid rent";
+      const catOf = (t) => (isPrepaid(t) ? rentCat({ ...t, desc: `Rent ${t.desc || ""}` }) : rentCat(t));
       eff.forEach(({ t, rev, orig }) => {
-        if (!rev) { add(t.dir === "in" ? income : expenses, catOf(t), t.amount, t); return; }
+        if (!rev) { add(t.dir === "in" ? income : expenses, catOf(t), t.amount, isPrepaid(t) ? { ...t, prepaid: true } : t); return; }
         // A reversal takes money away from the line it cancels (or, unmatched,
         // from the income category its own description names).
         const base = orig || { ...t, dir: "in" };

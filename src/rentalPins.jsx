@@ -21,7 +21,7 @@ export const pinKey = (accountId, t) => `${accountId}|${t.lineKey || t.id || `${
 const guessCat = (acct, rentCats) => {
   const s = `${acct?.name || ""} ${acct?.type || ""} ${acct?.subType || ""}`.toLowerCase();
   if (acct?.classification === "Revenue" || acct?.classification === "Income" || /rent|income/.test(s)) return (rentCats && rentCats[0] && rentCats[0].cat) || "Rent";
-  if (/mortgage|loan|note/.test(s) || acct?.classification === "Liability" && !/credit ?card/.test(s)) return "Mortgage";
+  if (/mortgage|loan|note|debt/.test(s) || acct?.classification === "Liability" && !/credit ?card/.test(s)) return "Mortgage";
   if (/insur/.test(s)) return "Insurance";
   if (/tax/.test(s)) return "Property taxes";
   if (/utilit|electric|gas|water|sewer/.test(s)) return "Utilities";
@@ -51,15 +51,42 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose, rentCats }
   const [picked, setPicked] = useState(new Set());
   const [cat, setCat] = useState("Mortgage");
   const [auto, setAuto] = useState(false);
+  // Search by QuickBooks PROJECT too (Elie 10/7/26) — every line QuickBooks
+  // put on that project (Debt service, Repairs…), like the flip houses' QB tab.
+  const [fresh, setFresh] = useState(0);
+  const [mode, setMode] = useState("acct");
+  const [projects, setProjects] = useState(null);
+  const [proj, setProj] = useState(null);
+  useEffect(() => {
+    if (mode !== "proj" || projects) return;
+    qbAuthFetch("/api/quickbooks/projects").then((d) => {
+      const items = (d.items || []).sort((a, b) => (b.isProject - a.isProject) || String(a.name).localeCompare(String(b.name)));
+      setProjects(items);
+      const linked = rental.qbProjectId || (rental.units || []).map((u) => u.qbProjectId).find(Boolean);
+      const num = String(rental.address || "").match(/^\d+/)?.[0];
+      const guess = items.find((x) => String(x.id) === String(linked)) || (num ? items.find((x) => x.isProject && new RegExp(`(^|[^\\d])${num}([^\\d]|$)`).test(x.name)) : null);
+      if (guess) setProj(guess);
+    }).catch((e) => setErr(e.message || "Couldn't reach QuickBooks."));
+  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (mode !== "proj" || !proj) return;
+    setTxns(null); setPicked(new Set()); setErr(""); setAuto(false);
+    let dead = false;
+    const a = { id: `proj:${proj.id}`, name: proj.name, proj: true };
+    qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(proj.id)}${fresh ? "&fresh=1" : ""}`)
+      .then((d) => { if (!dead) setTxns((d.items || []).map((t) => ({ ...t, date: normDate(t.date), _acct: a }))); })
+      .catch(() => { if (!dead) setErr("Couldn't load that project."); });
+    return () => { dead = true; };
+  }, [mode, proj && proj.id, fresh]); // eslint-disable-line react-hooks/exhaustive-deps
+  const src = mode === "proj" ? proj : acct;
   useEffect(() => {
     qbAuthFetch("/api/quickbooks/accounts?class=All").then((d) => setAccounts(d.items || [])).catch((e) => setErr(e.message || "Couldn't reach QuickBooks."));
   }, []);
-  const [fresh, setFresh] = useState(0);
   // One account, or (Elie 10/6/26 — the loan account only held the opening
   // journal entry; the payments come out of a bank account) every bank and
   // credit-card account at once. Each line remembers its own account.
   useEffect(() => {
-    if (!acct) return;
+    if (!acct || mode !== "acct") return;
     setTxns(null); setPicked(new Set()); setErr("");
     if (!fresh) { const c = acct.all ? "Mortgage" : guessCat(acct, rentCats); setCat(c); setAuto(c === "Mortgage"); }
     const list = acct.all ? (accounts || []).filter((a) => a.type === "Bank" || a.type === "Credit Card") : [acct];
@@ -70,7 +97,7 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose, rentCats }
       .then((rows) => { if (!dead) setTxns(rows.flat()); })
       .catch((e) => { if (!dead) setErr(e.message || "Couldn't load that account."); });
     return () => { dead = true; };
-  }, [acct && acct.id, fresh]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [acct && acct.id, fresh, mode]); // eslint-disable-line react-hooks/exhaustive-deps
   const pinned = useMemo(() => new Set((rental.qbPins || []).map((p) => p.key)), [rental.qbPins]);
   const groups = useMemo(() => {
     const g = { Loans: [], Bank: [], "Credit cards": [], Income: [], Expenses: [], Other: [] };
@@ -81,9 +108,11 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose, rentCats }
     return Object.entries(g).filter(([, v]) => v.length);
   }, [accounts]);
   const from = period.from, to = period.to;
-  const shown0 = (txns || []).filter((t) => (allDates || (t.date.slice(0, 7) >= from && t.date.slice(0, 7) <= to)) && (!q || `${t.vendor} ${t.memo} ${t.type} ${t.amount}`.toLowerCase().includes(q.toLowerCase()))).sort((a, b) => b.date.localeCompare(a.date));
+  const shown0 = (txns || []).filter((t) => (allDates || (t.date.slice(0, 7) >= from && t.date.slice(0, 7) <= to)) && (!q || `${t.vendor} ${t.memo} ${t.type} ${t.amount} ${t.account || ""}`.toLowerCase().includes(q.toLowerCase()))).sort((a, b) => b.date.localeCompare(a.date));
   const shown = shown0.slice(0, 300);
   const toggle = (k) => {
+    // Project lines: the first one picked suggests the category from its QB account ("Debt Service" → Mortgage).
+    if (mode === "proj" && !picked.size) { const t0 = (txns || []).find((x) => pinKey(x._acct.id, x) === k); if (t0 && t0.account) setCat(guessCat({ name: t0.account, classification: /income/i.test(t0.section || "") ? "Revenue" : "Expense" }, rentCats)); }
     setPicked((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
     // A tenant paid you directly → pick that tenant's unit when the payer matches.
     const t = (txns || []).find((x) => pinKey(x._acct.id, x) === k);
@@ -96,9 +125,9 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose, rentCats }
     if (!chosen.length) return;
     const at = new Date().toISOString();
     const ruleId = auto ? `r${Date.now()}` : null;
-    const newPins = chosen.map((t) => ({ key: pinKey(t._acct.id, t), accountId: t._acct.id, accountName: t._acct.name, date: t.date, amount: Math.abs(Number(t.amount) || 0), desc: descOf(t), cat, at, ...(ruleId ? { rule: ruleId } : {}) }));
+    const newPins = chosen.map((t) => ({ key: pinKey(t._acct.id, t), accountId: t._acct.id, accountName: t._acct.proj && t.account ? `${t._acct.name} · ${t.account}` : t._acct.name, date: t.date, amount: Math.abs(Number(t.amount) || 0), desc: descOf(t), cat, at, ...(ruleId ? { rule: ruleId } : {}) }));
     const patch = { qbPins: [...(rental.qbPins || []).filter((p) => !newPins.some((n) => n.key === p.key)), ...newPins] };
-    if (ruleId) {
+    if (ruleId && mode === "acct") {
       const first = [...chosen].sort((a, b) => a.date.localeCompare(b.date))[0];
       const ra = first._acct;
       const isLoan = ra.classification === "Liability" && ra.type !== "Credit Card";
@@ -109,18 +138,32 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose, rentCats }
   const sel = { width: "100%", minHeight: 44, borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, padding: "0 12px", fontSize: 15, fontFamily: "inherit", color: T.text, boxSizing: "border-box" };
   const lab = { fontSize: 12.5, fontWeight: 600, color: T.textSub, margin: "12px 4px 6px", display: "flex", alignItems: "center", gap: 8 };
   return (
-    <Sheet title="Pin from QuickBooks" sub={`${rental.address} · transactions from any QuickBooks account`} isMobile={isMobile} onClose={onClose}>
+    <Sheet title="Pin from QuickBooks" sub={`${rental.address} · transactions from any QuickBooks account or project`} isMobile={isMobile} onClose={onClose}>
       {err && <div style={{ fontSize: 13.5, color: T.red, margin: "0 4px 8px" }}>{err}</div>}
-      <div style={{ ...lab, marginTop: 0 }}>Account</div>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "inline-flex", background: "rgba(118,118,128,0.12)", borderRadius: 17, padding: 2, marginBottom: 4 }} role="tablist" aria-label="Search by">
+        {[["acct", "By account"], ["proj", "By project"]].map(([k, l]) => <button key={k} role="tab" aria-selected={mode === k} onClick={() => { setMode(k); setTxns(null); setPicked(new Set()); setErr(""); setFresh(0); }} style={{ minHeight: 32, padding: "0 14px", border: "none", borderRadius: 15, background: mode === k ? T.card : "transparent", boxShadow: mode === k ? "0 1px 3px rgba(0,0,0,0.12)" : "none", fontSize: 13.5, fontWeight: 600, color: mode === k ? T.text : "#3A3A3C", cursor: "pointer", fontFamily: "inherit" }}>{l}</button>)}
+      </div>
+      {mode === "proj" && <>
+        <div style={lab}>Project</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <select value={proj ? proj.id : ""} onChange={(e) => { setFresh(0); setProj((projects || []).find((x) => String(x.id) === e.target.value) || null); }} aria-label="QuickBooks project" style={{ ...sel, flex: 1 }}>
+            <option value="">{projects ? "Choose a project…" : "Loading projects…"}</option>
+            {projects && projects.some((x) => x.isProject) && <optgroup label="Projects">{projects.filter((x) => x.isProject).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>}
+            {projects && <optgroup label="Customers">{projects.filter((x) => !x.isProject).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>}
+          </select>
+          {proj && <button onClick={() => setFresh((x) => x + 1)} title="Reload from QuickBooks" aria-label="Reload from QuickBooks" style={{ width: 44, minHeight: 44, borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, fontSize: 17, cursor: "pointer", color: T.text }}>↻</button>}
+        </div>
+      </>}
+      {mode === "acct" && <div style={lab}>Account</div>}
+      {mode === "acct" && <div style={{ display: "flex", gap: 8 }}>
         <select value={acct ? acct.id : ""} onChange={(e) => { setFresh(0); setAcct(e.target.value === "__all__" ? ALL_ACCTS : (accounts || []).find((a) => a.id === e.target.value) || null); }} aria-label="QuickBooks account" style={{ ...sel, flex: 1 }}>
           <option value="">{accounts ? "Choose an account…" : "Loading accounts…"}</option>
           {accounts && <option value="__all__">🔍 All bank &amp; credit-card accounts</option>}
           {groups.map(([g, list]) => <optgroup key={g} label={g}>{list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>)}
         </select>
         {acct && <button onClick={() => setFresh((x) => x + 1)} title="Reload from QuickBooks" aria-label="Reload from QuickBooks" style={{ width: 44, minHeight: 44, borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, fontSize: 17, cursor: "pointer", color: T.text }}>↻</button>}
-      </div>
-      {acct && <>
+      </div>}
+      {src && <>
         <div style={lab}>
           <span style={{ flex: 1 }}>Transactions · {allDates ? "all dates" : (from === to ? mLabel(from, "long") : `${mLabel(from)} – ${mLabel(to)} ${to.slice(0, 4)}`)}</span>
           <button onClick={() => setAllDates((v) => !v)} style={{ border: "none", background: "none", color: T.blue, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", minHeight: 30 }}>{allDates ? "Only this period" : "Show all dates"}</button>
@@ -130,14 +173,14 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose, rentCats }
           {!txns && !err && <div style={{ padding: 14, fontSize: 13.5, color: T.textSub }}>Loading from QuickBooks…</div>}
           {txns && shown0.length > 300 && <div style={{ padding: "8px 14px", fontSize: 12.5, color: T.textSub, borderBottom: `1px solid ${T.border}` }}>Showing the newest 300 of {shown0.length} — search to narrow it down.</div>}
           {txns && shown.length === 0 && <div style={{ padding: 14, fontSize: 13.5, color: T.textSub }}>No transactions{allDates ? "" : " in this period — tap Show all dates"}.</div>}
-          {txns && !acct.all && txns.length <= 2 && guessCat(acct) === "Mortgage" && <div style={{ padding: "10px 14px", fontSize: 13, color: "#8a6d1f", background: "#FDF9EE", borderBottom: `1px solid ${T.border}` }}>Only {txns.length} transaction{txns.length === 1 ? "" : "s"} in this account. If the monthly payments come out of a bank account, <button onClick={() => { setAcct(ALL_ACCTS); setAllDates(true); setQ("mortgage"); }} style={{ border: "none", background: "none", color: T.blue, fontWeight: 650, fontSize: 13, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>search all bank &amp; card accounts for “mortgage”</button> (or the lender's name).</div>}
+          {txns && mode === "acct" && !acct.all && txns.length <= 2 && guessCat(acct) === "Mortgage" && <div style={{ padding: "10px 14px", fontSize: 13, color: "#8a6d1f", background: "#FDF9EE", borderBottom: `1px solid ${T.border}` }}>Only {txns.length} transaction{txns.length === 1 ? "" : "s"} in this account. If the monthly payments come out of a bank account, <button onClick={() => { setAcct(ALL_ACCTS); setAllDates(true); setQ("mortgage"); }} style={{ border: "none", background: "none", color: T.blue, fontWeight: 650, fontSize: 13, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>search all bank &amp; card accounts for “mortgage”</button> (or the lender's name).</div>}
           {shown.map((t, i) => {
             const k = pinKey(t._acct.id, t), already = pinned.has(k), on = already || picked.has(k);
             return (
               <button key={k} disabled={already} onClick={() => toggle(k)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 46, padding: "8px 14px", border: "none", borderTop: i ? `1px solid ${T.border}` : "none", background: "none", cursor: already ? "default" : "pointer", fontFamily: "inherit", textAlign: "left", opacity: already ? 0.55 : 1 }}>
                 <span style={{ width: 22, height: 22, borderRadius: 11, border: `1.5px solid ${on ? T.gold : "#C7C7CC"}`, background: on ? T.gold : "transparent", color: "#fff", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{on ? "✓" : ""}</span>
                 <span style={{ width: 54, fontSize: 13, color: T.textSub, flexShrink: 0 }}>{dshort(t.date)}</span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: T.text }}>{descOf(t)}{acct.all ? <span style={{ display: "block", fontSize: 12, color: T.textSub }}>{t._acct.name}</span> : null}{already && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, borderRadius: 6, padding: "1px 6px", background: "#FDF9EE", color: "#8a6d1f", border: "1px solid #EAD9A9" }}>ALREADY IN</span>}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: T.text }}>{descOf(t)}{mode === "acct" && acct.all ? <span style={{ display: "block", fontSize: 12, color: T.textSub }}>{t._acct.name}</span> : null}{mode === "proj" && t.account ? <span style={{ display: "block", fontSize: 12, color: T.textSub }}>{t.account}</span> : null}{already && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, borderRadius: 6, padding: "1px 6px", background: "#FDF9EE", color: "#8a6d1f", border: "1px solid #EAD9A9" }}>ALREADY IN</span>}</span>
                 <span style={{ fontSize: 14, fontWeight: 650, fontVariantNumeric: "tabular-nums", color: T.text }}>{money(t.amount)}</span>
               </button>
             );
@@ -152,10 +195,10 @@ export function PinSheet({ rental, period, isMobile, onSave, onClose, rentCats }
           </optgroup>
           <optgroup label="Expenses">{PIN_CATS.filter((c) => c !== "Other income").map((c) => <option key={c} value={c}>{c}</option>)}</optgroup>
         </select>
-        <button onClick={() => setAuto((v) => !v)} role="switch" aria-checked={auto} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 56, marginTop: 10, padding: "8px 14px", borderRadius: 14, border: `1px solid ${T.border}`, background: T.card, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+        {mode === "acct" && <button onClick={() => setAuto((v) => !v)} role="switch" aria-checked={auto} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 56, marginTop: 10, padding: "8px 14px", borderRadius: 14, border: `1px solid ${T.border}`, background: T.card, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
           <span style={{ flex: 1 }}><span style={{ display: "block", fontSize: 15, fontWeight: 650, color: T.text }}>Keep pinning new ones automatically</span><span style={{ display: "block", fontSize: 12.5, color: T.textSub }}>{acct.classification === "Liability" && acct.type !== "Credit Card" ? "every new payment from this account lands here by itself" : "new ones from the same payee in this account land here by themselves"}</span></span>
           <span style={{ width: 50, height: 30, borderRadius: 15, background: auto ? "#34C759" : "#E9E9EB", position: "relative", flexShrink: 0, transition: "background .15s" }}><span style={{ position: "absolute", top: 2, left: auto ? 22 : 2, width: 26, height: 26, borderRadius: 13, background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.25)", transition: "left .15s" }} /></span>
-        </button>
+        </button>}
       </>}
       <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
         <button onClick={onClose} style={{ minHeight: 48, padding: "0 20px", borderRadius: 24, border: `1px solid ${T.border}`, background: T.card, fontSize: 15, fontWeight: 600, color: T.text, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>

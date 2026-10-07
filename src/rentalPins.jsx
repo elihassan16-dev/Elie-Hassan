@@ -238,7 +238,7 @@ function rentHint(rental, cat) {
   if (/^Rent\b/.test(cat || "") && units.length === 1) return num(units[0].rent);
   return 0;
 }
-function SplitSheet({ pin, rental, onSave, onClose }) {
+export function SplitSheet({ pin, rental, onSave, onClose }) {
   const total = Math.round(Math.abs(Number(pin.amount) || 0) * 100) / 100;
   const start = pinMonth(pin), d = String(pin.date).slice(0, 7);
   const [rows, setRows] = useState(() => {
@@ -246,7 +246,8 @@ function SplitSheet({ pin, rental, onSave, onClose }) {
     const rent = rentHint(rental, pin.cat);
     if (rent > 0 && total > rent + 0.5) {
       const out = []; let left = total, ym = start;
-      while (left > 0.004 && out.length < 24) { const x = left - rent < rent * 0.25 && out.length ? left : Math.min(left, rent); out.unshift({ ym, amount: (Math.round(x * 100) / 100).toFixed(2) }); left = Math.round((left - x) * 100) / 100; ym = addMonths(ym, -1); }
+      // Back pay fills the months before the payment; a prepayment (pin.forward) the months after.
+      while (left > 0.004 && out.length < 24) { const x = left - rent < rent * 0.25 && out.length ? left : Math.min(left, rent); const row = { ym, amount: (Math.round(x * 100) / 100).toFixed(2) }; if (pin.forward) out.push(row); else out.unshift(row); left = Math.round((left - x) * 100) / 100; ym = addMonths(ym, pin.forward ? 1 : -1); }
       return out;
     }
     const half = Math.round((total / 2) * 100) / 100;

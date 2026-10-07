@@ -12,7 +12,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { T } from "./theme";
 import { Sheet } from "./platinum";
 import { rentalMonthPL, portfolioMonth, ymNow, addMonths, monthsBetween, mLabel, GroupBars, sortIncome, rentCatsFor, pinParts } from "./rentalsPL";
-import { PinSheet, PinnedList } from "./rentalPins";
+import { PinSheet, PinnedList, SplitSheet } from "./rentalPins";
 import { forMonth } from "./platinumLive.js";
 import { owedByRental } from "./rentalsDelinq";
 
@@ -201,7 +201,16 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
   const td = { textAlign: "right", padding: "6px 8px", borderTop: `1px solid ${T.border}`, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", color: T.text, fontSize: 13 };
   const first = { position: "sticky", left: 0, background: T.card, textAlign: "left", paddingLeft: 0, paddingRight: 10, minWidth: 120, zIndex: 1 };
   const totC = { background: "#F6F6F8", fontWeight: 700 };
-  const clickCell = (title, e) => e && e.tx && e.tx.length ? () => setCell({ title, tx: e.tx }) : undefined;
+  const clickCell = (title, e) => e && e.tx && e.tx.length ? () => setCell({ title, tx: e.tx, cat: e.cat }) : undefined;
+  // Elie's month for a Platinum line (10/7/26): saved on the rental; the open
+  // popup's row updates right away.
+  const setTxMonth = single && onUpdateRental ? (t, v) => {
+    const m = { ...(rental.txMonths || {}) };
+    if (v) m[t.id] = v; else delete m[t.id];
+    onUpdateRental({ txMonths: m });
+    const upd = (x) => (x.id === t.id ? { ...x, forYm: v && v.ym ? v.ym : v && v.split ? x.forYm : undefined, moved: !!v, splitOf: v && v.split ? (x.full || x.amount) : undefined } : x);
+    setCell((c) => (c ? { ...c, tx: c.tx.map(upd) } : c));
+  } : null;
   const catLine = (side, c) => (
     <tr key={side + c}>
       <td style={{ ...td, ...first }}>{c}{(val(tot, side, c)?.tx || []).some((t) => t.pinned) ? <span title="From QuickBooks" style={{ marginLeft: 4 }}>📌</span> : null}</td>
@@ -278,7 +287,7 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
                   <span style={{ flex: 1, height: 10, background: T.bg, borderRadius: 5, overflow: "hidden" }}><i style={{ display: "block", height: "100%", width: `${Math.max(2, (e.amount / expMax) * 100)}%`, background: OUT_C, borderRadius: 5 }} /></span>
                   <span style={{ width: 70, textAlign: "right", fontSize: 12.5, fontWeight: 650, fontVariantNumeric: "tabular-nums", color: T.text }}>{money(e.amount)}</span>
                 </button>
-                {openCat === e.cat && <TxList tx={e.tx} />}
+                {openCat === e.cat && <TxList tx={e.tx} onMonth={period.basis === "entry" ? null : setTxMonth} overrides={single ? rental.txMonths : null} rental={rental} cat={e.cat} />}
               </Fragment>
             ))}
             {tot.expenses.some((e) => e.tx.length) && <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 4 }}>Click a bar to see every payment behind it</div>}
@@ -342,7 +351,7 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
           {cmp.some((x) => !x.t.any) && tot.any && per.some((p, i) => p.any && !cmp.some((x) => x.ps[i].any)) && <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 6 }}>Some months only have Platinum's all-properties total, so they show in the Total row but not per property.</div>}
         </div>}
       </>}
-      {cell && <Sheet title={cell.title} sub={`${cell.tx.length} payment${cell.tx.length === 1 ? "" : "s"}`} isMobile={isMobile} onClose={() => setCell(null)}><div style={{ ...card, padding: "4px 14px" }}><TxList tx={cell.tx} plain /></div></Sheet>}
+      {cell && <Sheet title={cell.title} sub={`${cell.tx.length} payment${cell.tx.length === 1 ? "" : "s"}`} isMobile={isMobile} onClose={() => setCell(null)}><div style={{ ...card, padding: "4px 14px" }}><TxList tx={cell.tx} plain onMonth={period.basis === "entry" ? null : setTxMonth} overrides={single ? rental.txMonths : null} rental={rental} cat={cell.cat} /></div></Sheet>}
       {customOpen && <CustomSheet period={period} isMobile={isMobile} onClose={() => setCustomOpen(false)} />}
       {pinOpen && single && <PinSheet rental={rental} period={period} isMobile={isMobile} onSave={onUpdateRental} onClose={() => setPinOpen(false)} rentCats={rentCatsFor(rental, ctx)} />}
     </div>
@@ -351,7 +360,10 @@ export function RentalsDashboard({ rentals, rental, ctx, period, onOpen, isMobil
 
 // Payments behind a number: Entry date (when it was entered / paid) ·
 // Description · For (the month it counts toward) · Amount (Elie 10/6/26).
-function TxList({ tx, plain }) {
+// onMonth (one rental's dashboard): Elie picks the month a Platinum line counts
+// for, or splits it (10/7/26); the entry date never changes. overrides = r.txMonths.
+function TxList({ tx, plain, onMonth, overrides, rental, cat }) {
+  const [splitFor, setSplitFor] = useState(null);
   const list = [...tx].sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const yr = new Date().getFullYear();
   const day = (d) => { const x = new Date(String(d).slice(0, 10) + "T00:00:00"); return isNaN(x) ? d : x.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(x.getFullYear() !== yr ? { year: "2-digit" } : {}) }); };
@@ -362,20 +374,37 @@ function TxList({ tx, plain }) {
       <div style={{ display: "flex", gap: 10, padding: "6px 0 4px" }}>
         <span style={{ ...head, width: 62, flexShrink: 0 }}>Entry date</span>
         <span style={{ ...head, flex: 1 }}>Description</span>
-        <span style={{ ...head, width: 70, flexShrink: 0 }}>For</span>
+        <span style={{ ...head, width: 84, flexShrink: 0 }}>For</span>
         <span style={{ ...head, width: 80, textAlign: "right", flexShrink: 0 }}>Amount</span>
       </div>
       {list.map((t, j) => {
         const f = t.forYm || forMonth(t), moved = f && f !== String(t.date).slice(0, 7);
+        const canPick = onMonth && t.id && !t.rev && !t.pinned;
+        const ov = canPick ? (overrides || {})[t.id] : null;
+        const lbl = (ym) => `${mLabel(ym)} ${ym.slice(0, 4)}`;
+        const pick = (v) => {
+          if (v === "__split") { setSplitFor(t); return; }
+          onMonth(t, v ? { ym: v } : null);
+        };
         return (
           <div key={j} style={{ display: "flex", gap: 10, fontSize: 12.5, padding: "6px 0", borderTop: `1px solid ${T.border}`, alignItems: "baseline" }}>
             <span style={{ color: T.textSub, width: 62, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{day(t.date)}</span>
-            <span style={{ flex: 1, minWidth: 0, color: T.text }}>{t.payee ? `${t.payee} — ` : ""}{t.desc}{t.name ? <span style={{ color: T.textSub }}> · {t.name}{t.unit ? ` ${(String(t.unit).match(/#\S+$/) || [""])[0]}` : ""}</span> : null}{t.pinned ? <span title="From QuickBooks"> 📌</span> : null}{t.prepaid ? <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, borderRadius: 6, padding: "1px 6px", background: "#FDF9EE", color: "#8a6d1f", border: "1px solid #EAD9A9", whiteSpace: "nowrap" }}>Prepaid</span> : null}{t.rev ? <span style={{ display: "block", fontSize: 11.5, color: RED }}>Bounced — cancels the {t.reverses ? new Date(t.reverses.slice(0, 10) + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " payment" : "payment"}</span> : null}</span>
-            <span style={{ width: 70, flexShrink: 0, color: moved ? "#B45309" : T.textSub, fontWeight: moved ? 650 : 400 }}>{forLbl(t)}</span>
+            <span style={{ flex: 1, minWidth: 0, color: T.text }}>{t.payee ? `${t.payee} — ` : ""}{t.desc}{t.name ? <span style={{ color: T.textSub }}> · {t.name}{t.unit ? ` ${(String(t.unit).match(/#\S+$/) || [""])[0]}` : ""}</span> : null}{t.pinned ? <span title="From QuickBooks"> 📌</span> : null}{t.prepaid ? <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, borderRadius: 6, padding: "1px 6px", background: "#FDF9EE", color: "#8a6d1f", border: "1px solid #EAD9A9", whiteSpace: "nowrap" }}>Prepaid</span> : null}{t.moved ? <span title="You picked the month this counts for" style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, borderRadius: 6, padding: "1px 6px", background: "#FFF1E0", color: "#B45309", border: "1px solid #F5D2A8", whiteSpace: "nowrap" }}>{t.splitOf ? `Split · part of ${money(t.splitOf, true)}` : "Moved"}</span> : null}{t.rev ? <span style={{ display: "block", fontSize: 11.5, color: RED }}>Bounced — cancels the {t.reverses ? new Date(t.reverses.slice(0, 10) + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " payment" : "payment"}</span> : null}</span>
+            {canPick ? (
+              <label title="Which month this counts for (the entry date stays the same)" style={{ position: "relative", width: 84, flexShrink: 0, whiteSpace: "nowrap", color: t.moved || ov ? "#B45309" : moved ? "#B45309" : T.textSub, fontWeight: t.moved || ov || moved ? 650 : 400, cursor: "pointer", textDecoration: "underline dotted", textUnderlineOffset: 3 }}>
+                {forLbl(t)} <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
+                <select aria-label="Counts for month" value={ov && ov.split ? "__split" : (ov && ov.ym) || ""} onChange={(e) => pick(e.target.value)} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", fontSize: 16, width: "100%" }}>
+                  <option value="">Automatic · {lbl(forMonth(t))}</option>
+                  <option value="__split">{ov && ov.split ? "Edit the split…" : "Split across months…"}</option>
+                  {monthsBetween(addMonths(String(t.date).slice(0, 7), -24), addMonths(String(t.date).slice(0, 7), 12)).reverse().map((ym) => <option key={ym} value={ym}>{lbl(ym)}</option>)}
+                </select>
+              </label>
+            ) : <span style={{ width: 84, flexShrink: 0, color: moved ? "#B45309" : T.textSub, fontWeight: moved ? 650 : 400 }}>{forLbl(t)}</span>}
             <span style={{ width: 80, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums", fontWeight: 600, color: t.amount < 0 ? RED : T.text }}>{money(t.amount, true)}</span>
           </div>
         );
       })}
+      {splitFor && <SplitSheet pin={{ amount: splitFor.full || splitFor.amount, date: splitFor.date, desc: splitFor.desc, cat: cat || "", forYm: forMonth(splitFor), forward: !!splitFor.prepaid || /prepa/i.test(splitFor.desc || ""), split: ((overrides || {})[splitFor.id] || {}).split }} rental={rental || {}} onSave={(split) => { onMonth(splitFor, split ? { split } : null); setSplitFor(null); }} onClose={() => setSplitFor(null)} />}
     </div>
   );
 }

@@ -701,6 +701,10 @@ export async function startWalkClips(property, files, opts = {}) {
 const RED = "#FF3B30";
 // Snap the visible region (centre cx,cy in 0..1 of the frame, zoom z) and burn
 // the mark in, at up to 720px on the long side.
+// The preview box must have the video's exact shape (no black bars) so the
+// zoom, pan and mark Elie sees are exactly what gets saved (fixed 10/7/26 —
+// a tall video letterboxed in a capped-height box saved a different crop
+// and the red box landed off the picture).
 function snapRegion(video, cx, cy, z, shape) {
   const vw = video.videoWidth || 960, vh = video.videoHeight || 540;
   const sw = vw / z, sh = vh / z, sx = Math.max(0, Math.min(vw - sw, cx * vw - sw / 2)), sy = Math.max(0, Math.min(vh - sh, cy * vh - sh / 2));
@@ -779,7 +783,7 @@ function FrameAdjust({ src, item, onUse, onClose, onPickFile }) {
         </div>
         {src ? (
           <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
-            <div ref={boxRef} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} style={{ position: "relative", width: "100%", aspectRatio: String(ar), maxHeight: "46vh", margin: "0 auto", background: "#000", borderRadius: 12, overflow: "hidden", touchAction: "none", cursor: tool ? "crosshair" : zoom > 1 ? "grab" : "default", userSelect: "none" }}>
+            <div ref={boxRef} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} style={{ position: "relative", width: "100%", maxWidth: `calc(46vh * ${ar})`, aspectRatio: String(ar), margin: "0 auto", background: "#000", borderRadius: 12, overflow: "hidden", touchAction: "none", cursor: tool ? "crosshair" : zoom > 1 ? "grab" : "default", userSelect: "none" }}>
               <video ref={vRef} src={src} muted playsInline preload="auto" onTimeUpdate={onTime} onPause={() => setPlaying(false)} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", display: "block", transform: `scale(${zoom}) translate(${tx}%, ${ty}%)`, transformOrigin: "center", transition: drag.current ? "none" : "transform 0.12s" }} />
               {shape && shape.w > 0 && (
                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>

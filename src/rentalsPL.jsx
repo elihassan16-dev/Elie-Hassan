@@ -159,12 +159,13 @@ export function rentPaymentsFor(r, ctx) {
   if (key) {
     const catOf = rentCatFn(ctx.live, key, true);
     const kindOf = (c) => (c.startsWith("Rent") ? "rent" : c === "Prepaid rent" ? "prepaid" : c === "Late fees" ? "late" : null);
-    effTxns(ctx.live, key).forEach(({ t, ym, rev, orig }) => {
+    withTxMonths(effTxns(ctx.live, key), r.txMonths).forEach(({ t, ym, rev, orig, part, moved }) => {
       const base = rev ? (orig || { ...t, dir: "in" }) : t;
       if (base.dir !== "in" || OWNER.test(`${t.desc} ${t.payee}`)) return;
       const c = catOf(base), kind = kindOf(c);
       if (!kind) return;
-      out.push({ date: t.date, forYm: ym, explicit: kind !== "prepaid" && (rev ? true : NAMES_MONTH.test(t.desc || "")), unit: c.startsWith("Rent – ") ? c.slice(7) : "", kind, amount: rev ? -t.amount : t.amount, desc: t.desc, rev, hap: isHap(base), src: "platinum" });
+      const amt = part != null ? part : t.amount;
+      out.push({ date: t.date, forYm: ym, explicit: moved || (kind !== "prepaid" && (rev ? true : NAMES_MONTH.test(t.desc || ""))), unit: c.startsWith("Rent – ") ? c.slice(7) : "", kind: moved && kind === "prepaid" ? "rent" : kind, amount: rev ? -amt : amt, desc: t.desc, rev, hap: isHap(base), src: "platinum" });
     });
   }
   (r.qbPins || []).forEach((p) => {
@@ -173,6 +174,30 @@ export function rentPaymentsFor(r, ctx) {
     pinParts(p).forEach((x) => out.push({ date: p.date, forYm: x.ym, explicit: x.split || !!p.forYm || NAMES_MONTH.test(p.desc || ""), unit: c.startsWith("Rent – ") ? c.slice(7) : "", kind: c.startsWith("Rent") ? "rent" : "late", amount: x.amount, desc: p.desc || p.accountName || "Paid to you (QuickBooks)", rev: false, hap: false, src: "pin", part: x.split }));
   });
   return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
+// Elie's own month for a Platinum line (10/7/26): r.txMonths[txId] = {ym} or
+// {split:[{ym,amount}]} (adds up to the line). Only for "month it's for"
+// counting — the entry date never changes. A bounced payment follows the
+// payment it cancels. Each entry → one or more {…x, ym, part, moved, splitOf}.
+const txOvParts = (o, src) => {
+  if (!o || !src) return null;
+  const amt = Math.abs(Number(src.amount) || 0);
+  if (Array.isArray(o.split) && o.split.length && Math.abs(o.split.reduce((s, p) => s + (Number(p.amount) || 0), 0) - amt) < 0.01) return o.split.map((p) => ({ ym: p.ym, amount: Number(p.amount) }));
+  if (o.ym && /^\d{4}-\d{2}$/.test(o.ym)) return [{ ym: o.ym, amount: amt }];
+  return null;
+};
+export function withTxMonths(eff, txMonths) {
+  if (!txMonths || !Object.keys(txMonths).length) return eff;
+  const out = [];
+  eff.forEach((x) => {
+    const src = x.rev ? x.orig : x.t;
+    const parts = src && txOvParts(txMonths[src.id], src);
+    if (!parts) { out.push(x); return; }
+    const scale = (Number(x.t.amount) || 0) / (Number(src.amount) || 1);
+    parts.forEach((p) => out.push({ ...x, ym: p.ym, part: Math.round(p.amount * scale * 100) / 100, moved: true, splitOf: parts.length > 1 ? src.amount : undefined }));
+  });
+  return out;
 }
 
 // "Count them as" choices for income pinned from QuickBooks: one per unit on a
@@ -199,7 +224,7 @@ export function rentalMonthPL(r, ym, ctx) {
   if (key) {
     const pm = propMonth(ctx.live, key, ym);
     const notOwner = (t) => !OWNER.test(`${t.desc} ${t.payee}`);
-    const eff = effTxns(ctx.live, key, ctx.basis).filter((x) => x.ym === ym && notOwner(x.t)); // by the month each line is FOR (or entered)
+    const eff = (ctx.basis === "entry" ? effTxns(ctx.live, key, "entry") : withTxMonths(effTxns(ctx.live, key), r.txMonths)).filter((x) => x.ym === ym && notOwner(x.t)); // by the month each line is FOR (or entered)
     const tx = eff.map((x) => x.t);
     const paid = pm.paidTx.filter((t) => notOwner(t) && !isReversal(t)); // by payment date (portal totals)
     const m = ctx.live.months[ym];
@@ -213,12 +238,14 @@ export function rentalMonthPL(r, ym, ctx) {
       const rentCat = rentCatFn(ctx.live, key, multi);
       const isPrepaid = (t) => t.dir === "in" && categorize(t) === "Prepaid rent";
       const catOf = (t) => (isPrepaid(t) ? rentCat({ ...t, desc: `Rent ${t.desc || ""}` }) : rentCat(t));
-      eff.forEach(({ t, rev, orig }) => {
-        if (!rev) { add(t.dir === "in" ? income : expenses, catOf(t), t.amount, isPrepaid(t) ? { ...t, prepaid: true } : t); return; }
+      eff.forEach(({ t, rev, orig, part, moved, splitOf }) => {
+        const amt = part != null ? part : t.amount;
+        const tag = moved ? { forYm: ym, moved: true, splitOf, full: (rev ? orig : t)?.amount } : {};
+        if (!rev) { add(t.dir === "in" ? income : expenses, catOf(t), amt, isPrepaid(t) || moved ? { ...t, ...(isPrepaid(t) ? { prepaid: true } : {}), ...tag, amount: amt } : t); return; }
         // A reversal takes money away from the line it cancels (or, unmatched,
         // from the income category its own description names).
         const base = orig || { ...t, dir: "in" };
-        add(income, catOf(base), -t.amount, { ...t, dir: "in", amount: -t.amount, rev: true, forYm: orig ? forMonth(orig) : ym, reverses: orig ? `${orig.date} payment` : "" });
+        add(income, catOf(base), -amt, { ...t, dir: "in", amount: -amt, rev: true, forYm: moved ? ym : orig ? forMonth(orig) : ym, reverses: orig ? `${orig.date} payment` : "" });
       });
       // The portal's month totals count payments by DATE, so compare them with
       // what was paid this month, not with what's assigned to it.

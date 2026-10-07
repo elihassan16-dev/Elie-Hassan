@@ -88,6 +88,18 @@ export async function qbAuthFetch(path) {
     return { ok: true };
   }
   if (p.includes("/api/team/roster")) return { names: ["Elie Hassan", "Moshe Hamaoui", "Esti Ungar"] };
+  // 📌 Pin by project preview: a rental project with debt service lines.
+  if (p.includes("/api/quickbooks/projects")) return { items: [
+    { id: "p516", name: "Rentals:516-518 High St", isProject: true, parent: "Rentals" },
+    { id: "p420", name: "Rentals:420 Philadelphia", isProject: true, parent: "Rentals" },
+    { id: "c1", name: "Rentals", isProject: false, parent: null },
+  ] };
+  if (p.includes("/api/quickbooks/transactions") && p.includes("customerId=p516")) return { items: [
+    { id: "d1", lineKey: "d1#0", date: "2026-09-01", vendor: "Fulton Bank", memo: "Mortgage interest", account: "Debt Service", section: "Expenses", type: "Check", amount: 1180.5 },
+    { id: "d2", lineKey: "d2#0", date: "2026-08-01", vendor: "Fulton Bank", memo: "Mortgage interest", account: "Debt Service", section: "Expenses", type: "Check", amount: 1185.2 },
+    { id: "d3", lineKey: "d3#0", date: "2026-08-07", vendor: "Millville Housing Authority", memo: "HAP", account: "Rental Income:516 High St", section: "Income", type: "Deposit", amount: 2047 },
+    { id: "d4", lineKey: "d4#0", date: "2026-09-12", vendor: "City of Millville", memo: "Water & sewer", account: "Utilities", section: "Expenses", type: "Bill Payment", amount: 214.4 },
+  ] };
   if (p.includes("/api/quickbooks/transactions")) {
     const qd = (n) => { const x = new Date(); x.setDate(x.getDate() - n); return x.toISOString().slice(0, 10); };
     return { items: [

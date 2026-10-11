@@ -69,7 +69,8 @@ export const DEMO_TEXTS = [
   { phone: "(732) 555-0164", dir: "in", m: 12000, text: "Clients liked it, weighing another listing. Will circle back." },
   { phone: "(848) 555-0102", dir: "out", m: 7300, text: "Hi Sarah, any feedback from Monday's showing at 1030 Hanover?" },
   { phone: "(609) 555-0155", dir: "in", m: 14500, text: "Confirming Sunday 2 PM — lockbox code same as last time?" },
-].map((t, i) => ({ id: "demo-sms-" + i, phone: t.phone, data: { direction: t.dir, at: tAt(t.m), text: t.text, ...(t.dir === "out" ? { prop: "1030 Hanover Blvd" } : {}) } }));
+  { phone: "(609) 555-0177", dir: "out", m: 60, kind: "cell", by: "Elie Hassan", text: "Hi Dominique — Sunday 1pm works, see you there." },
+].map((t, i) => ({ id: "demo-sms-" + i, phone: t.phone, data: { direction: t.dir, at: tAt(t.m), text: t.text, ...(t.kind ? { kind: t.kind, by: t.by } : {}), ...(t.dir === "out" ? { prop: "1030 Hanover Blvd" } : {}) } }));
 
 export async function qbAuthFetch(path) {
   const p = String(path);

@@ -47,6 +47,21 @@ export default async function handler(req, res) {
   if (!user) return res.status(401).json({ error: "Sign in first." });
   try {
     const { to, message, media, fromName, prop } = req.body || {};
+    // 📱 logOnly (Elie 10/11/26): a text sent from the phone's own Messages
+    // app — nothing goes out from here; just record it in the conversation
+    // so every device shows it.
+    if (req.body && req.body.logOnly) {
+      if (!to) return res.status(400).json({ error: "to is required." });
+      const prof0 = await profileOf(user.id);
+      if (prof0?.role === "contractor") return res.status(403).json({ error: "Not available on contractor accounts." });
+      await storeSms({
+        id: `cell-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        phone: e164(to), direction: "out", kind: "cell", text: String(message || "").slice(0, 2000),
+        by: prof0?.name || user.user_metadata?.name || "", at: new Date().toISOString(), status: "cell",
+        ...(prop ? { prop: String(prop).slice(0, 80) } : {}),
+      }).catch(() => {});
+      return res.status(200).json({ ok: true, logged: true });
+    }
     // A picture with no caption is a valid message.
     if (!to || (!String(message || "").trim() && !(Array.isArray(media) && media.length))) return res.status(400).json({ error: "to and a message (or attachment) are required." });
     const prof = await profileOf(user.id);

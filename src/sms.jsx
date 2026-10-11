@@ -77,6 +77,45 @@ let started = false, loadT = null;
 // being stored perfectly. Load the newest window instead, then fetch only
 // what changed since (far cheaper than re-downloading everything per event).
 let lastUpd = "";
+// One call can arrive as two CDR legs (two ids, same number/direction/
+// start/duration) — show it once, everywhere calls render.
+function dedupeCalls(rows) {
+  const seenCalls = [];
+  return rows.filter((m) => {
+    if (m.kind !== "call") return true;
+    const p = e164(m.phone), t = new Date(m.at || 0).getTime(), talk = Number(m.talkSecs) || 0;
+    if (seenCalls.some((s) => s.p === p && s.d === m.direction && Math.abs(s.t - t) < 120000 && Math.abs(s.talk - talk) <= 2)) return false;
+    seenCalls.push({ p, d: m.direction, t, talk });
+    return true;
+  });
+}
+// ⚠ Elie 10/11/26 — "I texted him from my phone, the desktop shows nothing":
+// the newest-3000 window (texts + every office call + campaign delivery
+// updates) can push an older conversation out entirely on a fresh login,
+// while a phone that's been open for days still holds it. Opening a
+// conversation now pulls THAT number's whole history from the database.
+const fetchedThreads = new Set();
+export async function ensureThread(phone) {
+  const p = e164(phone);
+  if (!p || fetchedThreads.has(p)) return;
+  fetchedThreads.add(p);
+  const d10 = p.replace(/\D/g, "").slice(-10);
+  const { data, error } = await supabase.from("sms_messages").select("id,phone,data,updated_at").in("phone", [p, p.replace(/^\+/, ""), d10]).order("updated_at", { ascending: false }).limit(2000);
+  if (error) { fetchedThreads.delete(p); return; }
+  const byId = new Map((store.msgs || []).map((m) => [m.id, m]));
+  let added = 0;
+  (data || []).forEach((r) => { const id = r.id; if (!byId.has(id)) { byId.set(id, { ...(r.data || {}), id, phone: r.phone || (r.data || {}).phone || "", _upd: String(r.updated_at || "") }); added++; } });
+  if (!added) return;
+  const rows = [...byId.values()].sort((a, b) => String(a.at || a._upd || "").localeCompare(String(b.at || b._upd || "")));
+  store = { ...store, msgs: dedupeCalls(rows) }; emit();
+}
+// 📱 Texts sent from the phone's OWN Messages app never touch the business
+// line, so nothing could see them. Log that it happened (and the template
+// text, when one was picked) so the conversation shows it on every device.
+export function logCellText(phone, message = "", prop = "") {
+  qbAuthFetch("/api/jivetel/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: phone, message, logOnly: true, ...(prop ? { prop: String(prop).slice(0, 80) } : {}) }) })
+    .then(() => setTimeout(loadMsgs, 400)).catch(() => {});
+}
 async function loadMsgs(retry = 0) {
   const incremental = !!(lastUpd && store.msgs);
   const q = incremental
@@ -94,17 +133,14 @@ async function loadMsgs(retry = 0) {
     } else {
       rows = fresh.reverse(); // back to oldest-first, like the old shape
     }
-    // One call can arrive as two CDR legs (two ids, same number/direction/
-    // start/duration) — show it once, everywhere calls render.
-    const seenCalls = [];
-    const deduped = rows.filter((m) => {
-      if (m.kind !== "call") return true;
-      const p = e164(m.phone), t = new Date(m.at || 0).getTime(), talk = Number(m.talkSecs) || 0;
-      if (seenCalls.some((s) => s.p === p && s.d === m.direction && Math.abs(s.t - t) < 120000 && Math.abs(s.talk - talk) <= 2)) return false;
-      seenCalls.push({ p, d: m.direction, t, talk });
-      return true;
-    });
-    store = { ...store, msgs: deduped }; emit(); loadReadMap();
+    // A conversation opened on this device pulls its full history (below) —
+    // keep those older rows across full reloads too.
+    if (!incremental && store.msgs && fetchedThreads.size) {
+      const have = new Set(rows.map((m) => m.id));
+      const keep = store.msgs.filter((m) => !have.has(m.id) && fetchedThreads.has(e164(m.phone)));
+      if (keep.length) rows = [...keep, ...rows].sort((a, b) => String(a.at || a._upd || "").localeCompare(String(b.at || b._upd || "")));
+    }
+    store = { ...store, msgs: dedupeCalls(rows) }; emit(); loadReadMap();
   }
   // A failed load right after the phone wakes (expired token mid-refresh,
   // radio not up yet) used to leave the list stale until the next event —
@@ -476,7 +512,7 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
             </button>
           )}
           {IS_PHONE && (
-            <button style={opt} onClick={() => { if (mode === "text" && templates.length) setStep("personal"); else go(mode === "call" ? `tel:${digits}` : `sms:${digits}`); }}>
+            <button style={opt} onClick={() => { if (mode === "text" && templates.length) setStep("personal"); else { if (mode === "text") logCellText(phone); go(mode === "call" ? `tel:${digits}` : `sms:${digits}`); } }}>
               <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
               <span style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My phone</div>
@@ -519,19 +555,19 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
           )}
           <button onClick={async () => {
             setCalling("busyT");
-            try { await sendToMyPhone({ phone, message: cellDraft.trim() }); setCalling("sentT"); setTimeout(onClose, 4000); }
+            try { await sendToMyPhone({ phone, message: cellDraft.trim() }); logCellText(phone, cellDraft.trim()); setCalling("sentT"); setTimeout(onClose, 4000); }
             catch (e) { setCalling("err:" + (e.message || "Couldn't reach your phone.")); }
           }} style={{ ...opt, justifyContent: "center", background: "#EFF6FF", border: "1.5px solid #2563EB", color: "#2563EB", fontWeight: 800, fontSize: 13.5 }}>
             📲 Send to my phone{cellDraft.trim() ? "" : " (blank text)"}
           </button>
         </>) : (<>
           <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px" }}>📱 Text from my phone — start with…</div>
-          <button style={opt} onClick={() => go(smsHref(phone))}>
+          <button style={opt} onClick={() => { logCellText(phone); go(smsHref(phone)); }}>
             <span style={{ fontSize: 20, flexShrink: 0 }}>✏️</span>
             <span style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Blank text</span>
           </button>
           {templates.map((t) => (
-            <button key={t.kind} style={opt} onClick={() => { onTemplate && onTemplate(t.kind); go(smsHref(phone, t.text)); }}>
+            <button key={t.kind} style={opt} onClick={() => { onTemplate && onTemplate(t.kind); logCellText(phone, t.text); go(smsHref(phone, t.text)); }}>
               <span style={{ fontSize: 20, flexShrink: 0 }}>📋</span>
               <span style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{t.label}</div>
@@ -824,6 +860,7 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
   // 🤖 dismissed suggestions (per phone+message) — stay dismissed on this device.
   const [sugDis, setSugDis] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("smsSugDis") || "[]")); } catch { return new Set(); } });
   const fullThread = threadFor(phone);
+  useEffect(() => { ensureThread(phone); }, [phone]);
   // Per-property view: with a `prop` context the pane opens on THIS property's
   // conversation only (attribution via smsPropMap), one tap away from the full
   // real chain. Without a prop, everything behaves exactly as before.
@@ -1056,6 +1093,14 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
                   <div key={m.id} style={{ alignSelf: "center", textAlign: "center" }}>
                     <span style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: m.missed ? "#C2410C" : T.textSub, background: m.missed ? "#FFF1EA" : "#EFEFF3", border: `1px solid ${m.missed ? "#F6C9B2" : T.border}`, borderRadius: 12, padding: "4px 11px" }}>{m.text}</span>
                     <div style={{ fontSize: 9.5, color: T.textTert, marginTop: 2 }}>{fmt(m.at)}</div>
+                  </div>
+                );
+              }
+              if (m.kind === "cell") {
+                return (
+                  <div key={m.id} style={{ alignSelf: "flex-end", maxWidth: "82%", textAlign: "right" }}>
+                    <span style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: T.textSub, background: "#EFEFF3", border: `1px solid ${T.border}`, borderRadius: 12, padding: "4px 11px", textAlign: "left", whiteSpace: "pre-wrap" }}>📱 Texted from {(m.by || "").split(" ")[0] || "your"}'s cell (Messages app){m.text ? <span style={{ display: "block", fontWeight: 500, marginTop: 3, color: T.text }}>“{m.text}”</span> : null}</span>
+                    <div style={{ fontSize: 9.5, color: T.textTert, marginTop: 2 }}>{fmt(m.at)} · not on the business line</div>
                   </div>
                 );
               }

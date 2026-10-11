@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import IdleLogout from "./IdleLogout";
+import IdleSleep from "./IdleSleep";
 import { useAuth } from "./auth/AuthProvider";
 import Login from "./auth/Login";
 import { DataProvider } from "./data/DataProvider";
@@ -111,8 +111,7 @@ export default function Root() {
   if (isContractor) return <><ContractorPortal />{catcher}</>;
   return (
     <DataProvider>
-      <GoldstoneShell />
-      <IdleLogout />
+      <IdleSleep><GoldstoneShell /></IdleSleep>
       {catcher}
     </DataProvider>
   );

@@ -9029,6 +9029,7 @@ function TasksPage({onNavigate}){
   const[sheetDone,setSheetDone]=useState(false);
   const[sheetQ,setSheetQ]=useState("");
   const[whoOpen,setWhoOpen]=useState(false);
+  const[whoPos,setWhoPos]=useState({top:0,left:0});
   // External (contractor) tasks show alongside internal ones, grouped by property.
   const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, siteStatus:ctrSiteStatus, save:ctrSave, remove:ctrRemove } = useContractorData();
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
@@ -9950,17 +9951,20 @@ function TasksPage({onNavigate}){
                 const extRows=everyone&&!sheetDone?(ctrTasks||[]).filter(t=>t.status!=="Completed"&&t.status!=="N/A").map(t=>{const job=(ctrJobs||[]).find(j=>String(j.id)===String(t.jobId));return job?{t,job,addr:job.propertyAddress||""}:null;}).filter(x=>x&&(!filterProps.size||filterProps.has(x.addr))&&(!q||`${x.t.text} ${x.addr}`.toLowerCase().includes(q))):[];
                 const GRID=isMobile?"mobile":"22px minmax(0,1fr) 230px 150px 30px";
                 const nUrg=rows.filter(t=>t.urgent&&!taskIsDone(t)).length;
-                const whoLabel=everyone?"👥 Everyone":whoSel.map(w=>w==="me"?"My tasks":w==="unassigned"?"Unassigned":w.split(" ")[0]).join(" + ");
+                const whoLabel=everyone?"Everyone":whoSel.map(w=>w==="me"?"My tasks":w==="unassigned"?"Unassigned":w.split(" ")[0]).join(" + ");
                 const capS=(on)=>({minHeight:34,padding:"0 13px",borderRadius:17,border:"none",background:on?T.text:"rgba(118,118,128,0.12)",color:on?"#fff":T.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"});
                 const segS=(on)=>({minHeight:30,padding:"0 13px",border:"none",borderRadius:15,background:on?T.card:"transparent",boxShadow:on?"0 1px 3px rgba(0,0,0,0.12)":"none",fontSize:13,fontWeight:600,color:on?T.text:"#3A3A3C",cursor:"pointer",fontFamily:"inherit"});
                 const toggleWho=(w)=>setSheetWhoSaved(prev=>{const cur=prev.length?prev:["me"];if(w==="everyone")return ["everyone"];const base0=cur.filter(x=>x!=="everyone");const n=base0.includes(w)?base0.filter(x=>x!==w):[...base0,w];return n.length?n:["me"];});
                 return(
                   <div style={{maxWidth:isMobile?"none":980}}>
                     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:12,position:"relative"}}>
-                      <button onClick={()=>setWhoOpen(v=>!v)} style={capS(true)} aria-haspopup="true" aria-expanded={whoOpen}>👤 {whoLabel} ▾</button>
-                      {whoOpen&&<>
-                        <div onClick={()=>setWhoOpen(false)} style={{position:"fixed",inset:0,zIndex:40}}/>
-                        <div style={{position:"absolute",top:40,left:0,zIndex:41,width:250,background:"#fff",borderRadius:14,boxShadow:"0 10px 40px rgba(0,0,0,0.22)",padding:"6px 0"}}>
+                      <button onClick={(e)=>{const r=e.currentTarget.getBoundingClientRect();const below=window.innerHeight-r.bottom-14;setWhoPos(below>=280||below>=r.top-14?{top:r.bottom+6,left:Math.max(8,Math.min(r.left,window.innerWidth-258)),maxH:below}:{bottom:window.innerHeight-r.top+6,left:Math.max(8,Math.min(r.left,window.innerWidth-258)),maxH:r.top-14});setWhoOpen(v=>!v);}} style={capS(true)} aria-haspopup="true" aria-expanded={whoOpen}>👤 {whoLabel} ▾</button>
+                      {/* Portaled to <body> with a solid surface (Elie 10/13/26): inside the
+                          dashboard, the glass-card rule made the menu see-through and
+                          the task rows showed through it. */}
+                      {whoOpen&&createPortal(<>
+                        <div onClick={()=>setWhoOpen(false)} onWheel={()=>setWhoOpen(false)} onTouchMove={()=>setWhoOpen(false)} style={{position:"fixed",inset:0,zIndex:480}}/>
+                        <div role="menu" style={{position:"fixed",top:whoPos.top,bottom:whoPos.bottom,left:whoPos.left,maxHeight:whoPos.maxH,overflowY:"auto",zIndex:481,width:250,background:"#FEFEFE",borderRadius:14,border:`1px solid ${T.border}`,boxShadow:"0 12px 40px rgba(0,0,0,0.22)",padding:"6px 0"}}>
                           <div style={{fontSize:12,color:T.textSub,padding:"4px 14px 2px"}}>Show tasks for</div>
                           {[["me",`👤 Me (${me.split(" ")[0]})`],...TEAM_MEMBERS.filter(m=>m!==me).map(m=>[m,m.split(" ")[0]])].map(([k,l])=>{const on=!everyone&&whoSel.includes(k);return(
                             <button key={k} onClick={()=>toggleWho(k)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",minHeight:40,padding:"0 14px",border:"none",background:"none",fontSize:14,color:T.text,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}><span style={{width:18,color:T.gold,fontWeight:800}}>{on?"✓":""}</span>{l}</button>);})}
@@ -9969,7 +9973,7 @@ function TasksPage({onNavigate}){
                             <button key={k} onClick={()=>toggleWho(k)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",minHeight:40,padding:"0 14px",border:"none",background:"none",fontSize:14,color:T.text,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}><span style={{width:18,color:T.gold,fontWeight:800}}>{on?"✓":""}</span>{l}</button>);})}
                           <div style={{fontSize:11.5,color:T.textSub,padding:"4px 14px 6px"}}>Tick two names to see both</div>
                         </div>
-                      </>}
+                      </>,document.body)}
                       <div style={{display:"inline-flex",background:"rgba(118,118,128,0.12)",borderRadius:17,padding:2}} role="tablist" aria-label="Open or done">
                         <button onClick={()=>setSheetDone(false)} style={segS(!sheetDone)}>Open</button>
                         <button onClick={()=>setSheetDone(true)} style={segS(sheetDone)}>Done</button>

@@ -134,6 +134,11 @@ function makeUpTask(d) {
     else { d.setSharedProps((prev) => prev.map((p) => (String(p.id) !== String(propId) ? p : { ...p, tasks: (p.tasks || []).map((t) => (t.id === taskId ? fn(t) : t)) }))); flush(d.flushProps); }
   };
 }
+// Update any task in place (property or office): upTask(propId, taskId, fn).
+export function useUpTask() {
+  const d = useData() || {};
+  return { upTask: makeUpTask(d), me: d.currentUser };
+}
 // Light hook for task rows: just the setter (no scanning of every chat).
 export function useSetTaskUrgent() {
   const d = useData() || {};

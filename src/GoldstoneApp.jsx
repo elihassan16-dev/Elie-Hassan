@@ -14,6 +14,7 @@ import { WalkthroughModal, useWalkJob, useWalkCloudSync } from "./walkthrough";
 import { MediaPage } from "./media";
 import { ShowroomPage } from "./showroom";
 import { CheckCircle } from "./checkCircle";
+import { subsOf, makeSubs, SubProgress, ChecklistSection, SubRows, groupUtilTasks, groupUtilRule } from "./subtasks";
 import { urgentNext, urgentMark, UrgentChip, UrgentTag, UrgentTile, UrgentSheet, UrgentAlert, useSetTaskUrgent, RED as URGENT_RED, RED_TEXT as URGENT_TEXT } from "./urgent";
 import { PayoffStatementSheet } from "./payoffSheet";
 import { PostsPage, PostsNudge, PostWatcher, PostButton } from "./flyers";
@@ -7576,6 +7577,8 @@ function SwipeToDelete({onDelete,confirm,children,style={}}){
 
 function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onNavigate,currentUser,selectMode,selected,onToggleSelect,compact,stripe,grid,emph,faded,onOpen,pick}){
   const isMobile=useIsMobile();
+  const[subOpen,setSubOpen]=useState(false); // ▸ checklist opened under the row (Tasks view)
+  const nSubs=subsOf(t).length;
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
   // The red number = messages YOU haven't read (matches the property-row
@@ -7692,14 +7695,17 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   const addr=isOfficeRow?"Company":(t.propAddr||"");
   const titleEl=(
     <span style={{minWidth:0,display:"flex",alignItems:"center",gap:5}}>
+      {grid&&nSubs>0&&<button onClick={(e)=>{e.stopPropagation();setSubOpen(v=>!v);}} aria-expanded={subOpen} aria-label={subOpen?"Hide checklist":"Show checklist"} style={{width:24,height:28,minHeight:28,margin:"-4px 0 -4px -6px",padding:0,border:"none",background:"none",color:T.textSub,fontSize:11,cursor:"pointer",flexShrink:0}}>{subOpen?"▾":"▸"}</button>}
       {urg&&<UrgentTag style={{flexShrink:0}}/>}
       <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:grid==="mobile"?15:13.5,fontWeight:grid==="mobile"?600:urg||emph?650:500,color:(dim||faded)?T.textTert:urg?URGENT_TEXT:T.text,textDecoration:dim?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
       {t.autoId&&<span style={{flexShrink:0,fontSize:10,fontWeight:700,color:"#8a6d1f",background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:6,padding:"0 5px"}}>AUTO</span>}
+      <SubProgress t={t}/>
     </span>
   );
   // Spreadsheet rows (desktop grid / phone two-line rows).
   if(grid==="mobile"){
     return(
+      <>
       <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
       <div onClick={openIt} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",minHeight:58,borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:urg?"#FFF5F4":T.card,cursor:"pointer"}}>
         {selectMode?<input type="checkbox" checked={!!selected} onClick={e=>e.stopPropagation()} onChange={()=>onToggleSelect(t)} style={{width:20,height:20,accentColor:T.gold,flexShrink:0}}/>:pick?pickC(22):doneC(22)}
@@ -7711,10 +7717,13 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
         <DoerAvatar assignee={t.assignee} delegate={t.delegate} size={24}/>
       </div>
       </SwipeToDelete>
+      {subOpen&&<SubRows task={t} grid="mobile"/>}
+      </>
     );
   }
   if(grid){
     return(
+      <>
       <div onClick={openIt} style={{display:"grid",gridTemplateColumns:grid,columnGap:12,alignItems:"center",padding:"0 16px",minHeight:44,borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:urg?"#FFF5F4":T.card,cursor:"pointer"}}>
         {selectMode?<input type="checkbox" checked={!!selected} onClick={e=>e.stopPropagation()} onChange={()=>onToggleSelect(t)} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>:pick?pickC(22):doneC(22)}
         {titleEl}
@@ -7722,6 +7731,8 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
         <span style={{display:"flex",alignItems:"center",gap:6,minWidth:0,fontSize:12.5,color:T.textSub}}><DoerAvatar assignee={t.assignee} delegate={t.delegate} size={22}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{whoTxt}</span></span>
         <span style={{justifySelf:"end",display:"flex"}}>{unreadEl||<span style={{color:"#C7C7CC",fontSize:16}}>›</span>}</span>
       </div>
+      {subOpen&&<SubRows task={t} grid={grid}/>}
+      </>
     );
   }
   return(
@@ -7890,6 +7901,15 @@ function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
                     </select>
                   </div>
                 </div>
+                {/* ☑ Sub-items: a checklist inside this task (Elie 10/13/26) */}
+                {(r.subs||[]).map((sv,k)=>(
+                  <div key={k} style={{display:"flex",gap:8,alignItems:"center",paddingLeft:14}}>
+                    <span style={{color:T.textTert,fontSize:13}}>↳</span>
+                    <input value={sv} onChange={e=>setRow(i,"subs",(r.subs||[]).map((x,j)=>j===k?e.target.value:x))} onKeyDown={e=>{if(e.key==="Enter"&&sv.trim()&&k===(r.subs||[]).length-1)setRow(i,"subs",[...(r.subs||[]),""]);}} autoFocus={!sv} placeholder={`Item ${k+1}…`} style={{...inp,flex:1,padding:"8px 10px",fontSize:13.5}}/>
+                    <button onClick={()=>setRow(i,"subs",(r.subs||[]).filter((_,j)=>j!==k))} title="Remove item" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0,padding:"2px 4px"}}>×</button>
+                  </div>
+                ))}
+                <button type="button" onClick={()=>setRow(i,"subs",[...(r.subs||[]),""])} style={{marginLeft:14,padding:"7px",borderRadius:T.radiusSm,background:"transparent",border:`1.5px dashed ${T.border}`,color:"#8a6d1f",cursor:"pointer",fontFamily:"inherit",fontSize:12.5,fontWeight:600}}>＋ Add sub-item</button>
                 {/* 🚨 Urgent — red everywhere + pops up for whoever's doing it */}
                 <button type="button" onClick={()=>setRow(i,"urgent",!r.urgent)} aria-pressed={!!r.urgent} style={{display:"flex",alignItems:"center",gap:10,width:"100%",minHeight:44,padding:"6px 10px",borderRadius:T.radiusSm,border:`1px solid ${r.urgent?URGENT_RED:T.border}`,background:r.urgent?"#FFF5F4":"#fff",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
                   <span style={{fontSize:18}}>🚨</span>
@@ -8045,6 +8065,8 @@ function TaskPopup({task,isMobile,currentUser,teamMembers,contacts=[],saveFolder
           <button onClick={()=>onComplete(task,!done)} style={{flex:1,minHeight:46,borderRadius:12,border:"none",background:done?"rgba(118,118,128,0.12)":"#34C759",color:done?T.text:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>{done?"↺ Reopen":"✓ Mark complete"}</button>
           {!done&&<button onClick={()=>setUrgent(task,!urg)} aria-pressed={urg} style={{flex:1,minHeight:46,borderRadius:12,border:`1.5px solid ${urg?URGENT_RED:T.border}`,background:urg?"#FFE9E7":"#fff",color:urg?URGENT_TEXT:T.text,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>🚨 {urg?"Urgent · on":"Mark urgent"}</button>}
         </div>
+        {/* ☑ checklist (sub-items) */}
+        <ChecklistSection task={task} sec={sec} h6={h6}/>
         {/* who */}
         <div style={sec}>
           <div style={h6}>Who's doing it</div>
@@ -9446,13 +9468,13 @@ function TasksPage({onNavigate}){
   // Bulk-add tasks to any property. Assigning here just sets who's responsible — it
   // does NOT set assignedBy, so these don't show up as "delegated by me".
   function addTasksBulk(propId,rows){
-    const clean=(rows||[]).map(r=>({text:(r.text||"").trim(),assignee:r.assignee||"",delegate:r.delegate||"",urgent:!!r.urgent})).filter(r=>r.text);
+    const clean=(rows||[]).map(r=>({text:(r.text||"").trim(),assignee:r.assignee||"",delegate:r.delegate||"",urgent:!!r.urgent,subs:(r.subs||[]).map(x=>String(x||"").trim()).filter(Boolean)})).filter(r=>r.text);
     if(!propId||!clean.length)return;
     const at=Date.now();
     // NOTE: the <select> hands back a STRING id, property ids are numbers — coerce
     // both so the task lands on the right property instead of being dropped.
     const rows2=clean.map((r,i)=>({...r,id:at+i}));
-    setSharedProps(prev=>prev.map(p=>String(p.id)!==String(propId)?p:{...p,tasks:[...(p.tasks||[]),...rows2.map(r=>({id:r.id,text:r.text,status:"Not Started",assignee:r.assignee,delegate:(r.delegate&&r.delegate!==r.assignee)?r.delegate:"",cat:"Custom",assignedAt:at,assignedBy:CURRENT_USER,...(r.urgent?{urgent:true,urgentAt:at,urgentBy:CURRENT_USER}:{})}))]}));
+    setSharedProps(prev=>prev.map(p=>String(p.id)!==String(propId)?p:{...p,tasks:[...(p.tasks||[]),...rows2.map(r=>({id:r.id,text:r.text,status:"Not Started",assignee:r.assignee,delegate:(r.delegate&&r.delegate!==r.assignee)?r.delegate:"",cat:"Custom",assignedAt:at,assignedBy:CURRENT_USER,...(r.subs.length?{subtasks:makeSubs(r.subs)}:{}),...(r.urgent?{urgent:true,urgentAt:at,urgentBy:CURRENT_USER}:{})}))]}));
     const pAddrB=(()=>{const p=(sharedProps||[]).find(x=>String(x.id)===String(propId));return p?`${p.address}${p.city?`, ${p.city}`:""}`:"";})();
     rows2.forEach(r=>{const who=[...new Set([r.assignee,r.delegate].filter(n=>n&&n!==CURRENT_USER))];if(who.length)notify(who,{title:r.urgent?"🚨 URGENT task for you":"New task for you",body:`${CURRENT_USER}: ${r.text}${pAddrB?` — 🏠 ${pAddrB}`:""}`,tag:`newtask-${r.id}`,url:`/?goto=task:${propId}:${r.id}`});else if(r.urgent)notify(null,{toTeam:true,title:"🚨 URGENT task",body:`${CURRENT_USER}: ${r.text}${pAddrB?` — 🏠 ${pAddrB}`:""}`,tag:`newtask-${r.id}`,url:`/?goto=task:${propId}:${r.id}`});});
   }
@@ -10949,10 +10971,10 @@ function AutomationsPanel(){
   const bdr=`1px solid ${T.border}`;
   const blank={trigger:"Under Contract",tasks:[{text:"",assignTo:"",delegateTo:""}]};
   const startNew=()=>{setEditingId(null);setDraft(blank);setShowBuilder(true);};
-  const startEdit=(auto)=>{setEditingId(auto.id);setDraft({trigger:auto.trigger,tasks:(auto.tasks&&auto.tasks.length?auto.tasks:[{text:"",assignTo:"",delegateTo:""}]).map(t=>({text:t.text||"",assignTo:t.assignTo||"",delegateTo:t.delegateTo||""}))});setShowBuilder(true);};
+  const startEdit=(auto)=>{setEditingId(auto.id);setDraft({trigger:auto.trigger,tasks:(auto.tasks&&auto.tasks.length?auto.tasks:[{text:"",assignTo:"",delegateTo:""}]).map(t=>({text:t.text||"",assignTo:t.assignTo||"",delegateTo:t.delegateTo||"",subs:Array.isArray(t.subs)?t.subs:[]}))});setShowBuilder(true);};
   const cancel=()=>{setShowBuilder(false);setEditingId(null);setDraft(blank);};
   const save=()=>{
-    const validTasks=draft.tasks.filter(t=>t.text.trim()).map(t=>({text:t.text.trim(),assignTo:t.assignTo||"",delegateTo:(t.delegateTo&&t.delegateTo!==t.assignTo)?t.delegateTo:"",category:"Automation"}));
+    const validTasks=draft.tasks.filter(t=>t.text.trim()).map(t=>{const subs=(t.subs||[]).map(x=>String(x||"").trim()).filter(Boolean);return{text:t.text.trim(),assignTo:t.assignTo||"",delegateTo:(t.delegateTo&&t.delegateTo!==t.assignTo)?t.delegateTo:"",category:"Automation",...(subs.length?{subs}:{})};});
     if(validTasks.length===0)return;
     if(editingId)setAutomations(rules.map(r=>r.id===editingId?{...r,trigger:draft.trigger,tasks:validTasks}:r));
     else setAutomations([...rules,{id:Date.now(),trigger:draft.trigger,tasks:validTasks}]);
@@ -10993,6 +11015,16 @@ function AutomationsPanel(){
                     {(TEAM_MEMBERS||[]).filter(m=>m!==task.assignTo).map(m=><option key={m}>{m}</option>)}
                   </select>
                 </div>
+                {/* ☑ Sub-items → a checklist inside the task (Elie 10/13/26) */}
+                {(task.subs||[]).map((sv,k)=>(
+                  <div key={k} style={{display:"flex",gap:8,alignItems:"center",margin:"6px 0 0 14px"}}>
+                    <span style={{color:T.textTert,fontSize:13}}>↳</span>
+                    <input value={sv} autoFocus={!sv} onChange={e=>setDraft(d=>({...d,tasks:d.tasks.map((t,j)=>j===i?{...t,subs:(t.subs||[]).map((x,q)=>q===k?e.target.value:x)}:t)}))} placeholder={`Sub-item ${k+1}…`}
+                      style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:7,border:bdr,background:"#fff",color:T.text,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                    <button onClick={()=>setDraft(d=>({...d,tasks:d.tasks.map((t,j)=>j===i?{...t,subs:(t.subs||[]).filter((_,q)=>q!==k)}:t)}))} title="Remove sub-item" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
+                  </div>
+                ))}
+                <button onClick={()=>setDraft(d=>({...d,tasks:d.tasks.map((t,j)=>j===i?{...t,subs:[...(t.subs||[]),""]}:t)}))} style={{margin:"8px 0 0 14px",width:"calc(100% - 14px)",padding:"6px",borderRadius:7,background:"transparent",border:`1.5px dashed ${T.border}`,color:"#8a6d1f",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600}}>＋ Add sub-item</button>
               </div>
               );
             })}
@@ -11020,10 +11052,11 @@ function AutomationsPanel(){
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
               {tasks.map((t,i)=>(
-                <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:T.bg,borderRadius:T.radiusSm,padding:"8px 12px"}}>
+                <div key={i} style={{display:"flex",alignItems:"center",flexWrap:"wrap",gap:8,background:T.bg,borderRadius:T.radiusSm,padding:"8px 12px"}}>
                   <span style={{fontSize:13,color:T.text,flex:1}}>{t.text}</span>
                   {t.assignTo&&<span style={{fontSize:11,fontWeight:600,color:T.blue,background:"#EBF4FF",padding:"3px 9px",borderRadius:20,flexShrink:0}}>{t.assignTo}</span>}
                   {t.delegateTo&&<span title={`Delegated to ${t.delegateTo}`} style={{fontSize:11,fontWeight:600,color:T.gold,background:T.goldLight,padding:"3px 9px",borderRadius:20,flexShrink:0}}>→ {t.delegateTo}</span>}
+                  {(t.subs||[]).length>0&&<span style={{flexBasis:"100%",fontSize:12,color:T.textSub,paddingLeft:2}}>↳ {(t.subs||[]).join(" · ")}</span>}
                 </div>
               ))}
             </div>
@@ -22492,7 +22525,7 @@ function PhoneTopButton(){
 }
 
 export function GoldstoneShell(){
-  const { sharedProps, setSharedProps, automations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, setUserChannels, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks, currentUser: CURRENT_USER, contacts: CONTACTS_G, appSettings, setAppSettings, flushAppSettings } = useData();
+  const { sharedProps, setSharedProps, automations, setAutomations, loading, saveError, clearSaveError, teamMembers, team, setUserMuted, setUserSms, setUserChannels, officeMessages, officeTasks, setOfficeMessages, setOfficeTasks, flushOfficeTasks, currentUser: CURRENT_USER, contacts: CONTACTS_G, appSettings, setAppSettings, flushAppSettings } = useData();
   useWalkCloudSync(appSettings, setAppSettings, flushAppSettings); // 🎥 punch lists sync across devices
   // One-time cleanup (Elie 8/28): the CSV-import stand-in kept fighting the
   // real numbers — remove everything it wrote server-side. Idempotent; pins,
@@ -22864,6 +22897,21 @@ export function GoldstoneShell(){
     if(changed) setSharedProps(()=>next);
   },[sharedProps,isAdmin,setSharedProps]);
 
+  // ☑ One-time grouping (Elie 10/13/26): separate "Turn on water / electric /
+  // gas" tasks become ONE "Turn on utilities" task with those as checklist items —
+  // on every property that has 2+ of them, and in the automation rules, so new
+  // purchases get the grouped version. Idempotent: nothing left to group after.
+  useEffect(()=>{
+    if(!isAdmin||loading)return;
+    if(sharedProps.some(p=>groupUtilTasks(p.tasks))){
+      setSharedProps(prev=>prev.map(p=>{const g=groupUtilTasks(p.tasks);return g?{...p,tasks:g}:p;}));
+    }
+  },[sharedProps,isAdmin,loading,setSharedProps]);
+  useEffect(()=>{
+    if(!isAdmin||loading||!setAutomations||!(automations||[]).length)return;
+    if(automations.some(r=>groupUtilRule(r)))setAutomations(automations.map(r=>groupUtilRule(r)||r));
+  },[automations,isAdmin,loading,setAutomations]);
+
   // Apply automation rules: when a property reaches a rule's trigger status, add its
   // tasks once (tracked via property.autoApplied so it never double-adds).
   useEffect(()=>{
@@ -22879,7 +22927,7 @@ export function GoldstoneShell(){
       toApply.forEach((a,ai)=>{
         (a.tasks||[]).forEach((t,ti)=>{
           if(!t.text||!t.text.trim()) return;
-          add.push({id:Date.now()+ai*1000+ti,text:t.text,cat:t.category||"Automation",status:"Not Started",assignee:t.assignTo||"",delegate:(t.delegateTo&&t.delegateTo!==t.assignTo)?t.delegateTo:"",autoId:a.id,assignedAt:Date.now()});
+          add.push({id:Date.now()+ai*1000+ti,text:t.text,cat:t.category||"Automation",status:"Not Started",assignee:t.assignTo||"",delegate:(t.delegateTo&&t.delegateTo!==t.assignTo)?t.delegateTo:"",autoId:a.id,assignedAt:Date.now(),...(t.subs&&t.subs.length?{subtasks:makeSubs(t.subs)}:{})});
         });
         applied.add(a.id);
       });

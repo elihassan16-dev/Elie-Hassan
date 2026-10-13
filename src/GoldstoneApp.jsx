@@ -9514,61 +9514,7 @@ function TasksPage({onNavigate}){
         const liveTask={...(findLiveTask(taskContactTarget.propId,taskContactTarget.id)||taskContactTarget),propId:taskContactTarget.propId,propAddr:taskContactTarget.propAddr};
         return <TaskContactCard task={liveTask} contacts={dir} onAssign={(val)=>setTaskContact(taskContactTarget.propId,liveTask.id,val)} onCreateContact={addContactToDir} onClose={()=>setTaskContactTarget(null)}/>;
       })()}
-      {/* Header */}
-      <div className="gs-dash-hd" style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-          <div style={{fontSize:isMobile?21:27,fontWeight:700,letterSpacing:"-0.022em",color:T.text}}>Dashboard</div>
-        </div>
-        {isMobile?(()=>{
-          // Compact filter bar for mobile — multi-select dropdowns instead of chip rows.
-          const selStyle={flex:1,minWidth:0,padding:"9px 10px",borderRadius:T.radiusSm,border:bdr,background:T.bg,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"};
-          const summary=Object.entries(summaryByStatus).filter(([,v])=>v>0).map(([s,v])=>`${v} ${s}`).join(" · ");
-          const toggleView=(k)=>setViews(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
-          const toggleStatus=(s)=>setStatusFilter(p=>{const n=new Set(p);n.has(s)?n.delete(s):n.add(s);return n;});
-          // The By-property list ignores the task filters — show just the tallies.
-          if(byProp||compact)return <div style={{fontSize:11,color:T.textSub}}>{summary||`${allTasks.length} tasks`}</div>;
-          return(
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              <div style={{display:"flex",gap:8}}>
-                <MultiSelect placeholder="All Tasks" selected={views} onToggle={toggleView}
-                  options={[{value:"my",label:`My Tasks (${myTasks.length})`},{value:"assigned",label:`Delegated by Me (${assignedByMe.length})`},{value:"member",label:"By Team Member"},{value:"unassigned",label:`Unassigned (${unassignedTasks.length})`},{value:"all",label:"All Tasks"}]}/>
-                <MultiSelect placeholder="All statuses" selected={statusFilter} onToggle={toggleStatus}
-                  options={[{value:"open",label:"Open"},{value:"done",label:"Done"}]}/>
-              </div>
-              <div style={{display:"flex",gap:8}}>
-                <MultiSelect placeholder="All Properties" selected={filterProps} onToggle={togglePropFilter} options={propOptions}/>
-                {views.has("member")&&(
-                  <select value={filterMember} onChange={e=>setFilterMember(e.target.value)} style={selStyle}>
-                    {TEAM_MEMBERS.map(m=><option key={m}>{m}</option>)}
-                  </select>
-                )}
-              </div>
-              <div style={{fontSize:11,color:T.textSub}}>{filteredDisplay.length} shown{summary?` · ${summary}`:""}</div>
-            </div>
-          );
-        })():(<>
-        {/* Summary pills */}
-        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-          {Object.entries(summaryByStatus).filter(([,v])=>v>0).map(([s,v])=>{
-            const sc=statusColors[s]||statusColors["Not Started"];
-            return <div key={s} style={{background:sc.bg,color:sc.color,fontSize:12.5,fontWeight:600,padding:"5px 14px",borderRadius:20}}><span style={{fontWeight:650,fontVariantNumeric:"tabular-nums"}}>{v}</span> {s}</div>;
-          })}
-          <div style={{background:T.bg,color:T.textSub,fontSize:12.5,fontWeight:600,padding:"5px 14px",borderRadius:20,border:bdr}}><span style={{fontWeight:650,fontVariantNumeric:"tabular-nums"}}>{allTasks.length}</span> Total Tasks</div>
-        </div>
-        {/* View tabs — the By-property list shows everything, so they hide there */}
-        {!byProp&&!compact&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {[["my","My Tasks"],["assigned","Delegated by Me"],["member","By Team Member"],["unassigned","Unassigned"],["all","All Tasks"]].map(([k,l])=>{
-            const active=views.has(k);
-            return(
-              <button key={k} onClick={()=>setViews(prev=>{const n=new Set(prev);active?n.delete(k):n.add(k);return n;})}
-                style={{...TOGGLE_CHIP(active),padding:"7px 16px",fontSize:13}}>
-                {active&&<span style={{fontSize:10}}>✓</span>}{l}{k==="my"&&myTasks.length>0?` (${myTasks.length})`:k==="unassigned"?` (${unassignedTasks.length})`:""}
-              </button>
-            );
-          })}
-        </div>}
-        </>)}
-      </div>
+      {/* The old "Dashboard" title + Open/Completed/Total pills strip was removed (Elie 10/13/26) — the Tasks toolbar covers it. */}
 
       <div className="gs-dash" style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"20px 28px"}}>
       {/* 🏠 Dashboard tiles — tap one to jump to its card */}

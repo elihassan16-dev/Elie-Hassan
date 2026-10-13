@@ -7574,7 +7574,7 @@ function SwipeToDelete({onDelete,confirm,children,style={}}){
   );
 }
 
-function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onNavigate,currentUser,selectMode,selected,onToggleSelect,compact,stripe,grid,emph,faded,onOpen}){
+function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onNavigate,currentUser,selectMode,selected,onToggleSelect,compact,stripe,grid,emph,faded,onOpen,pick}){
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
@@ -7675,6 +7675,16 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
       </span>
     </button>
   );
+  // Tasks view (Elie 10/13/26): the circle SELECTS (fills gold with a check)
+  // instead of completing — the bar on top then completes / deletes them.
+  const pickC=(size=22)=>(
+    <button onClick={(e)=>{e.stopPropagation();onToggleSelect&&onToggleSelect(t);}} aria-label={selected?"Unselect task":"Select task"} aria-pressed={!!selected}
+      style={{width:44,height:44,minWidth:44,minHeight:44,margin:-(44-size)/2,padding:0,border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,WebkitTapHighlightColor:"transparent"}}>
+      <span style={{width:size,height:size,borderRadius:"50%",boxSizing:"border-box",border:selected?"none":`1.5px solid ${urg?URGENT_RED:"#C7C7CC"}`,background:selected?T.gold:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+        {selected&&<svg width={size*0.55} height={size*0.55} viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.3l2.3 2.3 4.7-5" fill="none" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+      </span>
+    </button>
+  );
   const unreadEl=msgUnread>0?<span title={`${msgUnread} new message${msgUnread===1?"":"s"}`} style={{minWidth:20,height:20,padding:"0 6px",borderRadius:10,background:T.red,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxSizing:"border-box"}}>{msgUnread}</span>:null;
   const first=(n)=>String(n||"").split(" ")[0];
   const whoTxt=t.assignee?(t.delegate?`${first(t.assignee)} → ${first(t.delegate)}`:first(t.assignee)):"—";
@@ -7692,7 +7702,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
     return(
       <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
       <div onClick={openIt} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",minHeight:58,borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:urg?"#FFF5F4":T.card,cursor:"pointer"}}>
-        {selectMode?<input type="checkbox" checked={!!selected} onClick={e=>e.stopPropagation()} onChange={()=>onToggleSelect(t)} style={{width:20,height:20,accentColor:T.gold,flexShrink:0}}/>:doneC(22)}
+        {selectMode?<input type="checkbox" checked={!!selected} onClick={e=>e.stopPropagation()} onChange={()=>onToggleSelect(t)} style={{width:20,height:20,accentColor:T.gold,flexShrink:0}}/>:pick?pickC(22):doneC(22)}
         <div style={{flex:1,minWidth:0}}>
           {titleEl}
           <div style={{fontSize:12.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{addr}{t.delegate?` · → ${first(t.delegate)}`:""}</div>
@@ -7706,7 +7716,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   if(grid){
     return(
       <div onClick={openIt} style={{display:"grid",gridTemplateColumns:grid,columnGap:12,alignItems:"center",padding:"0 16px",minHeight:44,borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:urg?"#FFF5F4":T.card,cursor:"pointer"}}>
-        {selectMode?<input type="checkbox" checked={!!selected} onClick={e=>e.stopPropagation()} onChange={()=>onToggleSelect(t)} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>:doneC(22)}
+        {selectMode?<input type="checkbox" checked={!!selected} onClick={e=>e.stopPropagation()} onChange={()=>onToggleSelect(t)} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>:pick?pickC(22):doneC(22)}
         {titleEl}
         <span onClick={(e)=>{if(!isOfficeRow&&onNavigate&&t.propId){e.stopPropagation();onNavigate(t.propId);}}} title={isOfficeRow?undefined:"Open this property"} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12.5,color:T.textSub}}>{addr}</span>
         <span style={{display:"flex",alignItems:"center",gap:6,minWidth:0,fontSize:12.5,color:T.textSub}}><DoerAvatar assignee={t.assignee} delegate={t.delegate} size={22}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{whoTxt}</span></span>
@@ -9280,7 +9290,10 @@ function TasksPage({onNavigate}){
   const[byPropOpen,setByPropOpen]=useState(null); // property id (or OFFICE_TASK_PID) whose tasks popup is open
   const[selectMode,setSelectMode]=useState(false);
   const[selectedKeys,setSelectedKeys]=useState(new Set()); // `${propId}:${taskId}`
+  // A filter change starts a fresh selection — never act on rows you can't see.
+  useEffect(()=>{setSelectedKeys(new Set());},[sheetWho,sheetDone,sheetQ,filterProps]);
   const selKey=(t)=>`${t.propId}:${t.id}`;
+  const setUrgBulk=useSetTaskUrgent();
   const toggleSelect=(t)=>setSelectedKeys(p=>{const n=new Set(p);const k=selKey(t);n.has(k)?n.delete(k):n.add(k);return n;});
   function addTaskMessage(propId,taskId,text,attachment,mentions){
     const t=(text||"").trim();if(!t&&!attachment)return;
@@ -9581,7 +9594,7 @@ function TasksPage({onNavigate}){
           const icoDot={position:"relative",width:36,height:36,borderRadius:18,background:"rgba(118,118,128,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,color:T.text,fontWeight:800};
           const bdg=(n,bg)=><span style={{position:"absolute",top:-4,right:-5,minWidth:18,height:18,padding:"0 5px",borderRadius:9,background:bg,color:"#fff",fontSize:10.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${T.bg}`,boxSizing:"border-box"}}>{n}</span>;
           const canSelect=!byProp&&filteredDisplay.length>0;
-          const moreItems=[completedItems.length>0&&{k:"done",l:"✓ Completed history",n:completedItems.length,go:()=>setCompletedOpen(true)},canSelect&&{k:"sel",l:"☑ Select tasks",go:()=>setSelectMode(true)}].filter(Boolean);
+          const moreItems=[completedItems.length>0&&{k:"done",l:"✓ Completed history",n:completedItems.length,go:()=>setCompletedOpen(true)},canSelect&&!compact&&{k:"sel",l:"☑ Select tasks",go:()=>setSelectMode(true)}].filter(Boolean);
           const mItem={display:"flex",alignItems:"center",gap:10,width:"100%",minHeight:44,padding:"0 14px",border:"none",background:"none",fontSize:14,color:T.text,cursor:"pointer",fontFamily:"inherit",textAlign:"left"};
           return(
             <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14,maxWidth:840}}>
@@ -10000,13 +10013,37 @@ function TasksPage({onNavigate}){
                         </div>
                       </>,document.body)}
                       <div style={{display:"inline-flex",background:"rgba(118,118,128,0.12)",borderRadius:17,padding:2}} role="tablist" aria-label="Open or done">
-                        <button onClick={()=>setSheetDone(false)} style={segS(!sheetDone)}>Open</button>
-                        <button onClick={()=>setSheetDone(true)} style={segS(sheetDone)}>Done</button>
+                        <button onClick={()=>{setSheetDone(false);setSelectedKeys(new Set());}} style={segS(!sheetDone)}>Open</button>
+                        <button onClick={()=>{setSheetDone(true);setSelectedKeys(new Set());}} style={segS(sheetDone)}>Done</button>
                       </div>
                       <MultiSelect placeholder={isMobile?"🏠 All":"🏠 All properties"} selected={filterProps} onToggle={togglePropFilter} options={[{value:"Company",label:"Company"},...propOptions]} style={{flex:"0 0 auto",width:isMobile?110:150}}/>
                       <input value={sheetQ} onChange={e=>setSheetQ(e.target.value)} placeholder={isMobile?"🔍 Search tasks":"🔍 Search"} aria-label="Search tasks" style={{minHeight:34,borderRadius:10,border:"none",background:"rgba(118,118,128,0.12)",padding:"0 12px",fontSize:isMobile?16:13,fontFamily:"inherit",color:T.text,outline:"none",width:isMobile?"100%":"auto",flex:isMobile?"0 0 100%":"1 1 100px",minWidth:0,boxSizing:"border-box",order:isMobile?5:0}}/>
                       
                     </div>
+                    {/* ☑ Selection bar (Elie 10/13/26): tick circles, then act on them all. */}
+                    {(()=>{
+                      const keyOf=(it)=>it.t?selKey(it.t):"ext:"+it.x.t.id;
+                      const visKeys=merged.map(keyOf);
+                      const picked=merged.filter(it=>selectedKeys.has(keyOf(it)));
+                      if(!picked.length)return null;
+                      const allOn=visKeys.length>0&&visKeys.every(k=>selectedKeys.has(k));
+                      const teamPicked=picked.filter(it=>it.t).map(it=>it.t);
+                      const allUrg=teamPicked.length>0&&teamPicked.every(t=>t.urgent);
+                      const bB=(bg,fg,bd)=>({minHeight:36,padding:"0 14px",borderRadius:18,border:bd||"none",background:bg,color:fg,fontSize:13.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5,whiteSpace:"nowrap"});
+                      return(
+                        <div role="toolbar" aria-label="Selected tasks" style={{position:"sticky",top:isMobile?6:0,zIndex:6,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"8px 10px",marginBottom:10,borderRadius:16,background:"#FEFEFE",border:`1px solid ${T.border}`,boxShadow:"0 6px 24px rgba(0,0,0,0.12)"}}>
+                          <span style={{fontSize:14,fontWeight:700,color:T.text,padding:"0 4px"}}>{picked.length} selected</span>
+                          <button onClick={()=>setSelectedKeys(allOn?new Set():new Set(visKeys))} style={bB("transparent",T.gold)}>{allOn?"Unselect all":"Select all"}</button>
+                          <span style={{flex:1}}/>
+                          {sheetDone
+                            ?<button onClick={()=>setSelectedStatus("Not Started")} style={bB("rgba(118,118,128,0.12)",T.text)}>↺ Reopen</button>
+                            :<button onClick={()=>setSelectedStatus("Completed")} style={bB("#34C759","#fff")}>✓ Complete</button>}
+                          {!sheetDone&&teamPicked.length>0&&<button onClick={()=>{teamPicked.forEach(t=>setUrgBulk(t,!allUrg));setSelectedKeys(new Set());}} style={bB(allUrg?"#FFE9E7":"#fff",allUrg?URGENT_TEXT:T.text,`1px solid ${allUrg?URGENT_RED:T.border}`)}>🚨 {allUrg?"Not urgent":"Urgent"}</button>}
+                          <button onClick={()=>{if(window.confirm(`Delete ${picked.length} task${picked.length===1?"":"s"}? This can't be undone.`))deleteSelected();}} style={bB("#FFF0EF",T.red,`1px solid ${T.red}`)}>🗑 Delete</button>
+                          <button onClick={()=>setSelectedKeys(new Set())} style={bB("transparent",T.textSub)}>Cancel</button>
+                        </div>
+                      );
+                    })()}
                     <div style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,overflow:"hidden",marginBottom:14}}>
                       {!isMobile&&<div style={{display:"grid",gridTemplateColumns:GRID,columnGap:12,alignItems:"center",padding:"0 16px",height:34,fontSize:11.5,fontWeight:600,color:T.textSub}}>
                         <span/><span>Task <span style={{fontWeight:500,color:T.textTert}}>· {rows.length+extRows.length} {sheetDone?"done":"open"}{nUrg?` · ${nUrg} urgent`:""}</span></span><span>Property</span><span>Who</span><span/>
@@ -10014,14 +10051,14 @@ function TasksPage({onNavigate}){
                       {rows.length+extRows.length===0&&<div style={{padding:"28px 16px",textAlign:"center",color:T.textTert,fontSize:13.5,borderTop:isMobile?"none":`1px solid ${T.border}`}}>{sheetDone?"Nothing completed yet.":"Nothing open — all caught up."}</div>}
                       {merged.map((it)=>{if(it.x){const r=it.x;return(
                         <div key={"x"+r.t.id} onClick={()=>setExtChat({task:r.t,job:r.job})} style={isMobile?{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",minHeight:58,borderTop:`1px solid ${T.border}`,background:"#FFF9EC",cursor:"pointer"}:{display:"grid",gridTemplateColumns:GRID,columnGap:12,alignItems:"center",padding:"0 16px",minHeight:44,borderTop:`1px solid ${T.border}`,background:"#FFF9EC",cursor:"pointer"}}>
-                          <button onClick={(e)=>{e.stopPropagation();setExtTaskStatus(r.t,"Completed");}} aria-label="Mark complete" style={{width:44,height:44,minWidth:44,minHeight:44,margin:-11,padding:0,border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><span style={{width:22,height:22,borderRadius:"50%",boxSizing:"border-box",border:"1.5px solid #C7C7CC"}}/></button>
+                          {(()=>{const xk="ext:"+r.t.id;const on=selectedKeys.has(xk);return(<button onClick={(e)=>{e.stopPropagation();setSelectedKeys(p=>{const n=new Set(p);n.has(xk)?n.delete(xk):n.add(xk);return n;});}} aria-label={on?"Unselect task":"Select task"} aria-pressed={on} style={{width:44,height:44,minWidth:44,minHeight:44,margin:-11,padding:0,border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><span style={{width:22,height:22,borderRadius:"50%",boxSizing:"border-box",border:on?"none":"1.5px solid #C7C7CC",background:on?T.gold:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>{on&&<svg width={12} height={12} viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.3l2.3 2.3 4.7-5" fill="none" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"/></svg>}</span></button>);})()}
                           {isMobile?<div style={{flex:1,minWidth:0}}><div style={{fontSize:15,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.t.text}</div><div style={{fontSize:12.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr} · 👷 {ctrOrgName(r.job.orgId)}</div></div>:<>
                           <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13.5,color:T.text}}>{r.t.text}</span>
                           <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12.5,color:T.textSub}}>{r.addr}</span>
                           <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12.5,fontWeight:700,color:"#8a6d1f"}}>👷 {ctrOrgName(r.job.orgId)}</span>
                           <span style={{justifySelf:"end",color:"#C7C7CC",fontSize:16}}>›</span></>}
                         </div>
-                      );}const t=it.t;return <TaskRow key={"t"+t.propId+":"+t.id} t={t} grid={GRID} onNavigate={onNavigate} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onOpen={openTaskPop} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>;})}
+                      );}const t=it.t;return <TaskRow key={"t"+t.propId+":"+t.id} t={t} grid={GRID} onNavigate={onNavigate} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onOpen={openTaskPop} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={false} pick selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>;})}
                     </div>
                   </div>
                 );

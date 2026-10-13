@@ -13,6 +13,7 @@ import { qbAuthFetch, notify, uploadAttachment, attachmentKind, attLabel, STREAM
 import { WalkthroughModal, useWalkJob, useWalkCloudSync } from "./walkthrough";
 import { MediaPage } from "./media";
 import { ShowroomPage } from "./showroom";
+import { CheckCircle } from "./checkCircle";
 import { urgentNext, urgentMark, UrgentChip, UrgentTag, UrgentTile, UrgentSheet, UrgentAlert, useSetTaskUrgent, RED as URGENT_RED, RED_TEXT as URGENT_TEXT } from "./urgent";
 import { PayoffStatementSheet } from "./payoffSheet";
 import { PostsPage, PostsNudge, PostWatcher, PostButton } from "./flyers";
@@ -8665,20 +8666,15 @@ function MsgAudiencePopup({task,jobs,orgName,onInternal,onExternal,onClose}){
 const CTR_STATUSES=["Not Started","In Progress","Completed","N/A"];
 const ctrStColor=(s)=>s==="Completed"?T.green:s==="In Progress"?T.blue:s==="N/A"?"#6b6b70":T.textSub;
 const ctrClosed=(s)=>s==="Completed"||s==="N/A";
-function CtrStatusPill({t,onSet,onDelete}){
-  const v=CTR_STATUSES.includes(t.status)?t.status:"Not Started";
-  const c=ctrStColor(v);
-  return(
-    <select value={v} onChange={e=>{
-        const val=e.target.value;
-        if(val==="__delete__"){e.target.value=v;if(window.confirm(`Delete "${t.text}"? The contractor loses it from their portal too.`))onDelete(t);return;}
-        onSet(t,val);
-      }} title="Change status"
-      style={{padding:"3px 6px",borderRadius:20,border:"none",background:c+"22",color:c,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
-      {CTR_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-      {onDelete&&<option value="__delete__">🗑 Delete…</option>}
-    </select>
-  );
+// Contractor tasks are just open or completed too (Elie 10/13/26) — the same
+// check circle as team tasks (In progress counts as open, N/A as done).
+function CtrStatusPill({t,onSet}){
+  const done=ctrClosed(t.status);
+  return <CheckCircle done={done} onToggle={()=>onSet(t,done?"Not Started":"Completed")}/>;
+}
+// Delete used to hide in the status menu — now a small ✕ at the row's end.
+function CtrDeleteX({t,onDelete}){
+  return <button onClick={(e)=>{e.stopPropagation();if(window.confirm(`Delete "${t.text}"? The contractor loses it from their portal too.`))onDelete(t);}} aria-label="Delete task" title="Delete task" style={{width:32,minHeight:32,border:"none",background:"none",color:T.textTert,fontSize:15,cursor:"pointer",flexShrink:0,padding:0,fontFamily:"inherit"}}>✕</button>;
 }
 
 // Completed tasks live here instead of cluttering the lists: everything marked
@@ -8762,6 +8758,7 @@ function ExternalRequestsPopup({requests,coRequests=[],onDecideCo,onSetStatus,on
           ))}
           {requests.map(({t,job,orgName,addr})=>(
             <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",padding:"12px 16px",borderBottom:`1px solid ${T.border}`,opacity:ctrClosed(t.status)?0.55:1}}>
+              <CtrStatusPill t={t} onSet={onSetStatus}/>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:13.5,color:T.text,lineHeight:1.45,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text}</div>
                 <div style={{fontSize:11,color:T.textSub,marginTop:3,display:"flex",flexWrap:"wrap",gap:"2px 10px"}}>
@@ -8773,7 +8770,6 @@ function ExternalRequestsPopup({requests,coRequests=[],onDecideCo,onSetStatus,on
                 </div>
               </div>
               <button onClick={()=>onChat({task:t,job})} title="Message about this — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit",display:"inline-flex",alignItems:"center"}}><TeamChatIcon size={13}/></button>
-              <CtrStatusPill t={t} onSet={onSetStatus}/>
             </div>
           ))}
         </div>
@@ -8951,12 +8947,13 @@ function PropertyTaskList({property}){
             {jt.map(t=>(
               <SwipeToDelete key={t.id} onDelete={()=>ctrRemove("contractor_tasks",t.id).catch(()=>{})} confirm={`Delete "${t.text}"? The contractor loses it from their portal too.`} style={{background:"#FFF9EC"}}>
               <div style={{display:"flex",gap:10,alignItems:"center",padding:"9px 14px",borderTop:"1px solid rgba(184,149,63,0.25)",background:"#FFF9EC"}}>
+                <CtrStatusPill t={t} onSet={setCtrTaskStatus}/>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13.5,color:T.text,lineHeight:1.4,textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
                   <div style={{fontSize:10.5,color:"#8a6d1f"}}>{(t.statusBy||t.doneBy)?`${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>
                 </div>
                 <button onClick={()=>setExtChat({task:t,job:j})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit",display:"inline-flex",alignItems:"center"}}><TeamChatIcon size={13}/></button>
-                <CtrStatusPill t={t} onSet={setCtrTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/>
+                <CtrDeleteX t={t} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/>
               </div>
               </SwipeToDelete>
             ))}
@@ -9900,9 +9897,10 @@ function TasksPage({onNavigate}){
                           </div>
                           {xr.filter(t=>t.status!=="Completed").map(t=>(
                             <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)"}}>
+                              <CtrStatusPill t={t} onSet={setExtTaskStatus}/>
                               <span style={{flex:1,minWidth:0,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.text}</span>
                               <button onClick={()=>setExtChat({task:t,job})} title="Message about this task" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit",display:"inline-flex",alignItems:"center"}}><TeamChatIcon size={13}/></button>
-                              <CtrStatusPill t={t} onSet={setExtTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/>
+                              <CtrDeleteX t={t} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/>
                             </div>
                           ))}
                         </div>
@@ -10046,12 +10044,13 @@ function TasksPage({onNavigate}){
                       <SwipeToDelete key={t.id} onDelete={()=>ctrRemove("contractor_tasks",t.id).catch(()=>{})} confirm={`Delete "${t.text}"? The contractor loses it from their portal too.`} style={{background:"#FFF9EC"}}>
                       <div style={{display:"flex",gap:10,alignItems:"center",padding:compact?"5px 12px":"8px 14px",borderTop:"1px solid rgba(184,149,63,0.22)",background:"#FFF9EC"}}>
                         {selectMode&&<input type="checkbox" checked={selectedKeys.has(`ext:${t.id}`)} onChange={()=>setSelectedKeys(p=>{const n=new Set(p);const k=`ext:${t.id}`;n.has(k)?n.delete(k):n.add(k);return n;})} style={{width:18,height:18,accentColor:T.gold,cursor:"pointer",flexShrink:0}}/>}
+                        {!selectMode&&<CtrStatusPill t={t} onSet={setExtTaskStatus}/>}
                         <div style={{flex:1,minWidth:0}} title={t.direction==="to_team"?`Asked by ${t.createdBy||ctrOrgName(job.orgId)}${t.askedOf&&t.askedOf.length?` → ${t.askedOf.join(", ")}`:" → everyone"}`:undefined}>
                           <div style={{fontSize:compact?13:13.5,color:T.text,lineHeight:1.4,overflow:compact?"hidden":"visible",textOverflow:compact?"ellipsis":"clip",whiteSpace:compact?"nowrap":"normal",textDecoration:t.status==="Completed"?"line-through":"none",opacity:ctrClosed(t.status)?0.6:1}}>{t.text}</div>
                           {!compact&&<div style={{fontSize:10.5,color:"#8a6d1f"}}>{t.direction==="to_team"?`asked by ${t.createdBy||ctrOrgName(job.orgId)}${t.askedOf&&t.askedOf.length?` → ${t.askedOf.map(n=>n.split(" ")[0]).join(", ")}`:" → everyone"}`:""}{(t.statusBy||t.doneBy)?` · ${t.status==="Completed"?"✓ ":""}${t.statusBy||t.doneBy}`:""}</div>}
                         </div>
                         <button onClick={()=>setExtChat({task:t,job})} title="Message about this task — external or internal" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:14,color:"#8a6d1f",cursor:"pointer",fontSize:13,padding:"4px 9px",flexShrink:0,fontFamily:"inherit",display:"inline-flex",alignItems:"center"}}><TeamChatIcon size={13}/></button>
-                        <CtrStatusPill t={t} onSet={setExtTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/>
+                        <CtrDeleteX t={t} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/>
                       </div>
                       </SwipeToDelete>
                     ))}

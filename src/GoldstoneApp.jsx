@@ -9030,6 +9030,7 @@ function TasksPage({onNavigate}){
   const[sheetQ,setSheetQ]=useState("");
   const[whoOpen,setWhoOpen]=useState(false);
   const[whoPos,setWhoPos]=useState({top:0,left:0});
+  const[tbMore,setTbMore]=useState(null); // ••• menu position in the tasks toolbar
   // External (contractor) tasks show alongside internal ones, grouped by property.
   const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, siteStatus:ctrSiteStatus, save:ctrSave, remove:ctrRemove } = useContractorData();
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
@@ -9425,6 +9426,15 @@ function TasksPage({onNavigate}){
 
   const summaryByStatus={Open:allTasks.filter(t=>!taskIsDone(t)).length,Completed:allTasks.filter(t=>taskIsDone(t)).length};
 
+  // Tasks toolbar view switch (Elie approved option A 10/13/26): Tasks (the
+  // one-row-per-task list) · Boxes (a card per property) · By property.
+  const viewSegEl=(full)=>(
+    <div role="tablist" aria-label="Task view" style={{display:full?"flex":"inline-flex",background:"rgba(118,118,128,0.12)",borderRadius:17,padding:2,flexShrink:0}}>
+      {[["grid","Tasks"],["boxes","Boxes"],["byprop","By property"]].map(([k,l])=>{const on=k==="boxes"?(!compact&&!byProp):taskViewMode===k;return(
+        <button key={k} role="tab" aria-selected={on} onClick={()=>{if(on)return;setViewMode(k);setSelectMode(false);setSelectedKeys(new Set());}} style={{flex:full?1:"0 0 auto",minHeight:30,padding:"0 13px",border:"none",borderRadius:15,background:on?T.card:"transparent",boxShadow:on?"0 1px 3px rgba(0,0,0,0.12)":"none",fontSize:13,fontWeight:600,color:on?T.text:"#3A3A3C",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
+      );})}
+    </div>
+  );
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",background:T.bg,overflow:"hidden"}}>
       {/* Bulk add-tasks popup */}
@@ -9505,7 +9515,6 @@ function TasksPage({onNavigate}){
       <div className="gs-dash-hd" style={{background:T.card,borderBottom:bdr,padding:isMobile?"14px 14px":"18px 28px",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
           <div style={{fontSize:isMobile?21:27,fontWeight:700,letterSpacing:"-0.022em",color:T.text}}>Dashboard</div>
-          <button onClick={()=>setShowAddTasks(true)} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,padding:isMobile?"8px 12px":"9px 16px",borderRadius:20,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:isMobile?13:14,letterSpacing:"-0.01em",cursor:"pointer",fontFamily:"inherit",flexShrink:0}}><span style={{fontSize:16,lineHeight:1}}>＋</span>{isMobile?"Add":"Add Tasks"}</button>
         </div>
         {isMobile?(()=>{
           // Compact filter bar for mobile — multi-select dropdowns instead of chip rows.
@@ -9572,17 +9581,33 @@ function TasksPage({onNavigate}){
         {!showAutomations&&(()=>{
           const chip=(fg,bg,on=true)=>({display:"inline-flex",alignItems:"center",gap:6,padding:"8px 13px",borderRadius:16,border:"1px solid rgba(0,0,0,0.05)",background:on?"#fff":"rgba(118,118,128,0.08)",color:on?fg:T.textSub,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",boxShadow:on?"0 1px 4px rgba(0,0,0,0.10)":"none",whiteSpace:"nowrap"});
           const cnt=(n,bg)=><span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:9,background:bg,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>{n}</span>;
+          // Option A (Elie 10/13/26): "Tasks" title with 🔔 new · 👷 external ·
+          // ••• (completed history, select) · ＋ Add task; the view switch sits
+          // under it (in the Tasks view it leads the filter row).
+          const icoBtn={position:"relative",width:44,height:44,minWidth:44,minHeight:44,margin:"0 -4px",padding:0,border:"none",background:"transparent",display:"inline-flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontFamily:"inherit",flexShrink:0};
+          const icoDot={position:"relative",width:36,height:36,borderRadius:18,background:"rgba(118,118,128,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,color:T.text,fontWeight:800};
+          const bdg=(n,bg)=><span style={{position:"absolute",top:-4,right:-5,minWidth:18,height:18,padding:"0 5px",borderRadius:9,background:bg,color:"#fff",fontSize:10.5,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${T.bg}`,boxSizing:"border-box"}}>{n}</span>;
+          const canSelect=!byProp&&filteredDisplay.length>0;
+          const moreItems=[completedItems.length>0&&{k:"done",l:"✓ Completed history",n:completedItems.length,go:()=>setCompletedOpen(true)},canSelect&&{k:"sel",l:"☑ Select tasks",go:()=>setSelectMode(true)}].filter(Boolean);
+          const mItem={display:"flex",alignItems:"center",gap:10,width:"100%",minHeight:44,padding:"0 14px",border:"none",background:"none",fontSize:14,color:T.text,cursor:"pointer",fontFamily:"inherit",textAlign:"left"};
           return(
-            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14,maxWidth:840}}>
+            <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14,maxWidth:840}}>
               {!selectMode?(<>
-                <button onClick={()=>setShowRecent(true)} style={chip("#b8912e",T.goldLight,recentAssigned.length>0)}>🔔 New{recentAssigned.length>0&&cnt(recentAssigned.length,T.gold)}</button>
-                {completedItems.length>0&&<button onClick={()=>setCompletedOpen(true)} style={chip("#15803D","#EDFBF1")}>✓ Done{cnt(completedItems.length,T.green)}</button>}
-                {extRequests.length>0&&<button onClick={()=>setExtReqOpen(true)} style={chip("#8a6d1f","#FFF9EC")}>👷 External{openExtCount>0&&cnt(openExtCount,T.red)}</button>}
-                <div style={{flex:1}}/>
-                <button onClick={()=>setViewMode(compact?"boxes":"grid")} title={compact?"Switch back to the property boxes":"One clean list — every task a row"} style={chip(compact?"#b8912e":T.textSub,compact?T.goldLight:T.card,compact)}>▦ Spreadsheet</button>
-                <button onClick={()=>setViewMode(byProp?"boxes":"byprop")} title={byProp?"Switch to the full task boxes":"One simple list — tap a property to see its tasks"} style={chip(byProp?"#b8912e":T.textSub,byProp?T.goldLight:T.card,byProp)}>🏠 By property</button>
-                {!byProp&&filteredDisplay.length>0&&<button onClick={()=>setSelectMode(true)} style={chip(T.textSub,T.card,false)}>☑ Select</button>}
-              </>):(<>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{flex:1,minWidth:0,fontSize:22,fontWeight:700,letterSpacing:"-0.02em",color:T.text}}>Tasks</div>
+                  <button onClick={()=>setShowRecent(true)} title="New tasks for you" aria-label={`New tasks for you${recentAssigned.length?` (${recentAssigned.length})`:""}`} style={icoBtn}><span style={icoDot}>🔔{recentAssigned.length>0&&bdg(recentAssigned.length,T.gold)}</span></button>
+                  {extRequests.length>0&&<button onClick={()=>setExtReqOpen(true)} title="External requests" aria-label={`External requests${openExtCount?` (${openExtCount} open)`:""}`} style={icoBtn}><span style={icoDot}>👷{openExtCount>0&&bdg(openExtCount,T.red)}</span></button>}
+                  {moreItems.length>0&&<button onClick={(e)=>{const r=e.currentTarget.getBoundingClientRect();setTbMore(v=>v?null:{top:r.bottom+4,right:Math.max(8,window.innerWidth-r.right)});}} title="More task options" aria-label="More task options" aria-haspopup="true" aria-expanded={!!tbMore} style={icoBtn}><span style={{...icoDot,fontSize:13,letterSpacing:1}}>•••</span></button>}
+                  <button onClick={()=>setShowAddTasks(true)} style={{display:"inline-flex",alignItems:"center",gap:6,minHeight:36,padding:isMobile?"0 13px":"0 16px",marginLeft:4,borderRadius:18,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:14,letterSpacing:"-0.01em",cursor:"pointer",fontFamily:"inherit",flexShrink:0,whiteSpace:"nowrap"}}><span style={{fontSize:16,lineHeight:1}}>＋</span>{isMobile?"Add":"Add task"}</button>
+                </div>
+                {tbMore&&createPortal(<>
+                  <div onClick={()=>setTbMore(null)} onWheel={()=>setTbMore(null)} onTouchMove={()=>setTbMore(null)} style={{position:"fixed",inset:0,zIndex:480}}/>
+                  <div role="menu" style={{position:"fixed",top:tbMore.top,right:tbMore.right,zIndex:481,width:240,background:"#FEFEFE",borderRadius:14,border:`1px solid ${T.border}`,boxShadow:"0 12px 40px rgba(0,0,0,0.22)",padding:"6px 0"}}>
+                    {moreItems.map(it=><button key={it.k} role="menuitem" onClick={()=>{setTbMore(null);it.go();}} style={mItem}>{it.l}{it.n!=null&&<span style={{marginLeft:"auto",fontSize:12.5,color:T.textSub,fontVariantNumeric:"tabular-nums"}}>{it.n}</span>}</button>)}
+                  </div>
+                </>,document.body)}
+                {!compact&&<div>{viewSegEl(isMobile)}</div>}
+              </>):(<div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                 <span style={{fontSize:13,fontWeight:600,color:T.text}}>{selectedKeys.size} selected</span>
                 <select value="" onChange={e=>{if(e.target.value)setSelectedStatus(e.target.value);}} disabled={selectedKeys.size===0}
                   style={{padding:"6px 10px",borderRadius:20,border:`1px solid ${T.border}`,background:selectedKeys.size?T.card:T.bg,color:selectedKeys.size?T.text:T.textTert,fontSize:12,fontWeight:600,cursor:selectedKeys.size?"pointer":"default",fontFamily:"inherit",outline:"none"}}>
@@ -9592,7 +9617,7 @@ function TasksPage({onNavigate}){
                 </select>
                 <button onClick={deleteSelected} disabled={selectedKeys.size===0} style={{padding:"6px 14px",borderRadius:20,border:"none",background:selectedKeys.size?T.red:T.border,color:"#fff",fontSize:12,fontWeight:700,cursor:selectedKeys.size?"pointer":"default",fontFamily:"inherit"}}>🗑 Delete</button>
                 <button onClick={()=>{setSelectMode(false);setSelectedKeys(new Set());}} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
-              </>)}
+              </div>)}
             </div>
           );
         })()}
@@ -9957,7 +9982,9 @@ function TasksPage({onNavigate}){
                 const toggleWho=(w)=>setSheetWhoSaved(prev=>{const cur=prev.length?prev:["me"];if(w==="everyone")return ["everyone"];const base0=cur.filter(x=>x!=="everyone");const n=base0.includes(w)?base0.filter(x=>x!==w):[...base0,w];return n.length?n:["me"];});
                 return(
                   <div style={{maxWidth:isMobile?"none":980}}>
+                    {isMobile&&<div style={{marginBottom:8}}>{viewSegEl(true)}</div>}
                     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:12,position:"relative"}}>
+                      {!isMobile&&viewSegEl(false)}
                       <button onClick={(e)=>{const r=e.currentTarget.getBoundingClientRect();const below=window.innerHeight-r.bottom-14;setWhoPos(below>=280||below>=r.top-14?{top:r.bottom+6,left:Math.max(8,Math.min(r.left,window.innerWidth-258)),maxH:below}:{bottom:window.innerHeight-r.top+6,left:Math.max(8,Math.min(r.left,window.innerWidth-258)),maxH:r.top-14});setWhoOpen(v=>!v);}} style={capS(true)} aria-haspopup="true" aria-expanded={whoOpen}>👤 {whoLabel} ▾</button>
                       {/* Portaled to <body> with a solid surface (Elie 10/13/26): inside the
                           dashboard, the glass-card rule made the menu see-through and
@@ -9978,13 +10005,13 @@ function TasksPage({onNavigate}){
                         <button onClick={()=>setSheetDone(false)} style={segS(!sheetDone)}>Open</button>
                         <button onClick={()=>setSheetDone(true)} style={segS(sheetDone)}>Done</button>
                       </div>
-                      <MultiSelect placeholder={isMobile?"🏠 All":"🏠 All properties"} selected={filterProps} onToggle={togglePropFilter} options={[{value:"Company",label:"Company"},...propOptions]} style={{flex:"0 0 auto",width:isMobile?110:200}}/>
-                      <input value={sheetQ} onChange={e=>setSheetQ(e.target.value)} placeholder="🔍 Search tasks" aria-label="Search tasks" style={{minHeight:34,borderRadius:10,border:"none",background:"rgba(118,118,128,0.12)",padding:"0 12px",fontSize:isMobile?16:13,fontFamily:"inherit",color:T.text,outline:"none",width:isMobile?"100%":200,boxSizing:"border-box",order:isMobile?5:0}}/>
-                      {!isMobile&&<span style={{marginLeft:"auto",fontSize:12.5,color:T.textSub}}>{rows.length+extRows.length} {sheetDone?"done":"open"}{nUrg?` · ${nUrg} urgent`:""}</span>}
+                      <MultiSelect placeholder={isMobile?"🏠 All":"🏠 All properties"} selected={filterProps} onToggle={togglePropFilter} options={[{value:"Company",label:"Company"},...propOptions]} style={{flex:"0 0 auto",width:isMobile?110:150}}/>
+                      <input value={sheetQ} onChange={e=>setSheetQ(e.target.value)} placeholder={isMobile?"🔍 Search tasks":"🔍 Search"} aria-label="Search tasks" style={{minHeight:34,borderRadius:10,border:"none",background:"rgba(118,118,128,0.12)",padding:"0 12px",fontSize:isMobile?16:13,fontFamily:"inherit",color:T.text,outline:"none",width:isMobile?"100%":"auto",flex:isMobile?"0 0 100%":"1 1 100px",minWidth:0,boxSizing:"border-box",order:isMobile?5:0}}/>
+                      
                     </div>
                     <div style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,overflow:"hidden",marginBottom:14}}>
                       {!isMobile&&<div style={{display:"grid",gridTemplateColumns:GRID,columnGap:12,alignItems:"center",padding:"0 16px",height:34,fontSize:11.5,fontWeight:600,color:T.textSub}}>
-                        <span/><span>Task</span><span>Property</span><span>Who</span><span/>
+                        <span/><span>Task <span style={{fontWeight:500,color:T.textTert}}>· {rows.length+extRows.length} {sheetDone?"done":"open"}{nUrg?` · ${nUrg} urgent`:""}</span></span><span>Property</span><span>Who</span><span/>
                       </div>}
                       {rows.length+extRows.length===0&&<div style={{padding:"28px 16px",textAlign:"center",color:T.textTert,fontSize:13.5,borderTop:isMobile?"none":`1px solid ${T.border}`}}>{sheetDone?"Nothing completed yet.":"Nothing open — all caught up."}</div>}
                       {rows.map((t)=><TaskRow key={"t"+t.propId+":"+t.id} t={t} grid={GRID} onNavigate={onNavigate} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onOpen={openTaskPop} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}

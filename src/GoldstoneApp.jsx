@@ -7768,26 +7768,49 @@ function RecentAssignedModal({tasks,currentUser,onOpenTask,onClose}){
 // Compact multi-select dropdown — tap to open a checklist, pick as many as you want.
 function MultiSelect({placeholder,options,selected,onToggle,style}){
   const[open,setOpen]=useState(false);
+  const[pos,setPos]=useState(null);
+  const[q,setQ]=useState("");
   const arr=[...selected];
   const labelFor=(v)=>options.find(o=>o.value===v)?.label||v;
   const summary=arr.length===0?placeholder:arr.length===1?labelFor(arr[0]):`${arr.length} selected`;
+  // Portaled to <body> with a solid surface (Elie 10/13/26): inside the
+  // dashboard the glass-card rule made the old list see-through over the rows.
+  const toggle=(e)=>{
+    if(open){setOpen(false);return;}
+    const r=e.currentTarget.getBoundingClientRect();
+    const w=Math.min(Math.max(r.width,300),window.innerWidth-16);
+    const left=Math.max(8,Math.min(r.left,window.innerWidth-w-8));
+    const below=window.innerHeight-r.bottom-14;
+    setPos(below>=260||below>=r.top-14?{top:r.bottom+6,left,w,maxH:Math.min(420,below)}:{bottom:window.innerHeight-r.top+6,left,w,maxH:Math.min(420,r.top-14)});
+    setQ("");setOpen(true);
+  };
+  const ql=q.trim().toLowerCase();
+  const shown=ql?options.filter(o=>String(o.label).toLowerCase().includes(ql)):options;
+  const row={display:"flex",alignItems:"center",gap:10,width:"100%",minHeight:40,padding:"0 14px",border:"none",background:"none",fontSize:14,color:T.text,cursor:"pointer",fontFamily:"inherit",textAlign:"left"};
   return(
     <div style={{position:"relative",flex:1,minWidth:0,...style}}>
-      <button onClick={()=>setOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,padding:"9px 10px",borderRadius:T.radiusSm,border:`1px solid ${arr.length?T.gold:T.border}`,background:arr.length?T.goldLight:T.bg,color:arr.length?T.gold:T.text,fontSize:13,fontWeight:arr.length?700:400,cursor:"pointer",fontFamily:"inherit",textAlign:"left",boxSizing:"border-box"}}>
+      <button onClick={toggle} aria-haspopup="true" aria-expanded={open} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,padding:"9px 10px",borderRadius:T.radiusSm,border:`1px solid ${arr.length?T.gold:T.border}`,background:arr.length?T.goldLight:T.bg,color:arr.length?T.gold:T.text,fontSize:13,fontWeight:arr.length?700:400,cursor:"pointer",fontFamily:"inherit",textAlign:"left",boxSizing:"border-box"}}>
         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{summary}</span>
         <span style={{fontSize:11,flexShrink:0,opacity:0.7}}>▾</span>
       </button>
-      {open&&(<>
-        <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:190}}/>
-        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,minWidth:"100%",zIndex:200,background:"#fff",border:`1px solid ${T.border}`,borderRadius:T.radiusSm,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",padding:4,maxHeight:280,overflowY:"auto"}}>
-          {options.map(o=>{const on=selected.has(o.value);return(
-            <button key={o.value} onClick={()=>onToggle(o.value)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:7,border:"none",background:on?T.goldLight:"transparent",color:on?T.gold:T.text,fontSize:13,fontWeight:on?700:400,cursor:"pointer",fontFamily:"inherit",textAlign:"left",whiteSpace:"nowrap"}}>
-              <span style={{width:16,flexShrink:0}}>{on?"☑":"☐"}</span>
-              <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{o.label}</span>
-            </button>
-          );})}
+      {open&&pos&&createPortal(<>
+        <div onClick={()=>setOpen(false)} onWheel={()=>setOpen(false)} onTouchMove={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:480}}/>
+        <div role="menu" style={{position:"fixed",top:pos.top,bottom:pos.bottom,left:pos.left,width:pos.w,maxHeight:pos.maxH,zIndex:481,background:"#FEFEFE",borderRadius:14,border:`1px solid ${T.border}`,boxShadow:"0 12px 40px rgba(0,0,0,0.22)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          {options.length>8&&<div style={{padding:"8px 10px 4px",flexShrink:0}}>
+            <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 Search" aria-label="Search" style={{width:"100%",boxSizing:"border-box",minHeight:34,borderRadius:10,border:"none",background:"rgba(118,118,128,0.12)",padding:"0 12px",fontSize:16,fontFamily:"inherit",color:T.text,outline:"none"}}/>
+          </div>}
+          <div style={{overflowY:"auto",overscrollBehavior:"contain",padding:"4px 0"}}>
+            {arr.length>0&&!ql&&<button onClick={()=>{arr.forEach(v=>onToggle(v));}} style={{...row,color:T.textSub}}><span style={{width:18}}/>Show all</button>}
+            {shown.map(o=>{const on=selected.has(o.value);return(
+              <button key={o.value} role="menuitemcheckbox" aria-checked={on} onClick={()=>onToggle(o.value)} style={{...row,fontWeight:on?600:400}}>
+                <span style={{width:18,flexShrink:0,color:T.gold,fontWeight:800}}>{on?"✓":""}</span>
+                <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label}</span>
+              </button>
+            );})}
+            {shown.length===0&&<div style={{padding:"10px 14px",fontSize:13,color:T.textTert}}>No matches</div>}
+          </div>
         </div>
-      </>)}
+      </>,document.body)}
     </div>
   );
 }

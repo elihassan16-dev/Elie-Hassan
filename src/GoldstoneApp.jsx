@@ -11981,6 +11981,16 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
   // 🚨 The next message goes out URGENT (Elie 10/5/26) — resets after each send.
   const[urgent,setUrgent]=useState(false);
   const isMobile=useIsMobile();
+  // Narrow desktop spots (task pop-up, side panels): the typing box gets its own
+  // full-width row and the tool buttons + Send sit under it (Elie 10/13/26).
+  const rowRef=useRef(null);
+  const[narrow,setNarrow]=useState(false);
+  useEffect(()=>{
+    const el=rowRef.current;if(!el||typeof ResizeObserver==="undefined")return;
+    const ro=new ResizeObserver(()=>setNarrow(el.clientWidth<600));
+    ro.observe(el);return()=>ro.disconnect();
+  },[]);
+  const stack=narrow&&!isMobile;
   const[text,setText]=useState("");
   const[busy,setBusy]=useState(false);
   const[aiOpen,setAiOpen]=useState(false);
@@ -12310,7 +12320,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
         const ib=isMobile?{...iconBtn,width:33,height:33,fontSize:14.5}:iconBtn;
         const ph=isMobile?String(placeholder||"").replace(/\s*\([^)]*\)\s*$/,""):placeholder;
         return(
-      <div style={{display:"flex",gap:isMobile?6:8,alignItems:"flex-end"}}>
+      <div ref={rowRef} style={{display:"flex",gap:isMobile?6:8,alignItems:stack?"center":"flex-end",flexWrap:stack&&!recording?"wrap":"nowrap"}}>
         {recording?(
           <>
             <button onClick={cancelRec} title="Cancel recording" style={{...ib,color:T.textTert}}>×</button>
@@ -12346,9 +12356,9 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
             <textarea ref={taRef} rows={1} value={text} onChange={e=>{setText(e.target.value);detectAt(e.target.value,e.target.selectionStart);}} onPaste={onPasteFiles}
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(canSend)send();}if(e.key==="Escape")setAtQuery(null);}}
               placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":urgent?"Urgent message…":ph)} disabled={busy}
-              style={{flex:1,minWidth:0,padding:isMobile?"8px 12px":"11px 14px",borderRadius:18,border:urgent?`1.5px solid ${URGENT_RED}`:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
+              style={{flex:stack?"1 1 100%":1,order:stack?-1:0,minWidth:0,minHeight:stack?48:undefined,padding:isMobile?"8px 12px":"11px 14px",borderRadius:18,border:urgent?`1.5px solid ${URGENT_RED}`:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
             {isMobile&&<button onClick={startRec} disabled={busy} title="Record a voice note" style={{...ib,width:36,height:36,color:T.textSub}}><MicIcon size={21}/></button>}
-            <button onClick={()=>send()} disabled={!canSend} style={isMobile?{width:36,height:36,borderRadius:"50%",background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:0}:{padding:"10px 18px",borderRadius:22,background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0}}>{isMobile?"➤":"Send"}</button>
+            <button onClick={()=>send()} disabled={!canSend} style={isMobile?{width:36,height:36,borderRadius:"50%",background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:0}:{padding:"10px 18px",borderRadius:22,background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,marginLeft:stack?"auto":0}}>{isMobile?"➤":"Send"}</button>
           </>
         )}
       </div>

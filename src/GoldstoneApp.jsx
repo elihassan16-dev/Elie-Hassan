@@ -7661,9 +7661,18 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   // ✅ Open / completed only (Elie 10/13/26): a circle to complete, tap the
   // task for the multifunctional pop-up (status, urgent, who, contact, messages).
   const openIt=()=>{if(onOpen)onOpen(t);else setViewer(true);};
+  // iOS Reminders-style check circle (Elie 10/13/26): a 22pt ring with a
+  // 1.5pt stroke, filled green with a white check when done. The BUTTON is
+  // the full 44pt tap square (phones force buttons to 44pt tall — a 22pt
+  // button became an oval); the circle is a span inside it. Negative
+  // margins keep the row's layout as if it were just the circle.
   const doneC=(size=22)=>(
     <button onClick={(e)=>{e.stopPropagation();onStatusChange(t.propId,t.id,dim?"Not Started":"Completed");}} aria-label={dim?"Reopen task":"Mark complete"} title={dim?"Reopen":"Mark complete"}
-      style={{width:size,height:size,minWidth:size,borderRadius:"50%",border:dim?"none":`1.6px solid ${urg?URGENT_RED:"#C7C7CC"}`,background:dim?"#34C759":"transparent",color:"#fff",fontSize:size*0.55,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0,fontFamily:"inherit"}}>{dim?"✓":""}</button>
+      style={{width:44,height:44,minWidth:44,minHeight:44,margin:`${-(44-size)/2}px ${-(44-size)/2}px ${-(44-size)/2}px ${-(44-size)/2}px`,padding:0,border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,WebkitTapHighlightColor:"transparent"}}>
+      <span style={{width:size,height:size,borderRadius:"50%",boxSizing:"border-box",border:dim?"none":`1.5px solid ${urg?URGENT_RED:"#C7C7CC"}`,background:dim?"#34C759":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+        {dim&&<svg width={size*0.55} height={size*0.55} viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.3l2.3 2.3 4.7-5" fill="none" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+      </span>
+    </button>
   );
   const unreadEl=msgUnread>0?<span title={`${msgUnread} new message${msgUnread===1?"":"s"}`} style={{minWidth:20,height:20,padding:"0 6px",borderRadius:10,background:T.red,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxSizing:"border-box"}}>{msgUnread}</span>:null;
   const first=(n)=>String(n||"").split(" ")[0];
@@ -7696,7 +7705,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   if(grid){
     return(
       <div onClick={openIt} style={{display:"grid",gridTemplateColumns:grid,columnGap:12,alignItems:"center",padding:"0 16px",minHeight:44,borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:urg?"#FFF5F4":T.card,cursor:"pointer"}}>
-        {selectMode?<input type="checkbox" checked={!!selected} onClick={e=>e.stopPropagation()} onChange={()=>onToggleSelect(t)} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>:doneC(20)}
+        {selectMode?<input type="checkbox" checked={!!selected} onClick={e=>e.stopPropagation()} onChange={()=>onToggleSelect(t)} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>:doneC(22)}
         {titleEl}
         <span onClick={(e)=>{if(!isOfficeRow&&onNavigate&&t.propId){e.stopPropagation();onNavigate(t.propId);}}} title={isOfficeRow?undefined:"Open this property"} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12.5,color:T.textSub}}>{addr}</span>
         <span style={{display:"flex",alignItems:"center",gap:6,minWidth:0,fontSize:12.5,color:T.textSub}}><DoerAvatar assignee={t.assignee} delegate={t.delegate} size={22}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{whoTxt}</span></span>
@@ -7709,7 +7718,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
     {/* `faded` dims the PIECES, never the row container — opacity on the row
         creates a stacking context that ghosts any fixed menu. */}
     <div style={{display:"flex",alignItems:"center",gap:compact?8:isMobile?8:10,padding:compact?"5px 12px":isMobile?"7px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
-      {selectMode?selBox:doneC(isMobile?22:20)}
+      {selectMode?selBox:doneC(22)}
       <span onClick={openIt} title="Tap for the task — complete, urgent, who, contact, messages" style={{flex:1,minWidth:0,cursor:"pointer"}}>{titleEl}</span>
       {t.delegate&&t.delegate===currentUser&&t.assignee
         ? <span title={`You're doing this for ${t.assignee}`} style={{fontSize:10.5,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>for {first(t.assignee)}</span>
@@ -9979,7 +9988,7 @@ function TasksPage({onNavigate}){
                       {rows.map((t)=><TaskRow key={"t"+t.propId+":"+t.id} t={t} grid={GRID} onNavigate={onNavigate} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onOpen={openTaskPop} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
                       {extRows.map(r=>(
                         <div key={"x"+r.t.id} onClick={()=>setExtChat({task:r.t,job:r.job})} style={isMobile?{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",minHeight:58,borderTop:`1px solid ${T.border}`,background:"#FFF9EC",cursor:"pointer"}:{display:"grid",gridTemplateColumns:GRID,columnGap:12,alignItems:"center",padding:"0 16px",minHeight:44,borderTop:`1px solid ${T.border}`,background:"#FFF9EC",cursor:"pointer"}}>
-                          <button onClick={(e)=>{e.stopPropagation();setExtTaskStatus(r.t,"Completed");}} aria-label="Mark complete" style={{width:20,height:20,borderRadius:"50%",border:"1.6px solid #C7C7CC",background:"transparent",padding:0,cursor:"pointer",flexShrink:0}}/>
+                          <button onClick={(e)=>{e.stopPropagation();setExtTaskStatus(r.t,"Completed");}} aria-label="Mark complete" style={{width:44,height:44,minWidth:44,minHeight:44,margin:-11,padding:0,border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><span style={{width:22,height:22,borderRadius:"50%",boxSizing:"border-box",border:"1.5px solid #C7C7CC"}}/></button>
                           {isMobile?<div style={{flex:1,minWidth:0}}><div style={{fontSize:15,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.t.text}</div><div style={{fontSize:12.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr} · 👷 {ctrOrgName(r.job.orgId)}</div></div>:<>
                           <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13.5,color:T.text}}>{r.t.text}</span>
                           <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12.5,color:T.textSub}}>{r.addr}</span>

@@ -15,6 +15,7 @@ import { MediaPage } from "./media";
 import { ShowroomPage } from "./showroom";
 import { CheckCircle } from "./checkCircle";
 import { makeSubs, SubProgress, ChecklistSection, groupUtilTasks, groupUtilRule } from "./subtasks";
+import { MortgageChecklistSync } from "./mortgageCheck";
 import { urgentNext, urgentMark, UrgentChip, UrgentTag, UrgentTile, UrgentSheet, UrgentAlert, useSetTaskUrgent, RED as URGENT_RED, RED_TEXT as URGENT_TEXT } from "./urgent";
 import { PayoffStatementSheet } from "./payoffSheet";
 import { PostsPage, PostsNudge, PostWatcher, PostButton } from "./flyers";
@@ -23132,6 +23133,7 @@ export function GoldstoneShell(){
         <PushNudge displayName={displayName}/>
         <PostWatcher ready={!loading}/>
         <UrgentAlert/>
+        <MortgageChecklistSync/>
         {(active==="tasks"||active==="properties")&&<PostsNudge onOpen={()=>pushPage("posts")}/>}
         <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
           {pageEl}

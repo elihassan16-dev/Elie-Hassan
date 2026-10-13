@@ -7,6 +7,9 @@ import { useState } from "react";
 import { T } from "./theme";
 import { useUpTask } from "./urgent";
 
+// "Oct 1 · $1,842.17 · Mortgage – Freedom" for items QuickBooks ticked.
+const qbLine = (s) => (s && s.qb ? `${s.qb.date ? new Date(`${s.qb.date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""} · $${(Number(s.qb.amount) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${s.qb.account ? ` · ${s.qb.account}` : ""}` : "");
+
 export const subsOf = (t) => (Array.isArray(t && t.subtasks) ? t.subtasks.filter((s) => s && s.text) : []);
 export const subProgress = (t) => { const s = subsOf(t); return { done: s.filter((x) => x.done).length, total: s.length }; };
 const newId = () => Date.now() + Math.floor(Math.random() * 1e5);
@@ -25,7 +28,7 @@ export function useSubtaskOps() {
   const { upTask, me } = useUpTask();
   const edit = (t, fn) => upTask(t.propId, t.id, (x) => withSubs(x, fn(subsOf(x)), me));
   return {
-    toggle: (t, sid) => edit(t, (s) => s.map((x) => (x.id !== sid ? x : x.done ? { ...x, done: false, doneAt: null, doneBy: null } : { ...x, done: true, doneAt: new Date().toISOString(), doneBy: me || "" }))),
+    toggle: (t, sid) => edit(t, (s) => s.map((x) => (x.id !== sid ? x : x.done ? { ...x, done: false, doneAt: null, doneBy: null, qb: null } : { ...x, done: true, doneAt: new Date().toISOString(), doneBy: me || "" }))),
     add: (t, text) => { const v = String(text || "").trim(); if (v) edit(t, (s) => [...s, { id: newId(), text: v, done: false }]); },
     remove: (t, sid) => edit(t, (s) => s.filter((x) => x.id !== sid)),
   };
@@ -81,11 +84,20 @@ export function ChecklistSection({ task, sec, h6, onItemMsg, activeTag, activeFi
   return (
     <div style={sec}>
       <div style={{ ...h6, display: "flex", justifyContent: "space-between" }}><span>Checklist</span>{total > 0 && <span>{done} of {total} done</span>}</div>
-      {subs.map((s, i) => (
-        <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 42, borderTop: i ? `1px solid ${T.border}` : "none" }}>
+      {subs.map((s, i) => {
+        const newGroup = s.group && s.group !== (subs[i - 1] || {}).group;
+        const late = s.late && !s.done;
+        return (
+        <div key={s.id}>
+        {newGroup && <div style={{ fontSize: 11, fontWeight: 700, color: T.textTert, letterSpacing: "0.05em", textTransform: "uppercase", margin: i ? "10px 0 2px" : "2px 0 2px" }}>{s.group}</div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 42, borderTop: i && !newGroup ? `1px solid ${T.border}` : "none" }}>
           <SubCircle done={s.done} onToggle={() => ops.toggle(task, s.id)} size={22} />
-          <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, color: s.done ? T.textTert : T.text, textDecoration: s.done ? "line-through" : "none", wordBreak: "break-word" }}>{s.text}</span>
-          {s.done && s.doneBy && <span style={{ fontSize: 11.5, color: T.textSub, whiteSpace: "nowrap" }}>{first(s.doneBy)}{s.doneAt ? ` · ${shortDate(s.doneAt)}` : ""}</span>}
+          <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, color: late ? "#C4170C" : s.done ? T.textTert : T.text, textDecoration: s.done && !s.qb ? "line-through" : "none", wordBreak: "break-word" }}>
+            {s.text}
+            {s.qb && <span style={{ display: "block", fontSize: 11.5, color: "#1E7B3C", marginTop: 1 }}><span style={{ fontSize: 9.5, fontWeight: 800, color: "#fff", background: "#2CA01C", borderRadius: 4, padding: "0 4px", marginRight: 4 }}>QB</span>{qbLine(s)}</span>}
+            {late && <span style={{ display: "block", fontSize: 11.5, color: "#C4170C", fontWeight: 600, marginTop: 1 }}>Late — no payment seen by the 5th</span>}
+          </span>
+          {s.done && s.doneBy && !s.qb && <span style={{ fontSize: 11.5, color: T.textSub, whiteSpace: "nowrap" }}>{first(s.doneBy)}{s.doneAt ? ` · ${shortDate(s.doneAt)}` : ""}</span>}
           {onItemMsg && (() => {
             const n = msgCount(s.id), tagged = activeTag === s.id, filtered = activeFilter === s.id;
             return (
@@ -99,7 +111,9 @@ export function ChecklistSection({ task, sec, h6, onItemMsg, activeTag, activeFi
           })()}
           <button onClick={() => { if (window.confirm(`Remove "${s.text}" from the checklist?`)) ops.remove(task, s.id); }} aria-label={`Remove ${s.text}`} style={{ width: 32, height: 32, minHeight: 32, border: "none", background: "none", color: T.textTert, fontSize: 14, cursor: "pointer", flexShrink: 0 }}>✕</button>
         </div>
-      ))}
+        </div>
+        );
+      })}
       {adding ? (
         <div style={{ display: "flex", gap: 8, alignItems: "center", minHeight: 44, borderTop: total ? `1px solid ${T.border}` : "none", paddingTop: total ? 6 : 0 }}>
           <input autoFocus value={txt} onChange={(e) => setTxt(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") { setAdding(false); setTxt(""); } }} placeholder="New item…"

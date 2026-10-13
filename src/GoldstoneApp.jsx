@@ -6427,9 +6427,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
         {tab==="Tasks"&&(()=>{
           const allTasks=property.tasks||[];
           const tasks=allTasks.filter(t=>!t.deleted);
-          const done=tasks.filter(t=>t.status==="Completed").length;
-          const inProg=tasks.filter(t=>t.status==="In Progress").length;
-          const na=tasks.filter(t=>t.status==="N/A").length;
+          const done=tasks.filter(t=>taskIsDone(t)).length;
           const total=tasks.length;
           const pct=total>0?Math.round((done/total)*100):0;
           return(
@@ -6450,7 +6448,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
                   <div style={{height:"100%",borderRadius:5,background:`linear-gradient(90deg,${T.green},#22C55E)`,width:`${pct}%`,transition:"width 0.4s"}}/>
                 </div>
                 <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
-                  {[["Completed",done,T.green],["In Progress",inProg,T.orange],["N/A",na,T.textTert],["Remaining",total-done-inProg-na,T.textSub]].map(([l,v,c])=>(
+                  {[["Completed",done,T.green],["Open",total-done,T.textSub]].map(([l,v,c])=>(
                     <div key={l} style={{fontSize:12,color:c}}><span style={{fontWeight:700}}>{v}</span> {l}</div>
                   ))}
                 </div>
@@ -7526,50 +7524,6 @@ function DoerAvatar({assignee,delegate,size=24}){
 
 // Custom status picker — colored options + a red Delete at the bottom (native
 // <select> can't color options on iOS, and we want a Delete action in here).
-function TaskStatusPicker({value,onChange,onDelete,small,dim,urgent,onUrgent}){
-  const[open,setOpen]=useState(false);
-  const[pos,setPos]=useState({top:0,left:0});
-  const btnRef=useRef(null);
-  const isMobile=useIsMobile();
-  const sc=TASK_STATUS_COLORS[value]||TASK_STATUS_COLORS["Not Started"];
-  const MENU_W=180,MENU_H=onUrgent?300:250;
-  const openMenu=()=>{
-    const r=btnRef.current?.getBoundingClientRect();
-    const vw=typeof window!=="undefined"?window.innerWidth:360;
-    const vh=typeof window!=="undefined"?window.innerHeight:640;
-    if(r){
-      const left=Math.max(8,Math.min(r.right-MENU_W,vw-MENU_W-8));
-      const top=(r.bottom+MENU_H>vh)?Math.max(8,r.top-MENU_H-4):r.bottom+4; // flip up near bottom
-      setPos({top,left});
-    }
-    setOpen(true);
-  };
-  return(
-    <div style={{flexShrink:0}}>
-      {/* dim fades ONLY the pill — the fixed menu below must never inherit
-          opacity (an ancestor's opacity ghosts it gray and glitchy). */}
-      <button ref={btnRef} onClick={()=>open?setOpen(false):openMenu()} style={{boxSizing:"border-box",WebkitAppearance:"none",appearance:"none",lineHeight:1,height:small?20:22,padding:small?"0 9px":"0 11px",background:sc.bg,color:sc.color,border:"none",borderRadius:20,fontSize:small?10.5:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap",opacity:dim?0.55:1}}>{value||"Not Started"}<span style={{fontSize:10.5,opacity:0.7}}>▾</span></button>
-      {open&&createPortal(<>
-        {/* Portaled to <body>: position:fixed breaks inside glassed popups —
-            backdrop-filter turns the sheet into the containing block, so a
-            nested fixed menu lands inside the card (clipped, invisible).
-            Rendering at the body keeps viewport coordinates honest. */}
-        <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:490}}/>
-        <div style={{position:"fixed",top:pos.top,left:pos.left,width:MENU_W,zIndex:500,background:"#fff",border:`1px solid ${T.border}`,borderRadius:T.radiusSm,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",padding:4,maxHeight:MENU_H,overflowY:"auto"}}>
-          {TASK_STATUSES.map(s=>{const c=TASK_STATUS_COLORS[s];return(
-            <button key={s} onClick={()=>{onChange(s);setOpen(false);}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:7,border:"none",background:s===value?c.bg:"transparent",color:c.color,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
-              <span style={{width:8,height:8,borderRadius:"50%",background:c.color,flexShrink:0}}/>{s}
-            </button>
-          );})}
-          <div style={{borderTop:`1px solid ${T.border}`,margin:"4px 6px"}}/>
-          {onUrgent&&<button onClick={()=>{setOpen(false);onUrgent(!urgent);}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:7,border:"none",background:urgent?"#FFF5F4":"transparent",color:URGENT_TEXT,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>🚨 {urgent?"Not urgent anymore":"Mark urgent"}</button>}
-          <button onClick={()=>{setOpen(false);onDelete();}} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:7,border:"none",background:"transparent",color:T.red,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>🗑 Delete</button>
-        </div>
-      </>,document.body)}
-    </div>
-  );
-}
-
 // ─── Task Row (module level to avoid React #31) ───────────────────────────────
 // iOS-style swipe-left → red Delete button. Touch-driven; optional `confirm`
 // text shows an are-you-sure popup before actually deleting.
@@ -7589,9 +7543,12 @@ function SwipeToDelete({onDelete,confirm,children,style={}}){
   const doDelete=()=>{setDx(0);if(confirm)setAsk(true);else onDelete();};
   return(
     <div style={{position:"relative",overflow:"hidden",...style}}>
-      <div style={{position:"absolute",top:0,right:0,bottom:0,width:W,display:"flex"}}>
+      {/* Only there while swiped (Elie 10/13/26): the dashboard's glass cards
+          are see-through, so a resting red Delete underlay showed through as
+          a red band on the right of every row. */}
+      {dx<0&&<div style={{position:"absolute",top:0,right:0,bottom:0,width:W,display:"flex"}}>
         <button onClick={doDelete} style={{flex:1,border:"none",background:T.red,color:"#fff",fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
-      </div>
+      </div>}
       {/* transform only while swiped — a resting transform would break any
           position:fixed popups rendered inside the row. No z-index either: it
           would trap those popups in this row's stacking context, letting later
@@ -7616,11 +7573,10 @@ function SwipeToDelete({onDelete,confirm,children,style={}}){
   );
 }
 
-function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onNavigate,currentUser,selectMode,selected,onToggleSelect,compact,stripe,grid,emph,faded}){
+function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onNavigate,currentUser,selectMode,selected,onToggleSelect,compact,stripe,grid,emph,faded,onOpen}){
   const isMobile=useIsMobile();
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
-  const msgCount=(t.messages||[]).length;
   // The red number = messages YOU haven't read (matches the property-row
   // bubble on the Dashboard). A read-up chat keeps the quiet blue bubble.
   const msgUnread=currentUser?(t.messages||[]).filter(m=>isUnreadForUser(m,currentUser)).length:0;
@@ -7644,15 +7600,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   const saveEdit=()=>{const v=draft.trim();if(v&&v!==(t.text||"")&&onRename)onRename(t.propId,t.id,v);setEditing(false);};
   const closeViewer=()=>{setViewer(false);setEditing(false);};
   const pBtn=(primary)=>({padding:"9px 18px",borderRadius:T.radiusSm,border:primary?"none":`1px solid ${T.border}`,background:primary?T.gold:"#fff",color:primary?"#fff":T.textSub,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"});
-  const circleBtn=(active)=>({boxSizing:"border-box",lineHeight:1,background:active?"#EBF4FF":"#fff",border:`1px solid ${active?T.blue:T.border}`,borderRadius:"50%",width:D,height:D,minWidth:D,maxWidth:D,flex:`0 0 ${D}px`,alignSelf:"center",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:compact?11:12,color:active?T.blue:T.textTert});
   const fadeBit=faded?{opacity:0.55}:{};
-  const contactBtnEl=(
-    <div role="button" onClick={()=>onContact(t)} title={t.taskContact?`Contact: ${t.taskContact.name||""}`:"Link a contact"}
-      style={{...circleBtn(!!t.taskContact),...fadeBit}}>{t.taskContact?.kind==="company"?"🏢":(t.taskContact?.name?.[0]||"👤")}</div>
-  );
-  const msgBtnEl=(
-    <div role="button" onClick={()=>onMessage(t)} title="Messages" style={{position:"relative",...circleBtn(!!msgCount),...fadeBit}}><TeamChatIcon size={13}/>{msgUnread>0&&<span style={{position:"absolute",top:-5,right:-5,background:T.red,color:"#fff",fontSize:10.5,fontWeight:700,borderRadius:8,minWidth:13,height:13,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 2px"}}>{msgUnread}</span>}</div>
-  );
   const selBox=selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:18,height:18,flexShrink:0,cursor:"pointer",accentColor:T.gold}}/>;
   // Address + property status are already shown in the group header above, so the
   // row omits them and just carries the task itself. Compact Monday-style layout:
@@ -7710,58 +7658,68 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   ):null;
   // Excel-style spreadsheet row (desktop compact view): aligned columns —
   // Task | Property | Who | chat | Status — sharing the same popups/handlers.
-  if(grid){
-    const isOfficeRow=String(t.propId)===OFFICE_TASK_PID;
-    const whoTip=t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate";
+  // ✅ Open / completed only (Elie 10/13/26): a circle to complete, tap the
+  // task for the multifunctional pop-up (status, urgent, who, contact, messages).
+  const openIt=()=>{if(onOpen)onOpen(t);else setViewer(true);};
+  const doneC=(size=22)=>(
+    <button onClick={(e)=>{e.stopPropagation();onStatusChange(t.propId,t.id,dim?"Not Started":"Completed");}} aria-label={dim?"Reopen task":"Mark complete"} title={dim?"Reopen":"Mark complete"}
+      style={{width:size,height:size,minWidth:size,borderRadius:"50%",border:dim?"none":`1.6px solid ${urg?URGENT_RED:"#C7C7CC"}`,background:dim?"#34C759":"transparent",color:"#fff",fontSize:size*0.55,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0,fontFamily:"inherit"}}>{dim?"✓":""}</button>
+  );
+  const unreadEl=msgUnread>0?<span title={`${msgUnread} new message${msgUnread===1?"":"s"}`} style={{minWidth:20,height:20,padding:"0 6px",borderRadius:10,background:T.red,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxSizing:"border-box"}}>{msgUnread}</span>:null;
+  const first=(n)=>String(n||"").split(" ")[0];
+  const whoTxt=t.assignee?(t.delegate?`${first(t.assignee)} → ${first(t.delegate)}`:first(t.assignee)):"—";
+  const isOfficeRow=String(t.propId)===OFFICE_TASK_PID;
+  const addr=isOfficeRow?"Company":(t.propAddr||"");
+  const titleEl=(
+    <span style={{minWidth:0,display:"flex",alignItems:"center",gap:5}}>
+      {urg&&<UrgentTag style={{flexShrink:0}}/>}
+      <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:grid==="mobile"?15:13.5,fontWeight:grid==="mobile"?600:urg||emph?650:500,color:(dim||faded)?T.textTert:urg?URGENT_TEXT:T.text,textDecoration:dim?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
+      {t.autoId&&<span style={{flexShrink:0,fontSize:10,fontWeight:700,color:"#8a6d1f",background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:6,padding:"0 5px"}}>AUTO</span>}
+    </span>
+  );
+  // Spreadsheet rows (desktop grid / phone two-line rows).
+  if(grid==="mobile"){
     return(
       <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
-      <div style={{display:"grid",gridTemplateColumns:grid,columnGap:8,alignItems:"center",padding:"5px 12px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
-        {selectMode&&<input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(t)} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>}
-        <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
-          {urg&&<UrgentTag style={{flexShrink:0}}/>}
-          <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:urg?650:500,color:dim?T.textTert:urg?URGENT_TEXT:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
-          {t.autoId&&<span style={{flexShrink:0,fontSize:10.5,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
-        </span>
-        <span onClick={()=>!isOfficeRow&&onNavigate&&t.propId&&onNavigate(t.propId)} title={isOfficeRow?undefined:"Open this property"} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11.5,color:T.textSub,cursor:isOfficeRow?"default":"pointer"}}>{isOfficeRow?"Company":(t.propAddr||"")}</span>
-        <span style={{display:"flex",alignItems:"center",justifyContent:"center",whiteSpace:"nowrap",minWidth:0}}>
-          {/* One circle per row (the DOER) so the column lines up perfectly; a
-              tiny corner badge shows the owner when the task is delegated. */}
-          <button onClick={()=>onAssign&&onAssign(t)} title={whoTip} style={{background:"none",border:"none",padding:0,cursor:"pointer",position:"relative",display:"inline-flex",flexShrink:0}}>
-            <DoerAvatar assignee={t.assignee} delegate={t.delegate} size={22}/>
-          </button>
-        </span>
-        {msgBtnEl}
-        <span style={{justifySelf:"end"}}><TaskStatusPicker small value={t.status||"Not Started"} onChange={(st)=>onStatusChange(t.propId,t.id,st)} onDelete={()=>onDelete(t.propId,t.id)} urgent={!!t.urgent} onUrgent={(on)=>setUrgent(t,on)}/></span>
-        {viewerEl}
+      <div onClick={openIt} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",minHeight:58,borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:urg?"#FFF5F4":T.card,cursor:"pointer"}}>
+        {selectMode?<input type="checkbox" checked={!!selected} onClick={e=>e.stopPropagation()} onChange={()=>onToggleSelect(t)} style={{width:20,height:20,accentColor:T.gold,flexShrink:0}}/>:doneC(22)}
+        <div style={{flex:1,minWidth:0}}>
+          {titleEl}
+          <div style={{fontSize:12.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{addr}{t.delegate?` · → ${first(t.delegate)}`:""}</div>
+        </div>
+        {unreadEl}
+        <DoerAvatar assignee={t.assignee} delegate={t.delegate} size={24}/>
       </div>
       </SwipeToDelete>
+    );
+  }
+  if(grid){
+    return(
+      <div onClick={openIt} style={{display:"grid",gridTemplateColumns:grid,columnGap:12,alignItems:"center",padding:"0 16px",minHeight:44,borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:urg?"#FFF5F4":T.card,cursor:"pointer"}}>
+        {selectMode?<input type="checkbox" checked={!!selected} onClick={e=>e.stopPropagation()} onChange={()=>onToggleSelect(t)} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>:doneC(20)}
+        {titleEl}
+        <span onClick={(e)=>{if(!isOfficeRow&&onNavigate&&t.propId){e.stopPropagation();onNavigate(t.propId);}}} title={isOfficeRow?undefined:"Open this property"} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12.5,color:T.textSub}}>{addr}</span>
+        <span style={{display:"flex",alignItems:"center",gap:6,minWidth:0,fontSize:12.5,color:T.textSub}}><DoerAvatar assignee={t.assignee} delegate={t.delegate} size={22}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{whoTxt}</span></span>
+        <span style={{justifySelf:"end",display:"flex"}}>{unreadEl||<span style={{color:"#C7C7CC",fontSize:16}}>›</span>}</span>
+      </div>
     );
   }
   return(
     <SwipeToDelete onDelete={()=>onDelete&&onDelete(t.propId,t.id)}>
     {/* `faded` dims the PIECES, never the row container — opacity on the row
-        creates a stacking context that ghosts the status picker's fixed menu
-        (grayed and unclickable). Text goes tertiary, buttons drop to 0.55,
-        and every control stays fully usable. */}
-    <div style={{display:"flex",alignItems:"center",gap:compact?8:isMobile?8:10,padding:compact?"5px 12px":isMobile?"5px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
-      {selBox}
-      {/* The AUTO pill sits OUTSIDE the truncating text so a long title can't clip it. */}
-      <span onClick={()=>setViewer(true)} title="Tap to read the full task" style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
-        {urg&&<UrgentTag style={{flexShrink:0}}/>}
-        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,fontWeight:urg?700:emph?700:500,color:(dim||faded)?T.textTert:urg?URGENT_TEXT:T.text,textDecoration:t.status==="Completed"?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
-        {t.autoId&&<span style={{flexShrink:0,fontSize:10.5,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",textTransform:"uppercase"}}>auto</span>}
-      </span>
+        creates a stacking context that ghosts any fixed menu. */}
+    <div style={{display:"flex",alignItems:"center",gap:compact?8:isMobile?8:10,padding:compact?"5px 12px":isMobile?"7px 12px":"8px 16px",borderTop:`1px solid ${T.border}`,background:selected?T.goldLight:stripe?T.gold+"12":"#fff"}}>
+      {selectMode?selBox:doneC(isMobile?22:20)}
+      <span onClick={openIt} title="Tap for the task — complete, urgent, who, contact, messages" style={{flex:1,minWidth:0,cursor:"pointer"}}>{titleEl}</span>
       {t.delegate&&t.delegate===currentUser&&t.assignee
-        ? <span title={`You're doing this for ${t.assignee}`} style={{fontSize:10,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>for {t.assignee.split(" ")[0]}</span>
+        ? <span title={`You're doing this for ${t.assignee}`} style={{fontSize:10.5,color:T.textTert,flexShrink:0,whiteSpace:"nowrap"}}>for {first(t.assignee)}</span>
         : (t.delegate&&t.assignee===currentUser)
-          ? <span title={`You delegated this to ${t.delegate}`} style={{fontSize:10,color:T.blue,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>to {t.delegate.split(" ")[0]}</span>
+          ? <span title={`You delegated this to ${t.delegate}`} style={{fontSize:10.5,color:T.blue,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>to {first(t.delegate)}</span>
           : null}
-      <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:2,flexShrink:0,...fadeBit}}>
+      {unreadEl}
+      <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",flexShrink:0,...fadeBit}}>
         <DoerAvatar assignee={t.assignee} delegate={t.delegate} size={D}/>
       </button>
-      {contactBtnEl}
-      {msgBtnEl}
-      <TaskStatusPicker small={compact} dim={faded} value={t.status||"Not Started"} onChange={(s)=>onStatusChange(t.propId,t.id,s)} onDelete={()=>onDelete(t.propId,t.id)} urgent={!!t.urgent} onUrgent={(on)=>setUrgent(t,on)}/>
     </div>
     {viewerEl}
     </SwipeToDelete>
@@ -7910,7 +7868,9 @@ function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
 }
 
 // In-app messages/notes on a single task.
-function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMembers,onSend,onClose,templates:templatesProp,saveFolder=null}){
+// The task conversation itself (list + composer) — shared by the Messages
+// popup and the task pop-up (Elie 10/13/26).
+function TaskMessagesBody({title,task,contacts=[],messages,currentUser,teamMembers,onSend,templates:templatesProp,saveFolder=null,listStyle}){
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   // Templates address + notify a chosen teammate. When a task is delegated, the
   // owner (assignee) and the person doing the work (delegate) differ — let the
@@ -7937,14 +7897,8 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
     recipient?`The message is addressed to: ${recipient}`:"",
     messages.length?`Recent messages:\n${messages.slice(-6).map(m=>`${m.author||"—"}: ${m.text}`).join("\n")}`:"",
   ].filter(Boolean).join("\n");
-  return(
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(520px,94vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
-        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{minWidth:0}}><div style={{fontSize:15,fontWeight:700,color:T.text}}>Messages</div><div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div></div>
-          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
-        </div>
-        <div style={{flex:1,overflowY:"auto",padding:"12px 16px",display:"flex",flexDirection:"column",gap:10,minHeight:120}}>
+  return(<>
+        <div style={{flex:1,overflowY:"auto",padding:"12px 16px",display:"flex",flexDirection:"column",gap:10,minHeight:120,...(listStyle||{})}}>
           {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"24px 0"}}>No messages yet. Leave a note for your team below.</div>}
           {messages.map(m=>{const mine=m.author===currentUser;return(
             <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
@@ -7971,9 +7925,117 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
           )}
           <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn)} people={teamMembers} currentUser={currentUser} placeholder="Write a message…" templates={templates} defaultMention={dm} aiContext={aiCtx} filesFolder={saveFolder}/>
         </div>
+  </>);
+}
+function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMembers,onSend,onClose,templates,saveFolder=null}){
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:"min(520px,94vw)",maxHeight:"84vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.2)",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{minWidth:0}}><div style={{fontSize:15,fontWeight:700,color:T.text}}>Messages</div><div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div></div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <TaskMessagesBody title={title} task={task} contacts={contacts} messages={messages} currentUser={currentUser} teamMembers={teamMembers} onSend={onSend} templates={templates} saveFolder={saveFolder}/>
       </div>
     </div>
   );
+}
+
+// ── ✅ The task pop-up (Elie approved 10/13/26) ─────────────────────────────
+// One multifunctional window for a task, opened by tapping a task in ANY task
+// view (spreadsheet, by property, boxes, the property page): ✓ Mark complete
+// / Reopen · 🚨 Urgent, who's doing it (Change → assign & delegate), the
+// contact for the task (Call · Text · Email · Change → the contact card), and
+// the task's messages with the composer. Tasks are just open or completed now
+// (no Not started / In progress / N/A). Desktop: a centered window; phones: a
+// bottom sheet. Sits under the assign / contact popups it opens (z 290).
+const taskIsDone=(t)=>!!t&&(t.status==="Completed"||t.status==="N/A");
+function TaskPopup({task,isMobile,currentUser,teamMembers,contacts=[],saveFolder=null,onClose,onComplete,onDelete,onRename,onAssign,onContact,onSend,onNavigate}){
+  const setUrgent=useSetTaskUrgent();
+  const[editing,setEditing]=useState(false);
+  const[draft,setDraft]=useState(task?.text||"");
+  useEffect(()=>{setDraft(task?.text||"");},[task?.text]);
+  if(!task)return null;
+  const done=taskIsDone(task);
+  const urg=!!task.urgent&&!done;
+  const isOfficeT=String(task.propId)===OFFICE_TASK_PID;
+  const tc=task.taskContact||null;
+  const person=tc&&tc.kind!=="company"?(contacts.find(c=>c.id===tc.id)||contacts.find(c=>(c.name||"").toLowerCase()===(tc.name||"").toLowerCase())||normContact(tc)):null;
+  const phone=person?((person.phones||[])[0]||{}).number||"":"";
+  const email=person?person.email||"":"";
+  const first=(n)=>String(n||"").split(" ")[0];
+  const sec={background:T.card,borderRadius:14,padding:"10px 12px",margin:"0 14px 10px"};
+  const h6={fontSize:12,fontWeight:600,color:T.textSub,margin:"0 0 6px"};
+  const mini={minHeight:34,padding:"0 12px",borderRadius:17,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5,textDecoration:"none",whiteSpace:"nowrap"};
+  const saveTitle=()=>{const v=draft.trim();if(v&&v!==(task.text||"")&&onRename)onRename(task.propId,task.id,v);setEditing(false);};
+  const body=(
+    <div onClick={e=>e.stopPropagation()} style={{background:T.bg,width:isMobile?"100%":"min(520px,94vw)",maxHeight:isMobile?"92vh":"90vh",borderRadius:isMobile?"28px 28px 0 0":22,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      {isMobile&&<div style={{width:36,height:5,borderRadius:3,background:"rgba(60,60,67,0.3)",margin:"8px auto 0",flexShrink:0}}/>}
+      <div style={{overflowY:"auto",overscrollBehavior:"contain",paddingBottom:"max(10px,env(safe-area-inset-bottom))"}}>
+        <div style={{display:"flex",alignItems:"flex-start",gap:10,padding:"14px 16px 10px"}}>
+          <div style={{flex:1,minWidth:0}}>
+            {editing?(
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <textarea autoFocus value={draft} onChange={e=>setDraft(e.target.value)} rows={3} style={{width:"100%",boxSizing:"border-box",padding:"9px 11px",borderRadius:12,border:`1px solid ${T.border}`,fontSize:16,fontFamily:"inherit",resize:"vertical",outline:"none",lineHeight:1.4}}/>
+                <div style={{display:"flex",gap:6}}><button onClick={()=>setEditing(false)} style={mini}>Cancel</button><button onClick={saveTitle} style={{...mini,background:T.gold,color:"#fff",border:"none"}}>Save</button></div>
+              </div>
+            ):(
+              <div onClick={()=>onRename&&setEditing(true)} title="Tap to edit" style={{fontSize:19,fontWeight:700,color:done?T.textTert:urg?URGENT_TEXT:T.text,lineHeight:1.25,cursor:onRename?"text":"default",textDecoration:done?"line-through":"none",wordBreak:"break-word"}}>
+                {urg&&<UrgentTag style={{marginRight:6,verticalAlign:2}}/>}{task.text||"(untitled task)"}{task.autoId&&<span style={{marginLeft:6,fontSize:10.5,fontWeight:700,background:T.gold,color:"#fff",borderRadius:8,padding:"1px 5px",verticalAlign:2}}>AUTO</span>}
+              </div>
+            )}
+            <button onClick={()=>{if(!isOfficeT&&onNavigate&&task.propId){onClose();onNavigate(task.propId);}}} disabled={isOfficeT||!onNavigate} style={{marginTop:3,padding:0,border:"none",background:"none",fontSize:13.5,color:T.textSub,cursor:isOfficeT||!onNavigate?"default":"pointer",fontFamily:"inherit",textAlign:"left"}}>{isOfficeT?"🏢 Company task":`🏠 ${task.propAddr||"Property"}${onNavigate?" ›":""}`}</button>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{width:44,height:44,margin:"-6px -8px 0 0",border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
+            <span style={{width:30,height:30,borderRadius:15,background:"rgba(118,118,128,0.12)",color:T.textSub,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>✕</span>
+          </button>
+        </div>
+        {/* ✓ complete · 🚨 urgent */}
+        <div style={{...sec,display:"flex",gap:8,padding:8}}>
+          <button onClick={()=>onComplete(task,!done)} style={{flex:1,minHeight:46,borderRadius:12,border:"none",background:done?"rgba(118,118,128,0.12)":"#34C759",color:done?T.text:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>{done?"↺ Reopen":"✓ Mark complete"}</button>
+          {!done&&<button onClick={()=>setUrgent(task,!urg)} aria-pressed={urg} style={{flex:1,minHeight:46,borderRadius:12,border:`1.5px solid ${urg?URGENT_RED:T.border}`,background:urg?"#FFE9E7":"#fff",color:urg?URGENT_TEXT:T.text,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>🚨 {urg?"Urgent · on":"Mark urgent"}</button>}
+        </div>
+        {/* who */}
+        <div style={sec}>
+          <div style={h6}>Who's doing it</div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <DoerAvatar assignee={task.assignee} delegate={task.delegate} size={30}/>
+            <div style={{flex:1,minWidth:0,fontSize:14.5,color:T.text}}>
+              {task.assignee?<>{task.delegate?`${first(task.delegate)} (for ${first(task.assignee)})`:task.assignee}<div style={{fontSize:12,color:T.textSub}}>{task.delegate?`Owner ${task.assignee} · delegated to ${task.delegate}`:"Owner"}</div></>:<span style={{color:T.textTert}}>Nobody yet</span>}
+            </div>
+            <button onClick={()=>onAssign(task)} style={mini}>{task.assignee?"Change":"Assign"}</button>
+          </div>
+        </div>
+        {/* contact */}
+        <div style={sec}>
+          <div style={h6}>Contact for this task</div>
+          {tc?(<>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{width:30,height:30,borderRadius:15,background:"#3E6DB5",color:"#fff",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{tc.kind==="company"?"🏢":String(tc.name||"?").split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase()}</span>
+              <div style={{flex:1,minWidth:0,fontSize:14.5,color:T.text}}>{tc.name||"Contact"}<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[phone,email].filter(Boolean).join(" · ")||(tc.kind==="company"?"Company":"")}</div></div>
+            </div>
+            <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+              {phone&&<a href={`tel:${String(phone).replace(/[^\d+]/g,"")}`} style={mini}>📞 Call</a>}
+              <button onClick={()=>onContact(task)} style={mini}>💬 Text</button>
+              <button onClick={()=>onContact(task)} style={mini}>✉️ Email</button>
+              <button onClick={()=>onContact(task)} style={{...mini,marginLeft:"auto"}}>Change</button>
+            </div>
+          </>):(
+            <button onClick={()=>onContact(task)} style={{...mini,width:"100%",justifyContent:"center",minHeight:40}}>＋ Link a contact</button>
+          )}
+        </div>
+        {/* messages */}
+        <div style={{...sec,padding:"8px 4px 6px"}}>
+          <div style={{...h6,padding:"2px 8px 0"}}>Messages{(task.messages||[]).filter(m=>isUnreadForUser(m,currentUser)).length?` · ${(task.messages||[]).filter(m=>isUnreadForUser(m,currentUser)).length} new`:""}</div>
+          <TaskMessagesBody title={task.text||"Task"} task={task} contacts={contacts} messages={task.messages||[]} currentUser={currentUser} teamMembers={teamMembers} onSend={onSend} saveFolder={saveFolder} listStyle={{maxHeight:isMobile?220:260,minHeight:40,padding:"8px 8px",flex:"0 1 auto"}}/>
+        </div>
+        <button onClick={()=>{if(window.confirm("Delete this task?")){onDelete(task.propId,task.id);onClose();}}} style={{display:"block",margin:"2px auto 8px",minHeight:40,padding:"0 16px",border:"none",background:"none",color:T.red,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Delete task</button>
+      </div>
+    </div>
+  );
+  return createPortal(
+    <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:290,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:16,boxSizing:"border-box"}}>{body}</div>,
+    document.body);
 }
 
 // Small inline "✨ AI draft" row for any text/email box: type (or dictate with the
@@ -8727,6 +8789,8 @@ function PropertyTaskList({property}){
   const[contactTarget,setContactTarget]=useState(null);
   const[msgTarget,setMsgTarget]=useState(null);
   const[assignTarget,setAssignTarget]=useState(null);
+  const[popId,setPopId]=useState(null); // ✅ the task pop-up (Elie 10/13/26)
+  const isMobileP=useIsMobile();
 
   const updateTaskStatus=(pid,tid,status)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===tid?(status==="Completed"?{...t,status,completedAt:new Date().toISOString(),completedBy:CURRENT_USER}:{...t,status,completedAt:null,completedBy:null}):t)}));
   const updateTaskText=(pid,tid,text)=>{const v=(text||"").trim();if(!v)return;setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(t=>t.id===tid?{...t,text:v}:t)}));};
@@ -8749,6 +8813,8 @@ function PropertyTaskList({property}){
   const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg=urgentMark({id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}); if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",att:attachment,body:`${CURRENT_USER}: ${t||attLabel(attachment)}`,tag:`task-${tid}`,url:`/?goto=chat:${pid}`}); } };
   const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
   useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+  const popTask=popId!=null?rows.find(t=>t.id===popId):null;
+  useEffect(()=>{if(popTask)markTaskRead(propId,popTask.id);},[popId,popTask&&(popTask.messages||[]).length]); // eslint-disable-line react-hooks/exhaustive-deps
   const addTask=(text)=>{const t=(text||"").trim();if(!t)return;setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:[...(p.tasks||[]),{id:Date.now(),text:t,status:"Not Started",assignee:CURRENT_USER,assignedAt:Date.now(),assignedBy:CURRENT_USER}]}));};
   // Contractor tasks, auto-scoped: only companies with a job ON THIS PROPERTY show
   // here — delegate straight to them, no picking through your whole contractor list.
@@ -8833,7 +8899,10 @@ function PropertyTaskList({property}){
       {/* Rows — same TaskRow as the Tasks tab */}
       <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden"}}>
         {rows.length===0&&<div style={{padding:"22px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No tasks yet. Add one below, or set up a rule in <strong>Settings → Automations</strong> to create tasks automatically.</div>}
-        {rows.filter(t=>t.status!=="Completed").map(t=><TaskRow key={t.id} t={t} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setContactTarget} onMessage={setMsgTarget} onAssign={setAssignTarget} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
+        {popTask&&<TaskPopup task={popTask} isMobile={isMobileP} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} contacts={dir} saveFolder={live.filesFolder||null}
+          onClose={()=>setPopId(null)} onComplete={(t,done)=>updateTaskStatus(t.propId,t.id,done?"Completed":"Not Started")} onDelete={deleteTask} onRename={updateTaskText}
+          onAssign={(t)=>setAssignTarget(t)} onContact={(t)=>setContactTarget(t)} onSend={(txt,att,mn)=>addTaskMessage(propId,popTask.id,txt,att,mn)}/>}
+        {rows.filter(t=>!taskIsDone(t)).map(t=><TaskRow key={t.id} t={t} onOpen={(x)=>setPopId(x.id)} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setContactTarget} onMessage={setMsgTarget} onAssign={setAssignTarget} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
         <AddTaskInline onAdd={addTask}/>
         <div style={{padding:"0 12px 12px",display:"flex",flexDirection:"column",gap:8}}>
           <button onClick={()=>setAiTasksOpen(true)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"9px",borderRadius:T.radiusSm,border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#b8912e",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>✨ Let AI draft a task list</button>
@@ -8943,9 +9012,17 @@ function TasksPage({onNavigate}){
     }catch{/* no window */}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[sharedProps,taskTargetTick]);
-  // Phones can't show the spreadsheet — a saved "grid" pick falls back to the list there.
-  const byProp=taskViewMode==="byprop"||(isMobile&&taskViewMode==="grid");
-  const compact=!isMobile&&taskViewMode==="grid";
+  // The spreadsheet works on phones too now (Elie 10/13/26) — two-line rows.
+  const byProp=taskViewMode==="byprop";
+  const compact=taskViewMode==="grid";
+  // Spreadsheet filters: whose tasks (default just mine — remembered on the
+  // account), Open / Done, search.
+  const[sheetWho,setSheetWho]=useState(()=>{try{const v=JSON.parse(localStorage.getItem("tasksSheetWho")||"null");return Array.isArray(v)&&v.length?v:["me"];}catch{return ["me"];}});
+  useEffect(()=>{const pv=prefs&&prefs.tasksSheetWho;if(Array.isArray(pv)&&pv.length)setSheetWho(pv);},[prefs&&JSON.stringify(prefs.tasksSheetWho||null)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setSheetWhoSaved=(fn)=>setSheetWho(prev=>{const n=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("tasksSheetWho",JSON.stringify(n));}catch{/* ignore */}if(savePrefs)savePrefs({tasksSheetWho:n});return n;});
+  const[sheetDone,setSheetDone]=useState(false);
+  const[sheetQ,setSheetQ]=useState("");
+  const[whoOpen,setWhoOpen]=useState(false);
   // External (contractor) tasks show alongside internal ones, grouped by property.
   const { orgs:ctrOrgs, jobs:ctrJobs, tasks:ctrTasks, messages:ctrMessages, siteStatus:ctrSiteStatus, save:ctrSave, remove:ctrRemove } = useContractorData();
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
@@ -9094,8 +9171,8 @@ function TasksPage({onNavigate}){
   const[completedOpen,setCompletedOpen]=useState(false);
   const completedItems=useMemo(()=>{
     const out=[];
-    (sharedProps||[]).forEach(p=>(p.tasks||[]).forEach(t=>{if(t.status==="Completed")out.push({key:`${p.id}:${t.id}`,kind:"int",propId:p.id,taskId:t.id,text:t.text,propAddr:`${p.address||""}${p.city?`, ${p.city}`:""}`,assignee:t.assignee,delegate:t.delegate,doneBy:t.completedBy,doneAt:t.completedAt});}));
-    (officeTasks||[]).forEach(t=>{if(t.status==="Completed")out.push({key:`${OFFICE_TASK_PID}:${t.id}`,kind:"int",propId:OFFICE_TASK_PID,taskId:t.id,text:t.text,propAddr:"Office / General",assignee:t.assignee,delegate:t.delegate,doneBy:t.completedBy,doneAt:t.completedAt});});
+    (sharedProps||[]).forEach(p=>(p.tasks||[]).forEach(t=>{if(taskIsDone(t))out.push({key:`${p.id}:${t.id}`,kind:"int",propId:p.id,taskId:t.id,text:t.text,propAddr:`${p.address||""}${p.city?`, ${p.city}`:""}`,assignee:t.assignee,delegate:t.delegate,doneBy:t.completedBy,doneAt:t.completedAt});}));
+    (officeTasks||[]).forEach(t=>{if(taskIsDone(t))out.push({key:`${OFFICE_TASK_PID}:${t.id}`,kind:"int",propId:OFFICE_TASK_PID,taskId:t.id,text:t.text,propAddr:"Office / General",assignee:t.assignee,delegate:t.delegate,doneBy:t.completedBy,doneAt:t.completedAt});});
     const jobById=new Map((ctrJobs||[]).map(j=>[String(j.id),j]));
     (ctrTasks||[]).forEach(t=>{if(t.status!=="Completed")return;const job=jobById.get(String(t.jobId));if(!job)return;out.push({key:`ext:${t.id}`,kind:"ext",t,external:true,text:t.text,propAddr:job.propertyAddress||"",orgName:ctrOrgName(job.orgId),doneBy:t.doneBy||t.statusBy,doneAt:t.doneAt});});
     out.sort((a,b)=>String(b.doneAt||"").localeCompare(String(a.doneAt||"")));
@@ -9103,7 +9180,7 @@ function TasksPage({onNavigate}){
   },[sharedProps,officeTasks,ctrTasks,ctrJobs,ctrOrgs]); // eslint-disable-line react-hooks/exhaustive-deps
   const restoreCompleted=(it)=>{if(it.kind==="int")updateTaskStatus(it.propId,it.taskId,"Not Started");else ctrSave("contractor_tasks",{...it.t,status:"Not Started",statusBy:CURRENT_USER,doneAt:null,doneBy:null}).catch(()=>{});};
   const deleteCompleted=(it)=>{if(it.kind==="int")deleteTask(it.propId,it.taskId);else ctrRemove("contractor_tasks",it.t.id).catch(()=>{});};
-  const hideDone=(t)=>t.status==="Completed"&&!statusFilter.has("Completed");
+  const hideDone=(t)=>taskIsDone(t)&&!statusFilter.has("done");
   const extRequests=useMemo(()=>{
     const jobById=new Map((ctrJobs||[]).map(j=>[String(j.id),j]));
     return (ctrTasks||[]).filter(t=>t.direction==="to_team").map(t=>{
@@ -9141,6 +9218,8 @@ function TasksPage({onNavigate}){
   const[taskContactTarget,setTaskContactTarget]=useState(null);
   const[contactSearch,setContactSearch]=useState(""); // the task we're setting a contact for
   const[taskMsgTarget,setTaskMsgTarget]=useState(null); // task whose messages are open
+  const[taskPop,setTaskPop]=useState(null); // ✅ the task pop-up (Elie 10/13/26): {propId,id,propAddr}
+  const openTaskPop=(t)=>setTaskPop({propId:t.propId,id:t.id,propAddr:t.propAddr||""});
   const[msgAudience,setMsgAudience]=useState(null); // 💬 chooser: internal note vs a contractor thread
   const[taskAssignTarget,setTaskAssignTarget]=useState(null); // task we're delegating
   const[showAddTasks,setShowAddTasks]=useState(false); // bulk add-tasks popup
@@ -9194,6 +9273,7 @@ function TasksPage({onNavigate}){
     }));
   }
   useEffect(()=>{if(taskMsgTarget)markTaskRead(taskMsgTarget.propId,taskMsgTarget.id);},[taskMsgTarget]);// eslint-disable-line
+  useEffect(()=>{if(taskPop)markTaskRead(taskPop.propId,taskPop.id);},[taskPop&&taskPop.propId,taskPop&&taskPop.id,taskPop&&((findLiveTask(taskPop.propId,taskPop.id)||{}).messages||[]).length]);// eslint-disable-line
   // 💬 on a task: when contractors work that property, ask who the message is
   // for (internal vs a contractor's thread) instead of assuming internal.
   // Jobs match by property id OR by address text (older jobs weren't linked by
@@ -9322,21 +9402,21 @@ function TasksPage({onNavigate}){
   const combined=baseViews.length===0||views.has("all")?allTasks
     :[...new Map(baseViews.flatMap(v=>v==="my"?myTasks:v==="assigned"?assignedByMe:v==="member"?memberTasks:v==="unassigned"?unassignedTasks:[])
         .map(t=>[`${t.propId}-${t.cat}-${t.text}`,t])).values()];
-  const displayTasks=combined.filter(t=>statusFilter.size===0||statusFilter.has(t.status));
+  // Open / Done only (Elie 10/13/26) — "In progress" counts as open, "N/A" as done.
+  const displayTasks=combined.filter(t=>statusFilter.size===0||(statusFilter.has("done")&&taskIsDone(t))||(statusFilter.has("open")&&!taskIsDone(t)));
   const filteredDisplay=filterProps.size?displayTasks.filter(t=>filterProps.has(t.propAddr)):displayTasks;
   const togglePropFilter=(a)=>setFilterProps(p=>{const n=new Set(p);n.has(a)?n.delete(a):n.add(a);return n;});
   const propOptions=[...new Set(allTasks.map(t=>t.propAddr))].sort().map(a=>({value:a,label:a}));
   const showAutomations=views.has("automations");
 
   const bdr=`1px solid ${T.border}`;
-  const statusColors={...TASK_STATUS_COLORS};
+  const statusColors={...TASK_STATUS_COLORS,Open:TASK_STATUS_COLORS["Not Started"]};
 
   // ── Automation Builder ──────────────────────────────────────────────────────
   // automations + setAutomations now come from useData() (Supabase-backed).
   const[newAuto,setNewAuto]=useState({trigger:"Under Contract",tasks:[{text:"",assignTo:"",category:"Custom"}]});
 
-  const summaryByStatus={};
-  TASK_STATUSES.forEach(s=>summaryByStatus[s]=allTasks.filter(t=>t.status===s).length);
+  const summaryByStatus={Open:allTasks.filter(t=>!taskIsDone(t)).length,Completed:allTasks.filter(t=>taskIsDone(t)).length};
 
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",background:T.bg,overflow:"hidden"}}>
@@ -9394,6 +9474,16 @@ function TasksPage({onNavigate}){
         onInternal={()=>{setTaskMsgTarget(msgAudience.task);setMsgAudience(null);}}
         onExternal={(job)=>{setExtChat({task:msgAudience.task,job});setMsgAudience(null);}}
         onClose={()=>setMsgAudience(null)}/>}
+      {taskPop&&(()=>{
+        const live=findLiveTask(taskPop.propId,taskPop.id);
+        if(!live)return null;
+        const tk={...live,propId:taskPop.propId,propAddr:taskPop.propAddr};
+        return <TaskPopup task={tk} isMobile={isMobile} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} contacts={dir}
+          saveFolder={(sharedProps.find(p=>p.id===taskPop.propId)?.filesFolder)||null} onClose={()=>setTaskPop(null)}
+          onComplete={(t,done)=>updateTaskStatus(t.propId,t.id,done?"Completed":"Not Started")} onDelete={deleteTask} onRename={updateTaskText}
+          onAssign={(t)=>setTaskAssignTarget(t)} onContact={(t)=>setTaskContactTarget(t)} onNavigate={onNavigate}
+          onSend={(txt,att,mn)=>addTaskMessage(taskPop.propId,taskPop.id,txt,att,mn)}/>;
+      })()}
       {taskMsgTarget&&(()=>{
         const liveTask=findLiveTask(taskMsgTarget.propId,taskMsgTarget.id);
         return <TaskMessagesPopup title={taskMsgTarget.text||"Task"} task={liveTask||taskMsgTarget} saveFolder={(sharedProps.find(p=>p.id===taskMsgTarget.propId)?.filesFolder)||null} contacts={dir} messages={(liveTask||taskMsgTarget)?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS}
@@ -9417,14 +9507,14 @@ function TasksPage({onNavigate}){
           const toggleView=(k)=>setViews(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n;});
           const toggleStatus=(s)=>setStatusFilter(p=>{const n=new Set(p);n.has(s)?n.delete(s):n.add(s);return n;});
           // The By-property list ignores the task filters — show just the tallies.
-          if(byProp)return <div style={{fontSize:11,color:T.textSub}}>{summary||`${allTasks.length} tasks`}</div>;
+          if(byProp||compact)return <div style={{fontSize:11,color:T.textSub}}>{summary||`${allTasks.length} tasks`}</div>;
           return(
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               <div style={{display:"flex",gap:8}}>
                 <MultiSelect placeholder="All Tasks" selected={views} onToggle={toggleView}
                   options={[{value:"my",label:`My Tasks (${myTasks.length})`},{value:"assigned",label:`Delegated by Me (${assignedByMe.length})`},{value:"member",label:"By Team Member"},{value:"unassigned",label:`Unassigned (${unassignedTasks.length})`},{value:"all",label:"All Tasks"}]}/>
                 <MultiSelect placeholder="All statuses" selected={statusFilter} onToggle={toggleStatus}
-                  options={TASK_STATUSES.map(s=>({value:s,label:s}))}/>
+                  options={[{value:"open",label:"Open"},{value:"done",label:"Done"}]}/>
               </div>
               <div style={{display:"flex",gap:8}}>
                 <MultiSelect placeholder="All Properties" selected={filterProps} onToggle={togglePropFilter} options={propOptions}/>
@@ -9447,7 +9537,7 @@ function TasksPage({onNavigate}){
           <div style={{background:T.bg,color:T.textSub,fontSize:12.5,fontWeight:600,padding:"5px 14px",borderRadius:20,border:bdr}}><span style={{fontWeight:650,fontVariantNumeric:"tabular-nums"}}>{allTasks.length}</span> Total Tasks</div>
         </div>
         {/* View tabs — the By-property list shows everything, so they hide there */}
-        {!byProp&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {!byProp&&!compact&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {[["my","My Tasks"],["assigned","Delegated by Me"],["member","By Team Member"],["unassigned","Unassigned"],["all","All Tasks"]].map(([k,l])=>{
             const active=views.has(k);
             return(
@@ -9482,7 +9572,7 @@ function TasksPage({onNavigate}){
                 {completedItems.length>0&&<button onClick={()=>setCompletedOpen(true)} style={chip("#15803D","#EDFBF1")}>✓ Done{cnt(completedItems.length,T.green)}</button>}
                 {extRequests.length>0&&<button onClick={()=>setExtReqOpen(true)} style={chip("#8a6d1f","#FFF9EC")}>👷 External{openExtCount>0&&cnt(openExtCount,T.red)}</button>}
                 <div style={{flex:1}}/>
-                {!isMobile&&<button onClick={()=>setViewMode(compact?"boxes":"grid")} title={compact?"Switch back to the property boxes":"One Excel-style grid — every task a row"} style={chip(compact?"#b8912e":T.textSub,compact?T.goldLight:T.card,compact)}>▦ Spreadsheet</button>}
+                <button onClick={()=>setViewMode(compact?"boxes":"grid")} title={compact?"Switch back to the property boxes":"One clean list — every task a row"} style={chip(compact?"#b8912e":T.textSub,compact?T.goldLight:T.card,compact)}>▦ Spreadsheet</button>
                 <button onClick={()=>setViewMode(byProp?"boxes":"byprop")} title={byProp?"Switch to the full task boxes":"One simple list — tap a property to see its tasks"} style={chip(byProp?"#b8912e":T.textSub,byProp?T.goldLight:T.card,byProp)}>🏠 By property</button>
                 {!byProp&&filteredDisplay.length>0&&<button onClick={()=>setSelectMode(true)} style={chip(T.textSub,T.card,false)}>☑ Select</button>}
               </>):(<>
@@ -9490,7 +9580,8 @@ function TasksPage({onNavigate}){
                 <select value="" onChange={e=>{if(e.target.value)setSelectedStatus(e.target.value);}} disabled={selectedKeys.size===0}
                   style={{padding:"6px 10px",borderRadius:20,border:`1px solid ${T.border}`,background:selectedKeys.size?T.card:T.bg,color:selectedKeys.size?T.text:T.textTert,fontSize:12,fontWeight:600,cursor:selectedKeys.size?"pointer":"default",fontFamily:"inherit",outline:"none"}}>
                   <option value="">Mark as…</option>
-                  {TASK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+                  <option value="Completed">Completed</option>
+                  <option value="Not Started">Open</option>
                 </select>
                 <button onClick={deleteSelected} disabled={selectedKeys.size===0} style={{padding:"6px 14px",borderRadius:20,border:"none",background:selectedKeys.size?T.red:T.border,color:"#fff",fontSize:12,fontWeight:700,cursor:selectedKeys.size?"pointer":"default",fontFamily:"inherit"}}>🗑 Delete</button>
                 <button onClick={()=>{setSelectMode(false);setSelectedKeys(new Set());}} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
@@ -9522,7 +9613,7 @@ function TasksPage({onNavigate}){
                 </div>
               </div>
               )}
-              {oTasks.filter(t=>!hideDone(t)).map((t,ri)=><TaskRow key={t.id} t={t} compact={compact} stripe={compact&&ri%2===1} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+              {oTasks.filter(t=>!hideDone(t)).map((t,ri)=><TaskRow key={t.id} t={t} compact={compact} stripe={compact&&ri%2===1} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onOpen={openTaskPop} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
               <AddTaskInline compact={compact} onAdd={addOfficeTask} placeholder="Add a company task…"/>
             </div>
           );
@@ -9623,7 +9714,7 @@ function TasksPage({onNavigate}){
         {!showAutomations&&(
           <div style={{maxWidth:840}}>
             {/* Filter bar (desktop only — mobile uses the compact dropdowns in the header) */}
-            {!isMobile&&!byProp&&<div style={{display:"flex",gap:10,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
+            {!isMobile&&!byProp&&!compact&&<div style={{display:"flex",gap:10,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
               {views.has("member")&&(
                 <select value={filterMember} onChange={e=>setFilterMember(e.target.value)}
                   style={{padding:"7px 12px",borderRadius:T.radiusSm,border:bdr,background:T.card,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"}}>
@@ -9633,13 +9724,12 @@ function TasksPage({onNavigate}){
               {/* Property filter (multi-select) */}
               <MultiSelect placeholder="All Properties" selected={filterProps} onToggle={togglePropFilter} options={propOptions} style={{flex:"0 0 auto",width:220}}/>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                {TASK_STATUSES.map(s=>{
-                  const sc=TASK_STATUS_COLORS[s];
+                {[["open","Open",TASK_STATUS_COLORS["Not Started"]],["done","Done",TASK_STATUS_COLORS["Completed"]]].map(([s,label,sc])=>{
                   const active=statusFilter.has(s);
                   return(
                     <button key={s} onClick={()=>setStatusFilter(prev=>{const n=new Set(prev);active?n.delete(s):n.add(s);return n;})}
                       style={{padding:"5px 13px",borderRadius:20,border:`1.5px solid ${active?sc.color:T.border}`,background:active?sc.bg:"transparent",color:active?sc.color:T.textSub,fontSize:12,fontWeight:active?700:400,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5}}>
-                      {active&&<span style={{fontSize:10}}>✓</span>}{s}
+                      {active&&<span style={{fontSize:10}}>✓</span>}{label}
                     </button>
                   );
                 })}
@@ -9648,7 +9738,7 @@ function TasksPage({onNavigate}){
               <div style={{marginLeft:"auto",fontSize:12,color:T.textSub}}>{filteredDisplay.length} tasks</div>
             </div>}
 
-            {!byProp&&filteredDisplay.length===0&&(
+            {!byProp&&!compact&&filteredDisplay.length===0&&(
               <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,padding:40,textAlign:"center",color:T.textTert,fontSize:14}}>
                 {views.has("my")?"No tasks assigned to you yet."
                 :views.has("unassigned")?"No unassigned tasks."
@@ -9781,7 +9871,7 @@ function TasksPage({onNavigate}){
                           const hl=hlTaskId!=null&&String(t.id)===String(hlTaskId);
                           return(
                             <div key={t.id} ref={el=>{if(el&&hl)setTimeout(()=>{try{el.scrollIntoView({block:"center",behavior:"smooth"});}catch{/* older webkit */}},150);}} style={hl?{background:"#FBF3DD",boxShadow:"inset 0 0 0 2px #C9A227",borderRadius:12,margin:"4px 8px",transition:"background 0.4s"}:undefined}>
-                              <TaskRow t={t} emph={mine} faded={!mine&&mineTs.length>0&&otherTs.length>0} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER}/>
+                              <TaskRow t={t} emph={mine} faded={!mine&&mineTs.length>0&&otherTs.length>0} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onOpen={openTaskPop} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER}/>
                             </div>
                           );
                         };
@@ -9837,34 +9927,67 @@ function TasksPage({onNavigate}){
               // tasks lead; each property's tasks stay grouped by the same order
               // the cards use. Adding tasks happens via ＋ Add Tasks / the property.
               if(compact){
-                const GRID=selectMode?"22px minmax(0,1fr) 150px 138px 30px 112px":"minmax(0,1fr) 150px 138px 30px 112px";
-                const oTasks=(officeTasks||[]).filter(t=>!t.deleted).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company",propStatus:""}));
-                const rows=[];
-                oTasks.filter(t=>!hideDone(t)).forEach(t=>rows.push({kind:"task",t}));
-                ordered.forEach(g=>{
-                  g.ptasks.filter(t=>!hideDone(t)).forEach(t=>rows.push({kind:"task",t}));
-                  (extByPid[String(g.pid)]||[]).forEach(({job,rows:xr})=>xr.filter(t=>t.status!=="Completed").forEach(t=>rows.push({kind:"ext",t,job,addr:g.addr})));
-                });
-                const th={fontSize:10.5,letterSpacing:"0.06em",textTransform:"uppercase",color:T.gold,fontWeight:800,whiteSpace:"nowrap"};
+                // ✅ Spreadsheet (Elie approved 10/13/26): one clean row per task —
+                // circle · task · property · who — YOUR tasks by default (👤 picks
+                // Moshe / Esti / two people / Everyone / Unassigned), Open / Done,
+                // property + search; urgent on top. Tap a row → the task pop-up.
+                const me=CURRENT_USER;
+                const whoSel=sheetWho.length?sheetWho:["me"];
+                const everyone=whoSel.includes("everyone");
+                const matchWho=(t)=>everyone||whoSel.some(w=>w==="me"?(t.assignee===me||t.delegate===me):w==="unassigned"?!t.assignee:(t.assignee===w||t.delegate===w));
+                const q=sheetQ.trim().toLowerCase();
+                const base=[...officeMappedAll.map(t=>({...t,propAddr:"Company"})),...allTasks]
+                  .filter(t=>matchWho(t)&&(sheetDone?taskIsDone(t):!taskIsDone(t))&&(!filterProps.size||filterProps.has(t.propAddr))&&(!q||`${t.text} ${t.propAddr} ${t.assignee||""} ${t.delegate||""}`.toLowerCase().includes(q)));
+                const rows=sheetDone?base.sort((x,y)=>String(y.completedAt||"").localeCompare(String(x.completedAt||""))):base.sort((x,y)=>(!!y.urgent-!!x.urgent));
+                // Contractor (external) tasks join when showing Everyone.
+                const extRows=everyone&&!sheetDone?(ctrTasks||[]).filter(t=>t.status!=="Completed"&&t.status!=="N/A").map(t=>{const job=(ctrJobs||[]).find(j=>String(j.id)===String(t.jobId));return job?{t,job,addr:job.propertyAddress||""}:null;}).filter(x=>x&&(!filterProps.size||filterProps.has(x.addr))&&(!q||`${x.t.text} ${x.addr}`.toLowerCase().includes(q))):[];
+                const GRID=isMobile?"mobile":"22px minmax(0,1fr) 230px 150px 30px";
+                const nUrg=rows.filter(t=>t.urgent&&!taskIsDone(t)).length;
+                const whoLabel=everyone?"👥 Everyone":whoSel.map(w=>w==="me"?"My tasks":w==="unassigned"?"Unassigned":w.split(" ")[0]).join(" + ");
+                const capS=(on)=>({minHeight:34,padding:"0 13px",borderRadius:17,border:"none",background:on?T.text:"rgba(118,118,128,0.12)",color:on?"#fff":T.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"});
+                const segS=(on)=>({minHeight:30,padding:"0 13px",border:"none",borderRadius:15,background:on?T.card:"transparent",boxShadow:on?"0 1px 3px rgba(0,0,0,0.12)":"none",fontSize:13,fontWeight:600,color:on?T.text:"#3A3A3C",cursor:"pointer",fontFamily:"inherit"});
+                const toggleWho=(w)=>setSheetWhoSaved(prev=>{const cur=prev.length?prev:["me"];if(w==="everyone")return ["everyone"];const base0=cur.filter(x=>x!=="everyone");const n=base0.includes(w)?base0.filter(x=>x!==w):[...base0,w];return n.length?n:["me"];});
                 return(
-                  <div style={{background:T.card,borderRadius:T.radius,boxShadow:T.shadow,overflow:"hidden",marginBottom:14,maxWidth:860}}>
-                    <div style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"7px 12px",background:T.goldLight,borderBottom:`1.5px solid ${T.gold}55`}}>
-                      {selectMode&&<span/>}
-                      <span style={th}>Task</span><span style={th}>Property</span><span style={{...th,justifySelf:"center"}}>Who</span><span/><span style={{...th,justifySelf:"end"}}>Status</span>
-                    </div>
-                    {rows.length===0&&<div style={{padding:"28px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No tasks to show.</div>}
-                    {rows.map((r,ri)=>r.kind==="task"
-                      ?<TaskRow key={"t"+r.t.propId+":"+r.t.id} t={r.t} grid={GRID} stripe={ri%2===1} onNavigate={onNavigate} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(r.t))} onToggleSelect={toggleSelect}/>
-                      :(
-                      <div key={"x"+r.t.id} style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"5px 12px",borderTop:"1px solid rgba(184,149,63,0.25)",background:ri%2===1?"#FBF3DC":"#FFF9EC"}}>
-                        {selectMode&&<input type="checkbox" checked={selectedKeys.has(`ext:${r.t.id}`)} onChange={()=>setSelectedKeys(p=>{const n=new Set(p);const k=`ext:${r.t.id}`;n.has(k)?n.delete(k):n.add(k);return n;})} style={{width:16,height:16,accentColor:T.gold,cursor:"pointer"}}/>}
-                        <span title={r.t.direction==="to_team"?`Asked by ${r.t.createdBy||ctrOrgName(r.job.orgId)}`:undefined} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13,color:T.text,textDecoration:r.t.status==="Completed"?"line-through":"none",opacity:ctrClosed(r.t.status)?0.6:1}}>{r.t.text}</span>
-                        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11.5,color:T.textSub}}>{r.addr||r.job.propertyAddress||""}</span>
-                        <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:10.5,fontWeight:800,color:"#8a6d1f"}}>👷 {ctrOrgName(r.job.orgId)}</span>
-                        <button onClick={()=>setExtChat({task:r.t,job:r.job})} title="Message about this task" style={{background:"#fff",border:`1px solid ${T.gold}`,borderRadius:12,color:"#8a6d1f",cursor:"pointer",fontSize:11,padding:"2px 6px",fontFamily:"inherit",lineHeight:1.2,display:"inline-flex",alignItems:"center"}}><TeamChatIcon size={11}/></button>
-                        <span style={{justifySelf:"end"}}><CtrStatusPill t={r.t} onSet={setExtTaskStatus} onDelete={(x)=>ctrRemove("contractor_tasks",x.id).catch(()=>{})}/></span>
+                  <div style={{maxWidth:isMobile?"none":980}}>
+                    <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:12,position:"relative"}}>
+                      <button onClick={()=>setWhoOpen(v=>!v)} style={capS(true)} aria-haspopup="true" aria-expanded={whoOpen}>👤 {whoLabel} ▾</button>
+                      {whoOpen&&<>
+                        <div onClick={()=>setWhoOpen(false)} style={{position:"fixed",inset:0,zIndex:40}}/>
+                        <div style={{position:"absolute",top:40,left:0,zIndex:41,width:250,background:"#fff",borderRadius:14,boxShadow:"0 10px 40px rgba(0,0,0,0.22)",padding:"6px 0"}}>
+                          <div style={{fontSize:12,color:T.textSub,padding:"4px 14px 2px"}}>Show tasks for</div>
+                          {[["me",`👤 Me (${me.split(" ")[0]})`],...TEAM_MEMBERS.filter(m=>m!==me).map(m=>[m,m.split(" ")[0]])].map(([k,l])=>{const on=!everyone&&whoSel.includes(k);return(
+                            <button key={k} onClick={()=>toggleWho(k)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",minHeight:40,padding:"0 14px",border:"none",background:"none",fontSize:14,color:T.text,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}><span style={{width:18,color:T.gold,fontWeight:800}}>{on?"✓":""}</span>{l}</button>);})}
+                          <div style={{height:1,background:T.border,margin:"4px 0"}}/>
+                          {[["everyone","👥 Everyone"],["unassigned","Unassigned"]].map(([k,l])=>{const on=k==="everyone"?everyone:(!everyone&&whoSel.includes(k));return(
+                            <button key={k} onClick={()=>toggleWho(k)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",minHeight:40,padding:"0 14px",border:"none",background:"none",fontSize:14,color:T.text,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}><span style={{width:18,color:T.gold,fontWeight:800}}>{on?"✓":""}</span>{l}</button>);})}
+                          <div style={{fontSize:11.5,color:T.textSub,padding:"4px 14px 6px"}}>Tick two names to see both</div>
+                        </div>
+                      </>}
+                      <div style={{display:"inline-flex",background:"rgba(118,118,128,0.12)",borderRadius:17,padding:2}} role="tablist" aria-label="Open or done">
+                        <button onClick={()=>setSheetDone(false)} style={segS(!sheetDone)}>Open</button>
+                        <button onClick={()=>setSheetDone(true)} style={segS(sheetDone)}>Done</button>
                       </div>
-                    ))}
+                      <MultiSelect placeholder={isMobile?"🏠 All":"🏠 All properties"} selected={filterProps} onToggle={togglePropFilter} options={[{value:"Company",label:"Company"},...propOptions]} style={{flex:"0 0 auto",width:isMobile?110:200}}/>
+                      <input value={sheetQ} onChange={e=>setSheetQ(e.target.value)} placeholder="🔍 Search tasks" aria-label="Search tasks" style={{minHeight:34,borderRadius:10,border:"none",background:"rgba(118,118,128,0.12)",padding:"0 12px",fontSize:isMobile?16:13,fontFamily:"inherit",color:T.text,outline:"none",width:isMobile?"100%":200,boxSizing:"border-box",order:isMobile?5:0}}/>
+                      {!isMobile&&<span style={{marginLeft:"auto",fontSize:12.5,color:T.textSub}}>{rows.length+extRows.length} {sheetDone?"done":"open"}{nUrg?` · ${nUrg} urgent`:""}</span>}
+                    </div>
+                    <div style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,overflow:"hidden",marginBottom:14}}>
+                      {!isMobile&&<div style={{display:"grid",gridTemplateColumns:GRID,columnGap:12,alignItems:"center",padding:"0 16px",height:34,fontSize:11.5,fontWeight:600,color:T.textSub}}>
+                        <span/><span>Task</span><span>Property</span><span>Who</span><span/>
+                      </div>}
+                      {rows.length+extRows.length===0&&<div style={{padding:"28px 16px",textAlign:"center",color:T.textTert,fontSize:13.5,borderTop:isMobile?"none":`1px solid ${T.border}`}}>{sheetDone?"Nothing completed yet.":"Nothing open — all caught up."}</div>}
+                      {rows.map((t)=><TaskRow key={"t"+t.propId+":"+t.id} t={t} grid={GRID} onNavigate={onNavigate} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onOpen={openTaskPop} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+                      {extRows.map(r=>(
+                        <div key={"x"+r.t.id} onClick={()=>setExtChat({task:r.t,job:r.job})} style={isMobile?{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",minHeight:58,borderTop:`1px solid ${T.border}`,background:"#FFF9EC",cursor:"pointer"}:{display:"grid",gridTemplateColumns:GRID,columnGap:12,alignItems:"center",padding:"0 16px",minHeight:44,borderTop:`1px solid ${T.border}`,background:"#FFF9EC",cursor:"pointer"}}>
+                          <button onClick={(e)=>{e.stopPropagation();setExtTaskStatus(r.t,"Completed");}} aria-label="Mark complete" style={{width:20,height:20,borderRadius:"50%",border:"1.6px solid #C7C7CC",background:"transparent",padding:0,cursor:"pointer",flexShrink:0}}/>
+                          {isMobile?<div style={{flex:1,minWidth:0}}><div style={{fontSize:15,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.t.text}</div><div style={{fontSize:12.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr} · 👷 {ctrOrgName(r.job.orgId)}</div></div>:<>
+                          <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13.5,color:T.text}}>{r.t.text}</span>
+                          <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12.5,color:T.textSub}}>{r.addr}</span>
+                          <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12.5,fontWeight:700,color:"#8a6d1f"}}>👷 {ctrOrgName(r.job.orgId)}</span>
+                          <span style={{justifySelf:"end",color:"#C7C7CC",fontSize:16}}>›</span></>}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 );
               }
@@ -9902,7 +10025,7 @@ function TasksPage({onNavigate}){
                   </div>
                 </div>
                 )}
-                {ptasks.filter(t=>!hideDone(t)).map((t,ri)=><TaskRow key={t.id} t={t} compact={compact} stripe={compact&&ri%2===1} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
+                {ptasks.filter(t=>!hideDone(t)).map((t,ri)=><TaskRow key={t.id} t={t} compact={compact} stripe={compact&&ri%2===1} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onOpen={openTaskPop} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
                 {/* External (contractor) tasks on this property — amber, clearly marked */}
                 {(extByPid[String(pid)]||[]).map(({job,rows})=>(
                   <div key={"ext-"+job.id} style={{background:"#FFF9EC",borderTop:`1.5px solid ${T.gold}`}}>

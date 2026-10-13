@@ -8053,12 +8053,17 @@ function TaskPopup({task,isMobile,currentUser,teamMembers,contacts=[],saveFolder
   const h6={fontSize:12,fontWeight:600,color:T.textSub,margin:"0 0 6px"};
   const mini={minHeight:34,padding:"0 12px",borderRadius:17,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5,textDecoration:"none",whiteSpace:"nowrap"};
   const saveTitle=()=>{const v=draft.trim();if(v&&v!==(task.text||"")&&onRename)onRename(task.propId,task.id,v);setEditing(false);};
+  // Wide desktop (Elie 10/13/26): two columns so nothing scrolls — task details
+  // on the left, the conversation full-height on the right; text a notch smaller.
+  const two=!isMobile&&typeof window!=="undefined"&&window.innerWidth>=1000;
   const body=(
-    <div onClick={e=>e.stopPropagation()} style={{background:T.bg,width:isMobile?"100%":"min(520px,94vw)",height:isMobile?"92vh":"min(90vh,880px)",borderRadius:isMobile?"28px 28px 0 0":22,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:T.bg,width:isMobile?"100%":two?"min(960px,94vw)":"min(500px,94vw)",height:isMobile?"92vh":"min(92vh,900px)",borderRadius:isMobile?"28px 28px 0 0":22,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
       {isMobile&&<div style={{width:36,height:5,borderRadius:3,background:"rgba(60,60,67,0.3)",margin:"8px auto 0",flexShrink:0}}/>}
       {/* Fits the window (Elie 10/13/26): only the messages list scrolls; the
           whole sheet scrolls only on a screen too short for the essentials. */}
-      <div style={{flex:"1 1 auto",minHeight:0,display:"flex",flexDirection:"column",overflowY:"auto",overscrollBehavior:"contain",paddingBottom:"max(10px,env(safe-area-inset-bottom))"}}>
+      {/* Desktop text a notch smaller (zoom scales text + spacing alike). */}
+      <div style={two?{flex:"1 1 auto",minHeight:0,display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1.1fr)",gridTemplateRows:"minmax(0,1fr)",overflow:"hidden",zoom:0.9}:{flex:"1 1 auto",minHeight:0,display:"flex",flexDirection:"column",overflowY:"auto",overscrollBehavior:"contain",paddingBottom:"max(10px,env(safe-area-inset-bottom))",...(isMobile?{}:{zoom:0.85})}}>
+        <div style={two?{minHeight:0,overflowY:"auto",overscrollBehavior:"contain",display:"flex",flexDirection:"column",paddingBottom:8}:{display:"contents"}}>
         <div style={{display:"flex",alignItems:"flex-start",gap:10,padding:isMobile?"6px 16px 6px":"14px 16px 10px",flexShrink:0}}>
           <div style={{flex:1,minWidth:0}}>
             {editing?(
@@ -8126,12 +8131,14 @@ function TaskPopup({task,isMobile,currentUser,teamMembers,contacts=[],saveFolder
             <button onClick={()=>onContact(task,{slot:"new"})} style={{...mini,width:"100%",justifyContent:"center",minHeight:40}}>＋ Link a contact</button>
           )}
         </div>
+        {two&&<button onClick={()=>{if(window.confirm("Delete this task?")){onDelete(task.propId,task.id);onClose();}}} style={{display:"block",flexShrink:0,margin:"auto auto 4px",minHeight:40,padding:"0 16px",border:"none",background:"none",color:T.red,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Delete task</button>}
+        </div>
         {/* messages */}
-        <div style={{...sec,padding:"8px 4px 6px",flex:"1 1 auto",display:"flex",flexDirection:"column"}}>
+        <div style={{...sec,padding:"8px 4px 6px",flex:"1 1 auto",display:"flex",flexDirection:"column",...(two?{margin:"14px 14px 14px 0",minHeight:0}:{})}}>
           <div style={{...h6,padding:"2px 8px 0",flexShrink:0}}>Messages{(task.messages||[]).filter(m=>isUnreadForUser(m,currentUser)).length?` · ${(task.messages||[]).filter(m=>isUnreadForUser(m,currentUser)).length} new`:""}</div>
           <TaskMessagesBody title={task.text||"Task"} task={task} contacts={contacts} messages={task.messages||[]} currentUser={currentUser} teamMembers={teamMembers} onSend={onSend} saveFolder={saveFolder} subTag={subTag} subFilter={subFilter} onClearSubTag={()=>{setSubTag(null);setSubFilter(null);}} onClearSubFilter={()=>setSubFilter(null)} listStyle={{minHeight:isMobile?140:110,padding:"8px 8px",flex:"1 1 auto",contain:"size"}}/>
         </div>
-        <button onClick={()=>{if(window.confirm("Delete this task?")){onDelete(task.propId,task.id);onClose();}}} style={{display:"block",flexShrink:0,margin:"2px auto 8px",minHeight:40,padding:"0 16px",border:"none",background:"none",color:T.red,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Delete task</button>
+        {!two&&<button onClick={()=>{if(window.confirm("Delete this task?")){onDelete(task.propId,task.id);onClose();}}} style={{display:"block",flexShrink:0,margin:"2px auto 8px",minHeight:40,padding:"0 16px",border:"none",background:"none",color:T.red,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Delete task</button>}
       </div>
     </div>
   );

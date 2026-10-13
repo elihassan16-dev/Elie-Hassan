@@ -7951,7 +7951,9 @@ function TaskMessagesBody({title,task,contacts=[],messages:allMsgs,currentUser,t
   const who=recipient?recipient.split(" ")[0]:"team";
   // Name the actual task in the message instead of saying "this task".
   const taskName=(task?.text||"").trim();
-  const onWhat=taskName?`“${taskName}”`:"this task";
+  // Writing about one checklist item → the templates name that item (Elie 10/13/26).
+  const itemName=subTag?String(subTag.text||"").trim():"";
+  const onWhat=itemName?`“${itemName}”`:taskName?`“${taskName}”`:"this task";
   const templates=templatesProp||[
     {label:"Ask for update",text:`Hi ${who}, can you give me an update on ${onWhat}?`},
     {label:"Follow up",text:`Hi ${who}, following up on ${onWhat} — where are we holding?`},
@@ -7961,6 +7963,7 @@ function TaskMessagesBody({title,task,contacts=[],messages:allMsgs,currentUser,t
   const aiCtx=[
     title&&title!==taskName?`Thread: ${title}`:"",
     taskName?`Task: “${taskName}”`:"",
+    itemName?`This message is about the checklist item: “${itemName}”`:"",
     assignee?`Task owner: ${assignee}`:"",
     delegate&&delegate!==assignee?`Delegated to (doing the work): ${delegate}`:"",
     recipient?`The message is addressed to: ${recipient}`:"",

@@ -5,6 +5,7 @@
 // NOTE: modals + job detail are module-level components (not defined inside the
 // page) so a realtime update never remounts them and wipes a half-typed form.
 import { useEffect, useRef, useState } from "react";
+import { CheckCircle } from "../checkCircle";
 import { supabase } from "../supabaseClient";
 import { useAuth } from "../auth/AuthProvider";
 import { useData } from "../data/DataProvider";
@@ -728,17 +729,12 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
     await save("contractor_tasks", { ...t, status: s, statusBy: displayName, doneAt: s === "Completed" ? new Date().toISOString() : null, doneBy: s === "Completed" ? displayName : null });
     notify(null, { toOrg: t.orgId, title: "Task updated by Goldstone", body: `${t.text} — ${s}`, url: `/?goto=job:${t.jobId}` });
   };
+  // Open or completed only (Elie 10/13/26) — the same check circle as the team's tasks.
   const statusPill = (t) => {
-    const STS = ["Not Started", "In Progress", "Completed", "N/A"];
-    const v = STS.includes(t.status) ? t.status : "Not Started";
-    const c = v === "Completed" ? T.green : v === "In Progress" ? T.blue : v === "N/A" ? "#6b6b70" : T.textSub;
-    return (
-      <select value={v} onChange={(e) => setTaskStatus(t, e.target.value)} title="Change status"
-        style={{ padding: "3px 6px", borderRadius: 20, border: "none", background: c + "22", color: c, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
-        {STS.map((s) => <option key={s} value={s}>{s}</option>)}
-      </select>
-    );
+    const done = closed(t.status);
+    return <CheckCircle done={done} onToggle={() => setTaskStatus(t, done ? "Not Started" : "Completed")} />;
   };
+
   const pickAtt = async (e) => {
     const files = Array.from(e.target.files || []); e.target.value = "";
     if (!files.length) return;

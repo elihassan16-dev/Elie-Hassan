@@ -4,6 +4,7 @@
 // docs), Tasks, and Messages. Mobile: list first, tap in, ‹ back.
 // RLS guarantees they only ever receive their own company's rows.
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle } from "../checkCircle";
 import { useAuth } from "../auth/AuthProvider";
 import { T } from "../theme";
 import { linkifyText, rescuePastedLink } from "../sms";
@@ -35,16 +36,10 @@ function SecHd({ color, action, onAction, children }) {
     </div>
   );
 }
+// Open or completed only (Elie 10/13/26) — tap the circle to finish a task.
 function StatusPill({ t, onSet }) {
-  const v = TASK_STATUSES.includes(t.status) ? t.status : "Not Started";
-  const c = stColor(v);
-  const idle = v === "Not Started";
-  return (
-    <select value={v} onChange={(e) => onSet(t, e.target.value)} title="Change status"
-      style={{ padding: "5px 10px", borderRadius: 14, border: CAPS_BD, background: idle ? CAPS_BG : "#fff", boxShadow: idle ? "none" : "0 1px 4px rgba(0,0,0,0.12)", color: idle ? T.textSub : c, fontSize: 11.5, fontWeight: 650, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
-      {TASK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-    </select>
-  );
+  const done = taskClosed(t.status);
+  return <CheckCircle done={done} onToggle={() => onSet(t, done ? "Not Started" : "Completed")} />;
 }
 
 // The bid entry box (shared by the overview card and the messages tab). The
@@ -725,12 +720,12 @@ export function ContractorPortal() {
           {forUs.length === 0 && <div style={{ padding: "14px 16px", fontSize: 13, color: T.textTert }}>Nothing assigned on this job right now.</div>}
           {forUs.map((t) => (
             <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 16px", borderTop: HAIR }}>
+              <StatusPill t={t} onSet={setTaskStatus} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: taskClosed(t.status) ? 0.6 : 1 }}>{t.text}</div>
                 <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdBy ? `from ${t.createdBy.split(" ")[0]} · ` : ""}{t.createdAt ? fmtDate(t.createdAt) : ""}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${(t.statusBy || t.doneBy).split(" ")[0]}` : ""}</div>
               </div>
               <button onClick={() => { setMsgTarget({ id: t.id, text: t.text }); setTab("messages"); }} title="Message Goldstone about this task" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 12, color: "#8a6d1f", cursor: "pointer", fontSize: 12, padding: "4px 9px", flexShrink: 0, fontFamily: "inherit", display: "inline-flex", alignItems: "center" }}><TeamChatIcon size={13}/></button>
-              <StatusPill t={t} onSet={setTaskStatus} />
             </div>
           ))}
         </div>
@@ -752,12 +747,12 @@ export function ContractorPortal() {
           </div>
           {toTeam.map((t) => (
             <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 16px", borderTop: HAIR }}>
+              <StatusPill t={t} onSet={setTaskStatus} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, textDecoration: t.status === "Completed" ? "line-through" : "none", opacity: taskClosed(t.status) ? 0.6 : 1 }}>{t.text}</div>
                 <div style={{ fontSize: 11, color: T.textTert, marginTop: 2 }}>{t.createdAt ? fmtDate(t.createdAt) : ""}{(t.statusBy || t.doneBy) ? ` · ${t.status === "Completed" ? "✓ " : ""}${(t.statusBy || t.doneBy).split(" ")[0]}` : ""}</div>
               </div>
               <button onClick={() => { setMsgTarget({ id: t.id, text: t.text }); setTab("messages"); }} title="Message Goldstone about this request" style={{ background: "#fff", border: `1px solid ${T.gold}`, borderRadius: 12, color: "#8a6d1f", cursor: "pointer", fontSize: 12, padding: "4px 9px", flexShrink: 0, fontFamily: "inherit", display: "inline-flex", alignItems: "center" }}><TeamChatIcon size={13}/></button>
-              <StatusPill t={t} onSet={setTaskStatus} />
             </div>
           ))}
         </div>

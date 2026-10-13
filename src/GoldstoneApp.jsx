@@ -7880,6 +7880,12 @@ function AddTasksModal({properties,teamMembers,initialPropId,onClose,onAdd}){
 // In-app messages/notes on a single task.
 // The task conversation itself (list + composer) — shared by the Messages
 // popup and the task pop-up (Elie 10/13/26).
+// 👥 A task can have several contacts (Elie 10/13/26): t.taskContacts[] — the
+// first one is mirrored to t.taskContact so older code keeps working.
+const taskContactsOf=(t)=>t?(Array.isArray(t.taskContacts)?t.taskContacts.filter(Boolean):(t.taskContact?[t.taskContact]:[])):[];
+// slot: index to replace/remove (default 0), or "new" to add another.
+const contactPatch=(tk,val,slot)=>{const n=[...taskContactsOf(tk)];if(slot==="new"){if(val)n.push(val);}else{const i=slot==null?0:slot;if(val)n[i]=val;else n.splice(i,1);}return{taskContacts:n,taskContact:n[0]||null};};
+
 function TaskMessagesBody({title,task,contacts=[],messages,currentUser,teamMembers,onSend,templates:templatesProp,saveFolder=null,listStyle}){
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   // Templates address + notify a chosen teammate. When a task is delegated, the
@@ -7924,7 +7930,7 @@ function TaskMessagesBody({title,task,contacts=[],messages,currentUser,teamMembe
             </div>
           );})}
         </div>
-        <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`}}>
+        <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,flexShrink:0}}>
           {involved.length>1&&(
             <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:8,padding:"0 2px"}}>
               <span style={{fontSize:11,color:T.textTert,fontWeight:700}}>Template addresses:</span>
@@ -7960,29 +7966,30 @@ function TaskMessagesPopup({title,task,contacts=[],messages,currentUser,teamMemb
 // (no Not started / In progress / N/A). Desktop: a centered window; phones: a
 // bottom sheet. Sits under the assign / contact popups it opens (z 290).
 const taskIsDone=(t)=>!!t&&(t.status==="Completed"||t.status==="N/A");
-function TaskPopup({task,isMobile,currentUser,teamMembers,contacts=[],saveFolder=null,onClose,onComplete,onDelete,onRename,onAssign,onContact,onSend,onNavigate}){
+function TaskPopup({task,isMobile,currentUser,teamMembers,contacts=[],saveFolder=null,onClose,onComplete,onDelete,onRename,onAssign,onContact,onContactRemove,onSend,onNavigate}){
   const setUrgent=useSetTaskUrgent();
   const[editing,setEditing]=useState(false);
+  const[chg,setChg]=useState(false); // contact "Change" options open
   const[draft,setDraft]=useState(task?.text||"");
   useEffect(()=>{setDraft(task?.text||"");},[task?.text]);
   if(!task)return null;
   const done=taskIsDone(task);
   const urg=!!task.urgent&&!done;
   const isOfficeT=String(task.propId)===OFFICE_TASK_PID;
-  const tc=task.taskContact||null;
-  const person=tc&&tc.kind!=="company"?(contacts.find(c=>c.id===tc.id)||contacts.find(c=>(c.name||"").toLowerCase()===(tc.name||"").toLowerCase())||normContact(tc)):null;
-  const phone=person?((person.phones||[])[0]||{}).number||"":"";
-  const email=person?person.email||"":"";
+  // Every contact on the task, each with ALL its numbers (Elie 10/13/26).
+  const tcs=taskContactsOf(task).map(tc=>{const person=tc.kind!=="company"?(contacts.find(c=>c.id===tc.id)||contacts.find(c=>(c.name||"").toLowerCase()===(tc.name||"").toLowerCase())||normContact(tc)):null;return{tc,person,phones:person?(person.phones||[]).filter(ph=>ph&&ph.number):[],email:person?person.email||"":""};});
   const first=(n)=>String(n||"").split(" ")[0];
-  const sec={background:T.card,borderRadius:14,padding:"10px 12px",margin:"0 14px 10px"};
+  const sec={background:T.card,borderRadius:14,padding:"10px 12px",margin:isMobile?"0 12px 6px":"0 14px 8px",flexShrink:0};
   const h6={fontSize:12,fontWeight:600,color:T.textSub,margin:"0 0 6px"};
   const mini={minHeight:34,padding:"0 12px",borderRadius:17,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5,textDecoration:"none",whiteSpace:"nowrap"};
   const saveTitle=()=>{const v=draft.trim();if(v&&v!==(task.text||"")&&onRename)onRename(task.propId,task.id,v);setEditing(false);};
   const body=(
-    <div onClick={e=>e.stopPropagation()} style={{background:T.bg,width:isMobile?"100%":"min(520px,94vw)",maxHeight:isMobile?"92vh":"90vh",borderRadius:isMobile?"28px 28px 0 0":22,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:T.bg,width:isMobile?"100%":"min(520px,94vw)",height:isMobile?"92vh":"min(90vh,880px)",borderRadius:isMobile?"28px 28px 0 0":22,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
       {isMobile&&<div style={{width:36,height:5,borderRadius:3,background:"rgba(60,60,67,0.3)",margin:"8px auto 0",flexShrink:0}}/>}
-      <div style={{overflowY:"auto",overscrollBehavior:"contain",paddingBottom:"max(10px,env(safe-area-inset-bottom))"}}>
-        <div style={{display:"flex",alignItems:"flex-start",gap:10,padding:"14px 16px 10px"}}>
+      {/* Fits the window (Elie 10/13/26): only the messages list scrolls; the
+          whole sheet scrolls only on a screen too short for the essentials. */}
+      <div style={{flex:"1 1 auto",minHeight:0,display:"flex",flexDirection:"column",overflowY:"auto",overscrollBehavior:"contain",paddingBottom:"max(10px,env(safe-area-inset-bottom))"}}>
+        <div style={{display:"flex",alignItems:"flex-start",gap:10,padding:isMobile?"6px 16px 6px":"14px 16px 10px",flexShrink:0}}>
           <div style={{flex:1,minWidth:0}}>
             {editing?(
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -8016,30 +8023,43 @@ function TaskPopup({task,isMobile,currentUser,teamMembers,contacts=[],saveFolder
             <button onClick={()=>onAssign(task)} style={mini}>{task.assignee?"Change":"Assign"}</button>
           </div>
         </div>
-        {/* contact */}
+        {/* contacts — every number shows; Change = add another / remove */}
         <div style={sec}>
-          <div style={h6}>Contact for this task</div>
-          {tc?(<>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <span style={{width:30,height:30,borderRadius:15,background:"#3E6DB5",color:"#fff",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{tc.kind==="company"?"🏢":String(tc.name||"?").split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase()}</span>
-              <div style={{flex:1,minWidth:0,fontSize:14.5,color:T.text}}>{tc.name||"Contact"}<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[phone,email].filter(Boolean).join(" · ")||(tc.kind==="company"?"Company":"")}</div></div>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:tcs.length?4:6}}>
+            <div style={{...h6,margin:0,flex:1}}>{tcs.length>1?"Contacts for this task":"Contact for this task"}</div>
+            {tcs.length>0&&<button onClick={()=>setChg(v=>!v)} aria-expanded={chg} style={{...mini,...(chg?{background:T.goldLight,borderColor:T.gold}:{})}}>{chg?"Done":"Change"}</button>}
+          </div>
+          {chg&&tcs.length>0&&(
+            <div style={{display:"flex",flexDirection:"column",gap:6,margin:"6px 0 8px",padding:8,borderRadius:12,background:T.bg}}>
+              <button onClick={()=>{setChg(false);onContact(task,{slot:"new"});}} style={{...mini,justifyContent:"center",minHeight:40,borderColor:T.gold,color:"#8a6d1f"}}>＋ Add another contact</button>
+              {tcs.map(({tc},i)=><button key={"rm"+i} onClick={()=>{if(window.confirm(`Remove ${tc.name||"this contact"} from this task?`)){onContactRemove&&onContactRemove(task,i);if(tcs.length<=1)setChg(false);}}} style={{...mini,justifyContent:"center",minHeight:40,color:T.red}}>Remove {tc.name||"contact"}</button>)}
             </div>
-            <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
-              {phone&&<a href={`tel:${String(phone).replace(/[^\d+]/g,"")}`} style={mini}>📞 Call</a>}
-              <button onClick={()=>onContact(task)} style={mini}>💬 Text</button>
-              <button onClick={()=>onContact(task)} style={mini}>✉️ Email</button>
-              <button onClick={()=>onContact(task)} style={{...mini,marginLeft:"auto"}}>Change</button>
+          )}
+          {tcs.length?tcs.map(({tc,person,phones,email},i)=>(
+            <div key={i} style={{paddingTop:i?10:2,marginTop:i?10:0,borderTop:i?`1px solid ${T.border}`:"none"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{width:30,height:30,borderRadius:15,background:"#3E6DB5",color:"#fff",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{tc.kind==="company"?"🏢":String(tc.name||"?").split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase()}</span>
+                <button onClick={()=>onContact(task,{slot:i})} style={{flex:1,minWidth:0,padding:0,border:"none",background:"none",textAlign:"left",cursor:"pointer",fontFamily:"inherit",fontSize:14.5,color:T.text}}>{tc.name||"Contact"}<div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[person&&person.role,person&&person.company].filter(Boolean).join(" · ")||(tc.kind==="company"?"Company — tap to see its people":"")}</div></button>
+                {email&&<button onClick={()=>onContact(task,{slot:i})} style={mini}>✉️ Email</button>}
+              </div>
+              {phones.map((ph,k)=>(
+                <div key={k} style={{display:"flex",alignItems:"center",gap:6,marginTop:4,paddingLeft:40}}>
+                  <div style={{flex:1,minWidth:0,fontSize:13.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{fontSize:12,color:T.textSub}}>{ph.label||"Phone"} · </span>{ph.number}</div>
+                  <a href={`tel:${String(ph.number).replace(/[^\d+]/g,"")}`} style={mini}>📞 Call</a>
+                  <button onClick={()=>onContact(task,{slot:i})} style={mini}>💬 Text</button>
+                </div>
+              ))}
             </div>
-          </>):(
-            <button onClick={()=>onContact(task)} style={{...mini,width:"100%",justifyContent:"center",minHeight:40}}>＋ Link a contact</button>
+          )):(
+            <button onClick={()=>onContact(task,{slot:"new"})} style={{...mini,width:"100%",justifyContent:"center",minHeight:40}}>＋ Link a contact</button>
           )}
         </div>
         {/* messages */}
-        <div style={{...sec,padding:"8px 4px 6px"}}>
-          <div style={{...h6,padding:"2px 8px 0"}}>Messages{(task.messages||[]).filter(m=>isUnreadForUser(m,currentUser)).length?` · ${(task.messages||[]).filter(m=>isUnreadForUser(m,currentUser)).length} new`:""}</div>
-          <TaskMessagesBody title={task.text||"Task"} task={task} contacts={contacts} messages={task.messages||[]} currentUser={currentUser} teamMembers={teamMembers} onSend={onSend} saveFolder={saveFolder} listStyle={{maxHeight:isMobile?220:260,minHeight:40,padding:"8px 8px",flex:"0 1 auto"}}/>
+        <div style={{...sec,padding:"8px 4px 6px",flex:"1 1 auto",display:"flex",flexDirection:"column"}}>
+          <div style={{...h6,padding:"2px 8px 0",flexShrink:0}}>Messages{(task.messages||[]).filter(m=>isUnreadForUser(m,currentUser)).length?` · ${(task.messages||[]).filter(m=>isUnreadForUser(m,currentUser)).length} new`:""}</div>
+          <TaskMessagesBody title={task.text||"Task"} task={task} contacts={contacts} messages={task.messages||[]} currentUser={currentUser} teamMembers={teamMembers} onSend={onSend} saveFolder={saveFolder} listStyle={{minHeight:isMobile?140:110,padding:"8px 8px",flex:"1 1 auto",contain:"size"}}/>
         </div>
-        <button onClick={()=>{if(window.confirm("Delete this task?")){onDelete(task.propId,task.id);onClose();}}} style={{display:"block",margin:"2px auto 8px",minHeight:40,padding:"0 16px",border:"none",background:"none",color:T.red,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Delete task</button>
+        <button onClick={()=>{if(window.confirm("Delete this task?")){onDelete(task.propId,task.id);onClose();}}} style={{display:"block",flexShrink:0,margin:"2px auto 8px",minHeight:40,padding:"0 16px",border:"none",background:"none",color:T.red,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Delete task</button>
       </div>
     </div>
   );
@@ -8221,18 +8241,18 @@ function TaskEmailModal({to,name,propAddr,linkedPin,propPins=[],mail,onClose}){
 }
 
 // ─── Task Contact card — assign a person or company, then Call/Text/WhatsApp/Email
-function TaskContactCard({task,contacts,onAssign,onCreateContact,onClose}){
+function TaskContactCard({task,contact,startPick=false,contacts,onAssign,onCreateContact,onClose}){
   const{sharedProps}=useData()||{};
   const mail=useOutlookMail();
   const prop=(sharedProps||[]).find(pp=>String(pp.id)===String(task.propId));
   const propPins=prop?.pinnedEmails||[];
   const linkedPin=propPins.find(pe=>pe.label&&String(pe.label.taskId)===String(task.id))||null;
   const[emailTo,setEmailTo]=useState(null); // {email,name} → in-app email modal
-  const tc=task.taskContact||null;
+  const tc=contact!==undefined?contact:(task.taskContact||null);
   const isCompany=!!(tc&&tc.kind==="company");
   const person=(!isCompany&&tc)?(contacts.find(c=>c.id===tc.id)||contacts.find(c=>(c.name||"").toLowerCase()===(tc.name||"").toLowerCase())||normContact(tc)):null;
   const companyPeople=isCompany?contacts.filter(c=>sameCompany(c.company,tc.name)):[];
-  const[pick,setPick]=useState(!tc);
+  const[pick,setPick]=useState(startPick||!tc);
   const[q,setQ]=useState("");
   const[adding,setAdding]=useState(false); // showing the "new contact" form
   const[draft,setDraft]=useState({name:"",phone:"",company:"",role:"",email:""});
@@ -8804,7 +8824,7 @@ function PropertyTaskList({property}){
     const t=(p.tasks||[]).find(x=>x.id===tid);
     return {...p,tasks:(p.tasks||[]).filter(x=>x.id!==tid),messages:t&&(t.messages||[]).length?[...(p.messages||[]),...preserveTaskMsgs(t)]:(p.messages||[])};
   }));
-  const setTaskContact=(pid,tid,contact)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,taskContact:contact})}));
+  const setTaskContact=(pid,tid,contact,slot)=>setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,...contactPatch(tk,contact,slot)})}));
   const setTaskRole=(pid,tid,role,member)=>{
     const stamp=member?{assignedAt:Date.now(),assignedBy:CURRENT_USER}:{};
     setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>{
@@ -8852,7 +8872,7 @@ function PropertyTaskList({property}){
   return(
     <>
       {/* Task contact card */}
-      {contactTarget&&(()=>{ const lt={...((sharedProps.find(p=>p.id===contactTarget.propId)?.tasks||[]).find(tk=>tk.id===contactTarget.id)||contactTarget),propId:contactTarget.propId,propAddr:contactTarget.propAddr}; return <TaskContactCard task={lt} contacts={dir} onAssign={(val)=>setTaskContact(contactTarget.propId,lt.id,val)} onCreateContact={addContactToDir} onClose={()=>setContactTarget(null)}/>; })()}
+      {contactTarget&&(()=>{ const lt={...((sharedProps.find(p=>p.id===contactTarget.propId)?.tasks||[]).find(tk=>tk.id===contactTarget.id)||contactTarget),propId:contactTarget.propId,propAddr:contactTarget.propAddr}; const slot=contactTarget._slot; return <TaskContactCard task={lt} contact={slot==="new"?null:(taskContactsOf(lt)[slot||0]||null)} startPick={slot==="new"} contacts={dir} onAssign={(val)=>{setTaskContact(contactTarget.propId,lt.id,val,slot);if(!val)setContactTarget(null);else if(slot==="new")setContactTarget(x=>x&&({...x,_slot:taskContactsOf(lt).length}));}} onCreateContact={addContactToDir} onClose={()=>setContactTarget(null)}/>; })()}
       {/* Task messages popup */}
       {msgTarget&&(()=>{ const mp=sharedProps.find(p=>p.id===msgTarget.propId); const lt=(mp?.tasks||[]).find(tk=>tk.id===msgTarget.id); return <TaskMessagesPopup title={msgTarget.text||"Task"} task={lt||msgTarget} saveFolder={mp?.filesFolder||null} contacts={dir} messages={(lt||msgTarget)?.messages||[]} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} onSend={(txt,att,mn)=>addTaskMessage(msgTarget.propId,msgTarget.id,txt,att,mn)} onClose={()=>setMsgTarget(null)}/>; })()}
       {/* Assign / delegate popup — owner (original) + optional delegate */}
@@ -8906,7 +8926,7 @@ function PropertyTaskList({property}){
         {rows.length===0&&<div style={{padding:"22px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No tasks yet. Add one below, or set up a rule in <strong>Settings → Automations</strong> to create tasks automatically.</div>}
         {popTask&&<TaskPopup task={popTask} isMobile={isMobileP} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} contacts={dir} saveFolder={live.filesFolder||null}
           onClose={()=>setPopId(null)} onComplete={(t,done)=>updateTaskStatus(t.propId,t.id,done?"Completed":"Not Started")} onDelete={deleteTask} onRename={updateTaskText}
-          onAssign={(t)=>setAssignTarget(t)} onContact={(t)=>setContactTarget(t)} onSend={(txt,att,mn)=>addTaskMessage(propId,popTask.id,txt,att,mn)}/>}
+          onAssign={(t)=>setAssignTarget(t)} onContact={(t,o)=>setContactTarget(o?{...t,_slot:o.slot}:t)} onContactRemove={(t,i)=>setTaskContact(t.propId,t.id,null,i)} onSend={(txt,att,mn)=>addTaskMessage(propId,popTask.id,txt,att,mn)}/>}
         {rows.filter(t=>!taskIsDone(t)).map(t=><TaskRow key={t.id} t={t} onOpen={(x)=>setPopId(x.id)} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setContactTarget} onMessage={setMsgTarget} onAssign={setAssignTarget} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
         <AddTaskInline onAdd={addTask}/>
         <div style={{padding:"0 12px 12px",display:"flex",flexDirection:"column",gap:8}}>
@@ -9331,9 +9351,9 @@ function TasksPage({onNavigate}){
     setSelectedKeys(new Set());setSelectMode(false);
   }
 
-  function setTaskContact(propId,taskId,contact){
-    if(isOffice(propId)){upOfficeTask(taskId,tk=>({...tk,taskContact:contact}));return;}
-    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,taskContact:contact})}));
+  function setTaskContact(propId,taskId,contact,slot){
+    if(isOffice(propId)){upOfficeTask(taskId,tk=>({...tk,...contactPatch(tk,contact,slot)}));return;}
+    setSharedProps(prev=>prev.map(p=>p.id!==propId?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==taskId?tk:{...tk,...contactPatch(tk,contact,slot)})}));
   }
   const[statusFilter,setStatusFilter]=useState(new Set()); // empty = show all
   const[showAutoBuilder,setShowAutoBuilder]=useState(false);
@@ -9501,7 +9521,7 @@ function TasksPage({onNavigate}){
         return <TaskPopup task={tk} isMobile={isMobile} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} contacts={dir}
           saveFolder={(sharedProps.find(p=>p.id===taskPop.propId)?.filesFolder)||null} onClose={()=>setTaskPop(null)}
           onComplete={(t,done)=>updateTaskStatus(t.propId,t.id,done?"Completed":"Not Started")} onDelete={deleteTask} onRename={updateTaskText}
-          onAssign={(t)=>setTaskAssignTarget(t)} onContact={(t)=>setTaskContactTarget(t)} onNavigate={onNavigate}
+          onAssign={(t)=>setTaskAssignTarget(t)} onContact={(t,o)=>setTaskContactTarget(o?{...t,_slot:o.slot}:t)} onContactRemove={(t,i)=>setTaskContact(t.propId,t.id,null,i)} onNavigate={onNavigate}
           onSend={(txt,att,mn)=>addTaskMessage(taskPop.propId,taskPop.id,txt,att,mn)}/>;
       })()}
       {taskMsgTarget&&(()=>{
@@ -9512,7 +9532,8 @@ function TasksPage({onNavigate}){
       {/* Task contact popup */}
       {taskContactTarget&&(()=>{
         const liveTask={...(findLiveTask(taskContactTarget.propId,taskContactTarget.id)||taskContactTarget),propId:taskContactTarget.propId,propAddr:taskContactTarget.propAddr};
-        return <TaskContactCard task={liveTask} contacts={dir} onAssign={(val)=>setTaskContact(taskContactTarget.propId,liveTask.id,val)} onCreateContact={addContactToDir} onClose={()=>setTaskContactTarget(null)}/>;
+        const slot=taskContactTarget._slot;
+        return <TaskContactCard task={liveTask} contact={slot==="new"?null:(taskContactsOf(liveTask)[slot||0]||null)} startPick={slot==="new"} contacts={dir} onAssign={(val)=>{setTaskContact(taskContactTarget.propId,liveTask.id,val,slot);if(!val)setTaskContactTarget(null);else if(slot==="new")setTaskContactTarget(x=>x&&({...x,_slot:taskContactsOf(liveTask).length}));}} onCreateContact={addContactToDir} onClose={()=>setTaskContactTarget(null)}/>;
       })()}
       {/* The old "Dashboard" title + Open/Completed/Total pills strip was removed (Elie 10/13/26) — the Tasks toolbar covers it. */}
 
@@ -12288,7 +12309,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
           </div>
         );
       })()}
-      {urgentable&&!recording&&(
+      {urgentable&&!recording&&!stack&&(
         <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:8,padding:"0 2px"}}>
           {urgent&&<span style={{fontSize:11.5,fontWeight:700,color:URGENT_TEXT}}>Goes out URGENT</span>}
           <UrgentChip on={urgent} onToggle={()=>setUrgent(v=>!v)}/>
@@ -12338,7 +12359,8 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
               placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":urgent?"Urgent message…":ph)} disabled={busy}
               style={{flex:stack?"1 1 100%":1,order:stack?-1:0,minWidth:0,minHeight:stack?48:undefined,padding:isMobile?"8px 12px":"11px 14px",borderRadius:18,border:urgent?`1.5px solid ${URGENT_RED}`:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
             {isMobile&&<button onClick={startRec} disabled={busy} title="Record a voice note" style={{...ib,width:36,height:36,color:T.textSub}}><MicIcon size={21}/></button>}
-            <button onClick={()=>send()} disabled={!canSend} style={isMobile?{width:36,height:36,borderRadius:"50%",background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:0}:{padding:"10px 18px",borderRadius:22,background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,marginLeft:stack?"auto":0}}>{isMobile?"➤":"Send"}</button>
+            {stack&&urgentable&&<span style={{marginLeft:"auto",display:"inline-flex"}}><UrgentChip on={urgent} onToggle={()=>setUrgent(v=>!v)}/></span>}
+            <button onClick={()=>send()} disabled={!canSend} style={isMobile?{width:36,height:36,borderRadius:"50%",background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:0}:{padding:"10px 18px",borderRadius:22,background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,marginLeft:stack&&!urgentable?"auto":0}}>{isMobile?"➤":"Send"}</button>
           </>
         )}
       </div>

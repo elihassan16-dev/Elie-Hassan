@@ -14,7 +14,7 @@ import { WalkthroughModal, useWalkJob, useWalkCloudSync } from "./walkthrough";
 import { MediaPage } from "./media";
 import { ShowroomPage } from "./showroom";
 import { CheckCircle } from "./checkCircle";
-import { subsOf, makeSubs, SubProgress, ChecklistSection, SubRows, groupUtilTasks, groupUtilRule } from "./subtasks";
+import { makeSubs, SubProgress, ChecklistSection, groupUtilTasks, groupUtilRule } from "./subtasks";
 import { urgentNext, urgentMark, UrgentChip, UrgentTag, UrgentTile, UrgentSheet, UrgentAlert, useSetTaskUrgent, RED as URGENT_RED, RED_TEXT as URGENT_TEXT } from "./urgent";
 import { PayoffStatementSheet } from "./payoffSheet";
 import { PostsPage, PostsNudge, PostWatcher, PostButton } from "./flyers";
@@ -7577,8 +7577,6 @@ function SwipeToDelete({onDelete,confirm,children,style={}}){
 
 function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssign,onNavigate,currentUser,selectMode,selected,onToggleSelect,compact,stripe,grid,emph,faded,onOpen,pick}){
   const isMobile=useIsMobile();
-  const[subOpen,setSubOpen]=useState(false); // ▸ checklist opened under the row (Tasks view)
-  const nSubs=subsOf(t).length;
   const sc=TASK_STATUS_COLORS[t.status]||TASK_STATUS_COLORS["Not Started"];
   const dim=t.status==="Completed"||t.status==="N/A";
   // The red number = messages YOU haven't read (matches the property-row
@@ -7695,7 +7693,6 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   const addr=isOfficeRow?"Company":(t.propAddr||"");
   const titleEl=(
     <span style={{minWidth:0,display:"flex",alignItems:"center",gap:5}}>
-      {grid&&nSubs>0&&<button onClick={(e)=>{e.stopPropagation();setSubOpen(v=>!v);}} aria-expanded={subOpen} aria-label={subOpen?"Hide checklist":"Show checklist"} style={{width:24,height:28,minHeight:28,margin:"-4px 0 -4px -6px",padding:0,border:"none",background:"none",color:T.textSub,fontSize:11,cursor:"pointer",flexShrink:0}}>{subOpen?"▾":"▸"}</button>}
       {urg&&<UrgentTag style={{flexShrink:0}}/>}
       <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:grid==="mobile"?15:13.5,fontWeight:grid==="mobile"?600:urg||emph?650:500,color:(dim||faded)?T.textTert:urg?URGENT_TEXT:T.text,textDecoration:dim?"line-through":"none"}}>{t.text||"(untitled task)"}</span>
       {t.autoId&&<span style={{flexShrink:0,fontSize:10,fontWeight:700,color:"#8a6d1f",background:"#FDF9EE",border:"1px solid #EAD9A9",borderRadius:6,padding:"0 5px"}}>AUTO</span>}
@@ -7717,7 +7714,6 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
         <DoerAvatar assignee={t.assignee} delegate={t.delegate} size={24}/>
       </div>
       </SwipeToDelete>
-      {subOpen&&<SubRows task={t} grid="mobile"/>}
       </>
     );
   }
@@ -7731,7 +7727,6 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
         <span style={{display:"flex",alignItems:"center",gap:6,minWidth:0,fontSize:12.5,color:T.textSub}}><DoerAvatar assignee={t.assignee} delegate={t.delegate} size={22}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{whoTxt}</span></span>
         <span style={{justifySelf:"end",display:"flex"}}>{unreadEl||<span style={{color:"#C7C7CC",fontSize:16}}>›</span>}</span>
       </div>
-      {subOpen&&<SubRows task={t} grid={grid}/>}
       </>
     );
   }
@@ -7939,7 +7934,11 @@ const taskContactsOf=(t)=>t?(Array.isArray(t.taskContacts)?t.taskContacts.filter
 // slot: index to replace/remove (default 0), or "new" to add another.
 const contactPatch=(tk,val,slot)=>{const n=[...taskContactsOf(tk)];if(slot==="new"){if(val)n.push(val);}else{const i=slot==null?0:slot;if(val)n[i]=val;else n.splice(i,1);}return{taskContacts:n,taskContact:n[0]||null};};
 
-function TaskMessagesBody({title,task,contacts=[],messages,currentUser,teamMembers,onSend,templates:templatesProp,saveFolder=null,listStyle}){
+function TaskMessagesBody({title,task,contacts=[],messages:allMsgs,currentUser,teamMembers,onSend,templates:templatesProp,saveFolder=null,listStyle,subTag=null,subFilter=null,onClearSubTag,onClearSubFilter}){
+  // ☑ Messages about ONE checklist item (Elie 10/13/26): m.subId/m.subText.
+  const subName=(m)=>{const s=(task?.subtasks||[]).find(x=>x.id===m.subId);return s?s.text:m.subText||"";};
+  const messages=subFilter?allMsgs.filter(m=>m.subId===subFilter):allMsgs;
+  const filterName=subFilter?((task?.subtasks||[]).find(x=>x.id===subFilter)||{}).text||"":"";
   const fmt=(iso)=>{try{return new Date(iso).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
   // Templates address + notify a chosen teammate. When a task is delegated, the
   // owner (assignee) and the person doing the work (delegate) differ — let the
@@ -7967,13 +7966,18 @@ function TaskMessagesBody({title,task,contacts=[],messages,currentUser,teamMembe
     messages.length?`Recent messages:\n${messages.slice(-6).map(m=>`${m.author||"—"}: ${m.text}`).join("\n")}`:"",
   ].filter(Boolean).join("\n");
   return(<>
+        {subFilter&&<div style={{display:"flex",alignItems:"center",gap:8,margin:"6px 8px 0",padding:"6px 10px",borderRadius:10,background:"#FDF6E3",border:"1px solid #EAD9A9",fontSize:12.5,fontWeight:600,color:"#8a6d1f",flexShrink:0}}>
+          <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Showing only: {filterName}</span>
+          <button onClick={onClearSubFilter} style={{minHeight:30,padding:"0 6px",border:"none",background:"none",color:T.gold,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Show all</button>
+        </div>}
         <div style={{flex:1,overflowY:"auto",padding:"12px 16px",display:"flex",flexDirection:"column",gap:10,minHeight:120,...(listStyle||{})}}>
-          {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"24px 0"}}>No messages yet. Leave a note for your team below.</div>}
+          {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"24px 0"}}>{subFilter?"No messages about this item yet.":"No messages yet. Leave a note for your team below."}</div>}
           {messages.map(m=>{const mine=m.author===currentUser;return(
             <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
               {!mine&&<div style={{fontSize:10,color:T.textTert,marginBottom:2,paddingLeft:4}}>{(m.author||"—").split(" ")[0]} · {fmt(m.at)}</div>}
               <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:18,padding:"8px 13px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",...(m.urgent?{boxShadow:`0 0 0 2px ${URGENT_RED}`,...(mine?{}:{background:"#FFF5F4"})}:{})}}>
                 {m.urgent&&<div style={{marginBottom:4}}><UrgentTag/></div>}
+                {m.subId&&subName(m)&&<div style={{marginBottom:3}}><span style={{display:"inline-block",fontSize:11,fontWeight:700,borderRadius:8,padding:"1px 7px",background:mine?"rgba(255,255,255,0.22)":"rgba(184,145,46,0.14)",color:mine?"#fff":"#8a6d1f"}}>↳ {subName(m)}</span></div>}
                 {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.55)":T.gold}`,paddingLeft:8,marginBottom:5,opacity:0.9,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}><b>{m.replyTo.author?m.replyTo.author.split(" ")[0]:"—"}:</b> {m.replyTo.text}</div>}
                 {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                 {linkifyText(m.text,mine)}
@@ -7992,7 +7996,8 @@ function TaskMessagesBody({title,task,contacts=[],messages,currentUser,teamMembe
               );})}
             </div>
           )}
-          <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn)} people={teamMembers} currentUser={currentUser} placeholder="Write a message…" templates={templates} defaultMention={dm} aiContext={aiCtx} filesFolder={saveFolder}/>
+          {subTag&&<div style={{marginBottom:6}}><span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:700,color:"#8a6d1f",background:"#FDF6E3",border:"1px solid #EAD9A9",borderRadius:12,padding:"2px 4px 2px 9px"}}>↳ {subTag.text}<button onClick={onClearSubTag} aria-label="Write about the whole task instead" style={{width:26,height:26,minHeight:26,border:"none",background:"none",color:"#8a6d1f",fontWeight:800,cursor:"pointer",padding:0}}>✕</button></span></div>}
+          <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn,subTag?{subId:subTag.id,subText:subTag.text}:undefined)} people={teamMembers} currentUser={currentUser} placeholder={subTag?`Write about "${subTag.text}"…`:"Write a message…"} templates={templates} defaultMention={dm} aiContext={aiCtx} filesFolder={saveFolder}/>
         </div>
   </>);
 }
@@ -8023,6 +8028,14 @@ function TaskPopup({task,isMobile,currentUser,teamMembers,contacts=[],saveFolder
   const setUrgent=useSetTaskUrgent();
   const[editing,setEditing]=useState(false);
   const[chg,setChg]=useState(false); // contact "Change" options open
+  const[subTag,setSubTag]=useState(null);    // {id,text} — next message is about this item
+  const[subFilter,setSubFilter]=useState(null); // item id — show only its messages
+  // 💬 on an item: 1st tap = write about it, 2nd = only its messages, 3rd = off.
+  const onItemMsg=(s)=>{
+    if(!subTag||subTag.id!==s.id){setSubTag({id:s.id,text:s.text});setSubFilter(null);}
+    else if(subFilter!==s.id)setSubFilter(s.id);
+    else{setSubTag(null);setSubFilter(null);}
+  };
   const[draft,setDraft]=useState(task?.text||"");
   useEffect(()=>{setDraft(task?.text||"");},[task?.text]);
   if(!task)return null;
@@ -8066,7 +8079,7 @@ function TaskPopup({task,isMobile,currentUser,teamMembers,contacts=[],saveFolder
           {!done&&<button onClick={()=>setUrgent(task,!urg)} aria-pressed={urg} style={{flex:1,minHeight:46,borderRadius:12,border:`1.5px solid ${urg?URGENT_RED:T.border}`,background:urg?"#FFE9E7":"#fff",color:urg?URGENT_TEXT:T.text,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>🚨 {urg?"Urgent · on":"Mark urgent"}</button>}
         </div>
         {/* ☑ checklist (sub-items) */}
-        <ChecklistSection task={task} sec={sec} h6={h6}/>
+        <ChecklistSection task={task} sec={sec} h6={h6} onItemMsg={onItemMsg} activeTag={subTag&&subTag.id} activeFilter={subFilter}/>
         {/* who */}
         <div style={sec}>
           <div style={h6}>Who's doing it</div>
@@ -8112,7 +8125,7 @@ function TaskPopup({task,isMobile,currentUser,teamMembers,contacts=[],saveFolder
         {/* messages */}
         <div style={{...sec,padding:"8px 4px 6px",flex:"1 1 auto",display:"flex",flexDirection:"column"}}>
           <div style={{...h6,padding:"2px 8px 0",flexShrink:0}}>Messages{(task.messages||[]).filter(m=>isUnreadForUser(m,currentUser)).length?` · ${(task.messages||[]).filter(m=>isUnreadForUser(m,currentUser)).length} new`:""}</div>
-          <TaskMessagesBody title={task.text||"Task"} task={task} contacts={contacts} messages={task.messages||[]} currentUser={currentUser} teamMembers={teamMembers} onSend={onSend} saveFolder={saveFolder} listStyle={{minHeight:isMobile?140:110,padding:"8px 8px",flex:"1 1 auto",contain:"size"}}/>
+          <TaskMessagesBody title={task.text||"Task"} task={task} contacts={contacts} messages={task.messages||[]} currentUser={currentUser} teamMembers={teamMembers} onSend={onSend} saveFolder={saveFolder} subTag={subTag} subFilter={subFilter} onClearSubTag={()=>{setSubTag(null);setSubFilter(null);}} onClearSubFilter={()=>setSubFilter(null)} listStyle={{minHeight:isMobile?140:110,padding:"8px 8px",flex:"1 1 auto",contain:"size"}}/>
         </div>
         <button onClick={()=>{if(window.confirm("Delete this task?")){onDelete(task.propId,task.id);onClose();}}} style={{display:"block",flexShrink:0,margin:"2px auto 8px",minHeight:40,padding:"0 16px",border:"none",background:"none",color:T.red,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Delete task</button>
       </div>
@@ -8890,7 +8903,7 @@ function PropertyTaskList({property}){
     })}));
     if(member&&member!==CURRENT_USER){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(t=>t.id===tid); const pN=sharedProps.find(p=>p.id===pid); const aN=pN?`${pN.address}${pN.city?`, ${pN.city}`:""}`:""; notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}${aN?` — 🏠 ${aN}`:""}`,tag:`task-${tid}`,url:`/?goto=task:${pid}:${tid}`}); }
   };
-  const addTaskMessage=(pid,tid,text,attachment,mentions)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg=urgentMark({id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}); if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",att:attachment,body:`${CURRENT_USER}: ${t||attLabel(attachment)}`,tag:`task-${tid}`,url:`/?goto=chat:${pid}`}); } };
+  const addTaskMessage=(pid,tid,text,attachment,mentions,extra)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg=urgentMark({id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}); if(extra)Object.assign(msg,extra); if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",att:attachment,body:`${CURRENT_USER}: ${t||attLabel(attachment)}`,tag:`task-${tid}`,url:`/?goto=chat:${pid}`}); } };
   const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
   useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
   const popTask=popId!=null?rows.find(t=>t.id===popId):null;
@@ -8981,7 +8994,7 @@ function PropertyTaskList({property}){
         {rows.length===0&&<div style={{padding:"22px 16px",textAlign:"center",color:T.textTert,fontSize:13}}>No tasks yet. Add one below, or set up a rule in <strong>Settings → Automations</strong> to create tasks automatically.</div>}
         {popTask&&<TaskPopup task={popTask} isMobile={isMobileP} currentUser={CURRENT_USER} teamMembers={TEAM_MEMBERS} contacts={dir} saveFolder={live.filesFolder||null}
           onClose={()=>setPopId(null)} onComplete={(t,done)=>updateTaskStatus(t.propId,t.id,done?"Completed":"Not Started")} onDelete={deleteTask} onRename={updateTaskText}
-          onAssign={(t)=>setAssignTarget(t)} onContact={(t,o)=>setContactTarget(o?{...t,_slot:o.slot}:t)} onContactRemove={(t,i)=>setTaskContact(t.propId,t.id,null,i)} onSend={(txt,att,mn)=>addTaskMessage(propId,popTask.id,txt,att,mn)}/>}
+          onAssign={(t)=>setAssignTarget(t)} onContact={(t,o)=>setContactTarget(o?{...t,_slot:o.slot}:t)} onContactRemove={(t,i)=>setTaskContact(t.propId,t.id,null,i)} onSend={(txt,att,mn,ex)=>addTaskMessage(propId,popTask.id,txt,att,mn,ex)}/>}
         {rows.filter(t=>!taskIsDone(t)).map(t=><TaskRow key={t.id} t={t} onOpen={(x)=>setPopId(x.id)} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setContactTarget} onMessage={setMsgTarget} onAssign={setAssignTarget} currentUser={CURRENT_USER} selectMode={false} selected={false} onToggleSelect={()=>{}}/>)}
         <AddTaskInline onAdd={addTask}/>
         <div style={{padding:"0 12px 12px",display:"flex",flexDirection:"column",gap:8}}>
@@ -9317,9 +9330,10 @@ function TasksPage({onNavigate}){
   const selKey=(t)=>`${t.propId}:${t.id}`;
   const setUrgBulk=useSetTaskUrgent();
   const toggleSelect=(t)=>setSelectedKeys(p=>{const n=new Set(p);const k=selKey(t);n.has(k)?n.delete(k):n.add(k);return n;});
-  function addTaskMessage(propId,taskId,text,attachment,mentions){
+  function addTaskMessage(propId,taskId,text,attachment,mentions,extra){
     const t=(text||"").trim();if(!t&&!attachment)return;
     const msg=urgentMark({id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]});
+    if(extra)Object.assign(msg,extra);
     if(attachment)msg.attachment=attachment;
     if(mentions&&mentions.length)msg.mentions=mentions;
     if(isOffice(propId)){
@@ -9580,7 +9594,7 @@ function TasksPage({onNavigate}){
           saveFolder={(sharedProps.find(p=>p.id===taskPop.propId)?.filesFolder)||null} onClose={()=>setTaskPop(null)}
           onComplete={(t,done)=>updateTaskStatus(t.propId,t.id,done?"Completed":"Not Started")} onDelete={deleteTask} onRename={updateTaskText}
           onAssign={(t)=>setTaskAssignTarget(t)} onContact={(t,o)=>setTaskContactTarget(o?{...t,_slot:o.slot}:t)} onContactRemove={(t,i)=>setTaskContact(t.propId,t.id,null,i)} onNavigate={onNavigate}
-          onSend={(txt,att,mn)=>addTaskMessage(taskPop.propId,taskPop.id,txt,att,mn)}/>;
+          onSend={(txt,att,mn,ex)=>addTaskMessage(taskPop.propId,taskPop.id,txt,att,mn,ex)}/>;
       })()}
       {taskMsgTarget&&(()=>{
         const liveTask=findLiveTask(taskMsgTarget.propId,taskMsgTarget.id);

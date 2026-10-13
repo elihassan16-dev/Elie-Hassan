@@ -61,13 +61,14 @@ const shortDate = (iso) => { try { return new Date(iso).toLocaleDateString("en-U
 const first = (n) => String(n || "").split(" ")[0];
 
 // Task pop-up section: tick items, add one, swipe-free ✕ to remove.
-export function ChecklistSection({ task, sec, h6 }) {
+export function ChecklistSection({ task, sec, h6, onItemMsg, activeTag, activeFilter }) {
   const ops = useSubtaskOps();
   const subs = subsOf(task);
   const [adding, setAdding] = useState(false);
   const [txt, setTxt] = useState("");
   const { done, total } = subProgress(task);
   const save = () => { if (txt.trim()) ops.add(task, txt); setTxt(""); };
+  const msgCount = (sid) => (task.messages || []).filter((m) => m.subId === sid).length;
   if (!total && !adding) {
     return (
       <div style={{ ...sec, padding: "4px 12px" }}>
@@ -85,6 +86,17 @@ export function ChecklistSection({ task, sec, h6 }) {
           <SubCircle done={s.done} onToggle={() => ops.toggle(task, s.id)} size={22} />
           <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, color: s.done ? T.textTert : T.text, textDecoration: s.done ? "line-through" : "none", wordBreak: "break-word" }}>{s.text}</span>
           {s.done && s.doneBy && <span style={{ fontSize: 11.5, color: T.textSub, whiteSpace: "nowrap" }}>{first(s.doneBy)}{s.doneAt ? ` · ${shortDate(s.doneAt)}` : ""}</span>}
+          {onItemMsg && (() => {
+            const n = msgCount(s.id), tagged = activeTag === s.id, filtered = activeFilter === s.id;
+            return (
+              <button onClick={() => onItemMsg(s)} aria-pressed={tagged} aria-label={filtered ? `Stop showing only ${s.text}` : tagged ? `Show only messages about ${s.text}` : `Message about ${s.text}`}
+                title={filtered ? "Back to all messages" : tagged ? "Tap again to see only this item's messages" : "Write a message about this item"}
+                style={{ minWidth: 44, height: 32, minHeight: 32, padding: "0 9px", borderRadius: 16, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                  border: `1px solid ${tagged ? T.gold : n ? "#EAD9A9" : T.border}`, background: tagged ? T.gold : n ? "#FDF6E3" : "#fff", color: tagged ? "#fff" : n ? "#8a6d1f" : "#3A3A3C" }}>
+                💬{n ? ` ${n}` : ""}
+              </button>
+            );
+          })()}
           <button onClick={() => { if (window.confirm(`Remove "${s.text}" from the checklist?`)) ops.remove(task, s.id); }} aria-label={`Remove ${s.text}`} style={{ width: 32, height: 32, minHeight: 32, border: "none", background: "none", color: T.textTert, fontSize: 14, cursor: "pointer", flexShrink: 0 }}>✕</button>
         </div>
       ))}
@@ -102,30 +114,6 @@ export function ChecklistSection({ task, sec, h6 }) {
       )}
     </div>
   );
-}
-
-// The ▸ list rows under a task in the Tasks view.
-export function SubRows({ task, grid }) {
-  const ops = useSubtaskOps();
-  const subs = subsOf(task);
-  if (grid === "mobile") {
-    return subs.map((s) => (
-      <div key={s.id} onClick={(e) => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 14px 0 46px", minHeight: 44, borderTop: `1px solid rgba(60,60,67,0.08)`, background: "#FAFAFB" }}>
-        <SubCircle done={s.done} onToggle={() => ops.toggle(task, s.id)} size={20} />
-        <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: s.done ? T.textTert : T.text, textDecoration: s.done ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.text}</span>
-        {s.done && s.doneAt && <span style={{ fontSize: 11.5, color: T.textSub }}>{shortDate(s.doneAt)}</span>}
-      </div>
-    ));
-  }
-  return subs.map((s) => (
-    <div key={s.id} onClick={(e) => e.stopPropagation()} style={{ display: "grid", gridTemplateColumns: grid, columnGap: 12, alignItems: "center", padding: "0 16px 0 50px", minHeight: 38, borderTop: `1px solid rgba(60,60,67,0.08)`, background: "#FAFAFB", fontSize: 13 }}>
-      <SubCircle done={s.done} onToggle={() => ops.toggle(task, s.id)} size={18} />
-      <span style={{ minWidth: 0, color: s.done ? T.textTert : "#3A3A3C", textDecoration: s.done ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.text}</span>
-      <span />
-      <span style={{ fontSize: 12, color: T.textSub }}>{s.done ? `${first(s.doneBy)}${s.doneAt ? ` · ${shortDate(s.doneAt)}` : ""}` : ""}</span>
-      <span />
-    </div>
-  ));
 }
 
 // ── One-time grouping of the separate "Turn on water / electric / gas" tasks ──

@@ -70,6 +70,12 @@ export function ChecklistSection({ task, sec, h6, onItemMsg, activeTag, activeFi
   const [adding, setAdding] = useState(false);
   const [txt, setTxt] = useState("");
   const { done, total } = subProgress(task);
+  // Grouped lists (the monthly mortgage checklist): the unpaid ones on top
+  // (Elie 10/13/26), each still tagged Rental / Flip.
+  const grouped = subs.some((s) => s.group);
+  const isMtg = String(task.autoId || "").startsWith("mortgages:");
+  const secOf = (s) => (s.done ? (isMtg ? "Paid" : "Done") : (isMtg ? "Not paid yet" : "Open"));
+  const shown = grouped ? [...subs.filter((s) => !s.done), ...subs.filter((s) => s.done)] : subs;
   const save = () => { if (txt.trim()) ops.add(task, txt); setTxt(""); };
   const msgCount = (sid) => (task.messages || []).filter((m) => m.subId === sid).length;
   if (!total && !adding) {
@@ -84,16 +90,18 @@ export function ChecklistSection({ task, sec, h6, onItemMsg, activeTag, activeFi
   return (
     <div style={sec}>
       <div style={{ ...h6, display: "flex", justifyContent: "space-between" }}><span>Checklist</span>{total > 0 && <span>{done} of {total} done</span>}</div>
-      {subs.map((s, i) => {
-        const newGroup = s.group && s.group !== (subs[i - 1] || {}).group;
+      {shown.map((s, i) => {
+        const head = grouped ? secOf(s) : "";
+        const newGroup = grouped && head !== (i ? secOf(shown[i - 1]) : "");
         const late = s.late && !s.done;
         return (
         <div key={s.id}>
-        {newGroup && <div style={{ fontSize: 11, fontWeight: 700, color: T.textTert, letterSpacing: "0.05em", textTransform: "uppercase", margin: i ? "10px 0 2px" : "2px 0 2px" }}>{s.group}</div>}
+        {newGroup && <div style={{ fontSize: 11, fontWeight: 700, color: T.textTert, letterSpacing: "0.05em", textTransform: "uppercase", margin: i ? "10px 0 2px" : "2px 0 2px" }}>{head} ({shown.filter((x) => secOf(x) === head).length})</div>}
         <div style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 42, borderTop: i && !newGroup ? `1px solid ${T.border}` : "none" }}>
           <SubCircle done={s.done} onToggle={() => ops.toggle(task, s.id)} size={22} />
           <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, color: late ? "#C4170C" : s.done ? T.textTert : T.text, textDecoration: s.done && !s.qb ? "line-through" : "none", wordBreak: "break-word" }}>
             {s.text}
+            {s.group && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: T.textSub, background: "rgba(118,118,128,0.12)", borderRadius: 6, padding: "1px 6px", verticalAlign: 1, textDecoration: "none", display: "inline-block" }}>{s.group === "Rentals" ? "Rental" : s.group === "Flips" ? "Flip" : s.group}</span>}
             {s.qb && <span style={{ display: "block", fontSize: 11.5, color: "#1E7B3C", marginTop: 1 }}><span style={{ fontSize: 9.5, fontWeight: 800, color: "#fff", background: "#2CA01C", borderRadius: 4, padding: "0 4px", marginRight: 4 }}>QB</span>{qbLine(s)}</span>}
             {late && <span style={{ display: "block", fontSize: 11.5, color: "#C4170C", fontWeight: 600, marginTop: 1 }}>Late — no payment seen by the 5th</span>}
           </span>

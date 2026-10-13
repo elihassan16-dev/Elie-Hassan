@@ -8991,10 +8991,13 @@ function TasksPage({onNavigate}){
   // Three ways to see the task list — "byprop" (default): one simple row per
   // property, tap it for that property's tasks popup; "grid": the Excel-style
   // spreadsheet (desktop only); "boxes": the original roomy per-property cards.
-  const[taskViewMode,setTaskViewMode]=useState(()=>{try{return localStorage.getItem("tasksViewMode")||"byprop";}catch{return "byprop";}});
+  // Two views now (Elie 10/13/26 dropped "Boxes"): "grid" = Tasks, "byprop" =
+  // By property. Old saved "boxes" values open the Tasks view.
+  const viewOf=(m)=>m==="byprop"?"byprop":"grid";
+  const[taskViewMode,setTaskViewMode]=useState(()=>{try{return viewOf(localStorage.getItem("tasksViewMode"));}catch{return "grid";}});
   // The saved ACCOUNT preference (Supabase user metadata) beats the device cache —
   // whatever view each user picks follows them to any phone or computer.
-  useEffect(()=>{const pv=prefs&&prefs.tasksViewMode;if(pv)setTaskViewMode(pv);},[prefs&&prefs.tasksViewMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{const pv=prefs&&prefs.tasksViewMode;if(pv)setTaskViewMode(viewOf(pv));},[prefs&&prefs.tasksViewMode]); // eslint-disable-line react-hooks/exhaustive-deps
   const setViewMode=(m)=>{setTaskViewMode(m);try{localStorage.setItem("tasksViewMode",m);}catch{/* ignore */}if(savePrefs)savePrefs({tasksViewMode:m});};
   // 📬 Email/push deep link: open the property's task popup and glow the task.
   const[hlTaskId,setHlTaskId]=useState(null);
@@ -9427,10 +9430,10 @@ function TasksPage({onNavigate}){
   const summaryByStatus={Open:allTasks.filter(t=>!taskIsDone(t)).length,Completed:allTasks.filter(t=>taskIsDone(t)).length};
 
   // Tasks toolbar view switch (Elie approved option A 10/13/26): Tasks (the
-  // one-row-per-task list) · Boxes (a card per property) · By property.
+  // one-row-per-task list, sorted by property) · By property. "Boxes" removed.
   const viewSegEl=(full)=>(
     <div role="tablist" aria-label="Task view" style={{display:full?"flex":"inline-flex",background:"rgba(118,118,128,0.12)",borderRadius:17,padding:2,flexShrink:0}}>
-      {[["grid","Tasks"],["boxes","Boxes"],["byprop","By property"]].map(([k,l])=>{const on=k==="boxes"?(!compact&&!byProp):taskViewMode===k;return(
+      {[["grid","Tasks"],["byprop","By property"]].map(([k,l])=>{const on=taskViewMode===k;return(
         <button key={k} role="tab" aria-selected={on} onClick={()=>{if(on)return;setViewMode(k);setSelectMode(false);setSelectedKeys(new Set());}} style={{flex:full?1:"0 0 auto",minHeight:30,padding:"0 13px",border:"none",borderRadius:15,background:on?T.card:"transparent",boxShadow:on?"0 1px 3px rgba(0,0,0,0.12)":"none",fontSize:13,fontWeight:600,color:on?T.text:"#3A3A3C",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
       );})}
     </div>
@@ -9971,9 +9974,14 @@ function TasksPage({onNavigate}){
                 const q=sheetQ.trim().toLowerCase();
                 const base=[...officeMappedAll.map(t=>({...t,propAddr:"Company"})),...allTasks]
                   .filter(t=>matchWho(t)&&(sheetDone?taskIsDone(t):!taskIsDone(t))&&(!filterProps.size||filterProps.has(t.propAddr))&&(!q||`${t.text} ${t.propAddr} ${t.assignee||""} ${t.delegate||""}`.toLowerCase().includes(q)));
-                const rows=sheetDone?base.sort((x,y)=>String(y.completedAt||"").localeCompare(String(x.completedAt||""))):base.sort((x,y)=>(!!y.urgent-!!x.urgent));
+                const rows=sheetDone?base.sort((x,y)=>String(y.completedAt||"").localeCompare(String(x.completedAt||""))):base.sort((x,y)=>(!!y.urgent-!!x.urgent)||((x.propAddr==="Company")===(y.propAddr==="Company")?String(x.propAddr||"").localeCompare(String(y.propAddr||""),undefined,{numeric:true}):x.propAddr==="Company"?-1:1));
                 // Contractor (external) tasks join when showing Everyone.
                 const extRows=everyone&&!sheetDone?(ctrTasks||[]).filter(t=>t.status!=="Completed"&&t.status!=="N/A").map(t=>{const job=(ctrJobs||[]).find(j=>String(j.id)===String(t.jobId));return job?{t,job,addr:job.propertyAddress||""}:null;}).filter(x=>x&&(!filterProps.size||filterProps.has(x.addr))&&(!q||`${x.t.text} ${x.addr}`.toLowerCase().includes(q))):[];
+                // One list in property order (Elie 10/13/26): contractor rows slot in
+                // beside the team's tasks for the same house; urgent stays on top.
+                const pKey=(a)=>a==="Company"?"":String(a||"");
+                const merged=[...rows.map(t=>({t,u:!!t.urgent,a:pKey(t.propAddr)})),...extRows.map(x=>({x,u:false,a:pKey(x.addr)}))];
+                if(!sheetDone)merged.sort((x,y)=>(y.u-x.u)||x.a.localeCompare(y.a,undefined,{numeric:true}));
                 const GRID=isMobile?"mobile":"22px minmax(0,1fr) 230px 150px 30px";
                 const nUrg=rows.filter(t=>t.urgent&&!taskIsDone(t)).length;
                 const whoLabel=everyone?"Everyone":whoSel.map(w=>w==="me"?"My tasks":w==="unassigned"?"Unassigned":w.split(" ")[0]).join(" + ");
@@ -10014,8 +10022,7 @@ function TasksPage({onNavigate}){
                         <span/><span>Task <span style={{fontWeight:500,color:T.textTert}}>· {rows.length+extRows.length} {sheetDone?"done":"open"}{nUrg?` · ${nUrg} urgent`:""}</span></span><span>Property</span><span>Who</span><span/>
                       </div>}
                       {rows.length+extRows.length===0&&<div style={{padding:"28px 16px",textAlign:"center",color:T.textTert,fontSize:13.5,borderTop:isMobile?"none":`1px solid ${T.border}`}}>{sheetDone?"Nothing completed yet.":"Nothing open — all caught up."}</div>}
-                      {rows.map((t)=><TaskRow key={"t"+t.propId+":"+t.id} t={t} grid={GRID} onNavigate={onNavigate} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onOpen={openTaskPop} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>)}
-                      {extRows.map(r=>(
+                      {merged.map((it)=>{if(it.x){const r=it.x;return(
                         <div key={"x"+r.t.id} onClick={()=>setExtChat({task:r.t,job:r.job})} style={isMobile?{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",minHeight:58,borderTop:`1px solid ${T.border}`,background:"#FFF9EC",cursor:"pointer"}:{display:"grid",gridTemplateColumns:GRID,columnGap:12,alignItems:"center",padding:"0 16px",minHeight:44,borderTop:`1px solid ${T.border}`,background:"#FFF9EC",cursor:"pointer"}}>
                           <button onClick={(e)=>{e.stopPropagation();setExtTaskStatus(r.t,"Completed");}} aria-label="Mark complete" style={{width:44,height:44,minWidth:44,minHeight:44,margin:-11,padding:0,border:"none",background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><span style={{width:22,height:22,borderRadius:"50%",boxSizing:"border-box",border:"1.5px solid #C7C7CC"}}/></button>
                           {isMobile?<div style={{flex:1,minWidth:0}}><div style={{fontSize:15,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.t.text}</div><div style={{fontSize:12.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.addr} · 👷 {ctrOrgName(r.job.orgId)}</div></div>:<>
@@ -10024,7 +10031,7 @@ function TasksPage({onNavigate}){
                           <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12.5,fontWeight:700,color:"#8a6d1f"}}>👷 {ctrOrgName(r.job.orgId)}</span>
                           <span style={{justifySelf:"end",color:"#C7C7CC",fontSize:16}}>›</span></>}
                         </div>
-                      ))}
+                      );}const t=it.t;return <TaskRow key={"t"+t.propId+":"+t.id} t={t} grid={GRID} onNavigate={onNavigate} onStatusChange={updateTaskStatus} onRename={updateTaskText} onDelete={deleteTask} onContact={setTaskContactTarget} onMessage={openTaskMsg} onOpen={openTaskPop} onAssign={setTaskAssignTarget} currentUser={CURRENT_USER} selectMode={selectMode} selected={selectedKeys.has(selKey(t))} onToggleSelect={toggleSelect}/>;})}
                     </div>
                   </div>
                 );

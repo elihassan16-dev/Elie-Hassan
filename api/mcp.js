@@ -15,6 +15,7 @@ const VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const INSTRUCTIONS = `Goldstone Properties is a real-estate flip and rental company (team: Elie, Moshe, Esti). These tools act inside the team's app as the signed-in teammate.
 - Properties are named by address; pass part of the address (e.g. "19 Orchard"). "company" means Company tasks; post_message with property "office" (no task) posts in the general 📌 Office Chat.
 - save_contact adds or updates someone in the company contacts directory.
+- update_property changes a property's status, address, Details fields and dates (deal numbers: admin only). A forward status change has a required checklist — the tool returns it; go through it with the user, then call again with checklist_confirmed=true.
 - Tasks have an owner (assignee) and optionally a delegate who does the work; they can be urgent and can have checklist items.
 - Showings come from ShowingTime (list_showings): it tells which agents were texted after the showing to ask how it went. To follow up, draft the text and use send_text (after the user's OK).
 - get_texts reads a text conversation with a number or contact.

@@ -49,8 +49,9 @@ export default async function handler(req, res) {
     return res.status(200).setHeader("Content-Type", "text/html; charset=utf-8").send(page({ params }));
   }
   const show = (error) => res.status(200).setHeader("Content-Type", "text/html; charset=utf-8").send(page({ params, error, email: src.email }));
-  const uid = await passwordLogin(src.email, src.password);
-  if (!uid) return show("That email or password didn't work.");
+  const login = await passwordLogin(src.email, src.password);
+  if (!login.uid) return show(login.error);
+  const uid = login.uid;
   const who = await activeTeamUser(uid);
   if (!who) return show("This login can't connect Claude (team accounts only).");
   const code = await issueCode({ uid, clientId: params.client_id, redirectUri: params.redirect_uri, challenge: params.code_challenge, method: "S256" });

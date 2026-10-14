@@ -4,8 +4,12 @@
 // who connected (their name on tasks/messages, their own texting line); the
 // identity comes from the token, never from anything Claude sends.
 // Contractors can't connect.
-import { userFromBearer, baseUrl } from "../lib/mcpAuth.js";
-import { TOOLS, runTool, UserError } from "../lib/mcpTools.js";
+import { userFromBearer, baseUrl, admin } from "../lib/mcpAuth.js";
+import { TOOLS as BASE_TOOLS, runTool, UserError } from "../lib/mcpTools.js";
+import { MORE_TOOLS, runMore } from "../lib/mcpMore.js";
+
+const TOOLS = [...BASE_TOOLS, ...MORE_TOOLS];
+const MORE = new Set(MORE_TOOLS.map((t) => t.name));
 
 const VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const INSTRUCTIONS = `Goldstone Properties is a real-estate flip and rental company (team: Elie, Moshe, Esti). These tools act inside the team's app as the signed-in teammate.
@@ -16,6 +20,10 @@ const INSTRUCTIONS = `Goldstone Properties is a real-estate flip and rental comp
 - Email + files use the teammate's OWN Outlook and the property's linked OneDrive folder: search_email → read_email → reply_email / send_email (attachments from a property folder or another email) / save_email_attachment into a property folder; list_property_files shows a folder.
 - Before send_email or reply_email, ALWAYS show recipients, subject, body and attachments and wait for an explicit yes; then call with confirmed=true.
 - Before send_text, ALWAYS show the exact recipient and message and wait for an explicit yes; then call with confirmed=true.
+- Scope of work: write it in the house style (see create_scope_of_work), show it to the user, then create_scope_of_work makes the branded PDF, files it on the property and returns a link (email it with send_email attachments [{url, name}]).
+- Contractors: contractor_waiting = what's waiting on the team (change orders, bids, requests, unread messages); contractor_jobs; contractor_messages reads a job chat. message_contractor and decide_change_order reach the contractor — show the user first and wait for a yes; then confirmed=true.
+- deal_numbers and lender_balances are admin-only money numbers (same math as the app).
+- Showing follow-ups in bulk: list_showings → draft one text per agent not followed up → show the whole list → ONE yes → send_texts with confirmed=true. list_leads shows new seller leads (or BoldTrail buyer leads).
 - When a lookup is ambiguous, the tool says so — ask the user which one.`;
 
 const rpc = (id, result) => ({ jsonrpc: "2.0", id, result });
@@ -40,7 +48,8 @@ async function handle(msg, me) {
       const name = params && params.name;
       if (!TOOLS.some((t) => t.name === name)) return rpcErr(id, -32602, `Unknown tool: ${name}`);
       try {
-        const text = await runTool(name, (params && params.arguments) || {}, me);
+        const args = (params && params.arguments) || {};
+        const text = MORE.has(name) ? await runMore(admin(), name, args, me) : await runTool(name, args, me);
         return rpc(id, { content: [{ type: "text", text: String(text || "Done.") }] });
       } catch (e) {
         const text = e instanceof UserError ? e.message : `Something went wrong: ${e.message}`;

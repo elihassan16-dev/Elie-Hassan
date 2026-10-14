@@ -79,12 +79,12 @@ export const DEMO_TEXTS = [
   { phone: "(609) 555-0177", dir: "out", m: 60, kind: "cell", by: "Elie Hassan", text: "Hi Dominique — Sunday 1pm works, see you there." },
 ].map((t, i) => ({ id: "demo-sms-" + i, phone: t.phone, data: { direction: t.dir, at: tAt(t.m), text: t.text, ...(t.kind ? { kind: t.kind, by: t.by } : {}), ...(t.dir === "out" ? { prop: "1030 Hanover Blvd" } : {}) } }));
 
-export async function qbAuthFetch(path) {
+export async function qbAuthFetch(path, opts) {
   const p = String(path);
   // 🛋 Showroom: product-link reader + picture mirror answer instantly offline.
   // Change-order sends answer like a slow phone connection, and are counted,
   // so the preview can prove a double tap files one request.
-  if (p.includes("/api/contractors/co-request")) { try { window.__coPosts = (window.__coPosts || 0) + 1; } catch { /* no window */ } await new Promise((r) => setTimeout(r, 900)); return { ok: true }; }
+  if (p.includes("/api/contractors/co-request")) { try { window.__coPosts = (window.__coPosts || 0) + 1; } catch { /* no window */ } await new Promise((r) => setTimeout(r, 900)); try { const { mockCoRequest } = await import("./ctrMockData.js"); mockCoRequest(JSON.parse((opts && opts.body) || "{}")); } catch { /* main-app preview */ } return { ok: true }; }
   if (p.includes("/api/spec/link")) return { ok: true, image: "", title: "Sample product from the store page", desc: "Preview mode — the live site reads the real page.", price: "$49" };
   if (p.includes("/api/spec/img")) { const u = decodeURIComponent((p.split("url=")[1] || "")); return { url: u, mirrored: true }; }
   if (p.includes("/api/showings/status")) return { configured: true, feeds: [{ id: 1, label: "ShowingTime" }] };

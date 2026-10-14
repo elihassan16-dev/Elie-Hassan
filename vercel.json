@@ -1,9 +1,31 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
-    { "source": "/((?!api/)(?!.*\\.).*)", "destination": "/index.html" }
+    {
+      "source": "/.well-known/oauth-authorization-server",
+      "destination": "/api/oauth/meta?k=as"
+    },
+    {
+      "source": "/.well-known/oauth-authorization-server/:path*",
+      "destination": "/api/oauth/meta?k=as"
+    },
+    {
+      "source": "/.well-known/oauth-protected-resource",
+      "destination": "/api/oauth/meta?k=pr"
+    },
+    {
+      "source": "/.well-known/oauth-protected-resource/:path*",
+      "destination": "/api/oauth/meta?k=pr"
+    },
+    {
+      "source": "/((?!api/)(?!.*\\.).*)",
+      "destination": "/index.html"
+    }
   ],
   "crons": [
-    { "path": "/api/notify/digest", "schedule": "0 11 * * 1-5" }
+    {
+      "path": "/api/notify/digest",
+      "schedule": "0 11 * * 1-5"
+    }
   ]
 }

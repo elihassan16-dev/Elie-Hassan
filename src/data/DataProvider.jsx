@@ -39,6 +39,8 @@ const mapData = (data) => data.map((r) => (r && r.data ? r.data : r)).filter(Boo
 // the shared sync so a write there doesn't make every device reload settings.
 // uprefs_<uid> = growing per-user prefs (userBigPrefs.js); appfolio = Platinum
 // owner statements (platinum.jsx).
+// mcp_* = the Claude connector's sign-in records (hashed codes/tokens, client
+// registrations — lib/mcpAuth.js); server-only, never synced to devices.
 const DIRECT_SETTINGS = ["appfolio"];
 const SERVER_ONLY_SETTINGS = ["jivetel_events", "jivetel_call_events", "jivetel_msgs", "jivetel_calls", "jivetel_alerts", "jivetel_text_alerts", "rentcast_cache", "chatarv_cache", "chatarv_cfg", "qb_cache"];
 
@@ -154,7 +156,7 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
   // revert an edit — or resurrect a locally-deleted row — before it's saved.
   const load = useCallback(async () => {
     let q = supabase.from(table).select("*");
-    if (table === "app_settings") q = q.not("id", "in", `(${SERVER_ONLY_SETTINGS.join(",")})`).not("id", "like", "qb\\_cache%").not("id", "like", "alert\\_once\\_%").not("id", "like", "uprefs\\_%").not("id", "in", `(${DIRECT_SETTINGS.join(",")})`);
+    if (table === "app_settings") q = q.not("id", "in", `(${SERVER_ONLY_SETTINGS.join(",")})`).not("id", "like", "qb\\_cache%").not("id", "like", "alert\\_once\\_%").not("id", "like", "uprefs\\_%").not("id", "like", "mcp\\_%").not("id", "in", `(${DIRECT_SETTINGS.join(",")})`);
     const { data, error } = await q;
     if (error || !data) return;
     const rows = mapRows(data);
@@ -341,7 +343,7 @@ export function DataProvider({ children }) {
         // Server-only cache rows churn constantly (webhook captures, comp
         // caches) — don't refetch every client's settings for those.
         const rid = String((payload && ((payload.new && payload.new.id) || (payload.old && payload.old.id))) || "");
-        if (rid && (SERVER_ONLY_SETTINGS.includes(rid) || DIRECT_SETTINGS.includes(rid) || rid.startsWith("qb_cache") || rid.startsWith("alert_once_") || rid.startsWith("uprefs_"))) return;
+        if (rid && (SERVER_ONLY_SETTINGS.includes(rid) || DIRECT_SETTINGS.includes(rid) || rid.startsWith("qb_cache") || rid.startsWith("alert_once_") || rid.startsWith("uprefs_") || rid.startsWith("mcp_"))) return;
         // Punch-list rows are big and change often while a list compiles —
         // refresh just that row rather than every setting for every client.
         if (rid.startsWith("walk_")) { debounce("s:" + rid, () => settingsC.loadOne(rid)); return; }

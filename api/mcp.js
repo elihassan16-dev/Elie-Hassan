@@ -13,6 +13,8 @@ const INSTRUCTIONS = `Goldstone Properties is a real-estate flip and rental comp
 - Tasks have an owner (assignee) and optionally a delegate who does the work; they can be urgent and can have checklist items.
 - Showings come from ShowingTime (list_showings): it tells which agents were texted after the showing to ask how it went. To follow up, draft the text and use send_text (after the user's OK).
 - get_texts reads a text conversation with a number or contact.
+- Email + files use the teammate's OWN Outlook and the property's linked OneDrive folder: search_email → read_email → reply_email / send_email (attachments from a property folder or another email) / save_email_attachment into a property folder; list_property_files shows a folder.
+- Before send_email or reply_email, ALWAYS show recipients, subject, body and attachments and wait for an explicit yes; then call with confirmed=true.
 - Before send_text, ALWAYS show the exact recipient and message and wait for an explicit yes; then call with confirmed=true.
 - When a lookup is ambiguous, the tool says so — ask the user which one.`;
 

@@ -3,7 +3,7 @@
 // contractor can price. Returns plain text (no pricing — that's the bid).
 // Requires ANTHROPIC_API_KEY in Vercel.
 import Anthropic from "@anthropic-ai/sdk";
-import { requireAppUser } from "../../lib/quickbooks.js";
+import { requireTeamUser } from "../../lib/quickbooks.js";
 
 export const config = { maxDuration: 300 };
 
@@ -31,7 +31,7 @@ Output ONLY the scope text.`;
 export default async function handler(req, res) {
   if (req.method !== "POST") { res.status(405).json({ error: "POST only" }); return; }
   if (!process.env.ANTHROPIC_API_KEY) { res.status(503).json({ error: "AI isn't set up yet — add ANTHROPIC_API_KEY in Vercel." }); return; }
-  const user = await requireAppUser(req);
+  const user = await requireTeamUser(req); // team only — never contractor logins
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
 
   const { brief, property, current } = await readBody(req);

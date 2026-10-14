@@ -73,7 +73,7 @@ export function OrgModal({ orgModal, contacts = [], save, onSaved, onClose }) {
   const [pick, setPick] = useState(false);
   const [q, setQ] = useState("");
   // Prefill from an existing contact (contacts store phone either flat or as phones[]).
-  const cPhone = (c) => c.phone || (c.phones && c.phones[0] && c.phones[0].number) || "";
+  const cPhone = bestPhone;
   const useContact = (c) => {
     setF({ ...f, name: c.company || c.name || "", contactName: c.name || "", phone: cPhone(c), email: c.email || "", notes: [f.notes, c.role ? `Trade: ${c.role}` : ""].filter(Boolean).join("\n") });
     setPick(false); setQ("");
@@ -124,6 +124,9 @@ export function OrgModal({ orgModal, contacts = [], save, onSaved, onClose }) {
 // ── Create a portal login at a company ────────────────────────────────────────
 // Suggests the company's main contact for the first login, and pulls additional
 // people from the Contacts directory (anyone with an email) for secondary logins.
+// A contact's textable number: their Mobile/Cell first (an Office line can't get
+// the invite text), then the flat phone, then the first number on file.
+const bestPhone = (c) => { const ps = (c && c.phones) || []; return (ps.find((p) => /mobile|cell/i.test(p.label || "")) || {}).number || (c && c.phone) || (ps[0] && ps[0].number) || ""; };
 const genPassword = () => {
   const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
   let p = "";
@@ -136,12 +139,13 @@ function AddMemberModal({ org, contacts = [], existingEmails = [], prefill = nul
   const { setContacts, flushContacts } = useData() || {};
   const [f, setF] = useState({ name: prefill?.name || "", phone: prefill?.phone || "", role: prefill?.role || "", email: prefill?.email || "", password: genPassword() });
   const [withLogin, setWithLogin] = useState(prefill ? true : true);
+  const [created, setCreated] = useState(false); // login made — a retry only re-sends the text
   const [busy, setBusy] = useState(false);
   const [e2, setE2] = useState("");
   const [pick, setPick] = useState(false);
   const [q, setQ] = useState("");
   const have = new Set((existingEmails || []).map((e) => String(e).toLowerCase()));
-  const cPhone = (c) => c.phone || (c.phones && c.phones[0] && c.phones[0].number) || "";
+  const cPhone = bestPhone;
   const ql = q.trim().toLowerCase();
   const matches = (contacts || []).filter((c) => c && c.name && !(c.email && have.has(String(c.email).toLowerCase())))
     .filter((c) => !ql || [c.name, c.company, c.role, c.email, cPhone(c)].filter(Boolean).join(" ").toLowerCase().includes(ql))
@@ -149,7 +153,10 @@ function AddMemberModal({ org, contacts = [], existingEmails = [], prefill = nul
   const fromContact = useRef(prefill?.contactId || null);
   const useContact = (c) => { fromContact.current = c.id; setF((p) => ({ ...p, name: c.name || "", phone: cPhone(c), email: c.email || "", role: c.role || "" })); setPick(false); setQ(""); };
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim());
-  const canSave = f.name.trim() && (!withLogin || (emailOk && f.password.length >= 8));
+  const pwShort = withLogin && !created && f.password.length < 8;
+  const phoneDigits = f.phone.replace(/\D/g, "").length;
+  const phoneBad = phoneDigits > 0 && phoneDigits < 10;
+  const canSave = f.name.trim() && (!withLogin || (emailOk && !pwShort));
   const inviteText = `You're set up on the Goldstone Properties portal — sign in at gpflips.com\nEmail: ${f.email.trim()}\nPassword: ${f.password}`;
   const saveMember = async (sendText) => {
     if (!canSave || busy) return;
@@ -157,15 +164,17 @@ function AddMemberModal({ org, contacts = [], existingEmails = [], prefill = nul
     try {
       if (!fromContact.current && setContacts) {
         const id = Date.now();
+        fromContact.current = id;
         setContacts((prev) => [...prev, { id, name: f.name.trim(), company: org?.name || "", role: f.role.trim(), email: f.email.trim(), phone: f.phone.trim(), phones: f.phone.trim() ? [{ label: "Mobile", number: f.phone.trim() }] : [], tags: [] }]);
         if (flushContacts) setTimeout(flushContacts, 0);
       }
-      if (withLogin) {
+      if (withLogin && !created) {
         await qbAuthFetch("/api/team/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: f.name.trim(), email: f.email.trim(), password: f.password, role: "contractor", contractorOrgId: String(org.id) }) });
+        setCreated(true);
       }
       if (sendText && withLogin && f.phone.trim()) {
         try { await qbAuthFetch("/api/jivetel/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: f.phone.trim(), message: inviteText }) }); }
-        catch { setE2("Saved — but the invite text didn't go through. Text them their email + password yourself."); setBusy(false); if (onSaved) onSaved(); return; }
+        catch { setE2(`Login created ✓ — but the invite text didn't go through to ${f.phone.trim()}. Check it's their 10-digit mobile number, then tap Text Them Their Invite again (or text them the email + password yourself).`); setBusy(false); if (onSaved) onSaved(); return; }
       }
       if (onSaved) onSaved();
       onClose();
@@ -182,9 +191,12 @@ function AddMemberModal({ org, contacts = [], existingEmails = [], prefill = nul
   return (
     <Modal title="Add a Member" sub={org?.name || ""} onClose={onClose}
       footer={<div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
-        {withLogin && <button onClick={() => saveMember(true)} disabled={!canSave || !f.phone.trim() || busy} style={{ ...goldBtn(canSave && !!f.phone.trim() && !busy), width: "100%", padding: "13px", borderRadius: 16, fontSize: 14 }}>{busy ? "Saving…" : "Save & Text Them Their Invite"}</button>}
-        {withLogin && f.phone.trim() && canSave && <div style={{ fontSize: 11, color: T.textTert, textAlign: "center", lineHeight: 1.5 }}>Texts {f.phone.trim()}: “You're set up on the Goldstone portal — sign in at gpflips.com · {f.email.trim() || "their email"} · {f.password}”</div>}
-        <button onClick={() => saveMember(false)} disabled={!canSave || busy} style={{ ...ghostBtn, width: "100%", padding: "12px", borderRadius: 16, textAlign: "center", justifyContent: "center", display: "inline-flex", opacity: canSave && !busy ? 1 : 0.5 }}>{withLogin ? "Save Without Sending" : "Save Member"}</button>
+        {withLogin && <button onClick={() => saveMember(true)} disabled={!canSave || !f.phone.trim() || phoneBad || busy} style={{ ...goldBtn(canSave && !!f.phone.trim() && !phoneBad && !busy), width: "100%", padding: "13px", borderRadius: 16, fontSize: 14 }}>{busy ? "Saving…" : created ? "Text Them Their Invite" : "Save & Text Them Their Invite"}</button>}
+        {withLogin && phoneBad && <div style={{ fontSize: 11.5, color: T.red, textAlign: "center" }}>The phone number needs 10 digits to text the invite.</div>}
+        {withLogin && f.phone.trim() && canSave && !phoneBad && <div style={{ fontSize: 11, color: T.textTert, textAlign: "center", lineHeight: 1.5 }}>Texts {f.phone.trim()}: “You're set up on the Goldstone portal — sign in at gpflips.com · {f.email.trim() || "their email"} · {f.password}”</div>}
+        {created
+          ? <button onClick={onClose} style={{ ...ghostBtn, width: "100%", padding: "12px", borderRadius: 16, textAlign: "center", justifyContent: "center", display: "inline-flex" }}>Done</button>
+          : <button onClick={() => saveMember(false)} disabled={!canSave || busy} style={{ ...ghostBtn, width: "100%", padding: "12px", borderRadius: 16, textAlign: "center", justifyContent: "center", display: "inline-flex", opacity: canSave && !busy ? 1 : 0.5 }}>{withLogin ? "Save Without Sending" : "Save Member"}</button>}
       </div>}>
       {!prefill && (
         <div>
@@ -225,8 +237,9 @@ function AddMemberModal({ org, contacts = [], existingEmails = [], prefill = nul
               <span style={{ position: "absolute", top: 2, left: withLogin ? 22 : 2, width: 27, height: 27, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.25)", transition: "left 0.15s" }} />
             </button>
           </div>
-          {withLogin && frow("Email", <input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} type="email" placeholder="their sign-in email" style={bare} />)}
-          {withLogin && frow("Password", <><input value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} style={{ ...bare, letterSpacing: 0.5 }} /><button onClick={() => setF({ ...f, password: genPassword() })} title="Generate a fresh password" style={{ ...ghostBtn, padding: "6px 11px", fontSize: 11.5, flexShrink: 0 }}>🎲 New</button></>)}
+          {withLogin && frow("Email", <input value={f.email} readOnly={created} onChange={(e) => setF({ ...f, email: e.target.value })} type="email" placeholder="their sign-in email" style={bare} />)}
+          {withLogin && frow("Password", <><input value={f.password} readOnly={created} onChange={(e) => setF({ ...f, password: e.target.value })} style={{ ...bare, letterSpacing: 0.5 }} />{!created && <button onClick={() => setF({ ...f, password: genPassword() })} title="Generate a fresh password" style={{ ...ghostBtn, padding: "6px 11px", fontSize: 11.5, flexShrink: 0 }}>🎲 New</button>}</>)}
+          {withLogin && (pwShort || created) && <div style={{ padding: "7px 14px 10px", fontSize: 11.5, color: created ? "#248A3D" : T.red }}>{created ? "Login created ✓ — to change the password later, tap › next to their name on the company page." : "Password needs at least 8 characters."}</div>}
         </div>
       </div>
       {e2 && <div style={{ fontSize: 12.5, color: T.red }}>{e2}</div>}
@@ -1130,7 +1143,7 @@ export function OrgPane({ org, onBack }) {
 
   // Members = portal logins + contacts filed under this company (matched by
   // email or name so a login and their contact card make ONE row).
-  const cPhone = (c) => c.phone || (c.phones && c.phones[0] && c.phones[0].number) || "";
+  const cPhone = bestPhone;
   const memberContacts = (contacts || []).filter((c) => c && sameOrgCompany(c.company, org?.name));
   const rows = [];
   const usedC = new Set();

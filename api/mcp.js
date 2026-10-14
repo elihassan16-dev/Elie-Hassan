@@ -7,9 +7,11 @@
 import { userFromBearer, baseUrl, admin } from "../lib/mcpAuth.js";
 import { TOOLS as BASE_TOOLS, runTool, UserError } from "../lib/mcpTools.js";
 import { MORE_TOOLS, runMore } from "../lib/mcpMore.js";
+import { MORE2_TOOLS, runMore2 } from "../lib/mcpMore2.js";
 
-const TOOLS = [...BASE_TOOLS, ...MORE_TOOLS];
+const TOOLS = [...BASE_TOOLS, ...MORE_TOOLS, ...MORE2_TOOLS];
 const MORE = new Set(MORE_TOOLS.map((t) => t.name));
+const MORE2 = new Set(MORE2_TOOLS.map((t) => t.name));
 
 const VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const INSTRUCTIONS = `Goldstone Properties is a real-estate flip and rental company (team: Elie, Moshe, Esti). These tools act inside the team's app as the signed-in teammate.
@@ -26,6 +28,11 @@ const INSTRUCTIONS = `Goldstone Properties is a real-estate flip and rental comp
 - Contractors: contractor_waiting = what's waiting on the team (change orders, bids, requests, unread messages); contractor_jobs; contractor_messages reads a job chat. message_contractor and decide_change_order reach the contractor — show the user first and wait for a yes; then confirmed=true.
 - deal_numbers and lender_balances are admin-only money numbers (same math as the app).
 - Showing follow-ups in bulk: list_showings → draft one text per agent not followed up → show the whole list → ONE yes → send_texts with confirmed=true. list_leads shows new seller leads (or BoldTrail buyer leads).
+- Tasks: delete_task (confirm first), task_contact attaches/removes contacts on a task.
+- Media: property_media lists a property's photos; add_photos copies picture links in; remove_media (confirm first).
+- calendar / calendar_update = the Calendar's key dates (move, dismiss, done). Social Posts (admin): social_posts, social_post — approving the flyer image happens in the app.
+- Rentals: rentals_overview, rental_details, delinquency_report (same numbers as the Rentals pages); update_rental, mark_tenant, move_rental_payment edit them.
+- Leads and private lenders are READ-ONLY through Claude (Elie's rule) — never offer to change them; tell the user to do it in the app.
 - When a lookup is ambiguous, the tool says so — ask the user which one.`;
 
 const rpc = (id, result) => ({ jsonrpc: "2.0", id, result });
@@ -51,7 +58,7 @@ async function handle(msg, me) {
       if (!TOOLS.some((t) => t.name === name)) return rpcErr(id, -32602, `Unknown tool: ${name}`);
       try {
         const args = (params && params.arguments) || {};
-        const text = MORE.has(name) ? await runMore(admin(), name, args, me) : await runTool(name, args, me);
+        const text = MORE2.has(name) ? await runMore2(admin(), name, args, me) : MORE.has(name) ? await runMore(admin(), name, args, me) : await runTool(name, args, me);
         return rpc(id, { content: [{ type: "text", text: String(text || "Done.") }] });
       } catch (e) {
         const text = e instanceof UserError ? e.message : `Something went wrong: ${e.message}`;

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=1080"/>
+<title>Tutorial stage (recording only)</title>
+<script type="module">import "@fontsource-variable/inter";</script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:1080px;height:1920px;overflow:hidden;background:radial-gradient(120% 80% at 50% 0%,#2a2620 0%,#141414 55%,#0b0b0b 100%);font-family:"Inter Variable",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+#cap{position:absolute;left:60px;right:60px;top:52px;height:220px;display:flex;flex-direction:column;justify-content:center;transition:opacity .35s}
+#cap .chip{align-self:flex-start;font-size:24px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#1a1a1a;background:linear-gradient(135deg,#E2C063,#B8953F);padding:7px 16px;border-radius:100px;margin-bottom:16px}
+#cap .t{font-size:50px;line-height:1.12;font-weight:800;color:#fff;letter-spacing:-.02em}
+#cap .s{font-size:29px;line-height:1.35;color:#C9C6BF;margin-top:12px;font-weight:500}
+#phone{position:absolute;left:157px;top:290px;width:766px;height:1626px;border-radius:92px;background:#0c0c0c;box-shadow:0 0 0 3px #3a3a3a,0 30px 80px rgba(0,0,0,.6);padding:12px}
+#screen{position:relative;width:741px;height:1603.6px;border-radius:80px;overflow:hidden;background:#fff}
+#root{position:absolute;left:0;top:0;width:390px;height:844px;transform:scale(1.9);transform-origin:0 0;overflow:hidden;background:#fff}
+.layer{position:absolute;inset:0;display:none}
+.layer.on{display:block}
+iframe{border:0;display:block;background:#fff}
+.sb{position:absolute;left:0;right:0;top:0;height:47px;display:flex;align-items:center;justify-content:space-between;padding:8px 30px 0 34px;font:600 16px/1 "Inter Variable",system-ui;z-index:20;pointer-events:none}
+.sb .r{display:flex;gap:6px;align-items:center;font-size:15px}
+.bars{display:inline-flex;align-items:flex-end;gap:2px;height:12px}.bars i{display:block;width:3px;border-radius:1px;background:currentColor}.bars i:nth-child(1){height:4px}.bars i:nth-child(2){height:6px}.bars i:nth-child(3){height:9px}.bars i:nth-child(4){height:12px}
+.bat{display:inline-block;width:25px;height:12px;border:1.5px solid currentColor;border-radius:4px;padding:1px;opacity:.9;position:relative}.bat b{display:block;width:80%;height:100%;background:currentColor;border-radius:1.5px}
+.island{position:absolute;left:50%;top:11px;width:122px;height:36px;margin-left:-61px;background:#000;border-radius:20px;z-index:30}
+.home{position:absolute;left:50%;bottom:8px;width:134px;height:5px;margin-left:-67px;border-radius:3px;background:#111;z-index:30;opacity:.85}
+/* Safari */
+#safariBar{position:absolute;left:10px;right:10px;bottom:26px;height:56px;border-radius:28px;background:rgba(250,250,250,.86);backdrop-filter:blur(18px);box-shadow:0 4px 20px rgba(0,0,0,.18),inset 0 0 0 .5px rgba(255,255,255,.7);display:flex;align-items:center;gap:6px;padding:0 8px;z-index:15}
+.sbtn{width:42px;height:42px;border-radius:21px;display:flex;align-items:center;justify-content:center;font-size:22px;color:#1c1c1e}
+#url{flex:1;height:42px;border-radius:21px;background:rgba(118,118,128,.12);display:flex;align-items:center;justify-content:center;gap:6px;font-size:16px;color:#1c1c1e;font-weight:500}
+#url .lock{font-size:11px;color:#6e6e73}
+.menu{position:absolute;right:12px;bottom:92px;width:250px;border-radius:22px;background:rgba(248,248,248,.92);backdrop-filter:blur(20px);box-shadow:0 10px 40px rgba(0,0,0,.25);overflow:hidden;z-index:40;transform-origin:bottom right;transition:transform .25s,opacity .25s}
+.menu div{padding:13px 18px;font-size:16px;border-bottom:.5px solid rgba(0,0,0,.1);display:flex;justify-content:space-between;align-items:center;color:#1c1c1e}
+.menu div:last-child{border:none}
+.sheet{position:absolute;left:0;right:0;bottom:0;border-radius:28px 28px 0 0;background:#F2F2F7;z-index:45;transition:transform .35s cubic-bezier(.2,.8,.2,1);padding:10px 14px 30px}
+.grab{width:38px;height:5px;border-radius:3px;background:#c7c7cc;margin:0 auto 12px}
+.shead{display:flex;align-items:center;gap:12px;padding:4px 4px 14px}
+.shead img{width:46px;height:46px;border-radius:11px}
+.shead b{font-size:16px;display:block}.shead small{font-size:13px;color:#6e6e73}
+.apps{display:flex;gap:14px;padding:4px 4px 16px;overflow:hidden}
+.apps .a{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:#3a3a3c;width:62px}
+.apps .a i{width:58px;height:58px;border-radius:15px;display:flex;align-items:center;justify-content:center;font-size:28px;font-style:normal}
+.grp{background:#fff;border-radius:14px;overflow:hidden;margin-bottom:10px}
+.grp div{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;font-size:16px;border-bottom:.5px solid rgba(0,0,0,.1);color:#1c1c1e}
+.grp div:last-child{border:none}.grp div span{font-size:18px;color:#3a3a3c}
+.dim{position:absolute;inset:0;background:rgba(0,0,0,.25);z-index:44;transition:opacity .3s}
+/* add to home screen dialog */
+#addHs{position:absolute;inset:0;background:#F2F2F7;z-index:50;transition:transform .35s cubic-bezier(.2,.8,.2,1)}
+#addHs .top{display:flex;justify-content:space-between;align-items:center;padding:58px 18px 14px;font-size:17px}
+#addHs .top b{font-size:17px}
+#addHs .top .add{color:#007AFF;font-weight:600}
+#addHs .top .cancel{color:#007AFF}
+#addHs .card{margin:10px 16px;background:#fff;border-radius:14px;display:flex;gap:14px;padding:14px;align-items:center}
+#addHs .card img{width:62px;height:62px;border-radius:14px;box-shadow:0 0 0 .5px rgba(0,0,0,.1)}
+#addHs .card .f{flex:1}
+#addHs .card .nm{font-size:17px;border-bottom:.5px solid rgba(0,0,0,.15);padding:6px 0}
+#addHs .card .u{font-size:14px;color:#8e8e93;padding-top:8px}
+#addHs .tg{margin:14px 16px 6px;background:#fff;border-radius:14px;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;font-size:17px}
+.sw{width:51px;height:31px;border-radius:16px;background:#34C759;position:relative}.sw:after{content:"";position:absolute;right:2px;top:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+#addHs .note{margin:4px 30px;font-size:13px;color:#6e6e73;line-height:1.4}
+/* home screen */
+#home{background:linear-gradient(160deg,#3b4a6b 0%,#6b5b8c 40%,#c98f6b 100%)}
+.grid{position:absolute;left:22px;right:22px;top:80px;display:grid;grid-template-columns:repeat(4,1fr);row-gap:26px}
+.ic{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;color:#fff;font-weight:500;text-shadow:0 1px 2px rgba(0,0,0,.3)}
+.ic i{width:62px;height:62px;border-radius:15px;display:flex;align-items:center;justify-content:center;font-size:30px;font-style:normal;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+.ic img{width:62px;height:62px;border-radius:15px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.dock{position:absolute;left:12px;right:12px;bottom:24px;height:92px;border-radius:34px;background:rgba(255,255,255,.22);backdrop-filter:blur(20px);display:flex;justify-content:space-around;align-items:center}
+.pop{animation:pop .5s cubic-bezier(.2,1.4,.4,1) both}
+@keyframes pop{0%{transform:scale(.2);opacity:0}100%{transform:scale(1);opacity:1}}
+/* tap ring (stage px) */
+.tap{position:absolute;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;background:rgba(226,192,99,.35);border:5px solid rgba(255,255,255,.95);box-shadow:0 0 0 4px rgba(184,149,63,.55);z-index:999;pointer-events:none;animation:tap .75s ease-out forwards}
+@keyframes tap{0%{transform:scale(.4);opacity:0}25%{transform:scale(1);opacity:1}100%{transform:scale(1.35);opacity:0}}
+.ring{position:absolute;border-radius:18px;border:5px solid #E2C063;box-shadow:0 0 0 6px rgba(226,192,99,.25),0 0 30px rgba(226,192,99,.6);z-index:998;pointer-events:none;animation:ring 1.2s ease-in-out infinite}
+@keyframes ring{50%{box-shadow:0 0 0 12px rgba(226,192,99,.12),0 0 40px rgba(226,192,99,.8)}}
+/* full cards */
+#card{position:absolute;inset:0;z-index:2000;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:radial-gradient(120% 80% at 50% 0%,#2a2620 0%,#141414 55%,#0b0b0b 100%);color:#fff;padding:80px}
+#card.on{display:flex}
+#card img{width:200px;height:200px;border-radius:46px;margin-bottom:56px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+#card .k{font-size:28px;font-weight:700;letter-spacing:.14em;color:#E2C063;text-transform:uppercase;margin-bottom:22px}
+#card h1{font-size:76px;line-height:1.08;margin:0 0 26px;letter-spacing:-.03em}
+#card p{font-size:34px;line-height:1.45;color:#C9C6BF;margin:0;max-width:880px}
+</style></head>
+<body>
+<div id="cap"><span class="chip" id="chip">Step</span><div class="t" id="ct"></div><div class="s" id="cs"></div></div>
+<div id="phone"><div id="screen"><div id="root">
+  <!-- Safari with the sign-in page -->
+  <div class="layer" id="safari">
+    <div class="sb" style="background:transparent;color:#1c1c1e"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span>5G<span class="bat"><b></b></span></span></div>
+    <iframe id="loginS" src="/logindemo.html" style="position:absolute;left:0;top:0;width:390px;height:844px"></iframe>
+    <div id="safariBar"><div class="sbtn">‹</div><div id="url"><span class="lock">🔒</span><span id="urltext">gpflips.com</span></div><div class="sbtn" id="more">•••</div></div>
+    <div class="menu" id="menu" style="transform:scale(.6);opacity:0">
+      <div id="mShare">Share <span>⬆︎</span></div><div>Add to Bookmarks <span>📖</span></div><div>Add to Favorites <span>☆</span></div><div>New Tab <span>＋</span></div><div>Find on Page <span>🔍</span></div>
+    </div>
+    <div class="dim" id="dim" style="opacity:0;pointer-events:none"></div>
+    <div class="sheet" id="share" style="transform:translateY(110%)">
+      <div class="grab"></div>
+      <div class="shead"><img src="/icons/apple-touch-icon.png"><div><b>Goldstone Properties</b><small>gpflips.com</small></div></div>
+      <div class="apps"><div class="a"><i style="background:#e8f0ff">📶</i>AirDrop</div><div class="a"><i style="background:#34C759">💬</i>Messages</div><div class="a"><i style="background:#1e7cf7">✉️</i>Mail</div><div class="a"><i style="background:#25D366">🟢</i>WhatsApp</div><div class="a"><i style="background:#fff">📝</i>Notes</div></div>
+      <div class="grp"><div>Copy <span>⧉</span></div><div>Add to Reading List <span>👓</span></div></div>
+      <div class="grp"><div>Add Bookmark <span>📖</span></div><div>Add to Favorites <span>☆</span></div><div id="aths">Add to Home Screen <span>⊞</span></div><div>Find on Page <span>🔍</span></div></div>
+    </div>
+    <div id="addHs" style="transform:translateY(110%)">
+      <div class="top"><span class="cancel">Cancel</span><b>Add to Home Screen</b><span class="add" id="addBtn">Add</span></div>
+      <div class="card"><img src="/icons/apple-touch-icon.png"><div class="f"><div class="nm">Goldstone</div><div class="u">https://gpflips.com/</div></div></div>
+      <div class="tg">Open as Web App <span class="sw"></span></div>
+      <div class="note">An icon will be added to your Home Screen so you can quickly open it like an app.</div>
+    </div>
+    <div class="home" style="background:#1c1c1e"></div>
+  </div>
+  <!-- Home screen -->
+  <div class="layer" id="home">
+    <div class="sb" style="color:#fff"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span>5G<span class="bat"><b></b></span></span></div>
+    <div class="grid">
+      <div class="ic"><i style="background:#fff">📅</i>Calendar</div><div class="ic"><i style="background:linear-gradient(#f9d54a,#f4a52a)">🖼</i>Photos</div><div class="ic"><i style="background:#8e8e93">📷</i>Camera</div><div class="ic"><i style="background:#1e7cf7">✉️</i>Mail</div>
+      <div class="ic"><i style="background:#fff">🗺</i>Maps</div><div class="ic"><i style="background:linear-gradient(#5ac8fa,#007aff)">⛅️</i>Weather</div><div class="ic"><i style="background:#1c1c1e">⏰</i>Clock</div><div class="ic"><i style="background:#fff">📝</i>Notes</div>
+      <div class="ic"><i style="background:#25D366">🟢</i>WhatsApp</div><div class="ic"><i style="background:#ff9500">🔨</i>Home Depot</div><div class="ic"><i style="background:#34c759">💲</i>Banking</div><div class="ic" id="gsIcon" style="visibility:hidden"><img src="/icons/apple-touch-icon.png">Goldstone</div>
+    </div>
+    <div class="dock"><div class="ic"><i style="background:#34C759">📞</i></div><div class="ic"><i style="background:#1e7cf7">🧭</i></div><div class="ic"><i style="background:#34C759">💬</i></div><div class="ic"><i style="background:#fc3c44">🎵</i></div></div>
+    <div class="home" style="background:#fff"></div>
+  </div>
+  <!-- Full-screen app (installed) -->
+  <div class="layer" id="appLogin">
+    <div class="sb" style="color:#fff;background:#D4A843"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span>5G<span class="bat"><b></b></span></span></div>
+    <iframe id="loginA" src="/logindemo.html" style="position:absolute;left:0;top:47px;width:390px;height:797px"></iframe>
+    <div class="home" style="background:#fff"></div>
+  </div>
+  <div class="layer" id="portal">
+    <div class="sb" style="color:#1c1c1e;background:#fff"><span>9:41</span><span class="r"><span class="bars"><i></i><i></i><i></i><i></i></span>5G<span class="bat"><b></b></span></span></div>
+    <iframe id="app" src="about:blank" style="position:absolute;left:0;top:47px;width:390px;height:797px"></iframe>
+    <div class="home"></div>
+  </div>
+  <div class="island"></div>
+</div></div></div>
+<div id="card"><img src="/icons/apple-touch-icon.png"><div class="k" id="cardK"></div><h1 id="cardH"></h1><p id="cardP"></p></div>
+<script>
+window.T = {
+  cap(chip, t, s){ const c=document.getElementById('cap'); c.style.opacity=0; setTimeout(()=>{document.getElementById('chip').textContent=chip;document.getElementById('ct').textContent=t;document.getElementById('cs').textContent=s||'';c.style.opacity=1;},220); },
+  layer(id){ document.querySelectorAll('.layer').forEach(l=>l.classList.toggle('on',l.id===id)); },
+  card(k,h,p){ const c=document.getElementById('card'); if(!h){c.classList.remove('on');return;} document.getElementById('cardK').textContent=k;document.getElementById('cardH').innerHTML=h;document.getElementById('cardP').innerHTML=p||''; c.classList.add('on'); },
+  tap(x,y){ const d=document.createElement('div'); d.className='tap'; d.style.left=x+'px'; d.style.top=y+'px'; document.body.appendChild(d); setTimeout(()=>d.remove(),900); },
+  ring(x,y,w,h){ T.unring(); const d=document.createElement('div'); d.className='ring'; d.id='ringEl'; d.style.left=(x-10)+'px'; d.style.top=(y-10)+'px'; d.style.width=(w+20)+'px'; d.style.height=(h+20)+'px'; document.body.appendChild(d); },
+  unring(){ const r=document.getElementById('ringEl'); if(r) r.remove(); },
+  set(id,prop,val){ document.getElementById(id).style[prop]=val; },
+};
+</script>
+</body></html>

@@ -50,6 +50,18 @@ const subs = new Set();
 const bump = () => subs.forEach((f) => f(store));
 const save = async (table, obj) => { const k = KEY[table]; if (!k) return; const list = store[k] || []; const i = list.findIndex((x) => String(x.id) === String(obj.id)); store = { ...store, [k]: i >= 0 ? list.map((x, j) => (j === i ? { ...x, ...obj } : x)) : [...list, obj] }; bump(); };
 const remove = async (table, id) => { const k = KEY[table]; if (!k) return; store = { ...store, [k]: (store[k] || []).filter((x) => String(x.id) !== String(id)) }; bump(); };
+// What /api/contractors/co-request does on the server: a bid, a contractor's
+// change-order request, or a price for a CO Goldstone asked for.
+export function mockCoRequest(b) {
+  const j = (store.jobs || []).find((x) => String(x.id) === String(b.jobId));
+  if (!j) return;
+  const now = new Date().toISOString();
+  let next;
+  if (b.bidAmount != null) next = { ...j, bidAmount: Number(b.bidAmount), bidItems: b.bidItems || null, bidBy: ME, bidAt: now };
+  else if (b.requestId != null) next = { ...j, coRequests: (j.coRequests || []).map((r) => (String(r.id) === String(b.requestId) ? { ...r, amount: Number(b.amount), status: "pending", by: ME, at: now } : r)) };
+  else next = { ...j, coRequests: [...(j.coRequests || []), { id: Date.now(), label: b.label, amount: Number(b.amount), note: b.note || "", by: ME, at: now, status: "pending" }] };
+  save("contractor_jobs", next);
+}
 export function useContractorData() {
   const [s, setS] = useState(store);
   useEffect(() => { subs.add(setS); return () => subs.delete(setS); }, []);

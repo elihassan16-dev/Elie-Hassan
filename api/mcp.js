@@ -20,6 +20,7 @@ const INSTRUCTIONS = `Goldstone Properties is a real-estate flip and rental comp
 - update_property changes a property's status, address, Details fields and dates (deal numbers: admin only). A forward status change has a required checklist — the tool returns it; go through it with the user, then call again with checklist_confirmed=true.
 - Tasks have an owner (assignee) and optionally a delegate who does the work; they can be urgent and can have checklist items.
 - Showings come from ShowingTime (list_showings): it tells which agents were texted after the showing to ask how it went. To follow up, draft the text and use send_text (after the user's OK).
+- showing_agents = everyone who showed ONE property, with their lead status and the texts since (their replies). For "who's interested / suggest replies": read each reply, propose a tailored text per agent (aim to move them toward an offer), show the whole list, then send_texts after one yes. set_showing_lead updates the status dropdown.
 - get_texts reads a text conversation with a number or contact.
 - Email + files use the teammate's OWN Outlook and the property's linked OneDrive folder: search_email → read_email → reply_email / send_email (attachments from a property folder or another email) / save_email_attachment into a property folder; list_property_files shows a folder.
 - Before send_email or reply_email, ALWAYS show recipients, subject, body and attachments and wait for an explicit yes; then call with confirmed=true.

@@ -10,6 +10,7 @@ import { useAuth } from "./auth/AuthProvider";
 import { useContractorData } from "./contractors/data";
 import { mediaOf, mediaCounts, uploadToMedia, fmtMB, fmtDur } from "./mediaStore";
 import { WalkthroughModal, startWalkFromCloud, useWalkJob } from "./walkthrough";
+import { saveItem, shareItem } from "./fileSave";
 
 const ET = (t, o) => new Date(t).toLocaleString("en-US", { timeZone: "America/New_York", ...o });
 const dayKey = (t) => ET(t, { year: "numeric", month: "2-digit", day: "2-digit" });
@@ -105,7 +106,17 @@ function ItemSheet({ property, m, onClose, onDelete, onPunch, isMobile }) {
   const video = m.kind === "video";
   const job = useWalkJob(property.id);
   const busy = job && job.status === "proc";
-  const saveHref = video && m.uid ? `/api/stream/file?uid=${encodeURIComponent(m.uid)}&name=${encodeURIComponent((m.name || "video").replace(/\.[a-z0-9]+$/i, ""))}` : (m.url || "#");
+  // Save / Share hand over the real file (fileSave.js) — the old plain link
+  // opened the storage URL, and a not-yet-rendered video saved as "file.json".
+  const fileItem = { kind: video ? "video" : "image", url: m.url, uid: video ? m.uid : null, name: m.name, mime: m.mime };
+  const [st, setSt] = useState("");
+  const act = async (fn) => {
+    if (st && !/^✓|^⚠|^Ready/.test(st)) return;
+    try {
+      const r = await fn(fileItem, setSt);
+      setSt(r === "again" ? "Ready — tap again" : r === "downloaded" ? "✓ Downloaded — attach it from your Downloads" : "");
+    } catch (e) { setSt(`⚠ ${e.message || "Couldn't get the file"}`); }
+  };
   const row = (icon, label, onClick, color, right, href) => {
     const inner = <><span style={{ width: 30, textAlign: "center", fontSize: 17 }}>{icon}</span><span style={{ flex: 1 }}>{label}</span>{right && <span style={{ fontSize: 11, color: "#8a6d1f", fontWeight: 600 }}>{right}</span>}</>;
     const st = { display: "flex", alignItems: "center", gap: 12, padding: "13px 4px", minHeight: 48, borderTop: "1px solid #F0F0F3", fontSize: 15, fontWeight: color === T.gold ? 800 : 600, color: color || T.text, background: "none", border: "none", borderTopWidth: 1, width: "100%", textAlign: "left", cursor: "pointer", fontFamily: "inherit", textDecoration: "none" };
@@ -125,7 +136,8 @@ function ItemSheet({ property, m, onClose, onDelete, onPunch, isMobile }) {
           {video && m.punchAt ? ` · ✓ punch list made ${whenLabel(m.punchAt)}` : ""}
         </div>
         {video && m.uid && row("📋", busy ? "Punch list in progress…" : m.punchAt ? "Make punch list again" : "Make punch list", () => !busy && onPunch(m), T.gold, "any device")}
-        {row("⬇", isMobile ? "Save to phone" : "Save to computer", undefined, undefined, undefined, saveHref)}
+        {row("⬇", isMobile ? "Save to phone" : "Save to computer", () => act(saveItem), undefined, st && !/^✓/.test(st) ? st : undefined)}
+        {row("⤴", "Share — WhatsApp, Messages, Email…", () => act(shareItem), undefined, /^✓/.test(st) ? st : undefined)}
         {row("🗑", "Delete from Media", () => { if (window.confirm(m.src === "contractor" || m.src === "chat" ? "Take this out of Media? The chat message keeps it." : "Delete this from Media? This can't be undone.")) onDelete(m); }, T.red)}
       </div>
     </div>

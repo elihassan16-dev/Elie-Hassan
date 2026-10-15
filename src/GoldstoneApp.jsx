@@ -21,6 +21,7 @@ import { PayoffStatementSheet } from "./payoffSheet";
 import { PostsPage, PostsNudge, PostWatcher, PostButton } from "./flyers";
 import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { usePersistentDraft } from "./useDraft";
+import { FileActions } from "./fileActions";
 import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
@@ -11985,6 +11986,8 @@ function MessageAttachment({att,mine,saveFolder}){
       {sv==="done"?"✓ Saved to Files":sv==="saving"?"Saving…":sv?`⚠ ${sv}`:"💾 Save to Files"}
     </button>
   ):null;
+  // ⬇ Save · ⤴ Share the real file (not the storage link) + 💾 Save to Files.
+  const actsRow=<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:4}}><FileActions item={att} mine={mine}/>{saveBtn&&<span style={{display:"inline-flex",marginTop:-4}}>{saveBtn}</span>}</div>;
   if(att.kind==="images"&&Array.isArray(att.items))return(
     <div style={{marginTop:6}}>
       <div style={{display:"flex",flexWrap:"wrap",gap:4,maxWidth:236}}>
@@ -11994,7 +11997,7 @@ function MessageAttachment({att,mine,saveFolder}){
           </a>
         ))}
       </div>
-      {saveBtn}
+      {actsRow}
     </div>
   );
   if(att.kind==="image")return(
@@ -12002,19 +12005,20 @@ function MessageAttachment({att,mine,saveFolder}){
       <a href={att.url} target="_blank" rel="noreferrer" style={{display:"block"}}>
         <img src={att.url} alt={att.name||"photo"} loading="lazy" decoding="async" style={{width:220,height:240,borderRadius:10,display:"block",objectFit:"cover",background:"#eee"}}/>
       </a>
-      {saveBtn}
+      {actsRow}
     </div>
   );
   if(att.kind==="video"&&att.stream)return(
     <div style={{marginTop:6}}>
       <iframe src={att.url} title={att.name||"video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen
         style={{width:"min(320px,72vw)",aspectRatio:"16/9",border:"none",borderRadius:10,display:"block",background:"#000"}}/>
+      {att.uid&&<div style={{display:"flex",gap:6,marginTop:4}}><FileActions item={att} mine={mine}/></div>}
     </div>
   );
   if(att.kind==="video")return(
     <div style={{marginTop:6}}>
       <video src={att.url} controls playsInline preload="metadata" style={{maxWidth:240,maxHeight:300,width:"100%",borderRadius:10,display:"block",background:"#000"}}/>
-      {saveBtn}
+      {actsRow}
     </div>
   );
   if(att.kind==="audio")return <audio src={att.url} controls preload="metadata" style={{marginTop:6,maxWidth:240,width:240,height:40}}/>;
@@ -12025,7 +12029,7 @@ function MessageAttachment({att,mine,saveFolder}){
         <span style={{fontSize:18,flexShrink:0}}>{isPdf?"📄":"📎"}</span>
         <span style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{att.name||"Attachment"}</span>
       </a>
-      {saveBtn}
+      {actsRow}
     </div>
   );
 }

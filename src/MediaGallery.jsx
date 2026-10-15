@@ -4,54 +4,7 @@
 // contractor portal (view-only, no tags — it's all one chat to them).
 import { useEffect, useRef, useState } from "react";
 import { T } from "./theme";
-import { qbAuthFetch } from "./net";
-
-// Save a gallery item the way people expect: on the phone, the share sheet
-// opens with "Save Image/Video" (straight into the camera roll); on a
-// computer it downloads as a file. Never shows the raw storage URL.
-// Stream videos have no single file until Cloudflare renders the MP4 — we
-// kick that off and poll (onStatus gets progress text for the UI).
-async function saveMediaItem(x, onStatus) {
-  let url = x.url, name = x.name || (x.kind === "image" ? "photo.jpg" : "video.mp4");
-  if (x.kind === "video" && x.uid) {
-    onStatus("Preparing video…");
-    let ready = false;
-    for (let i = 0; i < 70; i++) {
-      const d = await qbAuthFetch("/api/stream/download", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid: x.uid }) });
-      if (d.status === "ready" && d.url) { ready = true; break; }
-      onStatus(`Preparing video… ${d.percent || 0}%`);
-      await new Promise((r) => setTimeout(r, 2500));
-    }
-    if (!ready) throw new Error("The video is still being prepared — try again in a minute.");
-    if (!/\.mp4$/i.test(name)) name = name.replace(/\.[a-z0-9]+$/i, "") + ".mp4";
-    // Download through OUR domain (edge proxy) — fetching Cloudflare's domain
-    // directly gets blocked by cross-origin rules on some devices, which used
-    // to dump people onto the raw cloudflarestream.com page instead of saving.
-    url = `/api/stream/file?uid=${encodeURIComponent(x.uid)}&name=${encodeURIComponent(name.replace(/\.mp4$/i, ""))}`;
-  }
-  onStatus(x.kind === "image" ? "Saving…" : "Downloading…");
-  let blob;
-  try {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error();
-    blob = await r.blob();
-  } catch {
-    // Cross-origin fetch blocked → let the browser handle the file directly.
-    window.open(url, "_blank", "noreferrer");
-    return;
-  }
-  const file = new File([blob], name, { type: blob.type || (x.kind === "image" ? "image/jpeg" : "video/mp4") });
-  const mobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent);
-  if (mobile && navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file] }); return; } // "Save Image" → camera roll
-    catch (e) { if (e && e.name === "AbortError") return; /* they closed the sheet */ }
-  }
-  const u = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = u; a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(u), 60000);
-}
+import { saveItem, shareItem } from "./fileSave";
 
 // Pull media out of a message list. Handles single attachments and photo grids
 // ({kind:"images", items}). `extOf(m)` returns a label when the message came
@@ -97,17 +50,21 @@ function Lightbox({ items, idx, setIdx, onClose }) {
     close: onClose,
   };
   useEffect(() => { setScale(1); setTx(0); setTy(0); setSaveState(""); }, [idx]);
-  const doSave = async () => {
-    if (saveState && saveState !== "✓ Saved") return;
+  // Save / Share the real file (fileSave.js): phone → share sheet ("Save
+  // Image/Video" → Photos, or WhatsApp…), computer → a normal download.
+  const runFile = async (fn) => {
+    if (saveState && !/^✓|^Ready/.test(saveState)) return;
     try {
-      await saveMediaItem(items[idx], (s) => setSaveState(s));
-      setSaveState("✓ Saved");
-      setTimeout(() => setSaveState(""), 2200);
+      const r = await fn(items[idx], (s) => setSaveState(s));
+      setSaveState(r === "again" ? "Ready — tap again" : r === "cancel" ? "" : r === "downloaded" ? "✓ Downloaded" : "✓ Saved");
+      if (r !== "again") setTimeout(() => setSaveState(""), 2200);
     } catch (e) {
       setSaveState("");
       alert(e.message || "Couldn't save — try again.");
     }
   };
+  const doSave = () => runFile(saveItem);
+  const doShare = () => runFile(shareItem);
   useEffect(() => { // preload the neighbors so swiping feels instant
     [idx - 1, idx + 1].forEach((i) => { const it = items[i]; if (it && it.kind === "image") { const im = new Image(); im.src = it.url; } });
   }, [idx, items]);
@@ -211,6 +168,7 @@ function Lightbox({ items, idx, setIdx, onClose }) {
         <button onClick={() => zoomBy(1 / 1.5)} title="Zoom out" style={zBtn}>−</button>
         {scale > 1 && <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.8)", minWidth: 34, textAlign: "center" }}>{Math.round(scale * 100)}%</span>}
         <button onClick={() => zoomBy(1.5)} title="Zoom in" style={zBtn}>＋</button>
+        <button onClick={doShare} title="Share — WhatsApp, Messages, Mail…" style={{ background: "none", border: "none", color: "rgba(255,255,255,0.85)", fontSize: 17, cursor: "pointer", padding: "0 4px", fontFamily: "inherit", lineHeight: 1 }}>⤴</button>
         <button onClick={doSave} title={x.kind === "image" ? "Save to your photos" : "Download the video"} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.85)", fontSize: 17, cursor: "pointer", padding: "0 4px", fontFamily: "inherit", lineHeight: 1 }}>{saveState && saveState !== "✓ Saved" ? "⏳" : "⤓"}</button>
         <button onClick={onClose} style={{ background: "none", border: "none", color: "#fff", fontSize: 26, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>×</button>
       </div>

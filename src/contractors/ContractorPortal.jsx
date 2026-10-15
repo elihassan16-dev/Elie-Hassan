@@ -15,6 +15,7 @@ import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVide
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { MicIcon, TeamChatIcon } from "../icons";
 import { MediaGallery, collectMedia } from "../MediaGallery";
+import { FileActions } from "../fileActions";
 import { openSowPdf } from "./sowPdf";
 import { ContactShareModal, ContactCardBubble } from "../contactShare";
 
@@ -129,25 +130,26 @@ function useIsMobile(bp = 768) {
 }
 
 function Att({ att }) {
+  const acts = <div style={{ display: "flex", gap: 6, marginTop: 4 }}><FileActions item={att} mine={false} /></div>;
   if (!att) return null;
   if (att.kind === "contact" && att.contact) return <ContactCardBubble c={att.contact} mine={false} />;
   // Video still uploading in the background (or failed) — progress bubble instead.
   if (att.kind === "video" && (att.pending || att.failed)) return <VideoUploadBubble att={att} mine={false} />;
   if (!att.url) return null;
-  if (att.kind === "images" && Array.isArray(att.items)) return (
+  if (att.kind === "images" && Array.isArray(att.items)) return (<div>
     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxWidth: 236, marginTop: 6 }}>
       {att.items.map((it, i) => (
         <a key={i} href={it.url} target="_blank" rel="noreferrer" style={{ display: "block" }}>
           <img src={it.url} alt={it.name || `photo ${i + 1}`} loading="lazy" style={{ width: att.items.length === 2 ? 114 : 76, height: att.items.length === 2 ? 114 : 76, borderRadius: 8, objectFit: "cover", display: "block" }} />
         </a>
       ))}
-    </div>
+    </div>{acts}</div>
   );
-  if (att.kind === "image") return <a href={att.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={att.url} alt={att.name || "photo"} loading="lazy" decoding="async" style={{ width: 220, height: 240, borderRadius: 10, display: "block", objectFit: "cover", background: "#eee" }} /></a>;
-  if (att.kind === "video" && att.stream) return <iframe src={att.url} title={att.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ marginTop: 6, width: "min(320px,72vw)", aspectRatio: "16/9", border: "none", borderRadius: 10, display: "block", background: "#000" }} />;
-  if (att.kind === "video") return <video src={att.url} controls playsInline preload="metadata" style={{ marginTop: 6, maxWidth: 240, width: "100%", maxHeight: 300, borderRadius: 10, display: "block", background: "#000" }} />;
+  if (att.kind === "image") return <div>{<a href={att.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={att.url} alt={att.name || "photo"} loading="lazy" decoding="async" style={{ width: 220, height: 240, borderRadius: 10, display: "block", objectFit: "cover", background: "#eee" }} /></a>}{acts}</div>;
+  if (att.kind === "video" && att.stream) return <div>{<iframe src={att.url} title={att.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ marginTop: 6, width: "min(320px,72vw)", aspectRatio: "16/9", border: "none", borderRadius: 10, display: "block", background: "#000" }} />}{att.uid ? acts : null}</div>;
+  if (att.kind === "video") return <div>{<video src={att.url} controls playsInline preload="metadata" style={{ marginTop: 6, maxWidth: 240, width: "100%", maxHeight: 300, borderRadius: 10, display: "block", background: "#000" }} />}{acts}</div>;
   if (att.kind === "audio") return <audio src={att.url} controls preload="metadata" style={{ marginTop: 6, width: 240, height: 40 }} />;
-  return <a href={att.url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, padding: "8px 10px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, textDecoration: "none", color: T.text, maxWidth: 240 }}><span style={{ fontSize: 18 }}>📄</span><span style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name || "Attachment"}</span></a>;
+  return <div>{<a href={att.url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, padding: "8px 10px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, textDecoration: "none", color: T.text, maxWidth: 240 }}><span style={{ fontSize: 18 }}>📄</span><span style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name || "Attachment"}</span></a>}{acts}</div>;
 }
 
 const UTIL_DEFS = [["electric", "⚡", "Electric"], ["gas", "🔥", "Gas"], ["water", "💧", "Water"]];

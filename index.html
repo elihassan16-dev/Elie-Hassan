@@ -12,6 +12,8 @@
     <!-- PWA -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#FFFFFF" />
+    <!-- The app is light-only: stops Android's in-app WebView from auto-darkening it. -->
+    <meta name="color-scheme" content="light" />
 
     <!-- iOS / Safari "Add to Home Screen" -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -30,6 +32,26 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Inside the phone app only: if the app hasn't drawn anything after 10s,
+         say so on screen (with the first error) instead of a blank screen. -->
+    <script>
+      (function () {
+        if (!/GoldstoneApp/.test(navigator.userAgent)) return;
+        var errs = [];
+        window.addEventListener("error", function (e) { errs.push((e && (e.message || (e.target && e.target.src))) || "error"); }, true);
+        window.addEventListener("unhandledrejection", function (e) { errs.push(String((e && e.reason && (e.reason.message || e.reason)) || "rejected")); });
+        setTimeout(function () {
+          var r = document.getElementById("root");
+          if (r && r.childNodes.length) return;
+          r.innerHTML = '<div style="padding:40px 24px;font:15px -apple-system,Roboto,sans-serif;color:#1C1C1E;text-align:center">' +
+            '<div style="font-size:20px;font-weight:700;margin-bottom:8px">The app didn\'t start</div>' +
+            '<div style="color:#6E6E73;margin-bottom:16px">Send a screenshot of this to Claude.</div>' +
+            '<div style="font:12px monospace;color:#B42318;word-break:break-all;text-align:left">' + (errs.slice(0, 5).join("<br>") || "no error reported") + '</div>' +
+            '<div style="font:11px monospace;color:#8E8E93;margin-top:12px;word-break:break-all">' + navigator.userAgent + '</div>' +
+            '<button onclick="location.reload()" style="margin-top:20px;min-height:48px;padding:0 28px;border:none;border-radius:24px;background:#B8953F;color:#fff;font-size:16px;font-weight:700">Try again</button></div>';
+        }, 10000);
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

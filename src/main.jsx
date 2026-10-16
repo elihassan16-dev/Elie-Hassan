@@ -61,7 +61,8 @@ async function boot() {
   })();
   if (fromMsRedirect) await msal;
   // Inside the iPhone/Android app: hook up native push etc. first (fast, no-op on the web).
-  try { await initNative(); } catch { /* the app still runs */ }
+  // Never blocks for more than 1.5s — the app always appears.
+  try { await Promise.race([initNative(), new Promise((r) => setTimeout(r, 1500))]); } catch { /* the app still runs */ }
   createRoot(document.getElementById("root")).render(
     <React.StrictMode>
       <ErrorBoundary>

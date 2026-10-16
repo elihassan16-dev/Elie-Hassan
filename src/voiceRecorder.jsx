@@ -1,6 +1,6 @@
 // 🎤 WhatsApp-style voice notes (Elie 10/16/26, approved mockup):
 //   Phone — HOLD the mic to record, LET GO to send. Slide LEFT to throw it away,
-//           slide UP to lock and keep talking hands-free (🗑 · ⏸ · send).
+//           slide UP to lock and keep talking hands-free (trash · ⏸ · send).
 //           A quick tap just says "Hold to record".
 //   Computer — click the mic: the locked bar opens right away.
 // While recording, a bar covers the composer row (its parent must be
@@ -122,6 +122,15 @@ function Wave({ levels, color = T.gold, height = 28 }) {
 }
 
 const micSvg = (size, color = "#fff") => <MicIcon size={size} color={color} />;
+// iOS-style trash (SF Symbols "trash" look) instead of the 🗑 emoji (Elie 10/16/26).
+const TrashIcon = ({ size = 22, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: "block" }}>
+    <path d="M3.5 6h17" />
+    <path d="M9 6V4.6c0-.9.7-1.6 1.6-1.6h2.8c.9 0 1.6.7 1.6 1.6V6" />
+    <path d="M5.5 6l.9 13.1c.1 1.1 1 1.9 2.1 1.9h7c1.1 0 2-.8 2.1-1.9L18.5 6" />
+    <path d="M10 10.5v6M14 10.5v6" />
+  </svg>
+);
 
 // size: the idle button's diameter. gold: idle look = solid gold (WhatsApp's
 // send-slot mic) vs. a quiet ghost icon (desktop toolbars).
@@ -217,7 +226,7 @@ export function VoiceRecorder({ onDone, onError, disabled, size = 38, gold = tru
 
     {mode === "locked" && (
       <div style={{ position: "absolute", inset: 0, zIndex: 4, background: "#fff", borderRadius: 22, display: "flex", alignItems: "center", gap: 10, padding: "0 4px 0 6px", boxShadow: "0 0 0 1px rgba(0,0,0,0.06)" }}>
-        <button type="button" onClick={() => cancel("")} aria-label="Delete the voice note" style={{ ...circ, background: "none", fontSize: 19, color: T.textSub }}>🗑</button>
+        <button type="button" onClick={() => cancel("")} aria-label="Delete the voice note" style={{ ...circ, background: "none", color: T.textSub }}><TrashIcon /></button>
         {dot}{timer}
         <Wave levels={rec.levels} color={paused ? "#C7C7CC" : T.gold} />
         <button type="button" onClick={() => (paused ? rec.resume() : rec.pause())} aria-label={paused ? "Keep recording" : "Pause"} disabled={rec.state === "starting"}

@@ -1,0 +1,41 @@
+{
+  "appId": "com.gpflips.app",
+  "appName": "Goldstone Properties",
+  "webDir": "native/www",
+  "appendUserAgent": "GoldstoneApp",
+  "backgroundColor": "#F2F2F7",
+  "server": {
+    "url": "https://gpflips.com",
+    "cleartext": false,
+    "errorPath": "offline.html",
+    "allowNavigation": [
+      "gpflips.com",
+      "*.gpflips.com",
+      "login.microsoftonline.com",
+      "*.microsoftonline.com",
+      "login.live.com",
+      "*.msauth.net",
+      "*.msftauth.net",
+      "appcenter.intuit.com",
+      "*.intuit.com"
+    ]
+  },
+  "ios": {
+    "contentInset": "never",
+    "scheme": "App"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#F2F2F7",
+      "showSpinner": false
+    }
+  }
+}

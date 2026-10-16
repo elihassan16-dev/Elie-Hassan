@@ -6,6 +6,7 @@ import { AuthProvider } from "./auth/AuthProvider";
 import Root from "./App.jsx";
 import { ensureMsalReady, msalInstance, startMsalKeepAlive } from "./onedrive/msal";
 import { startAutoUpdate } from "./autoUpdate";
+import { initNative } from "./native";
 
 // Catches render/runtime errors so a crash shows a readable message + Reload
 // instead of a blank white screen.
@@ -59,6 +60,8 @@ async function boot() {
     startMsalKeepAlive();
   })();
   if (fromMsRedirect) await msal;
+  // Inside the iPhone/Android app: hook up native push etc. first (fast, no-op on the web).
+  try { await initNative(); } catch { /* the app still runs */ }
   createRoot(document.getElementById("root")).render(
     <React.StrictMode>
       <ErrorBoundary>

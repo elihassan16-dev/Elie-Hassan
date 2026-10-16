@@ -1,0 +1,128 @@
+// 📱 The iPhone / Android app (Capacitor, Elie 10/16/26). The app is a native
+// shell that opens gpflips.com, so this SAME web code runs inside it — this
+// file is the bridge to what only a real app can do:
+//   • Push notifications through Apple (APNs) / Google (FCM). Web push doesn't
+//     exist inside an app, so the device token is saved in push_subscriptions
+//     as endpoint "apns:<token>" / "fcm:<token>" and lib/nativePush.js sends.
+//   • Tapping a notification opens the exact place it points to.
+//   • Save / Share hand real files to the phone's share sheet.
+// In a normal browser every function here is a no-op (isNative() is false) and
+// the plugin code is never even downloaded.
+import { supabase } from "./supabaseClient";
+
+export const isNative = () => {
+  try { return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()); }
+  catch { return false; }
+};
+export const nativePlatform = () => (isNative() ? window.Capacitor.getPlatform() : "web");
+
+let perm = "default"; // granted | denied | default (mirrors Notification.permission)
+let pushP = null;
+const push = () => (pushP ||= import("@capacitor/push-notifications").then((m) => m.PushNotifications));
+let tokenWaiters = [];
+let lastToken = "";
+let wantName = "";
+
+const mapPerm = (r) => (r === "granted" ? "granted" : r === "denied" ? "denied" : "default");
+
+async function saveToken(token) {
+  if (!token) return false;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+  const kind = nativePlatform() === "ios" ? "apns" : "fcm";
+  const { error } = await supabase.from("push_subscriptions").upsert(
+    { endpoint: `${kind}:${token}`, p256dh: "native", auth: nativePlatform(), user_id: user.id, user_name: wantName || "" },
+    { onConflict: "endpoint" }
+  );
+  return !error;
+}
+
+// Called once at launch (main.jsx) before the app renders.
+export async function initNative() {
+  if (!isNative()) return;
+  const root = document.documentElement;
+  root.classList.add("gs-native", `gs-native-${nativePlatform()}`);
+  try {
+    const P = await push();
+    perm = mapPerm((await P.checkPermissions()).receive);
+    await P.addListener("registration", async (t) => {
+      lastToken = t.value;
+      let ok = false;
+      try { ok = await saveToken(t.value); } catch { ok = false; }
+      tokenWaiters.forEach((fn) => fn(ok));
+      tokenWaiters = [];
+    });
+    await P.addListener("registrationError", () => { tokenWaiters.forEach((fn) => fn(false)); tokenWaiters = []; });
+    // Tapped a notification → go where it points (same links web push uses).
+    await P.addListener("pushNotificationActionPerformed", (a) => {
+      const url = a && a.notification && a.notification.data && a.notification.data.url;
+      if (!url) return;
+      try { window.location.href = new URL(url, window.location.origin).href; } catch { /* malformed */ }
+    });
+    if (nativePlatform() === "android") {
+      // Heads-up banners need a high-importance channel (the server sends to it).
+      try { await P.createChannel({ id: "messages", name: "Messages & tasks", description: "Chats, tasks and urgent alerts", importance: 5, visibility: 1, sound: "default", vibration: true }); } catch { /* older Android */ }
+    }
+  } catch { /* plugin missing — the app still works, just without push */ }
+  try {
+    const { StatusBar, Style } = await import("@capacitor/status-bar");
+    await StatusBar.setStyle({ style: Style.Light });
+    if (nativePlatform() === "android") await StatusBar.setOverlaysWebView({ overlay: false });
+  } catch { /* fine */ }
+}
+
+export const nativePermission = () => perm;
+
+function waitForToken(ms = 15000) {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(false), ms);
+    tokenWaiters.push((ok) => { clearTimeout(t); resolve(ok); });
+  });
+}
+
+// "Turn on notifications" inside the app.
+export async function nativeEnablePush(userName) {
+  wantName = userName || wantName;
+  const P = await push();
+  let r = await P.checkPermissions();
+  if (r.receive !== "granted") r = await P.requestPermissions();
+  perm = mapPerm(r.receive);
+  if (perm !== "granted") throw new Error("Notifications are off for this app. Open your phone's Settings → Notifications → Goldstone Properties → Allow Notifications.");
+  const wait = waitForToken();
+  await P.register();
+  const ok = await wait;
+  if (!ok) throw new Error("Couldn't finish turning on notifications — check your connection and try again.");
+  return true;
+}
+
+// Every launch: keep this phone's token on file (tokens can change).
+export async function nativeRefreshPush(userName) {
+  wantName = userName || wantName;
+  if (perm !== "granted") return false;
+  try {
+    if (lastToken) return await saveToken(lastToken);
+    const wait = waitForToken();
+    await (await push()).register();
+    return await wait;
+  } catch { return false; }
+}
+
+// Save / Share inside the app: write the real files to the app's cache and
+// open the phone's share sheet with them (Save Image/Video, Files, WhatsApp…).
+const toB64 = (blob) => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result).split(",")[1] || "");
+  r.onerror = () => reject(r.error);
+  r.readAsDataURL(blob);
+});
+export async function nativeShareFiles(files) {
+  const [{ Filesystem, Directory }, { Share }] = await Promise.all([import("@capacitor/filesystem"), import("@capacitor/share")]);
+  const uris = [];
+  for (const f of files) {
+    const path = `share/${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${f.name}`;
+    const w = await Filesystem.writeFile({ path, data: await toB64(f), directory: Directory.Cache, recursive: true });
+    uris.push(w.uri);
+  }
+  try { await Share.share({ files: uris }); return "done"; }
+  catch (e) { if (/cancel/i.test((e && e.message) || "")) return "cancel"; throw e; }
+}

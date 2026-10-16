@@ -11,9 +11,10 @@
 // iOS only lets the share sheet open right after a tap — when preparing took
 // too long, the files are kept and the next tap opens the sheet instantly.
 import { qbAuthFetch } from "./net";
+import { isNative, nativeShareFiles } from "./native";
 
 const EXT = { "image/jpeg": "jpg", "image/png": "png", "image/heic": "heic", "image/webp": "webp", "image/gif": "gif", "video/mp4": "mp4", "video/quicktime": "mov", "application/pdf": "pdf", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/webm": "webm" };
-export const isPhone = () => typeof navigator !== "undefined" && (/iphone|ipad|ipod|android/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
+export const isPhone = () => isNative() || typeof navigator !== "undefined" && (/iphone|ipad|ipod|android/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 
 // Every file in an item: a photo grid has several, everything else one.
 const partsOf = (item) => (item && item.kind === "images" && Array.isArray(item.items) ? item.items.map((it) => ({ ...it, kind: "image" })) : item ? [item] : []);
@@ -76,6 +77,8 @@ const canShareFiles = (files) => { try { return !!(navigator.canShare && navigat
 // → "done" | "downloaded" | "cancel" | "again" (tap once more to open the share sheet)
 async function shareOrSave(item, onStatus, mode) {
   const files = await filesFor(item, onStatus);
+  // Inside the iPhone/Android app: the native share sheet (no tap-expiry there).
+  if (isNative()) return nativeShareFiles(files);
   const sheet = mode === "share" || isPhone();
   if (sheet && canShareFiles(files)) {
     try { await navigator.share({ files }); return "done"; }

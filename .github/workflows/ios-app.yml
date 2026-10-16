@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["ios/**", "capacitor.config.json", "native/**", ".github/workflows/ios-app.yml"]
+    paths: ["ios/**", "capacitor.config.json", "native/**", ".github/workflows/ios-app.yml", ".github/scripts/**"]
 jobs:
   build:
     runs-on: macos-15
@@ -34,6 +34,13 @@ jobs:
           xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO build | tail -40
+      - name: Make sure the team has a device (Apple requires one to sign)
+        if: ${{ env.HAS_KEYS == 'yes' }}
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: node .github/scripts/asc-ensure-device.mjs
       - name: Archive + upload to TestFlight
         env:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}

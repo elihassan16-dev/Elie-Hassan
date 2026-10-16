@@ -43,13 +43,15 @@ export default function Login() {
   return (
     <div
       style={{
-        // Fill the whole screen even where 100dvh comes out short (Android's
-        // in-app WebView): the taller of the screen height and the page height.
-        minHeight: "max(100dvh, 100%)",
-        position: "relative",
+        // Pinned to the four screen edges (not 100dvh — older Android WebViews
+        // don't know dvh, which left the card high with gold below it, Elie
+        // 10/16/26). The card centers with margin:auto, so a short screen or the
+        // keyboard just scrolls instead of cutting off the top.
+        position: "fixed",
+        top: 0, right: 0, bottom: 0, left: 0,
+        overflowY: "auto",
+        WebkitOverflowScrolling: "touch",
         display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
         padding: "24px",
         paddingTop: "max(24px, env(safe-area-inset-top))",
         paddingBottom: "max(24px, env(safe-area-inset-bottom))",
@@ -72,6 +74,7 @@ export default function Login() {
         style={{
           width: "100%",
           maxWidth: 380,
+          margin: "auto",
           position: "relative",
           zIndex: 6, // above the pinned edge strips on short screens
           background: "#fff",

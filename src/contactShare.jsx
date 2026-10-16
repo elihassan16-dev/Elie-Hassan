@@ -10,7 +10,9 @@ export const vcfHref = (c) => "data:text/vcard;charset=utf-8," + encodeURICompon
   `BEGIN:VCARD\nVERSION:3.0\nFN:${c.name || "Contact"}\n${c.company ? `ORG:${c.company}\n` : ""}${c.phone ? `TEL;TYPE=CELL:${c.phone}\n` : ""}${c.email ? `EMAIL:${c.email}\n` : ""}END:VCARD`
 );
 
-export function ContactCardBubble({ c, mine }) {
+// CallLink: the team app passes CallA (business line / my phone chooser);
+// the contractor portal keeps the plain tel: link.
+export function ContactCardBubble({ c, mine, CallLink }) {
   if (!c) return null;
   // Uniform white contact pill (approved Option C) — colored icon, calm shell.
   const chip = () => ({ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 14, background: "#fff", color: T.text, border: `1px solid ${T.border}`, fontSize: 11.5, fontWeight: 700, textDecoration: "none", fontFamily: "inherit" });
@@ -26,7 +28,7 @@ export function ContactCardBubble({ c, mine }) {
         </span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
-        {num && <a href={`tel:${num}`} style={chip()}><PhoneIcon size={12} color={T.text} /> Call</a>}
+        {num && (CallLink ? <CallLink phone={c.phone} title="Call" style={chip()}><PhoneIcon size={12} color={T.text} /> Call</CallLink> : <a href={`tel:${num}`} style={chip()}><PhoneIcon size={12} color={T.text} /> Call</a>)}
         {num && <a href={`sms:${num}`} style={chip()}><SmsChatIcon size={12} color="#15803D" /> Text</a>}
         {c.email && <a href={`mailto:${c.email}`} style={chip()}><MailIcon size={12} color={T.blue} /> Email</a>}
         <a href={vcfHref(c)} download={`${(c.name || "contact").replace(/[^a-zA-Z0-9 ]/g, "")}.vcf`} style={{ ...chip(), color: T.textSub }}>⬇ Save</a>

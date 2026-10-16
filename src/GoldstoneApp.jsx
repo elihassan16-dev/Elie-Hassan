@@ -8123,7 +8123,7 @@ function TaskPopup({task,isMobile,currentUser,teamMembers,contacts=[],saveFolder
               {phones.map((ph,k)=>(
                 <div key={k} style={{display:"flex",alignItems:"center",gap:6,marginTop:4,paddingLeft:40}}>
                   <div style={{flex:1,minWidth:0,fontSize:13.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{fontSize:12,color:T.textSub}}>{ph.label||"Phone"} · </span>{ph.number}</div>
-                  <a href={`tel:${String(ph.number).replace(/[^\d+]/g,"")}`} style={mini}>📞 Call</a>
+                  <CallA phone={ph.number} title="Call" style={{...mini,textDecoration:"none"}}>📞 Call</CallA>
                   <button onClick={()=>onContact(task,{slot:i})} style={mini}>💬 Text</button>
                 </div>
               ))}
@@ -11958,7 +11958,7 @@ function MessageAttachment({att,mine,saveFolder}){
   // so every render must walk the same hook order.
   const od=useOneDrive();
   const[sv,setSv]=useState(""); // "" | "saving" | "done" | error text
-  if(att&&att.kind==="contact"&&att.contact)return <ContactCardBubble c={att.contact} mine={mine}/>;
+  if(att&&att.kind==="contact"&&att.contact)return <ContactCardBubble c={att.contact} mine={mine} CallLink={CallA}/>;
   // Video still uploading in the background (or failed) — progress bubble instead.
   if(att&&att.kind==="video"&&(att.pending||att.failed))return <VideoUploadBubble att={att} mine={mine}/>;
   if(!att||!att.url)return null;

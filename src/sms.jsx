@@ -814,9 +814,11 @@ export function CallA({ phone, style, title, children }) {
   const jv = useJivetelCall();
   const [choose, setChoose] = useState(false);
   const digits = String(phone || "").replace(/[^\d+]/g, "");
-  // With Jivetel wired up the chooser works everywhere — including desktop,
-  // where a bare tel: link was a dead end.
-  const intercept = jv.enabled || (connected && IS_PHONE);
+  // On a computer a bare tel: link hands the call to whatever app Windows
+  // picked (Nextiva, Teams… — Elie 10/16/26), so desktop ALWAYS gets the
+  // chooser: my Jivetel line or "My cell phone". Phones: chooser when there's
+  // a business option, otherwise the plain dialer.
+  const intercept = !IS_PHONE || jv.enabled || connected;
   return (<>
     <a href={`tel:${digits}`} title={title} onClick={intercept ? (e) => { e.preventDefault(); e.stopPropagation(); setChoose(true); } : undefined} style={style}>{children}</a>
     {choose && <PhoneChooser phone={phone} mode="call" jivetel={jv} onClose={() => setChoose(false)} />}

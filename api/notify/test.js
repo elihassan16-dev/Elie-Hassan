@@ -3,6 +3,7 @@
 import webpush from "web-push";
 import { admin, requireAppUser } from "../../lib/quickbooks.js";
 import { PUSH_OPTS } from "../../lib/notify.js";
+import { sendNative, isNativeSub } from "../../lib/nativePush.js";
 
 export default async function handler(req, res) {
   const user = await requireAppUser(req);
@@ -28,6 +29,12 @@ export default async function handler(req, res) {
     } else {
       webpush.setVapidDetails(process.env.NOTIFY_CONTACT || "mailto:elihassan16@gmail.com", VAPID_PUBLIC, VAPID_PRIVATE);
       for (const s of subs) {
+        if (isNativeSub(s.endpoint)) {
+          const r = await sendNative(s, JSON.parse(payload));
+          if (r.ok) out.pushed++;
+          else { if (r.gone) await db.from("push_subscriptions").delete().eq("endpoint", s.endpoint); out.push = r.skipped ? "app push not set up yet" : `app push error ${r.reason || ""}`.trim(); }
+          continue;
+        }
         try { await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, PUSH_OPTS); out.pushed++; }
         catch (e) { if (e && (e.statusCode === 404 || e.statusCode === 410)) await db.from("push_subscriptions").delete().eq("endpoint", s.endpoint); out.push = `error ${e && e.statusCode || ""}`.trim(); }
       }

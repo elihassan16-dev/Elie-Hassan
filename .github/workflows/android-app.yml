@@ -1,0 +1,49 @@
+# 🤖 Android app (Capacitor) — builds on GitHub's machines.
+# The app opens gpflips.com, so website changes reach it instantly; this only
+# needs to run when the app shell itself changes (or by hand: Actions → Run).
+# Optional secrets (add in GitHub → Settings → Secrets → Actions):
+#   GOOGLE_SERVICES_JSON          Firebase google-services.json (push)
+#   ANDROID_KEYSTORE_B64          upload keystore, base64
+#   ANDROID_KEYSTORE_PASSWORD     its password (alias "upload")
+name: Android app
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["android/**", "capacitor.config.json", "native/**", ".github/workflows/android-app.yml"]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: npm ci
+      - name: Firebase config (push notifications)
+        env: { GOOGLE_SERVICES_JSON: "${{ secrets.GOOGLE_SERVICES_JSON }}" }
+        run: if [ -n "$GOOGLE_SERVICES_JSON" ]; then printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json; echo "push config added"; else echo "no Firebase config yet — push disabled in this build"; fi
+      - run: npx cap sync android
+      - name: Signing key
+        env: { KS: "${{ secrets.ANDROID_KEYSTORE_B64 }}" }
+        run: |
+          if [ -n "$KS" ]; then echo "$KS" | base64 -d > "$RUNNER_TEMP/upload.keystore"; echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/upload.keystore" >> "$GITHUB_ENV"; fi
+      - name: Build
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+          if [ -n "$ANDROID_KEYSTORE_PATH" ]; then ./gradlew --no-daemon bundleRelease; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: goldstone-android-${{ github.run_number }}
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: warn

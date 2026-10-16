@@ -62,6 +62,8 @@ async function idbMerge(uploadId, patch) {
 // iOS home-screen apps don't show this — IndexedDB resume covers them instead).
 let unloadArmed = false;
 const onUnload = (e) => { e.preventDefault(); e.returnValue = "A video is still uploading — leaving now pauses it until you reopen the app."; };
+// autoUpdate.js never reloads the app while a video is going up.
+if (typeof window !== "undefined") window.__gsUploading = () => Object.values(uploads).some((u) => u.status === "uploading");
 const syncUnloadGuard = () => {
   const active = Object.values(uploads).some((u) => u.status === "uploading");
   if (active && !unloadArmed) { window.addEventListener("beforeunload", onUnload); unloadArmed = true; }

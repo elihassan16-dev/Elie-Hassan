@@ -18,9 +18,16 @@ export const urgentPing = { until: 0 };
 export async function notify(recipients, opts = {}) { try { (window.__notifs = window.__notifs || []).push({ recipients, ...opts, urgent: urgentPing.until > Date.now() }); } catch { /* preview */ } }
 export async function compressImage(file) { return file; }
 export async function waitStreamReady() { return true; }
+// window.__uploadDelay (ms) lets the preview show the "Sending…" state.
 export async function uploadAttachment(file) {
-  return { url: URL.createObjectURL(file), name: file.name || "file", mime: file.type || "", kind: attachmentKind(file.type || "") };
+  const ms = (typeof window !== "undefined" && window.__uploadDelay) || 0;
+  if (ms) await new Promise((r) => setTimeout(r, ms));
+  const out = { url: URL.createObjectURL(file), name: file.name || "file", mime: file.type || "", kind: attachmentKind(file.type || "") };
+  if (out.kind === "image") { const d = await imageDims(file); if (d) Object.assign(out, d); }
+  return out;
 }
+export async function imageDims(file) { try { const b = await createImageBitmap(file); const d = { w: b.width, h: b.height }; b.close(); return d; } catch { return null; } }
+export async function streamDims() { return null; }
 export async function uploadStreamVideo(file) { return uploadAttachment(file); }
 
 // Demo ShowingTime feed for the On-Market property — shared with appMockData

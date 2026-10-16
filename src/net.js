@@ -91,40 +91,58 @@ async function streamDetails(uid) {
   }
   return info;
 }
-export async function uploadStreamVideo(file, onProgress) {
+export async function uploadStreamVideo(file, onProgress, opts = {}) {
   // The shell's stale-build check reads this: a page reload mid-upload throws
   // the upload away (Elie 9/10 - "crashing in the middle").
   try { window.__gsUploads = (window.__gsUploads || 0) + 1; } catch { /* no window */ }
-  try { return await uploadStreamVideoInner(file, onProgress); }
+  try { return await uploadStreamVideoInner(file, onProgress, opts); }
   finally { try { window.__gsUploads = Math.max(0, (window.__gsUploads || 1) - 1); } catch { /* ignore */ } }
 }
-async function uploadStreamVideoInner(file, onProgress) {
+// Resumable (tus) for EVERY size (Elie 10/16/26 — uploads died whenever the
+// contractor left the app): the upload session {uploadURL, uid} is handed to
+// opts.onSession so the caller can keep it on the device; passing it back as
+// opts.resume picks the upload up from the last finished 8 MB piece instead of
+// starting over. Falls back to the one-shot upload if tus can't start.
+async function tusUpload(file, session, onProgress) {
+  const tus = await import("tus-js-client");
+  await new Promise((resolve, reject) => {
+    const up = new tus.Upload(file, {
+      uploadUrl: session.uploadURL,
+      chunkSize: 8388608, // 8 MiB — a multiple of 256 KiB, ≥ Stream's 5 MiB minimum
+      retryDelays: [0, 2000, 5000, 10000, 20000, 30000],
+      metadata: { name: file.name || "video" },
+      onProgress: (sent, total) => { if (onProgress) onProgress(Math.min(99, Math.round((sent / total) * 100))); },
+      onError: (e) => reject(new Error(e?.message || "Video upload failed — check your connection.")),
+      onSuccess: () => resolve(),
+    });
+    up.start();
+  });
+}
+async function uploadStreamVideoInner(file, onProgress, opts) {
   let uid;
   // The playback URLs live on the video record, which exists as soon as the
   // upload session is minted — fetch them WHILE the bytes go up so the message
   // is ready the instant the upload finishes (no post-upload polling wait).
   let early = null, earlyP = null;
   const prefetch = () => { earlyP = qbAuthFetch(`/api/stream/upload?uid=${encodeURIComponent(uid)}`).then((i) => { early = i; }).catch(() => {}); };
-  if (file.size > BASIC_CAP) {
-    // Resumable chunks: survives flaky signal, no 200MB ceiling.
-    const tus = await import("tus-js-client");
-    const start = await qbAuthFetch("/api/stream/upload", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tus: true, size: file.size, name: file.name || "video" }),
-    });
-    uid = start.uid;
-    prefetch();
-    await new Promise((resolve, reject) => {
-      const up = new tus.Upload(file, {
-        uploadUrl: start.uploadURL,
-        chunkSize: 52428800, // 50 MiB — multiple of 256 KiB as Stream requires
-        retryDelays: [0, 2000, 5000, 10000, 20000],
-        metadata: { name: file.name || "video" },
-        onProgress: (sent, total) => { if (onProgress) onProgress(Math.min(99, Math.round((sent / total) * 100))); },
-        onError: (e) => reject(new Error(e?.message || "Video upload failed — check your connection.")),
-        onSuccess: () => resolve(),
+  let session = opts.resume && opts.resume.uploadURL && opts.resume.uid ? opts.resume : null;
+  if (!session) {
+    try {
+      const start = await qbAuthFetch("/api/stream/upload", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tus: true, size: file.size, name: file.name || "video" }),
       });
-      up.start();
-    });
+      if (start && start.uploadURL && start.uid) { session = { uploadURL: start.uploadURL, uid: start.uid }; if (opts.onSession) opts.onSession(session); }
+    } catch (e) { if (file.size > BASIC_CAP) throw e; }
+  }
+  if (session) {
+    uid = session.uid;
+    prefetch();
+    try { await tusUpload(file, session, onProgress); }
+    catch (e) {
+      // A saved session can expire while the phone was away — start a fresh one.
+      if (!opts.resume) throw e;
+      return uploadStreamVideoInner(file, onProgress, { ...opts, resume: null });
+    }
   } else {
     const { uploadURL, uid: basicUid } = await qbAuthFetch("/api/stream/upload", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name || "video" }),
@@ -149,6 +167,15 @@ async function uploadStreamVideoInner(file, onProgress) {
   const watch = info?.preview || "";
   if (!watch) throw new Error("Video uploaded but isn't available yet — try again in a minute.");
   return { kind: "video", stream: true, uid, url: watch.replace(/\/watch$/, "/iframe"), watch, thumbnail: info?.thumbnail || "", name: file.name || "video", mime: file.type || "video/mp4" };
+}
+
+// Width/height/length of a finished Stream video, so chat shows it the right
+// way up (phone videos standing, not squeezed into a 16:9 box).
+export async function streamDims(uid) {
+  try {
+    const i = await qbAuthFetch(`/api/stream/upload?uid=${encodeURIComponent(uid)}`);
+    return i ? { w: i.w || 0, h: i.h || 0, dur: i.duration || 0, thumbnail: i.thumbnail || "" } : null;
+  } catch { return null; }
 }
 
 // WhatsApp-style photo shrink before upload: a 4–8 MB camera shot becomes a
@@ -205,6 +232,12 @@ export async function waitStreamReady(uid, maxMs = 8 * 60000) {
   return "timeout";
 }
 
+// A photo's real width/height — chat bubbles use it to show the picture in its
+// own shape (no cropping) without jumping around while it loads.
+export async function imageDims(file) {
+  try { const b = await createImageBitmap(file); const d = { w: b.width, h: b.height }; b.close(); return d.w && d.h ? d : null; }
+  catch { return null; }
+}
 export async function uploadAttachment(rawFile, folder = "chat") {
   const file = await compressImage(rawFile);
   const kind = attachmentKind(file.type || "");
@@ -213,7 +246,9 @@ export async function uploadAttachment(rawFile, folder = "chat") {
   const { error } = await supabase.storage.from("attachments").upload(path, file, { contentType: file.type || undefined, upsert: false });
   if (error) throw error;
   const { data } = supabase.storage.from("attachments").getPublicUrl(path);
-  return { url: data.publicUrl, name: file.name || base, mime: file.type || "", kind };
+  const out = { url: data.publicUrl, name: file.name || base, mime: file.type || "", kind };
+  if (kind === "image") { const d = await imageDims(file); if (d) Object.assign(out, d); }
+  return out;
 }
 
 // ── Geocode one address (Route Planner) — OpenStreetMap Nominatim, no key.

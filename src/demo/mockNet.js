@@ -11,3 +11,5 @@ export async function qbAuthFetch(path) {
   if (String(path).includes("/api/team/roster")) return { names: ["Elie Hassan", "Esti Unsdorfer", "Moshe Hamaoui"] };
   return { ok: true };
 }
+export async function imageDims(file) { try { const b = await createImageBitmap(file); const d = { w: b.width, h: b.height }; b.close(); return d; } catch { return null; } }
+export async function streamDims() { return null; }

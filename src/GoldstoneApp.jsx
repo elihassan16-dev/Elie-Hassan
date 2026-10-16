@@ -19,7 +19,9 @@ import { MortgageChecklistSync } from "./mortgageCheck";
 import { urgentNext, urgentMark, UrgentChip, UrgentTag, UrgentTile, UrgentSheet, UrgentAlert, useSetTaskUrgent, RED as URGENT_RED, RED_TEXT as URGENT_TEXT } from "./urgent";
 import { PayoffStatementSheet } from "./payoffSheet";
 import { PostsPage, PostsNudge, PostWatcher, PostButton } from "./flyers";
-import { startVideoUpload, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
+import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
+import { MediaBubble, SwipeReply, MentionText } from "./chatMedia";
+import { VoiceRecorder } from "./voiceRecorder";
 import { usePersistentDraft } from "./useDraft";
 import { FileActions } from "./fileActions";
 import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
@@ -7949,6 +7951,8 @@ function TaskMessagesBody({title,task,contacts=[],messages:allMsgs,currentUser,t
   const delegate=task?.delegate||"";
   const involved=[...new Set([delegate,assignee].filter(Boolean))]; // doer first
   const[recipient,setRecipient]=useState(involved[0]||"");
+  // ↩ Reply to one message — swipe it right (phones) or tap ↩ (Elie 10/16/26).
+  const[reply,setReply]=useState(null);
   const who=recipient?recipient.split(" ")[0]:"team";
   // Name the actual task in the message instead of saying "this task".
   const taskName=(task?.text||"").trim();
@@ -7978,18 +7982,20 @@ function TaskMessagesBody({title,task,contacts=[],messages:allMsgs,currentUser,t
         <div style={{flex:1,overflowY:"auto",padding:"12px 16px",display:"flex",flexDirection:"column",gap:10,minHeight:120,...(listStyle||{})}}>
           {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"24px 0"}}>{subFilter?"No messages about this item yet.":"No messages yet. Leave a note for your team below."}</div>}
           {messages.map(m=>{const mine=m.author===currentUser;return(
-            <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
+            <SwipeReply key={m.id} onReply={()=>setReply(m)} align={mine?"flex-end":"flex-start"} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
               {!mine&&<div style={{fontSize:10,color:T.textTert,marginBottom:2,paddingLeft:4}}>{(m.author||"—").split(" ")[0]} · {fmt(m.at)}</div>}
-              <div style={{background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:18,padding:"8px 13px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",...(m.urgent?{boxShadow:`0 0 0 2px ${URGENT_RED}`,...(mine?{}:{background:"#FFF5F4"})}:{})}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,flexDirection:mine?"row-reverse":"row",maxWidth:"100%"}}>
+              <div style={{minWidth:0,background:mine?T.gold:T.bg,color:mine?"#fff":T.text,borderRadius:18,padding:"8px 13px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",...(m.urgent?{boxShadow:`0 0 0 2px ${URGENT_RED}`,...(mine?{}:{background:"#FFF5F4"})}:{})}}>
                 {m.urgent&&<div style={{marginBottom:4}}><UrgentTag/></div>}
                 {m.subId&&subName(m)&&<div style={{marginBottom:3}}><span style={{display:"inline-block",fontSize:11,fontWeight:700,borderRadius:8,padding:"1px 7px",background:mine?"rgba(255,255,255,0.22)":"rgba(184,145,46,0.14)",color:mine?"#fff":"#8a6d1f"}}>↳ {subName(m)}</span></div>}
                 {m.replyTo&&<div style={{borderLeft:`3px solid ${mine?"rgba(255,255,255,0.55)":T.gold}`,paddingLeft:8,marginBottom:5,opacity:0.9,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}><b>{m.replyTo.author?m.replyTo.author.split(" ")[0]:"—"}:</b> {m.replyTo.text}</div>}
-                {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
-                {linkifyText(m.text,mine)}
+                <MentionText text={m.text} mentions={m.mentions} mine={mine} replyAuthor={m.replyTo&&m.replyTo.author}/>
                 {m.attachment&&<MessageAttachment att={m.attachment} mine={mine} saveFolder={saveFolder}/>}
               </div>
+              <button onClick={()=>setReply(m)} title={`Reply to ${(m.author||"").split(" ")[0]||"this message"}`} style={{width:26,height:26,minHeight:26,borderRadius:13,flexShrink:0,background:reply&&reply.id===m.id?T.goldLight:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.04)",color:reply&&reply.id===m.id?"#8a6d1f":T.textTert,cursor:"pointer",fontSize:12,padding:0,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>↩</button>
+              </div>
               {mine&&<div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:5,marginTop:2}}><span style={{fontSize:10,color:T.textTert}}>{fmt(m.at)} ·</span><ReadReceipt readBy={m.readBy} author={m.author}/></div>}
-            </div>
+            </SwipeReply>
           );})}
         </div>
         <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,flexShrink:0}}>
@@ -8002,7 +8008,8 @@ function TaskMessagesBody({title,task,contacts=[],messages:allMsgs,currentUser,t
             </div>
           )}
           {subTag&&<div style={{marginBottom:6}}><span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:700,color:"#8a6d1f",background:"#FDF6E3",border:"1px solid #EAD9A9",borderRadius:12,padding:"2px 4px 2px 9px"}}>↳ {subTag.text}<button onClick={onClearSubTag} aria-label="Write about the whole task instead" style={{width:26,height:26,minHeight:26,border:"none",background:"none",color:"#8a6d1f",fontWeight:800,cursor:"pointer",padding:0}}>✕</button></span></div>}
-          <ChatComposer onSend={(txt,att,mn)=>onSend(txt,att,mn,subTag?{subId:subTag.id,subText:subTag.text}:undefined)} people={teamMembers} currentUser={currentUser} placeholder={subTag?`Write about "${subTag.text}"…`:"Write a message…"} templates={templates} defaultMention={dm} aiContext={aiCtx} filesFolder={saveFolder}/>
+          {reply&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,padding:"6px 10px",background:T.cardAlt,borderLeft:`3px solid ${T.gold}`,borderRadius:8}}><span style={{flex:1,minWidth:0,fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>↩ Replying to <b>{(reply.author||"").split(" ")[0]}</b>: {reply.text||(reply.attachment?attLabel(reply.attachment):"")}</span><button onClick={()=>setReply(null)} aria-label="Cancel reply" style={{background:"none",border:"none",color:T.textTert,fontSize:18,cursor:"pointer",lineHeight:1,minHeight:30}}>×</button></div>}
+          <ChatComposer onSend={(txt,att,mn)=>{const r=reply;const extra={...(subTag?{subId:subTag.id,subText:subTag.text}:{}),...(r?{replyToId:r.id,replyTo:{id:r.id,author:r.author||"",text:(r.text||(r.attachment?attLabel(r.attachment):"")).slice(0,140)}}:{})};setReply(null);return onSend(txt,att,(r&&r.author&&r.author!==currentUser&&!(mn||[]).includes(r.author))?[...(mn||[]),r.author]:mn,Object.keys(extra).length?extra:undefined);}} people={teamMembers} currentUser={currentUser} placeholder={subTag?`Write about "${subTag.text}"…`:"Write a message…"} templates={templates} defaultMention={dm} aiContext={aiCtx} filesFolder={saveFolder}/>
         </div>
   </>);
 }
@@ -8713,7 +8720,7 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
               <div style={{background:mine?(ext?T.gold:T.blue):sameSide?"#FBF3DD":"#F2F2F7",color:mine?"#fff":T.text,border:sameSide&&!mine?"1px solid #EAD9A9":"none",borderRadius:12,padding:"8px 12px",fontSize:13,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",...(m.urgent?{boxShadow:`0 0 0 2px ${URGENT_RED}`,...(mine?{}:{background:"#FFF5F4"})}:{})}}>
                 {m.urgent&&<div style={{marginBottom:4}}><UrgentTag/></div>}
                 {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:3,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
-                {linkifyText(m.text,mine)}
+                <MentionText text={m.text} mentions={m.mentions} mine={mine}/>
                 {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
               </div>
             </div>
@@ -11959,8 +11966,7 @@ function MessageAttachment({att,mine,saveFolder}){
   const od=useOneDrive();
   const[sv,setSv]=useState(""); // "" | "saving" | "done" | error text
   if(att&&att.kind==="contact"&&att.contact)return <ContactCardBubble c={att.contact} mine={mine} CallLink={CallA}/>;
-  // Video still uploading in the background (or failed) — progress bubble instead.
-  if(att&&att.kind==="video"&&(att.pending||att.failed))return <VideoUploadBubble att={att} mine={mine}/>;
+  if(att&&(att.pending||att.failed))return <MediaBubble att={att} mine={mine}/>;
   if(!att||!att.url)return null;
   const canSave=!!(saveFolder&&saveFolder.driveId&&od.isConnected&&att.kind!=="audio");
   const doSave=async(e)=>{
@@ -11986,62 +11992,20 @@ function MessageAttachment({att,mine,saveFolder}){
       {sv==="done"?"✓ Saved to Files":sv==="saving"?"Saving…":sv?`⚠ ${sv}`:"💾 Save to Files"}
     </button>
   ):null;
-  // ⬇ Save · ⤴ Share the real file (not the storage link) + 💾 Save to Files.
-  const actsRow=<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:4}}><FileActions item={att} mine={mine}/>{saveBtn&&<span style={{display:"inline-flex",marginTop:-4}}>{saveBtn}</span>}</div>;
-  if(att.kind==="images"&&Array.isArray(att.items))return(
-    <div style={{marginTop:6}}>
-      <div style={{display:"flex",flexWrap:"wrap",gap:4,maxWidth:236}}>
-        {att.items.map((it,i)=>(
-          <a key={i} href={it.url} target="_blank" rel="noreferrer" style={{display:"block"}}>
-            <img src={it.url} alt={it.name||`photo ${i+1}`} loading="lazy" decoding="async" style={{width:att.items.length===2?114:76,height:att.items.length===2?114:76,borderRadius:8,objectFit:"cover",display:"block",background:"#eee"}}/>
-          </a>
-        ))}
-      </div>
-      {actsRow}
-    </div>
-  );
-  if(att.kind==="image")return(
-    <div style={{marginTop:6}}>
-      <a href={att.url} target="_blank" rel="noreferrer" style={{display:"block"}}>
-        <img src={att.url} alt={att.name||"photo"} loading="lazy" decoding="async" style={{width:220,height:240,borderRadius:10,display:"block",objectFit:"cover",background:"#eee"}}/>
-      </a>
-      {actsRow}
-    </div>
-  );
-  if(att.kind==="video"&&att.stream)return(
-    <div style={{marginTop:6}}>
-      <iframe src={att.url} title={att.name||"video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen
-        style={{width:"min(320px,72vw)",aspectRatio:"16/9",border:"none",borderRadius:10,display:"block",background:"#000"}}/>
-      {att.uid&&<div style={{display:"flex",gap:6,marginTop:4}}><FileActions item={att} mine={mine}/></div>}
-    </div>
-  );
-  if(att.kind==="video")return(
-    <div style={{marginTop:6}}>
-      <video src={att.url} controls playsInline preload="metadata" style={{maxWidth:240,maxHeight:300,width:"100%",borderRadius:10,display:"block",background:"#000"}}/>
-      {actsRow}
-    </div>
-  );
-  if(att.kind==="audio")return <audio src={att.url} controls preload="metadata" style={{marginTop:6,maxWidth:240,width:240,height:40}}/>;
-  const isPdf=(att.mime||"").includes("pdf")||/\.pdf$/i.test(att.name||"");
-  return(
-    <div style={{marginTop:6}}>
-      <a href={att.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:10,border:`1px solid ${mine?"rgba(255,255,255,0.35)":T.border}`,background:mine?"rgba(255,255,255,0.15)":T.bg,textDecoration:"none",color:mine?"#fff":T.text,maxWidth:240}}>
-        <span style={{fontSize:18,flexShrink:0}}>{isPdf?"📄":"📎"}</span>
-        <span style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{att.name||"Attachment"}</span>
-      </a>
-      {actsRow}
-    </div>
-  );
+  // WhatsApp-style bubble (photos in their own shape, full-screen viewer, video
+  // poster, voice player) + ⬇ Save · ⤴ Share + 💾 Save to Files — chatMedia.jsx.
+  return <MediaBubble att={att} mine={mine} extra={saveBtn?<span style={{display:"inline-flex",marginTop:-4}}>{saveBtn}</span>:null}/>;
 }
 // Staged-video chip status: the upload runs in the background, so the user can
 // hit Send right away — this line shows live progress (or the failure) meanwhile.
-function StagedVideoStatus({uploadId}){
+function StagedVideoStatus({uploadId,kind="video"}){
   const live=useVideoUpload(uploadId);
   const failed=live&&live.status==="failed";
   const done=live&&live.status==="done";
+  const noun=kind==="video"?"Video":kind==="audio"?"Voice note":kind==="images"?"Photos":kind==="image"?"Photo":"File";
   return(
     <div style={{flex:1,minWidth:0}}>
-      <div style={{fontSize:12,fontWeight:700,color:failed?T.red:T.text}}>{failed?"Video didn't upload":done?"Video ready":live&&live.stage==="compress"?`Compressing video… ${live.pct||0}%`:live&&live.stage==="process"?"Processing video…":`Video uploading… ${live?live.pct||0:0}%`}</div>
+      <div style={{fontSize:12,fontWeight:700,color:failed?T.red:T.text}}>{failed?`${noun} didn't upload`:done?`${noun} ready`:live&&live.stage==="compress"?`Compressing video… ${live.pct||0}%`:live&&live.stage==="process"?"Processing video…":`Uploading… ${(live&&live.pct)||0}%`}</div>
       <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{failed?"Remove it (×) and try again.":done?"Ready to send":"You can Send now — it finishes in the background."}</div>
     </div>
   );
@@ -12119,8 +12083,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
   const[aiOpen,setAiOpen]=useState(false);
   const[aiPrompt,setAiPrompt]=useState("");
   const[aiBusy,setAiBusy]=useState(false);
-  const[recording,setRecording]=useState(false);
-  const[recSecs,setRecSecs]=useState(0);
+  const recording=false; // the voice recorder covers the typing row itself now
   const[err,setErr]=useState("");
   const[mentions,setMentions]=useState([]); // tagged names ([] = everyone)
   const[showTag,setShowTag]=useState(false);
@@ -12136,12 +12099,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
   const shareableContacts=useMemo(()=>((dataCtx.contacts)||[]).map(c=>{const n=normContact(c);return{name:n.name||"",phone:(n.phones&&n.phones[0]&&n.phones[0].number)||"",email:n.email||"",company:n.company||"",role:n.role||""};}).filter(c=>c.name),[dataCtx.contacts]);
   const stageContact=(c)=>{setPendingAtt({kind:"contact",url:"contact:",name:c.name,mime:"text/vcard",contact:c});setContactShare(false);};
   const fileRef=useRef(null);
-  const mrRef=useRef(null);
-  const chunksRef=useRef([]);
-  const cancelRef=useRef(false);
-  const timerRef=useRef(null);
   const taRef=useRef(null);
-  useEffect(()=>()=>clearInterval(timerRef.current),[]);
   // Grow the text box with its content (multi-line paste included), up to a cap.
   useEffect(()=>{const el=taRef.current;if(!el)return;el.style.height="auto";el.style.height=Math.min(el.scrollHeight,150)+"px";},[text]);
   const tagOptions=(people||[]).filter(n=>n&&n!==currentUser);
@@ -12176,8 +12134,10 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     const t=text.trim();
     if((!t&&!pendingAtt)||busy)return;
     // A staged video that already failed shouldn't go out as a dead bubble.
-    if(pendingAtt&&pendingAtt.uploadId&&videoUploadState(pendingAtt.uploadId)?.status==="failed"){setErr("The video didn't upload — remove it (×) and try again.");return;}
-    const att=resolveVideoAttachment(pendingAtt),mn=mentions;
+    if(pendingAtt&&pendingAtt.uploadId&&videoUploadState(pendingAtt.uploadId)?.status==="failed"){setErr(`${pendingAtt.kind==="video"?"The video":"That file"} didn't upload — remove it (×) and try again.`);return;}
+    // "@Moshe" typed by hand (not picked from the list) still tags Moshe.
+    const typedTags=tagOptions.filter(n=>new RegExp(`(^|\\s)@${String(n).split(" ")[0].replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}(?![\\w])`,"i").test(t));
+    const att=resolveVideoAttachment(pendingAtt),mn=[...new Set([...mentions,...typedTags])];
     setText("");setPendingAtt(null);setMentions([]);setShowTag(false);setErr("");setAtQuery(null);
     const wasUrgent=urgent;setUrgent(false);
     // The send handler stamps the message it builds (urgentMark) synchronously.
@@ -12207,16 +12167,16 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
       return;
     }
     if(file.size>25*1024*1024){setErr("File is too large (max 25 MB).");return;}
-    setErr("");setBusy(true);
+    setErr("");
     try{
       let up=file;
       if(!file.name||!/\.[a-z0-9]+$/i.test(file.name)){
         const ext=((file.type||"").split("/")[1]||"bin").replace("jpeg","jpg").replace("+xml","");
         up=new File([file],`pasted-${Date.now()}.${ext}`,{type:file.type||"application/octet-stream"});
       }
-      setPendingAtt(await uploadAttachment(up,"chat"));
+      // Goes up in the background (Elie 10/16/26) — Send works right away.
+      setPendingAtt(await startMediaUpload([up],"chat"));
     }catch{ setErr("Upload failed. Try again."); }
-    setBusy(false);
   };
   // Picking several photos at once (up to 10) sends them as ONE message with a
   // photo grid. Mixing in a video/PDF still works one file at a time.
@@ -12224,12 +12184,8 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     const imgs=files.filter(f=>(f.type||"").startsWith("image/")).slice(0,10);
     if(!imgs.length){setErr("Videos and PDFs go one at a time — photos can be sent up to 10 together.");return;}
     setErr(imgs.length<files.length?"Only photos can go together — the other files were skipped.":"");
-    setBusy(true);
-    try{
-      const items=await Promise.all(imgs.map(f=>uploadAttachment(f,"chat")));
-      setPendingAtt({kind:"images",items,name:`${items.length} photos`,url:items[0].url});
-    }catch{ setErr("Upload failed. Try again."); }
-    setBusy(false);
+    try{ setPendingAtt(await startMediaUpload(imgs,"chat")); }
+    catch{ setErr("Upload failed. Try again."); }
   };
   const onPickFile=async(e)=>{
     const files=Array.from(e.target.files||[]);
@@ -12278,34 +12234,16 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     e.preventDefault();
     uploadStaged(file);
   };
-  const startRec=async()=>{
-    setErr("");
-    if(!navigator.mediaDevices?.getUserMedia||typeof window.MediaRecorder==="undefined"){setErr("Voice notes aren't supported on this device.");return;}
-    let stream;
-    try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
-    catch{ setErr("Microphone access is blocked. Allow it in Settings to record."); return; }
-    const mr=new MediaRecorder(stream);
-    chunksRef.current=[];cancelRef.current=false;
-    mr.ondataavailable=(ev)=>{if(ev.data&&ev.data.size)chunksRef.current.push(ev.data);};
-    mr.onstop=async()=>{
-      stream.getTracks().forEach(tr=>tr.stop());
-      clearInterval(timerRef.current);
-      setRecording(false);setRecSecs(0);
-      if(cancelRef.current)return;
-      const blob=new Blob(chunksRef.current,{type:mr.mimeType||"audio/webm"});
-      if(!blob.size)return;
-      setBusy(true);
-      try{
-        const ext=/mp4|aac|m4a/.test(mr.mimeType||"")?"m4a":"webm";
-        const file=new File([blob],`voice-note-${Date.now()}.${ext}`,{type:blob.type||"audio/webm"});
-        setPendingAtt(await uploadAttachment(file,"voice"));
-      }catch{ setErr("Couldn't save the voice note."); }
-      setBusy(false);
-    };
-    mrRef.current=mr;
-    mr.start();
-    setRecording(true);setRecSecs(0);
-    timerRef.current=setInterval(()=>setRecSecs(s=>s+1),1000);
+  // 🎤 Hold-to-talk voice note (VoiceRecorder): it goes out the moment you let
+  // go — straight to the chat, uploading in the background (Elie 10/16/26).
+  const sendVoice=async(file,meta)=>{
+    const att=await startMediaUpload([file],"voice",meta);
+    const mn=mentions,wasUrgent=urgent;
+    setMentions([]);setShowTag(false);setUrgent(false);setErr("");
+    urgentNext.on=wasUrgent;
+    try{ await onSend("",att,mn); }
+    catch(ex){ setMentions(mn);setUrgent(wasUrgent);setErr(ex&&ex.message?`Couldn't send — ${ex.message}`:"Send failed. Try again."); }
+    finally{ urgentNext.on=false; }
   };
   // AI draft: send the instruction (+ chat context and any current text to revise)
   // to /api/ai/draft, then prefill the box for review — never auto-send.
@@ -12325,9 +12263,6 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     }catch(e){ setErr(e.message||"AI draft failed. Try again."); }
     setAiBusy(false);
   };
-  const stopRec=()=>{cancelRef.current=false;if(mrRef.current&&mrRef.current.state!=="inactive")mrRef.current.stop();};
-  const cancelRec=()=>{cancelRef.current=true;if(mrRef.current&&mrRef.current.state!=="inactive")mrRef.current.stop();};
-  const fmtSecs=(s)=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
   const canSend=(!!text.trim()||!!pendingAtt)&&!busy;
   return(
     <div onDrop={onDropFiles} onDragOver={e=>e.preventDefault()} style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -12352,10 +12287,10 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
       {pendingAtt&&!recording&&(
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"6px 8px",background:T.bg,border:`1px solid ${T.border}`,borderRadius:12}}>
           {pendingAtt.kind==="image"||pendingAtt.kind==="images"
-            ? <img src={pendingAtt.url} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"cover",flexShrink:0}}/>
+            ? <img src={pendingAtt.url||(pendingAtt.uploadId&&localPreview(pendingAtt.uploadId))||""} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"cover",flexShrink:0,background:T.bg}}/>
             : <span style={{fontSize:24,flexShrink:0}}>{pendingAtt.kind==="audio"?"🎤":pendingAtt.kind==="video"?"🎬":"📄"}</span>}
           {pendingAtt.pending&&pendingAtt.uploadId
-            ? <StagedVideoStatus uploadId={pendingAtt.uploadId}/>
+            ? <StagedVideoStatus uploadId={pendingAtt.uploadId} kind={pendingAtt.kind}/>
             : <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:12,fontWeight:700,color:T.text}}>{pendingAtt.kind==="audio"?"Voice note ready":pendingAtt.kind==="images"?`${(pendingAtt.items||[]).length} photos ready`:pendingAtt.kind==="image"?"Photo ready":pendingAtt.kind==="video"?"Video ready":pendingAtt.kind==="contact"?`Contact ready — ${pendingAtt.name}`:"File ready"}</div>
                 <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tagOptions.length?"Tag someone below, then Send":(pendingAtt.name||"Ready to send")}</div>
@@ -12443,17 +12378,8 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
         const ib=isMobile?{...iconBtn,width:33,height:33,fontSize:14.5}:iconBtn;
         const ph=isMobile?String(placeholder||"").replace(/\s*\([^)]*\)\s*$/,""):placeholder;
         return(
-      <div ref={rowRef} style={{display:"flex",gap:isMobile?6:8,alignItems:stack?"center":"flex-end",flexWrap:stack&&!recording?"wrap":"nowrap"}}>
-        {recording?(
-          <>
-            <button onClick={cancelRec} title="Cancel recording" style={{...ib,color:T.textTert}}>×</button>
-            <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,color:"#FF3B30",fontSize:14,fontWeight:600}}>
-              <span style={{width:9,height:9,borderRadius:"50%",background:"#FF3B30",display:"inline-block",flexShrink:0}}/>
-              Recording… {fmtSecs(recSecs)}
-            </div>
-            <button onClick={stopRec} style={{padding:"10px 18px",borderRadius:22,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Stop</button>
-          </>
-        ):(
+      <div ref={rowRef} style={{position:"relative",display:"flex",gap:isMobile?6:8,alignItems:stack?"center":"flex-end",flexWrap:stack?"wrap":"nowrap"}}>
+        {(
           <>
             <input ref={fileRef} type="file" multiple accept="image/*,video/*,application/pdf,.xls,.xlsx,.csv,.doc,.docx,.ppt,.pptx,.txt,.numbers,.pages,.key" onChange={onPickFile} style={{display:"none"}}/>
             {spPick&&filesFolder&&<SpFilePicker folder={filesFolder} onPick={attachSpItem} onClose={()=>setSpPick(false)}/>}
@@ -12471,7 +12397,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
                 </div>
               </>)}
             </span>
-            <button onClick={startRec} disabled={busy} title="Record a voice note" style={{...ib,color:T.textSub}}><MicIcon size={19}/></button>
+            <VoiceRecorder onDone={sendVoice} onError={setErr} disabled={busy} size={ib.width||40} gold={false} title="Record a voice note"/>
             <button onClick={()=>setAiOpen(v=>!v)} disabled={busy} title="Let AI draft this message" style={{...ib,...(aiOpen?{background:T.goldLight,borderColor:T.gold}:{})}}>✨</button>
             <button onClick={()=>setContactShare(true)} disabled={busy} title="Share a contact card" style={ib}>👤</button>
             {tagOptions.length>0&&<button onClick={()=>setShowTag(s=>!s)} disabled={busy} title="Tag teammates" style={{...ib,...(mentions.length||showTag?{background:T.goldLight,borderColor:T.gold}:{})}}>👥</button>}
@@ -12480,9 +12406,10 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(canSend)send();}if(e.key==="Escape")setAtQuery(null);}}
               placeholder={busy?"Uploading…":(pendingAtt?"Add a caption… (optional)":urgent?"Urgent message…":ph)} disabled={busy}
               style={{flex:stack?"1 1 100%":1,order:stack?-1:0,minWidth:0,minHeight:stack?48:undefined,padding:isMobile?"8px 12px":"11px 14px",borderRadius:18,border:urgent?`1.5px solid ${URGENT_RED}`:`1px solid ${T.border}`,background:T.bg,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",lineHeight:1.4,maxHeight:150,overflowY:"auto",boxSizing:"border-box"}}/>
-            {isMobile&&<button onClick={startRec} disabled={busy} title="Record a voice note" style={{...ib,width:36,height:36,color:T.textSub}}><MicIcon size={21}/></button>}
             {stack&&urgentable&&<span style={{marginLeft:"auto",display:"inline-flex"}}><UrgentChip on={urgent} onToggle={()=>setUrgent(v=>!v)}/></span>}
-            <button onClick={()=>send()} disabled={!canSend} style={isMobile?{width:36,height:36,borderRadius:"50%",background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:0}:{padding:"10px 18px",borderRadius:22,background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,marginLeft:stack&&!urgentable?"auto":0}}>{isMobile?"➤":"Send"}</button>
+            {/* Phone: like WhatsApp, the send spot is the 🎤 until there's something to send. */}
+            {isMobile&&!canSend?<VoiceRecorder onDone={sendVoice} onError={setErr} disabled={busy} size={38}/>:
+            <button onClick={()=>send()} disabled={!canSend} style={isMobile?{width:36,height:36,borderRadius:"50%",background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:800,fontSize:15,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:0}:{padding:"10px 18px",borderRadius:22,background:canSend?(urgent?URGENT_RED:T.gold):T.border,border:"none",color:"#fff",fontWeight:700,fontSize:14,cursor:canSend?"pointer":"default",fontFamily:"inherit",flexShrink:0,marginLeft:stack&&!urgentable?"auto":0}}>{isMobile?"➤":"Send"}</button>}
           </>
         )}
       </div>
@@ -12739,7 +12666,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
             const coJob=!selMode&&m.ctrJobId&&String(m.taskRefId||"").startsWith("co:")?(ctrJobsAll||[]).find(j=>String(j.id)===String(m.ctrJobId)):null;
             const coReq=coJob?(coJob.coRequests||[]).find(x=>`co:${x.id}`===m.taskRefId):null;
             return(
-              <div key={m.id} data-mid={String(m.id)} onClick={selMode?()=>toggleSel(m.id):undefined} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"92%",display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start",cursor:selMode?"pointer":"default"}}>
+              <SwipeReply key={m.id} data-mid={String(m.id)} onReply={()=>setReply(m)} disabled={selMode} align={mine?"flex-end":"flex-start"} onClick={selMode?()=>toggleSel(m.id):undefined} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"92%",cursor:selMode?"pointer":"default"}}>
                 {!mine&&<div style={{fontSize:10,color:T.textTert,marginBottom:2,paddingLeft:4}}>{(m.author||"—").split(" ")[0]} · {fmt(m.at)}</div>}
                 <div style={{display:"flex",alignItems:"center",gap:8,flexDirection:mine?"row-reverse":"row"}}>
                   {selMode&&<span style={{width:20,height:20,flexShrink:0,borderRadius:"50%",border:`2px solid ${picked?T.gold:T.border}`,background:picked?T.gold:"transparent",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800}}>{picked?"✓":""}</span>}
@@ -12751,9 +12678,8 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                         <b>{(m.replyTo.author||"").split(" ")[0]}</b>: {m.replyTo.text}
                       </div>
                     );})()}
-                    {m.mentions&&m.mentions.length>0&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":T.gold}}>{m.mentions.map(n=>"@"+n.split(" ")[0]).join(" ")}</div>}
                     {m.taskRefText&&<div style={{fontSize:10,fontWeight:800,marginBottom:4,color:mine?"rgba(255,255,255,0.9)":"#8a6d1f"}}>↳ Task: {m.taskRefText}</div>}
-                    {linkifyText(m.text,mine)}
+                    <MentionText text={m.text} mentions={m.mentions} mine={mine} replyAuthor={m.replyTo&&m.replyTo.author}/>
                     {m.attachment&&<MessageAttachment att={m.attachment} mine={mine} saveFolder={property.filesFolder||null}/>}
                     {coReq
                       ?<div style={{fontSize:10.5,fontWeight:800,marginTop:5,color:mine?"rgba(255,255,255,0.92)":"#b8912e"}}>🧾 {coReq.status==="pending"&&amAdmin?"Tap to approve or deny":"Tap to view the change order"}</div>
@@ -12763,7 +12689,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                   {!selMode&&<button onClick={()=>setReply(m)} title={`Reply to ${(m.author||"").split(" ")[0]||"this message"} — notifies them`} style={{width:26,height:26,minHeight:26,borderRadius:13,flexShrink:0,background:reply&&reply.id===m.id?T.goldLight:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.04)",color:reply&&reply.id===m.id?"#8a6d1f":T.textTert,cursor:"pointer",fontSize:12,fontFamily:"inherit",display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0,alignSelf:"center"}}>↩</button>}
                 </div>
                 {mine&&<div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}><span style={{fontSize:10,color:T.textTert}}>{fmt(m.at)} ·</span><ReadReceipt readBy={m.readBy} author={m.author}/></div>}
-              </div>
+              </SwipeReply>
             );
           };
           // Standalone message — same clean look as before. Contractor messages
@@ -22996,7 +22922,7 @@ export function GoldstoneShell(){
       const fixArr=(arr)=>{
         if(!arr||!arr.length)return arr;
         let hit=false;
-        const out=arr.map(m=>m.attachment&&m.attachment.uploadId===uploadId&&m.attachment.pending?(hit=true,{...m,attachment:att}):m);
+        const out=arr.map(m=>m.attachment&&m.attachment.uploadId===uploadId&&(m.attachment.pending||m.attachment.failed)?(hit=true,{...m,attachment:att}):m);
         return hit?out:arr;
       };
       setSharedProps(prev=>{

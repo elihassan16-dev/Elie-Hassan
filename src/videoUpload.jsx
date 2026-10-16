@@ -12,8 +12,15 @@
 // tries (or 24h) the message is patched to a clear "didn't upload" instead of
 // saying "on its way" forever. Coming back to the foreground also restarts an
 // upload that stalled while the phone was asleep.
+//
+// Since 10/16/26 (Elie — "pictures and videos are very hard to upload,
+// especially if he leaves the app") EVERY attachment goes this way, not just
+// videos: photos, photo grids, voice notes and files are sent instantly as a
+// placeholder ({kind, pending, uploadId, w/h, dur, wave}), go up in the
+// background, retry by themselves, and resume after the app was closed. Videos
+// also resume mid-file (tus session kept on the device) instead of restarting.
 import { useEffect, useState } from "react";
-import { uploadStreamVideo, uploadAttachment, waitStreamReady } from "./net";
+import { uploadStreamVideo, uploadAttachment, waitStreamReady, streamDims, imageDims, attachmentKind } from "./net";
 import { supabase } from "./supabaseClient";
 import { T } from "./theme";
 
@@ -83,7 +90,7 @@ async function patchCtrRow(msgId, uploadId, att) {
   try {
     const { data } = await supabase.from("contractor_messages").select("id,data,org_id").eq("id", String(msgId)).single();
     const msg = data && data.data;
-    if (!msg || !msg.attachment || msg.attachment.uploadId !== uploadId || !msg.attachment.pending) return;
+    if (!msg || !msg.attachment || msg.attachment.uploadId !== uploadId || !(msg.attachment.pending || msg.attachment.failed)) return;
     await supabase.from("contractor_messages").upsert(
       { id: String(msgId), org_id: data.org_id, data: { ...msg, attachment: att }, updated_at: new Date().toISOString() },
       { onConflict: "id" }
@@ -127,6 +134,7 @@ function settle(uploadId) {
 // (e.g. one that hung while the phone slept) can't settle over the live one.
 function runUpload(uploadId) {
   const u = uploads[uploadId];
+  if (u.files) { runMediaUpload(uploadId); return; }
   const token = ++u.attempt;
   u.status = "uploading"; u.stage = u.upFile ? "upload" : "compress"; u.lastProgressAt = Date.now();
   syncUnloadGuard();
@@ -141,11 +149,18 @@ function runUpload(uploadId) {
           const small = await compressVideo(u.file, (p) => { if (u.attempt !== token) return; u.pct = p; u.lastProgressAt = Date.now(); ping(u); });
           if (u.attempt !== token) return;
           u.upFile = small || u.file;
+          // Keep the shrunk copy on the device — a resume skips re-compressing.
+          if (small) idbMerge(uploadId, { upFile: small });
         } catch { u.upFile = u.file; }
       }
       u.stage = "upload"; u.pct = 0; u.lastProgressAt = Date.now(); ping(u);
       let att;
-      try { att = await uploadStreamVideo(u.upFile, (p) => { if (u.attempt !== token) return; u.pct = p; u.lastProgressAt = Date.now(); ping(u); }); }
+      try {
+        att = await uploadStreamVideo(u.upFile, (p) => { if (u.attempt !== token) return; u.pct = p; u.lastProgressAt = Date.now(); ping(u); }, {
+          resume: u.tus || null,
+          onSession: (sess) => { u.tus = sess; idbMerge(uploadId, { tus: sess }); },
+        });
+      }
       catch (ex) {
         // Stream hiccup → small clips still fit the plain-storage path.
         if (u.upFile.size <= 50 * 1024 * 1024) att = await uploadAttachment(u.upFile, u.folder);
@@ -159,6 +174,8 @@ function runUpload(uploadId) {
         const readiness = await waitStreamReady(att.uid);
         if (u.attempt !== token) return;
         if (readiness === "error") throw new Error("Cloudflare couldn't process that video — try sending it again.");
+        const d = await streamDims(att.uid);
+        if (d) { if (d.w && d.h) { att.w = d.w; att.h = d.h; } if (d.dur) att.dur = Math.round(d.dur); if (d.thumbnail) att.thumbnail = d.thumbnail; }
       }
       u.att = att; u.status = "done";
     } catch (ex) {
@@ -167,6 +184,83 @@ function runUpload(uploadId) {
     }
     settle(uploadId);
   })();
+}
+
+// Photos / voice notes / files. Each file goes up on its own (a grid of 10
+// photos survives one bad connection), with automatic retries before giving up.
+function runMediaUpload(uploadId) {
+  const u = uploads[uploadId];
+  const token = ++u.attempt;
+  u.status = "uploading"; u.stage = "upload"; u.lastProgressAt = Date.now();
+  u.done = u.done || [];
+  syncUnloadGuard();
+  (async () => {
+    try {
+      const n = u.files.length;
+      for (let i = 0; i < n; i++) {
+        if (u.done[i]) continue;
+        let up = null, lastErr = null;
+        for (let tryN = 0; tryN < 3 && !up; tryN++) {
+          try { up = await uploadAttachment(u.files[i], u.folder); }
+          catch (ex) { lastErr = ex; await new Promise((r) => setTimeout(r, 1500 * (tryN + 1))); }
+          if (u.attempt !== token) return;
+        }
+        if (!up) throw lastErr || new Error("Upload failed");
+        u.done[i] = up;
+        idbMerge(uploadId, { done: u.done });
+        u.pct = Math.round(((i + 1) / n) * 100); u.lastProgressAt = Date.now(); ping(u);
+      }
+      const ph = u.placeholder;
+      if (ph.kind === "images") {
+        const items = u.done.map((d, i) => ({ ...d, kind: "image", ...((ph.items || [])[i] || {}), url: d.url, name: d.name, mime: d.mime }));
+        u.att = { kind: "images", items, name: `${items.length} photos`, url: items[0].url };
+      } else {
+        const d = u.done[0];
+        u.att = { ...d, ...(ph.w && ph.h && !d.w ? { w: ph.w, h: ph.h } : {}), ...(ph.dur ? { dur: ph.dur } : {}), ...(ph.wave ? { wave: ph.wave } : {}) };
+      }
+      u.status = "done";
+    } catch (ex) {
+      if (u.attempt !== token) return;
+      u.status = "failed"; u.error = (ex && ex.message) || "Upload failed";
+    }
+    settle(uploadId);
+  })();
+}
+
+// The sender's own copy of what's uploading — shown in the bubble right away
+// (memory only; other people see "on its way" until the real file lands).
+const previews = {};
+export const localPreview = (uploadId, i = 0) => (previews[uploadId] || [])[i] || "";
+
+// Stage photos (several → one grid message), a voice note or a file. Returns the
+// placeholder attachment to send RIGHT AWAY. meta = {dur, wave} for voice notes.
+export async function startMediaUpload(files, folder = "chat", meta = {}) {
+  const list = (Array.isArray(files) ? files : [files]).filter(Boolean);
+  if (!list.length) return null;
+  if (list.length === 1 && (list[0].type || "").startsWith("video/")) return startVideoUpload(list[0], folder);
+  const kinds = list.map((f) => attachmentKind(f.type || ""));
+  const grid = list.length > 1;
+  const uploadId = "mu-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+  const dims = await Promise.all(list.map((f, i) => (kinds[i] === "image" ? imageDims(f) : null)));
+  try { previews[uploadId] = list.map((f, i) => (kinds[i] === "image" ? URL.createObjectURL(f) : "")); } catch { /* no preview */ }
+  const placeholder = grid
+    ? { kind: "images", pending: true, uploadId, name: `${list.length} photos`, items: list.map((f, i) => ({ name: f.name || `photo ${i + 1}`, ...(dims[i] || {}) })), startedAt: new Date().toISOString() }
+    : { kind: kinds[0], pending: true, uploadId, name: list[0].name || kinds[0], mime: list[0].type || "", ...(dims[0] || {}), ...(meta.dur ? { dur: meta.dur } : {}), ...(meta.wave ? { wave: meta.wave } : {}), startedAt: new Date().toISOString() };
+  uploads[uploadId] = { pct: 0, status: "uploading", att: null, error: "", placeholder, files: list, done: [], folder, ctrMsgId: null, listeners: new Set(), attempt: 0, lastProgressAt: Date.now() };
+  idbPut({ uploadId, files: list, folder, placeholder, ctrMsgId: null, createdAt: Date.now(), attempts: 1 });
+  runUpload(uploadId);
+  return placeholder;
+}
+
+// "Try again" on a failed bubble (sender's device only).
+export function retryUpload(uploadId) {
+  const u = uploads[uploadId];
+  if (!u || u.status !== "failed" || !(u.file || u.files)) return false;
+  u.error = ""; u.pct = 0;
+  idbPut({ uploadId, file: u.file || null, files: u.files || null, upFile: u.upFile || null, tus: u.tus || null, done: u.done || null, folder: u.folder, placeholder: u.placeholder, ctrMsgId: u.ctrMsgId, createdAt: Date.now(), attempts: 1 });
+  runUpload(uploadId);
+  ping(u);
+  return true;
 }
 
 // Kick off the upload and return the placeholder attachment to send immediately.
@@ -210,8 +304,9 @@ export async function resumeVideoUploads() {
   const entries = await idbAll();
   for (const e of entries) {
     if (!e || !e.uploadId || uploads[e.uploadId]) continue;
-    const dead = !e.file || (Date.now() - (e.createdAt || 0)) > 24 * 3600000 || (e.attempts || 0) >= 4;
-    uploads[e.uploadId] = { pct: 0, status: "uploading", att: null, error: "", placeholder: e.placeholder || { kind: "video", pending: true, uploadId: e.uploadId }, file: e.file, folder: e.folder || "chat", ctrMsgId: e.ctrMsgId || null, listeners: new Set(), attempt: 0, lastProgressAt: Date.now() };
+    const dead = !(e.file || (e.files && e.files.length)) || (Date.now() - (e.createdAt || 0)) > 24 * 3600000 || (e.attempts || 0) >= 6;
+    uploads[e.uploadId] = { pct: 0, status: "uploading", att: null, error: "", placeholder: e.placeholder || { kind: "video", pending: true, uploadId: e.uploadId }, file: e.file || null, files: e.files || null, done: e.done || [], upFile: e.upFile || null, tus: e.tus || null, folder: e.folder || "chat", ctrMsgId: e.ctrMsgId || null, listeners: new Set(), attempt: 0, lastProgressAt: Date.now() };
+    if (e.files) { try { previews[e.uploadId] = e.files.map((f) => ((f.type || "").startsWith("image/") ? URL.createObjectURL(f) : "")); } catch { /* no preview */ } }
     if (dead) {
       const u = uploads[e.uploadId];
       u.status = "failed"; u.error = "The upload didn't finish";
@@ -231,18 +326,18 @@ if (typeof document !== "undefined") {
     Object.entries(uploads).forEach(([id, u]) => {
       // "process" = waiting on Cloudflare's transcode; its poll loop resumes on
       // its own after sleep — restarting would re-upload the whole file.
-      if (u.status === "uploading" && u.stage !== "process" && u.file && Date.now() - (u.lastProgressAt || 0) > 90000) runUpload(id);
+      if (u.status === "uploading" && u.stage !== "process" && (u.file || u.files) && Date.now() - (u.lastProgressAt || 0) > 90000) runUpload(id);
     });
   });
 }
 
 // Live state for a local upload (null when this device isn't doing the upload).
 export function useVideoUpload(uploadId) {
-  const [state, setState] = useState(() => { const u = uploadId && uploads[uploadId]; return u ? { pct: u.pct, status: u.status, stage: u.stage } : null; });
+  const [state, setState] = useState(() => { const u = uploadId && uploads[uploadId]; return u ? { pct: u.pct, status: u.status, stage: u.stage, att: u.att } : null; });
   useEffect(() => {
     const u = uploadId && uploads[uploadId];
     if (!u) { setState(null); return; }
-    const fn = () => setState({ pct: u.pct, status: u.status, stage: u.stage });
+    const fn = () => setState({ pct: u.pct, status: u.status, stage: u.stage, att: u.att });
     fn();
     u.listeners.add(fn);
     return () => u.listeners.delete(fn);

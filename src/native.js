@@ -23,6 +23,13 @@ let tokenWaiters = [];
 let lastToken = "";
 let wantName = "";
 
+// Never let a slow/unanswered native call hold up the app (Android showed a
+// black screen while boot waited on one — Elie 10/16/26).
+const within = (p, ms = 2500) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+// Android push needs the Firebase config baked into the build — without it the
+// plugin's register() crashes the app. CI adds "GoldstoneFCM" to the app's user
+// agent only when google-services.json was included.
+const pushReady = () => nativePlatform() !== "android" || /GoldstoneFCM/.test(navigator.userAgent || "");
 const mapPerm = (r) => (r === "granted" ? "granted" : r === "denied" ? "denied" : "default");
 
 async function saveToken(token) {
@@ -44,7 +51,7 @@ export async function initNative() {
   root.classList.add("gs-native", `gs-native-${nativePlatform()}`);
   try {
     const P = await push();
-    perm = mapPerm((await P.checkPermissions()).receive);
+    perm = mapPerm((await within(P.checkPermissions())).receive);
     await P.addListener("registration", async (t) => {
       lastToken = t.value;
       let ok = false;
@@ -61,13 +68,13 @@ export async function initNative() {
     });
     if (nativePlatform() === "android") {
       // Heads-up banners need a high-importance channel (the server sends to it).
-      try { await P.createChannel({ id: "messages", name: "Messages & tasks", description: "Chats, tasks and urgent alerts", importance: 5, visibility: 1, sound: "default", vibration: true }); } catch { /* older Android */ }
+      try { await within(P.createChannel({ id: "messages", name: "Messages & tasks", description: "Chats, tasks and urgent alerts", importance: 5, visibility: 1, sound: "default", vibration: true })); } catch { /* older Android */ }
     }
   } catch { /* plugin missing — the app still works, just without push */ }
   try {
     const { StatusBar, Style } = await import("@capacitor/status-bar");
-    await StatusBar.setStyle({ style: Style.Light });
-    if (nativePlatform() === "android") await StatusBar.setOverlaysWebView({ overlay: false });
+    await within(StatusBar.setStyle({ style: Style.Light }));
+    if (nativePlatform() === "android") await within(StatusBar.setOverlaysWebView({ overlay: false }));
   } catch { /* fine */ }
 }
 
@@ -83,6 +90,7 @@ function waitForToken(ms = 15000) {
 // "Turn on notifications" inside the app.
 export async function nativeEnablePush(userName) {
   wantName = userName || wantName;
+  if (!pushReady()) throw new Error("Notifications for the Android app are being set up — they'll turn on in the next app update.");
   const P = await push();
   let r = await P.checkPermissions();
   if (r.receive !== "granted") r = await P.requestPermissions();
@@ -98,7 +106,7 @@ export async function nativeEnablePush(userName) {
 // Every launch: keep this phone's token on file (tokens can change).
 export async function nativeRefreshPush(userName) {
   wantName = userName || wantName;
-  if (perm !== "granted") return false;
+  if (perm !== "granted" || !pushReady()) return false;
   try {
     if (lastToken) return await saveToken(lastToken);
     const wait = waitForToken();

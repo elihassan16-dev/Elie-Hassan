@@ -270,3 +270,6 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
 html.gs-ios26 .gs-topwrap {
   padding-top: calc(env(safe-area-inset-top) + 24px) !important; /* 34 → 24 (Elie: tighter, 9/22/26) */
 }
+
+/* chatMedia.jsx — voice note "sending" spinner */
+@keyframes gsSpin { to { transform: rotate(360deg); } }

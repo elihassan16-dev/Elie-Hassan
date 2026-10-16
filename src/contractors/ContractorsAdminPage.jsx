@@ -11,9 +11,11 @@ import { useAuth } from "../auth/AuthProvider";
 import { useData } from "../data/DataProvider";
 import { T } from "../theme";
 import { linkifyText, rescuePastedLink, SmsThreadPopup } from "../sms";
-import { notify, qbAuthFetch, uploadAttachment, STREAM_VIDEO_CAP, urgentPing } from "../net";
+import { notify, qbAuthFetch, uploadAttachment, attLabel, STREAM_VIDEO_CAP, urgentPing } from "../net";
 import { UrgentChip, UrgentTag, RED as URGENT_RED } from "../urgent";
-import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble } from "../videoUpload";
+import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage } from "../videoUpload";
+import { MediaBubble, SwipeReply, MentionText } from "../chatMedia";
+import { VoiceRecorder } from "../voiceRecorder";
 import { usePersistentDraft } from "../useDraft";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { openSowPdf } from "./sowPdf";
@@ -748,52 +750,48 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
     return <CheckCircle done={done} onToggle={() => setTaskStatus(t, done ? "Not Started" : "Completed")} />;
   };
 
+  // Everything uploads in the background (Elie 10/16/26) — Send works right away.
   const pickAtt = async (e) => {
     const files = Array.from(e.target.files || []); e.target.value = "";
     if (!files.length) return;
-    // Several photos at once (up to 10) → one message with a photo grid.
     if (files.length > 1) {
+      // Several photos at once (up to 10) → one message with a photo grid.
       const imgs = files.filter((f) => (f.type || "").startsWith("image/")).slice(0, 10);
       if (!imgs.length) { setErr2("Videos and PDFs go one at a time — photos can be sent up to 10 together."); return; }
       setErr2(imgs.length < files.length ? "Only photos can go together — the other files were skipped." : "");
-      setBusy(true);
-      try {
-        const items = await Promise.all(imgs.map((f) => uploadAttachment(f, "portal")));
-        setPending({ kind: "images", items, name: `${items.length} photos`, url: items[0].url });
-      } catch (ex) { setErr2(ex.message || "Upload failed."); }
-      setBusy(false);
+      try { setPending(await startMediaUpload(imgs, "portal")); } catch (ex) { setErr2(ex.message || "Upload failed."); }
       return;
     }
     const file = files[0];
-    // Videos upload in the background — the message can go out immediately with a
-    // placeholder that becomes the playable video once the upload lands.
     if ((file.type || "").startsWith("video/")) {
       if (file.size > STREAM_VIDEO_CAP) { setErr2("Video is too large (max 5 GB)."); return; }
-      setErr2("");
-      setPending(startVideoUpload(file, "portal"));
-      return;
+      setErr2(""); setPending(startVideoUpload(file, "portal")); return;
     }
-    setBusy(true);
-    try { setPending(await uploadAttachment(file, "portal")); }
-    catch (ex) { setErr2(ex.message || "Upload failed."); }
-    setBusy(false);
+    if (file.size > 25 * 1024 * 1024) { setErr2("File is too large (max 25 MB)."); return; }
+    setErr2("");
+    try { setPending(await startMediaUpload([file], "portal")); } catch (ex) { setErr2(ex.message || "Upload failed."); }
   };
-  const sendMsg = async () => {
-    const txt = msgDraft.trim(); if ((!txt && !pending) || busy) return;
-    if (pending && pending.uploadId && videoUploadState(pending.uploadId)?.status === "failed") { setErr2("The video didn't upload — remove it (×) and try again."); return; }
+  // 🎤 hold-to-talk: the note goes out the moment you let go.
+  const sendVoice = async (file, meta) => sendMsg(await startMediaUpload([file], "voice", meta));
+  const sendMsg = async (voiceAtt) => {
+    const voice = voiceAtt && voiceAtt.uploadId ? voiceAtt : null;
+    const txt = voice ? "" : msgDraft.trim(); if ((!txt && !pending && !voice) || busy) return;
+    if (!voice && pending && pending.uploadId && videoUploadState(pending.uploadId)?.status === "failed") { setErr2("That file didn't upload — remove it (×) and try again."); return; }
     const msg = { id: Date.now(), jobId: j.id, orgId: j.orgId, author: displayName, side: "team", text: txt, at: new Date().toISOString(), readBy: [displayName] };
-    if (pending) msg.attachment = resolveVideoAttachment(pending);
+    if (voice) msg.attachment = voice;
+    else if (pending) msg.attachment = resolveVideoAttachment(pending);
     if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: (replyTo.text || (replyTo.attachment ? "📎 attachment" : "")).slice(0, 140) };
     if (msgUrgent) { msg.urgent = true; urgentPing.until = Date.now() + 8000; }
-    setMsgDraft(""); setPending(null); setReplyTo(null); setMsgUrgent(false);
+    if (!voice) { setMsgDraft(""); setPending(null); }
+    setReplyTo(null); setMsgUrgent(false);
     try { await save("contractor_messages", msg); }
     catch (ex) {
-      setMsgDraft(txt); if (msg.attachment) setPending(msg.attachment);
+      if (!voice) { setMsgDraft(txt); if (msg.attachment) setPending(msg.attachment); }
       setErr2(`Couldn't send — ${ex.message || "try again."}`);
       return;
     }
     if (msg.attachment && msg.attachment.pending && msg.attachment.uploadId) bindCtrVideoMessage(msg.attachment.uploadId, msg.id);
-    notify(null, { toOrg: j.orgId, title: `Goldstone — ${j.propertyAddress}`, body: txt || "(attachment)", url: `/?goto=job:${j.id}` });
+    notify(null, { toOrg: j.orgId, title: `Goldstone — ${j.propertyAddress}`, body: txt || attLabel(msg.attachment), url: `/?goto=job:${j.id}` });
   };
   const uploadDoc = async (e) => { const file = (e.target.files || [])[0]; e.target.value = ""; if (!file) return; setBusy(true); try { const up = await uploadAttachment(file, "portal"); await save("contractor_docs", { id: Date.now(), jobId: j.id, orgId: j.orgId, name: up.name, url: up.url, mime: up.mime, by: displayName, at: new Date().toISOString() }); } catch { setErr2("Upload failed."); } setBusy(false); };
 
@@ -1062,43 +1060,35 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
         <div ref={scrollRef} style={{ maxHeight: 360, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, padding: "4px 2px" }}>
           {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 13, padding: "26px 0" }}>No messages on this job yet.</div>}
           {thread.map((m) => { const mine = m.side === "team"; return (
-            <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "86%" }}>
-              {!mine && <div style={{ fontSize: 10, color: T.textTert, margin: "0 0 2px 8px" }}>{(m.author || "").split(" ")[0]}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)}</div>}
+            <SwipeReply key={m.id} onReply={() => setReplyTo(m)} align={mine ? "flex-end" : "flex-start"} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "86%" }}>
+              {!mine && <div style={{ fontSize: 10, color: T.textTert, margin: "0 0 2px 8px" }}>{(m.author || "").split(" ")[0]} · {fmtWhen(m.at)}</div>}
               <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: mine ? "row-reverse" : "row" }}>
                 <div style={{ background: mine ? T.gold : "#fff", color: mine ? "#fff" : T.text, border: mine ? "none" : "1px solid rgba(0,0,0,0.06)", borderRadius: 18, padding: "8px 12px", fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", boxShadow: m.urgent ? `0 0 0 2px ${URGENT_RED}` : "0 1px 2px rgba(0,0,0,0.05)", minWidth: 0 }}>
                   {m.urgent && <div style={{ marginBottom: 4 }}><UrgentTag /></div>}
                   {m.replyTo && <div style={{ fontSize: 11, marginBottom: 4, padding: "4px 8px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 5, background: mine ? "rgba(255,255,255,0.15)" : T.cardAlt, color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
                   {m.taskRefText && <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 3, color: mine ? "rgba(255,255,255,0.9)" : "#8a6d1f" }}>↳ Task: {m.taskRefText}</div>}
-                  {linkifyText(m.text, mine)}
+                  <MentionText text={m.text} mentions={m.mentions} mine={mine} replyAuthor={m.replyTo && m.replyTo.author} />
                   {m.attachment && (m.attachment.kind === "contact" && m.attachment.contact
                   ? <ContactCardBubble c={m.attachment.contact} mine={mine} CallLink={CallA} />
-                  : m.attachment.kind === "video" && (m.attachment.pending || m.attachment.failed)
-                  ? <VideoUploadBubble att={m.attachment} mine={mine} />
-                  : m.attachment.kind === "images" && Array.isArray(m.attachment.items)
-                  ? <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxWidth: 216, marginTop: 6 }}>{m.attachment.items.map((it, i) => <a key={i} href={it.url} target="_blank" rel="noreferrer" style={{ display: "block" }}><img src={it.url} alt="" loading="lazy" style={{ width: m.attachment.items.length === 2 ? 104 : 68, height: m.attachment.items.length === 2 ? 104 : 68, borderRadius: 8, objectFit: "cover", display: "block" }} /></a>)}</div>
-                  : m.attachment.kind === "image"
-                  ? <a href={m.attachment.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={m.attachment.url} alt="" loading="lazy" decoding="async" style={{ width: 200, height: 210, borderRadius: 9, display: "block", objectFit: "cover", background: "#eee" }} /></a>
-                  : m.attachment.kind === "video" && m.attachment.stream
-                  ? <iframe src={m.attachment.url} title={m.attachment.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ marginTop: 6, width: "min(300px,70vw)", aspectRatio: "16/9", border: "none", borderRadius: 9, display: "block", background: "#000" }} />
-                  : m.attachment.kind === "video"
-                  ? <video src={m.attachment.url} controls playsInline preload="metadata" style={{ marginTop: 6, maxWidth: 220, width: "100%", borderRadius: 9, display: "block", background: "#000" }} />
-                  : <a href={m.attachment.url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, padding: "6px 9px", borderRadius: 9, background: mine ? "rgba(255,255,255,0.18)" : T.cardAlt, color: mine ? "#fff" : T.text, textDecoration: "none", fontSize: 11.5, fontWeight: 600, maxWidth: 210 }}>📄 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.attachment.name}</span></a>)}
+                  : <MediaBubble att={m.attachment} mine={mine} />)}
                 </div>
                 <button onClick={() => setReplyTo(m)} title="Reply" style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid rgba(0,0,0,0.06)", background: replyTo && replyTo.id === m.id ? T.goldLight : "rgba(118,118,128,0.08)", color: T.textSub, fontSize: 12, cursor: "pointer", flexShrink: 0, padding: 0, fontFamily: "inherit" }}>↩</button>
               </div>
               {mine && <div style={{ fontSize: 10, color: T.textTert, margin: "2px 8px 0", textAlign: "right" }}>{fmtWhen(m.at)}</div>}
-            </div>
+            </SwipeReply>
           ); })}
         </div>
         {replyTo && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.cardAlt, borderLeft: `3px solid ${T.gold}`, borderRadius: 8 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? "📎 attachment" : "")}</span><button onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
-        {pending && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}55`, borderRadius: 10 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pending.pending ? "🎬 " : "📎 "}{pending.name}{pending.pending ? " — uploading in background, OK to send" : ""}</span><button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
+        {pending && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}55`, borderRadius: 10 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(pending.kind === "image" || pending.kind === "images") && pending.uploadId && localPreview(pending.uploadId) ? <img src={localPreview(pending.uploadId)} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover", verticalAlign: "middle", marginRight: 6 }} /> : pending.kind === "video" ? "🎬 " : "📎 "}{pending.name}{pending.pending ? " — uploading, OK to send" : ""}</span><button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
         {!isRemoved && <div style={{ display: "flex", justifyContent: "flex-end" }}><UrgentChip on={msgUrgent} onToggle={() => setMsgUrgent((v) => !v)} /></div>}
-        {isRemoved ? <div style={{ fontSize: 12.5, color: T.textTert, textAlign: "center", padding: "8px 0" }}>Contractor removed — the thread is kept as a record. Restore them to message again.</div> : <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+        {isRemoved ? <div style={{ fontSize: 12.5, color: T.textTert, textAlign: "center", padding: "8px 0" }}>Contractor removed — the thread is kept as a record. Restore them to message again.</div> : <div style={{ position: "relative", display: "flex", gap: 8, alignItems: "flex-end" }}>
           <input ref={attRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
           <button onClick={() => attRef.current && attRef.current.click()} disabled={busy} style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", fontSize: 15, cursor: "pointer" }}>📎</button>
           <textarea rows={1} value={msgDraft} onChange={(e) => setMsgDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} onPaste={(e) => { const fixed = rescuePastedLink(e); if (fixed != null) { e.preventDefault(); const el = e.target, st = el.selectionStart ?? msgDraft.length, en = el.selectionEnd ?? msgDraft.length; setMsgDraft(msgDraft.slice(0, st) + fixed + msgDraft.slice(en)); } }} placeholder={`Message ${org?.name}…`} disabled={busy}
             style={{ flex: 1, minWidth: 0, padding: "10px 14px", borderRadius: 18, border: "1px solid rgba(0,0,0,0.05)", background: "rgba(118,118,128,0.08)", fontSize: 14, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 110, boxSizing: "border-box" }} />
-          <button onClick={sendMsg} disabled={(!msgDraft.trim() && !pending) || busy} style={{ ...goldBtn(!!(msgDraft.trim() || pending) && !busy), height: 38, padding: "0 18px", borderRadius: 19, display: "inline-flex", alignItems: "center" }}>Send</button>
+          {/* 🎤 phones: the send spot is the mic until there's something to send (WhatsApp); computers: click the mic. */}
+          {!(msgDraft.trim() || pending) || !touchUI() ? <VoiceRecorder onDone={sendVoice} onError={setErr2} disabled={busy} size={38} gold={touchUI()} /> : null}
+          {(msgDraft.trim() || pending || !touchUI()) && <button onClick={() => sendMsg()} disabled={(!msgDraft.trim() && !pending) || busy} style={{ ...goldBtn(!!(msgDraft.trim() || pending) && !busy), height: 38, padding: "0 18px", borderRadius: 19, display: "inline-flex", alignItems: "center" }}>Send</button>}
         </div>}
       </>)}
       {scopeEdit && <ScopeEditModal j={j} save={save} displayName={displayName} onClose={() => setScopeEdit(false)} />}
@@ -1107,6 +1097,8 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   );
 }
 
+
+const touchUI = () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
 
 // ── One company's pane: header, members & logins, jobs — used by the merged
 // People section (and reachable standalone). Admin sees everything; the same

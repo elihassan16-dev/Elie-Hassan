@@ -11,7 +11,9 @@ import { linkifyText, rescuePastedLink } from "../sms";
 import { notify, attLabel, uploadAttachment, qbAuthFetch, STREAM_VIDEO_CAP, urgentPing } from "../net";
 import { UrgentChip, UrgentTag, UrgentPopup, readSeen, addSeen, RED as URGENT_RED } from "../urgent";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "../push";
-import { startVideoUpload, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, VideoUploadBubble, resumeVideoUploads } from "../videoUpload";
+import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, resumeVideoUploads } from "../videoUpload";
+import { MediaBubble, SwipeReply, MentionText } from "../chatMedia";
+import { VoiceRecorder } from "../voiceRecorder";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { MicIcon, TeamChatIcon } from "../icons";
 import { MediaGallery, collectMedia } from "../MediaGallery";
@@ -129,27 +131,11 @@ function useIsMobile(bp = 768) {
   return m;
 }
 
-function Att({ att }) {
-  const acts = <div style={{ display: "flex", gap: 6, marginTop: 4 }}><FileActions item={att} mine={false} /></div>;
+// WhatsApp-style attachments (Elie 10/16/26): chatMedia.jsx.
+function Att({ att, mine = false }) {
   if (!att) return null;
-  if (att.kind === "contact" && att.contact) return <ContactCardBubble c={att.contact} mine={false} />;
-  // Video still uploading in the background (or failed) — progress bubble instead.
-  if (att.kind === "video" && (att.pending || att.failed)) return <VideoUploadBubble att={att} mine={false} />;
-  if (!att.url) return null;
-  if (att.kind === "images" && Array.isArray(att.items)) return (<div>
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxWidth: 236, marginTop: 6 }}>
-      {att.items.map((it, i) => (
-        <a key={i} href={it.url} target="_blank" rel="noreferrer" style={{ display: "block" }}>
-          <img src={it.url} alt={it.name || `photo ${i + 1}`} loading="lazy" style={{ width: att.items.length === 2 ? 114 : 76, height: att.items.length === 2 ? 114 : 76, borderRadius: 8, objectFit: "cover", display: "block" }} />
-        </a>
-      ))}
-    </div>{acts}</div>
-  );
-  if (att.kind === "image") return <div>{<a href={att.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6 }}><img src={att.url} alt={att.name || "photo"} loading="lazy" decoding="async" style={{ width: 220, height: 240, borderRadius: 10, display: "block", objectFit: "cover", background: "#eee" }} /></a>}{acts}</div>;
-  if (att.kind === "video" && att.stream) return <div>{<iframe src={att.url} title={att.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen style={{ marginTop: 6, width: "min(320px,72vw)", aspectRatio: "16/9", border: "none", borderRadius: 10, display: "block", background: "#000" }} />}{att.uid ? acts : null}</div>;
-  if (att.kind === "video") return <div>{<video src={att.url} controls playsInline preload="metadata" style={{ marginTop: 6, maxWidth: 240, width: "100%", maxHeight: 300, borderRadius: 10, display: "block", background: "#000" }} />}{acts}</div>;
-  if (att.kind === "audio") return <audio src={att.url} controls preload="metadata" style={{ marginTop: 6, width: 240, height: 40 }} />;
-  return <div>{<a href={att.url} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, padding: "8px 10px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.bg, textDecoration: "none", color: T.text, maxWidth: 240 }}><span style={{ fontSize: 18 }}>📄</span><span style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name || "Attachment"}</span></a>}{acts}</div>;
+  if (att.kind === "contact" && att.contact) return <ContactCardBubble c={att.contact} mine={mine} />;
+  return <MediaBubble att={att} mine={mine} />;
 }
 
 const UTIL_DEFS = [["electric", "⚡", "Electric"], ["gas", "🔥", "Gas"], ["water", "💧", "Water"]];
@@ -778,16 +764,9 @@ export function ContractorPortal() {
   const [moreOpen, setMoreOpen] = useState(false); // the ＋ menu (attach/voice/tag/contact)
   const [mediaOpen, setMediaOpen] = useState(false); // 🖼 all photos & videos on this job
   const [bidPop, setBidPop] = useState(false); // 💰 submit-bid popup (so you don't scroll up)
-  const [recOn, setRecOn] = useState(false);
-  const [recSecs, setRecSecs] = useState(0);
-  const mrRef = useRef(null);
-  const chunksRef = useRef([]);
-  const cancelRef = useRef(false);
-  const timerRef = useRef(null);
   const attRef = useRef(null);
   const scrollRef = useRef(null);
   const draftRef = useRef(null);
-  useEffect(() => () => clearInterval(timerRef.current), []);
   // Grow the typing box with its content (up to a cap) so long messages stay visible.
   useEffect(() => { const el = draftRef.current; if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 120) + "px"; } }, [draft]);
   const thread = selJob ? (messages || []).filter((m) => m.orgId === contractorOrgId && String(m.jobId) === String(selJob.id)).sort((a, b) => String(a.at || "").localeCompare(String(b.at || ""))) : [];
@@ -797,50 +776,29 @@ export function ContractorPortal() {
     if (!files.length) return;
     setBusy(true);
     try {
-      if (files.length === 1) { const up = await stage(files[0]); if (up) setPending(up); }
+      // Everything goes up in the background (Elie 10/16/26): the message can be
+      // sent right away and keeps uploading — even after leaving the app.
+      if (files.length === 1) {
+        const f = files[0];
+        if ((f.type || "").startsWith("video/")) { const up = await stage(f); if (up) setPending(up); }
+        else if (f.size > 25 * 1024 * 1024) setErr("File is too large (max 25 MB).");
+        else { setErr(""); setPending(await startMediaUpload([f], "portal")); }
+      }
       else {
         // Several photos at once (up to 10) → one message with a photo grid.
         const imgs = files.filter((f) => (f.type || "").startsWith("image/")).slice(0, 10);
         if (!imgs.length) setErr("Videos and PDFs go one at a time — photos can be sent up to 10 together.");
         else {
-          const items = await Promise.all(imgs.map((f) => uploadAttachment(f, "portal")));
-          setPending({ kind: "images", items, name: `${items.length} photos`, url: items[0].url });
+          setPending(await startMediaUpload(imgs, "portal"));
           setErr(imgs.length < files.length ? "Only photos can go together — the other files were skipped." : "");
         }
       }
     } catch (ex) { setErr(ex.message || "Upload failed."); }
     setBusy(false);
   };
-  // Voice notes — MediaRecorder, uploaded like any attachment.
-  const startRec = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = ["audio/mp4", "audio/webm"].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
-      const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      chunksRef.current = []; cancelRef.current = false;
-      mr.ondataavailable = (e) => { if (e.data && e.data.size) chunksRef.current.push(e.data); };
-      mr.onstop = async () => {
-        stream.getTracks().forEach((tr) => tr.stop());
-        clearInterval(timerRef.current);
-        setRecOn(false); setRecSecs(0);
-        if (cancelRef.current) return;
-        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
-        if (!blob.size) return;
-        setBusy(true);
-        try {
-          const ext = /mp4|aac|m4a/.test(mr.mimeType || "") ? "m4a" : "webm";
-          setPending(await uploadAttachment(new File([blob], `voice-note-${Date.now()}.${ext}`, { type: blob.type || "audio/webm" }), "portal"));
-        } catch { setErr("Couldn't save the voice note."); }
-        setBusy(false);
-      };
-      mrRef.current = mr; mr.start();
-      setRecOn(true); setRecSecs(0);
-      timerRef.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
-    } catch { setErr("Microphone access was blocked — allow it in your browser settings."); }
-  };
-  const stopRec = () => { cancelRef.current = false; if (mrRef.current && mrRef.current.state !== "inactive") mrRef.current.stop(); };
-  const cancelRec = () => { cancelRef.current = true; if (mrRef.current && mrRef.current.state !== "inactive") mrRef.current.stop(); };
-  const fmtSecs = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  // 🎤 Hold-to-talk voice notes (VoiceRecorder): sent the moment you let go,
+  // uploading in the background.
+  const sendVoice = async (file, meta) => sendMsg(await startMediaUpload([file], "portal", meta));
   // WhatsApp-style "@" tagging: type @ in the box and pick a name — works for
   // Goldstone people AND your own teammates (anyone who's written in this job).
   const atOptions = [...new Set([...roster, ...thread.filter((m) => m.side === "contractor").map((m) => m.author)])].filter((n) => n && n !== displayName);
@@ -860,22 +818,28 @@ export function ContractorPortal() {
     setAtQ(null);
     setTimeout(() => el && el.focus(), 0);
   };
-  const sendMsg = async () => {
-    const txt = draft.trim();
-    if ((!txt && !pending) || !selJob || busy) return;
-    if (pending && pending.uploadId && videoUploadState(pending.uploadId)?.status === "failed") { setErr("The video didn't upload — remove it (×) and try again."); return; }
+  const sendMsg = async (voiceAtt) => {
+    const voice = voiceAtt && voiceAtt.uploadId ? voiceAtt : null;
+    const txt = voice ? "" : draft.trim();
+    if ((!txt && !pending && !voice) || !selJob || busy) return;
+    if (!voice && pending && pending.uploadId && videoUploadState(pending.uploadId)?.status === "failed") { setErr("That file didn't upload — remove it (×) and try again."); return; }
     const msg = { id: Date.now(), jobId: selJob.id, orgId: contractorOrgId, author: displayName, side: "contractor", text: txt, at: new Date().toISOString(), readBy: [displayName] };
-    if (pending) msg.attachment = resolveVideoAttachment(pending);
+    if (voice) msg.attachment = voice;
+    else if (pending) msg.attachment = resolveVideoAttachment(pending);
     if (msgTarget) { msg.taskRefId = msgTarget.id; msg.taskRefText = msgTarget.text; }
     if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: (replyTo.text || (replyTo.attachment ? attLabel(replyTo.attachment) : "")).slice(0, 140) };
-    if (msgTags.length) msg.mentions = msgTags;
+    // "@Moshe" typed by hand (not picked from the list) still tags Moshe.
+    const typed = atOptions.filter((n) => new RegExp(`(^|\\s)@${String(n).split(" ")[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w])`, "i").test(txt));
+    const tagsOut = [...new Set([...msgTags, ...typed])];
+    if (tagsOut.length) msg.mentions = tagsOut;
     if (msgUrgent) { msg.urgent = true; urgentPing.until = Date.now() + 8000; }
-    setDraft(""); setPending(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setMsgUrgent(false);
+    if (!voice) { setDraft(""); setPending(null); }
+    setReplyTo(null); setMsgTags([]); setTagOpen(false); setMsgUrgent(false);
     try { await save("contractor_messages", msg); }
     catch (ex) {
       // Put everything back and show why — a silent failure looks like the
       // message just disappeared.
-      setDraft(txt); if (msg.attachment) setPending(msg.attachment); if (msg.urgent) setMsgUrgent(true);
+      if (!voice) { setDraft(txt); if (msg.attachment) setPending(msg.attachment); } if (msg.urgent) setMsgUrgent(true);
       setErr(`Couldn't send — ${ex.message || "try again."}`);
       return;
     }
@@ -1084,16 +1048,16 @@ export function ContractorPortal() {
                                 const mine = sameCo && (m.author || "") === displayName;
                                 const readers = (m.readBy || []).filter((n) => n && n !== m.author).map((n) => String(n).split(" ")[0]);
                                 return (
-                                  <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "88%", display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start" }}>
+                                  <SwipeReply key={m.id} onReply={() => setReplyTo(m)} align={mine ? "flex-end" : "flex-start"} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "88%" }}>
                                     {!mine && <div style={{ fontSize: 10, color: T.textTert, marginBottom: 2, paddingLeft: 4 }}>
-                                      {m.author || "Goldstone"}{sameCo ? " (your team)" : ""}{m.mentions && m.mentions.length ? ` → ${m.mentions.map((n) => n.split(" ")[0]).join(", ")}` : ""} · {fmtWhen(m.at)}
+                                      {m.author || "Goldstone"}{sameCo ? " (your team)" : ""} · {fmtWhen(m.at)}
                                     </div>}
                                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexDirection: mine ? "row-reverse" : "row" }}>
                                       <div style={{ background: mine ? T.gold : sameCo ? "#FBF3DD" : T.bg, color: mine ? "#fff" : T.text, borderRadius: 18, padding: "9px 14px", fontSize: 14, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", border: mine ? "none" : `1px solid ${sameCo ? "#EAD9A9" : "rgba(0,0,0,0.055)"}` , ...(m.urgent ? { boxShadow: `0 0 0 2px ${URGENT_RED}`, ...(mine ? {} : { background: "#FFF5F4" }) } : {})}}>
                                         {m.urgent && <div style={{ marginBottom: 4 }}><UrgentTag /></div>}
                                         {m.replyTo && <div style={{ fontSize: 11.5, marginBottom: 5, padding: "5px 9px", borderLeft: `3px solid ${mine ? "rgba(255,255,255,0.6)" : T.gold}`, borderRadius: 6, background: mine ? "rgba(255,255,255,0.15)" : "#fff", color: mine ? "rgba(255,255,255,0.92)" : T.textSub, overflow: "hidden" }}><b>{(m.replyTo.author || "").split(" ")[0]}</b>: {m.replyTo.text}</div>}
-                                        {linkifyText(m.text, mine)}
-                                        <Att att={m.attachment} />
+                                        <MentionText text={m.text} mentions={m.mentions} mine={mine} replyAuthor={m.replyTo && m.replyTo.author} />
+                                        <Att att={m.attachment} mine={mine} />
                                       </div>
                                       <button onClick={() => setReplyTo(m)} title="Reply to this message" style={{ width: 26, height: 26, minHeight: 26, borderRadius: 13, flexShrink: 0, background: replyTo && replyTo.id === m.id ? T.goldLight : "rgba(118,118,128,0.08)", border: "1px solid rgba(0,0,0,0.04)", color: replyTo && replyTo.id === m.id ? "#8a6d1f" : T.textTert, cursor: "pointer", fontSize: 12, fontFamily: "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}>↩</button>
                                     </div>
@@ -1102,7 +1066,7 @@ export function ContractorPortal() {
                                         {fmtWhen(m.at)} · {readers.length === 0 ? "Delivered" : `Read${readers.length <= 2 ? " by " + readers.join(", ") : ` by ${readers.length}`}`}
                                       </div>
                                     )}
-                                  </div>
+                                  </SwipeReply>
                                 );
                               })}
                             </div>
@@ -1158,20 +1122,12 @@ export function ContractorPortal() {
                     )}
                     {pending && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}`, borderRadius: 10, marginBottom: 8 }}>
-                        <span style={{ fontSize: 13 }}>{pending.kind === "image" || pending.kind === "images" ? "🖼️" : pending.kind === "video" ? "🎬" : pending.kind === "audio" ? "🎤" : pending.kind === "contact" ? "👤" : "📄"}</span>
-                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pending.name}{pending.pending ? " — uploading in background, OK to send" : ""}</span>
+                        {(pending.kind === "image" || pending.kind === "images") && pending.uploadId && localPreview(pending.uploadId) ? <img src={localPreview(pending.uploadId)} alt="" style={{ width: 32, height: 32, borderRadius: 7, objectFit: "cover", flexShrink: 0 }} /> : <span style={{ fontSize: 13 }}>{pending.kind === "image" || pending.kind === "images" ? "🖼️" : pending.kind === "video" ? "🎬" : pending.kind === "audio" ? "🎤" : pending.kind === "contact" ? "👤" : "📄"}</span>}
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pending.name}{pending.pending ? " — uploading, OK to send" : ""}</span>
                         <button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
                       </div>
                     )}
-                    {recOn ? (
-                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                        <span style={{ width: 10, height: 10, borderRadius: "50%", background: T.red, flexShrink: 0, animation: "gsPulse 1s infinite" }} />
-                        <style>{`@keyframes gsPulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
-                        <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: T.text }}>Recording… {fmtSecs(recSecs)}</span>
-                        <button onClick={cancelRec} style={{ padding: "9px 14px", borderRadius: 20, border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
-                        <button onClick={stopRec} style={{ padding: "9px 16px", borderRadius: 20, border: "none", background: T.red, color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>■ Stop</button>
-                      </div>
-                    ) : (<>
+                    <>
                     {/* The ＋ menu — tools as labeled chips so the typing box keeps its width. */}
                     {moreOpen && (() => {
                       const chip = { display: "inline-flex", alignItems: "center", gap: 5, padding: "8px 13px", borderRadius: 18, border: `1px solid ${T.border}`, background: "#fff", fontSize: 12.5, fontWeight: 700, color: T.text, cursor: "pointer", fontFamily: "inherit" };
@@ -1187,15 +1143,15 @@ export function ContractorPortal() {
                       {msgUrgent && <span style={{ fontSize: 11.5, fontWeight: 700, color: "#D70015" }}>Goes out URGENT</span>}
                       <UrgentChip on={msgUrgent} onToggle={() => setMsgUrgent((v) => !v)} />
                     </div>
-                    <div style={{ display: "flex", gap: 7, alignItems: "flex-end" }}>
+                    <div style={{ position: "relative", display: "flex", gap: 7, alignItems: "flex-end" }}>
                       <input ref={attRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={pickAtt} style={{ display: "none" }} />
                       <button onClick={() => setMoreOpen((v) => !v)} disabled={busy} title="Attach, voice note, tag & more" style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${moreOpen || msgTags.length ? T.gold : T.border}`, background: moreOpen || msgTags.length ? T.goldLight : T.bg, fontSize: 20, fontWeight: 600, color: moreOpen || msgTags.length ? "#8a6d1f" : T.textSub, cursor: "pointer", fontFamily: "inherit", lineHeight: 1 }}>{moreOpen ? "×" : "＋"}</button>
                       <textarea ref={draftRef} rows={1} value={draft} onChange={(e) => { setDraft(e.target.value); detectAt(e.target.value, e.target.selectionStart); }} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); } if (e.key === "Escape") setAtQ(null); }} onPaste={(e) => { const fixed = rescuePastedLink(e); if (fixed != null) { e.preventDefault(); const el = e.target, st = el.selectionStart ?? draft.length, en = el.selectionEnd ?? draft.length; setDraft(draft.slice(0, st) + fixed + draft.slice(en)); } }} placeholder={busy ? "Uploading…" : msgTarget ? "Reply about this task…" : "Message… type @ to tag someone"} disabled={busy}
                         style={{ flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 18, border: `1px solid ${msgTarget ? T.gold : T.border}`, background: T.bg, fontSize: 15, outline: "none", fontFamily: "inherit", resize: "none", lineHeight: 1.4, maxHeight: 120, overflowY: "auto", boxSizing: "border-box" }} />
-                      <button onClick={startRec} disabled={busy} title="Record a voice note" style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.bg, color: T.textSub, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><MicIcon size={21} /></button>
-                      <button onClick={sendMsg} disabled={(!draft.trim() && !pending) || busy} style={{ width: 38, height: 38, borderRadius: "50%", background: (draft.trim() || pending) && !busy ? T.gold : T.border, border: "none", color: "#fff", fontWeight: 800, fontSize: 16, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>➤</button>
+                      {/* 🎤 the send spot is the mic until there's something to send — hold to talk (WhatsApp). */}
+                      {(draft.trim() || pending) ? <button onClick={() => sendMsg()} disabled={busy} style={{ width: 38, height: 38, borderRadius: "50%", background: (draft.trim() || pending) && !busy ? T.gold : T.border, border: "none", color: "#fff", fontWeight: 800, fontSize: 16, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>➤</button> : <VoiceRecorder onDone={sendVoice} onError={setErr} disabled={busy} size={40} />}
                     </div>
-                    </>)}
+                    </>
                     {contactShare && <ContactShareModal onPick={(c) => { setPending({ kind: "contact", url: "contact:", name: c.name, mime: "text/vcard", contact: c }); setContactShare(false); }} onClose={() => setContactShare(false)} />}
                   </div>
                   );

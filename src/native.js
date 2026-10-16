@@ -18,7 +18,12 @@ export const nativePlatform = () => (isNative() ? window.Capacitor.getPlatform()
 
 let perm = "default"; // granted | denied | default (mirrors Notification.permission)
 let pushP = null;
-const push = () => (pushP ||= import("@capacitor/push-notifications").then((m) => m.PushNotifications));
+// Prefer the plugin object the app itself puts on the page (window.Capacitor.Plugins)
+// — it talks to the native side directly; the bundled copy is the fallback.
+const push = () => (pushP ||= (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications)
+  ? Promise.resolve(window.Capacitor.Plugins.PushNotifications)
+  : import("@capacitor/push-notifications").then((m) => m.PushNotifications));
+const pluginOn = () => { try { return !!(window.Capacitor && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable("PushNotifications")); } catch { return false; } };
 let tokenWaiters = [];
 let lastToken = "";
 let wantName = "";
@@ -106,21 +111,34 @@ function waitForToken(ms = 15000) {
   });
 }
 
-// "Turn on notifications" inside the app.
-export async function nativeEnablePush(userName) {
+// "Turn on notifications" inside the app. Every step has a time limit and is
+// reported to the screen (onStep), so if something hangs the message says
+// exactly where — Elie's iPhone sat on "Enabling…" (10/16/26).
+export async function nativeEnablePush(userName, onStep) {
   wantName = userName || wantName;
   if (!pushReady()) throw new Error("Notifications for the Android app are being set up — they'll turn on in the next app update.");
-  const P = await push();
-  await within(ensureListeners(), 8000);
-  let r = await within(P.checkPermissions(), 8000);
-  if (r.receive !== "granted") r = await within(P.requestPermissions(), 120000);
+  const diag = () => `${nativePlatform()} · plugin ${pluginOn() ? "yes" : "no"} · permission ${perm}`;
+  const step = async (label, p, ms) => {
+    try { onStep && onStep(label); } catch { /* UI gone */ }
+    try { return await within(p, ms); }
+    catch (e) {
+      if (e && e.message === "timeout") throw new Error(`Got stuck at "${label}" — send Claude a screenshot of this. (${diag()})`);
+      throw new Error(`${label}: ${(e && e.message) || e} (${diag()})`);
+    }
+  };
+  if (!pluginOn()) throw new Error(`This version of the app is missing notifications — it needs an app update. (${diag()})`);
+  const P = await step("Loading", push(), 5000);
+  await step("Getting ready", ensureListeners(), 5000);
+  let r = await step("Checking this phone's setting", P.checkPermissions(), 6000);
+  if (r.receive !== "granted") r = await step("Asking for permission — tap Allow", P.requestPermissions(), 60000);
   perm = mapPerm(r.receive);
   if (perm !== "granted") throw new Error("Notifications are off for this app. Open your phone's Settings → Notifications → Goldstone Properties → Allow Notifications.");
   lastError = "";
   const wait = waitForToken(20000);
-  await within(P.register(), 10000);
+  await step("Signing up with Apple/Google", P.register(), 8000);
+  try { onStep && onStep("Waiting for Apple/Google"); } catch { /* UI gone */ }
   const ok = await wait;
-  if (!ok) throw new Error(lastError || "Apple/Google didn't answer — check your connection and try again in a minute.");
+  if (!ok) throw new Error(`${lastError || "Apple/Google didn't answer in 20 seconds."} (${diag()})`);
   return true;
 }
 

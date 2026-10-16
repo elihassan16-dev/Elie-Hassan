@@ -40,8 +40,8 @@ export async function refreshSubscription(userName) {
 // Once a user taps "Don't Allow", iOS never re-shows the prompt — recovery is
 // only via Settings or reinstalling the Home-Screen app, so say exactly that.
 const BLOCKED_MSG = "Your phone is blocking notifications for this app. iPhone: Settings → Notifications → find this app in the list → Allow Notifications. If it isn't listed: delete the Home-Screen icon, re-add it from Safari (Share → Add to Home Screen), open it from the new icon, and tap Enable again — then choose Allow.";
-export async function enablePush(userName) {
-  if (isNative()) return nativeEnablePush(userName);
+export async function enablePush(userName, onStep) {
+  if (isNative()) return nativeEnablePush(userName, onStep);
   if (!notificationsSupported())
     throw new Error("This device or browser doesn't support notifications. On iPhone, add the app to your Home Screen (Share → Add to Home Screen) and open it from that icon first.");
   const perm = await Notification.requestPermission();

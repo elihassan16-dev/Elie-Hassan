@@ -13577,15 +13577,16 @@ function PushNudge({displayName}){
   const[hidden,setHidden]=useState(()=>{try{return Date.now()-Number(localStorage.getItem("gs_push_nudge_off")||0)<7*86400000;}catch{return false;}});
   const[busy,setBusy]=useState(false);
   const[err,setErr]=useState("");
+  const[stepTxt,setStepTxt]=useState("");
   if(!supported||perm!=="default"||hidden||!displayName)return null;
-  const turnOn=async()=>{setBusy(true);setErr("");try{await enablePush(displayName);setPerm("granted");}catch(e){setErr(e.message||"Couldn't turn them on.");setPerm(notificationPermission());}setBusy(false);};
+  const turnOn=async()=>{setBusy(true);setErr("");setStepTxt("");try{await enablePush(displayName,setStepTxt);setPerm("granted");}catch(e){setErr(e.message||"Couldn't turn them on.");setPerm(notificationPermission());}setStepTxt("");setBusy(false);};
   const later=()=>{try{localStorage.setItem("gs_push_nudge_off",String(Date.now()));}catch{/* private mode */}setHidden(true);};
   return(
     <div style={{margin:"8px 10px 2px",padding:"10px 12px",background:T.card,border:`1px solid ${T.border}`,borderRadius:16,boxShadow:T.shadow,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
       <span style={{fontSize:20,flexShrink:0}}>🔔</span>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:13.5,fontWeight:700,color:T.text}}>Alerts are off on this device</div>
-        <div style={{fontSize:12,color:err?T.red:T.textSub,marginTop:1,lineHeight:1.35}}>{err||"Texts, calls and tasks won't reach you here."}</div>
+        <div style={{fontSize:12,color:err?T.red:T.textSub,marginTop:1,lineHeight:1.35}}>{err||(busy&&stepTxt?stepTxt+"…":"Texts, calls and tasks won't reach you here.")}</div>
       </div>
       <button onClick={later} style={{background:"none",border:"none",color:T.textSub,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",padding:"8px 6px",flexShrink:0,minHeight:36}}>Later</button>
       <button onClick={turnOn} disabled={busy} style={{padding:"8px 14px",borderRadius:14,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:13,cursor:busy?"default":"pointer",fontFamily:"inherit",flexShrink:0,minHeight:36,opacity:busy?0.6:1}}>{busy?"…":"Turn on"}</button>
@@ -13599,12 +13600,13 @@ function NotificationToggle({displayName,isAdmin,flat}){
   const[busy,setBusy]=useState(false);
   const[err,setErr]=useState("");
   const[testMsg,setTestMsg]=useState("");
+  const[stepTxt,setStepTxt]=useState("");
   const on=perm==="granted";
   const enable=async()=>{
     setBusy(true);setErr("");setTestMsg("");
-    try{ await enablePush(displayName); setPerm("granted"); }
+    try{ await enablePush(displayName,setStepTxt); setPerm("granted"); }
     catch(e){ setErr(e.message||"Couldn't enable notifications."); setPerm(notificationPermission()); }
-    setBusy(false);
+    setStepTxt("");setBusy(false);
   };
   const emailLabel=(s)=>({sent:"email sent ✓","not-configured":"email not set up (add Resend keys + redeploy)"}[s]||`email: ${s}`);
   const sendTest=async()=>{
@@ -13643,7 +13645,7 @@ function NotificationToggle({displayName,isAdmin,flat}){
     <div style={{borderTop:flat?"none":`1px solid ${T.border}`}}>
       <button onClick={on?undefined:enable} disabled={busy||on||!supported} style={{...rowBtn,borderTop:"none",cursor:on||!supported?"default":"pointer",opacity:busy?0.6:1}}>
         <span style={{fontSize:16,width:22,textAlign:"center"}}>🔔</span>
-        <span style={{flex:1}}>{!supported?"Notifications not supported here":on?"Notifications are on":busy?"Enabling…":"Turn on notifications"}</span>
+        <span style={{flex:1}}>{!supported?"Notifications not supported here":on?"Notifications are on":busy?(stepTxt?stepTxt+"…":"Enabling…"):"Turn on notifications"}</span>
         {on&&<span style={{fontSize:12,fontWeight:700,color:T.green}}>✓ On</span>}
         {!on&&supported&&!busy&&<span style={{fontSize:12,fontWeight:700,color:T.blue}}>Enable ›</span>}
       </button>

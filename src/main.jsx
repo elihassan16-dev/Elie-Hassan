@@ -5,6 +5,7 @@ import "./index.css";
 import { AuthProvider } from "./auth/AuthProvider";
 import Root from "./App.jsx";
 import { ensureMsalReady, msalInstance, startMsalKeepAlive } from "./onedrive/msal";
+import { startAutoUpdate } from "./autoUpdate";
 
 // Catches render/runtime errors so a crash shows a readable message + Reload
 // instead of a blank white screen.
@@ -70,3 +71,4 @@ async function boot() {
 }
 
 boot();
+startAutoUpdate();

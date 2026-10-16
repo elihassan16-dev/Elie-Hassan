@@ -45,6 +45,9 @@ export async function notify(recipients, { title, body, tag, url, toAdmins, toTe
   try {
     await qbAuthFetch("/api/notify/send", {
       method: "POST",
+      // keepalive: the ping still goes out if the sender closes / leaves the
+      // app right after hitting send (Elie 10/16/26 — missing notifications).
+      keepalive: true,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ recipients: list, title, body, url: url || "/", tag, toAdmins: !!toAdmins, toTeam: !!toTeam, toOrg: toOrg || null }),
     });

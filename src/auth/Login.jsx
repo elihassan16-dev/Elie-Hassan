@@ -31,16 +31,21 @@ export default function Login() {
   // page itself is gold too, so there is nothing white or blurred to sample —
   // whichever status-bar mode the home-screen icon was added in.
   useEffect(() => {
-    const html = document.documentElement, body = document.body;
-    const prev = [html.style.background, body.style.background];
+    const html = document.documentElement, body = document.body, root = document.getElementById("root");
+    const prev = [html.style.background, body.style.background, root ? root.style.background : ""];
     html.style.background = GOLD_MID; body.style.background = GOLD_MID;
-    return () => { html.style.background = prev[0]; body.style.background = prev[1]; };
+    // #root has its own light-gray page colour; inside the Android app it showed
+    // as a gray band under the gold (Elie 10/16/26) — gold it while signing in.
+    if (root) root.style.background = GOLD_DEEP;
+    return () => { html.style.background = prev[0]; body.style.background = prev[1]; if (root) root.style.background = prev[2]; };
   }, []);
 
   return (
     <div
       style={{
-        minHeight: "100dvh",
+        // Fill the whole screen even where 100dvh comes out short (Android's
+        // in-app WebView): the taller of the screen height and the page height.
+        minHeight: "max(100dvh, 100%)",
         position: "relative",
         display: "flex",
         alignItems: "center",

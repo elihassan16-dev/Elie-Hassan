@@ -24,7 +24,7 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.err) {
       return (
-        <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 24, textAlign: "center", fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif", background: "#F5F5F7" }}>
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 24, textAlign: "center", fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif", background: "#F5F5F7" }}>
           <div style={{ fontSize: 40 }}>⚠️</div>
           <div style={{ fontSize: 18, fontWeight: 700, color: "#1C1C1E" }}>Something went wrong</div>
           <div style={{ fontSize: 13, color: "#8A8A8E", maxWidth: 420, wordBreak: "break-word" }}>{String(this.state.err?.message || this.state.err)}</div>

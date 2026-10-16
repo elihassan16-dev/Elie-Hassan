@@ -44,28 +44,47 @@ async function saveToken(token) {
   return !error;
 }
 
-// Called once at launch (main.jsx) before the app renders.
-export async function initNative() {
-  if (!isNative()) return;
-  const root = document.documentElement;
-  root.classList.add("gs-native", `gs-native-${nativePlatform()}`);
-  try {
+// The listeners that receive Apple's/Google's answer are attached on their own
+// (and again on demand) — they used to sit behind the startup permission check,
+// so a slow first launch left nobody listening and "Turn on" spun forever on
+// Elie's iPhone (10/16/26).
+let listenersP = null;
+let lastError = "";
+function ensureListeners() {
+  if (listenersP) return listenersP;
+  listenersP = (async () => {
     const P = await push();
-    perm = mapPerm((await within(P.checkPermissions())).receive);
     await P.addListener("registration", async (t) => {
       lastToken = t.value;
       let ok = false;
       try { ok = await saveToken(t.value); } catch { ok = false; }
+      if (!ok) lastError = "Couldn't save this phone for notifications — check your connection and try again.";
       tokenWaiters.forEach((fn) => fn(ok));
       tokenWaiters = [];
     });
-    await P.addListener("registrationError", () => { tokenWaiters.forEach((fn) => fn(false)); tokenWaiters = []; });
+    await P.addListener("registrationError", (e) => {
+      lastError = `Apple/Google didn't register this phone${e && e.error ? ` (${e.error})` : ""}.`;
+      tokenWaiters.forEach((fn) => fn(false)); tokenWaiters = [];
+    });
     // Tapped a notification → go where it points (same links web push uses).
     await P.addListener("pushNotificationActionPerformed", (a) => {
       const url = a && a.notification && a.notification.data && a.notification.data.url;
       if (!url) return;
       try { window.location.href = new URL(url, window.location.origin).href; } catch { /* malformed */ }
     });
+  })().catch((e) => { listenersP = null; throw e; });
+  return listenersP;
+}
+
+// Called once at launch (main.jsx) before the app renders.
+export async function initNative() {
+  if (!isNative()) return;
+  const root = document.documentElement;
+  root.classList.add("gs-native", `gs-native-${nativePlatform()}`);
+  try { await within(ensureListeners(), 5000); } catch { /* retried when turning notifications on */ }
+  try {
+    const P = await push();
+    perm = mapPerm((await within(P.checkPermissions())).receive);
     if (nativePlatform() === "android") {
       // Heads-up banners need a high-importance channel (the server sends to it).
       try { await within(P.createChannel({ id: "messages", name: "Messages & tasks", description: "Chats, tasks and urgent alerts", importance: 5, visibility: 1, sound: "default", vibration: true })); } catch { /* older Android */ }
@@ -92,14 +111,16 @@ export async function nativeEnablePush(userName) {
   wantName = userName || wantName;
   if (!pushReady()) throw new Error("Notifications for the Android app are being set up — they'll turn on in the next app update.");
   const P = await push();
-  let r = await P.checkPermissions();
-  if (r.receive !== "granted") r = await P.requestPermissions();
+  await within(ensureListeners(), 8000);
+  let r = await within(P.checkPermissions(), 8000);
+  if (r.receive !== "granted") r = await within(P.requestPermissions(), 120000);
   perm = mapPerm(r.receive);
   if (perm !== "granted") throw new Error("Notifications are off for this app. Open your phone's Settings → Notifications → Goldstone Properties → Allow Notifications.");
-  const wait = waitForToken();
-  await P.register();
+  lastError = "";
+  const wait = waitForToken(20000);
+  await within(P.register(), 10000);
   const ok = await wait;
-  if (!ok) throw new Error("Couldn't finish turning on notifications — check your connection and try again.");
+  if (!ok) throw new Error(lastError || "Apple/Google didn't answer — check your connection and try again in a minute.");
   return true;
 }
 
@@ -109,8 +130,9 @@ export async function nativeRefreshPush(userName) {
   if (perm !== "granted" || !pushReady()) return false;
   try {
     if (lastToken) return await saveToken(lastToken);
+    await within(ensureListeners(), 8000);
     const wait = waitForToken();
-    await (await push()).register();
+    await within((await push()).register(), 10000);
     return await wait;
   } catch { return false; }
 }

@@ -18,11 +18,13 @@ export const nativePlatform = () => (isNative() ? window.Capacitor.getPlatform()
 
 let perm = "default"; // granted | denied | default (mirrors Notification.permission)
 let pushP = null;
-// Prefer the plugin object the app itself puts on the page (window.Capacitor.Plugins)
-// — it talks to the native side directly; the bundled copy is the fallback.
+// The plugin object is a proxy that answers ANY property — including "then" —
+// so awaiting it (or resolving a promise with it) makes JavaScript treat it as
+// a promise and wait forever. That was "Enabling…" never finishing on Elie's
+// iPhone (10/16/26). So it's always handed around wrapped: (await push()).P
 const push = () => (pushP ||= (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications)
-  ? Promise.resolve(window.Capacitor.Plugins.PushNotifications)
-  : import("@capacitor/push-notifications").then((m) => m.PushNotifications));
+  ? Promise.resolve({ P: window.Capacitor.Plugins.PushNotifications })
+  : import("@capacitor/push-notifications").then((m) => ({ P: m.PushNotifications })));
 const pluginOn = () => { try { return !!(window.Capacitor && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable("PushNotifications")); } catch { return false; } };
 let tokenWaiters = [];
 let lastToken = "";
@@ -58,7 +60,7 @@ let lastError = "";
 function ensureListeners() {
   if (listenersP) return listenersP;
   listenersP = (async () => {
-    const P = await push();
+    const { P } = await push();
     await P.addListener("registration", async (t) => {
       lastToken = t.value;
       let ok = false;
@@ -88,7 +90,7 @@ export async function initNative() {
   root.classList.add("gs-native", `gs-native-${nativePlatform()}`);
   try { await within(ensureListeners(), 5000); } catch { /* retried when turning notifications on */ }
   try {
-    const P = await push();
+    const { P } = await push();
     perm = mapPerm((await within(P.checkPermissions())).receive);
     if (nativePlatform() === "android") {
       // Heads-up banners need a high-importance channel (the server sends to it).
@@ -127,7 +129,7 @@ export async function nativeEnablePush(userName, onStep) {
     }
   };
   if (!pluginOn()) throw new Error(`This version of the app is missing notifications — it needs an app update. (${diag()})`);
-  const P = await step("Loading", push(), 5000);
+  const { P } = await step("Loading", push(), 5000);
   await step("Getting ready", ensureListeners(), 5000);
   let r = await step("Checking this phone's setting", P.checkPermissions(), 6000);
   if (r.receive !== "granted") r = await step("Asking for permission — tap Allow", P.requestPermissions(), 60000);
@@ -150,7 +152,7 @@ export async function nativeRefreshPush(userName) {
     if (lastToken) return await saveToken(lastToken);
     await within(ensureListeners(), 8000);
     const wait = waitForToken();
-    await within((await push()).register(), 10000);
+    await within((await push()).P.register(), 10000);
     return await wait;
   } catch { return false; }
 }

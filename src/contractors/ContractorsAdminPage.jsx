@@ -1071,7 +1071,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
                   {m.taskRefText && <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 3, color: mine ? "rgba(255,255,255,0.9)" : "#8a6d1f" }}>↳ Task: {m.taskRefText}</div>}
                   {linkifyText(m.text, mine)}
                   {m.attachment && (m.attachment.kind === "contact" && m.attachment.contact
-                  ? <ContactCardBubble c={m.attachment.contact} mine={mine} />
+                  ? <ContactCardBubble c={m.attachment.contact} mine={mine} CallLink={CallA} />
                   : m.attachment.kind === "video" && (m.attachment.pending || m.attachment.failed)
                   ? <VideoUploadBubble att={m.attachment} mine={mine} />
                   : m.attachment.kind === "images" && Array.isArray(m.attachment.items)

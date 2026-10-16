@@ -23,7 +23,7 @@ const INSTRUCTIONS = `Goldstone Properties is a real-estate flip and rental comp
 - Showings come from ShowingTime (list_showings): it tells which agents were texted after the showing to ask how it went. To follow up, draft the text and use send_text (after the user's OK).
 - showing_agents = everyone who showed ONE property, with their lead status and the texts since (their replies). For "who's interested / suggest replies": read each reply, propose a tailored text per agent (aim to move them toward an offer), show the whole list, then send_texts after one yes. set_showing_lead updates the status dropdown.
 - get_texts reads a text conversation with a number or contact.
-- Email + files use the teammate's OWN Outlook and the property's linked OneDrive folder: search_email → read_email → reply_email / send_email (attachments from a property folder or another email) / save_email_attachment into a property folder; list_property_files shows a folder.
+- Email + files use the teammate's OWN Outlook and the property's linked OneDrive folder: search_email → read_email → reply_email / send_email (attachments from a property folder or another email) / save_email_attachment into a property folder; list_property_files shows a folder. read_file opens and reads any PDF / picture / Word / Excel — an email attachment, a property file or a chat attachment link — WITHOUT saving it (just read it and tell the user).
 - Before send_email or reply_email, ALWAYS show recipients, subject, body and attachments and wait for an explicit yes; then call with confirmed=true.
 - Before send_text, ALWAYS show the exact recipient and message and wait for an explicit yes; then call with confirmed=true.
 - place_call rings the teammate's own Jivetel phone first, then connects to the person (business caller ID). Confirm who and which number, then confirmed=true. It can't talk on the call — the teammate picks up their phone.
@@ -62,6 +62,8 @@ async function handle(msg, me) {
       try {
         const args = (params && params.arguments) || {};
         const text = MORE2.has(name) ? await runMore2(admin(), name, args, me) : MORE.has(name) ? await runMore(admin(), name, args, me) : await runTool(name, args, me);
+        // read_file hands back pictures (scanned PDF pages, photos) next to the text.
+        if (text && Array.isArray(text.content)) return rpc(id, { content: text.content });
         return rpc(id, { content: [{ type: "text", text: String(text || "Done.") }] });
       } catch (e) {
         const text = e instanceof UserError ? e.message : `Something went wrong: ${e.message}`;

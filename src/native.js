@@ -88,6 +88,7 @@ export async function initNative() {
   if (!isNative()) return;
   const root = document.documentElement;
   root.classList.add("gs-native", `gs-native-${nativePlatform()}`);
+  try { (await import("./shareIn")).startShareIn(); } catch { /* older app build */ }
   try { await within(ensureListeners(), 5000); } catch { /* retried when turning notifications on */ }
   try {
     const { P } = await push();

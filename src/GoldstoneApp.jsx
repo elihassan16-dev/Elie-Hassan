@@ -44,6 +44,7 @@ import { RentalsSidebar, RentalsDashboard, useDashPeriod, firstDataMonth } from 
 import { DelinquencyReport } from "./rentalsDelinq";
 import { useQbPinSync } from "./rentalPins";
 import { FaceIdSetting } from "./faceId";
+import { ShareInTeam } from "./shareIn";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -22899,6 +22900,8 @@ export function GoldstoneShell(){
     setNavPropId(propId);
     pushPage("properties");
   }
+  const shareCtr=useContractorData();
+  const {flushProps:shareFlush}=useData();
   function navigateToChat(propId){
     setNavChatId(propId);
     pushPage("messages");
@@ -23078,6 +23081,9 @@ export function GoldstoneShell(){
         <PostWatcher ready={!loading}/>
         <UrgentAlert/>
         <MortgageChecklistSync/>
+        {/* 📤 Share → Goldstone from Photos / WhatsApp (phone app only) */}
+        <ShareInTeam properties={sharedProps} setSharedProps={setSharedProps} flushProps={shareFlush} currentUser={CURRENT_USER} ctrJobs={shareCtr.jobs} ctrOrgs={shareCtr.orgs} ctrSave={shareCtr.save} statusColor={(s)=>(STATUS_COLORS[s]||{}).badge}
+          onOpen={(kind,p)=>{ if(kind==="chat")navigateToChat(p.id); else if(kind==="media"){try{window.__mediaTarget={propId:p.id};}catch{/* no window */}pushPage("media");} else {PROP_VIEW_MEM.set(p.id,{...(PROP_VIEW_MEM.get(p.id)||{}),walk:true});navigateToProperty(p.id);} }}/>
         {(active==="tasks"||active==="properties")&&<PostsNudge onOpen={()=>pushPage("posts")}/>}
         <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
           {pageEl}

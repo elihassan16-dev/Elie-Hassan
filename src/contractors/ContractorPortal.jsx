@@ -12,6 +12,7 @@ import { notify, attLabel, uploadAttachment, qbAuthFetch, STREAM_VIDEO_CAP, urge
 import { UrgentChip, UrgentTag, UrgentPopup, readSeen, addSeen, RED as URGENT_RED } from "../urgent";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "../push";
 import { FaceIdSetting } from "../faceId";
+import { ShareInPortal } from "../shareIn";
 import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, resumeVideoUploads } from "../videoUpload";
 import { MediaBubble, SwipeReply, MentionText } from "../chatMedia";
 import { VoiceRecorder } from "../voiceRecorder";
@@ -883,6 +884,9 @@ export function ContractorPortal() {
           <button onClick={signOut} style={{ height: 28, borderRadius: 14, background: "none", border: "none", color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, padding: "0 12px", flexShrink: 0 }}>Sign out</button>
         </div>
       </div>
+      {/* 📤 Share → Goldstone from Photos / WhatsApp — only this company's jobs */}
+      <ShareInPortal jobs={jobs} orgId={contractorOrgId} orgName={org?.name || ""} displayName={displayName} save={save}
+        onOpenJob={(j) => { setSelJobId(j.id); setTab("messages"); }} />
       {pushWanted && !pushHide && (
         <div style={{ background: T.goldLight, borderBottom: `1px solid ${T.gold}`, padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <span style={{ fontSize: 16, flexShrink: 0 }}>🔔</span>

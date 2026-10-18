@@ -23090,7 +23090,7 @@ export function GoldstoneShell(){
         <MortgageChecklistSync/>
         {/* 📤 Share → Goldstone from Photos / WhatsApp (phone app only) */}
         <ShareInTeam properties={sharedProps} setSharedProps={setSharedProps} flushProps={shareFlush} currentUser={CURRENT_USER} ctrJobs={shareCtr.jobs} ctrOrgs={shareCtr.orgs} ctrSave={shareCtr.save} statusColor={(s)=>(STATUS_COLORS[s]||{}).badge}
-          onOpen={(kind,p)=>{ if(kind==="chat")navigateToChat(p.id); else if(kind==="media"){try{window.__mediaTarget={propId:p.id};}catch{/* no window */}pushPage("media");} else {PROP_VIEW_MEM.set(p.id,{...(PROP_VIEW_MEM.get(p.id)||{}),walk:true});navigateToProperty(p.id);} }}/>
+          onOpen={(kind,p)=>{ if(kind==="contacts")pushPage("contacts"); else if(kind==="chat")navigateToChat(p.id); else if(kind==="media"){try{window.__mediaTarget={propId:p.id};}catch{/* no window */}pushPage("media");} else {PROP_VIEW_MEM.set(p.id,{...(PROP_VIEW_MEM.get(p.id)||{}),walk:true});navigateToProperty(p.id);} }}/>
         {(active==="tasks"||active==="properties")&&<PostsNudge onOpen={()=>pushPage("posts")}/>}
         <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
           {pageEl}

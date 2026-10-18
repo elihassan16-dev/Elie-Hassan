@@ -4859,6 +4859,28 @@ function fileIcon(name="",mime=""){
   if(is("txt","md"))return "📃";
   return "📄";
 }
+// iOS-style pull-down menu for a Files row's ••• button. Solid white: a fixed div with backdrop-filter is restyled as a popup dim by index.css.
+function FileRowMenu({menu,onClose,onDownload,onShare,onDelete}){
+  const{it,dl,r}=menu;
+  const W=230,vw=window.innerWidth,vh=window.innerHeight;
+  const rows=[dl&&{k:"dl",label:"Download",icon:"⬇",run:onDownload},it.webUrl&&{k:"share",label:"Share",icon:ICONS.share,run:onShare},{k:"del",label:"Delete",icon:"🗑",run:onDelete,red:true}].filter(Boolean);
+  const H=rows.length*48+8;
+  const left=Math.max(12,Math.min(vw-W-12,r.right-W));
+  const below=r.bottom+6+H<vh-90;
+  const top=below?r.bottom+6:Math.max(12,r.top-6-H);
+  useEffect(()=>{const k=e=>{if(e.key==="Escape")onClose();};window.addEventListener("keydown",k);window.addEventListener("scroll",onClose,true);return()=>{window.removeEventListener("keydown",k);window.removeEventListener("scroll",onClose,true);};},[onClose]);
+  return createPortal(
+    <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:400}}>
+      <div role="menu" onClick={e=>e.stopPropagation()} style={{position:"fixed",left,top,width:W,borderRadius:14,overflow:"hidden",background:"#FFFFFF",boxShadow:"0 10px 40px rgba(0,0,0,0.22), 0 0 0 0.5px rgba(0,0,0,0.08)",padding:"4px 0",transformOrigin:below?"top right":"bottom right",animation:"gsMenuIn .16s ease-out"}}>
+        {rows.map((x,i)=>(
+          <button key={x.k} role="menuitem" onClick={()=>{onClose();x.run();}}
+            style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",minHeight:48,padding:"0 16px",border:"none",borderTop:i===0?"none":x.red?"6px solid rgba(118,118,128,0.10)":"0.5px solid rgba(60,60,67,0.18)",background:"none",color:x.red?T.red:T.text,fontSize:16,fontFamily:"inherit",cursor:"pointer",textAlign:"left"}}>
+            <span>{x.label}</span><span style={{display:"flex",alignItems:"center",fontSize:16,color:x.red?T.red:T.text}}>{x.icon}</span>
+          </button>
+        ))}
+      </div>
+    </div>,document.body);
+}
 function FilesTab({property,onUpdate}){
   const od=useOneDrive();
   const { prefs }=useAuth();                     // filesBaseLink = the Flips folder from Settings
@@ -4908,6 +4930,7 @@ function FilesTab({property,onUpdate}){
   useEffect(()=>{if(od.ready&&od.isConnected&&connected&&stack.length===0)loadRoot();},[od.ready,od.isConnected,connected]);// eslint-disable-line
 
   const[copiedId,setCopiedId]=useState("");
+  const[rowMenu,setRowMenu]=useState(null); // {it, dl, r} — the ••• menu that is open
   const[deletingId,setDeletingId]=useState("");
   const shareItem=async(it)=>{
     const url=it.webUrl;if(!url)return;
@@ -5159,13 +5182,18 @@ function FilesTab({property,onUpdate}){
                 <div style={{fontSize:14,fontWeight:500,color:isFolder?T.text:T.blue,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>
                 <div style={{fontSize:11,color:T.textTert}}>{isFolder?`${it.folder.childCount||0} items`:fmtBytes(it.size)}{it.lastModifiedDateTime?` · ${new Date(it.lastModifiedDateTime).toLocaleDateString()}`:""}</div>
               </div>
-              {!isFolder&&dl&&<a href={dl} style={{fontSize:12,color:T.gold,fontWeight:600,textDecoration:"none",flexShrink:0}}>Download</a>}
-              <button onClick={()=>shareItem(it)} title="Share link" style={{background:"none",border:"none",cursor:it.webUrl?"pointer":"default",color:copiedId===it.id?T.green:T.textSub,padding:"4px 6px",display:"flex",alignItems:"center",gap:4,flexShrink:0,fontFamily:"inherit",fontSize:11,fontWeight:600,opacity:it.webUrl?1:0.4}}>{copiedId===it.id?"✓ Copied":ICONS.share}</button>
-              <button onClick={()=>removeItem(it)} disabled={deletingId===it.id} title="Delete" style={{background:"none",border:"none",cursor:deletingId===it.id?"default":"pointer",color:T.textTert,padding:"4px 6px",display:"flex",alignItems:"center",flexShrink:0,fontFamily:"inherit",fontSize:14,opacity:deletingId===it.id?0.5:1}} onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.textTert}>{deletingId===it.id?"…":"🗑"}</button>
+              {/* ••• → iOS pull-down menu (Download · Share · Delete) — Elie 10/18/26: the three buttons crowded out the names */}
+              <button onClick={e=>{const r=e.currentTarget.getBoundingClientRect();setRowMenu({it,dl:!isFolder&&dl,r});}} disabled={deletingId===it.id} aria-label={`More for ${it.name}`} title="More"
+                style={{width:44,height:44,marginRight:-10,borderRadius:22,border:"none",background:rowMenu&&rowMenu.it.id===it.id?"rgba(118,118,128,0.12)":"none",color:copiedId===it.id?T.green:T.textSub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontFamily:"inherit",fontSize:copiedId===it.id?11:18,fontWeight:700,letterSpacing:1,padding:0,opacity:deletingId===it.id?0.5:1}}>
+                {deletingId===it.id?"…":copiedId===it.id?"✓":<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="4" cy="10" r="1.8"/><circle cx="10" cy="10" r="1.8"/><circle cx="16" cy="10" r="1.8"/></svg>}
+              </button>
             </div>
           );
         })}
       </Card>
+      {rowMenu&&<FileRowMenu menu={rowMenu} onClose={()=>setRowMenu(null)}
+        onDownload={()=>{const a=document.createElement("a");a.href=rowMenu.dl;a.rel="noopener";document.body.appendChild(a);a.click();a.remove();}}
+        onShare={()=>shareItem(rowMenu.it)} onDelete={()=>removeItem(rowMenu.it)}/>}
 
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}>
         <button onClick={()=>{onUpdate(property.id,"filesFolder",null);onUpdate(property.id,"filesShareLink","");setStack([]);setItems([]);setLinkInput("");setPStack([]);setPItems([]);}} style={{background:"none",border:"none",color:T.textTert,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Change folder</button>

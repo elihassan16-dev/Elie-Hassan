@@ -43,6 +43,7 @@ import { PlatinumCard, PlatinumChips, PlatinumTab, usePlatinum } from "./platinu
 import { RentalsSidebar, RentalsDashboard, useDashPeriod, firstDataMonth } from "./rentalsDash";
 import { DelinquencyReport } from "./rentalsDelinq";
 import { useQbPinSync } from "./rentalPins";
+import { FaceIdSetting } from "./faceId";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -13554,6 +13555,7 @@ function SettingsPage({displayName,role,email,isAdmin,teamMembers,team,setUserMu
         </div>
         {sec("Notifications")}
         <div style={grp}><NotificationToggle displayName={displayName} isAdmin={isAdmin} flat/></div>
+        <FaceIdSetting email={email} T={T} wrap={(row)=><>{sec("Security")}<div style={grp}>{row}</div></>}/>
         {sec(`Team · ${(teamMembers||[]).filter(Boolean).length}`)}
         <div style={grp}>
           <ProfileMenu asPage displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted} setUserSms={setUserSms} setUserChannels={setUserChannels}/>

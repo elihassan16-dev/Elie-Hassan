@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "./AuthProvider";
+import { FaceIdSignInButton, faceIdRememberPassword } from "../faceId";
 
 const GOLD = "#B8953F";
 const GOLD_MID = "#D4A843";
@@ -24,6 +25,7 @@ export default function Login() {
     const { error } = await signIn(email, password);
     setBusy(false);
     if (error) setErr(error.message || "Sign-in failed. Check your email and password.");
+    else faceIdRememberPassword(email, password);
   }
 
   // iOS 26+ picks the colour it paints under the status bar from the document
@@ -190,6 +192,7 @@ export default function Login() {
           >
             {busy ? "Signing in…" : "Sign In"}
           </button>
+          <FaceIdSignInButton onError={setErr} />
         </form>
 
         <div style={{ marginTop: 20, textAlign: "center", fontSize: 12, color: "#AEAEB2", lineHeight: 1.5 }}>

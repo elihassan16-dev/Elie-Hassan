@@ -103,7 +103,10 @@ export function AuthProvider({ children }) {
     (email, password) => supabase.auth.signInWithPassword({ email: email.trim(), password }),
     []
   );
-  const signOut = useCallback(() => supabase.auth.signOut(), []);
+  const signOut = useCallback(() => {
+    try { sessionStorage.setItem("gs_signed_out", "1"); } catch { /* ignore */ } // no auto Face ID right after signing out
+    return supabase.auth.signOut();
+  }, []);
 
   // Let a user set their own display name (RLS allows updating your own users row).
   const updateName = useCallback(async (name) => {

@@ -41,7 +41,9 @@ input, select, textarea, button { font-size: 16px; font-family: inherit; }
 
 /* Touch-friendly: ensure interactive controls are at least 44px on touch devices */
 @media (pointer: coarse) {
-  button, select, input[type="button"], input[type="submit"], a[role="button"] {
+  /* Toggle switches keep their iOS 51×31 shape — the tap halo (::after
+     below) still makes them easy to hit (Elie 10/18/26: stretched switches). */
+  button:not([role="switch"]), select, input[type="button"], input[type="submit"], a[role="button"] {
     min-height: 44px;
   }
 }

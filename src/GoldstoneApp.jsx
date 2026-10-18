@@ -11779,7 +11779,7 @@ const featOn=(key)=>__feat.flags[key]!==false;
 const featWho=(key,fallback)=>__feat.who[key]||fallback;
 function FeatSwitch({on,onTap,disabled}){
   return(
-    <button onClick={disabled?undefined:onTap} title={disabled?"Only an admin can change this":undefined} style={{width:42,height:25,borderRadius:13,border:"none",background:on?"#34C759":"#D6D6DC",position:"relative",cursor:disabled?"default":"pointer",flexShrink:0,opacity:disabled?0.55:1,padding:0}}>
+    <button role="switch" aria-checked={!!on} onClick={disabled?undefined:onTap} title={disabled?"Only an admin can change this":undefined} style={{width:42,height:25,borderRadius:13,border:"none",background:on?"#34C759":"#D6D6DC",position:"relative",cursor:disabled?"default":"pointer",flexShrink:0,opacity:disabled?0.55:1,padding:0}}>
       <span style={{position:"absolute",top:2,left:on?19:2,width:21,height:21,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,0.25)",transition:"left 0.15s"}}/>
     </button>
   );
@@ -16775,7 +16775,7 @@ function FinDealMoney({bsProps,accounts,spend,updateProp,canEdit,holdbackOf,onCl
               <div style={{background:on?"#FDF9EE":"#FAFAFB",padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontSize:19}}>🌉</span>
                 <div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,fontWeight:800,color:on?"#8a6d1f":T.text}}>Auto-float</div><div style={{fontSize:10.5,color:"#8A8F98",marginTop:1,lineHeight:1.35}}>Borrow the shortfall automatically until the next draw</div></div>
-                <button disabled={!canEdit} onClick={()=>setAutoFloat(sel,!on)} aria-pressed={on} aria-label="Auto-float" style={sw(on)}><span style={{position:"absolute",top:2,left:on?21:2,width:25,height:25,borderRadius:"50%",background:"#fff",boxShadow:"0 2px 4px rgba(0,0,0,0.2)",transition:"left .15s"}}/></button>
+                <button disabled={!canEdit} onClick={()=>setAutoFloat(sel,!on)} role="switch" aria-checked={on} aria-label="Auto-float" style={sw(on)}><span style={{position:"absolute",top:2,left:on?21:2,width:25,height:25,borderRadius:"50%",background:"#fff",boxShadow:"0 2px 4px rgba(0,0,0,0.2)",transition:"left .15s"}}/></button>
               </div>
               {on&&<>
                 <div style={rw}><span style={{color:T.textSub}}>Borrow from</span>

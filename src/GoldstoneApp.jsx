@@ -18,7 +18,7 @@ import { makeSubs, SubProgress, ChecklistSection, groupUtilTasks, groupUtilRule 
 import { MortgageChecklistSync } from "./mortgageCheck";
 import { urgentNext, urgentMark, UrgentChip, UrgentTag, UrgentTile, UrgentSheet, UrgentAlert, useSetTaskUrgent, RED as URGENT_RED, RED_TEXT as URGENT_TEXT } from "./urgent";
 import { PayoffStatementSheet } from "./payoffSheet";
-import { PostsPage, PostsNudge, PostWatcher, PostButton } from "./flyers";
+import { PostsPage, PostsNudge, PostWatcher, PostEditor } from "./flyers";
 import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { MediaBubble, SwipeReply, MentionText } from "./chatMedia";
 import { VoiceRecorder } from "./voiceRecorder";
@@ -4859,11 +4859,11 @@ function fileIcon(name="",mime=""){
   if(is("txt","md"))return "📃";
   return "📄";
 }
-// iOS-style pull-down menu for a Files row's ••• button. Solid white: a fixed div with backdrop-filter is restyled as a popup dim by index.css.
-function FileRowMenu({menu,onClose,onDownload,onShare,onDelete}){
-  const{it,dl,r}=menu;
-  const W=230,vw=window.innerWidth,vh=window.innerHeight;
-  const rows=[dl&&{k:"dl",label:"Download",icon:"⬇",run:onDownload},it.webUrl&&{k:"share",label:"Share",icon:ICONS.share,run:onShare},{k:"del",label:"Delete",icon:"🗑",run:onDelete,red:true}].filter(Boolean);
+// iOS-style pull-down menu opened by a ••• button (Files rows, property header).
+// rows = [{k,label,icon,run,red}] — red rows sit after a thick separator.
+// Solid white: a fixed div with backdrop-filter is restyled as a popup dim by index.css.
+function DotsMenu({r,rows,onClose}){
+  const W=240,vw=window.innerWidth,vh=window.innerHeight;
   const H=rows.length*48+8;
   const left=Math.max(12,Math.min(vw-W-12,r.right-W));
   const below=r.bottom+6+H<vh-90;
@@ -4881,6 +4881,8 @@ function FileRowMenu({menu,onClose,onDownload,onShare,onDelete}){
       </div>
     </div>,document.body);
 }
+// The ••• button itself (44pt; dots glyph).
+const DOTS_SVG=<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="4" cy="10" r="1.8"/><circle cx="10" cy="10" r="1.8"/><circle cx="16" cy="10" r="1.8"/></svg>;
 function FilesTab({property,onUpdate}){
   const od=useOneDrive();
   const { prefs }=useAuth();                     // filesBaseLink = the Flips folder from Settings
@@ -5185,15 +5187,17 @@ function FilesTab({property,onUpdate}){
               {/* ••• → iOS pull-down menu (Download · Share · Delete) — Elie 10/18/26: the three buttons crowded out the names */}
               <button onClick={e=>{const r=e.currentTarget.getBoundingClientRect();setRowMenu({it,dl:!isFolder&&dl,r});}} disabled={deletingId===it.id} aria-label={`More for ${it.name}`} title="More"
                 style={{width:44,height:44,marginRight:-10,borderRadius:22,border:"none",background:rowMenu&&rowMenu.it.id===it.id?"rgba(118,118,128,0.12)":"none",color:copiedId===it.id?T.green:T.textSub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontFamily:"inherit",fontSize:copiedId===it.id?11:18,fontWeight:700,letterSpacing:1,padding:0,opacity:deletingId===it.id?0.5:1}}>
-                {deletingId===it.id?"…":copiedId===it.id?"✓":<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="4" cy="10" r="1.8"/><circle cx="10" cy="10" r="1.8"/><circle cx="16" cy="10" r="1.8"/></svg>}
+                {deletingId===it.id?"…":copiedId===it.id?"✓":DOTS_SVG}
               </button>
             </div>
           );
         })}
       </Card>
-      {rowMenu&&<FileRowMenu menu={rowMenu} onClose={()=>setRowMenu(null)}
-        onDownload={()=>{const a=document.createElement("a");a.href=rowMenu.dl;a.rel="noopener";document.body.appendChild(a);a.click();a.remove();}}
-        onShare={()=>shareItem(rowMenu.it)} onDelete={()=>removeItem(rowMenu.it)}/>}
+      {rowMenu&&<DotsMenu r={rowMenu.r} onClose={()=>setRowMenu(null)} rows={[
+        rowMenu.dl&&{k:"dl",label:"Download",icon:"⬇",run:()=>{const a=document.createElement("a");a.href=rowMenu.dl;a.rel="noopener";document.body.appendChild(a);a.click();a.remove();}},
+        rowMenu.it.webUrl&&{k:"share",label:"Share",icon:ICONS.share,run:()=>shareItem(rowMenu.it)},
+        {k:"del",label:"Delete",icon:"🗑",run:()=>removeItem(rowMenu.it),red:true},
+      ].filter(Boolean)}/>}
 
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}>
         <button onClick={()=>{onUpdate(property.id,"filesFolder",null);onUpdate(property.id,"filesShareLink","");setStack([]);setItems([]);setLinkInput("");setPStack([]);setPItems([]);}} style={{background:"none",border:"none",color:T.textTert,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Change folder</button>
@@ -6287,6 +6291,9 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const[statusBoard,setStatusBoard]=useState(false); // 🏗 utilities + permits board
   const[editAddr,setEditAddr]=useState(false);       // ✎ fix a typo'd address
   const[jumpNav,setJumpNav]=useState(false);         // tap the address → jump to this property's Showings / BS / chat
+  const { isAdmin }=useAuth()||{};
+  const[headMenu,setHeadMenu]=useState(null); // ••• menu anchor rect (Post · Archive)
+  const[postOpen,setPostOpen]=useState(false);
   const[walk,setWalk]=useState(()=>!!(PROP_VIEW_MEM.get(property.id)||{}).walk); // 🎥 narrated walkthrough → AI punch list
   useEffect(()=>{PROP_VIEW_MEM.set(property.id,{tab,walk});},[property.id,tab,walk]);
   const walkJob=useWalkJob(property.id);             // background transcription status for the Tasks-tab button
@@ -6345,8 +6352,14 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           {editAddr&&<AddressEditPopup rec={property} onSave={(v)=>{onUpdate(property.id,"address",v.address);onUpdate(property.id,"city",v.city);onUpdate(property.id,"state",v.state);onUpdate(property.id,"zip",v.zip);}} onClose={()=>setEditAddr(false)}/>}
           {jumpNav&&<PropertyJumpSheet property={property} onClose={()=>setJumpNav(false)}/>}
           {walk&&<WalkthroughModal property={property} onUpdate={onUpdate} onClose={()=>setWalk(false)}/>}
-          {onArchive&&<button onClick={()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}}
-            style={{flexShrink:0,padding:"7px 14px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.textSub,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Archive</button>}
+          {/* ••• (Elie 10/18/26): Post + Archive moved off the header into one menu */}
+          {(onArchive||(isAdmin&&property.status!=="New Leads"))&&<button onClick={e=>setHeadMenu(e.currentTarget.getBoundingClientRect())} aria-label="More actions" title="More"
+            style={{flexShrink:0,width:44,height:44,marginRight:-8,marginLeft:"auto",borderRadius:22,border:"none",background:headMenu?"rgba(118,118,128,0.12)":"none",color:T.textSub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,fontFamily:"inherit"}}>{DOTS_SVG}</button>}
+          {headMenu&&<DotsMenu r={headMenu} onClose={()=>setHeadMenu(null)} rows={[
+            isAdmin&&property.status!=="New Leads"&&{k:"post",label:"Make a Facebook post",icon:"📣",run:()=>setPostOpen(true)},
+            onArchive&&{k:"arch",label:"Archive",icon:"🗄",red:true,run:()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}},
+          ].filter(Boolean)}/>}
+          {postOpen&&<PostEditor property={property} onClose={()=>setPostOpen(false)} isMobile={isMobile}/>}
         </div>
         <div style={{marginBottom:14,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <StatusPicker value={property.status} property={property} onChange={v=>onUpdate(property.id,"status",v)}
@@ -6356,7 +6369,6 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
               Object.entries(groups).forEach(([top,val])=>onUpdate(property.id,top,val));
               onUpdate(property.id,"statusGates",{...(property.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}});
             }}/>
-          <PostButton property={property} isMobile={isMobile}/>
         </div>
         <div style={{...SEG_WRAP,width:"auto"}}>
           {tabs.map(t=>(

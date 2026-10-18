@@ -275,3 +275,6 @@ html.gs-ios26 .gs-topwrap {
 
 /* chatMedia.jsx — voice note "sending" spinner */
 @keyframes gsSpin { to { transform: rotate(360deg); } }
+
+/* ••• pull-down menus (Files rows) */
+@keyframes gsMenuIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }

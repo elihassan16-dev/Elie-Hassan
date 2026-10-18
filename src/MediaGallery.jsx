@@ -194,7 +194,7 @@ function Lightbox({ items, idx, setIdx, onClose }) {
   );
 }
 
-export function MediaGallery({ title, items, canDelete, onDelete, onClose }) {
+export function MediaGallery({ title, items, canDelete, onDelete, onClose, inline }) {
   const [selMode, setSelMode] = useState(false);
   const [sel, setSel] = useState(new Set());
   const [viewIdx, setViewIdx] = useState(null); // full-screen viewer position (null = grid)
@@ -209,26 +209,7 @@ export function MediaGallery({ title, items, canDelete, onDelete, onClose }) {
   };
   const open = (x, i) => { if (selMode) { toggle(x.key); return; } setViewIdx(i); };
   const fmt = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }); } catch { return ""; } };
-  return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 470, display: "flex", alignItems: "center", justifyContent: "center", padding: 12, boxSizing: "border-box", backdropFilter: "blur(5px)" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: "min(600px,96vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 48px rgba(0,0,0,0.25)" }}>
-        <div style={{ padding: "13px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15.5, fontWeight: 800, color: T.text }}>🖼 Media · {items.length}</div>
-            {title && <div style={{ fontSize: 11.5, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>}
-          </div>
-          {canDelete && items.length > 0 && !selMode && <button onClick={() => setSelMode(true)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 20, color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700, padding: "5px 13px", flexShrink: 0 }}>Select</button>}
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
-        </div>
-        {selMode && (
-          <div style={{ padding: "8px 14px", background: T.goldLight, borderBottom: `1px solid ${T.gold}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{sel.size} selected</span>
-            <button onClick={() => setSel(sel.size === items.length ? new Set() : new Set(items.map((x) => x.key)))} style={{ background: "none", border: "none", color: T.gold, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700 }}>{sel.size === items.length ? "Clear all" : "Select all"}</button>
-            <div style={{ flex: 1 }} />
-            <button onClick={doDelete} disabled={!sel.size} style={{ padding: "6px 14px", borderRadius: 20, border: "none", background: sel.size ? T.red : T.border, color: "#fff", fontSize: 12, fontWeight: 700, cursor: sel.size ? "pointer" : "default", fontFamily: "inherit" }}>🗑 Delete</button>
-            <button onClick={exitSel} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 20, color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, padding: "5px 12px" }}>Cancel</button>
-          </div>
-        )}
+  const gridEl = (
         <div style={{ flex: 1, overflowY: "auto", padding: 12 }}>
           {items.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 13, padding: "44px 0" }}>No photos or videos in this chat yet.</div>}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(105px,1fr))", gap: 8 }}>
@@ -250,8 +231,33 @@ export function MediaGallery({ title, items, canDelete, onDelete, onClose }) {
             })}
           </div>
         </div>
+  );
+  const lightbox = viewIdx != null && items[viewIdx] && <Lightbox items={items} idx={viewIdx} setIdx={setViewIdx} onClose={() => setViewIdx(null)} />;
+  // Inline (contractor portal's Media tab): just the grid + the viewer, no popup frame.
+  if (inline) return <>{gridEl}{lightbox}</>;
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 470, display: "flex", alignItems: "center", justifyContent: "center", padding: 12, boxSizing: "border-box", backdropFilter: "blur(5px)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: "min(600px,96vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 48px rgba(0,0,0,0.25)" }}>
+        <div style={{ padding: "13px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15.5, fontWeight: 800, color: T.text }}>🖼 Media · {items.length}</div>
+            {title && <div style={{ fontSize: 11.5, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>}
+          </div>
+          {canDelete && items.length > 0 && !selMode && <button onClick={() => setSelMode(true)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 20, color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700, padding: "5px 13px", flexShrink: 0 }}>Select</button>}
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+        </div>
+        {selMode && (
+          <div style={{ padding: "8px 14px", background: T.goldLight, borderBottom: `1px solid ${T.gold}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{sel.size} selected</span>
+            <button onClick={() => setSel(sel.size === items.length ? new Set() : new Set(items.map((x) => x.key)))} style={{ background: "none", border: "none", color: T.gold, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700 }}>{sel.size === items.length ? "Clear all" : "Select all"}</button>
+            <div style={{ flex: 1 }} />
+            <button onClick={doDelete} disabled={!sel.size} style={{ padding: "6px 14px", borderRadius: 20, border: "none", background: sel.size ? T.red : T.border, color: "#fff", fontSize: 12, fontWeight: 700, cursor: sel.size ? "pointer" : "default", fontFamily: "inherit" }}>🗑 Delete</button>
+            <button onClick={exitSel} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 20, color: T.textSub, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, padding: "5px 12px" }}>Cancel</button>
+          </div>
+        )}
+        {gridEl}
       </div>
-      {viewIdx != null && items[viewIdx] && <Lightbox items={items} idx={viewIdx} setIdx={setViewIdx} onClose={() => setViewIdx(null)} />}
+      {lightbox}
     </div>
   );
 }

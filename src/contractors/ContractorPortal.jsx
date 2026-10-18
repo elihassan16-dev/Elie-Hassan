@@ -775,6 +775,10 @@ export function ContractorPortal() {
   // Grow the typing box with its content (up to a cap) so long messages stay visible.
   useEffect(() => { const el = draftRef.current; if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 120) + "px"; } }, [draft]);
   const thread = selJob ? (messages || []).filter((m) => m.orgId === contractorOrgId && String(m.jobId) === String(selJob.id)).sort((a, b) => String(a.at || "").localeCompare(String(b.at || ""))) : [];
+  // 🖼 Media tab (Elie 10/18/26): every photo/video from OUR shared chat on this
+  // property — all of this company's jobs there. Only contractor_messages (the
+  // external chat), so nothing from the team's internal chat or Media ever shows.
+  const propMedia = selJob ? collectMedia((messages || []).filter((m) => m.orgId === contractorOrgId && (jobs || []).some((j) => String(j.id) === String(m.jobId) && String(j.orgId) === String(contractorOrgId) && (selJob.propertyId ? String(j.propertyId) === String(selJob.propertyId) : String(j.id) === String(selJob.id))))) : [];
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [thread.length, tab, selJobId]);
   const pickAtt = async (e) => {
     const files = Array.from(e.target.files || []); e.target.value = "";
@@ -988,7 +992,7 @@ export function ContractorPortal() {
                   )}
                   <div style={{ display: "flex", marginTop: 9, marginBottom: 9 }}>
                     <div style={{ display: "inline-flex", background: CAPS_BG, border: CAPS_BD, borderRadius: 100, padding: 3, gap: 2, maxWidth: "100%", overflowX: "auto", overflowY: "hidden", overscrollBehavior: "contain", scrollbarWidth: "none" }}>
-                      {(selJob.status === "bid" ? [["messages", "Messages"]] : [["messages", "Messages"], ["tasks", "Tasks"], ["overview", "Overview"]]).map(([k, l]) => (
+                      {(selJob.status === "bid" ? [["messages", "Messages"]] : [["messages", "Messages"], ["tasks", "Tasks"], ["overview", "Overview"], ["media", propMedia.length ? `Media · ${propMedia.length}` : "Media"]]).map(([k, l]) => (
                         <button key={k} onClick={() => setTab(k)} style={{ padding: "6px 16px", borderRadius: 100, border: "none", background: tab === k ? "#fff" : "transparent", color: tab === k ? T.text : T.textSub, fontWeight: tab === k ? 650 : 450, fontSize: 12.5, boxShadow: tab === k ? "0 1px 4px rgba(0,0,0,0.12)" : "none", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
                           {l}{k === "messages" && unreadFor(selJob.id) > 0 ? ` · ${unreadFor(selJob.id)}` : ""}
                         </button>
@@ -999,6 +1003,7 @@ export function ContractorPortal() {
                 <div ref={tab === "messages" ? scrollRef : undefined} style={{ flex: 1, overflowY: "auto", display: tab === "messages" ? "flex" : "block", flexDirection: "column" }}>
                   {tab === "overview" && overview(selJob)}
                   {tab === "tasks" && tasksTab(selJob)}
+                  {tab === "media" && <MediaGallery inline items={propMedia} canDelete={false} />}
                   {tab === "messages" && (() => {
                     // Same look as the Goldstone side: each conversation (general
                     // thread / task / change order) gets its own card, with a header

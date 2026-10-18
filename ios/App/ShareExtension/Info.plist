@@ -24,17 +24,10 @@
 	<dict>
 		<key>NSExtensionAttributes</key>
 		<dict>
+			<!-- Predicate (not the simple keys): Contacts shares a vCard, which none of the
+			     Supports…WithMaxCount keys cover, so Goldstone never showed up there. -->
 			<key>NSExtensionActivationRule</key>
-			<dict>
-				<key>NSExtensionActivationSupportsImageWithMaxCount</key>
-				<integer>30</integer>
-				<key>NSExtensionActivationSupportsMovieWithMaxCount</key>
-				<integer>10</integer>
-				<key>NSExtensionActivationSupportsFileWithMaxCount</key>
-				<integer>10</integer>
-				<key>NSExtensionActivationSupportsAttachmentsWithMaxCount</key>
-				<integer>30</integer>
-			</dict>
+			<string>SUBQUERY(extensionItems, $extensionItem, SUBQUERY($extensionItem.attachments, $attachment, ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.movie" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.vcard" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.file-url" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.composite-content" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.spreadsheet" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.presentation" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.microsoft.word.doc" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.microsoft.excel.xls").@count &gt;= 1).@count &gt;= 1</string>
 		</dict>
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.share-services</string>

@@ -15,6 +15,7 @@ import { startMediaUpload, bindCtrVideoMessage } from "./videoUpload";
 import { uploadToMedia } from "./mediaStore";
 import { startWalkClips } from "./walkthrough";
 import { useData } from "./data/DataProvider";
+import { useOneDrive } from "./onedrive/useOneDrive";
 
 // ── Incoming shares (module store — a share can arrive before React mounts) ──
 let incoming = null; // { id, raw: [{uri,name,mimeType}], texts, files: File[]|null, loading, error }
@@ -184,7 +185,10 @@ export function ShareInTeam({ properties, setSharedProps, flushProps, currentUse
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [toast, setToast] = useState(null);
-  useEffect(() => { if (item) { setStep("pick"); setProp(null); setQ(""); setCaption(""); setErr(""); } }, [item && item.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const od = useOneDrive();
+  const [folders, setFolders] = useState(null); // subfolders of the property's OneDrive folder
+  const [upPct, setUpPct] = useState(null);
+  useEffect(() => { if (item) { setStep("pick"); setProp(null); setQ(""); setCaption(""); setErr(""); setFolders(null); setUpPct(null); } }, [item && item.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const live = (properties || []).filter((p) => p && !p.archived);
   const rec = recentIds().map((id) => live.find((p) => String(p.id) === id)).filter(Boolean);
@@ -210,6 +214,31 @@ export function ShareInTeam({ properties, setSharedProps, flushProps, currentUse
     if (photos.length) toMedia(photos);
     finish(`Making the punch list for ${prop.address} — it keeps going in the background`, "walk");
   };
+  // 📁 Save to the property's OneDrive folder (Elie 10/18/26) — PDFs, documents,
+  // anything — through the signed-in teammate's Microsoft account, same as the
+  // property's Files tab. Optional subfolder (top level only).
+  const pFolder = prop && prop.filesFolder && prop.filesFolder.driveId && prop.filesFolder.id ? prop.filesFolder : null;
+  const loadFolders = async () => {
+    try {
+      const kids = await od.listChildren(pFolder.driveId, pFolder.id);
+      setFolders((kids || []).filter((k) => k && k.folder).map((k) => ({ id: k.id, name: k.name })).sort((a, b) => String(a.name).localeCompare(String(b.name))));
+    } catch (e) { setFolders([]); setErr((e && e.message) || "Couldn't open the folder."); }
+  };
+  const openFiles = () => { setErr(""); setFolders(null); setStep("files"); };
+  // Microsoft's account loads a moment after mount — list the subfolders once it's there.
+  useEffect(() => { if (step === "files" && pFolder && od.isConnected && folders === null) loadFolders(); }, [step, od.isConnected, pFolder && pFolder.id, folders === null]); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveToFolder = async (target) => {
+    if (!ready || busy || !pFolder) return;
+    setBusy(true); setErr(""); setUpPct(0);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        await od.uploadFile(pFolder.driveId, target.id, files[i], (pct) => setUpPct(Math.round(((i + (pct || 0) / 100) / files.length) * 100)));
+      }
+      finish(`Saved ${files.length > 1 ? `${files.length} files` : `“${files[0].name}”`} to ${prop.address} · ${target.name || "Files"}`, "files");
+    } catch (e) { setErr((e && e.message) || "Couldn't save to OneDrive."); }
+    setUpPct(null); setBusy(false);
+  };
+  const docsOnly = files.length > 0 && files.every((f) => !isImage(f) && !isVideo(f));
   const doMedia = () => {
     if (!ready) return;
     toMedia(files.filter((f) => isImage(f) || isVideo(f)));
@@ -283,13 +312,46 @@ export function ShareInTeam({ properties, setSharedProps, flushProps, currentUse
           <Head title="What should we do?" back="Properties" onBack={() => setStep("pick")} onClose={close} />
           <div style={{ flex: 1, overflowY: "auto", paddingBottom: 16 }}>
             <PropChip prop={prop} item={item} statusColor={statusColor} />
-            <Option primary icon="🎥" title="Make a punch list" disabled={!ready || !videos.length}
+            {docsOnly && <Option primary icon="📁" title="Save to Files (OneDrive)" disabled={!ready || !pFolder}
+              desc={pFolder ? `Into this property's OneDrive folder${pFolder.name ? ` (${pFolder.name})` : ""} — you can pick a subfolder.` : "This property isn't linked to a OneDrive folder yet — link it in the property's Files tab first."}
+              onClick={openFiles} />}
+            <Option primary={!docsOnly} icon="🎥" title="Make a punch list" disabled={!ready || !videos.length}
               desc={videos.length ? "The AI listens to what you say in the video and lists every item room by room, with a picture of each — same as 🎥 Walkthrough." : "Punch lists are made from videos where you talk through the job — share a video to use this."}
               onClick={doWalk} />
-            <Option icon="🖼" title="Just add to Media" disabled={!ready} desc="Saves the photos and videos to this property's gallery." onClick={doMedia} />
+            <Option icon="🖼" title="Just add to Media" disabled={!ready || docsOnly} desc={docsOnly ? "Media is for photos and videos — documents go to Files." : "Saves the photos and videos to this property's gallery."} onClick={doMedia} />
+            {!docsOnly && <Option icon="📁" title="Save to Files (OneDrive)" disabled={!ready || !pFolder} desc={pFolder ? "Into this property's OneDrive folder." : "Link this property to a OneDrive folder in its Files tab first."} onClick={openFiles} />}
             <Option icon="💬" title="Send in a chat" disabled={!ready} desc="Post it in this property's team chat, or to the contractor on the job." onClick={() => setStep("chat")} />
             {item.loading && <div style={{ padding: "12px 22px 0", fontSize: 13, color: T.textSub }}>Getting your {countLabel(item.raw)} ready…</div>}
             {item.error && <div style={{ padding: "12px 22px 0", fontSize: 13, color: T.red }}>{item.error}</div>}
+          </div>
+        </>}
+        {step === "files" && prop && <>
+          <Head title="Save to Files" back="Back" onBack={() => setStep("do")} onClose={close} />
+          <div style={{ flex: 1, overflowY: "auto", paddingBottom: 16 }}>
+            <PropChip prop={prop} item={item} statusColor={statusColor} />
+            {!od.isConnected ? (
+              <div style={{ margin: "12px 16px 0", padding: 14, borderRadius: 14, background: T.bg, fontSize: 14, color: T.text, lineHeight: 1.45 }}>
+                Sign in to Microsoft once on this phone to save into OneDrive. After signing in, share the file to Goldstone again.
+                <button onClick={() => od.signIn()} style={{ marginTop: 10, width: "100%", minHeight: 46, borderRadius: 12, border: "none", background: GOLD, color: "#fff", fontWeight: 700, fontSize: 15, fontFamily: "inherit", cursor: "pointer" }}>Connect Microsoft</button>
+              </div>
+            ) : <>
+              <div style={secHd}>Save into</div>
+              <button onClick={() => saveToFolder({ id: pFolder.id, name: pFolder.name || "Files" })} disabled={busy || !ready} style={rowBtn}>
+                <span style={{ fontSize: 22, width: 30, textAlign: "center" }}>📁</span>
+                <span style={{ flex: 1, minWidth: 0 }}><span style={{ display: "block", fontSize: 16, fontWeight: 600 }}>{pFolder.name || "Property folder"}</span><span style={{ display: "block", fontSize: 13, color: T.textSub }}>Main folder</span></span>
+                <span style={{ color: GOLD, fontWeight: 700, fontSize: 15 }}>Save</span>
+              </button>
+              {folders === null && <div style={{ padding: "10px 18px", fontSize: 13.5, color: T.textSub }}>Loading folders…</div>}
+              {(folders || []).map((f) => (
+                <button key={f.id} onClick={() => saveToFolder(f)} disabled={busy || !ready} style={rowBtn}>
+                  <span style={{ fontSize: 20, width: 30, textAlign: "center", color: T.textSub }}>↳</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 16, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.name}</span>
+                  <span style={{ color: GOLD, fontWeight: 700, fontSize: 15 }}>Save</span>
+                </button>
+              ))}
+              {upPct != null && <div style={{ padding: "12px 18px 0", fontSize: 14, color: T.text, fontWeight: 600 }}>Uploading… {upPct}%</div>}
+            </>}
+            {err && <div style={{ padding: "10px 18px 0", fontSize: 14, color: T.red }}>{err}</div>}
           </div>
         </>}
         {step === "chat" && prop && <>

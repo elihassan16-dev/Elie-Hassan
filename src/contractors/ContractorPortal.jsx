@@ -200,7 +200,7 @@ export function ContractorPortal() {
     } catch { return null; }
   });
   const [selJobId, setSelJobId] = useState(gotoJob);
-  const [tab, setTab] = useState(gotoJob ? "messages" : "overview");
+  const [tab, setTab] = useState("messages"); // contractors asked: open every job on Messages (Elie 10/18/26)
   const [statusOpen, setStatusOpen] = useState(false); // 🏗 site-status popup
   const [evOpen, setEvOpen] = useState(false); // 📅 schedule-an-event form
   const [evDraft, setEvDraft] = useState({ type: "rough", trade: "", date: "", time: "", note: "", customLabel: "" });
@@ -925,7 +925,7 @@ export function ContractorPortal() {
                     <span style={{ fontSize: 11.5, fontWeight: 650, color: T.textSub }}>{grpHdr}</span>
                   </div>}
                   {(
-                  <div onClick={() => { setSelJobId(j.id); setTab("overview"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); setDoneOpen(false); setMediaOpen(false); setBidPop(false); }} style={{ padding: "12px 14px", borderBottom: HAIR, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", borderLeft: on && !isMobile ? `3px solid ${T.gold}` : "3px solid transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
+                  <div onClick={() => { setSelJobId(j.id); setTab("messages"); setMsgTarget(null); setReplyTo(null); setMsgTags([]); setTagOpen(false); setStatusOpen(false); setEvOpen(false); setCoReqOpen(false); setPricePop(false); setDoneOpen(false); setMediaOpen(false); setBidPop(false); }} style={{ padding: "12px 14px", borderBottom: HAIR, cursor: "pointer", background: on && !isMobile ? T.goldLight : "transparent", borderLeft: on && !isMobile ? `3px solid ${T.gold}` : "3px solid transparent", opacity: j.status === "complete" ? 0.6 : 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.propertyAddress || j.title || "Job"}</div>
@@ -988,7 +988,7 @@ export function ContractorPortal() {
                   )}
                   <div style={{ display: "flex", marginTop: 9, marginBottom: 9 }}>
                     <div style={{ display: "inline-flex", background: CAPS_BG, border: CAPS_BD, borderRadius: 100, padding: 3, gap: 2, maxWidth: "100%", overflowX: "auto", overflowY: "hidden", overscrollBehavior: "contain", scrollbarWidth: "none" }}>
-                      {(selJob.status === "bid" ? [["messages", "Messages"]] : [["overview", "Overview"], ["tasks", "Tasks"], ["messages", "Messages"]]).map(([k, l]) => (
+                      {(selJob.status === "bid" ? [["messages", "Messages"]] : [["messages", "Messages"], ["tasks", "Tasks"], ["overview", "Overview"]]).map(([k, l]) => (
                         <button key={k} onClick={() => setTab(k)} style={{ padding: "6px 16px", borderRadius: 100, border: "none", background: tab === k ? "#fff" : "transparent", color: tab === k ? T.text : T.textSub, fontWeight: tab === k ? 650 : 450, fontSize: 12.5, boxShadow: tab === k ? "0 1px 4px rgba(0,0,0,0.12)" : "none", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
                           {l}{k === "messages" && unreadFor(selJob.id) > 0 ? ` · ${unreadFor(selJob.id)}` : ""}
                         </button>

@@ -44,7 +44,16 @@ class ShareViewController: UIViewController {
         guard let dir = folder() else { finish(opened: false); return }
         for item in items {
             for provider in item.attachments ?? [] {
-                if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+                if provider.hasItemConformingToTypeIdentifier(UTType.vCard.identifier) {
+                    // A contact shared from the Contacts app → saved as a .vcf for the app's "Add to Contacts".
+                    let data: Data? = await withCheckedContinuation { cont in
+                        _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.vCard.identifier) { d, _ in cont.resume(returning: d) }
+                    }
+                    if let data = data {
+                        let dest = dir.appendingPathComponent(UUID().uuidString + ".vcf")
+                        if (try? data.write(to: dest)) != nil { add(dest, name: (provider.suggestedName ?? "Contact") + ".vcf", mime: "text/vcard") }
+                    }
+                } else if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
                     await copy(provider, UTType.movie, into: dir, fallbackMime: "video/mp4")
                 } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
                     await copy(provider, UTType.image, into: dir, fallbackMime: "image/jpeg")

@@ -14,6 +14,7 @@ import { notify } from "./net";
 import { startMediaUpload, bindCtrVideoMessage } from "./videoUpload";
 import { uploadToMedia } from "./mediaStore";
 import { startWalkClips } from "./walkthrough";
+import { useData } from "./data/DataProvider";
 
 // ── Incoming shares (module store — a share can arrive before React mounts) ──
 let incoming = null; // { id, raw: [{uri,name,mimeType}], texts, files: File[]|null, loading, error }
@@ -249,6 +250,8 @@ export function ShareInTeam({ properties, setSharedProps, flushProps, currentUse
 
   const toastEl = toast && <Toast text={toast.text} onOpen={toast.open} onDone={() => setToast(null)} />;
   if (!item) return toastEl || null;
+  // 👤 A contact shared from the phone's Contacts app → Add to Contacts.
+  if (isContactShare(item)) return <>{toastEl}<ContactShare item={item} clear={clear} currentUser={currentUser} onSaved={(text) => setToast({ text, open: onOpen ? () => onOpen("contacts", null) : null })} /></>;
   const propRow = (p) => (
     <button key={p.id} onClick={() => { setProp(p); setStep("do"); }} style={rowBtn}>
       <span style={{ width: 9, height: 9, borderRadius: 5, background: (statusColor && statusColor(p.status)) || GOLD, flexShrink: 0 }} />
@@ -316,6 +319,147 @@ export function ShareInTeam({ properties, setSharedProps, flushProps, currentUse
     </>
   );
 }
+// ── 👤 Share a contact → company Contacts (Elie 10/18/26) ────────────────────
+// iPhone Contacts → Share Contact → Goldstone (a .vcf). Matching rule = the
+// connector's save_contact: same phone number first, then exact name; new
+// numbers/emails are added, a fuller name replaces a shorter one, never a
+// different one.
+const isContactShare = (item) => item && item.raw.length > 0 && item.raw.every((r) => /vcard/i.test(r.mimeType || "") || /\.vcf$/i.test(r.name || ""));
+const vUnesc = (v) => String(v || "").replace(/\\n/gi, "\n").replace(/\\([,;\\])/g, "$1").trim();
+function parseVcards(text) {
+  const out = [];
+  const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "").split("\n");
+  let c = null;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (/^BEGIN:VCARD/i.test(line)) { c = { name: "", first: "", last: "", company: "", role: "", phones: [], emails: [], address: "", notes: "" }; continue; }
+    if (/^END:VCARD/i.test(line)) { if (c) { if (!c.name) c.name = [c.first, c.last].filter(Boolean).join(" ") || c.company; if (c.name || c.phones.length) out.push(c); } c = null; continue; }
+    if (!c) continue;
+    const i = line.indexOf(":"); if (i < 0) continue;
+    const head = line.slice(0, i), val = line.slice(i + 1);
+    const key = head.split(";")[0].replace(/^item\d+\./i, "").toUpperCase();
+    const params = head.toUpperCase();
+    if (key === "FN") c.name = vUnesc(val);
+    else if (key === "N") { const [last, first] = val.split(";"); c.first = vUnesc(first); c.last = vUnesc(last); }
+    else if (key === "ORG") c.company = vUnesc(val.split(";")[0]);
+    else if (key === "TITLE") c.role = vUnesc(val);
+    else if (key === "TEL") {
+      const label = /CELL|IPHONE|MOBILE/.test(params) ? "Mobile" : /WORK/.test(params) ? "Work" : /HOME/.test(params) ? "Home" : /FAX/.test(params) ? "Fax" : /MAIN/.test(params) ? "Main" : "Mobile";
+      const number = vUnesc(val).replace(/^tel:/i, "");
+      if (number.replace(/\D/g, "").length >= 7) c.phones.push({ label, number });
+    } else if (key === "EMAIL") { const e = vUnesc(val); if (e) c.emails.push(e); }
+    else if (key === "ADR" && !c.address) { const parts = val.split(";").map(vUnesc).filter(Boolean); c.address = parts.join(", "); }
+    else if (key === "NOTE") c.notes = vUnesc(val);
+  }
+  return out;
+}
+const digits10 = (x) => String(x || "").replace(/\D/g, "").slice(-10);
+const normName = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const TRADES = ["Contractor", "Plumber", "Electrician", "HVAC", "Roofer", "Agent", "Lender", "Title", "Inspector", "Attorney"];
+function findMatch(contacts, card) {
+  const nums = new Set(card.phones.map((p) => digits10(p.number)));
+  const numsOf = (x) => [...(x.phones || []).map((p) => p.number), x.phone].map(digits10).filter((d) => d.length >= 7);
+  const byPhone = (contacts || []).filter((x) => x && numsOf(x).some((d) => nums.has(d)));
+  if (byPhone.length) return byPhone[0];
+  return (contacts || []).find((x) => x && normName(x.name) && normName(x.name) === normName(card.name)) || null;
+}
+function ContactShare({ item, clear, currentUser, onSaved }) {
+  const { contacts, setContacts, flushContacts } = useData() || {};
+  const [cards, setCards] = useState(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!item.files) return;
+    let live = true;
+    Promise.all(item.files.map((f) => f.text())).then((texts) => {
+      const all = texts.flatMap(parseVcards).slice(0, 20).map((c) => ({ ...c, tag: "", note: "" }));
+      if (live) { setCards(all); if (!all.length) setErr("Couldn't read that contact — try sharing it again."); }
+    }).catch(() => live && setErr("Couldn't read that contact — try sharing it again."));
+    return () => { live = false; };
+  }, [item.files]);
+  const upd = (i, patch) => setCards((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  const save = () => {
+    if (!cards || !cards.length || busy || !setContacts) return;
+    setBusy(true);
+    const now = new Date().toISOString();
+    let added = 0, updated = 0;
+    setContacts((prev) => {
+      let next = [...(prev || [])];
+      cards.forEach((card, idx) => {
+        const name = card.name.trim(); if (!name && !card.phones.length) return;
+        const hit = findMatch(next, card);
+        const tags = [card.tag].filter(Boolean);
+        if (hit) {
+          const have = new Set([...(hit.phones || []).map((p) => p.number), hit.phone].map(digits10));
+          const add = card.phones.filter((p) => !have.has(digits10(p.number)));
+          const n = { ...hit };
+          if (add.length) n.phones = [...(hit.phones || (hit.phone ? [{ label: "Mobile", number: hit.phone }] : [])), ...add];
+          if (name && normName(name) !== normName(hit.name) && normName(name).includes(normName(hit.name))) n.name = name;
+          if (!n.company && card.company) n.company = card.company;
+          if (!n.role && card.role) n.role = card.role;
+          if (!n.email && card.emails[0]) n.email = card.emails[0];
+          if (!n.address && card.address) n.address = card.address;
+          const newTags = tags.filter((t) => !(n.tags || []).some((o) => normName(o) === normName(t)));
+          if (newTags.length) n.tags = [...(n.tags || []), ...newTags];
+          const note = [card.notes, card.note].filter(Boolean).join("\n");
+          if (note && !String(n.notes || "").includes(note)) n.notes = [n.notes, note].filter(Boolean).join("\n");
+          n.phone = (n.phones && n.phones[0] && n.phones[0].number) || n.phone || "";
+          n.updatedBy = currentUser; n.updatedAt = now;
+          next = next.map((x) => (x === hit ? n : x));
+          updated++;
+        } else {
+          next.push({ id: Date.now() + idx, name: name || card.phones[0].number, company: card.company, role: card.role || card.tag, email: card.emails[0] || "", address: card.address, notes: [card.notes, card.note].filter(Boolean).join("\n"), phones: card.phones, phone: card.phones[0] ? card.phones[0].number : "", tags, createdBy: currentUser, createdAt: now, src: "share" });
+          added++;
+        }
+      });
+      return next;
+    });
+    if (flushContacts) setTimeout(flushContacts, 0);
+    const first = cards[0] && cards[0].name;
+    const text = cards.length === 1 ? `${updated ? "Updated" : "Saved"} ${first || "the contact"} in Contacts` : `${added + updated} contacts saved to Contacts`;
+    setTimeout(() => onSaved(text), 0);
+    clear();
+  };
+  return (
+    <Sheet onClose={clear}>
+      <Head title={cards && cards.length > 1 ? `Add ${cards.length} contacts` : "Add to Contacts"} onClose={clear} />
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 16 }}>
+        {!cards && !err && <div style={{ padding: 18, color: T.textSub, fontSize: 14 }}>Reading the contact…</div>}
+        {err && <div style={{ padding: "6px 18px", color: T.red, fontSize: 14 }}>{err}</div>}
+        {(cards || []).map((c, i) => {
+          const hit = findMatch(contacts, c);
+          return (
+            <div key={i} style={{ margin: "8px 16px 0", border: "1px solid rgba(60,60,67,0.14)", borderRadius: 16, padding: 14 }}>
+              <input value={c.name} onChange={(e) => upd(i, { name: e.target.value })} placeholder="Name"
+                style={{ width: "100%", boxSizing: "border-box", border: "none", outline: "none", fontSize: 19, fontWeight: 700, color: T.text, fontFamily: "inherit", padding: 0, background: "transparent" }} />
+              {(c.company || c.role) && <div style={{ fontSize: 13.5, color: T.textSub, marginTop: 2 }}>{[c.role, c.company].filter(Boolean).join(" · ")}</div>}
+              <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>
+                {c.phones.map((p, j) => <div key={j} style={{ fontSize: 14.5, color: T.text }}><span style={{ color: T.textSub, fontSize: 12.5, marginRight: 6 }}>{p.label}</span>{p.number}</div>)}
+                {c.emails.map((e, j) => <div key={"e" + j} style={{ fontSize: 14.5, color: T.text }}><span style={{ color: T.textSub, fontSize: 12.5, marginRight: 6 }}>Email</span>{e}</div>)}
+                {c.address && <div style={{ fontSize: 13.5, color: T.textSub }}>{c.address}</div>}
+              </div>
+              {hit && <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 10, background: "#F8F1E0", color: "#7A5A12", fontSize: 13, lineHeight: 1.4 }}>Already in Contacts as <b>{hit.name}</b> — new numbers and details get added to it.</div>}
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textSub, textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 12 }}>What do they do?</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                {TRADES.map((t) => (
+                  <button key={t} onClick={() => upd(i, { tag: c.tag === t ? "" : t })} style={{ minHeight: 34, padding: "0 12px", borderRadius: 17, border: c.tag === t ? `1.5px solid ${GOLD}` : "1px solid rgba(60,60,67,0.16)", background: c.tag === t ? "#F8F1E0" : "#fff", color: c.tag === t ? "#7A5A12" : T.text, fontSize: 13.5, fontWeight: c.tag === t ? 700 : 500, fontFamily: "inherit", cursor: "pointer" }}>{t}</button>
+                ))}
+              </div>
+              <textarea value={c.note} onChange={(e) => upd(i, { note: e.target.value })} placeholder="Note (optional) — e.g. did the roof at 48 Willow" rows={2}
+                style={{ marginTop: 10, width: "100%", boxSizing: "border-box", minHeight: 48, padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(60,60,67,0.16)", background: "rgba(118,118,128,0.06)", fontSize: 16, fontFamily: "inherit", resize: "none", outline: "none", color: T.text }} />
+            </div>
+          );
+        })}
+        {cards && cards.length > 0 && (
+          <button onClick={save} disabled={busy} style={{ margin: "14px 16px 0", width: "calc(100% - 32px)", minHeight: 50, borderRadius: 14, border: "none", background: GOLD, color: "#fff", fontWeight: 700, fontSize: 16, fontFamily: "inherit", cursor: "pointer" }}>
+            {cards.length > 1 ? `Save ${cards.length} to Contacts` : findMatch(contacts, cards[0]) ? "Update in Contacts" : "Save to Contacts"}
+          </button>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
 function PropChip({ prop, item, statusColor }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "6px 16px 4px", padding: "12px 14px", borderRadius: 14, background: T.bg }}>

@@ -26,6 +26,17 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>Take photos and videos of your properties and jobs to send in chat.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.gpflips.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>goldstone</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Unlock the app and sign in with Face ID instead of your password.</string>
 	<key>NSMicrophoneUsageDescription</key>

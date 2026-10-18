@@ -16,6 +16,8 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
+		A0C1CEC5C5959C479087D6BF /* TextComposePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18040E92B2A78A66193188B4 /* TextComposePlugin.swift */; };
+		C6AA44752AFB4EC8F7247CBE /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 715B66DB4CCB6BD00A2803F4 /* MainViewController.swift */; };
 		C79E4BE95DF7F4ED94E42BF4 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CA0144CBA76DF394CF015CB4 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E0D18D107FF4A7582D1AC5A1 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 25DBCAF7CC156BF461813E68 /* Foundation.framework */; };
 		EEC94CB6CEDAD4B894B6ADA8 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2D25DA0D5BC2806B79214E /* ShareViewController.swift */; };
@@ -47,6 +49,7 @@
 
 /* Begin PBXFileReference section */
 		0E2D25DA0D5BC2806B79214E /* ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		18040E92B2A78A66193188B4 /* TextComposePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TextComposePlugin.swift; sourceTree = "<group>"; };
 		25DBCAF7CC156BF461813E68 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		343EB52350BD3CE0B0171611 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -58,6 +61,7 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		715B66DB4CCB6BD00A2803F4 /* MainViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		CA0144CBA76DF394CF015CB4 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -127,6 +131,8 @@
 				504EC3131FED79650016851F /* Info.plist */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
+				715B66DB4CCB6BD00A2803F4 /* MainViewController.swift */,
+				18040E92B2A78A66193188B4 /* TextComposePlugin.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -257,6 +263,8 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
+				C6AA44752AFB4EC8F7247CBE /* MainViewController.swift in Sources */,
+				A0C1CEC5C5959C479087D6BF /* TextComposePlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

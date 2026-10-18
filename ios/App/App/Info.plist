@@ -26,6 +26,8 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>Take photos and videos of your properties and jobs to send in chat.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Unlock the app and sign in with Face ID instead of your password.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record voice notes and videos to send in chat.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

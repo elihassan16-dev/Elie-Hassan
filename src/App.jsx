@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import IdleSleep from "./IdleSleep";
+import { FaceIdLock } from "./faceId";
 import { useAuth } from "./auth/AuthProvider";
 import Login from "./auth/Login";
 import { DataProvider } from "./data/DataProvider";
@@ -59,7 +60,7 @@ function useIos26Tag() {
 }
 
 export default function Root() {
-  const { loading, session, isContractor } = useAuth();
+  const { loading, session, isContractor, signOut } = useAuth();
   useIos26Tag();
   // ── Stale-build self-healing ────────────────────────────────────────────────
   // The service worker serves a cached shell when the network loses a 1.2s race
@@ -108,11 +109,14 @@ export default function Root() {
   if (!session) return <><Login />{catcher}</>;
   // Contractor logins get the simple portal — NOT the team app (and not the
   // DataProvider: database rules block them from team tables anyway).
-  if (isContractor) return <><ContractorPortal />{catcher}</>;
+  // 🔐 Face ID lock (only when the person turned it on, inside the phone app).
+  if (isContractor) return <FaceIdLock onSignOut={signOut} email={session.user?.email || ""}><ContractorPortal />{catcher}</FaceIdLock>;
   return (
-    <DataProvider>
-      <IdleSleep><GoldstoneShell /></IdleSleep>
-      {catcher}
-    </DataProvider>
+    <FaceIdLock onSignOut={signOut} email={session.user?.email || ""}>
+      <DataProvider>
+        <IdleSleep><GoldstoneShell /></IdleSleep>
+        {catcher}
+      </DataProvider>
+    </FaceIdLock>
   );
 }

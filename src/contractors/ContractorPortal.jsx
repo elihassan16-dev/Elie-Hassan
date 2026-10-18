@@ -11,6 +11,7 @@ import { linkifyText, rescuePastedLink } from "../sms";
 import { notify, attLabel, uploadAttachment, qbAuthFetch, STREAM_VIDEO_CAP, urgentPing } from "../net";
 import { UrgentChip, UrgentTag, UrgentPopup, readSeen, addSeen, RED as URGENT_RED } from "../urgent";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "../push";
+import { FaceIdSetting } from "../faceId";
 import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, resumeVideoUploads } from "../videoUpload";
 import { MediaBubble, SwipeReply, MentionText } from "../chatMedia";
 import { VoiceRecorder } from "../voiceRecorder";
@@ -931,6 +932,7 @@ export function ContractorPortal() {
                 </Fragment>);
               }); })()}
             </div>
+            <FaceIdSetting email={user?.email || ""} T={T} wrap={(row) => <div style={{ borderTop: HAIR, flexShrink: 0 }}>{row}</div>} />
           </div>
         )}
 

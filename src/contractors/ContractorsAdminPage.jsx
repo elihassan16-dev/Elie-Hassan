@@ -235,7 +235,7 @@ function AddMemberModal({ org, contacts = [], existingEmails = [], prefill = nul
               <div style={{ fontSize: 13.5, fontWeight: 650, color: T.text }}>Give them a login</div>
               <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 1 }}>They'll see only their company's portal — jobs, tasks, messages</div>
             </span>
-            <button onClick={() => setWithLogin(v => !v)} aria-label="Toggle portal login" style={{ width: 51, height: 31, borderRadius: 16, border: "none", background: withLogin ? T.green : "rgba(118,118,128,0.16)", position: "relative", cursor: "pointer", padding: 0, flexShrink: 0, transition: "background 0.15s" }}>
+            <button onClick={() => setWithLogin(v => !v)} role="switch" aria-checked={withLogin} aria-label="Toggle portal login" style={{ width: 51, height: 31, borderRadius: 16, border: "none", background: withLogin ? T.green : "rgba(118,118,128,0.16)", position: "relative", cursor: "pointer", padding: 0, flexShrink: 0, transition: "background 0.15s" }}>
               <span style={{ position: "absolute", top: 2, left: withLogin ? 22 : 2, width: 27, height: 27, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.25)", transition: "left 0.15s" }} />
             </button>
           </div>

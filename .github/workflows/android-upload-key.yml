@@ -1,0 +1,34 @@
+# 🔑 One-time: make the Google Play UPLOAD key (run by hand: Actions →
+# "Android upload key" → Run workflow). It creates a new keystore with a random
+# password and leaves both as a private download on the run page (kept 1 day).
+# Copy them into GitHub → Settings → Secrets → Actions:
+#   ANDROID_KEYSTORE_B64       ← contents of keystore-base64.txt
+#   ANDROID_KEYSTORE_PASSWORD  ← contents of password.txt
+# then delete the download. The key never appears in logs or in the repo.
+name: Android upload key
+on: workflow_dispatch
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - name: Make the key
+        run: |
+          set -e
+          umask 077
+          mkdir -p "$RUNNER_TEMP/key"
+          cd "$RUNNER_TEMP/key"
+          PW=$(openssl rand -base64 30 | tr -dc 'A-Za-z0-9' | head -c 28)
+          keytool -genkeypair -v -keystore upload.keystore -storetype PKCS12 -alias upload \
+            -keyalg RSA -keysize 4096 -validity 10000 -storepass "$PW" -keypass "$PW" \
+            -dname "CN=Goldstone Properties, O=Goldstone Properties, C=US" > /dev/null 2>&1
+          base64 -w0 upload.keystore > keystore-base64.txt
+          printf '%s' "$PW" > password.txt
+          rm upload.keystore
+          echo "Key made — download 'goldstone-upload-key' below."
+      - uses: actions/upload-artifact@v4
+        with:
+          name: goldstone-upload-key
+          path: ${{ runner.temp }}/key/
+          retention-days: 1

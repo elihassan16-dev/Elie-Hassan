@@ -566,7 +566,7 @@ function ScopeEditModal({ j, save, displayName, onClose }) {
 
 // ── Job detail — overview (money/docs), tasks, messages ──────────────────────
 // Exported: the property page's Contacts tab opens the same popup.
-export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages, docs, save, remove, displayName, onEditBasics, onClose }) {
+export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, messages, docs, save, remove, displayName, onEditBasics, onClose, initialTab }) {
   const total = jobTotal(j), paid = jobPaid(j), left = jobLeft(j), days = jobDays(j);
   // Per-job crew: a company can have several logins (foremen) but not all of
   // them work every job. j.crew = [user ids] limits who sees this job in the
@@ -593,7 +593,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
   const toThem = jTasks.filter((t) => t.direction !== "to_team" && vis(t)).sort((a, b) => closed(a.status) - closed(b.status));
   const fromThem = jTasks.filter((t) => t.direction === "to_team" && vis(t)).sort((a, b) => closed(a.status) - closed(b.status));
   const thread = (messages || []).filter((m) => String(m.jobId) === String(j.id)).sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
-  const [tab2, setTab2] = useState("overview");
+  const [tab2, setTab2] = useState(initialTab || "overview");
   const [coDraft, setCoDraft] = useState(null);
   const [askDraft, setAskDraft] = useState(null); // scope-only CO request TO them (they price it)
   const [pricePop, setPricePop] = useState(false); // original price + change orders

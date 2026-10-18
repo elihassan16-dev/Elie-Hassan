@@ -1552,18 +1552,21 @@ function PhotosLinkCard({value,onChange}){
 }
 
 // ─── Add-from-directory — a button that opens a searchable contacts picker ────
-function AddFromDirectory({avail,onAdd}){
-  const[open,setOpen]=useState(false);
+function AddFromDirectory({avail,onAdd,open:openP,onClose}){
+  const[openS,setOpenS]=useState(false);
+  const ctl=openP!==undefined; // People tab opens it from its own ＋ Add button
+  const open=ctl?openP:openS;
+  const setOpen=(v)=>{if(ctl){if(!v&&onClose)onClose();}else setOpenS(v);};
   const[q,setQ]=useState("");
   const term=q.trim().toLowerCase();
   const list=term?avail.filter(c=>[c.name,c.role,c.company,c.phone].filter(Boolean).join(" ").toLowerCase().includes(term)):avail;
   const inS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   return(<>
-    <Card>
+    {!ctl&&<Card>
       <button onClick={()=>{setOpen(true);setQ("");}} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"15px 16px",background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:15,fontFamily:"inherit",cursor:"pointer"}}>
         <span style={{fontSize:18,lineHeight:1}}>＋</span> Import contacts from directory
       </button>
-    </Card>
+    </Card>}
     {open&&(
       <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:220,backdropFilter:"blur(4px)"}}>
         <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:"20px 20px 0 0",width:520,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd}}>
@@ -2384,7 +2387,7 @@ function FinOverview({property,onUpdate}){
 }
 
 // ─── Property Detail ──────────────────────────────────────────────────────────
-const PTABS=["Financial Overview","QuickBooks","Tasks","Contractors","Contacts","Files","Emails"];
+const PTABS=["Financial Overview","QuickBooks","Tasks","People","Files","Emails"]; // People = Contractors + Contacts (10/18/26)
 
 // ─── Showings tab — pull ShowingTime calendar feed, match to this property ─────
 function showingMatchesProperty(text,p){
@@ -5945,17 +5948,65 @@ function BidRequestModal({property,orgs,onCreate,onClose,initialScope=""}){
 // 👷 Contractors tab on a property (approved 9/2/26): this house's package —
 // the Scope of Work built from Elie's library (spec sheet + bids follow in
 // later rounds) — and the contractor jobs card that used to sit under Contacts.
-function ContractorsTab({property,onUpdate}){
+// 👥 People tab (Elie 10/18/26 — Contractors + Contacts merged): contractor
+// job cards, this house's package (scope/spec), then the linked contacts
+// grouped by what they do, one "＋ Add a contractor or contact" at the bottom.
+const PEOPLE_GROUPS=[["Agent",/agent|realtor|broker|showing/i],["Title / Attorney",/title|attorney|lawyer|closing|escrow/i],["Lender",/lend|loan|mortgage|bank|funder|capital/i],["Inspector / Appraiser",/inspect|apprais|engineer/i],["Insurance",/insur/i],["Utilities",/utilit|electric|gas|water|sewer|pse|oil|propane|internet/i],["Town",/town|city|township|borough|zoning|permit|code|tax/i]];
+const peopleGroup=(c)=>{const k=`${c.role||""} ${c.company||""} ${(c.tags||[]).join(" ")}`;const g=PEOPLE_GROUPS.find(([,re])=>re.test(k));return g?g[0]:"Other";};
+const PEOPLE_COLORS=["#5856D6","#AF52DE","#FF9500","#30B0C7","#007AFF","#34C759","#FF2D55","#A2845E"];
+function PeopleContacts({linked,avail,addC,remC,addOpen,setAddOpen}){
+  const[menu,setMenu]=useState(null); // {c, r}
+  const groups=[...PEOPLE_GROUPS.map(g=>g[0]),"Other"].map(g=>[g,linked.filter(c=>peopleGroup(c)===g)]).filter(([,l])=>l.length);
+  const circ=(bg,fg)=>({width:40,height:40,borderRadius:20,border:"none",background:bg,color:fg,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",textDecoration:"none",flexShrink:0,padding:0,boxSizing:"border-box"});
+  const ini=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(w=>w[0]).join("").toUpperCase();
+  const color=(n)=>PEOPLE_COLORS[[...String(n||"")].reduce((a,ch)=>a+ch.charCodeAt(0),0)%PEOPLE_COLORS.length];
+  return(<>
+    <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",padding:"14px 4px 8px"}}>
+      <span style={{fontSize:13,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em"}}>Contacts</span>
+      <span style={{fontSize:13,color:T.textTert}}>{linked.length?`${linked.length} ${linked.length===1?"person":"people"}`:""}</span>
+    </div>
+    <div style={{background:"#fff",borderRadius:16,overflow:"hidden"}}>
+      {linked.length===0&&<div style={{fontSize:14,color:T.textTert,padding:"16px"}}>No contacts linked yet.</div>}
+      {groups.map(([g,list],gi)=>(
+        <div key={g} style={{borderTop:gi===0?"none":"0.5px solid rgba(60,60,67,0.12)"}}>
+          <div style={{fontSize:12,fontWeight:700,color:T.textTert,padding:"10px 16px 2px",textTransform:"uppercase",letterSpacing:"0.04em"}}>{g}</div>
+          {list.map((c,i)=>(
+            <div key={c.id} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 6px 9px 16px",borderTop:i===0?"none":"0.5px solid rgba(60,60,67,0.12)"}}>
+              <span style={{width:38,height:38,borderRadius:19,background:color(c.name),color:"#fff",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{ini(c.name)}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:15.5,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
+                <div style={{fontSize:13,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[c.company,c.role].filter(Boolean).join(" · ")||c.phone||c.email||""}</div>
+              </div>
+              {c.phone&&<CallA phone={c.phone} style={circ("#E8F8EC","#1F8A3B")}><PhoneIcon size={17} color="#1F8A3B"/></CallA>}
+              {c.phone&&<TextA phone={c.phone} style={circ("#E8F1FF",T.blue)}><SmsChatIcon size={17} color={T.blue}/></TextA>}
+              <button onClick={e=>setMenu({c,r:e.currentTarget.getBoundingClientRect()})} aria-label={`More for ${c.name}`} style={{...circ("none",T.textSub),width:40}}>{DOTS_SVG}</button>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+    {menu&&<DotsMenu r={menu.r} onClose={()=>setMenu(null)} rows={[
+      menu.c.email&&{k:"mail",label:"Email",icon:"✉️",run:()=>{window.location.href=`mailto:${menu.c.email}`;}},
+      {k:"rm",label:"Remove from this property",icon:"✕",red:true,run:()=>remC(menu.c.id)},
+    ].filter(Boolean)}/>}
+    <AddFromDirectory avail={avail} onAdd={addC} open={addOpen} onClose={()=>setAddOpen(false)}/>
+  </>);
+}
+function ContractorsTab({property,onUpdate,contacts}){
   const{isAdmin}=useAuth();
   const[scopeOpen,setScopeOpen]=useState(false);
+  const[addMenu,setAddMenu]=useState(null);   // anchor rect of the ＋ Add button
+  const[extOpen,setExtOpen]=useState(null);   // "job" | "bid" → PropertyContractorsCard
+  const[dirOpen,setDirOpen]=useState(false);  // directory picker
   const sow=property.sow||null;
   const n=(sow&&sow.items||[]).length;
   const rowS={display:"flex",alignItems:"center",gap:12,padding:"12px 16px",minHeight:56,cursor:"pointer",borderTop:`1px solid ${T.border}`};
   const ico=(g)=><span style={{width:38,height:38,borderRadius:11,background:T.goldLight,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:19,flexShrink:0}}>{g}</span>;
   return(
     <div>
+      <PropertyContractorsCard property={property} extOpen={extOpen} onExtDone={()=>setExtOpen(null)}/>
       {isAdmin&&(
-        <Card style={{marginBottom:16}}>
+        <Card style={{marginBottom:4,marginTop:4}}>
           <div style={{padding:"12px 16px 8px",fontSize:12,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em"}}>📦 This house's package</div>
           <div onClick={()=>setScopeOpen("pick")} style={rowS}>
             {ico("📄")}
@@ -5974,20 +6025,28 @@ function ContractorsTab({property,onUpdate}){
             </span>
             <span style={{color:T.textTert,fontSize:18}}>›</span>
           </div>
-          <div style={{padding:"8px 16px 12px",fontSize:11.5,color:T.textTert,lineHeight:1.45}}>Share the scope as a PDF by text, WhatsApp or email from inside it. 🧾 Request a bid below uses this scope automatically.</div>
+          <div style={{padding:"8px 16px 12px",fontSize:11.5,color:T.textTert,lineHeight:1.45}}>Share the scope as a PDF by text, WhatsApp or email from inside it. 🧾 Request a bid uses this scope automatically.</div>
         </Card>
       )}
-      <PropertyContractorsCard property={property}/>
+      {contacts&&<PeopleContacts {...contacts} addOpen={dirOpen} setAddOpen={setDirOpen}/>}
+      {contacts&&<button onClick={e=>{if(!isAdmin){setDirOpen(true);return;}setAddMenu(e.currentTarget.getBoundingClientRect());}}
+        style={{marginTop:14,width:"100%",minHeight:48,borderRadius:14,border:`1.5px dashed ${T.gold}`,background:"#FFFCF5",color:"#9B7C33",fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>＋ Add a contractor or contact</button>}
+      {addMenu&&<DotsMenu r={addMenu} onClose={()=>setAddMenu(null)} rows={[
+        {k:"c",label:"Contact from the directory",icon:"👤",run:()=>setDirOpen(true)},
+        {k:"job",label:"Contractor job",icon:"👷",run:()=>setExtOpen("job")},
+        {k:"bid",label:"Request a bid",icon:"🧾",run:()=>setExtOpen("bid")},
+      ]}/>}
       {scopeOpen&&<ScopeBuilder property={property} onUpdate={onUpdate} onClose={()=>setScopeOpen(false)} initialView={scopeOpen==="spec"?"spec":"pick"}/>}
     </div>
   );
 }
 // Contractors section, opened from the property. Plus 🧾 Request a bid.
-function PropertyContractorsCard({property}){
+function PropertyContractorsCard({property,hideHeader,extOpen,onExtDone}){
   const {isAdmin}=useAuth();
   const {currentUser}=useData();
   const {orgs:ctrOrgs,jobs:ctrJobs,tasks:ctrTasks,messages:ctrMessages,docs:ctrDocs,siteStatus:ctrSiteStatus,save:ctrSave,remove:ctrRemove}=useContractorData();
   const[openJobId,setOpenJobId]=useState(null);
+  const[openJobTab,setOpenJobTab]=useState(null); // 💬 Chat opens the job on its messages
   const[bidOpen,setBidOpen]=useState(false);
   const pJobs=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(property.id)).sort((a,b)=>(a.status==="complete")-(b.status==="complete")||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
   const allOrgs=(ctrOrgs||[]).slice().sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
@@ -6088,6 +6147,8 @@ function PropertyContractorsCard({property}){
   // portal existed: no bid request, Elie sets the price, auto-match pulls the
   // old QuickBooks payments in on its own.
   const[addJobOpen,setAddJobOpen]=useState(false);
+  // People tab's "＋ Add" menu reaches in here: "job" | "bid".
+  useEffect(()=>{if(!extOpen)return;if(extOpen==="job")setAddJobOpen(true);else if(extOpen==="bid")setBidOpen(true);if(onExtDone)onExtDone();},[extOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const[addOrgId,setAddOrgId]=useState("");const[addTitle,setAddTitle]=useState("");const[addPrice,setAddPrice]=useState("");
   const addJob=async()=>{
     if(!addOrgId)return;
@@ -6113,85 +6174,91 @@ function PropertyContractorsCard({property}){
   // All hooks live above this line — the empty-state exit must come after them
   // (an earlier position crashed React with error #310 once data loaded in).
   if(!pJobs.length&&!allOrgs.length)return null;
+  // People tab (Elie 10/18/26): one card per job — who, money, what's waiting,
+  // then Chat · Call · Open job. Bids keep their enter/accept/decline buttons.
+  const pill=(gold)=>({flex:1,minWidth:0,height:44,borderRadius:12,border:"none",background:gold?T.gold:"rgba(118,118,128,0.10)",color:gold?"#fff":T.text,fontWeight:650,fontSize:14,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:6,position:"relative",textDecoration:"none",boxSizing:"border-box",whiteSpace:"nowrap"});
+  const hdBtn={padding:"0 13px",minHeight:34,borderRadius:17,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit"};
   return(
     <>
-      <Card style={{marginBottom:16,border:`1.5px solid ${T.gold}`}}>
-        <div style={{padding:"12px 16px 10px",display:"flex",alignItems:"center",gap:8,background:"#FFF9EC",flexWrap:"wrap"}}>
-          <span style={{fontSize:12,fontWeight:800,color:"#8a6d1f",textTransform:"uppercase",letterSpacing:"0.05em"}}>👷 Contractors on this property</span>
-          <span style={{fontSize:10,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 7px",letterSpacing:"0.05em"}}>EXTERNAL</span>
+      {!hideHeader&&(
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 4px 8px",flexWrap:"wrap"}}>
+          <span style={{fontSize:13,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em"}}>Contractors</span>
+          <span style={{fontSize:13,color:T.textTert}}>{pJobs.length?`${pJobs.length} job${pJobs.length===1?"":"s"}`:""}</span>
           <span style={{flex:1}}/>
-          {isAdmin&&allOrgs.length>0&&<button onClick={()=>setAddJobOpen(true)} style={{padding:"6px 13px",borderRadius:16,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>＋ Add a job</button>}
-          {isAdmin&&allOrgs.length>0&&<button onClick={()=>setBidOpen(true)} style={{padding:"6px 13px",borderRadius:16,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🧾 Request a bid</button>}
+          {isAdmin&&allOrgs.length>0&&<button onClick={()=>setAddJobOpen(true)} style={hdBtn}>＋ Add job</button>}
+          {isAdmin&&allOrgs.length>0&&<button onClick={()=>setBidOpen(true)} style={hdBtn}>🧾 Request a bid</button>}
         </div>
-        {pJobs.length===0&&<div style={{padding:"14px 16px",fontSize:12.5,color:T.textTert,background:"#FFF9EC"}}>No jobs or bids on this property yet — request a bid to get a price from one of your contractors.</div>}
-        {pJobs.map(j=>{
-          const org=orgOf(j.orgId);
-          const m=jobMoney(j);
-          const pend=(j.coRequests||[]).filter(r=>r.status==="pending").length;
-          const openT=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id)&&t.status!=="Completed"&&t.status!=="N/A").length;
-          const unread=(ctrMessages||[]).filter(x=>String(x.jobId)===String(j.id)&&x.side!=="team"&&!(x.readBy||[]).includes(currentUser)).length;
-          const isBid=j.status==="bid";
-          const over=m.bid>0&&m.paid>m.bid;
-          const pct=m.bid>0?Math.min(100,100*m.paid/m.bid):(m.paid>0?100:0);
-          const ic=(emoji,badge,title,onClick)=>(
-            <button onClick={e=>{e.stopPropagation();onClick();}} title={title} style={{position:"relative",width:32,height:32,borderRadius:"50%",background:"#fff",border:"1px solid #E5D9B0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer",fontFamily:"inherit",flexShrink:0,padding:0}}>
-              {emoji}{badge>0&&<span style={{position:"absolute",top:-4,right:-4,background:T.red,color:"#fff",fontSize:10,fontWeight:800,borderRadius:9,padding:"1px 5px",lineHeight:1.3}}>{badge}</span>}
-            </button>
-          );
-          return(
-            <div key={j.id} onClick={()=>setOpenJobId(j.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",borderTop:"1px solid rgba(184,149,63,0.25)",cursor:"pointer",background:"#FFF9EC",opacity:j.status==="complete"?0.6:1,flexWrap:"wrap"}}>
-              <div style={{flex:1,minWidth:170}}>
-                <div style={{fontSize:14.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org?.name||"Contractor"}{j.title?` — ${j.title}`:""}</div>
-                <div style={{fontSize:12,color:over?T.red:"#8a6d1f",marginTop:2}}>
-                  {isBid
-                    ?(j.bidAmount?`🧾 Bid: ${$(j.bidAmount)}${j.bidEnteredByAdmin?" · entered by you":j.bidBy?` from ${j.bidBy.split(" ")[0]}`:""}`:"🧾 Bid requested — waiting on their price")
-                    :j.status==="complete"?"Job complete"
-                    :over?"⚠ paid more than the bid"
-                    :m.auto.length||( j.payments||[]).some(x=>x.qbId)?`✓ payments auto-matched from QuickBooks${openT?` · ${openT} open task${openT!==1?"s":""}`:""}`
-                    :`${openT?`${openT} open task${openT!==1?"s":""}`:"tap to manage"}`}
-                </div>
-                {isBid&&(j.bidItems||[]).length>0&&<div style={{marginTop:5,fontSize:11.5,color:T.textSub,lineHeight:1.7,maxWidth:420}}>
-                  {j.bidItems.map((r,i)=><div key={i} style={{display:"flex",gap:10}}><span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.label}</span><b style={{flexShrink:0,color:T.text}}>{$(r.amount)}</b></div>)}
-                </div>}
+      )}
+      {pJobs.length===0&&<div style={{marginBottom:16,padding:"14px 16px",fontSize:13,color:T.textTert,background:"#fff",borderRadius:16}}>No jobs or bids on this property yet — request a bid to get a price from one of your contractors.</div>}
+      {pJobs.map(j=>{
+        const org=orgOf(j.orgId);
+        const m=jobMoney(j);
+        const pend=(j.coRequests||[]).filter(r=>r.status==="pending").length;
+        const openT=(ctrTasks||[]).filter(t=>String(t.jobId)===String(j.id)&&t.status!=="Completed"&&t.status!=="N/A").length;
+        const unread=(ctrMessages||[]).filter(x=>String(x.jobId)===String(j.id)&&x.side!=="team"&&!(x.readBy||[]).includes(currentUser)).length;
+        const isBid=j.status==="bid";
+        const over=m.bid>0&&m.paid>m.bid;
+        const pct=m.bid>0?Math.min(100,100*m.paid/m.bid):(m.paid>0?100:0);
+        const who=[j.title&&j.title!=="Job"?j.title:"",org?.contactName||"",org?.phone||""].filter(Boolean).join(" · ");
+        const note=isBid
+          ?(j.bidAmount?`🧾 Bid: ${$(j.bidAmount)}${j.bidEnteredByAdmin?" · entered by you":j.bidBy?` from ${j.bidBy.split(" ")[0]}`:""}`:"🧾 Bid requested — waiting on their price")
+          :j.status==="complete"?"✓ Job complete"
+          :over?"⚠ Paid more than the contract"
+          :(m.auto.length||(j.payments||[]).some(x=>x.qbId))?"✓ Payments matched from QuickBooks":"";
+        return(
+          <div key={j.id} style={{marginBottom:12,background:"#fff",borderRadius:16,padding:14,border:"1px solid rgba(184,149,63,0.45)",opacity:j.status==="complete"?0.65:1}}>
+            <div onClick={()=>setOpenJobId(j.id)} style={{display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
+              <span style={{width:44,height:44,borderRadius:12,background:T.goldLight,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>👷</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:16,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org?.name||"Contractor"}<span style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",color:"#9B7C33",border:`1px solid ${T.gold}`,borderRadius:8,padding:"1px 6px",marginLeft:7,verticalAlign:2}}>EXTERNAL</span></div>
+                {who&&<div style={{fontSize:13,color:T.textSub,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{who}</div>}
               </div>
-              {!isBid&&(
-                <span style={{display:"flex",gap:7,flexShrink:0,alignItems:"center"}}>
-                  {ic("💬",unread,"Messages",()=>setOpenJobId(j.id))}
-                  {ic("🧾",pend,"Change orders",()=>setOpenJobId(j.id))}
-                  {ic("💰",0,"Payments — bid vs paid",()=>setPayFor(j.id))}
-                  {ic("☑",openT,"Tasks",()=>setOpenJobId(j.id))}
-                </span>
-              )}
-              {(m.bid>0||m.paid>0)&&(
-                <span style={{display:"flex",gap:14,flexShrink:0,alignItems:"center"}} onClick={e=>{e.stopPropagation();setPayFor(j.id);}}>
-                  <span style={{width:90,height:6,borderRadius:3,background:"#ECE5D2",overflow:"hidden",display:"flex"}}><span style={{display:"block",height:"100%",width:`${pct}%`,background:over?T.red:"#C9A227"}}/></span>
-                  <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:10,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>BID</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:T.text}}>{fm(m.bid)}</span></span>
-                  <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:10,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>PAID</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:"#0F9D58"}}>{fm(m.paid)}</span></span>
-                  <span style={{textAlign:"right"}}><span style={{display:"block",fontSize:10,fontWeight:800,color:"#A79A72",letterSpacing:"0.04em"}}>LEFT</span><span style={{display:"block",fontSize:12.5,fontWeight:800,color:m.left<0?T.red:"#B8953F"}}>{fm(m.left)}</span></span>
-                </span>
-              )}
-              {isAdmin&&(isBid?!j.bidAmount:!(Number(j.price)>0)&&j.status!=="complete")&&(
-                <span style={{display:"flex",gap:6,flexShrink:0,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
-                  {String(bidEntryFor)===String(j.id)?(<>
-                    <input autoFocus value={bidEntryAmt} onChange={e=>setBidEntryAmt(e.target.value)} onKeyDown={e=>e.key==="Enter"&&enterBid(j)} inputMode="decimal" placeholder="$ their price" style={{width:110,padding:"7px 10px",borderRadius:9,border:`1px solid ${T.gold}`,fontSize:12.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-                    <button onClick={()=>enterBid(j)} style={{padding:"6px 13px",borderRadius:16,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
-                    <button onClick={()=>{setBidEntryFor(null);setBidEntryAmt("");}} style={{background:"none",border:"none",color:T.textTert,fontSize:16,cursor:"pointer",lineHeight:1}}>×</button>
-                  </>):(
-                    <button onClick={()=>{setBidEntryFor(j.id);setBidEntryAmt("");}} style={{padding:"6px 13px",borderRadius:16,border:`1.5px dashed ${T.gold}`,background:"#fff",color:"#8a6d1f",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{isBid?"✎ Enter their bid":"✎ Set the price"}</button>
-                  )}
-                </span>
-              )}
-              {isBid&&j.bidAmount&&isAdmin&&(
-                <div style={{display:"flex",gap:6,flexShrink:0}} onClick={e=>e.stopPropagation()}>
-                  <button onClick={()=>acceptBid(j)} style={{padding:"6px 13px",borderRadius:16,border:"none",background:T.green,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✓ Accept {$(j.bidAmount)}</button>
-                  <button onClick={()=>declineBid(j)} style={{padding:"6px 13px",borderRadius:16,border:`1px solid ${T.red}`,background:"#fff",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Decline</button>
-                </div>
-              )}
-              <span style={{fontSize:12,fontWeight:700,color:"#8a6d1f",flexShrink:0}}>{isBid?"Open ›":"Manage ›"}</span>
             </div>
-          );
-        })}
-      </Card>
+            {(m.bid>0||m.paid>0)&&(
+              <div onClick={()=>setPayFor(j.id)} title="Payments — contract vs paid" style={{cursor:"pointer"}}>
+                <div style={{display:"flex",marginTop:12,background:"#FAFAFB",borderRadius:12,padding:"10px 0"}}>
+                  {[[isBid?"Bid":"Contract",fm(m.bid),T.text],["Paid",fm(m.paid),"#1F8A3B"],["Left",fm(m.left),m.left<0?T.red:T.text]].map(([l,v,c])=>(
+                    <div key={l} style={{flex:1,textAlign:"center"}}><div style={{fontSize:15,fontWeight:700,color:c}}>{v}</div><div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>{l}</div></div>
+                  ))}
+                </div>
+                <div style={{height:6,borderRadius:3,background:"#ECECEF",margin:"10px 2px 0",overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:over?T.red:T.green,borderRadius:3}}/></div>
+              </div>
+            )}
+            {note&&<div style={{marginTop:10,fontSize:12.5,color:over?T.red:T.textSub}}>{note}</div>}
+            {isBid&&(j.bidItems||[]).length>0&&<div style={{marginTop:6,fontSize:12,color:T.textSub,lineHeight:1.7}}>
+              {j.bidItems.map((r,i)=><div key={i} style={{display:"flex",gap:10}}><span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.label}</span><b style={{flexShrink:0,color:T.text}}>{$(r.amount)}</b></div>)}
+            </div>}
+            {(pend>0||openT>0)&&!isBid&&(
+              <div onClick={()=>setOpenJobId(j.id)} style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap",cursor:"pointer"}}>
+                {pend>0&&<span style={{background:"#FFF4E5",color:"#B25E09",borderRadius:10,padding:"7px 10px",fontSize:13,fontWeight:600}}>🧾 {pend} change order{pend===1?"":"s"} waiting</span>}
+                {openT>0&&<span style={{background:"rgba(118,118,128,0.08)",color:T.text,borderRadius:10,padding:"7px 10px",fontSize:13,fontWeight:600}}>☑ {openT} open task{openT===1?"":"s"}</span>}
+              </div>
+            )}
+            {isAdmin&&(isBid?!j.bidAmount:!(Number(j.price)>0)&&j.status!=="complete")&&(
+              <div style={{display:"flex",gap:6,marginTop:10,alignItems:"center"}}>
+                {String(bidEntryFor)===String(j.id)?(<>
+                  <input autoFocus value={bidEntryAmt} onChange={e=>setBidEntryAmt(e.target.value)} onKeyDown={e=>e.key==="Enter"&&enterBid(j)} inputMode="decimal" placeholder="$ their price" style={{flex:1,minWidth:0,padding:"9px 12px",borderRadius:10,border:`1px solid ${T.gold}`,fontSize:15,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  <button onClick={()=>enterBid(j)} style={{...pill(true),flex:"0 0 auto",padding:"0 16px"}}>Save</button>
+                  <button onClick={()=>{setBidEntryFor(null);setBidEntryAmt("");}} style={{...pill(false),flex:"0 0 auto",width:40}}>✕</button>
+                </>):(
+                  <button onClick={()=>{setBidEntryFor(j.id);setBidEntryAmt("");}} style={{...hdBtn,minHeight:38}}>{isBid?"✎ Enter their bid":"✎ Set the price"}</button>
+                )}
+              </div>
+            )}
+            {isBid&&j.bidAmount&&isAdmin&&(
+              <div style={{display:"flex",gap:8,marginTop:10}}>
+                <button onClick={()=>acceptBid(j)} style={{...pill(false),background:T.green,color:"#fff"}}>✓ Accept {$(j.bidAmount)}</button>
+                <button onClick={()=>declineBid(j)} style={{...pill(false),color:T.red}}>Decline</button>
+              </div>
+            )}
+            <div style={{display:"flex",gap:8,marginTop:12}}>
+              <button onClick={()=>{setOpenJobTab("messages");setOpenJobId(j.id);}} style={pill(false)}>💬 Chat{unread>0&&<span style={{background:T.red,color:"#fff",fontSize:11,fontWeight:800,borderRadius:9,padding:"1px 6px",lineHeight:1.3}}>{unread}</span>}</button>
+              {org?.phone&&<CallA phone={org.phone} style={pill(false)}>📞 Call</CallA>}
+              <button onClick={()=>{setOpenJobTab(null);setOpenJobId(j.id);}} style={pill(true)}>{isBid?"Open bid":"Open job"}</button>
+            </div>
+          </div>
+        );
+      })}
       {bidOpen&&<BidRequestModal property={property} orgs={allOrgs} onCreate={createBid} onClose={()=>setBidOpen(false)} initialScope={property.sow&&(property.sow.items||[]).length?scopeToText(property.sow.items,property.sow.matDefault||"contractor"):""}/>}
       {addJobOpen&&(
         <div onClick={()=>setAddJobOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:390,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box",backdropFilter:"blur(4px)"}}>
@@ -6215,7 +6282,7 @@ function PropertyContractorsCard({property}){
           </div>
         </div>
       )}
-      {openJob&&<CtrJobDetail j={openJob} org={orgOf(openJob.orgId)} isAdmin={isAdmin} qbProjectId={property.qbProjectId||null} tasks={ctrTasks} messages={ctrMessages} docs={ctrDocs} save={ctrSave} remove={ctrRemove} displayName={currentUser} onClose={()=>setOpenJobId(null)}/>}
+      {openJob&&<CtrJobDetail j={openJob} org={orgOf(openJob.orgId)} isAdmin={isAdmin} qbProjectId={property.qbProjectId||null} tasks={ctrTasks} messages={ctrMessages} docs={ctrDocs} save={ctrSave} remove={ctrRemove} displayName={currentUser} initialTab={openJobTab||undefined} onClose={()=>setOpenJobId(null)}/>}
       {payJob&&(()=>{const j=payJob;const m=jobMoney(j);
         const prS={display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"8px 18px",borderTop:`1px solid ${T.border}55`,fontSize:12.5};
         return(
@@ -6284,7 +6351,7 @@ const PROP_VIEW_MEM=new Map();
 function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const { contacts: CONTACTS, teamMembers: TEAM_MEMBERS } = useData();
   const isMobile=useIsMobile();
-  const[tab,setTab]=useState(()=>(PROP_VIEW_MEM.get(property.id)||{}).tab||"Financial Overview");
+  const[tab,setTab]=useState(()=>{const t=(PROP_VIEW_MEM.get(property.id)||{}).tab||"Financial Overview";return t==="Contractors"||t==="Contacts"?"People":t;});
   const[taskPopup,setTaskPopup]=useState(null);
   const[showInfo,setShowInfo]=useState(false); // Property Info popup
   const[aiChat,setAiChat]=useState(false); // ✨ ask-AI-about-this-property popup
@@ -6507,25 +6574,8 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
             </div>
           );
         })()}
-        {tab==="Contacts"&&(
-          <div style={{padding:24}}>
-            <Card style={{marginBottom:16}}><GHeader label="Linked Contacts"/>
-              <div style={{padding:"4px 0 8px"}}>
-                {linked.length===0&&<div style={{fontSize:14,color:T.textTert,padding:"12px 16px"}}>No contacts linked yet.</div>}
-                {linked.map((c,i)=>(
-                  <div key={c.id} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderTop:i===0?"none":`1px solid ${T.border}`}}>
-                    <div style={{width:40,height:40,borderRadius:"50%",background:`linear-gradient(135deg,${T.gold},${T.goldMid})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:15,color:"#fff",flexShrink:0}}>{c.name[0]}</div>
-                    <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:15,color:T.text}}>{c.name}</div><div style={{fontSize:13,color:T.textSub}}>{c.role} · {c.phone}</div>{(c.phone||c.email)&&<div style={{marginTop:7}} onClick={e=>e.stopPropagation()}><ContactActions phone={c.phone} email={c.email}/></div>}</div>
-                    <button onClick={()=>remC(c.id)} style={{background:"none",border:"none",color:T.red,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>Remove</button>
-                  </div>
-                ))}
-              </div>
-            </Card>
-            <AddFromDirectory avail={avail} onAdd={addC}/>
-          </div>
-        )}
         {tab==="Files"&&<FilesTab property={property} onUpdate={onUpdate}/>}
-        {tab==="Contractors"&&<ContractorsTab property={property} onUpdate={onUpdate}/>}
+        {tab==="People"&&<div style={{padding:isMobile?"14px 14px 24px":"20px 24px 28px",maxWidth:760}}><ContractorsTab property={property} onUpdate={onUpdate} contacts={{linked,avail,addC,remC}}/></div>}
         {tab==="Emails"&&<PropertyEmails property={property} onUpdate={onUpdate} isMobile={isMobile}/>}
         {tab==="QuickBooks"&&<QuickBooksTab property={property} onUpdate={onUpdate}/>}
       </div>

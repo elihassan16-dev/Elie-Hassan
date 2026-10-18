@@ -11,6 +11,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
     "@azure/msal-browser": "^5.16.0",
+    "@capacitor-community/keep-awake": "8.0.1",
     "@capacitor/android": "^8.5.3",
     "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.5.3",

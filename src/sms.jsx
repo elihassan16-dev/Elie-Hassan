@@ -412,6 +412,20 @@ const fmtPhone = (p) => {
   return n.length === 10 ? `(${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}` : String(p || "");
 };
 
+// 📱 Phone app (Elie 10/18/26): "My phone" texts open the iPhone's own
+// Messages compose sheet INSIDE Goldstone (native TextCompose plugin — iOS
+// MessageUI, Android SMS intent) and the text is logged on the thread only if
+// it was actually sent. Website / older app builds: the sms: link as before.
+const textComposer = () => { try { const P = window.Capacitor && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable("TextCompose") && window.Capacitor.Plugins.TextCompose; return P ? { P } : null; } catch { return null; } };
+export async function textFromCell(phone, body, openLink) {
+  const tc = textComposer();
+  if (!tc) { logCellText(phone, body || ""); openLink(smsHref(phone, body)); return; }
+  const to = String(phone || "").replace(/[^\d+]/g, "");
+  try {
+    const r = await tc.P.compose({ to: [to], body: body || "" });
+    if (r && (r.result === "sent" || r.result === "opened")) logCellText(phone, body || "");
+  } catch { logCellText(phone, body || ""); openLink(smsHref(phone, body)); }
+}
 const smsHref = (phone, body) => {
   const clean = String(phone || "").replace(/[^\d+]/g, "");
   if (!body) return `sms:${clean}`;
@@ -512,7 +526,7 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
             </button>
           )}
           {IS_PHONE && (
-            <button style={opt} onClick={() => { if (mode === "text" && templates.length) setStep("personal"); else { if (mode === "text") logCellText(phone); go(mode === "call" ? `tel:${digits}` : `sms:${digits}`); } }}>
+            <button style={opt} onClick={() => { if (mode === "text" && templates.length) setStep("personal"); else if (mode === "text") { onClose(); textFromCell(phone, "", (h) => { window.location.href = h; }); } else go(`tel:${digits}`); }}>
               <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
               <span style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>My phone</div>
@@ -562,12 +576,12 @@ function PhoneChooser({ phone, mode, onInApp, templates = [], onTemplate, onClos
           </button>
         </>) : (<>
           <div style={{ fontSize: 13, fontWeight: 800, color: T.text, padding: "4px 6px 2px" }}>📱 Text from my phone — start with…</div>
-          <button style={opt} onClick={() => { logCellText(phone); go(smsHref(phone)); }}>
+          <button style={opt} onClick={() => { onClose(); textFromCell(phone, "", (h) => { window.location.href = h; }); }}>
             <span style={{ fontSize: 20, flexShrink: 0 }}>✏️</span>
             <span style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Blank text</span>
           </button>
           {templates.map((t) => (
-            <button key={t.kind} style={opt} onClick={() => { onTemplate && onTemplate(t.kind); logCellText(phone, t.text); go(smsHref(phone, t.text)); }}>
+            <button key={t.kind} style={opt} onClick={() => { onTemplate && onTemplate(t.kind); onClose(); textFromCell(phone, t.text, (h) => { window.location.href = h; }); }}>
               <span style={{ fontSize: 20, flexShrink: 0 }}>📋</span>
               <span style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{t.label}</div>
@@ -625,7 +639,12 @@ export function HandoffCatcher() {
       // Auto-bounce for sms:/tel: where the platform allows it. wa.me is a
       // regular https link — auto-navigating would replace the app, so that
       // one always waits for the button.
-      if (auto && /^(sms:|tel:)/i.test(h)) setTimeout(() => { try { window.location.href = h; } catch { /* blocked — the button remains */ } }, 350);
+      const tc = /^sms:/i.test(h) ? textComposer() : null;
+      if (auto && tc) {
+        const m = /^sms:([^?&]*)(?:[?&]body=(.*))?$/i.exec(h) || [];
+        let body = ""; try { body = decodeURIComponent(m[2] || ""); } catch { body = m[2] || ""; }
+        setTimeout(() => { tc.P.compose({ to: [m[1] || ""], body }).then(() => clear()).catch(() => {}); }, 350);
+      } else if (auto && /^(sms:|tel:)/i.test(h)) setTimeout(() => { try { window.location.href = h; } catch { /* blocked — the button remains */ } }, 350);
     };
     try {
       const q = new URLSearchParams(window.location.search);

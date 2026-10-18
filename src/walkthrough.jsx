@@ -665,6 +665,31 @@ export async function startWalkFromCloud(property, video, onUpdate, getLatest, o
 
 // Kick off one or more videos for a property. Runs to completion whether or
 // not the popup stays open; items append across clips.
+// 🎥 Keep the screen on while recording (Elie 10/18/26): the phone app uses the
+// native KeepAwake plugin, browsers the Wake Lock API. Every iPhone/Android
+// camera stops when the phone locks — so we also save the clip the moment the
+// app is left (see onHidden in WalkthroughModal) instead of losing it.
+let awakeLock = null;
+export async function keepScreenOn(on) {
+  try {
+    const K = window.Capacitor && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable("KeepAwake") && window.Capacitor.Plugins.KeepAwake;
+    if (K) { await (on ? K.keepAwake() : K.allowSleep()); return; }
+  } catch { /* fall back to the browser */ }
+  try {
+    if (on && !awakeLock && navigator.wakeLock) awakeLock = await navigator.wakeLock.request("screen");
+    if (!on && awakeLock) { await awakeLock.release(); awakeLock = null; }
+  } catch { /* not supported — fine */ }
+}
+// A recorded clip while another is still being transcribed waits its turn
+// instead of being dropped.
+export function queueWalkClip(property, file) {
+  const run = () => startWalkClips(property, [file]);
+  if (wkGet(property.id)?.status !== "proc") { run(); return; }
+  const started = Date.now();
+  const iv = setInterval(() => {
+    if (wkGet(property.id)?.status !== "proc" || Date.now() - started > 45 * 60000) { clearInterval(iv); run(); }
+  }, 3000);
+}
 export async function startWalkClips(property, files, opts = {}) {
   const pid = property.id;
   const fl = Array.from(files || []).filter(Boolean);
@@ -878,9 +903,15 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
+  const onHiddenRef = useRef(null);
+  const pausedRef = useRef(false);
+  const secRef = useRef(0);
+  const [pausedNote, setPausedNote] = useState("");
 
   useEffect(() => () => {
     clearInterval(timerRef.current);
+    keepScreenOn(false);
+    try { document.removeEventListener("visibilitychange", onHiddenRef.current); } catch { /* ignore */ }
     try { streamRef.current && streamRef.current.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
   }, []);
   useEffect(() => { if (step === "rec" && liveRef.current && streamRef.current) { liveRef.current.srcObject = streamRef.current; liveRef.current.play().catch(() => {}); } }, [step]);
@@ -900,16 +931,27 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
       mr.onstop = () => {
         try { stream.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
         clearInterval(timerRef.current);
+        keepScreenOn(false);
+        document.removeEventListener("visibilitychange", onHiddenRef.current);
         const type = mime || "video/webm";
         const blob = new Blob(chunksRef.current, { type });
         setStep("idle"); setAdding(false);
-        startWalkClips(property, [new File([blob], `walkthrough.${type.includes("mp4") ? "mp4" : "webm"}`, { type })]);
+        if (blob.size) queueWalkClip(property, new File([blob], `walkthrough.${type.includes("mp4") ? "mp4" : "webm"}`, { type }));
+        if (pausedRef.current) {
+          pausedRef.current = false;
+          setPausedNote(`Your recording was saved (${fmtT(secRef.current)}) — the phone locked or you left the app. Tap 🎥 Keep recording to continue; it goes on the same punch list.`);
+        }
       };
       mrRef.current = mr;
       mr.start(1000);
-      setRecSec(0);
-      timerRef.current = setInterval(() => setRecSec((s) => s + 1), 1000);
+      setRecSec(0); secRef.current = 0; setPausedNote("");
+      timerRef.current = setInterval(() => { secRef.current += 1; setRecSec((s) => s + 1); }, 1000);
       setStep("rec");
+      keepScreenOn(true);
+      // Leaving the app / locking the phone stops the camera — finish the clip
+      // right away so nothing recorded is lost.
+      onHiddenRef.current = () => { if (document.visibilityState === "hidden" && mrRef.current && mrRef.current.state !== "inactive") { pausedRef.current = true; try { mrRef.current.requestData(); } catch { /* ignore */ } try { mrRef.current.stop(); } catch { /* ignore */ } } };
+      document.addEventListener("visibilitychange", onHiddenRef.current);
     } catch (e) {
       setErr("Camera/microphone permission is needed to record — or upload a video instead. (" + (e.message || e.name) + ")");
     }
@@ -1076,6 +1118,15 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
 
         {showErr && <div style={{ margin: "10px 14px 0", padding: "9px 12px", background: "#FFF0EF", border: `1px solid ${T.red}`, borderRadius: 10, color: T.red, fontSize: 12.5 }}>{showErr}</div>}
         {flash && <div style={{ margin: "10px 14px 0", padding: "9px 12px", background: "#EAF7EE", border: "1px solid #BFE8CD", borderRadius: 10, color: "#15803D", fontSize: 12.5, fontWeight: 600 }}>{flash}</div>}
+        {pausedNote && view !== "rec" && (
+          <div style={{ margin: "10px 14px 0", padding: "11px 12px", background: "#FFF8E6", border: "1px solid #EBCB7A", borderRadius: 12, color: "#7A5A12", fontSize: 13, fontWeight: 600, lineHeight: 1.45 }}>
+            {pausedNote}
+            <div style={{ display: "flex", gap: 8, marginTop: 9 }}>
+              <button onClick={() => { setPausedNote(""); startRec(); }} style={{ flex: 1, minHeight: 44, borderRadius: 12, border: "none", background: T.gold, color: "#fff", fontWeight: 750, fontSize: 14.5, fontFamily: "inherit", cursor: "pointer" }}>🎥 Keep recording</button>
+              <button onClick={() => setPausedNote("")} style={{ minHeight: 44, padding: "0 14px", borderRadius: 12, border: "1px solid #EBCB7A", background: "#fff", color: "#7A5A12", fontWeight: 650, fontSize: 14, fontFamily: "inherit", cursor: "pointer" }}>Done</button>
+            </div>
+          </div>
+        )}
 
         {view === "start" && (
           <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 10 }}>

@@ -45,6 +45,7 @@ import { DelinquencyReport } from "./rentalsDelinq";
 import { useQbPinSync } from "./rentalPins";
 import { FaceIdSetting } from "./faceId";
 import { ShareInTeam } from "./shareIn";
+import { useAppBadge } from "./appBadge";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -22687,6 +22688,12 @@ export function GoldstoneShell(){
   const taskSeen = Array.isArray(prefs.taskSeenIds)?prefs.taskSeenIds:null;
   const taskSeenSet = useMemo(()=>new Set(taskSeen||[]),[prefs.taskSeenIds]); // eslint-disable-line
   const newTaskCount = taskSeen===null?0:myTaskIds.filter(id=>!taskSeenSet.has(id)).length;
+  // 🔴 Red number on the app icon (Elie 10/18/26): unread team/office messages +
+  // new tasks + unread text threads + missed calls since the phone popup was opened.
+  const {connected:bSmsOn,msgs:bMsgs,unreadFor:bUnreadFor}=useSmsTexting();
+  const badgeTexts=useMemo(()=>bSmsOn?[...new Set((bMsgs||[]).filter(m=>m.kind!=="call"&&m.direction==="in").map(m=>smsE164(m.phone)).filter(Boolean))].filter(ph=>bUnreadFor(ph)>0).length:0,[bSmsOn,bMsgs,prefs.smsRead]); // eslint-disable-line react-hooks/exhaustive-deps
+  const badgeCalls=useMemo(()=>{const seen=String(prefs.callsSeenAt||"");const wk=new Date(Date.now()-7*86400000).toISOString();return bSmsOn?(bMsgs||[]).filter(m=>m.kind==="call"&&m.missed&&m.direction==="call-in"&&String(m.at||"")>seen&&String(m.at||"")>wk).length:0;},[bSmsOn,bMsgs,prefs.callsSeenAt]);
+  useAppBadge(unreadTotal+newTaskCount+badgeTexts+badgeCalls,!loading&&!!prefs._bigReady);
   // Remember the last page (per browser) so a reload or remount lands back
   // where you were instead of the default page.
   const[active,setActive]=useState(()=>{

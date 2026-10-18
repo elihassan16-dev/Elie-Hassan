@@ -19,7 +19,10 @@ self.addEventListener("push", (event) => {
     renotify: !!data.tag,
     data: { url: data.url || "/" },
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  // 🔴 Home-Screen app icon number (iPhone 16.4+ / Android / desktop PWAs).
+  const badge = Number(data.badge);
+  const setBadge = Number.isFinite(badge) && self.navigator && self.navigator.setAppBadge ? self.navigator.setAppBadge(badge).catch(() => {}) : Promise.resolve();
+  event.waitUntil(Promise.all([self.registration.showNotification(title, options), setBadge]));
 });
 
 self.addEventListener("notificationclick", (event) => {

@@ -13,6 +13,7 @@ import { UrgentChip, UrgentTag, UrgentPopup, readSeen, addSeen, RED as URGENT_RE
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "../push";
 import { FaceIdSetting } from "../faceId";
 import { ShareInPortal } from "../shareIn";
+import { useAppBadge } from "../appBadge";
 import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, resumeVideoUploads } from "../videoUpload";
 import { MediaBubble, SwipeReply, MentionText } from "../chatMedia";
 import { VoiceRecorder } from "../voiceRecorder";
@@ -242,6 +243,8 @@ export function ContractorPortal() {
 
   // Unread = Goldstone-side messages I haven't read yet, per job.
   const unreadFor = (jobId) => (messages || []).filter((m) => String(m.jobId) === String(jobId) && m.side === "team" && !(m.readBy || []).includes(displayName)).length;
+  // 🔴 Red number on the app icon = unread Goldstone messages on my jobs.
+  useAppBadge((messages || []).filter((m) => m.side === "team" && !(m.readBy || []).includes(displayName) && (jobs || []).some((j) => String(j.id) === String(m.jobId) && String(j.orgId) === String(contractorOrgId))).length, messages != null);
   // Opening a job's Messages tab marks its Goldstone messages read.
   useEffect(() => {
     if (!selJob || tab !== "messages") return;

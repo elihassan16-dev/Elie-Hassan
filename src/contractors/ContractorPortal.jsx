@@ -22,6 +22,7 @@ import { MicIcon, TeamChatIcon } from "../icons";
 import { MediaGallery, collectMedia } from "../MediaGallery";
 import { FileActions } from "../fileActions";
 import { openSowPdf } from "./sowPdf";
+import { inAppPdf, showPdf } from "../pdfViewer.jsx";
 import { ContactShareModal, ContactCardBubble } from "../contactShare";
 
 const TASK_STATUSES = ["Not Started", "In Progress", "Completed", "N/A"];const stColor = (s) => s === "Completed" ? T.green : s === "In Progress" ? T.blue : s === "N/A" ? "#6b6b70" : T.textSub;
@@ -169,7 +170,11 @@ const fmtClock = (t) => { if (!t) return ""; const [h, m] = String(t).split(":")
 
 // The SOW opens as a real PDF (generated on-device) — see ./sowPdf.js.
 // An edited scope clears sowPdfUrl, so regenerating picks up the highlights.
-export const openScopePdf = (job) => { if (job.sowPdfUrl) window.open(job.sowPdfUrl, "_blank"); else openSowPdf(job).catch(() => {}); };
+export const openScopePdf = (job) => {
+  // Phone app / phones: the saved scope PDF opens in the in-app viewer (no pop-ups).
+  if (job.sowPdfUrl && inAppPdf()) { showPdf(async () => { const r = await fetch(job.sowPdfUrl); if (!r.ok) throw new Error("Couldn't load the scope PDF."); return new File([await r.blob()], job.sowPdfName || "Scope of Work.pdf", { type: "application/pdf" }); }, { title: "Scope of Work", subtitle: job.propertyAddress || "" }); return; }
+  if (job.sowPdfUrl) window.open(job.sowPdfUrl, "_blank"); else openSowPdf(job).catch(() => {});
+};
 const scopeUpdatedRecently = (j) => !!j.scopeEditedAt && (Date.now() - new Date(j.scopeEditedAt).getTime()) < 7 * 86400000;
 
 export function ContractorPortal() {

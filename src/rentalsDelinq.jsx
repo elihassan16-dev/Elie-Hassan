@@ -17,6 +17,7 @@
 // the oldest month still owed (as does any overpayment of a month).
 import { Fragment, useMemo, useState } from "react";
 import { T } from "./theme";
+import { inAppPdf, showPdf } from "./pdfViewer";
 import { rentPaymentsFor, unitLabel, addMonths, monthsBetween, mLabel } from "./rentalsPL";
 
 import { pad, isoOf, todayIso, dayDiff, shiftDays, num, r2, unitKey, dShort, bucketOf, BUCKETS, packetFor, tenantLedger, agingOf, delinquency, owedByRental } from "./rentalsDelinqEngine.js";
@@ -89,6 +90,10 @@ export function DelinquencyReport({ rentals, ctx, isMobile, header, onOpen, onUp
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
   };
   const exportPdf = async () => {
+    if (inAppPdf()) { // phones/app: in-app viewer with Share / Save
+      showPdf(async () => { const { delinquencyPdfFile } = await import("./delinqPdf.js"); return delinquencyPdfFile(d, { title, asOf, change, over60, pctCollected, rangeLabel }); }, { title });
+      return;
+    }
     if (busy) return; setBusy(true);
     try {
       const { delinquencyPdfFile } = await import("./delinqPdf.js");

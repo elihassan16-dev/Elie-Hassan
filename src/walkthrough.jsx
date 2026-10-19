@@ -14,6 +14,7 @@ import { qbAuthFetch, uploadStreamVideo } from "./net";
 import { uploadToMedia } from "./mediaStore";
 import { useOutlookMail } from "./outlook/useOutlookMail";
 import { walkPdfFile, snippetLabel } from "./walkPdf";
+import { inAppPdf, showPdf } from "./pdfViewer";
 
 const fmtT = (t) => `${Math.floor(t / 60)}:${String(Math.floor(Math.max(0, t) % 60)).padStart(2, "0")}`;
 
@@ -1044,6 +1045,7 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
     });
   };
   const downloadPdf = async () => {
+    if (inAppPdf()) { showPdf(buildPdf, { title: "Punch list", subtitle: property.address || "" }); return; } // phones/app: in-app viewer
     setBusy("pdf"); setErr("");
     try {
       const file = await buildPdf();

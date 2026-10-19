@@ -12801,7 +12801,10 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           // border, EXTERNAL badge, and a "their team sees this" footer.
           const isCtr=!!root.ctrLabel;
           return(
-            <div key={root.id} style={{alignSelf:"stretch",border:isCtr?`1.5px solid ${T.gold}99`:"1px solid rgba(0,0,0,0.055)",borderRadius:16,background:T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9}}>
+            // Tap the contractor box (anywhere but a message/button) → the composer
+            // sends a plain message into that external chat, not a reply (Elie 10/19/26).
+            <div key={root.id} onClick={isCtr&&!selMode?(e)=>{if(e.target.closest("button,a,video,img,input,textarea,[data-mid]"))return;setReply({ctrJobId:root.ctrJobId,ctrOrgId:root.ctrOrgId,ctrLabel:root.ctrLabel,plain:true});}:undefined}
+              style={{alignSelf:"stretch",border:isCtr?(reply&&reply.plain&&String(reply.ctrJobId)===String(root.ctrJobId)?`2px solid ${T.gold}`:`1.5px solid ${T.gold}99`):"1px solid rgba(0,0,0,0.055)",borderRadius:16,background:T.card,boxShadow:T.shadow,padding:"11px 12px 8px",display:"flex",flexDirection:"column",gap:9,cursor:isCtr&&!selMode?"pointer":undefined}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                 {isCtr?ctrTag():root.ctrTaskLabel?ctrNoteTag():root.showingLabel?showTag():root.taskText?taskTag(root.taskText,root.taskDeleted?"deleted":root.taskStatus):<span style={{fontSize:10,fontWeight:700,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"2px 8px",textTransform:"uppercase",letterSpacing:"0.04em"}}>Thread</span>}
                 {isCtr&&<span style={{fontSize:10,fontWeight:800,color:"#B45309",background:"#FDE9C8",border:"1px solid #E8B45A",borderRadius:20,padding:"2px 8px",letterSpacing:"0.05em"}}>EXTERNAL</span>}
@@ -12811,7 +12814,10 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                 {bubble(root,{onCard:true})}
                 {replies.map(r=>bubble(r,{small:true,onCard:true}))}
               </div>
-              {isCtr&&<div style={{fontSize:10,color:"#B45309",fontWeight:600,paddingBottom:3}}>👁 {root.ctrLabel}'s team sees everything in this box. Your internal chat stays hidden from them.</div>}
+              {isCtr&&<div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",paddingBottom:3}}>
+                <span style={{flex:"1 1 220px",fontSize:10,color:"#B45309",fontWeight:600}}>👁 {root.ctrLabel}'s team sees everything in this box. Your internal chat stays hidden from them.</span>
+                {!selMode&&<button onClick={()=>setReply({ctrJobId:root.ctrJobId,ctrOrgId:root.ctrOrgId,ctrLabel:root.ctrLabel,plain:true})} style={{minHeight:34,padding:"0 14px",borderRadius:17,border:`1.5px solid ${T.gold}`,background:"#FFF9EC",color:"#8a6d1f",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>✍️ Message {String(root.ctrLabel).split(" — ")[0]}</button>}
+              </div>}
             </div>
           );
         })}
@@ -12821,8 +12827,8 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
         ? <div style={{padding:"9px 12px",background:"#FDE9C8",borderTop:"2px solid #E8A33D",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
             <span style={{fontSize:18,flexShrink:0}}>👷</span>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:11.5,fontWeight:800,color:"#B45309",letterSpacing:"0.02em"}}>EXTERNAL — this reply goes to {reply.ctrLabel}</div>
-              <div style={{fontSize:12,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Replying to {reply.author||"—"}: {reply.text}</div>
+              <div style={{fontSize:11.5,fontWeight:800,color:"#B45309",letterSpacing:"0.02em"}}>EXTERNAL — {reply.plain?"this message":"this reply"} goes to {reply.ctrLabel}</div>
+              <div style={{fontSize:12,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{reply.plain?"New message in their chat — not a reply":<>Replying to {reply.author||"—"}: {reply.text}</>}</div>
             </div>
             <button onClick={()=>setReply(null)} style={{background:"none",border:"none",color:"#B45309",cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
           </div>
@@ -12866,7 +12872,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
           if(!reply||!reply.ctrOrgId)return teamMembers;
           const ext=(ctrUsers||[]).filter(u=>String(u.orgId)===String(reply.ctrOrgId)).map(u=>u.name).filter(Boolean);
           return [...new Set([...ext,...teamMembers])];
-        })()} currentUser={currentUser} placeholder={reply?(reply.ctrLabel?`Reply to ${reply.ctrLabel} — their team sees this…`:reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply… (internal)"):(target?`Message on “${target.text}”…`:"Message your team… (internal — contractors never see this)")}
+        })()} currentUser={currentUser} placeholder={reply?(reply.ctrLabel?(reply.plain?`Message ${reply.ctrLabel} — their team sees this…`:`Reply to ${reply.ctrLabel} — their team sees this…`):reply.showingLabel?"Reply — stays on that showing thread…":reply.taskText?"Reply — posts on that task too…":"Reply… (internal)"):(target?`Message on “${target.text}”…`:"Message your team… (internal — contractors never see this)")}
           aiContext={[
             `Property: ${addr}`,
             property.status?`Status: ${property.status}`:"",
@@ -13120,8 +13126,11 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
       if(attachment)cm.attachment=attachment;
       // Quote the specific message being answered (and keep its task tag) so the
       // contractor sees the reply in context in their portal.
-      cm.replyTo={id:String(replyTarget.id||"").replace(/^ctr-/,""),author:replyTarget.author||"",text:(replyTarget.text||(replyTarget.attachment?attLabel(replyTarget.attachment):"")).slice(0,140)};
-      if(replyTarget.taskRefText)cm.taskRefText=replyTarget.taskRefText;
+      // (A plain message — tapped the contractor box — quotes nothing.)
+      if(!replyTarget.plain){
+        cm.replyTo={id:String(replyTarget.id||"").replace(/^ctr-/,""),author:replyTarget.author||"",text:(replyTarget.text||(replyTarget.attachment?attLabel(replyTarget.attachment):"")).slice(0,140)};
+        if(replyTarget.taskRefText)cm.taskRefText=replyTarget.taskRefText;
+      }
       // Tagging works here too: tagged names (their people and/or teammates) show
       // on the message and get pinged directly instead of the whole company.
       const tagged=[...new Set(mentions||[])].filter(n=>n&&n!==CURRENT_USER);

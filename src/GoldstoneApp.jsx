@@ -36,6 +36,7 @@ import { useBtLeads, btMatchesProperty } from "./btLeads";
 import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as CTR_EVENT_TYPES, EVENT_TRADES as CTR_EVENT_TRADES, openScopePdf } from "./contractors/ContractorPortal";
 import { sowPdfFile } from "./contractors/sowPdf";
 import { jvPdfFile } from "./jvPdf";
+import { funderStatementPdfFile } from "./funderStatementPdf";
 import { SowPdfPreview } from "./contractors/SowPdfPreview";
 import { ScopeBuilder, scopeSummary } from "./contractors/scope";
 import { scopeToText } from "./contractors/sowLibrary";
@@ -20251,6 +20252,79 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
     </div>
   );
 }
+// ✉ Email a lender his statement (Elie 10/19/26): to the email on file or a
+// new one (optionally saved on the lender), editable note, the statement PDF
+// attached — sent as a new email from the signed-in Outlook mailbox.
+function FunderEmailSheet({funder,buildFile,onSaveEmail,onClose}){
+  const mail=useOutlookMail();
+  const onFile=String(funder.email||"").trim();
+  const first=String(funder.name||"").trim().split(/\s+/)[0]||"there";
+  const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
+  const[to,setTo]=useState(onFile?"file":"new");
+  const[newEmail,setNewEmail]=useState("");
+  const[saveIt,setSaveIt]=useState(!onFile);
+  const[subject,setSubject]=useState(`Goldstone Properties — your statement as of ${today}`);
+  const[note,setNote]=useState(`Hi ${first},\n\nAttached is your up-to-date statement with Goldstone Properties as of ${today}.\n\nLet me know if you have any questions.\n\nThank you,\nGoldstone Properties`);
+  const[state,setState]=useState(""); // "" | "sending" | "sent" | error text
+  const addr=to==="file"?onFile:newEmail.trim();
+  const okAddr=/^\S+@\S+\.\S+$/.test(addr);
+  const esc=(x)=>String(x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const preview=async()=>{try{const f=await buildFile();window.open(URL.createObjectURL(f),"_blank");}catch(e){setState(String(e?.message||"Couldn't build the PDF."));}};
+  const send=async()=>{
+    if(!okAddr||state==="sending")return;
+    setState("sending");
+    try{
+      const file=await buildFile();
+      const html=`<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1a1a1a">${esc(note).replace(/\n/g,"<br>")}</div>`;
+      await mail.sendNew({to:addr,subject,html,files:[file]});
+      if(to==="new"&&saveIt&&onSaveEmail)onSaveEmail(addr);
+      setState("sent");
+    }catch(e){setState(String(e?.message||"Couldn't send — make sure you're signed in on the Email page."));}
+  };
+  const inp={width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:15,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none",boxSizing:"border-box"};
+  const lbl={fontSize:12,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em",margin:"0 0 6px"};
+  const opt=(k,title,sub)=>(
+    <button onClick={()=>{setTo(k);setState("");}} style={{display:"flex",alignItems:"center",gap:12,width:"100%",minHeight:52,padding:"10px 12px",borderRadius:12,border:to===k?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:to===k?"#FFFCF5":"#fff",cursor:"pointer",fontFamily:"inherit",textAlign:"left",marginBottom:8}}>
+      <span style={{width:20,height:20,borderRadius:10,border:`2px solid ${to===k?T.gold:"#C7C7CC"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{to===k&&<span style={{width:10,height:10,borderRadius:5,background:T.gold}}/>}</span>
+      <span style={{minWidth:0}}><span style={{display:"block",fontSize:15,fontWeight:600,color:T.text}}>{title}</span>{sub&&<span style={{display:"block",fontSize:13,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</span>}</span>
+    </button>
+  );
+  return createPortal(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:430,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(480px,96vw)",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+        <div style={{padding:"16px 20px 12px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontSize:17,fontWeight:800,color:T.text}}>Email statement</div><div style={{fontSize:13,color:T.textSub}}>{funder.name} · PDF as of {today}</div></div>
+          <button onClick={onClose} aria-label="Close" style={{width:36,height:36,borderRadius:18,border:"none",background:"rgba(118,118,128,0.12)",color:T.textSub,fontSize:16,cursor:"pointer"}}>✕</button>
+        </div>
+        <div style={{padding:"16px 20px 20px"}}>
+          {state==="sent"?(
+            <div style={{textAlign:"center",padding:"18px 4px"}}>
+              <div style={{fontSize:40}}>✅</div>
+              <div style={{fontSize:16,fontWeight:700,color:T.text,marginTop:6}}>Sent to {addr}</div>
+              <div style={{fontSize:13,color:T.textSub,marginTop:4}}>From your Outlook, with the statement PDF attached.</div>
+              <button onClick={onClose} style={{marginTop:16,minHeight:46,padding:"0 28px",borderRadius:12,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Done</button>
+            </div>
+          ):<>
+            <div style={lbl}>Send to</div>
+            {onFile&&opt("file","His email on file",onFile)}
+            {opt("new",onFile?"A different email":"Add his email",null)}
+            {to==="new"&&<div style={{margin:"-2px 0 10px"}}>
+              <input autoFocus value={newEmail} onChange={e=>{setNewEmail(e.target.value);setState("");}} placeholder="name@email.com" inputMode="email" autoCapitalize="none" autoCorrect="off" style={inp}/>
+              {onSaveEmail&&<label style={{display:"flex",alignItems:"center",gap:8,marginTop:8,fontSize:13.5,color:T.text,cursor:"pointer"}}><input type="checkbox" checked={saveIt} onChange={e=>setSaveIt(e.target.checked)} style={{width:18,height:18,accentColor:T.gold}}/>{onFile?`Replace ${first}'s email on file with this one`:`Save as ${first}'s email`}</label>}
+            </div>}
+            <div style={{...lbl,marginTop:8}}>Subject</div>
+            <input value={subject} onChange={e=>setSubject(e.target.value)} style={{...inp,marginBottom:12}}/>
+            <div style={lbl}>Message</div>
+            <textarea value={note} onChange={e=>setNote(e.target.value)} rows={7} style={{...inp,resize:"vertical",lineHeight:1.45}}/>
+            <button onClick={preview} style={{marginTop:10,background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:"6px 0"}}>📄 Preview the PDF</button>
+            {!mail.signedIn&&mail.ready&&<div style={{marginTop:8,background:T.goldLight,borderRadius:10,padding:"10px 12px",fontSize:13,color:"#8a6d1f"}}>Sign in to Outlook once to send from your email. <button onClick={()=>mail.signIn()} style={{background:"none",border:"none",color:T.blue,fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:13,padding:0}}>Sign in</button></div>}
+            {state&&state!=="sending"&&<div style={{marginTop:10,background:"#fdecec",borderRadius:10,padding:"9px 12px",fontSize:13,color:"#b3261e",fontWeight:600}}>⚠️ {state}</div>}
+            <button onClick={send} disabled={!okAddr||state==="sending"} style={{marginTop:14,width:"100%",minHeight:50,borderRadius:14,border:"none",background:okAddr?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:16,cursor:okAddr?"pointer":"default",fontFamily:"inherit"}}>{state==="sending"?"Sending…":"✉ Send statement"}</button>
+          </>}
+        </div>
+      </div>
+    </div>,document.body);
+}
 function FinancialSectionPage({onNavigate,canEdit=true}){
   const { funders, setFunders:rawSetFunders, flushFunders, draws, setDraws:rawSetDraws, flushDraws, sharedProps, setSharedProps, flushProps, setOfficeTasks, flushOfficeTasks, teamMembers, currentUser, bankAccounts, setBankAccounts, flushBank } = useData();
   // View-only members: block every write path (setters become no-ops).
@@ -20264,6 +20338,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   const goToBS=(propId)=>{setBsSel(propId);setSubTab("bs");};
   const[selId,setSelId]=useState(null);
   const[funderModal,setFunderModal]=useState(null);   // {} new, or funder obj to edit
+  const[emailFor,setEmailFor]=useState(null);         // ✉ Email statement sheet (lender obj)
   const[ledgerModal,setLedgerModal]=useState(false);
   const[registerImport,setRegisterImport]=useState(false);
   const[paybackModal,setPaybackModal]=useState(null);  // draw being paid back
@@ -20353,6 +20428,23 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   };
 
   // Per-lender printable statement → the browser's "Save as PDF".
+  // Same numbers as generateReport, as plain values for the emailed PDF.
+  const statementFile=(f)=>{
+    const s=funderStats(f,draws);
+    const mine=funderDraws(f,draws);
+    const open=[...mine.filter(d=>!d.paybackDate)].sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
+    const paid=[...mine.filter(d=>d.paybackDate)].sort((a,b)=>String(a.paybackDate||"").localeCompare(String(b.paybackDate||"")));
+    const sum=(arr,fn)=>arr.reduce((x,d)=>x+fn(d),0);
+    return funderStatementPdfFile({
+      name:f.name,today:new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"}),
+      stats:[["Capital (owed)",fmtD(s.capital)],["Available",fmtD(s.available),s.available<0?"#FF3B30":"#16A34A"],["Deployed",fmtD(s.deployed),"#007AFF"],["Interest earned",fmtD(s.interestEarned),"#16A34A"],["Paid out to him",fmtD(s.distribution),"#FF3B30"],["Interest owed",fmtD(s.interestOwed),s.interestOwed<0?"#FF3B30":"#B8953F"]],
+      open:open.map(d=>[`${d.propertyLabel||"—"}${drawPaid(d)>0?` (paid down from ${fmtD(d.amount)})`:""}`,finFmtDate(d.dateFunded),`${drawDays(d)}d @ ${drawRatePct(d)}%`,fmtD(drawBalance(d)),fmtD(drawInterest(d))]),
+      openTotal:[fmtD(sum(open,drawBalance)),fmtD(sum(open,drawInterest))],
+      paid:paid.map(d=>[d.propertyLabel||"—",finFmtDate(d.dateFunded),finFmtDate(d.paybackDate),fmtD(d.amount),fmtD(drawInterest(d))]),
+      paidTotal:[fmtD(sum(paid,d=>Number(d.amount)||0)),fmtD(sum(paid,drawInterest))],
+      foot:`Interest accrues day-counted at each loan's own rate (default ${hasRate(f.rate)?f.rate:15}% / yr). Private & confidential.`,
+    });
+  };
   const generateReport=(f)=>{
     const s=funderStats(f,draws);
     const mine=funderDraws(f,draws);
@@ -20460,6 +20552,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           <div style={{fontSize:20,fontWeight:800,color:T.text,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
           {canEdit&&<button onClick={()=>setPaybackPick(f)} title={`Pay back ${f.name} — pick the loan`} style={payIcon}>↩</button>}
           <button onClick={()=>generateReport(f)} title="Generate a PDF statement for this lender" style={{...finBtn(false),padding:"6px 12px"}}>⭳ PDF</button>
+          <button onClick={()=>setEmailFor(f)} title="Email this lender his statement as a PDF" style={{...finBtn(false),padding:"6px 12px"}}>✉ Email</button>
           <button onClick={()=>setFunderModal(f)} style={{...finBtn(false),padding:"6px 12px"}}>Edit</button>
           <button onClick={()=>deleteFunder(f.id)} title="Delete lender" style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>🗑</button>
         </div>
@@ -20523,6 +20616,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
       {canEdit&&<AutoFloatSync/>}
       {funderModal&&<FinFunderModal funder={funderModal.id?funderModal:null} onSave={(f)=>funderModal.id?updateFunder(f):addFunder(f)} onClose={()=>setFunderModal(null)}/>}
+      {emailFor&&<FunderEmailSheet funder={emailFor} buildFile={()=>statementFile(emailFor)} onSaveEmail={canEdit?(email)=>updateFunder({...emailFor,email}):null} onClose={()=>setEmailFor(null)}/>}
       {ledgerModal&&sel&&<FinLedgerModal funderName={sel.name} onSave={(e)=>addLedger(sel.id,e)} onClose={()=>setLedgerModal(false)}/>}
       {registerImport&&sel&&<FinRegisterImport funder={sel} onImport={(entries)=>addLedgerBulk(sel.id,entries)} onClose={()=>setRegisterImport(false)}/>}
       {paybackPick&&<FinPaybackPick funder={paybackPick} draws={draws} onPick={(d)=>{setPaybackPick(null);setPaybackModal(d);}} onClose={()=>setPaybackPick(null)}/>}

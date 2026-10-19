@@ -37,6 +37,7 @@ import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as 
 import { sowPdfFile } from "./contractors/sowPdf";
 import { jvPdfFile } from "./jvPdf";
 import { funderStatementPdfFile } from "./funderStatementPdf";
+import { printHtml, showPdf, openFile, inAppPdf } from "./pdfViewer";
 import { SowPdfPreview } from "./contractors/SowPdfPreview";
 import { ScopeBuilder, scopeSummary } from "./contractors/scope";
 import { scopeToText } from "./contractors/sowLibrary";
@@ -1926,10 +1927,7 @@ function InvestorPacketModal({property,onUpdate,onClose}){
       <div style="font-size:13px;line-height:1.65;color:#333">Goldstone Properties is a New Jersey real-estate investment company specializing in the acquisition, renovation and resale of single-family homes across the state. Every project is tracked in real time — acquisition, budget, timeline and sale — and investor capital is deployed deal-by-deal with full transparency.</div>
       <div class="foot">Private &amp; confidential — prepared for the named recipient only. Figures marked "projected" are estimates based on current budgets and market conditions, not guarantees of performance. This document is informational and is not an offer of securities.</div>
     </body></html>`;
-    const w=window.open("","_blank");
-    if(!w){alert("Please allow pop-ups for this site to generate the packet.");return;}
-    w.document.write(html);w.document.close();w.focus();
-    setTimeout(()=>{try{w.print();}catch(e){/* user can print manually */}},600);
+    printHtml(html,{title:"Packet",filename:"Packet.pdf"});
   };
   const inp={width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:14,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none",boxSizing:"border-box"};
   const lbl={fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5};
@@ -2517,7 +2515,7 @@ function ShowingInfoPopup({property,skey,onUpdate,onClose}){
     try{
       if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file]});return;}
     }catch(e){if(e&&e.name==="AbortError")return;/* unsupported → fall through */}
-    const u=URL.createObjectURL(file);window.open(u,"_blank");setTimeout(()=>URL.revokeObjectURL(u),60000);
+    openFile(file);
   };
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:450,backdropFilter:"blur(6px)",padding:16,boxSizing:"border-box"}}>
@@ -15822,10 +15820,7 @@ function JVAgreementModal({property,onClose}){
       <div class="lbl">Date: ${esc(today)}</div>
     </div>
     </main></body></html>`;
-    const w=window.open("","_blank");
-    if(!w){alert("Please allow pop-ups for this site to generate the agreement.");return;}
-    w.document.write(html);w.document.close();w.focus();
-    setTimeout(()=>{try{w.print();}catch(e){/* user can print manually */}},600);
+    printHtml(html,{title:"Joint Venture Agreement",subtitle:property.address||"",filename:`${property.address||""} JV Agreement.pdf`.trim()});
   };
   // One tap → the agreement is built as a real PDF and sent to the investor's
   // saved email as a brand-new chain: "Hi, please see attached…", subject
@@ -18389,8 +18384,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       <div class="hdr"><div class="brand">Goldstone Properties</div><div class="sub">${esc(rep.title)}</div><div class="desc">${esc(rep.subtitle)}</div><div class="date">${esc(today)}</div></div>
       <table><thead><tr>${th}</tr></thead><tbody>${trs}${foot}</tbody></table>
     </body></html>`;
-    const w=window.open("","_blank");if(!w){alert("Please allow pop-ups to export the report.");return;}
-    w.document.write(html);w.document.close();w.focus();setTimeout(()=>{try{w.print();}catch{/* user can print manually */}},350);
+    printHtml(html,{title:"Report",filename:"Goldstone Report.pdf"});
   };
 
   const cards=[
@@ -20269,7 +20263,7 @@ function FunderEmailSheet({funder,buildFile,onSaveEmail,onClose}){
   const addr=to==="file"?onFile:newEmail.trim();
   const okAddr=/^\S+@\S+\.\S+$/.test(addr);
   const esc=(x)=>String(x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-  const preview=async()=>{try{const f=await buildFile();window.open(URL.createObjectURL(f),"_blank");}catch(e){setState(String(e?.message||"Couldn't build the PDF."));}};
+  const preview=()=>showPdf(buildFile,{title:"Lender statement",subtitle:funder.name});
   const send=async()=>{
     if(!okAddr||state==="sending")return;
     setState("sending");
@@ -20446,6 +20440,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
     });
   };
   const generateReport=(f)=>{
+    if(inAppPdf()){showPdf(()=>statementFile(f),{title:"Lender statement",subtitle:f.name});return;}
     const s=funderStats(f,draws);
     const mine=funderDraws(f,draws);
     const open=[...mine.filter(d=>!d.paybackDate)].sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
@@ -20487,10 +20482,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       <table><thead><tr><th>Property</th><th>Funded</th><th>Paid back</th><th class="r">Amount</th><th class="r">Interest</th></tr></thead><tbody>${paidRows}</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="r">${fmtD(paidAmt)}</td><td class="r gold">${fmtD(paidInt)}</td></tr></tfoot></table>
       <div class="foot">Interest accrues day-counted at each loan's own rate (default ${hasRate(f.rate)?f.rate:15}% / yr). Private &amp; confidential.</div>
     </body></html>`;
-    const w=window.open("","_blank");
-    if(!w){alert("Please allow pop-ups for this site to generate the report.");return;}
-    w.document.write(html);w.document.close();w.focus();
-    setTimeout(()=>{try{w.print();}catch(e){/* user can print manually */}},450);
+    printHtml(html,{title:"Lender statement",subtitle:f.name,filename:`${f.name} - Goldstone Statement.pdf`});
   };
 
   const stat=(label,val,color)=>(
@@ -21422,6 +21414,15 @@ function EmailAttachments({messageId,mail,od,folder,properties}){
     // Open the tab SYNCHRONOUSLY (inside the tap) and navigate it once the bytes
     // arrive — iOS Safari blocks window.open after an await, which made Preview
     // look like it did nothing on phones.
+    // In the phone app / phone browsers there are no pop-ups: PDFs open in the
+    // in-app viewer, other files in the share sheet (Quick Look, Save…).
+    if(inAppPdf()){
+      setPv(p=>({...p,[a.id]:"loading"}));
+      try{ const blob=await mail.getAttachmentBlob(messageId,a.id); openFile(new File([blob],a.name||"attachment",{type:a.contentType||blob.type||"application/octet-stream"}),{title:a.name}); }
+      catch(e){ alert("Couldn't open: "+(e.message||"unknown error")); }
+      setPv(p=>({...p,[a.id]:null}));
+      return;
+    }
     const w=window.open("","_blank");
     if(w){try{w.document.write('<body style="font-family:-apple-system,sans-serif;color:#888;padding:40px;text-align:center">Loading attachment…</body>');}catch{/* ignore */}}
     setPv(p=>({...p,[a.id]:"loading"}));

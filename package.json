@@ -30,6 +30,7 @@
     "@supabase/supabase-js": "^2.45.4",
     "fflate": "^0.8.3",
     "heic2any": "^0.0.4",
+    "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "mediabunny": "^1.50.8",
     "pdfjs-dist": "^5.7.284",

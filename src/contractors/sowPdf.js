@@ -7,6 +7,7 @@
 //    line per item, Included / As needed / To discuss), with a version number,
 //    highlighted changes since the last version, and a "latest version" link.
 //  • job.scope     — the older free-text scope (UPPERCASE headings + lines).
+import { inAppPdf, showPdf } from "../pdfViewer.jsx";
 import { SOW_CATS, SOW_MAT, SPEC_CATS } from "./sowLibrary";
 
 const GOLD = [184, 145, 46];
@@ -254,6 +255,8 @@ export async function sowPdfFile(job) {
 // The window must open INSIDE the tap (popup blockers), then we steer it to
 // the PDF once the on-demand jsPDF chunk has built it.
 export async function openSowPdf(job) {
+  // Phone app / phones: no pop-ups — the in-app PDF viewer (Share / Save).
+  if (inAppPdf()) { showPdf(() => sowPdfFile(job), { title: "Scope of Work", subtitle: job.propertyAddress || "" }); return; }
   const win = window.open("", "_blank");
   try {
     const file = await sowPdfFile(job);

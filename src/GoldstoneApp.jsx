@@ -13224,7 +13224,6 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
           {showTag&&<span style={tagText}>📱 TEXT</span>}
           {t.line&&!mine&&<span style={tagLine}>{String(t.line).split(" ")[0].toUpperCase()}'S LINE</span>}
           <span style={{flex:1}}/>
-          <button onClick={e=>{e.stopPropagation();setFupTx({phone:t.phone,name:t.name||"",addr:(pl[0]&&pl[0].addr)||(t.who&&t.who.addr)||""});setFupTxDate(isoPlusTx(1));setFupTxNote("");}} title="📅 Schedule a follow-up call" style={{background:"#F5F3FF",border:"1px solid #7C3AED",borderRadius:12,width:24,height:24,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,cursor:"pointer",flexShrink:0,padding:0}}>📅</button>
           <span style={{fontSize:10,color:hasUnread?T.red:T.textTert,fontWeight:hasUnread?700:400,flexShrink:0}}>{fmtShort(t.last.at)}</span>
         </div>
         {pl.length>0&&<div style={{fontSize:10.5,fontWeight:700,color:"#8a6d1f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:2}}>🏠 {pl[0].addr}{pl.length>1&&<b style={{color:"#C9A227"}}> +{pl.length-1} more</b>}</div>}

@@ -28,6 +28,8 @@ import { useContractorData } from "./contractors/data";
 import { mediaOf, uploadToMedia } from "./mediaStore";
 import { qbAuthFetch, notify } from "./net";
 import { supabase } from "./supabaseClient";
+import { saveItem } from "./fileSave";
+import { isNative, nativeShareFiles } from "./native";
 
 const ROW = "social_posts";
 export const POST_KINDS = [
@@ -407,12 +409,27 @@ async function renderBlob(fields, photos) {
   return await new Promise((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error("Couldn't make the picture — a photo may not allow copying."))), "image/jpeg", 0.92));
 }
 const slug = (s) => String(s || "flyer").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 60) || "flyer";
-function saveBlob(blob, name) {
-  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+// Hand the picture over the way each device can actually save it (Elie
+// 10/20/26: "Save picture" did nothing on the phone — a download link can't
+// reach Photos): app → native share sheet (Save Image), phone browser → share
+// sheet, computer → a normal download. → "done" | "cancel" | "again" (the
+// phone's tap expired while the picture was being made — tap once more).
+async function deliverBlob(blob, name) {
+  const file = new File([blob], name, { type: blob.type || "image/jpeg" });
+  if (isNative()) return nativeShareFiles([file]);
+  const phone = /iphone|ipad|ipod|android/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  let canShare = false; try { canShare = phone && !!navigator.canShare && navigator.canShare({ files: [file] }); } catch { /* no share */ }
+  if (canShare) {
+    try { await navigator.share({ files: [file] }); return "done"; }
+    catch (e) { if (e && e.name === "AbortError") return "cancel"; if (e && e.name === "NotAllowedError") return "again"; throw e; }
+  }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = name;
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  return "done";
 }
 async function downloadUrl(url, name) {
-  try { const r = await fetch(url); saveBlob(await r.blob(), name); } catch { window.open(url, "_blank"); }
+  try { const r = await saveItem({ kind: "image", url, name }); if (r === "again") await saveItem({ kind: "image", url, name }); }
+  catch { window.open(url, "_blank"); }
 }
 
 // ── the shared store ──
@@ -726,9 +743,24 @@ export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobi
       setBusy(""); onClose();
     } catch (e) { setBusy(""); setErr(e.message || "Couldn't save the picture."); }
   };
+  // The made picture is kept for a second tap when the phone's tap expired.
+  const picRef = useRef(null);
+  const [picAgain, setPicAgain] = useState(false);
   const savePic = async () => {
-    setBusy("Making the picture…"); setErr("");
-    try { saveBlob(await renderBlob(fields, picks), `${slug(property.address)}-${kind}.jpg`); } catch (e) { setErr(e.message || "Couldn't make the picture."); }
+    const name = `${slug(property.address)}-${kind}.jpg`;
+    setErr("");
+    if (picAgain && picRef.current) {
+      setPicAgain(false);
+      try { await deliverBlob(picRef.current, name); } catch (e) { setErr(e.message || "Couldn't save the picture."); }
+      return;
+    }
+    setBusy("Making the picture…");
+    try {
+      const blob = await renderBlob(fields, picks);
+      picRef.current = blob;
+      const r = await deliverBlob(blob, name);
+      if (r === "again") setPicAgain(true);
+    } catch (e) { setErr(e.message || "Couldn't make the picture."); }
     setBusy("");
   };
   const status = cur.status;
@@ -739,7 +771,7 @@ export function PostEditor({ property, kind: kind0, item: item0, onClose, isMobi
     {status === "approved" && <div style={{ fontSize: 13, color: T.textSub, textAlign: "center" }}>✓ Approved — in Ready to post. It goes on Facebook when you tell Cowork “post my approved flyers” (or your scheduled task runs).</div>}
     {status === "posted" && <div style={{ fontSize: 13, color: T.green, textAlign: "center", fontWeight: 600 }}>✓ Posted {cur.postedAt ? new Date(cur.postedAt).toLocaleDateString() : ""}</div>}
     <button disabled={!!busy} onClick={approve} style={{ ...BTN_P, opacity: busy ? 0.6 : 1 }}>{busy || (status === "approved" ? "✓ Re-approve with changes" : status === "posted" ? "✓ Approve again (post again)" : "✓ Approve — ready to post")}</button>
-    <button disabled={!!busy} onClick={savePic} style={BTN_S}>Save picture</button>
+    <button disabled={!!busy} onClick={savePic} style={picAgain ? { ...BTN_S, background: T.goldLight, color: "#8a6d1f" } : BTN_S}>{picAgain ? "⬇ Ready — tap again to save" : "⬇ Download picture"}</button>
   </>;
 
   return (

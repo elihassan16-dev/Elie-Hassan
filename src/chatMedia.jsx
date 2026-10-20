@@ -10,10 +10,10 @@
 //   • SwipeReply — swipe a message to the right to reply to it.
 //   • MentionText — tagged people's @names show IN the message.
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { T } from "./theme";
 import { linkifyText } from "./sms";
 import { FileActions } from "./fileActions";
+import { PhotoViewer } from "./photoViewer";
 import { useVideoUpload, VideoUploadBubble, localPreview, retryUpload } from "./videoUpload";
 
 const GOLD_DARK = "#8a6d1f";
@@ -226,83 +226,16 @@ function VideoFrame({ att, onOpen }) {
 }
 
 // ── full-screen viewer ───────────────────────────────────────────────────────
+// The app-wide iPhone-Photos viewer (photoViewer.jsx); chat attachments map in.
 export function MediaViewer({ items, index = 0, onClose }) {
-  const [i, setI] = useState(Math.min(index, items.length - 1));
-  const [z, setZ] = useState({ s: 1, x: 0, y: 0 });
-  const [drag, setDrag] = useState({ x: 0, y: 0, on: false });
-  const g = useRef({ ptrs: new Map(), lastTap: 0 });
-  const it = items[i] || {};
-  const n = items.length;
-  const go = (d) => { setZ({ s: 1, x: 0, y: 0 }); setI((v) => Math.max(0, Math.min(n - 1, v + d))); };
-  useEffect(() => {
-    const k = (e) => { if (e.key === "Escape") onClose(); if (e.key === "ArrowRight") go(1); if (e.key === "ArrowLeft") go(-1); };
-    window.addEventListener("keydown", k);
-    const prev = document.body.style.overflow; document.body.style.overflow = "hidden";
-    return () => { window.removeEventListener("keydown", k); document.body.style.overflow = prev; };
-  }, [n]); // eslint-disable-line react-hooks/exhaustive-deps
-  const isImg = it.kind === "image";
-  const down = (e) => {
-    const P = g.current.ptrs; P.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* */ }
-    if (P.size === 2 && isImg) { const [a, b] = [...P.values()]; g.current.pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y), s0: z.s }; g.current.one = null; }
-    else if (P.size === 1) g.current.one = { sx: e.clientX, sy: e.clientY, x0: z.x, y0: z.y, t: Date.now(), moved: false };
-  };
-  const move = (e) => {
-    const P = g.current.ptrs; if (!P.has(e.pointerId)) return;
-    P.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (P.size === 2 && g.current.pinch) { const [a, b] = [...P.values()]; const s = Math.max(1, Math.min(5, g.current.pinch.s0 * Math.hypot(a.x - b.x, a.y - b.y) / g.current.pinch.d0)); setZ((v) => ({ ...v, s, ...(s === 1 ? { x: 0, y: 0 } : {}) })); return; }
-    const o = g.current.one; if (!o) return;
-    const dx = e.clientX - o.sx, dy = e.clientY - o.sy;
-    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) o.moved = true;
-    if (z.s > 1) setZ((v) => ({ ...v, x: o.x0 + dx, y: o.y0 + dy }));
-    else if (o.moved) setDrag({ x: dx, y: dy, on: true });
-  };
-  const up = (e) => {
-    const P = g.current.ptrs; P.delete(e.pointerId);
-    if (P.size < 2) g.current.pinch = null;
-    const o = g.current.one; if (!o || P.size) return;
-    g.current.one = null;
-    if (!o.moved) {
-      const now = Date.now();
-      if (isImg && now - g.current.lastTap < 300) { setZ((v) => (v.s > 1 ? { s: 1, x: 0, y: 0 } : { s: 2.5, x: 0, y: 0 })); g.current.lastTap = 0; }
-      else g.current.lastTap = now;
-      return;
-    }
-    if (z.s === 1) {
-      const { x, y } = drag;
-      setDrag({ x: 0, y: 0, on: false });
-      if (Math.abs(x) > 70 && Math.abs(x) > Math.abs(y)) go(x < 0 ? 1 : -1);
-      else if (y > 110 && Math.abs(y) > Math.abs(x)) onClose();
-    }
-  };
-  const fade = drag.on ? Math.max(0.35, 1 - Math.abs(drag.y) / 400) : 1;
-  const r = it.w && it.h ? it.w / it.h : 9 / 16;
-  const iframeSrc = it.stream ? `${it.url}${String(it.url).includes("?") ? "&" : "?"}autoplay=true` : "";
-  const btn = { width: 44, height: 44, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.12)", color: "#fff", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", flexShrink: 0 };
-  return createPortal(
-    <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: `rgba(0,0,0,${fade})`, display: "flex", flexDirection: "column", touchAction: "none" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "max(10px, env(safe-area-inset-top)) 12px 8px", color: "#fff", opacity: drag.on ? 0 : 1, transition: "opacity .15s", zIndex: 2 }}>
-        <button type="button" onClick={onClose} aria-label="Close" style={btn}>✕</button>
-        <div style={{ flex: 1, textAlign: "center", fontSize: 14, fontWeight: 700 }}>{n > 1 ? `${i + 1} of ${n}` : ""}</div>
-        <span style={{ display: "inline-flex" }}><FileActions item={it} mine /></span>
-      </div>
-      <div onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
-        style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-        <div style={{ transform: `translate(${drag.x}px, ${drag.y}px)`, transition: drag.on ? "none" : "transform .2s", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {isImg && <img src={it.url} alt="" draggable={false} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", transform: `translate(${z.x}px, ${z.y}px) scale(${z.s})`, transition: g.current.pinch || g.current.one ? "none" : "transform .2s", userSelect: "none" }} />}
-          {it.kind === "video" && it.stream && <iframe key={it.url} src={iframeSrc} title={it.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen
-            style={{ border: "none", width: `min(100vw, calc((100vh - 140px) * ${r}))`, aspectRatio: String(r), maxHeight: "calc(100vh - 140px)", background: "#000" }} />}
-          {it.kind === "video" && !it.stream && <video key={it.url} src={it.url} controls autoPlay playsInline style={{ maxWidth: "100%", maxHeight: "100%" }} />}
-        </div>
-        {n > 1 && vw() > 700 && <>
-          {i > 0 && <button type="button" onClick={() => go(-1)} aria-label="Previous" style={{ ...btn, position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)" }}>‹</button>}
-          {i < n - 1 && <button type="button" onClick={() => go(1)} aria-label="Next" style={{ ...btn, position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)" }}>›</button>}
-        </>}
-      </div>
-      <div style={{ height: "max(16px, env(safe-area-inset-bottom))" }} />
-    </div>,
-    document.body
-  );
+  const list = items.map((it, i) => ({
+    key: `${it.url || ""}#${i}`, kind: it.kind === "video" ? "video" : "image", name: it.name || "",
+    url: it.kind === "video" && it.stream ? (it.watch || "") : it.url,
+    embed: it.kind === "video" && it.stream ? `${it.url}${String(it.url).includes("?") ? "&" : "?"}autoplay=true` : null,
+    thumb: it.kind === "video" && it.stream ? streamThumb(it) : null,
+    file: it, title: it.kind === "video" ? "Video" : "Photo", sub: it.name || "",
+  }));
+  return <PhotoViewer items={list} index={index} onClose={onClose} />;
 }
 
 // ── swipe right to reply ─────────────────────────────────────────────────────

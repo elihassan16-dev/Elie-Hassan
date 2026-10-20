@@ -266,6 +266,26 @@ export function SwipeReply({ onReply, disabled, align = "flex-start", style, chi
 }
 
 // ── @names in the message ────────────────────────────────────────────────────
+// Who a typed "@…" tags at send (Elie 10/20/26: picking Moshe Ritterman also
+// tagged Moshe Hamaoui). "@Full Name" always tags that person; a bare
+// "@First" only when exactly one taggable person has that first name and
+// nobody with it was already tagged.
+export function typedMentions(text, options, picked = []) {
+  const t = String(text || "");
+  const rxE = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const opts = [...new Set((options || []).filter(Boolean).map(String))];
+  const first = (n) => n.split(" ")[0].toLowerCase();
+  const out = opts.filter((n) => new RegExp(`(^|\\s)@${rxE(n)}(?![\\w])`, "i").test(t));
+  const taken = new Set([...(picked || []), ...out].map(first));
+  opts.forEach((n) => {
+    if (out.includes(n) || (picked || []).includes(n)) return;
+    const f = first(n);
+    if (taken.has(f) || opts.filter((o) => first(o) === f).length !== 1) return;
+    if (new RegExp(`(^|\\s)@${rxE(n.split(" ")[0])}(?![\\w])`, "i").test(t)) { out.push(n); taken.add(f); }
+  });
+  return out;
+}
+
 const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // replyAuthor: a reply already names who it answers — no extra @ for them.
 export function MentionText({ text, mentions, mine, replyAuthor }) {
@@ -277,18 +297,19 @@ export function MentionText({ text, mentions, mine, replyAuthor }) {
   const alts = ppl.flatMap((x) => [x.n, x.f]).filter(Boolean).sort((a, b) => b.length - a.length).map(esc).join("|");
   const rx = new RegExp(`@(${alts})(?![\\w])`, "gi");
   const inText = new Set();
-  for (const m of s.matchAll(rx)) { const hit = ppl.find((x) => x.n.toLowerCase() === m[1].toLowerCase() || x.f.toLowerCase() === m[1].toLowerCase()); if (hit) inText.add(hit.n); }
+  for (const m of s.matchAll(rx)) { const hit = ppl.find((x) => x.n.toLowerCase() === m[1].toLowerCase()) || ppl.find((x) => !inText.has(x.n) && x.f.toLowerCase() === m[1].toLowerCase()); if (hit) inText.add(hit.n); }
   const missing = ppl.filter((x) => !inText.has(x.n) && x.n !== replyAuthor);
   const parts = [];
   let last = 0, k = 0;
   for (const m of s.matchAll(rx)) {
     if (m.index > last) parts.push(<span key={k++}>{linkifyText(s.slice(last, m.index), mine)}</span>);
-    parts.push(<span key={k++} style={tagStyle}>@{m[1]}</span>);
+    const hit = ppl.find((x) => x.n.toLowerCase() === m[1].toLowerCase()) || ppl.find((x) => x.f.toLowerCase() === m[1].toLowerCase());
+    parts.push(<span key={k++} style={tagStyle}>@{hit ? hit.n : m[1]}</span>);
     last = m.index + m[0].length;
   }
   if (last < s.length) parts.push(<span key={k++}>{linkifyText(s.slice(last), mine)}</span>);
   return (<>
-    {missing.map((x) => <span key={"m" + x.n}><span style={tagStyle}>@{x.f}</span>{" "}</span>)}
+    {missing.map((x) => <span key={"m" + x.n}><span style={tagStyle}>@{x.n}</span>{" "}</span>)}
     {parts}
   </>);
 }

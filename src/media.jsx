@@ -8,9 +8,9 @@ import { T } from "./theme";
 import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";
 import { useContractorData } from "./contractors/data";
-import { mediaOf, mediaCounts, uploadToMedia, fmtMB, fmtDur } from "./mediaStore";
-import { WalkthroughModal, startWalkFromCloud, useWalkJob } from "./walkthrough";
-import { saveItem, shareItem } from "./fileSave";
+import { mediaOf, mediaCounts, uploadToMedia, fmtDur } from "./mediaStore";
+import { WalkthroughModal, startWalkFromCloud } from "./walkthrough";
+import { PhotoViewer } from "./photoViewer";
 
 const ET = (t, o) => new Date(t).toLocaleString("en-US", { timeZone: "America/New_York", ...o });
 const dayKey = (t) => ET(t, { year: "numeric", month: "2-digit", day: "2-digit" });
@@ -97,48 +97,6 @@ function RecorderSheet({ onDone, onClose }) {
         <button onClick={onClose} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontWeight: 700, fontSize: 14, padding: "10px 16px", borderRadius: 20, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>Cancel</button>
         <button onClick={stop} aria-label="Stop recording" style={{ width: 68, height: 68, borderRadius: 34, border: "4px solid #fff", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ width: 28, height: 28, borderRadius: 7, background: "#FF3B30" }} /></button>
         <span style={{ width: 84 }} />
-      </div>
-    </div>
-  );
-}
-
-function ItemSheet({ property, m, onClose, onDelete, onPunch, isMobile }) {
-  const video = m.kind === "video";
-  const job = useWalkJob(property.id);
-  const busy = job && job.status === "proc";
-  // Save / Share hand over the real file (fileSave.js) — the old plain link
-  // opened the storage URL, and a not-yet-rendered video saved as "file.json".
-  const fileItem = { kind: video ? "video" : "image", url: m.url, uid: video ? m.uid : null, name: m.name, mime: m.mime };
-  const [st, setSt] = useState("");
-  const act = async (fn) => {
-    if (st && !/^✓|^⚠|^Ready/.test(st)) return;
-    try {
-      const r = await fn(fileItem, setSt);
-      setSt(r === "again" ? "Ready — tap again" : r === "downloaded" ? "✓ Downloaded — attach it from your Downloads" : "");
-    } catch (e) { setSt(`⚠ ${e.message || "Couldn't get the file"}`); }
-  };
-  const row = (icon, label, onClick, color, right, href) => {
-    const inner = <><span style={{ width: 30, textAlign: "center", fontSize: 17 }}>{icon}</span><span style={{ flex: 1 }}>{label}</span>{right && <span style={{ fontSize: 11, color: "#8a6d1f", fontWeight: 600 }}>{right}</span>}</>;
-    const st = { display: "flex", alignItems: "center", gap: 12, padding: "13px 4px", minHeight: 48, borderTop: "1px solid #F0F0F3", fontSize: 15, fontWeight: color === T.gold ? 800 : 600, color: color || T.text, background: "none", border: "none", borderTopWidth: 1, width: "100%", textAlign: "left", cursor: "pointer", fontFamily: "inherit", textDecoration: "none" };
-    return href ? <a href={href} download target="_blank" rel="noreferrer" style={st}>{inner}</a> : <button onClick={onClick} style={st}>{inner}</button>;
-  };
-  return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 470, display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: isMobile ? "22px 22px 0 0" : 20, width: isMobile ? "100%" : "min(640px,94vw)", maxHeight: "94vh", overflowY: "auto", padding: isMobile ? "10px 16px max(20px, env(safe-area-inset-bottom))" : "16px 18px 18px", boxShadow: "0 -10px 40px rgba(0,0,0,0.25)" }}>
-        {isMobile && <div style={{ width: 36, height: 5, borderRadius: 3, background: "#D1D1D6", margin: "0 auto 12px" }} />}
-        {video
-          ? (m.url ? <iframe src={m.url} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen title={m.name} style={{ width: "100%", aspectRatio: "16/9", border: "none", borderRadius: 14, background: "#000", display: "block" }} />
-            : <div style={{ aspectRatio: "16/9", borderRadius: 14, background: "#222", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>Still processing…</div>)
-          : <img src={m.url} alt={m.name} style={{ width: "100%", maxHeight: "60vh", objectFit: "contain", borderRadius: 14, background: "#000", display: "block" }} />}
-        <div style={{ fontWeight: 800, fontSize: 16, marginTop: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name || (video ? "Video" : "Photo")}</div>
-        <div style={{ fontSize: 12, color: T.textSub, margin: "6px 0 4px" }}>
-          {m.src === "contractor" ? `Sent by ${m.by} in the portal chat` : m.src === "chat" ? `Sent by ${m.by} in chat${m.note ? ` · ${m.note}` : ""}` : m.src === "record" ? "Recorded in the app" : "Uploaded"} · {whenLabel(m.at)}{m.size ? ` · ${fmtMB(m.size)}` : ""}{m.by && m.src !== "contractor" && m.src !== "chat" ? ` · by ${first(m.by)}` : ""}
-          {video && m.punchAt ? ` · ✓ punch list made ${whenLabel(m.punchAt)}` : ""}
-        </div>
-        {video && m.uid && row("📋", busy ? "Punch list in progress…" : m.punchAt ? "Make punch list again" : "Make punch list", () => !busy && onPunch(m), T.gold, "any device")}
-        {row("⬇", isMobile ? "Save to phone" : "Save to computer", () => act(saveItem), undefined, st && !/^✓/.test(st) ? st : undefined)}
-        {row("⤴", "Share — WhatsApp, Messages, Email…", () => act(shareItem), undefined, /^✓/.test(st) ? st : undefined)}
-        {row("🗑", "Delete from Media", () => { if (window.confirm(m.src === "contractor" || m.src === "chat" ? "Take this out of Media? The chat message keeps it." : "Delete this from Media? This can't be undone.")) onDelete(m); }, T.red)}
       </div>
     </div>
   );
@@ -277,7 +235,22 @@ export function MediaPage({ isMobile, onOpenProperty }) {
     <div style={{ display: "flex", height: "100%", minHeight: 0 }}>
       {!isMobile && <div style={{ width: 330, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.card, display: "flex", flexDirection: "column", minHeight: 0 }}>{folderList}</div>}
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0, background: T.bg }}>{folderPane}</div>
-      {sel && open && <ItemSheet property={sel} m={open} isMobile={isMobile} onClose={() => setOpen(null)} onDelete={del} onPunch={punch} />}
+      {/* Tap a tile → the iPhone-Photos viewer: swipe through this folder in the
+          grid's order (newest first), ••• for Save / Share / punch list / Delete. */}
+      {sel && open && <PhotoViewer index={Math.max(0, shown.findIndex((x) => x.id === open.id))} onClose={() => setOpen(null)}
+        items={shown.map((m) => {
+          const video = m.kind === "video";
+          return {
+            key: String(m.id), kind: video ? "video" : "image", name: m.name || "",
+            url: video ? "" : m.url, embed: video ? m.url || null : null, thumb: m.thumb || null, m,
+            file: { kind: video ? "video" : "image", url: m.url, uid: video ? m.uid : null, name: m.name, mime: m.mime },
+            title: sel.address || "Media",
+            sub: `${whenLabel(m.at)}${m.by ? ` · ${m.src === "contractor" ? `${m.by} (portal)` : first(m.by)}` : ""}${video && m.punchAt ? " · ✓ punch list" : ""}`,
+          };
+        })}
+        actions={(x) => (x.m.kind === "video" && x.m.uid ? [{ k: "punch", label: x.m.punchAt ? "Make punch list again" : "Make punch list", icon: "📋", run: () => punch(x.m) }] : [])}
+        onDelete={(x) => del(x.m)}
+        deleteConfirm={(x) => (x.m.src === "contractor" || x.m.src === "chat" ? "Take this out of Media? The chat message keeps it." : "Delete this from Media? This can't be undone.")} />}
       {sel && rec && <RecorderSheet onClose={() => setRec(false)} onDone={(file) => { setRec(false); addFiles([file], "record"); }} />}
       {sel && walk && <WalkthroughModal property={sel} onUpdate={updateProp} onClose={() => setWalk(false)} />}
     </div>

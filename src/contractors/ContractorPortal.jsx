@@ -15,7 +15,7 @@ import { FaceIdSetting } from "../faceId";
 import { ShareInPortal } from "../shareIn";
 import { useAppBadge } from "../appBadge";
 import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, resumeVideoUploads } from "../videoUpload";
-import { MediaBubble, SwipeReply, MentionText } from "../chatMedia";
+import { MediaBubble, SwipeReply, MentionText, typedMentions } from "../chatMedia";
 import { VoiceRecorder } from "../voiceRecorder";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { MicIcon, TeamChatIcon } from "../icons";
@@ -843,7 +843,7 @@ export function ContractorPortal() {
     if (msgTarget) { msg.taskRefId = msgTarget.id; msg.taskRefText = msgTarget.text; }
     if (replyTo) msg.replyTo = { id: replyTo.id, author: replyTo.author, text: (replyTo.text || (replyTo.attachment ? attLabel(replyTo.attachment) : "")).slice(0, 140) };
     // "@Moshe" typed by hand (not picked from the list) still tags Moshe.
-    const typed = atOptions.filter((n) => new RegExp(`(^|\\s)@${String(n).split(" ")[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w])`, "i").test(txt));
+    const typed = typedMentions(txt, atOptions, msgTags);
     const tagsOut = [...new Set([...msgTags, ...typed])];
     if (tagsOut.length) msg.mentions = tagsOut;
     if (msgUrgent) { msg.urgent = true; urgentPing.until = Date.now() + 8000; }

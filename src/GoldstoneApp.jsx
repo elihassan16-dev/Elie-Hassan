@@ -20,7 +20,7 @@ import { urgentNext, urgentMark, UrgentChip, UrgentTag, UrgentTile, UrgentSheet,
 import { PayoffStatementSheet } from "./payoffSheet";
 import { PostsPage, PostsNudge, PostWatcher, PostEditor } from "./flyers";
 import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
-import { MediaBubble, SwipeReply, MentionText } from "./chatMedia";
+import { MediaBubble, SwipeReply, MentionText, typedMentions } from "./chatMedia";
 import { VoiceRecorder } from "./voiceRecorder";
 import { usePersistentDraft } from "./useDraft";
 import { FileActions } from "./fileActions";
@@ -12208,7 +12208,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     const before=text.slice(0,caret),after=text.slice(caret);
     const m=before.match(/(^|\s)@([^\s@]{0,25})$/);
     const kept=m?before.slice(0,m.index+m[1].length):before;
-    const next=`${kept}@${name.split(" ")[0]} `;
+    const next=`${kept}@${name} `; // full name — "@Moshe" alone was ambiguous (two Moshes)
     setText(next+after);
     if(!mentions.includes(name))setMentions(prev=>[...prev,name]);
     setAtQuery(null);
@@ -12228,7 +12228,7 @@ function ChatComposer({onSend,placeholder="Message…",people=[],currentUser,tem
     // A staged video that already failed shouldn't go out as a dead bubble.
     if(pendingAtt&&pendingAtt.uploadId&&videoUploadState(pendingAtt.uploadId)?.status==="failed"){setErr(`${pendingAtt.kind==="video"?"The video":"That file"} didn't upload — remove it (×) and try again.`);return;}
     // "@Moshe" typed by hand (not picked from the list) still tags Moshe.
-    const typedTags=tagOptions.filter(n=>new RegExp(`(^|\\s)@${String(n).split(" ")[0].replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}(?![\\w])`,"i").test(t));
+    const typedTags=typedMentions(t,tagOptions,mentions);
     const att=resolveVideoAttachment(pendingAtt),mn=[...new Set([...mentions,...typedTags])];
     setText("");setPendingAtt(null);setMentions([]);setShowTag(false);setErr("");setAtQuery(null);
     const wasUrgent=urgent;setUrgent(false);

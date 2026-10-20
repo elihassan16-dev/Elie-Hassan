@@ -18,11 +18,22 @@ const vw = () => (typeof window !== "undefined" ? window.innerWidth : 400);
 const fmtWhen = (t) => { try { const d = new Date(t); if (isNaN(d)) return ""; const today = new Date(); const y = new Date(Date.now() - 86400000); const same = (a, b) => a.toDateString() === b.toDateString(); const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); return same(d, today) ? `Today ${time}` : same(d, y) ? `Yesterday ${time}` : `${d.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(d.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}) })} ${time}`; } catch { return ""; } };
 export const viewerWhen = fmtWhen;
 
-function Slide({ it, active, zoom }) {
+// Photos never take the touch themselves (pointer-events off, no iOS
+// callout), so a swipe that starts ANYWHERE on the screen is ours. Videos show
+// their poster + a big ▶ until tapped — only then does the player get touches.
+const noTouch = { pointerEvents: "none", WebkitTouchCallout: "none", userSelect: "none", WebkitUserSelect: "none" };
+function Slide({ it, active, playing, onPlay }) {
   if (!it) return null;
-  if (it.kind === "image") return <img src={it.url} alt={it.name || "photo"} draggable={false} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block", userSelect: "none", WebkitUserSelect: "none", transform: zoom, transformOrigin: "0 0" }} />;
-  if (!active) return it.thumb ? <img src={it.thumb} alt="" draggable={false} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }} /> : <div style={{ width: "70%", aspectRatio: "16/9", background: "#111", borderRadius: 8 }} />;
-  if (it.embed) return <iframe key={it.key} src={it.embed} title={it.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", background: "#000" }} />;
+  if (it.kind === "image") return <img src={it.url} alt={it.name || "photo"} draggable={false} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block", ...noTouch }} />;
+  if (!active || !playing) return (
+    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#000" }}>
+      {it.thumb ? <img src={it.thumb} alt="" draggable={false} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block", ...noTouch }} /> : <div style={{ width: "70%", aspectRatio: "16/9", background: "#111", borderRadius: 8 }} />}
+      {active && <button data-pv-btn onClick={onPlay} aria-label="Play video" style={{ position: "absolute", width: 76, height: 76, borderRadius: 38, border: "none", background: "rgba(255,255,255,0.92)", boxShadow: "0 4px 20px rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
+        <svg width="30" height="34" viewBox="0 0 30 34"><path d="M4 2.5v29a1.5 1.5 0 0 0 2.3 1.3l23-14.5a1.5 1.5 0 0 0 0-2.6L6.3 1.2A1.5 1.5 0 0 0 4 2.5Z" fill="#1C1C1E" /></svg>
+      </button>}
+    </div>
+  );
+  if (it.embed) { const src = /autoplay=/.test(it.embed) ? it.embed : `${it.embed}${it.embed.includes("?") ? "&" : "?"}autoplay=true`; return <iframe key={it.key} src={src} title={it.name || "video"} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", background: "#000" }} />; }
   if (!it.url) return <div style={{ color: "#fff", fontSize: 15 }}>Still processing…</div>;
   return <video key={it.key} src={it.url} controls playsInline autoPlay style={{ maxWidth: "100%", maxHeight: "100%", display: "block", background: "#000" }} />;
 }
@@ -32,6 +43,7 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
   const [idx, setIdx] = useState(Math.max(0, Math.min(index, n - 1)));
   const [scale, setScale] = useState(1), [tx, setTx] = useState(0), [ty, setTy] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [playKey, setPlayKey] = useState(null); // the video whose player is live
   const [chrome, setChrome] = useState(true);
   const [menu, setMenu] = useState(false);
   const [status, setStatus] = useState("");
@@ -65,7 +77,7 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
   useLayoutEffect(() => { setTrack(0, 0, 0); }, [idx]); // the new current sits in the middle
   useEffect(() => { if (idx > n - 1) setIdx(Math.max(0, n - 1)); }, [n]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!n) onClose(); }, [n]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setScale(1); setTx(0); setTy(0); setStatus(""); setMenu(false); }, [idx]);
+  useEffect(() => { setScale(1); setTx(0); setTy(0); setStatus(""); setMenu(false); setPlayKey(null); }, [idx]);
   useEffect(() => { [idx - 1, idx + 1].forEach((i) => { const it = items[i]; if (it && it.kind === "image") { const im = new Image(); im.src = it.url; } }); }, [idx, items]);
   useEffect(() => { // keep the current thumbnail in view
     const s = stripRef.current; const el = s && s.children[idx];
@@ -104,7 +116,8 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
         setDragging(false); setDx(0); setDy(0);
       } else if (e.touches.length === 1) {
         const p = pt(e.touches[0]);
-        g.current = { mode: st.current.s > 1 ? "pan" : "swipe", last: p, startP: p, startT: Date.now(), moved: false, axis: null, hist: [{ x: p.x, y: p.y, t: performance.now() }] };
+        // onBtn: started on the ▶ button — still swipeable, but a plain tap is the button's.
+        g.current = { mode: st.current.s > 1 ? "pan" : "swipe", last: p, startP: p, startT: Date.now(), moved: false, axis: null, hist: [{ x: p.x, y: p.y, t: performance.now() }], onBtn: !!(e.target.closest && e.target.closest("[data-pv-btn]")) };
       }
     };
     const move = (e) => {
@@ -146,12 +159,12 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
         const r = rootRef.current; if (r) r.style.background = st.current.bgFull;
         if (G.axis === "x") {
           const d = mx < 0 ? 1 : -1;
-          const flick = Math.abs(vx) > 0.3 && Math.sign(vx) === Math.sign(mx);
-          if (Math.abs(mx) > el.clientWidth * 0.15 || (flick && Math.abs(mx) > 12)) slideTo(d, Math.round(Math.max(140, Math.min(260, (el.clientWidth - Math.abs(mx)) / Math.max(0.9, Math.abs(vx))))));
+          const flick = Math.abs(vx) > 0.2 && Math.sign(vx) === Math.sign(mx);
+          if (Math.abs(mx) > el.clientWidth * 0.12 || (flick && Math.abs(mx) > 10)) slideTo(d, Math.round(Math.max(140, Math.min(260, (el.clientWidth - Math.abs(mx)) / Math.max(0.9, Math.abs(vx))))));
           else setTrack(0, 0, 200);
         } else if (G.axis === "y") {
           if (my > 110 || (vy > 0.6 && my > 30)) nav.current.close(); else setTrack(0, 0, 200);
-        } else if (!G.moved) {
+        } else if (!G.moved && !G.onBtn) {
           const now = Date.now();
           if (el._lastTap && now - el._lastTap < 300) { clearTimeout(el._tapT); applyZoom(2.6, p.x, p.y); el._lastTap = 0; }
           else { el._lastTap = now; el._tapT = setTimeout(() => { if (el._lastTap === now) nav.current.toggle(); }, 300); }
@@ -245,13 +258,13 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
               <div key={it ? it.key : `e${o}`} style={{ position: "absolute", top: 0, bottom: 0, left: o * (W + 16), width: W, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {it && (o === 0 && it.kind === "image"
                   ? <div style={{ position: "absolute", inset: 0, transform: zoomT, transformOrigin: "0 0", display: "flex", alignItems: "center", justifyContent: "center", transition: g.current.mode ? "none" : "transform .2s" }}><Slide it={it} active /></div>
-                  : <Slide it={it} active={o === 0} />)}
+                  : <Slide it={it} active={o === 0} playing={o === 0 && playKey === it.key} onPlay={() => setPlayKey(it.key)} />)}
               </div>
             );
           })}
         </div>
-        {/* Videos: the player eats touches, so the edges stay swipeable. */}
-        {x.kind === "video" && <>
+        {/* A playing video's player eats touches — its edges stay swipeable. */}
+        {x.kind === "video" && playKey === x.key && <>
           <div style={{ position: "absolute", left: 0, top: 0, bottom: 70, width: 44, zIndex: 2 }} />
           <div style={{ position: "absolute", right: 0, top: 0, bottom: 70, width: 44, zIndex: 2 }} />
         </>}

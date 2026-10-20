@@ -12813,10 +12813,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                 {bubble(root,{onCard:true})}
                 {replies.map(r=>bubble(r,{small:true,onCard:true}))}
               </div>
-              {isCtr&&<div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",paddingBottom:3}}>
-                <span style={{flex:"1 1 220px",fontSize:10,color:"#B45309",fontWeight:600}}>👁 {root.ctrLabel}'s team sees everything in this box. Your internal chat stays hidden from them.</span>
-                {!selMode&&<button onClick={()=>setReply({ctrJobId:root.ctrJobId,ctrOrgId:root.ctrOrgId,ctrLabel:root.ctrLabel,plain:true})} style={{minHeight:34,padding:"0 14px",borderRadius:17,border:`1.5px solid ${T.gold}`,background:"#FFF9EC",color:"#8a6d1f",fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>✍️ Message {String(root.ctrLabel).split(" — ")[0]}</button>}
-              </div>}
+              {isCtr&&<div style={{fontSize:10,color:"#B45309",fontWeight:600,paddingBottom:3}}>👁 {root.ctrLabel}'s team sees everything in this box — tap it to message them. Your internal chat stays hidden from them.</div>}
             </div>
           );
         })}

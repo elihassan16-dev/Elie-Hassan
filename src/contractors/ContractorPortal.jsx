@@ -254,7 +254,7 @@ export function ContractorPortal() {
   useEffect(() => {
     if (!selJob || tab !== "messages") return;
     (messages || []).filter((m) => String(m.jobId) === String(selJob.id) && m.side === "team" && !(m.readBy || []).includes(displayName))
-      .forEach((m) => { save("contractor_messages", { ...m, readBy: [...(m.readBy || []), displayName] }).catch(() => {}); });
+      .forEach((m) => { save("contractor_messages", { ...m, readBy: [...(m.readBy || []), displayName], readAt: { ...(m.readAt || {}), [displayName]: new Date().toISOString() } }).catch(() => {}); });
   }, [selJob?.id, tab, (messages || []).length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── shared upload helper (photos, videos, PDFs) ────────────────────────────

@@ -2614,7 +2614,7 @@ function PropertyShowings({property,showings,onUpdate,flush,onOpenSms,dense}){
     // Opening the thread reads it.
     const msgs=property.messages||[];
     if(msgs.some(m=>m.showingKey===key&&isUnreadForUser(m,CURRENT_USER)))
-      onUpdate(property.id,"messages",msgs.map(m=>m.showingKey===key&&isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}:m));
+      onUpdate(property.id,"messages",msgs.map(m=>m.showingKey===key&&isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER],readAt:{...(m.readAt||{}),[CURRENT_USER]:new Date().toISOString()}}:m));
     setMsgFor({key,label});
   };
   const sendShowingMsg=(txt,att,mn)=>{
@@ -8086,7 +8086,7 @@ function TaskMessagesBody({title,task,contacts=[],messages:allMsgs,currentUser,t
               </div>
               <button onClick={()=>setReply(m)} title={`Reply to ${(m.author||"").split(" ")[0]||"this message"}`} style={{width:26,height:26,minHeight:26,borderRadius:13,flexShrink:0,background:reply&&reply.id===m.id?T.goldLight:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.04)",color:reply&&reply.id===m.id?"#8a6d1f":T.textTert,cursor:"pointer",fontSize:12,padding:0,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>↩</button>
               </div>
-              {mine&&<div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:5,marginTop:2}}><span style={{fontSize:10,color:T.textTert}}>{fmt(m.at)} ·</span><ReadReceipt readBy={m.readBy} author={m.author}/></div>}
+              {mine&&<div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:5,marginTop:2}}><span style={{fontSize:10,color:T.textTert}}>{fmt(m.at)} ·</span><ReadReceipt readBy={m.readBy} author={m.author} m={m} people={teamMembers}/></div>}
             </SwipeReply>
           );})}
         </div>
@@ -9015,7 +9015,7 @@ function PropertyTaskList({property}){
     if(member&&member!==CURRENT_USER){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(t=>t.id===tid); const pN=sharedProps.find(p=>p.id===pid); const aN=pN?`${pN.address}${pN.city?`, ${pN.city}`:""}`:""; notify([member],{title:"New task for you",body:`${CURRENT_USER} ${role==="owner"?"assigned":"delegated"} you: ${tsk?.text||"a task"}${aN?` — 🏠 ${aN}`:""}`,tag:`task-${tid}`,url:`/?goto=task:${pid}:${tid}`}); }
   };
   const addTaskMessage=(pid,tid,text,attachment,mentions,extra)=>{ const t=(text||"").trim(); if(!t&&!attachment)return; const msg=urgentMark({id:Date.now(),author:CURRENT_USER,text:t,at:new Date().toISOString(),readBy:[CURRENT_USER]}); if(extra)Object.assign(msg,extra); if(attachment)msg.attachment=attachment; if(mentions&&mentions.length)msg.mentions=mentions; setSharedProps(prev=>prev.map(p=>p.id!==pid?p:{...p,tasks:(p.tasks||[]).map(tk=>tk.id!==tid?tk:{...tk,messages:[...(tk.messages||[]),msg]})})); if(mentions&&mentions.length){ const tsk=(sharedProps.find(p=>p.id===pid)?.tasks||[]).find(x=>x.id===tid); notify(mentions.filter(n=>n!==CURRENT_USER),{title:tsk?.text?`Task: ${tsk.text}`:"New message",att:attachment,body:`${CURRENT_USER}: ${t||attLabel(attachment)}`,tag:`task-${tid}`,url:`/?goto=chat:${pid}`}); } };
-  const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
+  const markTaskRead=(pid,tid)=>setSharedProps(prev=>prev.map(p=>{ if(p.id!==pid)return p; let changed=false; const tks=(p.tasks||[]).map(tk=>{if(tk.id!==tid)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER],readAt:{...(m.readAt||{}),[CURRENT_USER]:new Date().toISOString()}};}return m;});return {...tk,messages};}); return changed?{...p,tasks:tks}:p; }));
   useEffect(()=>{if(msgTarget)markTaskRead(msgTarget.propId,msgTarget.id);},[msgTarget]); // eslint-disable-line react-hooks/exhaustive-deps
   const popTask=popId!=null?rows.find(t=>t.id===popId):null;
   useEffect(()=>{if(popTask)markTaskRead(propId,popTask.id);},[popId,popTask&&(popTask.messages||[]).length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -9477,12 +9477,12 @@ function TasksPage({onNavigate}){
   }
   // Mark a task's messages read by me when I open its 💬 popup.
   function markTaskRead(propId,taskId){
-    const readMsgs=(tk)=>({...tk,messages:(tk.messages||[]).map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}:m)});
+    const readMsgs=(tk)=>({...tk,messages:(tk.messages||[]).map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER],readAt:{...(m.readAt||{}),[CURRENT_USER]:new Date().toISOString()}}:m)});
     if(isOffice(propId)){upOfficeTask(taskId,readMsgs);return;}
     setSharedProps(prev=>prev.map(p=>{
       if(p.id!==propId)return p;
       let changed=false;
-      const tasks=(p.tasks||[]).map(tk=>{if(tk.id!==taskId)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});return {...tk,messages};});
+      const tasks=(p.tasks||[]).map(tk=>{if(tk.id!==taskId)return tk;const messages=(tk.messages||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER],readAt:{...(m.readAt||{}),[CURRENT_USER]:new Date().toISOString()}};}return m;});return {...tk,messages};});
       return changed?{...p,tasks}:p;
     }));
   }
@@ -12545,12 +12545,54 @@ const propUnreadCount=(p,user)=>mergePropertyMessages(p).reduce((n,m)=>n+(isUnre
 const totalUnread=(props,user)=>(props||[]).filter(p=>!p.archived).reduce((n,p)=>n+propUnreadCount(p,user),0);
 // WhatsApp-style read receipt shown under your OWN sent messages: who on the team
 // has opened it. readBy always includes the author, so we drop them to get "others".
-function ReadReceipt({readBy,author}){
+function ReadReceipt({readBy,author,m,people}){
+  const[open,setOpen]=useState(false);
   const others=(readBy||[]).filter(n=>n&&n!==author);
   const seen=others.length>0;
   const names=others.map(n=>String(n).split(" ")[0]);
   const label=!seen?"Delivered":`Read${names.length<=2?" by "+names.join(", "):` by ${names.length}`}`;
-  return <div title={seen?`Read by ${others.join(", ")}`:"Delivered — not read yet"} style={{fontSize:10,fontWeight:600,color:T.textTert,marginTop:2}}>{label}</div>;
+  const st={fontSize:10,fontWeight:600,color:T.textTert,marginTop:2};
+  if(!m)return <div title={seen?`Read by ${others.join(", ")}`:"Delivered — not read yet"} style={st}>{label}</div>;
+  return(<>
+    <button type="button" onClick={e=>{e.stopPropagation();setOpen(true);}} title="See who it was delivered to and when they read it" style={{...st,background:"none",border:"none",padding:"2px 0",cursor:"pointer",fontFamily:"inherit",minHeight:0,textDecoration:"underline dotted",textUnderlineOffset:2}}>{label}</button>
+    {open&&<ReadInfoSheet m={m} author={author} people={people} onClose={()=>setOpen(false)}/>}
+  </>);
+}
+// Tap "Delivered / Read by…" under your own message (Elie 10/20/26): who it went
+// to, delivered when (the moment it was sent — the push goes out right then),
+// and when each person read it. Read times are recorded from 10/20/26 on.
+function ReadInfoSheet({m,author,people,onClose}){
+  const when=(iso)=>{try{const d=new Date(iso);if(isNaN(d))return "";return d.toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch{return "";}};
+  const readBy=(m.readBy||[]).filter(n=>n&&n!==author);
+  const readAt=m.readAt||{};
+  const base=(m.mentions&&m.mentions.length?m.mentions:(people||[])).filter(n=>n&&n!==author);
+  const list=[...new Set([...base,...readBy])];
+  const rows=list.map(n=>({n,read:readBy.includes(n),at:readAt[n]||null})).sort((a,b)=>(b.read-a.read)||String(a.at||"").localeCompare(String(b.at||""))||a.n.localeCompare(b.n));
+  const preview=String(m.text||"").trim()||(m.attachment?"📎 Attachment":"");
+  return createPortal(
+    <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:480,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(420px,96vw)",maxHeight:"80vh",overflowY:"auto",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
+        <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"flex-start",gap:10}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:16,fontWeight:700,color:T.text}}>Message info</div>
+            {preview&&<div style={{fontSize:13,color:T.textSub,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{preview}</div>}
+            <div style={{fontSize:12,color:T.textTert,marginTop:4}}>Sent {when(m.at)}</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{width:32,height:32,minHeight:32,borderRadius:16,border:"none",background:"rgba(118,118,128,0.12)",color:T.textSub,fontSize:14,cursor:"pointer",flexShrink:0}}>✕</button>
+        </div>
+        {rows.length===0&&<div style={{padding:16,fontSize:14,color:T.textTert}}>No one else is on this chat.</div>}
+        {rows.map((r,i)=>(
+          <div key={r.n} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 16px",borderTop:i===0?"none":`0.5px solid ${T.border}`}}>
+            <span style={{width:34,height:34,borderRadius:17,background:r.read?T.gold:"#C7C7CC",color:"#fff",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{String(r.n).split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase()}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:15,fontWeight:600,color:T.text}}>{r.n}</div>
+              <div style={{fontSize:12.5,color:T.textSub,marginTop:2}}>✓ Delivered {when(m.at)}</div>
+              <div style={{fontSize:12.5,marginTop:1,color:r.read?"#1F8A3B":T.textTert,fontWeight:r.read?600:400}}>{r.read?(r.at?`✓✓ Read ${when(r.at)}`:"✓✓ Read (time not recorded)"):"Not read yet"}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>,document.body);
 }
 // A small count bubble used on nav items and the property list.
 function UnreadBadge({count,style={}}){
@@ -12780,7 +12822,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
                   {/* Reply to THIS message — quiet ghost circle beside the bubble (iMessage-style) */}
                   {!selMode&&<button onClick={()=>setReply(m)} title={`Reply to ${(m.author||"").split(" ")[0]||"this message"} — notifies them`} style={{width:26,height:26,minHeight:26,borderRadius:13,flexShrink:0,background:reply&&reply.id===m.id?T.goldLight:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.04)",color:reply&&reply.id===m.id?"#8a6d1f":T.textTert,cursor:"pointer",fontSize:12,fontFamily:"inherit",display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0,alignSelf:"center"}}>↩</button>}
                 </div>
-                {mine&&<div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}><span style={{fontSize:10,color:T.textTert}}>{fmt(m.at)} ·</span><ReadReceipt readBy={m.readBy} author={m.author}/></div>}
+                {mine&&<div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}><span style={{fontSize:10,color:T.textTert}}>{fmt(m.at)} ·</span><ReadReceipt readBy={m.readBy} author={m.author} m={m} people={teamMembers}/></div>}
               </SwipeReply>
             );
           };
@@ -13040,7 +13082,7 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const markRead=(propId)=>setSharedProps(prev=>prev.map(p=>{
     if(p.id!==propId)return p;
     let changed=false;
-    const mark=(arr)=>(arr||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER]};}return m;});
+    const mark=(arr)=>(arr||[]).map(m=>{if(isUnreadForUser(m,CURRENT_USER)){changed=true;return {...m,readBy:[...(m.readBy||[]),CURRENT_USER],readAt:{...(m.readAt||{}),[CURRENT_USER]:new Date().toISOString()}};}return m;});
     const messages=mark(p.messages);
     const tasks=(p.tasks||[]).map(t=>({...t,messages:mark(t.messages)}));
     return changed?{...p,messages,tasks}:p;
@@ -13051,14 +13093,14 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const markCtrRead=(p)=>{
     const pj=new Set((ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id)).map(j=>String(j.id)));
     (ctrMessages||[]).filter(m=>pj.has(String(m.jobId))&&isUnreadForUser(m,CURRENT_USER))
-      .forEach(m=>{ctrSave("contractor_messages",{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}).catch(()=>{});});
+      .forEach(m=>{ctrSave("contractor_messages",{...m,readBy:[...(m.readBy||[]),CURRENT_USER],readAt:{...(m.readAt||{}),[CURRENT_USER]:new Date().toISOString()}}).catch(()=>{});});
   };
   const selUnread=sel?propUnreadCount(sel,CURRENT_USER)+ctrUnreadFor(sel):0;
   useEffect(()=>{if(sel&&selUnread>0){markRead(sel.id);markCtrRead(sel);}},[selId,selUnread]);// eslint-disable-line
   // Mark office-chat messages read once it's open.
   useEffect(()=>{if(selId===OFFICE_ID&&officeUnread>0){
-    setOfficeMessages(prev=>prev.map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}:m));
-    setOfficeTasks(prev=>(prev||[]).map(tk=>(tk.messages||[]).some(m=>isUnreadForUser(m,CURRENT_USER))?{...tk,messages:tk.messages.map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER]}:m)}:tk));
+    setOfficeMessages(prev=>prev.map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER],readAt:{...(m.readAt||{}),[CURRENT_USER]:new Date().toISOString()}}:m));
+    setOfficeTasks(prev=>(prev||[]).map(tk=>(tk.messages||[]).some(m=>isUnreadForUser(m,CURRENT_USER))?{...tk,messages:tk.messages.map(m=>isUnreadForUser(m,CURRENT_USER)?{...m,readBy:[...(m.readBy||[]),CURRENT_USER],readAt:{...(m.readAt||{}),[CURRENT_USER]:new Date().toISOString()}}:m)}:tk));
     saveOfficeTasks();
   }},[selId,officeUnread]);// eslint-disable-line
   // Delete selected messages (from the general thread and any task threads).

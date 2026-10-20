@@ -9,7 +9,7 @@
 // Items: { key, kind:"image"|"video", url, embed?, thumb?, title?, sub?, ext?,
 //          file? (what Save/Share hand over: {kind,url,uid,name,mime}) }
 // actions(it) → extra ••• rows [{k,label,icon,run,red}]; onDelete(it) adds 🗑.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { T } from "./theme";
 import { saveItem, shareItem, isPhone } from "./fileSave";
@@ -31,20 +31,38 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
   const n = items.length;
   const [idx, setIdx] = useState(Math.max(0, Math.min(index, n - 1)));
   const [scale, setScale] = useState(1), [tx, setTx] = useState(0), [ty, setTy] = useState(0);
-  const [dx, setDx] = useState(0), [dy, setDy] = useState(0), [dragging, setDragging] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [chrome, setChrome] = useState(true);
   const [menu, setMenu] = useState(false);
   const [status, setStatus] = useState("");
-  const boxRef = useRef(null), stripRef = useRef(null);
+  const boxRef = useRef(null), stripRef = useRef(null), trackRef = useRef(null), rootRef = useRef(null);
   const st = useRef({}); st.current = { s: scale, tx, ty, idx, n };
   const g = useRef({ mode: null });
   const nav = useRef({});
   const x = items[idx];
+  // The swipe track is moved straight on the DOM (no React render per finger
+  // move) so it sticks to the finger; a committed swipe slides the neighbour
+  // all the way in, then the index flips and the track snaps back to 0.
+  const setTrack = (x, y, ms) => {
+    const t = trackRef.current; if (!t) return;
+    t.style.transition = ms ? `transform ${ms}ms cubic-bezier(.22,.8,.3,1)` : "none";
+    t.style.transform = `translate3d(${x}px,${y}px,0) scale(${y > 0 ? Math.max(0.8, 1 - y / 1500) : 1})`;
+  };
+  const busy = useRef(false);
+  const slideTo = (d, ms = 240) => {
+    const { idx: i, n: N } = st.current;
+    if (busy.current || i + d < 0 || i + d > N - 1) { setTrack(0, 0, 200); return; }
+    const W = boxRef.current ? boxRef.current.clientWidth : vw();
+    busy.current = true;
+    setTrack(-d * (W + 16), 0, ms);
+    setTimeout(() => { setIdx((v) => Math.max(0, Math.min(st.current.n - 1, v + d))); busy.current = false; }, ms);
+  };
   nav.current = {
-    go: (d) => setIdx((i) => Math.max(0, Math.min(st.current.n - 1, i + d))),
+    go: (d) => slideTo(d),
     close: onClose,
     toggle: () => setChrome((c) => !c),
   };
+  useLayoutEffect(() => { setTrack(0, 0, 0); }, [idx]); // the new current sits in the middle
   useEffect(() => { if (idx > n - 1) setIdx(Math.max(0, n - 1)); }, [n]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!n) onClose(); }, [n]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setScale(1); setTx(0); setTy(0); setStatus(""); setMenu(false); }, [idx]);
@@ -86,7 +104,7 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
         setDragging(false); setDx(0); setDy(0);
       } else if (e.touches.length === 1) {
         const p = pt(e.touches[0]);
-        g.current = { mode: st.current.s > 1 ? "pan" : "swipe", last: p, startP: p, startT: Date.now(), moved: false, axis: null };
+        g.current = { mode: st.current.s > 1 ? "pan" : "swipe", last: p, startP: p, startT: Date.now(), moved: false, axis: null, hist: [{ x: p.x, y: p.y, t: performance.now() }] };
       }
     };
     const move = (e) => {
@@ -105,12 +123,13 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
         e.preventDefault();
         const p = pt(e.touches[0]);
         const mx = p.x - G.startP.x, my = p.y - G.startP.y;
-        if (!G.axis && Math.hypot(mx, my) > 8) G.axis = Math.abs(mx) > Math.abs(my) ? "x" : "y";
+        if (!G.axis && Math.hypot(mx, my) > 6) G.axis = Math.abs(mx) >= Math.abs(my) * 0.8 ? "x" : "y";
+        G.hist.push({ x: p.x, y: p.y, t: performance.now() }); if (G.hist.length > 6) G.hist.shift();
         if (G.axis) {
-          G.moved = true; setDragging(true);
+          if (!G.moved) { G.moved = true; setDragging(true); }
           const { idx: i, n: N } = st.current;
-          if (G.axis === "x") setDx((i === 0 && mx > 0) || (i === N - 1 && mx < 0) ? mx / 3 : mx);
-          else setDy(Math.max(0, my));
+          if (G.axis === "x") setTrack((i === 0 && mx > 0) || (i === N - 1 && mx < 0) ? mx / 3 : mx, 0, 0);
+          else { const y = Math.max(0, my); setTrack(0, y, 0); const r = rootRef.current; if (r) r.style.background = `rgba(${st.current.dark ? "0,0,0" : "255,255,255"},${Math.max(0.3, 1 - y / 400)})`; }
         }
       }
     };
@@ -119,11 +138,20 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
       if (G.mode === "swipe" && e.changedTouches.length === 1 && st.current.s === 1) {
         const p = pt(e.changedTouches[0]);
         const mx = p.x - G.startP.x, my = p.y - G.startP.y;
-        const fast = Date.now() - G.startT < 250;
-        setDragging(false); setDx(0); setDy(0);
-        if (G.axis === "x" && (Math.abs(mx) > el.clientWidth * 0.22 || (fast && Math.abs(mx) > 40))) nav.current.go(mx < 0 ? 1 : -1);
-        else if (G.axis === "y" && my > 110) nav.current.close();
-        else if (!G.moved) {
+        // Flick speed from the last ~80ms of movement (px per ms).
+        const now = performance.now(), h = G.hist || [];
+        const ref = h.find((q) => now - q.t < 90) || h[h.length - 1] || { x: p.x, y: p.y, t: now };
+        const dt = Math.max(1, now - ref.t), vx = (p.x - ref.x) / dt, vy = (p.y - ref.y) / dt;
+        if (G.moved) setDragging(false);
+        const r = rootRef.current; if (r) r.style.background = st.current.bgFull;
+        if (G.axis === "x") {
+          const d = mx < 0 ? 1 : -1;
+          const flick = Math.abs(vx) > 0.3 && Math.sign(vx) === Math.sign(mx);
+          if (Math.abs(mx) > el.clientWidth * 0.15 || (flick && Math.abs(mx) > 12)) slideTo(d, Math.round(Math.max(140, Math.min(260, (el.clientWidth - Math.abs(mx)) / Math.max(0.9, Math.abs(vx))))));
+          else setTrack(0, 0, 200);
+        } else if (G.axis === "y") {
+          if (my > 110 || (vy > 0.6 && my > 30)) nav.current.close(); else setTrack(0, 0, 200);
+        } else if (!G.moved) {
           const now = Date.now();
           if (el._lastTap && now - el._lastTap < 300) { clearTimeout(el._tapT); applyZoom(2.6, p.x, p.y); el._lastTap = 0; }
           else { el._lastTap = now; el._tapT = setTimeout(() => { if (el._lastTap === now) nav.current.toggle(); }, 300); }
@@ -135,11 +163,23 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
       }
       if (e.touches.length === 0) g.current = { mode: null };
     };
+    // Computers: a two-finger trackpad swipe sideways flips too (arrows + keys also work).
+    let acc = 0, accT = 0, lockT = 0;
+    const wheel = (e) => {
+      if (st.current.s > 1 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      const now = Date.now();
+      if (now < lockT) return;
+      if (now - accT > 250) acc = 0;
+      acc += e.deltaX; accT = now;
+      if (Math.abs(acc) > 60) { slideTo(acc > 0 ? 1 : -1); acc = 0; lockT = now + 450; }
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
     el.addEventListener("touchstart", start, { passive: false });
     el.addEventListener("touchmove", move, { passive: false });
     el.addEventListener("touchend", end, { passive: false });
     el.addEventListener("touchcancel", end, { passive: false });
-    return () => { el.removeEventListener("touchstart", start); el.removeEventListener("touchmove", move); el.removeEventListener("touchend", end); el.removeEventListener("touchcancel", end); };
+    return () => { el.removeEventListener("touchstart", start); el.removeEventListener("touchmove", move); el.removeEventListener("touchend", end); el.removeEventListener("touchcancel", end); el.removeEventListener("wheel", wheel); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!x) return null;
@@ -165,8 +205,8 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
     ...(onDelete ? [{ k: "del", label: "Delete", icon: "🗑", red: true, run: del }] : []),
   ];
   const dark = !chrome || scale > 1;
-  const fade = dy > 0 ? Math.max(0.3, 1 - dy / 400) : 1;
-  const bg = dark ? `rgba(0,0,0,${fade})` : `rgba(255,255,255,${fade})`;
+  const bg = dark ? "#000" : "#fff";
+  st.current.dark = dark; st.current.bgFull = bg;
   const W = boxRef.current ? boxRef.current.clientWidth : vw();
   const circle = { width: 46, height: 46, borderRadius: 23, border: "none", background: "rgba(255,255,255,0.92)", boxShadow: "0 2px 12px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.06)", color: T.text, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontFamily: "inherit", flexShrink: 0, padding: 0 };
   const showChrome = chrome && !dragging && scale === 1;
@@ -174,7 +214,7 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
   const title = x.title || (x.kind === "video" ? "Video" : "Photo");
   const sub = x.sub != null ? x.sub : fmtWhen(x.at);
   return createPortal(
-    <div onClick={(e) => e.stopPropagation()} style={{ position: "fixed", inset: 0, zIndex: 2600, background: bg, transition: dragging ? "none" : "background .2s", display: "flex", flexDirection: "column", overscrollBehavior: "contain" }}>
+    <div ref={rootRef} onClick={(e) => e.stopPropagation()} style={{ position: "fixed", inset: 0, zIndex: 2600, background: bg, transition: dragging ? "none" : "background .2s", display: "flex", flexDirection: "column", overscrollBehavior: "contain" }}>
       {/* top bar */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "max(10px, env(safe-area-inset-top)) 14px 8px", opacity: showChrome ? 1 : 0, pointerEvents: showChrome ? "auto" : "none", transition: "opacity .18s", zIndex: 3, flexShrink: 0 }}>
         <button onClick={onClose} aria-label="Back" style={circle}><svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke={T.text} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M10 2 2 10l8 8" /></svg></button>
@@ -198,7 +238,7 @@ export function PhotoViewer({ items, index = 0, onClose, actions, onDelete, dele
 
       {/* media */}
       <div ref={boxRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden", touchAction: "none" }}>
-        <div style={{ position: "absolute", inset: 0, transform: `translate(${dx}px, ${dy}px) scale(${dy > 0 ? Math.max(0.8, 1 - dy / 1500) : 1})`, transition: dragging ? "none" : "transform .25s cubic-bezier(.2,.8,.2,1)" }}>
+        <div ref={trackRef} style={{ position: "absolute", inset: 0, willChange: "transform" }}>
           {[-1, 0, 1].map((o) => {
             const it = items[idx + o];
             return (

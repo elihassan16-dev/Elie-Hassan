@@ -261,12 +261,16 @@ export function useSmsTexting() {
     if (!t.length) return "";
     return t[t.length - 1].direction === "in" ? "replied" : "awaiting";
   };
-  // Incoming texts newer than the last time this user opened the conversation.
+  // Incoming texts newer than the last time this user opened the conversation —
+  // and only the ones that are THIS teammate's to answer (Elie 10/21/26: Moshe
+  // had piles of "unread" agent texts that came to Elie's line). Everyone can
+  // still open and read every conversation.
   const unreadFor = (ph) => {
     const p = e164(ph);
     if (!p) return 0;
     const since = readMap[p] || "";
-    return threadFor(p).filter((m) => m.direction === "in" && String(m.at || "") > since).length;
+    const t = threadFor(p);
+    return t.filter((m) => m.direction === "in" && String(m.at || "") > since && smsIsMine(m, t, store.from)).length;
   };
   const send = async (to, text, media, prop) => {
     await qbAuthFetch("/api/jivetel/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, message: text, ...(Array.isArray(media) && media.length ? { media } : {}), ...(prop ? { prop: String(prop).slice(0, 80) } : {}) }) });
@@ -1225,6 +1229,15 @@ const prettyPh = (p) => { const d = String(p || "").replace(/\D/g, "").replace(/
 const ROLE_TAG = { agent: ["AGENT", "#E8F4FF", "#0A66C2", "#0A84FF"], buyer: ["BUYER", "#EDFBF1", "#15803D", "#34C759"], lead: ["LEAD", "#F3E8FF", "#7C3AED", "#AF52DE"] };
 const initialsOfName = (n) => { const w = String(n || "").trim().split(/\s+/).filter((x) => /[A-Za-z]/.test(x)); return w.length ? (w[0][0] + (w.length > 1 ? w[w.length - 1][0] : "")).toUpperCase() : "#"; };
 
+// An incoming text is mine to answer when it came to my own line, or I've texted
+// that number from my line before. Rows without a line (very old) count for all.
+export function smsIsMine(m, thread, myLine) {
+  const me = e164(myLine || "");
+  if (!me || !m.from) return true;
+  if (e164(m.from) === me) return true;
+  return (thread || []).some((x) => x.direction !== "in" && e164(x.from || "") === me);
+}
+
 export function SmsFeedSheet({ onClose, isMobile }) {
   const { msgs } = useSmsTexting();
   const [filter, setFilter] = useState("all"); // all | agents | buyers | unread
@@ -1235,12 +1248,14 @@ export function SmsFeedSheet({ onClose, isMobile }) {
   // One conversation per number: its latest text and how many are unread.
   const convos = (() => {
     const by = new Map();
+    const threads = new Map();
+    msgs.forEach((m) => { const p = m.phone && e164(m.phone); if (p) (threads.get(p) || threads.set(p, []).get(p)).push(m); });
     msgs.forEach((m) => {
       if (m.kind === "call" || !m.phone || !m.at) return;
       const p = e164(m.phone); if (!p) return;
       const c = by.get(p) || { phone: p, last: null, unread: 0 };
       if (!c.last || String(m.at) > String(c.last.at)) c.last = m;
-      if (m.direction === "in" && String(m.at || "") > (readMap[p] || "")) c.unread++;
+      if (m.direction === "in" && String(m.at || "") > (readMap[p] || "") && smsIsMine(m, threads.get(p), store.from)) c.unread++;
       by.set(p, c);
     });
     return [...by.values()].sort((a, b) => String(b.last.at).localeCompare(String(a.last.at)));

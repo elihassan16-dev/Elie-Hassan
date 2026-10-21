@@ -172,7 +172,11 @@ export function AuthProvider({ children }) {
     user: session?.user || null,
     profile,
     role: profile?.role || "member",
-    isAdmin: profile?.role === "admin",
+    // Elie 10/21/26: Moshe + Esti (members) get every feature Elie has —
+    // isAdmin = the whole team. isOwner (role "admin") is only for what stays
+    // Elie's: editing the Financial Section and managing team logins.
+    isOwner: profile?.role === "admin",
+    isAdmin: profile?.role === "admin" || profile?.role === "member",
     isContractor: profile?.role === "contractor",
     contractorOrgId: profile?.contractor_org_id || null,
     displayName: profile?.name || session?.user?.email || "",

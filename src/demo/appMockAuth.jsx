@@ -21,12 +21,15 @@ const ctrValue = {
   signOut: () => {},
   updateName: async () => null,
 };
+const asMember = typeof location !== "undefined" && /[?&]as=member/.test(location.search);
 const value = isCtrDemo ? ctrValue : {
   session: { user: { id: "demo-elie", email: "elie@goldstonepropertiesnj.com", user_metadata: {} } },
   user: { id: "demo-elie", email: "elie@goldstonepropertiesnj.com", user_metadata: {} },
-  profile: { id: "demo-elie", name: "Elie Hassan", role: "admin" },
-  role: "admin",
+  // ?as=member previews what Moshe / Esti see (full features, Financial view-only).
+  profile: { id: "demo-elie", name: "Elie Hassan", role: asMember ? "member" : "admin" },
+  role: asMember ? "member" : "admin",
   isAdmin: true,
+  isOwner: !asMember,
   isContractor: false,
   contractorOrgId: null,
   displayName: "Elie Hassan",

@@ -6,7 +6,7 @@ Production real-estate PWA for Elie Hassan (non-technical; voice-dictated messag
 1. Side branch from origin/main: `git checkout -b claude/<name> origin/main`
 2. Edit → `npx vite build` (must show "✓ built")
 3. Commit → push → PR via GitHub MCP → squash-merge immediately
-4. `git fetch origin main && git checkout claude/app-changes-continuation-ocrkls && git rebase origin/main && git push --force-with-lease` then delete the side branch.
+4. Delete the side branch. NEVER force-push a long-lived branch (claude/app-changes-continuation-ocrkls, claude/merge-three-prs-ruo3el) onto main's exact commit: Vercel builds that commit as THAT branch's Preview and main never gets a Production deploy - that is what left production on an old build 10/21/26.
 - UI redesigns: show an HTML mockup screenshot (playwright-core, executablePath /opt/pw-browsers/chromium, deviceScaleFactor 2 → SendUserFile display:render) and get approval BEFORE building.
 - Never put secrets in chat/code — Vercel env vars only. No model ids in commits/PRs.
 

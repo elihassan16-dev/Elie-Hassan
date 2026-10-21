@@ -176,7 +176,7 @@ export function AuthProvider({ children }) {
     // isAdmin = the whole team. isOwner (role "admin") is only for what stays
     // Elie's: editing the Financial Section and managing team logins.
     isOwner: profile?.role === "admin",
-    isAdmin: profile?.role === "admin" || profile?.role === "member",
+    isAdmin: !!profile && profile.role !== "contractor", // any teammate, whatever their role label says
     isContractor: profile?.role === "contractor",
     contractorOrgId: profile?.contractor_org_id || null,
     displayName: profile?.name || session?.user?.email || "",

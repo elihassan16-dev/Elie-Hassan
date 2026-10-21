@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "claude/app-changes-continuation-ocrkls": false,
+      "claude/merge-three-prs-ruo3el": false
+    }
+  },
   "rewrites": [
     {
       "source": "/.well-known/oauth-authorization-server",

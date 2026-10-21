@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
-import { msalInstance, ensureMsalReady, GRAPH_SCOPES, SITE_SCOPES } from "./msal";
+import { msalInstance, ensureMsalReady, GRAPH_SCOPES, SITE_SCOPES, ownedAccount, markMsalClaim, releaseMsalAccount } from "./msal";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
@@ -18,12 +18,13 @@ export function useOneDrive() {
     let alive = true;
     ensureMsalReady().then(() => {
       if (!alive) return;
-      const acc = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0] || null;
-      if (acc) msalInstance.setActiveAccount(acc);
-      setAccount(acc);
+      setAccount(ownedAccount());
       setReady(true);
     });
-    return () => { alive = false; };
+    // A different Goldstone login on this browser → re-check whose account it is.
+    const onUser = () => ensureMsalReady().then(() => { if (alive) setAccount(ownedAccount()); });
+    window.addEventListener("gs-msal-user", onUser);
+    return () => { alive = false; window.removeEventListener("gs-msal-user", onUser); };
   }, []);
 
   // Full-page redirect sign-in — avoids popup issues (block_nested_popups) and
@@ -37,19 +38,21 @@ export function useOneDrive() {
     // msafed:"0" goes further: personal (live.com) accounts are HIDDEN from the
     // picker entirely, so the identical-looking personal twin of a work email
     // can't be tapped by mistake (the phone-only AADSTS50020 loop).
+    markMsalClaim();
     await msalInstance.loginRedirect({ scopes: GRAPH_SCOPES, prompt: "select_account", extraQueryParameters: { msafed: "0" }, redirectStartPage: window.location.href });
   }, []);
 
   // Disconnect locally (don't sign the user out of Microsoft entirely).
   const signOut = useCallback(async () => {
     await ensureMsalReady();
+    releaseMsalAccount(ownedAccount());
     msalInstance.setActiveAccount(null);
     setAccount(null);
   }, []);
 
   const getToken = useCallback(async () => {
     await ensureMsalReady();
-    const acc = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+    const acc = ownedAccount();
     if (!acc) throw new Error("Not signed in to Microsoft.");
     try {
       const r = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: acc });
@@ -125,7 +128,7 @@ export function useOneDrive() {
   // Separate token so a missing Sites.Read.All consent never breaks OneDrive login.
   const graphSites = useCallback(async (path) => {
     await ensureMsalReady();
-    const acc = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+    const acc = ownedAccount();
     if (!acc) throw new Error("Not signed in to Microsoft.");
     let token;
     try {

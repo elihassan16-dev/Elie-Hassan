@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { InteractionRequiredAuthError } from "@azure/msal-browser";
-import { msalInstance, ensureMsalReady, MAIL_SCOPES } from "../onedrive/msal";
+import { msalInstance, ensureMsalReady, MAIL_SCOPES, ownedAccount, markMsalClaim, releaseMsalAccount } from "../onedrive/msal";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
@@ -38,30 +38,33 @@ export function useOutlookMail() {
     let alive = true;
     ensureMsalReady().then(() => {
       if (!alive) return;
-      const acc = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0] || null;
-      if (acc) msalInstance.setActiveAccount(acc);
-      setAccount(acc);
+      setAccount(ownedAccount());
       setReady(true);
     });
-    return () => { alive = false; };
+    // A different Goldstone login on this browser → re-check whose account it is.
+    const onUser = () => ensureMsalReady().then(() => { if (alive) setAccount(ownedAccount()); });
+    window.addEventListener("gs-msal-user", onUser);
+    return () => { alive = false; window.removeEventListener("gs-msal-user", onUser); };
   }, []);
 
   // Sign in (full-page redirect) requesting the mail scopes.
   const signIn = useCallback(async () => {
     await ensureMsalReady();
     // msafed:"0" hides personal (live.com) twins of the work email from the picker.
+    markMsalClaim();
     await msalInstance.loginRedirect({ scopes: MAIL_SCOPES, prompt: "select_account", extraQueryParameters: { msafed: "0" }, redirectStartPage: window.location.href });
   }, []);
 
   const signOut = useCallback(async () => {
     await ensureMsalReady();
+    releaseMsalAccount(ownedAccount());
     msalInstance.setActiveAccount(null);
     setAccount(null);
   }, []);
 
   const getToken = useCallback(async () => {
     await ensureMsalReady();
-    const acc = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+    const acc = ownedAccount();
     if (!acc) throw new Error("Not signed in to Microsoft.");
     try {
       const r = await msalInstance.acquireTokenSilent({ scopes: MAIL_SCOPES, account: acc });

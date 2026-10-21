@@ -4,7 +4,7 @@ import "@fontsource-variable/inter";
 import "./index.css";
 import { AuthProvider } from "./auth/AuthProvider";
 import Root from "./App.jsx";
-import { ensureMsalReady, msalInstance, startMsalKeepAlive } from "./onedrive/msal";
+import { ensureMsalReady, msalInstance, startMsalKeepAlive, finishMsalClaim } from "./onedrive/msal";
 import { startAutoUpdate } from "./autoUpdate";
 import { initNative } from "./native";
 
@@ -51,7 +51,7 @@ async function boot() {
     try {
       await ensureMsalReady();
       const res = await msalInstance.handleRedirectPromise();
-      if (res?.account) msalInstance.setActiveAccount(res.account);
+      if (res?.account) { finishMsalClaim(res.account); msalInstance.setActiveAccount(res.account); }
     } catch (e) {
       console.error("[msal] redirect handling failed:", e?.message || e);
     }

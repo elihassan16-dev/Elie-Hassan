@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "../supabaseClient";
 import { readSnap, writeSnap, ensureSnapOwner } from "../snapshot";
+import { setMsalUser } from "../onedrive/msal";
 import { BIG_KEYS, loadBigPrefs, saveBigPrefs, splitBig, staleBigKeys, moveBigPrefs, clearBigMeta } from "../userBigPrefs";
 
 export const AuthCtx = createContext(null);
@@ -123,6 +124,8 @@ export function AuthProvider({ children }) {
   // Keys that grow (BIG_KEYS) go to their own app_settings row instead —
   // user_metadata rides inside the login token on every request.
   const uid = session?.user?.id || null;
+  // Email / Files only use the Microsoft account THIS Goldstone login connected.
+  useEffect(() => { setMsalUser(session?.user ? { id: session.user.id, email: session.user.email } : null); }, [session?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // bigReady stays false until the row has loaded, so "never seen anything
   // yet" logic (taskSeenIds) doesn't mistake loading for a brand-new account.
   const [bigPrefs, setBigPrefs] = useState({});

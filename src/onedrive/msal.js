@@ -36,6 +36,47 @@ export const msalInstance = new PublicClientApplication({
   },
 });
 
+// ── Whose Microsoft account is it? ────────────────────────────────────────────
+// MSAL remembers Microsoft logins per BROWSER, not per Goldstone login — so
+// Moshe signed in on Elie's computer saw Elie's mailbox (Elie 10/21/26). Each
+// Microsoft account on this browser is now tied to the Goldstone user who
+// connected it, and only that user gets it. An account whose Microsoft email
+// equals the Goldstone login email is claimed automatically.
+const OWN_KEY = "gs_ms_owner";   // { homeAccountId: goldstoneUserId }
+const CLAIM_KEY = "gs_ms_claim"; // goldstone user id waiting on a Microsoft redirect
+let msUser = null;               // { id, email } of the signed-in Goldstone user
+const readOwners = () => { try { return JSON.parse(localStorage.getItem(OWN_KEY) || "{}") || {}; } catch { return {}; } };
+const writeOwners = (m) => { try { localStorage.setItem(OWN_KEY, JSON.stringify(m)); } catch { /* private mode */ } };
+export function setMsalUser(u) {
+  const next = u && u.id ? { id: u.id, email: String(u.email || "").toLowerCase() } : null;
+  if ((next && next.id) === (msUser && msUser.id)) return;
+  msUser = next;
+  try { window.dispatchEvent(new Event("gs-msal-user")); } catch { /* no window */ }
+}
+export function ownedAccount() {
+  if (!msUser) return null;
+  const all = msalInstance.getAllAccounts();
+  const map = readOwners();
+  let acc = all.find((a) => map[a.homeAccountId] === msUser.id) || null;
+  if (!acc) {
+    acc = all.find((a) => !map[a.homeAccountId] && String(a.username || "").toLowerCase() === msUser.email) || null;
+    if (acc) { map[acc.homeAccountId] = msUser.id; writeOwners(map); }
+  }
+  if (acc && msalInstance.getActiveAccount()?.homeAccountId !== acc.homeAccountId) msalInstance.setActiveAccount(acc);
+  return acc;
+}
+// Call right before loginRedirect: the account that comes back belongs to this user.
+export function markMsalClaim() { try { if (msUser) sessionStorage.setItem(CLAIM_KEY, msUser.id); } catch { /* ignore */ } }
+export function finishMsalClaim(account) {
+  let uid = null; try { uid = sessionStorage.getItem(CLAIM_KEY); sessionStorage.removeItem(CLAIM_KEY); } catch { /* ignore */ }
+  if (!uid || !account) return;
+  const map = readOwners(); map[account.homeAccountId] = uid; writeOwners(map);
+}
+export function releaseMsalAccount(account) {
+  if (!account) return;
+  const map = readOwners(); delete map[account.homeAccountId]; writeOwners(map);
+}
+
 let initPromise = null;
 export function ensureMsalReady() {
   if (!initPromise) initPromise = msalInstance.initialize();
@@ -56,7 +97,7 @@ export async function keepMsalFresh() {
   lastKeepAlive = now;
   try {
     await ensureMsalReady();
-    const acc = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+    const acc = ownedAccount();
     if (!acc) return;
     // forceRefresh hits the token endpoint (rotating the refresh token) instead of
     // serving a still-valid access token from cache. Failures are fine here — the

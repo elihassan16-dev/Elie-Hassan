@@ -7372,15 +7372,24 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
   // half-year property-tax escrow now folded into equity required.
   function calcEquity(p){ return finProfit(p.financials,p.status,(p.propertyInfo||{}).closingDateScheduled).equityRequired; }
 
-  const totalYield=props.reduce((s,p)=>s+Math.max(0,pfCalcProfit(p)),0);
+  // Totals use the real number on every property, losses included. They used to
+  // clamp each one at $0, so a deal projecting a loss quietly counted as nothing
+  // and a card could disagree with the list behind it. The only thing left out
+  // now is a property someone took out by hand, and the card says so underneath.
+  const counts=p=>!p.excludeFromTotals;
+  const skippedAll=props.length-props.filter(counts).length;
+  const totalYield=props.filter(counts).reduce((s,p)=>s+pfCalcProfit(p),0);
 
   // Status cards
   const byStatus=ACTIVE_STATUSES.map(st=>{
     const group=props.filter(p=>p.status===st);
-    return{st,count:group.length,profit:group.reduce((s,p)=>s+Math.max(0,pfCalcProfit(p)),0)};
+    const kept=group.filter(counts);
+    return{st,count:group.length,skipped:group.length-kept.length,profit:kept.reduce((s,p)=>s+pfCalcProfit(p),0)};
   }).filter(g=>g.count>0);
 
   const isFunded=p=>p.status!=="Under Contract"||!!p.hasFunder;
+  // "Don't count this one" — the property stays in the list, out of the totals.
+  const toggleCount=id=>setSharedProps(prev=>prev.map(x=>x.id===id?{...x,excludeFromTotals:!x.excludeFromTotals}:x));
   const[listPopup,setListPopup]=useState(null);
   // Always in status order (Elie 8/20/26 — sort menu removed, status is the order).
   const sorted=[...props].sort((a,b)=>ACTIVE_STATUSES.indexOf(a.status)-ACTIVE_STATUSES.indexOf(b.status));
@@ -7411,8 +7420,8 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
           <div style={{display:"flex",alignItems:"stretch"}}>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:11,fontWeight:650,color:T.textTert,letterSpacing:"0.02em",marginBottom:3}}>TOTAL ACTIVE YIELD</div>
-              <div style={{fontSize:isMobile?24:30,fontWeight:750,letterSpacing:"-0.02em",color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{fmtD(totalYield)}</div>
-              <div style={{fontSize:11.5,color:T.textTert,marginTop:3}}>across {props.length} active {props.length===1?"property":"properties"}</div>
+              <div style={{fontSize:isMobile?24:30,fontWeight:750,letterSpacing:"-0.02em",color:totalYield<0?T.red:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{fmtD(totalYield)}</div>
+              <div style={{fontSize:11.5,color:T.textTert,marginTop:3}}>across {props.length} active {props.length===1?"property":"properties"}{skippedAll>0?` · ${skippedAll} not counted`:""}</div>
             </div>
             {totalNeeded>0&&<div onClick={()=>setListPopup({type:"equity"})} style={{flex:1,minWidth:0,borderLeft:`1px solid ${T.border}`,paddingLeft:isMobile?14:22,marginLeft:isMobile?14:22,cursor:"pointer"}}>
               <div style={{fontSize:11,fontWeight:650,color:"#8a6d1f",letterSpacing:"0.02em",marginBottom:3}}>CASH TO CLOSE NEEDED</div>
@@ -7424,7 +7433,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
 
       {/* ── Status breakdown — tappable stat cards, color kept to the dot ── */}
       <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${Math.max(byStatus.length,1)},1fr)`,gap:isMobile?8:10,margin:"12px 0 18px"}}>
-        {byStatus.map(({st,count,profit})=>{
+        {byStatus.map(({st,count,profit,skipped})=>{
           const sc=STATUS_COLORS[st]||{bg:T.goldLight,badge:T.gold};
           return(
             <div key={st} onClick={()=>setListPopup({type:"status",status:st})}
@@ -7433,8 +7442,8 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                 <span style={{width:7,height:7,borderRadius:4,background:sc.badge,flexShrink:0}}/>
                 <span style={{fontSize:12,fontWeight:650,color:T.textSub,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{st}</span>
               </div>
-              <div style={{fontSize:isMobile?17:20,fontWeight:750,letterSpacing:"-0.01em",color:T.text,fontVariantNumeric:"tabular-nums"}}>{fmtD(profit)}</div>
-              <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{count} active{finChev}</div>
+              <div style={{fontSize:isMobile?17:20,fontWeight:750,letterSpacing:"-0.01em",color:profit<0?T.red:T.text,fontVariantNumeric:"tabular-nums"}}>{fmtD(profit)}</div>
+              <div style={{fontSize:11,color:T.textTert,marginTop:2}}>{count} active{skipped>0?` · ${skipped} not counted`:""}{finChev}</div>
             </div>
           );
         })}
@@ -7443,9 +7452,15 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
       {/* List popup — inline overlay, not position:fixed, to avoid iframe clipping */}
       {listPopup&&(()=>{
         const isStatus=listPopup.type==="status";
-        const list=isStatus
+        const group=isStatus
           ? props.filter(p=>p.status===listPopup.status)
           : props.filter(p=>!isFunded(p)&&calcEquity(p)>0);
+        // Properties left out of the total sink to the bottom of the list.
+        const list=isStatus?[...group].sort((a,b)=>(a.excludeFromTotals?1:0)-(b.excludeFromTotals?1:0)):group;
+        const popTotal=isStatus
+          ? group.filter(counts).reduce((s,p)=>s+pfCalcProfit(p),0)
+          : group.reduce((s,p)=>s+calcEquity(p),0);
+        const popSkipped=isStatus?group.length-group.filter(counts).length:0;
         const title=isStatus?listPopup.status:"Cash to Close Needed";
         const sc=isStatus?(STATUS_COLORS[listPopup.status]||{badge:T.gold}):{badge:T.gold};
         return(
@@ -7454,7 +7469,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
               <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
                   <div style={{fontSize:16,fontWeight:700,color:T.text}}>{title}</div>
-                  <div style={{fontSize:12,color:T.textSub,marginTop:2}}>{list.length} {list.length===1?"property":"properties"}</div>
+                  <div style={{fontSize:12,color:T.textSub,marginTop:2}}>{list.length} {list.length===1?"property":"properties"} · total {fmtD(popTotal)}{popSkipped>0?` · ${popSkipped} not counted`:""}</div>
                 </div>
                 <button onClick={()=>setListPopup(null)} style={{background:"none",border:"none",fontSize:22,color:T.textTert,cursor:"pointer",lineHeight:1}}>×</button>
               </div>
@@ -7464,15 +7479,21 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                   const addr=`${p.address}${p.city?`, ${p.city}`:""}${p.zip?` ${p.zip}`:""}`;
                   const profit=pfCalcProfit(p);
                   const equity=calcEquity(p);
+                  const off=isStatus&&!!p.excludeFromTotals;
+                  const rowBg=off?T.cardAlt:"transparent";
                   return(
                     <div key={p.id} onClick={()=>{onNavigate&&onNavigate(p.id);setListPopup(null);}}
-                      style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 22px",borderTop:FIN_HAIR,cursor:"pointer",minHeight:46,boxSizing:"border-box"}}
-                      onMouseEnter={e=>e.currentTarget.style.background="#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                      <span style={{fontSize:13.5,color:T.text,fontWeight:600}}>{addr}{finChev}</span>
-                      <div style={{display:"flex",gap:18,alignItems:"center"}}>
+                      style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:isStatus?"8px 14px 8px 22px":"13px 22px",borderTop:FIN_HAIR,cursor:"pointer",minHeight:46,boxSizing:"border-box",background:rowBg}}
+                      onMouseEnter={e=>e.currentTarget.style.background=off?T.cardAlt:"#FAFAFA"} onMouseLeave={e=>e.currentTarget.style.background=rowBg}>
+                      <span style={{fontSize:13.5,color:off?T.textTert:T.text,fontWeight:600,minWidth:0}}>{addr}{finChev}
+                        {off&&<span style={{fontSize:11,fontWeight:650,color:T.textTert,background:T.bg,borderRadius:6,padding:"2px 7px",marginLeft:7,whiteSpace:"nowrap"}}>not counted</span>}</span>
+                      <div style={{display:"flex",gap:isStatus?8:18,alignItems:"center",flexShrink:0}}>
                         {isStatus
-                          ?<span style={{fontSize:13,fontWeight:700,color:profit>0?T.green:profit<0?T.red:T.textTert}}>{profit!==0?fmtD(profit):"—"}</span>
+                          ?<span style={{fontSize:13,fontWeight:700,color:off?T.textTert:profit>0?T.green:profit<0?T.red:T.textTert,textDecoration:off?"line-through":"none"}}>{profit!==0?fmtD(profit):"—"}</span>
                           :<span style={{fontSize:13,fontWeight:700,color:T.gold}}>{fmtD(equity)}</span>}
+                        {isStatus&&<button onClick={e=>{e.stopPropagation();toggleCount(p.id);}}
+                          title={off?"Count it in the total again":"Don't count this one in the total"}
+                          style={{width:38,height:38,flexShrink:0,borderRadius:19,border:"none",background:"none",color:off?T.gold:T.textTert,fontSize:16,lineHeight:1,cursor:"pointer",fontFamily:"inherit"}}>{off?"↩":"⊘"}</button>}
                       </div>
                     </div>
                   );

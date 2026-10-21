@@ -36,8 +36,23 @@ const busy = () => {
   return false;
 };
 
+// Settings → "↻ Update now": throw away every saved copy of the app (service
+// worker + caches) and load the newest version straight from the server.
+export async function forceUpdate() {
+  try { const regs = await navigator.serviceWorker?.getRegistrations?.(); await Promise.all((regs || []).map((r) => r.update().catch(() => {}))); } catch { /* ignore */ }
+  try { const keys = await caches.keys(); await Promise.all(keys.filter((k) => k.startsWith("gs-page")).map((k) => caches.delete(k))); } catch { /* ignore */ }
+  location.replace(`${location.pathname}?fresh=${Date.now()}${location.hash || ""}`);
+}
+
 export function startAutoUpdate() {
   if (typeof document === "undefined") return;
+  // At launch: if the page that loaded is already behind the server (an old
+  // saved copy won), reload once onto the newest build.
+  setTimeout(async () => {
+    let tried = false; try { tried = sessionStorage.getItem("gs_fresh_try") === "1"; } catch { /* ignore */ }
+    if (tried) { try { sessionStorage.removeItem("gs_fresh_try"); } catch { /* ignore */ } return; }
+    if ((await check()) && !busy()) { try { sessionStorage.setItem("gs_fresh_try", "1"); } catch { /* ignore */ } location.reload(); }
+  }, 4000);
   document.addEventListener("visibilitychange", async () => {
     if (document.visibilityState === "hidden") { hiddenAt = Date.now(); return; }
     // Back on screen. A quick glance away (<20s) doesn't count.

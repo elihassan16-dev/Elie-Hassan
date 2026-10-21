@@ -54,7 +54,7 @@ self.addEventListener("notificationclick", (event) => {
      flaky launches stay consistent.
    - /api/*, non-GET, and cross-origin (Supabase, Graph, QuickBooks) are untouched. */
 const ASSET_CACHE = "gs-assets-v1";
-const PAGE_CACHE = "gs-page-v1";
+const PAGE_CACHE = "gs-page-v2"; // v2 (10/21/26): drop any shell saved by older code
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
@@ -82,7 +82,8 @@ self.addEventListener("fetch", (event) => {
       const cache = await caches.open(PAGE_CACHE);
       // 3.5s: give real networks a fair shot at the newest deploy before the
       // cached shell wins; the in-app stale-build check reloads stragglers.
-      const fresh = await fetchWithTimeout(req, 3500);
+      // no-store: never let the browser's own HTTP cache hand back yesterday's page.
+      const fresh = await fetchWithTimeout(new Request(req.url, { cache: "no-store", credentials: "same-origin" }), 3500);
       if (fresh && fresh.ok) { cache.put("/__shell__", fresh.clone()); return fresh; }
       const cached = await cache.match("/__shell__");
       if (cached) {

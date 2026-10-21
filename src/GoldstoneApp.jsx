@@ -5,6 +5,7 @@ import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";
 import { useOneDrive } from "./onedrive/useOneDrive";
 import { useOutlookMail, groupChains } from "./outlook/useOutlookMail";
+import { forceUpdate } from "./autoUpdate";
 import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
 import { registerServiceWorker, refreshSubscription, enablePush, notificationsSupported, notificationPermission } from "./push";
@@ -13651,7 +13652,7 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,set
         {isOwner&&<button onClick={onAddTeammate} style={{...rowBtn,color:T.gold,fontWeight:700,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:18,width:22,textAlign:"center"}}>＋</span> Add a teammate</button>}
 {teamBlock}
         <button onClick={onSignOut} style={{...rowBtn,color:T.red,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:16,width:22,textAlign:"center"}}>⎋</span> Sign out</button>
-        <div style={{padding:"7px 16px 10px",fontSize:10,color:T.textTert,textAlign:"center"}}>Build {typeof __GS_BUILD__!=="undefined"?__GS_BUILD__:"dev"}{typeof document!=="undefined"&&document.documentElement.classList.contains("gs-ios26")?" · iOS 26 layout":""}</div>
+        <div style={{padding:"7px 16px 10px",fontSize:10,color:T.textTert,textAlign:"center"}}>Build {typeof __GS_BUILD__!=="undefined"?__GS_BUILD__:"dev"}{typeof document!=="undefined"&&document.documentElement.classList.contains("gs-ios26")?" · iOS 26 layout":""} · <button onClick={forceUpdate} style={{background:"none",border:"none",padding:0,minHeight:0,color:T.gold,fontWeight:700,fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>↻ Update now</button></div>
       </div>
     </div>
   );
@@ -13704,6 +13705,7 @@ function SettingsPage({displayName,role,email,isAdmin,teamMembers,team,setUserMu
         {sec("Company")}
         <div style={grp}>{company.map(([k,ic,l],i)=>row(ic,l,()=>onOpenSection(k),{first:i===0}))}</div>
         <div style={{padding:"14px 0 0",fontSize:10.5,color:T.textTert,textAlign:"center"}}>Build {typeof __GS_BUILD__!=="undefined"?__GS_BUILD__:"dev"}{typeof document!=="undefined"&&document.documentElement.classList.contains("gs-ios26")?" · iOS 26 layout":""}</div>
+        <button onClick={forceUpdate} style={{display:"block",margin:"8px auto 0",padding:"0 16px",minHeight:36,borderRadius:18,border:`1px solid ${T.border}`,background:"#fff",color:T.gold,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↻ Update now</button>
       </div>
     </div>
   );

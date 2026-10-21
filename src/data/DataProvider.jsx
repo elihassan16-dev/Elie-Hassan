@@ -327,18 +327,32 @@ export function DataProvider({ children }) {
 
     const timers = {};
     const debounce = (key, fn) => { clearTimeout(timers[key]); timers[key] = setTimeout(fn, 250); };
+    // Fetch only the row realtime says changed. Re-reading the WHOLE table on
+    // every save, on every open device (the saver's own echo included), was
+    // draining the database's Disk IO budget (Supabase warning 10/21/26). A
+    // burst touching many rows (an import) still reloads the table once.
+    const pend = {};
+    const changed = (key, coll) => (payload) => {
+      const id = (payload && payload.new && payload.new.id) ?? (payload && payload.old && payload.old.id);
+      const ids = (pend[key] = pend[key] || new Set());
+      ids.add(id == null || id === "" ? "*" : String(id));
+      debounce(key, () => {
+        const list = [...ids]; ids.clear();
+        if (list.includes("*") || list.length > 12) coll.load(); else list.forEach((i) => coll.loadOne(i));
+      });
+    };
 
     const channel = supabase
       .channel("goldstone-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "properties" }, () => debounce("p", propsC.load))
-      .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, () => debounce("l", leadsC.load))
-      .on("postgres_changes", { event: "*", schema: "public", table: "contacts" }, () => debounce("c", contactsC.load))
-      .on("postgres_changes", { event: "*", schema: "public", table: "automations" }, () => debounce("a", autosC.load))
-      .on("postgres_changes", { event: "*", schema: "public", table: "funders" }, () => debounce("f", fundersC.load))
-      .on("postgres_changes", { event: "*", schema: "public", table: "draws" }, () => debounce("d", drawsC.load))
-      .on("postgres_changes", { event: "*", schema: "public", table: "office_messages" }, () => debounce("o", officeC.load))
-      .on("postgres_changes", { event: "*", schema: "public", table: "office_tasks" }, () => debounce("ot", officeTasksC.load))
-      .on("postgres_changes", { event: "*", schema: "public", table: "bank_accounts" }, () => debounce("b", bankC.load))
+      .on("postgres_changes", { event: "*", schema: "public", table: "properties" }, changed("p", propsC))
+      .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, changed("l", leadsC))
+      .on("postgres_changes", { event: "*", schema: "public", table: "contacts" }, changed("c", contactsC))
+      .on("postgres_changes", { event: "*", schema: "public", table: "automations" }, changed("a", autosC))
+      .on("postgres_changes", { event: "*", schema: "public", table: "funders" }, changed("f", fundersC))
+      .on("postgres_changes", { event: "*", schema: "public", table: "draws" }, changed("d", drawsC))
+      .on("postgres_changes", { event: "*", schema: "public", table: "office_messages" }, changed("o", officeC))
+      .on("postgres_changes", { event: "*", schema: "public", table: "office_tasks" }, changed("ot", officeTasksC))
+      .on("postgres_changes", { event: "*", schema: "public", table: "bank_accounts" }, changed("b", bankC))
       .on("postgres_changes", { event: "*", schema: "public", table: "app_settings" }, (payload) => {
         // Server-only cache rows churn constantly (webhook captures, comp
         // caches) — don't refetch every client's settings for those.
@@ -347,9 +361,9 @@ export function DataProvider({ children }) {
         // Punch-list rows are big and change often while a list compiles —
         // refresh just that row rather than every setting for every client.
         if (rid.startsWith("walk_")) { debounce("s:" + rid, () => settingsC.loadOne(rid)); return; }
-        debounce("s", settingsC.load);
+        changed("s", settingsC)(payload);
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "rentals" }, () => debounce("r", rentalsC.load))
+      .on("postgres_changes", { event: "*", schema: "public", table: "rentals" }, changed("r", rentalsC))
       .on("postgres_changes", { event: "*", schema: "public", table: "users" }, () => debounce("u", loadTeam))
       .subscribe();
 

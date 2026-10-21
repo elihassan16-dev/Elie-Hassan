@@ -1,4 +1,4 @@
-import { requireAppUser, isAdminUser, setIcsUrl, getFeeds, setFeeds } from "../../lib/showings.js";
+import { requireAppUser, isTeamUser, setIcsUrl, getFeeds, setFeeds } from "../../lib/showings.js";
 
 const looksLikeIcs = (u) => /^(webcal|https?):\/\//i.test(u);
 
@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed." }); return; }
   const user = await requireAppUser(req);
   if (!user) { res.status(401).json({ error: "Not signed in." }); return; }
-  if (!(await isAdminUser(user.id))) { res.status(403).json({ error: "Only an admin can connect ShowingTime." }); return; }
+  if (!(await isTeamUser(user.id))) { res.status(403).json({ error: "Only an admin can connect ShowingTime." }); return; }
   try {
     const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
 

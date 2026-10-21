@@ -13536,6 +13536,7 @@ const SMS_GATEWAYS=[
   ["msg.fi.google.com","Google Fi"],
 ];
 function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,setUserSms,setUserChannels,onEditName,onEditEmail,onAddTeammate,onSignOut,onClose,asPage}){
+  const {isOwner}=useAuth()||{}; // team logins stay Elie's
   const initials=initialsOf(displayName)||"?";
   const others=(teamMembers||[]).filter(Boolean);
   const rows=(team&&team.length)?team:null; // full user rows (for the admin mute switch)
@@ -13575,7 +13576,7 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,set
   const teamBlock=(<>
         <div style={{padding:"12px 20px 6px",fontSize:11,fontWeight:700,color:T.textTert,textTransform:"uppercase",letterSpacing:"0.05em",borderTop:asPage?"none":`1px solid ${T.border}`}}>{asPage?null:<>Team ({others.length})</>}{isAdmin&&rows&&<span style={{textTransform:"none",fontWeight:400,letterSpacing:0}}>{asPage?"Tap 🔔 to mute someone · 📱 to add a cell":" · tap 🔔 to mute someone"}</span>}</div>
         <div style={{padding:"0 20px 8px",display:"flex",flexDirection:"column",gap:2}}>
-          {isAdmin&&rows
+          {isOwner&&rows
             ? rows.map(u=>{const nm=u.name||u.email;const muted=!!u.notify_muted;const isSelf=nm===displayName;const hasSms=!!(u.sms_email||"").includes("@");return(
                 <div key={u.id}>
                   <div style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0"}}>
@@ -13647,7 +13648,7 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,set
         <button onClick={onEditName} style={rowBtn}><span style={{fontSize:16,width:22,textAlign:"center"}}>✎</span> Edit your name</button>
         <button onClick={onEditEmail} style={rowBtn}><span style={{fontSize:16,width:22,textAlign:"center"}}>✉️</span> Change your email</button>
         <NotificationToggle displayName={displayName} isAdmin={isAdmin}/>
-        {isAdmin&&<button onClick={onAddTeammate} style={{...rowBtn,color:T.gold,fontWeight:700,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:18,width:22,textAlign:"center"}}>＋</span> Add a teammate</button>}
+        {isOwner&&<button onClick={onAddTeammate} style={{...rowBtn,color:T.gold,fontWeight:700,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:18,width:22,textAlign:"center"}}>＋</span> Add a teammate</button>}
 {teamBlock}
         <button onClick={onSignOut} style={{...rowBtn,color:T.red,borderTop:`1px solid ${T.border}`}}><span style={{fontSize:16,width:22,textAlign:"center"}}>⎋</span> Sign out</button>
         <div style={{padding:"7px 16px 10px",fontSize:10,color:T.textTert,textAlign:"center"}}>Build {typeof __GS_BUILD__!=="undefined"?__GS_BUILD__:"dev"}{typeof document!=="undefined"&&document.documentElement.classList.contains("gs-ios26")?" · iOS 26 layout":""}</div>
@@ -13660,6 +13661,7 @@ function ProfileMenu({displayName,role,isAdmin,teamMembers,team,setUserMuted,set
 // open the existing settings sections one at a time). Replaces the profile
 // sheet + gear on phones; grouped-list layout in the iOS language.
 function SettingsPage({displayName,role,email,isAdmin,teamMembers,team,setUserMuted,setUserSms,setUserChannels,onEditName,onEditEmail,onAddTeammate,onSignOut,onOpenSection}){
+  const {isOwner}=useAuth()||{}; // team logins stay Elie's
   const initials=initialsOf(displayName)||"?";
   const grp={background:"#fff",borderRadius:16,border:"1px solid rgba(0,0,0,0.05)",boxShadow:T.shadow,overflow:"hidden"};
   const sec=(t)=><div style={{fontSize:11,fontWeight:800,color:T.textTert,letterSpacing:"0.06em",textTransform:"uppercase",margin:"18px 6px 6px"}}>{t}</div>;
@@ -13697,7 +13699,7 @@ function SettingsPage({displayName,role,email,isAdmin,teamMembers,team,setUserMu
         {sec(`Team · ${(teamMembers||[]).filter(Boolean).length}`)}
         <div style={grp}>
           <ProfileMenu asPage displayName={displayName} role={role} isAdmin={isAdmin} teamMembers={teamMembers} team={team} setUserMuted={setUserMuted} setUserSms={setUserSms} setUserChannels={setUserChannels}/>
-          {isAdmin&&row("＋","Add a teammate",onAddTeammate,{color:T.gold,bold:true,right:null})}
+          {isOwner&&row("＋","Add a teammate",onAddTeammate,{color:T.gold,bold:true,right:null})}
         </div>
         {sec("Company")}
         <div style={grp}>{company.map(([k,ic,l],i)=>row(ic,l,()=>onOpenSection(k),{first:i===0}))}</div>
@@ -20584,8 +20586,8 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           {canEdit&&<button onClick={()=>setPaybackPick(f)} title={`Pay back ${f.name} — pick the loan`} style={payIcon}>↩</button>}
           <button onClick={()=>generateReport(f)} title="Generate a PDF statement for this lender" style={{...finBtn(false),padding:"6px 12px"}}>⭳ PDF</button>
           <button onClick={()=>setEmailFor(f)} title="Email this lender his statement as a PDF" style={{...finBtn(false),padding:"6px 12px"}}>✉ Email</button>
-          <button onClick={()=>setFunderModal(f)} style={{...finBtn(false),padding:"6px 12px"}}>Edit</button>
-          <button onClick={()=>deleteFunder(f.id)} title="Delete lender" style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>🗑</button>
+          {canEdit&&<button onClick={()=>setFunderModal(f)} style={{...finBtn(false),padding:"6px 12px"}}>Edit</button>}
+          {canEdit&&<button onClick={()=>deleteFunder(f.id)} title="Delete lender" style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>🗑</button>}
         </div>
         {(f.address||f.phone||f.email)&&<div style={{fontSize:12.5,color:T.textSub,marginBottom:f.notes?6:14,display:"flex",flexWrap:"wrap",gap:"3px 14px"}}>
           {f.address&&<span>🏠 {f.address}</span>}
@@ -20614,11 +20616,11 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
         {/* Toolbar */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8,flexWrap:"wrap"}}>
           <div style={{fontSize:14,fontWeight:800,color:T.text}}>Register</div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {canEdit&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             <button onClick={()=>setRegisterImport(true)} title="Import a CSV register" style={{...finBtn(false),padding:"6px 10px",fontSize:12}}>⇪ Import</button>
             <button onClick={()=>setLedgerModal(true)} style={{...finBtn(false),padding:"6px 10px",fontSize:12}}>+ Wire / entry</button>
             <button onClick={()=>setDrawModal({defaultFunderId:f.id})} style={{...finBtn(true),padding:"6px 12px",fontSize:12}}>+ Funding</button>
-          </div>
+          </div>}
         </div>
         <div style={{fontSize:11,color:T.textTert,marginBottom:8}}>Chronological — wires in, fundings out, paybacks (with interest). Running balance = his un-deployed cash.</div>
         <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden"}}>
@@ -20635,7 +20637,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
                 <div style={{fontSize:12.5,fontWeight:700,color:m.color,whiteSpace:"nowrap"}}>{((m.sign<0)!==(e.amount<0))?"−":"+"}{fmtD(Math.abs(e.amount))}</div>
                 <div style={{fontSize:10,color:T.textTert,whiteSpace:"nowrap"}}>bal {fmtD(e.balance)}</div>
               </div>
-              <button onClick={(evt)=>openRowMenu(e,evt)} title="Actions" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:17,lineHeight:1,flexShrink:0,padding:"2px 4px",fontWeight:800}}>⋯</button>
+              {canEdit&&<button onClick={(evt)=>openRowMenu(e,evt)} title="Actions" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:17,lineHeight:1,flexShrink:0,padding:"2px 4px",fontWeight:800}}>⋯</button>}
             </div>
           );})}
         </div>
@@ -22731,7 +22733,7 @@ export function GoldstoneShell(){
       .then(()=>{try{localStorage.setItem("gsQbImportPurged","1");}catch{ /* ignore */ }})
       .catch(()=>{ /* retry next launch */ });
   },[shellIsAdmin]);
-  const { displayName, role, isAdmin, signOut, updateName, prefs, savePrefs, user } = useAuth();
+  const { displayName, role, isAdmin, isOwner, signOut, updateName, prefs, savePrefs, user } = useAuth();
   const isMobile = useIsMobile();
   // 🤖 Auto email matcher — scans this user's inbox and pins matching chains
   // onto their properties (runs app-wide, not just on the Email page).
@@ -23225,7 +23227,7 @@ export function GoldstoneShell(){
     : active==="routes" ? <RoutePlannerPage/>
     : active==="contacts" ? <ContactsPage/>
     : active==="email" ? <EmailPage isMobile={isMobile}/>
-    : active==="financials" ? <FinancialSectionPage onNavigate={navigateToProperty} canEdit={isAdmin}/>
+    : active==="financials" ? <FinancialSectionPage onNavigate={navigateToProperty} canEdit={isOwner}/>
     : active==="contractors" ? <ContactsPage/>
     : <ComingSoon label={NAV.find(n=>n.key===active)?.label}/>;
 

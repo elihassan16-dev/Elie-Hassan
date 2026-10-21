@@ -1,4 +1,4 @@
-import { requireAppUser, isAdminUser, getFeeds } from "../../lib/showings.js";
+import { requireAppUser, isTeamUser, getFeeds } from "../../lib/showings.js";
 
 export default async function handler(req, res) {
   const user = await requireAppUser(req);
@@ -8,7 +8,7 @@ export default async function handler(req, res) {
     // Reveal the saved links to admins only. A failing admin check must never flip
     // "configured" off (which would wrongly show the Connect screen).
     let admin = false;
-    try { admin = await isAdminUser(user.id); } catch { admin = false; }
+    try { admin = await isTeamUser(user.id); } catch { admin = false; }
     res.status(200).json({
       configured: feeds.length > 0,
       icsUrl: admin ? (feeds[0]?.url || "") : undefined,          // legacy clients

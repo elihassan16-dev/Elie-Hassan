@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import IdleSleep from "./IdleSleep";
 import { FaceIdLock } from "./faceId";
 import { useAuth } from "./auth/AuthProvider";
@@ -62,45 +62,10 @@ function useIos26Tag() {
 export default function Root() {
   const { loading, session, isContractor, signOut } = useAuth();
   useIos26Tag();
-  // ── Stale-build self-healing ────────────────────────────────────────────────
-  // The service worker serves a cached shell when the network loses a 1.2s race
-  // at launch — great for speed, but iOS PWAs then run DAYS-old builds with no
-  // way to catch up. Compare our running bundle against the live index.html
-  // (no-store, bypasses every cache) shortly after launch, on re-focus, and
-  // every 10 minutes; when a newer build is live, reload once into it.
-  const seen = useRef("");
-  useEffect(() => {
-    let busy = false;
-    const check = async () => {
-      if (busy) return; busy = true;
-      try {
-        const html = await fetch("/", { cache: "no-store" }).then((r) => (r.ok ? r.text() : ""));
-        const live = (html.match(/\/assets\/[^"']+\.js/) || [])[0] || "";
-        const mine = (document.querySelector('script[src*="/assets/"]')?.getAttribute("src")) || "";
-        // Never yank the page out from under a running walkthrough (the
-        // transcription lives in this tab) or a video upload.
-        try { if ((window.__gsWalkBusy && window.__gsWalkBusy()) || (window.__gsUploads || 0) > 0) return; } catch { /* ignore */ }
-        // During a deploy the edge can hand back the old and new page in turns;
-        // only act when the same newer build shows up twice in a row.
-        if (live && mine && !html.includes(mine)) {
-          if (seen.current !== live) { seen.current = live; return; }
-          // one attempt per target build — if the reload loses the race again,
-          // the next interval retries instead of loop-reloading
-          const key = "gs_reload_for";
-          if (sessionStorage.getItem(key) !== live) {
-            sessionStorage.setItem(key, live);
-            window.location.reload();
-          }
-        }
-      } catch { /* offline — the next check catches up */ }
-      busy = false;
-    };
-    const t = setTimeout(check, 4000);
-    const iv = setInterval(check, 10 * 60000);
-    const vis = () => { if (document.visibilityState === "visible") check(); };
-    document.addEventListener("visibilitychange", vis);
-    return () => { clearTimeout(t); clearInterval(iv); document.removeEventListener("visibilitychange", vis); };
-  }, []);
+  // New builds are picked up by src/autoUpdate.js — at launch, or when the
+  // app comes back from the background. (A second checker here used to reload
+  // the page every 10 minutes WHILE someone was using it — Elie 10/22/26:
+  // "glitchy".)
   // The 📲 desktop→phone handoff bar — catches the push tap (URL param or
   // service-worker message) and offers the real tap iOS requires to jump
   // into Messages or the dialer. Rendered on every branch.

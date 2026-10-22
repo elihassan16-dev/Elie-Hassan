@@ -32,6 +32,7 @@ const busy = () => {
   const el = document.activeElement;
   if (el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !/^(button|checkbox|radio|file)$/i.test(el.type)))) return true;
   try { if (window.__gsUploading && window.__gsUploading()) return true; } catch { /* ignore */ }
+  try { if ((window.__gsUploads || 0) > 0 || (window.__gsWalkBusy && window.__gsWalkBusy())) return true; } catch { /* ignore */ }
   try { if (window.__gsRecording) return true; } catch { /* ignore */ }
   return false;
 };

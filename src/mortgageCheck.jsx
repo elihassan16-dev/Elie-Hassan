@@ -21,14 +21,25 @@ const autoIdFor = (ym) => `mortgages:${ym}`;
 const taskIdFor = (ym) => Number(`7${ym.replace("-", "")}01`);
 const addrOf = (x) => String(x.address || x.name || "Property").trim();
 const normDate = (s) => { const v = String(s || ""); const m = v.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${m[1]}-${m[2]}-${m[3]}`; const d = new Date(v); return isNaN(d) ? "" : d.toISOString().slice(0, 10); };
+// "639 Fordville Rd" → "639 fordville", "6 S 4th St" → "6 s 4th".
+const addrKey = (s) => {
+  const w = String(s || "").toLowerCase().split(",")[0].replace(/[^a-z0-9\s-]/g, " ").split(/\s+/).filter(Boolean);
+  if (!/^\d/.test(w[0] || "")) return w.join(" ");
+  return w.slice(0, /^(n|s|e|w|north|south|east|west)$/.test(w[1] || "") ? 3 : 2).join(" ");
+};
 const findMember = (team, re, fallback) => (team || []).find((n) => re.test(String(n || ""))) || fallback;
 
 // Every property we own right now → checklist items (stable ids per property).
 export function mortgageItems(rentals, props) {
   const items = [];
   const fromProp = new Set((rentals || []).map((r) => String(r.fromPropertyId || "")).filter(Boolean));
-  (rentals || []).filter((r) => r && !r.archived && !r.deleted).forEach((r) => items.push({ id: `r:${r.id}`, text: addrOf(r), group: "Rentals", ref: { kind: "rental", id: r.id } }));
-  (props || []).filter((p) => p && !p.archived && p.status === "Rental" && !fromProp.has(String(p.id))).forEach((p) => items.push({ id: `p:${p.id}`, text: addrOf(p), group: "Rentals", ref: { kind: "prop", id: p.id } }));
+  // A property marked "Rental" that's already in Rentals under a slightly
+  // different spelling ("639 Fordville" vs "639 Fordville Rd") was listed
+  // twice — and its second copy never got a QuickBooks tick (Elie 10/22/26).
+  const live = (rentals || []).filter((r) => r && !r.archived && !r.deleted);
+  const rentalKeys = new Set(live.map((r) => addrKey(addrOf(r))).filter(Boolean));
+  live.forEach((r) => items.push({ id: `r:${r.id}`, text: addrOf(r), group: "Rentals", ref: { kind: "rental", id: r.id } }));
+  (props || []).filter((p) => p && !p.archived && p.status === "Rental" && !fromProp.has(String(p.id)) && !rentalKeys.has(addrKey(addrOf(p)))).forEach((p) => items.push({ id: `p:${p.id}`, text: addrOf(p), group: "Rentals", ref: { kind: "prop", id: p.id } }));
   (props || []).filter((p) => p && !p.archived && HOLDING.includes(p.status)).forEach((p) => items.push({ id: `p:${p.id}`, text: addrOf(p), group: "Flips", ref: { kind: "prop", id: p.id } }));
   const seen = new Set();
   return items.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true))).map((x) => ({ ...x, done: false }));

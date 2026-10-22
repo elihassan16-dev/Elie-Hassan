@@ -68,6 +68,28 @@ const fetchWithTimeout = (req, ms) => new Promise((resolve) => {
   fetch(req).then((res) => { clearTimeout(t); resolve(res); }, () => { clearTimeout(t); resolve(null); });
 });
 
+// Every deploy adds a new ~2 MB app file to the asset cache and nothing ever
+// removed the old ones — a month of builds piled up on every phone (Elie
+// 10/22/26: "glitchy, not loading as fast"). When a fresh page arrives, drop
+// app files from older builds and anything cached over 3 weeks ago.
+let prunedFor = "";
+async function pruneAssets(html) {
+  const used = new Set(html.match(/\/assets\/[\w.-]+/g) || []);
+  const main = [...used].find((u) => /\/assets\/index-/.test(u)) || "";
+  if (!main || main === prunedFor) return;
+  prunedFor = main;
+  const cache = await caches.open(ASSET_CACHE);
+  const old = Date.now() - 21 * 864e5;
+  for (const req of await cache.keys()) {
+    const path = new URL(req.url).pathname;
+    if (!path.startsWith("/assets/") || used.has(path)) continue;
+    if (/^\/assets\/index-/.test(path)) { await cache.delete(req); continue; }
+    const res = await cache.match(req);
+    const at = Date.parse((res && res.headers.get("date")) || "");
+    if (at && at < old) await cache.delete(req);
+  }
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
@@ -84,7 +106,11 @@ self.addEventListener("fetch", (event) => {
       // cached shell wins; the in-app stale-build check reloads stragglers.
       // no-store: never let the browser's own HTTP cache hand back yesterday's page.
       const fresh = await fetchWithTimeout(new Request(req.url, { cache: "no-store", credentials: "same-origin" }), 3500);
-      if (fresh && fresh.ok) { cache.put("/__shell__", fresh.clone()); return fresh; }
+      if (fresh && fresh.ok) {
+        cache.put("/__shell__", fresh.clone());
+        event.waitUntil(fresh.clone().text().then(pruneAssets).catch(() => {}));
+        return fresh;
+      }
       const cached = await cache.match("/__shell__");
       if (cached) {
         // Keep trying in the background so the next launch has the newest build.

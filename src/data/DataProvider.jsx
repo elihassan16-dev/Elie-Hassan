@@ -94,20 +94,24 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
           // row since we last loaded it. A blind whole-row update would erase
           // their changes — the "lead status went back to default" bug. So:
           // fetch the freshest copy, and if it moved, three-way-merge our edits
-          // onto it before saving. Best-effort — any hiccup falls back to the
-          // plain write, which is exactly the old behavior.
-          try {
-            // One retry before giving up: a single failed freshness read used to
-            // fall straight through to the blind whole-row write, letting a stale
-            // tab erase fields another device just saved (soldLocExcluded kept
-            // "reverting" this way).
-            let freshRow = null;
-            try { ({ data: freshRow } = await supabase.from(table).select("data").eq("id", id).maybeSingle()); }
-            catch { ({ data: freshRow } = await supabase.from(table).select("data").eq("id", id).maybeSingle()); }
-            const baseStr = synced.current.get(id);
-            const fresh = freshRow && freshRow.data ? freshRow.data : null;
-            if (fresh && baseStr && JSON.stringify(fresh) !== baseStr) out = merge3(JSON.parse(baseStr), x, fresh);
-          } catch { /* merge is best-effort */ }
+          // onto it before saving.
+          // If that read FAILS we no longer save at all (the edit stays on this
+          // device and the save retries): supabase reports a failed read as an
+          // error, not a throw, so it used to fall through to the blind write —
+          // a phone holding an old copy un-ticked 9 mortgage items Esti had
+          // ticked a week earlier (Elie 10/22/26).
+          let freshRow = null, readErr = null;
+          for (let i = 0; i < 2; i++) {
+            try { ({ data: freshRow, error: readErr } = await supabase.from(table).select("data").eq("id", id).maybeSingle()); }
+            catch (e) { readErr = e || new Error("read failed"); }
+            if (!readErr) break;
+          }
+          if (readErr) { netFail = true; continue; }
+          const baseStr = synced.current.get(id);
+          const fresh = freshRow && freshRow.data ? freshRow.data : null;
+          if (fresh && baseStr && JSON.stringify(fresh) !== baseStr) {
+            try { out = merge3(JSON.parse(baseStr), x, fresh); } catch { /* keep ours */ }
+          }
           const { id: _omit, ...rest } = toRow(out);
           ({ error } = await supabase.from(table).update(rest).eq("id", id));
         } else {

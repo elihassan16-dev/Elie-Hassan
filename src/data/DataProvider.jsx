@@ -49,6 +49,11 @@ const SERVER_ONLY_SETTINGS = ["jivetel_events", "jivetel_call_events", "jivetel_
 //   only the changed rows (in order, never overlapping). Rapid edits collapse to
 //   one write carrying the latest values → no out-of-order overwrite.
 // - A realtime refresh never reverts a row with unsaved local edits ("dirty").
+// A save that failed because the connection dropped (iPhone froze the app
+// mid-save, weak signal, the database briefly overloaded) — not a real
+// rejection. Those are retried quietly instead of popping an error.
+const isNetErr = (e) => /load failed|failed to fetch|networkerror|network request|fetch|aborted|timed? ?out|timeout|upstream|gateway|50[234]|52[0-4]|57014|jwt expired|PGRST301/i.test(`${(e && e.message) || ""} ${(e && e.code) || ""}`);
+
 function useSyncedCollection(table, toRow, mapRows, reportError) {
   // Hydrate from the last on-device snapshot so launch paints instantly; the
   // snapshot doubles as the last-known DB state, so the flush diff stays exact.
@@ -64,10 +69,15 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
   const timer = useRef(null);
   const flushing = useRef(false);
   const again = useRef(false);
+  const netFails = useRef(0);
+  const retryT = useRef(null);
 
   const flush = useCallback(async () => {
     if (flushing.current) { again.current = true; return; }
     flushing.current = true;
+    clearTimeout(retryT.current);
+    let netFail = false, saved = false;
+    const failed = (op, error) => { if (isNetErr(error)) netFail = true; else reportError(table, op, error); };
     try {
       const cur = ref.current;
       const curIds = new Set(cur.map((x) => String(x.id)));
@@ -110,8 +120,9 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
             ({ error } = await supabase.from(table).update(rest2).eq("id", id));
           }
         }
-        if (error) reportError(table, existed ? "update" : "insert", error);
+        if (error) failed(existed ? "update" : "insert", error);
         else {
+          saved = true;
           synced.current.set(id, JSON.stringify(out));
           dirty.current.delete(id);
           if (out !== x) {
@@ -129,14 +140,32 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
       }
       if (removed.length) {
         const { error } = await supabase.from(table).delete().in("id", removed);
-        if (error) reportError(table, "delete", error);
+        if (error) failed("delete", error);
         else removed.forEach((id) => { synced.current.delete(id); dirty.current.delete(id); });
       }
     } finally {
       flushing.current = false;
+      if (netFail) {
+        // Keep the edit (still dirty) and try again: 2s, 4s, 8s… up to 30s.
+        // Only after ~a minute of failing does the person hear about it.
+        netFails.current += 1;
+        if (netFails.current === 5) reportError(table, "save", { message: "no connection right now — your change is kept on this device and will save by itself" });
+        retryT.current = setTimeout(() => flush(), Math.min(30000, 2000 * 2 ** (netFails.current - 1)));
+      } else if (saved && netFails.current) {
+        netFails.current = 0;
+        reportError(table, null, null); // saved after all — clear the warning
+      }
       if (again.current) { again.current = false; flush(); }
     }
   }, [table, toRow, reportError]);
+
+  // Back online / back on screen with unsaved edits → save them now.
+  useEffect(() => {
+    const kick = () => { if (dirty.current.size && document.visibilityState !== "hidden") { netFails.current = Math.min(netFails.current, 1); flush(); } };
+    window.addEventListener("online", kick);
+    document.addEventListener("visibilitychange", kick);
+    return () => { window.removeEventListener("online", kick); document.removeEventListener("visibilitychange", kick); clearTimeout(retryT.current); };
+  }, [flush]);
 
   const schedule = useCallback(() => { clearTimeout(timer.current); timer.current = setTimeout(flush, 500); }, [flush]);
 
@@ -237,6 +266,7 @@ export function DataProvider({ children }) {
   const seededRef = useRef(false);
 
   const reportError = useCallback((table, op, error) => {
+    if (!error) { setSaveError((cur) => (cur && cur.includes(` ${table})`) ? null : cur)); return; }
     console.error(`[${table}] ${op} failed:`, error.message);
     setSaveError(`Couldn't save your change (${op} ${table}): ${error.message}`);
   }, []);

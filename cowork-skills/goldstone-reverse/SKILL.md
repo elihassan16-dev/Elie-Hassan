@@ -23,10 +23,11 @@ Tools: the **Goldstone** connector (`reverse_listings`, `add_reverse_agents`) an
 - Open business cards one at a time, at a normal pace.
 
 ## Steps
-1. Call **`reverse_listings`**. It lists the MLS accounts (name, website, notes) and every
-   listing to check: its MLS, MLS #, and the agents already on our list (marked
+1. Call **`reverse_listings`**. It lists the MLS accounts (name, website, the username Elie
+   signs in with, notes) and every listing to check: the MLS(s) it's in — a listing can be in
+   SEVERAL; check each one — its MLS # in each, and the agents already on our list (marked
    "cell ✓" or "NEEDS CELL").
-2. For each listing whose MLS is set:
+2. For each listing, and each MLS it's in:
    1. In Chrome, open that MLS website and find the listing (search the MLS # if given,
       otherwise the address).
    2. Open its reverse-prospecting report. The name differs per MLS: "Reverse Prospecting",
@@ -40,9 +41,10 @@ Tools: the **Goldstone** connector (`reverse_listings`, `add_reverse_agents`) an
         leave `cell` empty.** Never put an office number in `cell`.
       - Also note email, office (brokerage), and how many of their buyers/searches matched
         (`buyers`; 1 if not shown).
-   4. If you see the listing's MLS #, include it as `mls_number`.
+   4. If you see the listing's MLS #, include it as `mls_number` (and `mls` = that MLS's name
+      when the listing is in more than one).
 3. Listings whose MLS isn't set: if only ONE MLS is saved, try that MLS by address. Otherwise
-   skip and list them for Elie ("set the MLS for these in the app").
+   skip and list them for Elie ("set the MLS for these in the app": the listing → 🎯 Reverse → 🔑).
 4. Call **`add_reverse_agents` ONCE** with every listing you checked, including ones with no
    new agents, so they're marked checked. It sends Elie one push when something is new.
 5. Finish with a short summary per listing: new agents, cells found, still missing a cell,

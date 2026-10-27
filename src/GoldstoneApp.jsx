@@ -30,7 +30,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { ReversePane, ReverseTextsList, rpCount } from "./reverseProspect";
+import { ReversePane, ReverseTextsList, rpCount, MlsPicker, MlsAccountsSheet, mlsIdsOf, useMlsList } from "./reverseProspect";
 import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsFeedSheet, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp, smsPropKey, setSmsPropTimeline } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
@@ -91,9 +91,14 @@ const GATE_FIELDS={
   lockboxCode:{label:"Lockbox Code",kind:"text",top:"propertyInfo",key:"lockboxCode"},
   mortgageCommitment:{label:"Mortgage Commitment Date",kind:"date",top:"propertyInfo",key:"mortgageCommitment"},
   inspectionDue:{label:"Inspection Due Date",kind:"date",top:"propertyInfo",key:"inspectionDue"},
+  // Elie 10/27/26: which MLSs a listing is in (ids from 🔑 MLS accounts, or
+  // ["none"]) — top-level p.mlsSources, so reverse prospecting knows where to look.
+  mlsSources:{label:"Which MLSs is it listed in?",kind:"mls",top:"",key:"mlsSources"},
 };
 const GATE_FIELD_KEYS=Object.keys(GATE_FIELDS);
-const gateFieldVal=(p,fk)=>{const s=GATE_FIELDS[fk];return s?String((p?.[s.top]||{})[s.key]||""):"";};
+const gateFieldVal=(p,fk)=>{const s=GATE_FIELDS[fk];if(!s)return "";const v=s.top?(p?.[s.top]||{})[s.key]:p?.[s.key];return Array.isArray(v)?v.join(","):String(v||"");};
+// Writes gate field values onto a property copy (top-level fields have no `top`).
+const applyGateFields=(nx,fieldValues)=>{Object.entries(fieldValues||{}).forEach(([fk,v])=>{const s=GATE_FIELDS[fk];if(!s)return;if(!s.top){nx[s.key]=v;return;}nx[s.top]={...(nx[s.top]||{}),[s.key]:v};});return nx;};
 
 const _ck=(id,label)=>({id,type:"check",label});
 const _fd=(id,field)=>({id,type:"field",field,label:GATE_FIELDS[field]?.label||field});
@@ -127,6 +132,7 @@ const DEFAULT_GATE_REQS={
     _ct("om_agent","Listing agent"),
     _ck("om_price","List price set"),
     _ck("om_live","Photos taken & listing is live"),
+    _fd("om_mls","mlsSources"),
   ],
   "In Closing":[
     _fd("ic_sd","sellingDate"),
@@ -158,7 +164,9 @@ function gateConfig(appSettings){
 function gateReqsFor(appSettings,status){
   const cfg=gateConfig(appSettings);
   const r=cfg[status];
-  return Array.isArray(r)?r:(DEFAULT_GATE_REQS[status]||[]);
+  const out=Array.isArray(r)?r:(DEFAULT_GATE_REQS[status]||[]);
+  // Going On Market always asks which MLSs (Elie 10/27/26 — reverse prospecting).
+  return status==="On Market"&&!out.some(x=>x&&x.field==="mlsSources")?[...out,_fd("om_mls","mlsSources")]:out;
 }
 // Gate only when advancing (or entering the Rental side-branch), never backward.
 function statusIsForward(from,to){
@@ -614,7 +622,7 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
   const[state,setState]=useState(()=>{
     const s={};
     reqs.forEach(r=>{
-      if(r.type==="field")s[r.id]=gateFieldVal(property,r.field);
+      if(r.type==="field")s[r.id]=GATE_FIELDS[r.field]?.kind==="mls"?(Array.isArray(property?.mlsSources)?property.mlsSources.map(String):mlsIdsOf(property)):gateFieldVal(property,r.field);
       else if(r.type==="contact")s[r.id]={name:"",phone:"",email:""};
       else s[r.id]=false;
     });
@@ -627,6 +635,7 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
   // contacts directory. Picking fills the fields; they stay editable, and
   // typing your own still works.
   const {contacts:dirContacts}=useData()||{};
+  const[mlsList]=useMlsList();
   const leadOpts=useMemo(()=>{
     const out=[],seen=new Set();
     const push=(nm,phone,email,tag)=>{
@@ -644,7 +653,7 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
   },[property,dirContacts]);
   const isDone=(r)=>{
     const v=state[r.id];
-    if(r.type==="field")return String(v||"").trim()!=="";
+    if(r.type==="field")return Array.isArray(v)?v.length>0:String(v||"").trim()!=="";
     if(r.type==="contact")return !!(v&&String(v.name||"").trim());
     return !!v;
   };
@@ -655,8 +664,10 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
   const confirm=()=>{
     if(!allDone)return;
     const fieldValues={};
-    reqs.forEach(r=>{ if(r.type==="field")fieldValues[r.field]=String(state[r.id]||"").trim(); });
-    const answers=reqs.map(r=>({label:r.label,type:r.type,field:r.field||null,value:r.type==="check"?true:state[r.id]}));
+    reqs.forEach(r=>{ if(r.type==="field")fieldValues[r.field]=Array.isArray(state[r.id])?state[r.id]:String(state[r.id]||"").trim(); });
+    // MLS picks are saved by id; the record keeps their names.
+    const nameOf=(id)=>id==="none"?"Not on any MLS":((mlsList.find(m=>String(m.id)===id)||{}).name||id);
+    const answers=reqs.map(r=>({label:r.label,type:r.type,field:r.field||null,value:r.type==="check"?true:Array.isArray(state[r.id])?state[r.id].map(nameOf).join(", "):state[r.id]}));
     onConfirm(answers,note.trim(),fieldValues);
   };
   return(
@@ -680,6 +691,16 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
                   <span style={{flexShrink:0,width:20,height:20,borderRadius:6,border:`2px solid ${done?T.gold:T.textTert}`,background:done?T.gold:"#fff",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,lineHeight:1,marginTop:1}}>{done?"✓":""}</span>
                   <span style={{fontSize:13.5,color:T.text,lineHeight:1.4}}>{r.label}</span>
                 </label>
+              );
+              if(r.type==="field"&&GATE_FIELDS[r.field]?.kind==="mls")return(
+                <div key={r.id} style={{padding:"11px 12px",borderRadius:T.radiusSm,border:`1px solid ${done?T.gold:T.border}`,background:done?T.goldLight:T.bg}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}}>
+                    <span style={{fontSize:13.5,fontWeight:600,color:T.text}}>{r.label}<span style={{color:T.red,marginLeft:3}}>*</span></span>
+                    {done&&<span style={{fontSize:11,color:"#1a8f43",fontWeight:700}}>✓ set</span>}
+                  </div>
+                  <div style={{fontSize:12,color:T.textSub,marginBottom:8,lineHeight:1.4}}>Tick every one — Cowork checks them for reverse-prospecting agents.</div>
+                  <MlsPicker value={state[r.id]||[]} onChange={v=>setV(r.id,v)}/>
+                </div>
               );
               if(r.type==="field"){
                 const fk=GATE_FIELDS[r.field]||{kind:"text"};
@@ -3193,6 +3214,8 @@ function ShowingsPage(){
   const[search,setSearch]=useState("");
   const[showConn,setShowConn]=useState(false);
   const[copied,setCopied]=useState(false);
+  const[mlsAcctOpen,setMlsAcctOpen]=useState(false);
+  const[mlsAccts]=useMlsList();
   // ＋ Add another ShowingTime calendar (e.g. the owner-side account when a
   // third-party agent has the listing) — feeds merge into one schedule.
   const[addUrl,setAddUrl]=useState("");
@@ -3400,6 +3423,18 @@ function ShowingsPage(){
             </Fragment>);
           });})()}
         </div>
+        {/* 🔑 Every MLS Elie is in (Elie 10/27/26) — listings tick which ones they're in. */}
+        {isAdmin&&(
+          <button onClick={()=>setMlsAcctOpen(true)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 14px",minHeight:48,border:"none",borderTop:`1px solid ${T.border}`,background:"transparent",cursor:"pointer",fontFamily:"inherit",textAlign:"left",flexShrink:0}}>
+            <span style={{fontSize:16}}>🔑</span>
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{display:"block",fontSize:13,fontWeight:700,color:T.text}}>MLS accounts</span>
+              <span style={{display:"block",fontSize:11,color:T.textSub,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mlsAccts.length?`${mlsAccts.length} MLS${mlsAccts.length===1?"":"s"} · ${mlsAccts.map(m=>m.name).join(", ")}`:"Add the MLSs you're in"}</span>
+            </span>
+            <span style={{color:"#C7C7CC",fontSize:17}}>›</span>
+          </button>
+        )}
+        {mlsAcctOpen&&<MlsAccountsSheet onClose={()=>setMlsAcctOpen(false)}/>}
         {isAdmin&&status.configured&&(
           <div style={{padding:"10px 14px",borderTop:`1px solid ${T.border}`,fontSize:11,color:T.textTert,flexShrink:0}}>
             <div style={{display:"flex",gap:12,alignItems:"center"}}>
@@ -6447,7 +6482,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           <StatusPicker value={property.status} property={property} onChange={v=>onUpdate(property.id,"status",v)}
             onGateSave={(to,answers,note,fieldValues)=>{
               const groups={};
-              Object.entries(fieldValues||{}).forEach(([fk,v])=>{const s=GATE_FIELDS[fk];if(!s)return;groups[s.top]=groups[s.top]||{...(property[s.top]||{})};groups[s.top][s.key]=v;});
+              Object.entries(fieldValues||{}).forEach(([fk,v])=>{const s=GATE_FIELDS[fk];if(!s)return;if(!s.top){onUpdate(property.id,s.key,v);return;}groups[s.top]=groups[s.top]||{...(property[s.top]||{})};groups[s.top][s.key]=v;});
               Object.entries(groups).forEach(([top,val])=>onUpdate(property.id,top,val));
               onUpdate(property.id,"statusGates",{...(property.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}});
             }}/>
@@ -7076,7 +7111,7 @@ function NewLeadsPage(){
     const newProp={id:Date.now(),address:lead.address,city:lead.city,state:lead.state,zip:lead.zip,status:"Under Contract",financials:{...lead.financials},propertyInfo:{type:lead.info.type||"",beds:lead.info.beds||"",baths:lead.info.baths||"",sqft:lead.info.sqft||"",yearBuilt:lead.info.yearBuilt||"",lot:"",parcel:"",lockboxCode:(lead.propertyInfo||{}).lockboxCode||"",dropboxLink:(lead.propertyInfo||{}).dropboxLink||"",closingDateScheduled:(lead.propertyInfo||{}).closingDateScheduled||"",mortgageCommitment:(lead.propertyInfo||{}).mortgageCommitment||"",inspectionDue:(lead.propertyInfo||{}).inspectionDue||"",notes:lead.notes||""},tasks:lead.tasks||[],contacts:lead.contacts||[]};
     // Gate answers land on the new property: date fields into their homes, the
     // contact person onto the property's contacts, the record under statusGates.
-    Object.entries(fieldValues||{}).forEach(([fk,v])=>{const s=GATE_FIELDS[fk];if(!s)return;newProp[s.top]={...(newProp[s.top]||{}),[s.key]:v};});
+    applyGateFields(newProp,fieldValues);
     (answers||[]).filter(a=>a.type==="contact"&&a.value&&String(a.value.name||"").trim()).forEach((a,i)=>{
       const nm=String(a.value.name).trim().toLowerCase();
       if(!(newProp.contacts||[]).some(c=>String(c.name||"").trim().toLowerCase()===nm))
@@ -7558,7 +7593,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                         onGateSave={(to,answers,note,fieldValues)=>setSharedProps(prev=>prev.map(x=>{
                           if(x.id!==p.id)return x;
                           const nx={...x};
-                          Object.entries(fieldValues||{}).forEach(([fk,v])=>{const s=GATE_FIELDS[fk];if(!s)return;nx[s.top]={...(nx[s.top]||{}),[s.key]:v};});
+                          applyGateFields(nx,fieldValues);
                           nx.statusGates={...(nx.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}};
                           return nx;
                         }))}/>
@@ -7603,7 +7638,7 @@ function PortfolioPage({sharedProps,setSharedProps,onNavigate}){
                         onGateSave={(to,answers,note,fieldValues)=>setSharedProps(prev=>prev.map(x=>{
                           if(x.id!==p.id)return x;
                           const nx={...x};
-                          Object.entries(fieldValues||{}).forEach(([fk,v])=>{const s=GATE_FIELDS[fk];if(!s)return;nx[s.top]={...(nx[s.top]||{}),[s.key]:v};});
+                          applyGateFields(nx,fieldValues);
                           nx.statusGates={...(nx.statusGates||{}),[to]:{answers,note,at:new Date().toISOString()}};
                           return nx;
                         }))}/>

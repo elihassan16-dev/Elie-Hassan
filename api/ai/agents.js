@@ -10,10 +10,11 @@ import { profileOf } from "../../lib/jivetel.js";
 export const config = { maxDuration: 120, api: { bodyParser: { sizeLimit: "4mb" } } };
 
 const SYSTEM = `You read real-estate MLS "reverse prospecting" reports (screenshots or pasted text) and list the BUYER'S AGENTS on them — the agents whose clients' saved searches match a listing.
-Return ONLY JSON, no prose: {"agents":[{"name":"","phone":"","email":"","office":"","buyers":0,"note":""}]}
+Return ONLY JSON, no prose: {"agents":[{"name":"","cell":"","office_phone":"","email":"","office":"","buyers":0,"note":""}]}
 - One entry per agent. If an agent appears on several rows (several clients/searches), merge them into one entry and set "buyers" to how many rows/clients they had.
 - name: the agent's full name as written (never a client/buyer name, never the office name).
-- phone: the agent's best phone (cell/mobile/direct over office), digits and dashes as shown. Empty string if none.
+- cell: ONLY a number labeled mobile / cell (e.g. on a business card). We text this number, so never put an office, main, fax or unlabeled brokerage number here — leave "" when no mobile is shown.
+- office_phone: any other number shown for the agent (office / main / direct / unlabeled — MLS roster columns are usually the office line).
 - email, office (brokerage): as shown, or "".
 - buyers: number of matching clients/searches for that agent (1 if the report doesn't say).
 - note: anything short that helps a pitch (e.g. the search's price range or towns, "emailed 10/20", "viewed listing") — or "".
@@ -60,9 +61,9 @@ export default async function handler(req, res) {
     if (msg.stop_reason === "refusal") { res.status(422).json({ error: "The AI couldn't read that — try a clearer screenshot." }); return; }
     const out = parseJson((msg.content || []).filter((b) => b.type === "text").map((b) => b.text).join(""));
     const agents = (out && Array.isArray(out.agents) ? out.agents : []).map((a) => ({
-      name: clean(a.name, 80), phone: clean(a.phone, 40), email: clean(a.email, 120).toLowerCase(), office: clean(a.office, 80),
+      name: clean(a.name, 80), cell: clean(a.cell, 40), office_phone: clean(a.office_phone || a.phone, 40), email: clean(a.email, 120).toLowerCase(), office: clean(a.office, 80),
       buyers: Math.max(1, Math.min(99, parseInt(a.buyers, 10) || 1)), note: clean(a.note, 160),
-    })).filter((a) => a.name || a.phone || a.email);
+    })).filter((a) => a.name || a.cell || a.office_phone || a.email);
     res.status(200).json({ agents });
   } catch (e) {
     const status = e?.status === 429 ? 429 : 502;

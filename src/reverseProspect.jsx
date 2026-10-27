@@ -6,8 +6,13 @@
 // video walkthrough attached automatically when there is one (its cover
 // picture + a gpflips.com/v/<uid> link — a whole walkthrough is far too big
 // for a picture message). Replies come back into the normal text threads.
-// Stored on the property: p.rpAgents[{id,name,phone,email,office,buyers,note,
-// addedAt,addedBy,sentAt,sentBy,followAt,lead}], p.rpPrice, p.rpVideoId.
+// Stored on the property: p.rpAgents[{id,name,cell,officePhone,cellFrom,email,
+// office,buyers,note,addedAt,addedBy,source,sentAt,sentBy,followAt,lead}],
+// p.rpPrice, p.rpVideoId, p.mlsSource (id in app_settings "mls_sources"),
+// p.mlsNumber, p.rpCheckedAt. ONLY a cell is ever texted (Elie 10/27/26: MLS
+// lists show office lines) — office numbers are kept apart, and a missing cell
+// is filled from numbers the app already knows (ShowingTime, Contacts, other
+// listings) or by Cowork reading each agent's MLS business card.
 import { useMemo, useRef, useState } from "react";
 import { T } from "./theme";
 import { useData } from "./data/DataProvider";
@@ -25,6 +30,45 @@ const avC = (n) => { let h = 0; for (const c of String(n)) h = (h * 31 + c.charC
 const shortDate = (iso) => { try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ""; } };
 const money = (v) => { const n = parseFloat(String(v || "").replace(/[^0-9.]/g, "")); return n ? `$${Math.round(n).toLocaleString("en-US")}` : ""; };
 const streetOf = (p) => String((p && p.address) || "").split(",")[0].trim();
+const nameKey = (n) => String(n || "").toLowerCase().replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
+const emailKey = (e) => String(e || "").toLowerCase().trim();
+
+// Cell numbers the app already has for agents: ShowingTime (agents who showed
+// our houses), Contacts saved as Mobile/Cell, and other listings' lists.
+function knownCells({ showings, contacts, props, skipPropId }) {
+  const byEmail = new Map(), byName = new Map();
+  const put = (name, email, ph, from) => {
+    const d = digits(ph);
+    if (d.length !== 10) return;
+    if (email && !byEmail.has(emailKey(email))) byEmail.set(emailKey(email), { d, from });
+    if (name && nameKey(name).includes(" ") && !byName.has(nameKey(name))) byName.set(nameKey(name), { d, from });
+  };
+  (props || []).forEach((p) => { if (p && String(p.id) !== String(skipPropId)) (p.rpAgents || []).forEach((a) => { if (a && a.cell) put(a.name, a.email, a.cell, "another listing"); }); });
+  (showings || []).forEach((x) => { if (x && x.phone) put(x.agent, x.email, x.phone, "ShowingTime"); });
+  (contacts || []).forEach((c) => (c && c.phones || []).forEach((ph) => { if (/mob|cell/i.test(ph.label || "")) put(c.name, c.email, ph.number, "Contacts"); }));
+  return (a, office) => {
+    const hit = (a.email && byEmail.get(emailKey(a.email))) || byName.get(nameKey(a.name));
+    return hit && !(office && office.has(hit.d)) ? hit : null;
+  };
+}
+// Numbers that are office lines: anything filed as an office number, or one
+// number shared by two different agents.
+function officeSetOf(list) {
+  const set = new Set(), seen = new Map();
+  (list || []).forEach((a) => {
+    const o = digits(a.officePhone); if (o.length === 10) set.add(o);
+    [a.cell, a.phone].map(digits).filter((d) => d.length === 10).forEach((d) => { const n = nameKey(a.name); if (seen.has(d) && seen.get(d) !== n) set.add(d); else seen.set(d, n); });
+  });
+  return set;
+}
+// Stored agent → working agent: \`phone\` is the CELL we text ("" when unknown).
+// Lists saved before 10/27/26 only had \`phone\` (mostly office lines).
+function resolveAgent(a, find, office) {
+  const raw = "cell" in a ? a : { ...a, cell: "", officePhone: a.officePhone || a.phone || "" };
+  let d = digits(raw.cell), from = raw.cellFrom || (d.length === 10 ? "MLS" : "");
+  if (d.length !== 10 || office.has(d)) { d = ""; from = ""; const k = find && find(raw, office); if (k) { d = k.d; from = k.from; } }
+  return { ...raw, phone: d ? fmtPhone(d) : "", cellFrom: from, officePhone: raw.officePhone || "" };
+}
 
 // ── styles ───────────────────────────────────────────────────────────────────
 const btn = (kind) => ({
@@ -35,7 +79,7 @@ const btn = (kind) => ({
 const chip = (on) => ({ fontSize: 12, fontWeight: 650, padding: "6px 11px", minHeight: 32, borderRadius: 100, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "inherit", border: `1px solid ${on ? "#1C1C1E" : "#E5E5EA"}`, background: on ? "#1C1C1E" : "#fff", color: on ? "#fff" : "#3A3A3C", flexShrink: 0 });
 const PILL = {
   new: ["NOT TEXTED", "#FBF3DD", "#8a6d1f"], texted: ["TEXTED", "#F2F2F7", "#6E6E73"], replied: ["REPLIED", "#E9F2FB", "#1D6FB8"],
-  hot: ["🔥 INTERESTED", "#FDECEA", "#C0392B"], not: ["NOT INTERESTED", "#F2F2F7", "#AEAEB2"], nophone: ["NO PHONE", "#F2F2F7", "#AEAEB2"],
+  hot: ["🔥 INTERESTED", "#FDECEA", "#C0392B"], not: ["NOT INTERESTED", "#F2F2F7", "#AEAEB2"], nophone: ["NEEDS CELL", "#FFF4E5", "#B86E00"],
 };
 const HDR = { fontSize: 11.5, fontWeight: 700, color: T.textSub, letterSpacing: 0.3, textTransform: "uppercase" };
 
@@ -72,7 +116,7 @@ async function shrink(file, max = 1800) {
 }
 
 // ── 1. Add agents: screenshots (main), paste, or CSV ─────────────────────────
-function ImportSheet({ property, onAdd, onClose }) {
+function ImportSheet({ property, find, onAdd, onClose }) {
   const [shots, setShots] = useState([]); // [{name,data}]
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -90,13 +134,17 @@ function ImportSheet({ property, onAdd, onClose }) {
     setBusy(true); setErr("");
     try {
       const r = await qbAuthFetch("/api/ai/agents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images: shots.map((s) => s.data), text }) });
-      const seenPh = new Set(have.map((a) => digits(a.phone)).filter(Boolean));
-      const seenNm = new Set(have.map((a) => String(a.name || "").toLowerCase().trim()).filter(Boolean));
-      const list = (r.agents || []).map((a) => {
-        const d = digits(a.phone);
-        const dup = (d && seenPh.has(d)) || (!d && seenNm.has(String(a.name || "").toLowerCase().trim()));
-        const why = dup ? "dup" : d.length !== 10 ? "nophone" : "new";
-        return { ...a, why, pick: why === "new" };
+      const got = (r.agents || []).map((a) => ({ ...a, cell: a.cell || "", officePhone: a.office_phone || "" }));
+      const office = officeSetOf([...have, ...got]);
+      const seenPh = new Set(have.map((a) => digits(a.cell)).filter((d) => d.length === 10));
+      const seenEm = new Set(have.map((a) => emailKey(a.email)).filter(Boolean));
+      const seenNm = new Set(have.map((a) => nameKey(a.name)).filter(Boolean));
+      const list = got.map((a) => {
+        const w = resolveAgent(a, find, office);
+        const d = digits(w.phone);
+        const dup = (d && seenPh.has(d)) || (a.email && seenEm.has(emailKey(a.email))) || seenNm.has(nameKey(a.name));
+        const why = dup ? "dup" : d ? "new" : "nophone";
+        return { ...a, cell: w.phone, cellFrom: w.cellFrom, officePhone: w.officePhone || (digits(a.cell).length === 10 && office.has(digits(a.cell)) ? a.cell : ""), why, pick: !dup };
       });
       if (!list.length) setErr("No agents found — try a clearer screenshot, or paste the list.");
       setFound(list);
@@ -105,6 +153,7 @@ function ImportSheet({ property, onAdd, onClose }) {
   };
   const picked = (found || []).filter((a) => a.pick);
   const counts = found ? { n: found.filter((a) => a.why === "new").length, d: found.filter((a) => a.why === "dup").length, x: found.filter((a) => a.why === "nophone").length } : null;
+  // (why "nophone" = no CELL — office lines are never texted)
   return (
     <Sheet title="Add reverse-prospecting agents" onClose={onClose} wide
       footer={found
@@ -138,9 +187,9 @@ function ImportSheet({ property, onAdd, onClose }) {
       ) : (
         <div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 100, background: "#EAF7EE", color: "#1E7B3C" }}>{counts.n} new</span>
+            <span style={{ fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 100, background: "#EAF7EE", color: "#1E7B3C" }}>{counts.n} with a cell</span>
             {counts.d > 0 && <span style={{ fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 100, background: "#F2F2F7", color: T.textSub }}>{counts.d} already on the list</span>}
-            {counts.x > 0 && <span style={{ fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 100, background: "#FDECEA", color: "#C0392B" }}>{counts.x} no phone</span>}
+            {counts.x > 0 && <span style={{ fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 100, background: "#FDECEA", color: "#C0392B" }}>{counts.x} need a cell</span>}
           </div>
           <div style={{ marginTop: 8, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
             {found.map((a, i) => (
@@ -149,13 +198,13 @@ function ImportSheet({ property, onAdd, onClose }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: a.pick ? T.text : T.textTert }}>{a.name || "(no name)"}{a.buyers > 1 && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.textSub }}> · {a.buyers} buyers</span>}</div>
                   <div style={{ fontSize: 12, color: a.why === "nophone" ? "#C0392B" : T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {a.why === "dup" ? "Already on the list" : a.why === "nophone" ? (a.email ? `No phone — ${a.email}` : "No phone number") : [fmtPhone(a.phone), a.office].filter(Boolean).join(" · ")}
+                    {a.why === "dup" ? "Already on the list" : a.why === "nophone" ? `Needs a cell${a.officePhone ? ` · office ${fmtPhone(a.officePhone)}` : ""}${a.office ? ` · ${a.office}` : ""}` : [`📱 ${fmtPhone(a.cell)}`, a.cellFrom && a.cellFrom !== "MLS" ? `from ${a.cellFrom}` : "", a.office].filter(Boolean).join(" · ")}
                   </div>
                 </div>
               </label>
             ))}
           </div>
-          <div style={{ fontSize: 12, color: T.textSub, marginTop: 8, lineHeight: 1.45 }}>They're also saved to Contacts (tag “Agent”), so they're ready for your next property.</div>
+          <div style={{ fontSize: 12, color: T.textSub, marginTop: 8, lineHeight: 1.45 }}>Only cell numbers get texted. MLS lists usually show office lines — Cowork's Monday/Thursday check reads each agent's business card for the cell. Agents are also saved to Contacts (tag “Agent”).</div>
         </div>
       )}
     </Sheet>
@@ -224,15 +273,18 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
     const media = vid && /^https:\/\//.test(thumbOf(vid)) ? [thumbOf(vid)] : null;
     for (const a of list) {
       res.i += 1; setProg({ ...res });
-      try { await send(a.phone, finalText(a), media, streetOf(property)); res.ok += 1; sentIds[a.id] = new Date().toISOString(); }
+      try { await send(a.phone, finalText(a), media, streetOf(property)); res.ok += 1; sentIds[a.id] = { at: new Date().toISOString(), cell: a.phone, from: a.cellFrom || "" }; }
       catch (e) { res.fail.push({ name: a.name, why: e.message || "failed" }); }
       setProg({ ...res });
       await new Promise((r) => setTimeout(r, 350));
     }
     const latest = (getLatest && getLatest()) || property;
-    onUpdate(property.id, "rpAgents", (latest.rpAgents || []).map((a) => (sentIds[a.id]
-      ? (mode === "follow" ? { ...a, followAt: sentIds[a.id], followBy: currentUser || "" } : { ...a, sentAt: sentIds[a.id], sentBy: currentUser || "", followAt: null })
-      : a)));
+    onUpdate(property.id, "rpAgents", (latest.rpAgents || []).map((a) => {
+      const x = sentIds[a.id];
+      if (!x) return a;
+      const keep = "cell" in a && digits(a.cell).length === 10 ? {} : { cell: x.cell, cellFrom: x.from || "known", ...("cell" in a ? {} : { officePhone: a.officePhone || a.phone || "" }) };
+      return mode === "follow" ? { ...a, ...keep, followAt: x.at, followBy: currentUser || "" } : { ...a, ...keep, sentAt: x.at, sentBy: currentUser || "", followAt: null };
+    }));
     if (String(price) !== String(property.rpPrice || "")) onUpdate(property.id, "rpPrice", price);
     if (vidId !== (property.rpVideoId || "")) onUpdate(property.id, "rpVideoId", vidId);
     onSent && onSent();
@@ -264,7 +316,7 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
         <button disabled={!list.length || !msg.trim() || upPct != null} onClick={go} style={{ ...btn("gold"), width: "100%", minHeight: 48, fontSize: 15, opacity: list.length && msg.trim() && upPct == null ? 1 : 0.5 }}>
           Send to {list.length} agent{list.length === 1 ? "" : "s"}{from ? ` from ${fmtPhone(from)}` : ""}
         </button>
-        {targets.length > list.length && <div style={{ fontSize: 11.5, color: T.textTert, textAlign: "center", marginTop: 6 }}>{targets.length - list.length} skipped (no phone{mode !== "follow" && skip14 ? " or texted in the last 14 days" : ""})</div>}
+        {targets.length > list.length && <div style={{ fontSize: 11.5, color: T.textTert, textAlign: "center", marginTop: 6 }}>{targets.length - list.length} skipped (no cell number{mode !== "follow" && skip14 ? " or texted in the last 14 days" : ""})</div>}
       </>}>
       <div style={HDR}>Pitch</div>
       <div style={{ display: "flex", gap: 6, marginTop: 8, overflowX: "auto", paddingBottom: 2 }}>
@@ -333,9 +385,61 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
   );
 }
 
+// ── 🔑 Which MLS a listing is in (the list of MLSs is shared, app_settings
+// "mls_sources"; NO passwords — Cowork uses Elie's own signed-in Chrome) ─────
+function MlsSheet({ property, list, saveList, onUpdate, flush, onClose }) {
+  const [pick, setPick] = useState(property.mlsSource || "");
+  const [num, setNum] = useState(property.mlsNumber || "");
+  const [adding, setAdding] = useState(!list.length);
+  const [nm, setNm] = useState(""), [url, setUrl] = useState(""), [notes, setNotes] = useState("");
+  const inp = { width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "inherit", outline: "none", marginTop: 6 };
+  const add = () => {
+    if (!nm.trim()) return;
+    const m = { id: `mls${Date.now()}`, name: nm.trim(), url: url.trim(), notes: notes.trim() };
+    saveList([...list, m]); setPick(m.id); setAdding(false); setNm(""); setUrl(""); setNotes("");
+  };
+  const done = () => {
+    if (pick !== (property.mlsSource || "")) onUpdate(property.id, "mlsSource", pick);
+    if (num.trim() !== (property.mlsNumber || "")) onUpdate(property.id, "mlsNumber", num.trim());
+    if (flush) setTimeout(flush, 0);
+    onClose();
+  };
+  return (
+    <Sheet title={`MLS · ${streetOf(property)}`} onClose={onClose} footer={<button onClick={done} style={{ ...btn("gold"), width: "100%" }}>Save</button>}>
+      <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.5 }}>Every Monday and Thursday at 8 AM, Cowork opens this listing's reverse-prospecting page in your Chrome, reads each new agent's business card for their <b>cell</b>, and adds them here. Log into each MLS once in Chrome (let Chrome save the password) — never type passwords into Claude.</div>
+      <div style={{ ...HDR, marginTop: 14 }}>Listed in</div>
+      <div style={{ marginTop: 6, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
+        {list.map((m, i) => (
+          <button key={m.id} onClick={() => setPick(m.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", minHeight: 48, border: "none", borderTop: i ? `1px solid ${T.border}` : "none", background: pick === m.id ? T.goldLight : "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 14, fontWeight: 700, color: T.text }}>{m.name}</span>
+              {(m.url || m.notes) && <span style={{ display: "block", fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[m.url, m.notes].filter(Boolean).join(" · ")}</span>}
+            </span>
+            {pick === m.id && <span style={{ color: T.gold, fontWeight: 800 }}>✓</span>}
+          </button>
+        ))}
+        {!adding && <button onClick={() => setAdding(true)} style={{ width: "100%", padding: "12px", minHeight: 48, border: "none", borderTop: list.length ? `1px solid ${T.border}` : "none", background: "#fff", color: T.gold, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>＋ Add an MLS</button>}
+      </div>
+      {adding && (
+        <div style={{ marginTop: 10, background: "#F7F7FA", borderRadius: 14, padding: 12 }}>
+          <input value={nm} onChange={(e) => setNm(e.target.value)} placeholder="MLS name (e.g. Monmouth-Ocean MLS)" style={inp} />
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Website you log into (e.g. mls.example.com)" style={inp} />
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes for Cowork (optional — towns it covers, where the report is)" style={inp} />
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            {list.length > 0 && <button onClick={() => setAdding(false)} style={btn()}>Cancel</button>}
+            <button disabled={!nm.trim()} onClick={add} style={{ ...btn("gold"), opacity: nm.trim() ? 1 : 0.5 }}>Add MLS</button>
+          </div>
+        </div>
+      )}
+      <div style={{ ...HDR, marginTop: 14 }}>MLS listing # (optional)</div>
+      <input value={num} onChange={(e) => setNum(e.target.value)} placeholder="e.g. 22633811 — helps Cowork find it fast" style={inp} />
+    </Sheet>
+  );
+}
+
 // ── The tab ──────────────────────────────────────────────────────────────────
-export function ReversePane({ property, onUpdate, flush, onOpenSms, classify }) {
-  const { sharedProps, setContacts, flushContacts, contacts, currentUser } = useData() || {};
+export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, showings }) {
+  const { sharedProps, setContacts, flushContacts, contacts, currentUser, appSettings, setAppSettings, flushAppSettings } = useData() || {};
   const { connected, threadFor } = useSmsTexting();
   const [filter, setFilter] = useState("all");
   const [imp, setImp] = useState(false);
@@ -343,7 +447,12 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify }) 
   const [menu, setMenu] = useState(null); // agent
   const getLatest = () => (sharedProps || []).find((x) => String(x.id) === String(property.id)) || property;
   const save = (list) => { onUpdate(property.id, "rpAgents", list); if (flush) setTimeout(flush, 0); };
-  const agents = property.rpAgents || [];
+  const find = useMemo(() => knownCells({ showings, contacts, props: sharedProps, skipPropId: property.id }), [showings, contacts, sharedProps, property.id]);
+  const office = useMemo(() => officeSetOf(property.rpAgents || []), [property.rpAgents]);
+  const agents = (property.rpAgents || []).map((a) => resolveAgent(a, find, office));
+  const [mlsOpen, setMlsOpen] = useState(false);
+  const mlsList = ((appSettings || []).find((x) => x.id === "mls_sources") || {}).items || [];
+  const mls = mlsList.find((m) => String(m.id) === String(property.mlsSource || "")) || null;
 
   const rows = agents.map((a) => {
     const ok = digits(a.phone).length === 10;
@@ -367,21 +476,21 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify }) 
   const addAgents = (list) => {
     const now = new Date().toISOString();
     const latest = getLatest().rpAgents || [];
-    const byPh = new Map(latest.map((a) => [digits(a.phone), a]));
     const merged = [...latest];
+    const same = (a, x) => (digits(x.cell).length === 10 && digits(a.cell) === digits(x.cell)) || (x.email && emailKey(a.email) === emailKey(x.email)) || (nameKey(a.name) && nameKey(a.name) === nameKey(x.name));
     list.forEach((x, i) => {
-      const d = digits(x.phone);
-      const old = d && byPh.get(d);
-      if (old) { const k = merged.indexOf(old); merged[k] = { ...old, buyers: Math.max(old.buyers || 1, x.buyers || 1), office: old.office || x.office, email: old.email || x.email, note: x.note || old.note }; return; }
-      merged.push({ id: `rp${Date.now()}${i}`, name: x.name, phone: d.length === 10 ? fmtPhone(d) : x.phone, email: x.email || "", office: x.office || "", buyers: x.buyers || 1, note: x.note || "", addedAt: now, addedBy: currentUser || "" });
+      const k = merged.findIndex((a) => same(a, x));
+      const cell = digits(x.cell).length === 10 ? fmtPhone(x.cell) : "";
+      if (k >= 0) { const old = merged[k]; merged[k] = { ...old, ...(!digits(old.cell) && cell ? { cell, cellFrom: x.cellFrom || "MLS" } : {}), officePhone: old.officePhone || x.officePhone || "", buyers: Math.max(old.buyers || 1, x.buyers || 1), office: old.office || x.office, email: old.email || x.email, note: x.note || old.note }; return; }
+      merged.push({ id: `rp${Date.now()}${i}`, name: x.name, cell, cellFrom: cell ? (x.cellFrom || "MLS") : "", officePhone: x.officePhone ? fmtPhone(x.officePhone) : "", email: x.email || "", office: x.office || "", buyers: x.buyers || 1, note: x.note || "", addedAt: now, addedBy: currentUser || "" });
     });
     save(merged);
     // Into Contacts too (tag "Agent") — only numbers we don't have yet.
     if (setContacts) {
       const known = new Set((contacts || []).flatMap((c) => [c.phone, ...(c.phones || []).map((p) => p.number)]).map(digits).filter(Boolean));
-      const add = list.filter((x) => digits(x.phone).length === 10 && !known.has(digits(x.phone))).map((x, i) => ({
-        id: Date.now() + i, name: x.name || fmtPhone(x.phone), company: x.office || "", role: "Agent", email: x.email || "",
-        phones: [{ label: "Mobile", number: fmtPhone(x.phone) }], phone: fmtPhone(x.phone), tags: ["Agent", "Reverse prospecting"],
+      const add = list.filter((x) => digits(x.cell).length === 10 && !known.has(digits(x.cell))).map((x, i) => ({
+        id: Date.now() + i, name: x.name || fmtPhone(x.cell), company: x.office || "", role: "Agent", email: x.email || "",
+        phones: [{ label: "Mobile", number: fmtPhone(x.cell) }, ...(digits(x.officePhone).length === 10 ? [{ label: "Office", number: fmtPhone(x.officePhone) }] : [])], phone: fmtPhone(x.cell), tags: ["Agent", "Reverse prospecting"],
         notes: `Reverse prospecting — ${streetOf(property)}`, addedBy: currentUser || "", addedAt: now,
       }));
       if (add.length) { setContacts((prev) => [...(prev || []), ...add]); if (flushContacts) setTimeout(flushContacts, 0); }
@@ -395,6 +504,14 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify }) 
 
   return (
     <div style={{ padding: "12px 12px 28px", maxWidth: 760 }}>
+      <button onClick={() => setMlsOpen(true)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "none", borderRadius: 16, padding: "10px 13px", marginBottom: 10, cursor: "pointer", fontFamily: "inherit", textAlign: "left", minHeight: 52 }}>
+        <span style={{ fontSize: 18 }}>🔑</span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 13.5, fontWeight: 700, color: T.text }}>{mls ? `${mls.name}${property.mlsNumber ? ` · #${property.mlsNumber}` : ""}` : "Which MLS is this listed in?"}</span>
+          <span style={{ display: "block", fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{property.rpCheckedAt ? `Cowork last checked ${shortDate(property.rpCheckedAt)}` : mls ? "Cowork checks it Mon + Thu at 8 AM" : "Set it so Cowork can check for new agents Mon + Thu"}</span>
+        </span>
+        <span style={{ color: "#C7C7CC", fontSize: 18 }}>›</span>
+      </button>
       <div style={{ background: "#fff", borderRadius: 16, padding: "12px 13px" }}>
         <div style={HDR}>Agents with buyers searching here</div>
         <div style={{ display: "flex", gap: 6, marginTop: 9 }}>
@@ -412,7 +529,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify }) 
 
       {agents.length > 0 && (
         <div style={{ display: "flex", gap: 6, marginTop: 10, overflowX: "auto", paddingBottom: 2 }}>
-          {[["all", `All ${agents.length}`], ["new", `Not texted ${cnt("new")}`], ["replied", `Replied ${rows.filter((r) => r.lastIn).length}`], ["hot", `🔥 Interested ${cnt("hot")}`], ["noreply", `No reply ${cnt("texted")}`], ["not", `Not interested ${cnt("not")}`]]
+          {[["all", `All ${agents.length}`], ["new", `Not texted ${cnt("new")}`], ["replied", `Replied ${rows.filter((r) => r.lastIn).length}`], ["hot", `🔥 Interested ${cnt("hot")}`], ["noreply", `No reply ${cnt("texted")}`], ...(cnt("nophone") ? [["nophone", `Needs cell ${cnt("nophone")}`]] : []), ["not", `Not interested ${cnt("not")}`]]
             .map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={chip(filter === k)}>{l}</button>)}
         </div>
       )}
@@ -431,7 +548,8 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify }) 
             const [pl, pbg, pfg] = PILL[st];
             const dim = st === "not" || st === "nophone";
             const sub = lastIn ? `“${String(lastIn.text || "📎 Attachment").slice(0, 80)}” · ${shortDate(lastIn.at)}`
-              : [a.office, a.buyers > 1 ? `${a.buyers} buyers searching` : a.buyers === 1 ? "1 buyer searching" : "", a.sentAt ? `texted ${shortDate(a.sentAt)}${a.followAt ? " · followed up" : ""}` : a.addedAt ? `added ${shortDate(a.addedAt)}` : ""].filter(Boolean).join(" · ");
+              : st === "nophone" ? [a.officePhone ? `office ${fmtPhone(a.officePhone)}` : "no number", a.office].filter(Boolean).join(" · ")
+              : [a.cellFrom && !/^(MLS|typed|known)$/.test(a.cellFrom) ? `📱 from ${a.cellFrom}` : "", a.office, a.buyers > 1 ? `${a.buyers} buyers searching` : a.buyers === 1 ? "1 buyer searching" : "", a.sentAt ? `texted ${shortDate(a.sentAt)}${a.followAt ? " · followed up" : ""}` : a.addedAt ? `added ${shortDate(a.addedAt)}` : ""].filter(Boolean).join(" · ");
             return (
               <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 6px 10px 12px", borderTop: i ? "1px solid rgba(0,0,0,0.055)" : "none" }}>
                 <div onClick={() => digits(a.phone).length === 10 && onOpenSms && onOpenSms({ phone: a.phone, name: a.name })} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, cursor: digits(a.phone).length === 10 ? "pointer" : "default" }}>
@@ -452,19 +570,29 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify }) 
 
       {menu && (
         <Sheet title={menu.name || fmtPhone(menu.phone)} onClose={() => setMenu(null)}>
-          <div style={{ fontSize: 13, color: T.textSub, marginBottom: 10, lineHeight: 1.5 }}>{[fmtPhone(menu.phone), menu.email, menu.office].filter(Boolean).join(" · ")}{menu.note ? <><br />{menu.note}</> : null}</div>
+          <div style={{ fontSize: 13, color: T.textSub, marginBottom: 10, lineHeight: 1.5 }}>{[menu.phone ? `📱 ${fmtPhone(menu.phone)}${menu.cellFrom && !/^(MLS|typed|known)$/.test(menu.cellFrom) ? ` (from ${menu.cellFrom})` : ""}` : "📱 no cell yet", menu.officePhone ? `☎ office ${fmtPhone(menu.officePhone)}` : "", menu.email, menu.office].filter(Boolean).join(" · ")}{menu.note ? <><br />{menu.note}</> : null}</div>
           {[
             ["🔥 Mark interested", () => patch(menu.id, (a) => ({ ...a, lead: "hot" }))],
             ["👎 Mark not interested", () => patch(menu.id, (a) => ({ ...a, lead: "not" }))],
             ...(menu.lead ? [["↺ Clear the mark", () => patch(menu.id, (a) => ({ ...a, lead: "" }))]] : []),
             ...(connected && digits(menu.phone).length === 10 ? [["💬 Text just this agent", () => setPitch({ targets: [menu], mode: menu.sentAt ? "follow" : "new" })]] : []),
+            [digits(menu.phone).length === 10 ? "✏️ Change the cell number" : "✏️ Enter the cell number", () => {
+              const v = window.prompt(`Cell number for ${menu.name || "this agent"}:`, menu.phone || "");
+              if (v == null) return;
+              const d = digits(v);
+              if (d && d.length !== 10) { alert("That doesn't look like a 10-digit phone number."); return; }
+              patch(menu.id, (a) => ({ ...a, ...("cell" in a ? {} : { officePhone: a.officePhone || a.phone || "" }), cell: d ? fmtPhone(d) : "", cellFrom: d ? "typed" : "" }));
+            }],
             ["🗑 Remove from this list", () => save((getLatest().rpAgents || []).filter((a) => a.id !== menu.id)), true],
           ].map(([l, fn, red]) => (
             <button key={l} onClick={() => { fn(); setMenu(null); }} style={{ width: "100%", minHeight: 48, textAlign: "left", padding: "0 14px", marginTop: 6, borderRadius: 12, border: `1px solid ${T.border}`, background: "#fff", color: red ? T.red : T.text, fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
           ))}
         </Sheet>
       )}
-      {imp && <ImportSheet property={property} onAdd={addAgents} onClose={() => setImp(false)} />}
+      {imp && <ImportSheet property={property} find={find} onAdd={addAgents} onClose={() => setImp(false)} />}
+      {mlsOpen && <MlsSheet property={property} list={mlsList} onUpdate={onUpdate} flush={flush}
+        saveList={(items) => { setAppSettings((prev) => [...(prev || []).filter((x) => x.id !== "mls_sources"), { id: "mls_sources", items }]); if (flushAppSettings) setTimeout(flushAppSettings, 0); }}
+        onClose={() => setMlsOpen(false)} />}
       {pitch && <PitchSheet property={property} targets={pitch.targets} mode={pitch.mode} getLatest={getLatest} onUpdate={onUpdate}
         onSent={() => { if (flush) setTimeout(flush, 0); }} onClose={() => setPitch(null)} />}
     </div>

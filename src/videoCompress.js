@@ -58,11 +58,11 @@ export async function compressVideo(file, onProgress) {
 // 📱 A copy small enough to TEXT (Elie 10/27/26 — reverse-prospecting pitches
 // send the walkthrough as a real video attachment, like texting one from the
 // phone's gallery). Business texts go out as MMS, where carriers only take a
-// few MB, so this makes a ~2.5 MB clip: the first minute at most, phone-size
-// (640 on the long side), modest bitrate — about what a phone itself sends over
-// MMS. Returns a File, or throws with a plain-English reason.
-export const TEXT_VIDEO_MAX = 2.5 * 1024 * 1024;
-export async function compressForText(file, onProgress, { maxBytes = TEXT_VIDEO_MAX, maxSec = 60, codecs = ["avc"] } = {}) {
+// few MB — and a 2.5 MB copy never reached Moshe's iPhone (10/27/26), so this
+// makes a ~1 MB clip: the first 30 seconds, 480 on the long side — what a phone
+// itself sends over MMS. Returns a File, or throws with a plain-English reason.
+export const TEXT_VIDEO_MAX = 1024 * 1024;
+export async function compressForText(file, onProgress, { maxBytes = TEXT_VIDEO_MAX, maxSec = 30, codecs = ["avc"] } = {}) {
   if (typeof VideoEncoder === "undefined") throw new Error("This browser can't shrink videos — use Chrome on a computer, or a newer iPhone.");
   const mb = await import("mediabunny");
   const input = new mb.Input({ formats: mb.ALL_FORMATS, source: new mb.BlobSource(file) });
@@ -73,14 +73,14 @@ export async function compressForText(file, onProgress, { maxBytes = TEXT_VIDEO_
     if (!w || !h) throw new Error("Couldn't read the video's size.");
     const full = (await input.computeDuration()) || maxSec;
     const dur = Math.max(1, Math.min(full, maxSec));
-    const scale = Math.min(1, 640 / Math.max(w, h));
+    const scale = Math.min(1, 480 / Math.max(w, h));
     const outW = Math.round((w * scale) / 2) * 2;
     const outH = Math.round((h * scale) / 2) * 2;
     // Two tries: re-encode the sound small (AAC mono) — or, on a device with no
     // AAC encoder, copy the original sound track and spend less on the picture.
     let conversion = null, output = null;
-    for (const [AUDIO, audio] of [[48_000, { codec: "aac", bitrate: 48_000, numberOfChannels: 1, forceTranscode: true }], [160_000, {}]]) {
-      const vbit = Math.max(150_000, Math.min(900_000, Math.floor((maxBytes * 8 * 0.88) / dur) - AUDIO));
+    for (const [AUDIO, audio] of [[32_000, { codec: "aac", bitrate: 32_000, numberOfChannels: 1, forceTranscode: true }], [160_000, {}]]) {
+      const vbit = Math.max(100_000, Math.min(700_000, Math.floor((maxBytes * 8 * 0.88) / dur) - AUDIO));
       const codec = await mb.getFirstEncodableVideoCodec(codecs, { width: outW, height: outH, bitrate: vbit });
       if (!codec) throw new Error("This device can't make an MP4 video — try on a computer with Chrome.");
       output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: "in-memory" }), target: new mb.BufferTarget() });

@@ -1,0 +1,475 @@
+// 🎯 Reverse prospecting (Elie approved 10/27/26 mockup). Per property, the
+// buyer's agents from MLS reverse-prospecting reports — Elie pulls them from
+// many MLSs, so the fastest way in is a SCREENSHOT that Claude reads
+// (api/ai/agents.js); a pasted list or CSV works too. Then one personalised
+// pitch goes to every agent from the sender's own line, with the property's
+// video walkthrough attached automatically when there is one (its cover
+// picture + a gpflips.com/v/<uid> link — a whole walkthrough is far too big
+// for a picture message). Replies come back into the normal text threads.
+// Stored on the property: p.rpAgents[{id,name,phone,email,office,buyers,note,
+// addedAt,addedBy,sentAt,sentBy,followAt,lead}], p.rpPrice, p.rpVideoId.
+import { useMemo, useRef, useState } from "react";
+import { T } from "./theme";
+import { useData } from "./data/DataProvider";
+import { useSmsTexting } from "./sms";
+import { qbAuthFetch } from "./net";
+import { mediaOf, uploadToMedia } from "./mediaStore";
+
+const DAY = 86400000;
+const digits = (s) => { const d = String(s || "").replace(/\D/g, ""); return d.length === 11 && d[0] === "1" ? d.slice(1) : d; };
+const fmtPhone = (s) => { const d = digits(s); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : String(s || ""); };
+const firstOf = (n) => String(n || "").trim().split(/\s+/)[0] || "there";
+const initials = (n) => String(n || "?").trim().split(/\s+/).slice(0, 2).map((x) => x[0] || "").join("").toUpperCase() || "?";
+const AV = [["#FDECEA", "#C0392B"], ["#E9F2FB", "#1D6FB8"], ["#EAF7EE", "#1E7B3C"], ["#F3EAFB", "#7B3FB8"], ["#FFF4E5", "#B86E00"], ["#E8F6F8", "#127A8A"]];
+const avC = (n) => { let h = 0; for (const c of String(n)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return AV[h % AV.length]; };
+const shortDate = (iso) => { try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ""; } };
+const money = (v) => { const n = parseFloat(String(v || "").replace(/[^0-9.]/g, "")); return n ? `$${Math.round(n).toLocaleString("en-US")}` : ""; };
+const streetOf = (p) => String((p && p.address) || "").split(",")[0].trim();
+
+// ── styles ───────────────────────────────────────────────────────────────────
+const btn = (kind) => ({
+  flex: 1, minHeight: 44, borderRadius: 12, fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+  display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 12px",
+  ...(kind === "gold" ? { background: T.gold, color: "#fff", border: "none" } : kind === "ghost" ? { background: "#FBF3DD", color: "#8a6d1f", border: "1px solid #E8D59E" } : { background: "#fff", color: T.text, border: `1px solid ${T.border}` }),
+});
+const chip = (on) => ({ fontSize: 12, fontWeight: 650, padding: "6px 11px", minHeight: 32, borderRadius: 100, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "inherit", border: `1px solid ${on ? "#1C1C1E" : "#E5E5EA"}`, background: on ? "#1C1C1E" : "#fff", color: on ? "#fff" : "#3A3A3C", flexShrink: 0 });
+const PILL = {
+  new: ["NOT TEXTED", "#FBF3DD", "#8a6d1f"], texted: ["TEXTED", "#F2F2F7", "#6E6E73"], replied: ["REPLIED", "#E9F2FB", "#1D6FB8"],
+  hot: ["🔥 INTERESTED", "#FDECEA", "#C0392B"], not: ["NOT INTERESTED", "#F2F2F7", "#AEAEB2"], nophone: ["NO PHONE", "#F2F2F7", "#AEAEB2"],
+};
+const HDR = { fontSize: 11.5, fontWeight: 700, color: T.textSub, letterSpacing: 0.3, textTransform: "uppercase" };
+
+function Sheet({ title, onClose, children, footer, wide }) {
+  const phone = typeof window !== "undefined" && window.innerWidth < 760;
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 420, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: phone ? "flex-end" : "center", justifyContent: "center" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", width: phone ? "100%" : `min(${wide ? 640 : 520}px, 94vw)`, maxHeight: phone ? "92vh" : "88vh", borderRadius: phone ? "22px 22px 0 0" : 20, display: "flex", flexDirection: "column", boxShadow: "0 -6px 30px rgba(0,0,0,0.18)", paddingBottom: phone ? "env(safe-area-inset-bottom)" : 0 }}>
+        {phone && <div style={{ width: 38, height: 5, borderRadius: 3, background: "#D1D1D6", margin: "8px auto 0" }} />}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px 8px" }}>
+          <div style={{ flex: 1, fontSize: 17, fontWeight: 700, color: T.text }}>{title}</div>
+          <button onClick={onClose} aria-label="Close" style={{ width: 44, height: 44, margin: -7, borderRadius: 22, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ width: 30, height: 30, borderRadius: 15, background: "#F2F2F7", color: T.textSub, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</span>
+          </button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "4px 16px 14px" }}>{children}</div>
+        {footer && <div style={{ padding: "10px 16px 14px", borderTop: `1px solid ${T.border}` }}>{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+// Screenshots → small JPEGs (the AI reads them fine; keeps the upload light).
+async function shrink(file, max = 1800) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.86);
+  } finally { URL.revokeObjectURL(url); }
+}
+
+// ── 1. Add agents: screenshots (main), paste, or CSV ─────────────────────────
+function ImportSheet({ property, onAdd, onClose }) {
+  const [shots, setShots] = useState([]); // [{name,data}]
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [found, setFound] = useState(null); // [{...agent, pick, why}]
+  const picRef = useRef(null), csvRef = useRef(null);
+  const have = property.rpAgents || [];
+  const addFiles = async (files) => {
+    const imgs = Array.from(files || []).filter((f) => /^image\//.test(f.type || "")).slice(0, 6);
+    const out = [];
+    for (const f of imgs) { try { out.push({ name: f.name || "screenshot", data: await shrink(f) }); } catch { /* unreadable picture */ } }
+    setShots((s) => [...s, ...out].slice(0, 6));
+  };
+  const read = async () => {
+    setBusy(true); setErr("");
+    try {
+      const r = await qbAuthFetch("/api/ai/agents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images: shots.map((s) => s.data), text }) });
+      const seenPh = new Set(have.map((a) => digits(a.phone)).filter(Boolean));
+      const seenNm = new Set(have.map((a) => String(a.name || "").toLowerCase().trim()).filter(Boolean));
+      const list = (r.agents || []).map((a) => {
+        const d = digits(a.phone);
+        const dup = (d && seenPh.has(d)) || (!d && seenNm.has(String(a.name || "").toLowerCase().trim()));
+        const why = dup ? "dup" : d.length !== 10 ? "nophone" : "new";
+        return { ...a, why, pick: why === "new" };
+      });
+      if (!list.length) setErr("No agents found — try a clearer screenshot, or paste the list.");
+      setFound(list);
+    } catch (e) { setErr(e.message || "Couldn't read it."); }
+    setBusy(false);
+  };
+  const picked = (found || []).filter((a) => a.pick);
+  const counts = found ? { n: found.filter((a) => a.why === "new").length, d: found.filter((a) => a.why === "dup").length, x: found.filter((a) => a.why === "nophone").length } : null;
+  return (
+    <Sheet title="Add reverse-prospecting agents" onClose={onClose} wide
+      footer={found
+        ? <div style={{ display: "flex", gap: 8 }}><button onClick={() => setFound(null)} style={btn()}>‹ Back</button><button disabled={!picked.length} onClick={() => onAdd(picked)} style={{ ...btn("gold"), flex: 2, opacity: picked.length ? 1 : 0.5 }}>Add {picked.length} agent{picked.length === 1 ? "" : "s"}</button></div>
+        : <button disabled={busy || (!shots.length && !text.trim())} onClick={read} style={{ ...btn("gold"), width: "100%", opacity: busy || (!shots.length && !text.trim()) ? 0.5 : 1 }}>{busy ? "Reading…" : "Read the agents"}</button>}>
+      {!found ? (
+        <div onPaste={(e) => { const fs = Array.from(e.clipboardData?.files || []); if (fs.length) { e.preventDefault(); addFiles(fs); } }}>
+          <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.5, marginBottom: 10 }}>Screenshot the reverse-prospecting page from any MLS — as many pictures as it takes (up to 6). The app reads the agents' names, phones, emails and offices.</div>
+          <input ref={picRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+          <input ref={csvRef} type="file" accept=".csv,.txt,text/csv,text/plain" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) setText(await f.text()); }} />
+          <button onClick={() => picRef.current && picRef.current.click()} style={{ width: "100%", border: "1.5px dashed #D9C48A", background: "#FFFCF3", borderRadius: 14, padding: "16px 12px", cursor: "pointer", fontFamily: "inherit", textAlign: "center" }}>
+            <div style={{ fontSize: 24 }}>📸</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginTop: 2 }}>{shots.length ? "Add more screenshots" : "Choose screenshots"}</div>
+            <div style={{ fontSize: 12, color: T.textSub, marginTop: 3 }}>On a computer you can also paste a screenshot here (Ctrl/⌘ + V)</div>
+          </button>
+          {shots.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+              {shots.map((s, i) => (
+                <div key={i} style={{ position: "relative", width: 76, height: 96, borderRadius: 10, overflow: "hidden", border: `1px solid ${T.border}` }}>
+                  <img src={s.data} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <button onClick={() => setShots((x) => x.filter((_, j) => j !== i))} aria-label="Remove" style={{ position: "absolute", top: 2, right: 2, width: 26, height: 26, borderRadius: 13, border: "none", background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 12, cursor: "pointer" }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ ...HDR, marginTop: 16 }}>Or paste the list</div>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste names and phone numbers, or a whole report…" rows={4} style={{ width: "100%", boxSizing: "border-box", marginTop: 6, border: `1px solid ${T.border}`, borderRadius: 12, padding: "10px 12px", fontSize: 14, fontFamily: "inherit", resize: "vertical", outline: "none" }} />
+          <button onClick={() => csvRef.current && csvRef.current.click()} style={{ marginTop: 6, background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", padding: "8px 0", minHeight: 44 }}>📄 Or open a CSV file</button>
+          {err && <div style={{ color: T.red, fontSize: 13, fontWeight: 600, marginTop: 6 }}>{err}</div>}
+        </div>
+      ) : (
+        <div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 100, background: "#EAF7EE", color: "#1E7B3C" }}>{counts.n} new</span>
+            {counts.d > 0 && <span style={{ fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 100, background: "#F2F2F7", color: T.textSub }}>{counts.d} already on the list</span>}
+            {counts.x > 0 && <span style={{ fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 100, background: "#FDECEA", color: "#C0392B" }}>{counts.x} no phone</span>}
+          </div>
+          <div style={{ marginTop: 8, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
+            {found.map((a, i) => (
+              <label key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderTop: i ? `1px solid ${T.border}` : "none", cursor: "pointer", background: a.pick ? "#fff" : "#FAFAFA" }}>
+                <input type="checkbox" checked={!!a.pick} onChange={() => setFound((f) => f.map((x, j) => (j === i ? { ...x, pick: !x.pick } : x)))} style={{ width: 20, height: 20, accentColor: T.gold, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: a.pick ? T.text : T.textTert }}>{a.name || "(no name)"}{a.buyers > 1 && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.textSub }}> · {a.buyers} buyers</span>}</div>
+                  <div style={{ fontSize: 12, color: a.why === "nophone" ? "#C0392B" : T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {a.why === "dup" ? "Already on the list" : a.why === "nophone" ? (a.email ? `No phone — ${a.email}` : "No phone number") : [fmtPhone(a.phone), a.office].filter(Boolean).join(" · ")}
+                  </div>
+                </div>
+              </label>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: T.textSub, marginTop: 8, lineHeight: 1.45 }}>They're also saved to Contacts (tag “Agent”), so they're ready for your next property.</div>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+// ── 2. The pitch ─────────────────────────────────────────────────────────────
+const PITCHES = [
+  ["listed", "🏡 Just listed", (f) => `Hi {first}, it's ${f.me} with Goldstone Properties. Your buyers have been searching${f.town ? ` in ${f.town}` : " in this area"}, so I wanted you to see ${f.address} first${f.facts ? `: ${f.facts}` : ""}, fully renovated${f.price ? `, ${f.price}` : ""}. Happy to set up a showing or send more photos. Any of your clients a fit?`],
+  ["drop", "💲 Price drop", (f) => `Hi {first}, ${f.me} with Goldstone Properties. Quick heads up for your buyers searching${f.town ? ` in ${f.town}` : " in this area"}: we just reduced ${f.address}${f.price ? ` to ${f.price}` : ""}${f.facts ? ` (${f.facts}, fully renovated)` : ""}. Would any of your clients like to see it this week?`],
+  ["open", "🚪 Open house", (f) => `Hi {first}, it's ${f.me} with Goldstone Properties. We're holding an open house at ${f.address}${f.town ? ` in ${f.town}` : ""}${f.facts ? ` (${f.facts})` : ""}${f.price ? `, ${f.price}` : ""}. Your buyers' searches match it — bring them by, or I can set up a private showing.`],
+  ["follow", "🔁 Follow-up", (f) => `Hi {first}, ${f.me} again from Goldstone Properties — just following up on ${f.address}${f.town ? ` in ${f.town}` : ""}. Did any of your buyers want to take a look? Happy to work around their schedule.`],
+];
+
+function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onClose }) {
+  const { currentUser } = useData() || {};
+  const { send, from } = useSmsTexting();
+  const me = firstOf(currentUser || "");
+  const pi = property.propertyInfo || {};
+  const [price, setPrice] = useState(property.rpPrice || "");
+  const fields = (pr) => ({
+    me, town: property.city || "", address: streetOf(property), price: money(pr),
+    facts: [pi.beds && `${pi.beds} bed`, pi.baths && `${pi.baths} bath`].filter(Boolean).join(" / "),
+  });
+  const [kind, setKind] = useState(mode === "follow" ? "follow" : "listed");
+  const build = (k, pr) => (PITCHES.find((x) => x[0] === k) || PITCHES[0])[2](fields(pr));
+  const [msg, setMsg] = useState(() => build(mode === "follow" ? "follow" : "listed", property.rpPrice || ""));
+  const lastAuto = useRef(msg);
+  const reTemplate = (k, pr) => { const t = build(k, pr); setMsg(t); lastAuto.current = t; };
+
+  // The walkthrough video: the one picked for this property, else the newest.
+  const videos = useMemo(() => mediaOf(property).filter((m) => m.kind === "video" && m.uid), [property]);
+  const [vidId, setVidId] = useState(() => (property.rpVideoId === "none" ? "none" : (videos.find((v) => v.id === property.rpVideoId) || videos[0] || {}).id || "none"));
+  const vid = videos.find((v) => v.id === vidId) || null;
+  const [vidPick, setVidPick] = useState(false);
+  const [upPct, setUpPct] = useState(null);
+  const vidRef = useRef(null);
+  const thumbOf = (v) => {
+    if (v.thumb && !/^https:\/\/[^/]*cloudflarestream\.com\//i.test(v.thumb)) return v.thumb; // not a Stream poster — use as is
+    const base = String(v.thumb || "").split("?")[0] || (() => { const m = /^(https:\/\/[^/]+)\/([a-f0-9]{20,})\//i.exec(v.url || v.watch || ""); return m ? `${m[1]}/${m[2]}/thumbnails/thumbnail.jpg` : ""; })();
+    return base ? `${base}?time=2s&height=720` : "";
+  };
+  const link = vid ? `https://gpflips.com/v/${vid.uid}` : "";
+  const [skip14, setSkip14] = useState(true);
+  const now = Date.now();
+  const list = targets.filter((a) => digits(a.phone).length === 10 && !(mode !== "follow" && skip14 && a.sentAt && now - new Date(a.sentAt).getTime() < 14 * DAY));
+  const finalText = (a) => msg.replace(/\{first\}/g, firstOf(a.name)) + (link ? `\n\n🎬 Video walkthrough: ${link}` : "");
+  const [prog, setProg] = useState(null); // {i,n,ok,fail:[]}
+  const sample = list[0] || targets[0];
+
+  const upload = async (file) => {
+    if (!file) return;
+    setUpPct(0);
+    try {
+      const added = await uploadToMedia(property, [file], { updateProp: onUpdate, getLatest, by: currentUser || "", src: "upload", onProgress: (p) => setUpPct(p.pct || 0) });
+      const v = added.find((x) => x.kind === "video");
+      if (v) { setVidId(v.id); setVidPick(false); }
+    } catch (e) { alert(`Couldn't upload the video: ${e.message || e}`); }
+    setUpPct(null);
+  };
+
+  const go = async () => {
+    const res = { i: 0, n: list.length, ok: 0, fail: [] };
+    setProg({ ...res });
+    const sentIds = {};
+    const media = vid && /^https:\/\//.test(thumbOf(vid)) ? [thumbOf(vid)] : null;
+    for (const a of list) {
+      res.i += 1; setProg({ ...res });
+      try { await send(a.phone, finalText(a), media, streetOf(property)); res.ok += 1; sentIds[a.id] = new Date().toISOString(); }
+      catch (e) { res.fail.push({ name: a.name, why: e.message || "failed" }); }
+      setProg({ ...res });
+      await new Promise((r) => setTimeout(r, 350));
+    }
+    const latest = (getLatest && getLatest()) || property;
+    onUpdate(property.id, "rpAgents", (latest.rpAgents || []).map((a) => (sentIds[a.id]
+      ? (mode === "follow" ? { ...a, followAt: sentIds[a.id], followBy: currentUser || "" } : { ...a, sentAt: sentIds[a.id], sentBy: currentUser || "", followAt: null })
+      : a)));
+    if (String(price) !== String(property.rpPrice || "")) onUpdate(property.id, "rpPrice", price);
+    if (vidId !== (property.rpVideoId || "")) onUpdate(property.id, "rpVideoId", vidId);
+    onSent && onSent();
+  };
+
+  if (prog) {
+    const done = prog.i >= prog.n && (prog.ok + prog.fail.length) >= prog.n;
+    return (
+      <Sheet title={done ? "Sent" : "Sending…"} onClose={done ? onClose : () => {}}
+        footer={done && <button onClick={onClose} style={{ ...btn("gold"), width: "100%" }}>Done</button>}>
+        <div style={{ textAlign: "center", padding: "18px 0 8px" }}>
+          <div style={{ fontSize: 34 }}>{done ? (prog.fail.length ? "⚠️" : "✅") : "📤"}</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: T.text, marginTop: 6 }}>{done ? `Sent to ${prog.ok} agent${prog.ok === 1 ? "" : "s"}` : `Sending ${prog.i} of ${prog.n}…`}</div>
+          {!done && <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 4 }}>Keep the app open until it finishes.</div>}
+        </div>
+        {prog.fail.length > 0 && (
+          <div style={{ marginTop: 10, background: "#FDECEA", borderRadius: 12, padding: "10px 12px" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#C0392B" }}>{prog.fail.length} couldn't be sent</div>
+            {prog.fail.map((f, i) => <div key={i} style={{ fontSize: 12.5, color: T.text, marginTop: 4 }}><b>{f.name}</b> — {f.why}</div>)}
+          </div>
+        )}
+      </Sheet>
+    );
+  }
+
+  return (
+    <Sheet title={`${mode === "follow" ? "Follow up with" : "Text"} ${list.length} agent${list.length === 1 ? "" : "s"} · ${streetOf(property)}`} onClose={onClose} wide
+      footer={<>
+        <button disabled={!list.length || !msg.trim() || upPct != null} onClick={go} style={{ ...btn("gold"), width: "100%", minHeight: 48, fontSize: 15, opacity: list.length && msg.trim() && upPct == null ? 1 : 0.5 }}>
+          Send to {list.length} agent{list.length === 1 ? "" : "s"}{from ? ` from ${fmtPhone(from)}` : ""}
+        </button>
+        {targets.length > list.length && <div style={{ fontSize: 11.5, color: T.textTert, textAlign: "center", marginTop: 6 }}>{targets.length - list.length} skipped (no phone{mode !== "follow" && skip14 ? " or texted in the last 14 days" : ""})</div>}
+      </>}>
+      <div style={HDR}>Pitch</div>
+      <div style={{ display: "flex", gap: 6, marginTop: 8, overflowX: "auto", paddingBottom: 2 }}>
+        {PITCHES.map(([k, l]) => <button key={k} onClick={() => { setKind(k); reTemplate(k, price); }} style={chip(kind === k)}>{l}</button>)}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+        <span style={{ fontSize: 13, color: T.textSub, flexShrink: 0 }}>List price</span>
+        <input value={price} inputMode="numeric" placeholder="$ e.g. 489,900" onChange={(e) => { const v = e.target.value; setPrice(v); if (msg === lastAuto.current) reTemplate(kind, v); }}
+          style={{ flex: 1, minWidth: 0, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 11px", fontSize: 14, fontFamily: "inherit", outline: "none" }} />
+      </div>
+      <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={6} style={{ width: "100%", boxSizing: "border-box", marginTop: 10, border: `1px solid ${T.border}`, borderRadius: 14, padding: "11px 12px", fontSize: 14.5, lineHeight: 1.45, fontFamily: "inherit", resize: "vertical", outline: "none", background: "#F7F7FA" }} />
+      <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 4 }}>{"{first}"} becomes each agent's first name.</div>
+
+      <div style={{ ...HDR, marginTop: 14 }}>🎬 Video walkthrough</div>
+      <input ref={vidRef} type="file" accept="video/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; upload(f); }} />
+      <div style={{ marginTop: 8, border: `1px solid ${T.border}`, borderRadius: 14, padding: 10, display: "flex", alignItems: "center", gap: 10 }}>
+        {upPct != null ? (
+          <div style={{ flex: 1, fontSize: 13.5, color: T.text }}>Uploading video… {Math.round(upPct)}%
+            <div style={{ height: 4, borderRadius: 2, background: "#EEE", marginTop: 6 }}><div style={{ width: `${upPct}%`, height: "100%", borderRadius: 2, background: T.gold }} /></div>
+          </div>
+        ) : vid ? (<>
+          <div style={{ position: "relative", width: 64, height: 64, borderRadius: 10, overflow: "hidden", background: "#222", flexShrink: 0 }}>
+            {thumbOf(vid) && <img src={thumbOf(vid)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+            <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 20, textShadow: "0 1px 4px rgba(0,0,0,0.6)" }}>▶</span>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vid.name || "Video"}</div>
+            <div style={{ fontSize: 12, color: T.textSub }}>Goes with every text · cover picture + watch link</div>
+          </div>
+          <button onClick={() => setVidPick((x) => !x)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", minHeight: 44, padding: "0 6px" }}>Change</button>
+        </>) : (<>
+          <div style={{ flex: 1, fontSize: 13, color: T.textSub }}>{videos.length ? "No video with this text." : "No video for this property yet."}</div>
+          {videos.length > 0 && <button onClick={() => setVidPick((x) => !x)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>Pick one</button>}
+          <button onClick={() => vidRef.current && vidRef.current.click()} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>＋ Upload</button>
+        </>)}
+      </div>
+      {vidPick && upPct == null && (
+        <div style={{ marginTop: 6, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
+          {videos.map((v, i) => (
+            <button key={v.id} onClick={() => { setVidId(v.id); setVidPick(false); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: "none", borderTop: i ? `1px solid ${T.border}` : "none", background: v.id === vidId ? T.goldLight : "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+              <div style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", background: "#222", flexShrink: 0 }}>{thumbOf(v) && <img src={thumbOf(v)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}</div>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name || "Video"}<div style={{ fontSize: 11.5, color: T.textSub }}>{v.at ? shortDate(v.at) : ""}</div></div>
+              {v.id === vidId && <span style={{ color: T.gold, fontWeight: 800 }}>✓</span>}
+            </button>
+          ))}
+          <button onClick={() => vidRef.current && vidRef.current.click()} style={{ width: "100%", padding: "11px 12px", border: "none", borderTop: `1px solid ${T.border}`, background: "#fff", color: T.gold, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>＋ Upload a new video</button>
+          <button onClick={() => { setVidId("none"); setVidPick(false); }} style={{ width: "100%", padding: "11px 12px", border: "none", borderTop: `1px solid ${T.border}`, background: "#fff", color: T.textSub, fontWeight: 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>Send without a video</button>
+        </div>
+      )}
+
+      {sample && (<>
+        <div style={{ ...HDR, marginTop: 14 }}>Preview · {sample.name}</div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", marginTop: 8, gap: 4 }}>
+          {vid && thumbOf(vid) && <img src={thumbOf(vid)} alt="" style={{ width: 170, maxHeight: 220, objectFit: "cover", borderRadius: 18, border: "1px solid rgba(0,0,0,0.06)" }} />}
+          <div style={{ maxWidth: 330, background: T.gold, color: "#fff", borderRadius: 18, padding: "9px 12px", fontSize: 14, lineHeight: 1.42, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{finalText(sample)}</div>
+        </div>
+      </>)}
+
+      {mode !== "follow" && (
+        <label style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, padding: "10px 0", borderTop: `1px solid ${T.border}`, cursor: "pointer" }}>
+          <span style={{ flex: 1, fontSize: 13.5, color: T.text }}>Skip agents already texted about it in the last 14 days</span>
+          <input type="checkbox" checked={skip14} onChange={(e) => setSkip14(e.target.checked)} style={{ width: 22, height: 22, accentColor: T.green }} />
+        </label>
+      )}
+    </Sheet>
+  );
+}
+
+// ── The tab ──────────────────────────────────────────────────────────────────
+export function ReversePane({ property, onUpdate, flush, onOpenSms, classify }) {
+  const { sharedProps, setContacts, flushContacts, contacts, currentUser } = useData() || {};
+  const { connected, threadFor } = useSmsTexting();
+  const [filter, setFilter] = useState("all");
+  const [imp, setImp] = useState(false);
+  const [pitch, setPitch] = useState(null); // {targets, mode}
+  const [menu, setMenu] = useState(null); // agent
+  const getLatest = () => (sharedProps || []).find((x) => String(x.id) === String(property.id)) || property;
+  const save = (list) => { onUpdate(property.id, "rpAgents", list); if (flush) setTimeout(flush, 0); };
+  const agents = property.rpAgents || [];
+
+  const rows = agents.map((a) => {
+    const ok = digits(a.phone).length === 10;
+    const since = a.sentAt ? new Date(a.sentAt).getTime() : 0;
+    const th = ok ? threadFor(a.phone).filter((m) => m.kind !== "call") : [];
+    const ins = since ? th.filter((m) => m.direction === "in" && new Date(m.at || 0).getTime() > since) : [];
+    const lastIn = ins[ins.length - 1] || null;
+    const auto = lastIn && classify ? classify(lastIn.text) : null;
+    const lead = a.lead || (auto === "interest" || auto === "offer" ? "hot" : auto === "not" || auto === "badnum" ? "not" : "");
+    const st = !ok ? "nophone" : !a.sentAt ? "new" : lead === "hot" ? "hot" : lead === "not" ? "not" : lastIn ? "replied" : "texted";
+    const followDue = st === "texted" && !a.followAt && Date.now() - since > 3 * DAY;
+    return { a, st, lastIn, followDue };
+  });
+  const cnt = (k) => rows.filter((r) => r.st === k).length;
+  const fresh = rows.filter((r) => r.st === "new");
+  const due = rows.filter((r) => r.followDue);
+  const order = { hot: 0, replied: 1, new: 2, texted: 3, nophone: 4, not: 5 };
+  const shown = rows.filter((r) => filter === "all" || (filter === "noreply" ? r.st === "texted" : filter === "replied" ? !!r.lastIn : r.st === filter))
+    .sort((x, y) => (order[x.st] - order[y.st]) || String((y.lastIn && y.lastIn.at) || y.a.addedAt || "").localeCompare(String((x.lastIn && x.lastIn.at) || x.a.addedAt || "")));
+
+  const addAgents = (list) => {
+    const now = new Date().toISOString();
+    const latest = getLatest().rpAgents || [];
+    const byPh = new Map(latest.map((a) => [digits(a.phone), a]));
+    const merged = [...latest];
+    list.forEach((x, i) => {
+      const d = digits(x.phone);
+      const old = d && byPh.get(d);
+      if (old) { const k = merged.indexOf(old); merged[k] = { ...old, buyers: Math.max(old.buyers || 1, x.buyers || 1), office: old.office || x.office, email: old.email || x.email, note: x.note || old.note }; return; }
+      merged.push({ id: `rp${Date.now()}${i}`, name: x.name, phone: d.length === 10 ? fmtPhone(d) : x.phone, email: x.email || "", office: x.office || "", buyers: x.buyers || 1, note: x.note || "", addedAt: now, addedBy: currentUser || "" });
+    });
+    save(merged);
+    // Into Contacts too (tag "Agent") — only numbers we don't have yet.
+    if (setContacts) {
+      const known = new Set((contacts || []).flatMap((c) => [c.phone, ...(c.phones || []).map((p) => p.number)]).map(digits).filter(Boolean));
+      const add = list.filter((x) => digits(x.phone).length === 10 && !known.has(digits(x.phone))).map((x, i) => ({
+        id: Date.now() + i, name: x.name || fmtPhone(x.phone), company: x.office || "", role: "Agent", email: x.email || "",
+        phones: [{ label: "Mobile", number: fmtPhone(x.phone) }], phone: fmtPhone(x.phone), tags: ["Agent", "Reverse prospecting"],
+        notes: `Reverse prospecting — ${streetOf(property)}`, addedBy: currentUser || "", addedAt: now,
+      }));
+      if (add.length) { setContacts((prev) => [...(prev || []), ...add]); if (flushContacts) setTimeout(flushContacts, 0); }
+    }
+    setImp(false);
+  };
+  const patch = (id, fn) => save((getLatest().rpAgents || []).map((a) => (a.id === id ? fn(a) : a)));
+
+  const statBox = (n, l, red) => (<div style={{ flex: 1, background: "#F7F7FA", borderRadius: 12, padding: "8px 4px", textAlign: "center" }}><div style={{ fontSize: 19, fontWeight: 700, color: red && n ? "#C0392B" : T.text }}>{n}</div><div style={{ fontSize: 11, color: T.textSub, fontWeight: 600 }}>{l}</div></div>);
+  const replied = rows.filter((r) => r.lastIn).length;
+
+  return (
+    <div style={{ padding: "12px 12px 28px", maxWidth: 760 }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: "12px 13px" }}>
+        <div style={HDR}>Agents with buyers searching here</div>
+        <div style={{ display: "flex", gap: 6, marginTop: 9 }}>
+          {statBox(agents.length, "Agents")}{statBox(rows.filter((r) => r.a.sentAt).length, "Texted")}{statBox(replied, "Replied")}{statBox(cnt("hot"), "Interested", true)}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 11 }}>
+          <button onClick={() => setImp(true)} style={btn("ghost")}>📸 Add from MLS</button>
+          {connected && <button disabled={!fresh.length} onClick={() => setPitch({ targets: fresh.map((r) => r.a), mode: "new" })} style={{ ...btn("gold"), opacity: fresh.length ? 1 : 0.45 }}>💬 Text {fresh.length || ""} new</button>}
+        </div>
+        {connected && due.length > 0 && (
+          <button onClick={() => setPitch({ targets: due.map((r) => r.a), mode: "follow" })} style={{ ...btn(), width: "100%", marginTop: 8 }}>🔁 Follow up with {due.length} who didn't reply (3+ days)</button>
+        )}
+        {connected === false && <div style={{ fontSize: 12, color: T.textTert, marginTop: 8 }}>Business texting isn't connected for your login, so you can add agents but not text them from here.</div>}
+      </div>
+
+      {agents.length > 0 && (
+        <div style={{ display: "flex", gap: 6, marginTop: 10, overflowX: "auto", paddingBottom: 2 }}>
+          {[["all", `All ${agents.length}`], ["new", `Not texted ${cnt("new")}`], ["replied", `Replied ${rows.filter((r) => r.lastIn).length}`], ["hot", `🔥 Interested ${cnt("hot")}`], ["noreply", `No reply ${cnt("texted")}`], ["not", `Not interested ${cnt("not")}`]]
+            .map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={chip(filter === k)}>{l}</button>)}
+        </div>
+      )}
+
+      {agents.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "34px 18px", color: T.textSub }}>
+          <div style={{ fontSize: 30 }}>🎯</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginTop: 6 }}>No agents yet</div>
+          <div style={{ fontSize: 13, marginTop: 4, lineHeight: 1.5 }}>Screenshot the reverse-prospecting report from your MLS and tap <b>📸 Add from MLS</b>.</div>
+        </div>
+      ) : (
+        <div style={{ background: "#fff", borderRadius: 16, marginTop: 10, overflow: "hidden" }}>
+          {shown.length === 0 && <div style={{ padding: "18px 14px", textAlign: "center", fontSize: 13, color: T.textTert }}>Nobody here.</div>}
+          {shown.map(({ a, st, lastIn }, i) => {
+            const [bg, fg] = avC(a.name);
+            const [pl, pbg, pfg] = PILL[st];
+            const dim = st === "not" || st === "nophone";
+            const sub = lastIn ? `“${String(lastIn.text || "📎 Attachment").slice(0, 80)}” · ${shortDate(lastIn.at)}`
+              : [a.office, a.buyers > 1 ? `${a.buyers} buyers searching` : a.buyers === 1 ? "1 buyer searching" : "", a.sentAt ? `texted ${shortDate(a.sentAt)}${a.followAt ? " · followed up" : ""}` : a.addedAt ? `added ${shortDate(a.addedAt)}` : ""].filter(Boolean).join(" · ");
+            return (
+              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 6px 10px 12px", borderTop: i ? "1px solid rgba(0,0,0,0.055)" : "none" }}>
+                <div onClick={() => digits(a.phone).length === 10 && onOpenSms && onOpenSms({ phone: a.phone, name: a.name })} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, cursor: digits(a.phone).length === 10 ? "pointer" : "default" }}>
+                  <span style={{ width: 36, height: 36, borderRadius: 18, background: dim ? "#F2F2F7" : bg, color: dim ? "#8E8E93" : fg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, fontWeight: 800, flexShrink: 0 }}>{initials(a.name)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: dim ? T.textTert : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name || fmtPhone(a.phone)}</div>
+                    <div style={{ fontSize: 12, color: T.textSub, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.3, padding: "3px 8px", borderRadius: 100, background: pbg, color: pfg, whiteSpace: "nowrap", flexShrink: 0 }}>{pl}</span>
+                </div>
+                <button onClick={() => setMenu(a)} aria-label="More" style={{ width: 44, height: 44, border: "none", background: "transparent", cursor: "pointer", color: T.textTert, fontSize: 18, flexShrink: 0 }}>•••</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {agents.length > 0 && <div style={{ fontSize: 11.5, color: T.textTert, textAlign: "center", marginTop: 9, lineHeight: 1.45 }}>Tap an agent to open the text conversation. Replies also land in Messages → Texts.</div>}
+
+      {menu && (
+        <Sheet title={menu.name || fmtPhone(menu.phone)} onClose={() => setMenu(null)}>
+          <div style={{ fontSize: 13, color: T.textSub, marginBottom: 10, lineHeight: 1.5 }}>{[fmtPhone(menu.phone), menu.email, menu.office].filter(Boolean).join(" · ")}{menu.note ? <><br />{menu.note}</> : null}</div>
+          {[
+            ["🔥 Mark interested", () => patch(menu.id, (a) => ({ ...a, lead: "hot" }))],
+            ["👎 Mark not interested", () => patch(menu.id, (a) => ({ ...a, lead: "not" }))],
+            ...(menu.lead ? [["↺ Clear the mark", () => patch(menu.id, (a) => ({ ...a, lead: "" }))]] : []),
+            ...(connected && digits(menu.phone).length === 10 ? [["💬 Text just this agent", () => setPitch({ targets: [menu], mode: menu.sentAt ? "follow" : "new" })]] : []),
+            ["🗑 Remove from this list", () => save((getLatest().rpAgents || []).filter((a) => a.id !== menu.id)), true],
+          ].map(([l, fn, red]) => (
+            <button key={l} onClick={() => { fn(); setMenu(null); }} style={{ width: "100%", minHeight: 48, textAlign: "left", padding: "0 14px", marginTop: 6, borderRadius: 12, border: `1px solid ${T.border}`, background: "#fff", color: red ? T.red : T.text, fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
+          ))}
+        </Sheet>
+      )}
+      {imp && <ImportSheet property={property} onAdd={addAgents} onClose={() => setImp(false)} />}
+      {pitch && <PitchSheet property={property} targets={pitch.targets} mode={pitch.mode} getLatest={getLatest} onUpdate={onUpdate}
+        onSent={() => { if (flush) setTimeout(flush, 0); }} onClose={() => setPitch(null)} />}
+    </div>
+  );
+}
+
+// For the property's tab label.
+export const rpCount = (p) => ((p && p.rpAgents) || []).length;

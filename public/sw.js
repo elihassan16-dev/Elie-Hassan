@@ -96,6 +96,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;   // Supabase / Graph / etc.
   if (url.pathname.startsWith("/api/")) return;      // live data — never cached
+  if (url.pathname.startsWith("/v/")) return;        // public video pages — never the app shell
 
   // The page itself: try the network briefly (fresh deploys win), fall back to
   // the cached shell so slow/offline launches still render instantly.

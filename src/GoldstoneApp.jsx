@@ -30,6 +30,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
+import { ReversePane, rpCount } from "./reverseProspect";
 import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsFeedSheet, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp, smsPropKey, setSmsPropTimeline } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
@@ -3219,7 +3220,7 @@ function ShowingsPage(){
   const {connected:smsPageOn,unreadFor:txUnreadFor}=useSmsTexting();
   const btPageLeads=useBtLeads();
   const[txSel,setTxSel]=useState(null); // {phone,name,buyer,kind?,rowKey?,tmplOpts?}
-  const[mDetTab,setMDetTab]=useState("sh"); // mobile property detail: sh | tx
+  const[mDetTab,setMDetTab]=useState("sh"); // property detail: sh | tx (phones) | rp 🎯 reverse prospecting
   const[shJump,setShJump]=useState(false); // tap the header address → jump popup (property page / BS / chat)
   useEffect(()=>{setTxSel(null);setMDetTab("sh");},[selId]);
   useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
@@ -3446,17 +3447,23 @@ function ShowingsPage(){
                 </div>
                 <button onClick={()=>load(true)} title="Refresh" style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.goldLight,color:T.gold,border:`1px solid ${T.gold}`,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↻ Refresh</button>
               </div>
-              {/* Phone: the property flips between its showings and its texts — the
-                  desktop shows both at once, so the capsule is mobile-only. */}
-              {isMobile&&smsPageOn&&(
-                <div style={{padding:"8px 12px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
-                  <div style={{...SEG_WRAP,width:"100%",display:"flex",boxSizing:"border-box"}}>
-                    <button onClick={()=>setMDetTab("sh")} style={{...segTab(mDetTab==="sh"),flex:1,fontSize:12.5,...(mDetTab==="sh"?{color:T.gold}:{})}}>📅 Showings</button>
+              {/* The property flips between its showings, its texts (phones — the
+                  desktop shows texts in their own column) and 🎯 reverse
+                  prospecting (Elie 10/27/26). */}
+              <div style={{padding:"8px 12px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+                  <div style={{...SEG_WRAP,width:"100%",display:"flex",boxSizing:"border-box",...(isMobile?{}:{maxWidth:420})}}>
+                    <button onClick={()=>setMDetTab("sh")} style={{...segTab(mDetTab==="sh"||(!isMobile&&mDetTab==="tx")),flex:1,fontSize:12.5,...(mDetTab==="sh"||(!isMobile&&mDetTab==="tx")?{color:T.gold}:{})}}>📅 Showings</button>
+                    {isMobile&&smsPageOn&&(<>
                     <button onClick={()=>setMDetTab("tx")} style={{...segTab(mDetTab==="tx"),flex:1,fontSize:12.5,...(mDetTab==="tx"?{color:T.gold}:{})}}>💬 Messages{(()=>{const u=propTxUnread(sel);return u>0?<span style={{marginLeft:5,display:"inline-flex",minWidth:16,height:16,padding:"0 4px",borderRadius:8,background:T.red,color:"#fff",fontSize:9.5,fontWeight:800,alignItems:"center",justifyContent:"center",boxSizing:"border-box"}}>{u}</span>:null;})()}</button>
+                    </>)}
+                    <button onClick={()=>setMDetTab("rp")} style={{...segTab(mDetTab==="rp"),flex:1,fontSize:12.5,...(mDetTab==="rp"?{color:T.gold}:{})}}>🎯 Reverse{rpCount(sel)?` (${rpCount(sel)})`:""}</button>
                   </div>
+              </div>
+              {mDetTab==="rp"?(
+                <div style={{flex:1,overflowY:"auto"}}>
+                  <ReversePane key={sel.id} property={sel} onUpdate={onUpdate} flush={flushProps} classify={classifySug} onOpenSms={(o)=>setTxSel({phone:o.phone,name:o.name,buyer:false})}/>
                 </div>
-              )}
-              {isMobile&&mDetTab==="tx"&&smsPageOn?(
+              ):isMobile&&mDetTab==="tx"&&smsPageOn?(
                 <div style={{flex:1,overflowY:"auto"}}>
                   <PropertyTextsList key={sel.id} property={sel} showings={all} onOpen={r=>setTxSel({phone:r.phone,name:r.name,buyer:r.buyer})} onCampaign={()=>{try{window.__campTarget={prop:sel.address};}catch{/* no window */}setTxSel(null);setView("agents");}}/>
                 </div>

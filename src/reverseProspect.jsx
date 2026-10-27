@@ -18,7 +18,7 @@ import { T } from "./theme";
 import { useData } from "./data/DataProvider";
 import { useSmsTexting } from "./sms";
 import { qbAuthFetch, uploadAttachment } from "./net";
-import { compressForText } from "./videoCompress";
+import { compressForText, TEXT_VIDEO_MAX } from "./videoCompress";
 import { mediaOf, uploadToMedia } from "./mediaStore";
 
 const DAY = 86400000;
@@ -275,7 +275,9 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
   // The video goes as a REAL attachment (Elie 10/27/26: "like I'd text anyone
   // a video from my gallery") — a text-size copy made once per video and kept
   // on the property (p.rpVideoMms[videoId] = {url,size,seconds,trimmed}).
-  const mms = vid ? ((property.rpVideoMms || {})[vid.id] || null) : null;
+  // Copies made before the 1 MB limit (10/27/26) are remade.
+  const mms0 = vid ? ((property.rpVideoMms || {})[vid.id] || null) : null;
+  const mms = mms0 && mms0.size <= TEXT_VIDEO_MAX * 1.3 ? mms0 : null;
   const [prep, setPrep] = useState(null); // {id, msg, pct, err}
   const prepBusy = !!(vid && !mms && (!prep || prep.id !== vid.id || !prep.err));
   useEffect(() => {
@@ -426,7 +428,7 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
             <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vid.name || "Video"}</div>
             <div style={{ fontSize: 12, color: prep && prep.err ? T.red : T.textSub }}>{
               prep && prep.err ? `${prep.err} Pick another video or send without one.`
-              : mms ? `Sent as a video attachment right after the text · ${mms.seconds ? `${mms.seconds}s` : ""}${mms.trimmed ? " (first minute)" : ""} · ${(mms.size / 1048576).toFixed(1)} MB`
+              : mms ? `Sent as a video attachment right after the text · ${mms.seconds ? `${mms.seconds}s` : ""}${mms.trimmed ? " (first 30 seconds)" : ""} · ${(mms.size / 1048576).toFixed(1)} MB`
               : prep ? `${prep.msg}${prep.pct ? ` ${prep.pct}%` : ""} (one time for this video)` : "Getting it ready…"}</div>
           </div>
           <button onClick={() => setVidPick((x) => !x)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", minHeight: 44, padding: "0 6px" }}>Change</button>

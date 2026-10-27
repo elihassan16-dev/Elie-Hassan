@@ -2585,7 +2585,7 @@ function PropertyShowings({property,showings,onUpdate,flush,onOpenSms,dense}){
   const isMobile=useIsMobile();
   const[leadTab,setLeadTab]=useState(()=>{ // approved: tab switcher — agents | BoldTrail buyers
     // A tapped buyer alert deep-links to this property — open on the Buyers tab.
-    try{const t=window.__showingsTarget;if(t&&String(t.propId)===String(property.id)){delete window.__showingsTarget;return t.tab||"buyers";}}catch{/* no window */}
+    try{const t=window.__showingsTarget;if(t&&String(t.propId)===String(property.id)){delete window.__showingsTarget;return t.tab==="rp"?"agents":(t.tab||"buyers");}}catch{/* no window */}
     return "agents";
   });
   // BoldTrail buyers who inquired about THIS property (matched by pb-hashtag),
@@ -3220,7 +3220,7 @@ function ShowingsPage(){
   const {connected:smsPageOn,unreadFor:txUnreadFor}=useSmsTexting();
   const btPageLeads=useBtLeads();
   const[txSel,setTxSel]=useState(null); // {phone,name,buyer,kind?,rowKey?,tmplOpts?}
-  const[mDetTab,setMDetTab]=useState("sh"); // property detail: sh | tx (phones) | rp 🎯 reverse prospecting
+  const[mDetTab,setMDetTab]=useState(()=>{try{const t=window.__showingsTarget;if(t&&t.tab==="rp")return "rp";}catch{/* no window */}return "sh";}); // property detail: sh | tx (phones) | rp 🎯 reverse prospecting
   const[shJump,setShJump]=useState(false); // tap the header address → jump popup (property page / BS / chat)
   useEffect(()=>{setTxSel(null);setMDetTab("sh");},[selId]);
   useEffect(()=>{qbAuthFetch("/api/showings/status").then(setStatus).catch(()=>setStatus({configured:false}));},[]);
@@ -3461,7 +3461,7 @@ function ShowingsPage(){
               </div>
               {mDetTab==="rp"?(
                 <div style={{flex:1,overflowY:"auto"}}>
-                  <ReversePane key={sel.id} property={sel} onUpdate={onUpdate} flush={flushProps} classify={classifySug} onOpenSms={(o)=>setTxSel({phone:o.phone,name:o.name,buyer:false})}/>
+                  <ReversePane key={sel.id} property={sel} showings={all} onUpdate={onUpdate} flush={flushProps} classify={classifySug} onOpenSms={(o)=>setTxSel({phone:o.phone,name:o.name,buyer:false})}/>
                 </div>
               ):isMobile&&mDetTab==="tx"&&smsPageOn?(
                 <div style={{flex:1,overflowY:"auto"}}>
@@ -22993,6 +22993,8 @@ export function GoldstoneShell(){
     // Dashboard and light the exact task up in gold (email/push deep links).
     if(kind==="task"){const j=id.indexOf(":");const pid=j<0?id:id.slice(0,j),tid=j<0?"":id.slice(j+1);try{window.__taskTarget={propId:pid,taskId:tid};setTimeout(()=>window.dispatchEvent(new Event("gs-task-target")),0);}catch{/* no window */}setActive("tasks");setPendingGoto(null);return;}
     if(kind==="showings"){if(id){try{window.__showingsTarget={propId:id,tab:"buyers"};}catch{/* no window */}}setActive("showings");setPendingGoto(null);return;}
+    // 🎯 reverse:<propId> — Cowork's "new agents" push opens that listing's Reverse tab.
+    if(kind==="reverse"){if(id){try{window.__showingsTarget={propId:id,tab:"rp"};}catch{/* no window */}}setActive("showings");setPendingGoto(null);return;}
     if(kind==="chat"&&id==="__office__"){setActive("messages");setNavChatId("__office__");setPendingGoto(null);return;}
     if(kind==="chat"||kind==="prop"){
       const p=(sharedProps||[]).find(x=>String(x.id)===String(id));

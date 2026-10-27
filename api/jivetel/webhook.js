@@ -3,7 +3,7 @@
 // ?key= to match JIVETEL_WEBHOOK_SECRET (set in Vercel). GET is open but
 // returns only counts and redacted key-shapes — never message content.
 import { createClient } from "@supabase/supabase-js";
-import { storeSms, e164, identifyPhone, whoSub } from "../../lib/jivetel.js";
+import { storeSms, e164, identifyPhone, whoSub, noteOptOut } from "../../lib/jivetel.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://wtmsukjnuqsprtvfytin.supabase.co";
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -41,6 +41,15 @@ const mediaOf = (x) => {
   const arr = Array.isArray(raw) ? raw : [raw];
   return arr.map((m) => (typeof m === "string" ? m : (m && (m.url || m.Url || m.URL || m.link || m.location || m.MediaUrl)) || "")).filter((u) => /^https?:/i.test(u));
 };
+
+// An outgoing caption-less picture to this number in the last 10 minutes?
+async function recentOutPic(client, phone, n) {
+  try {
+    const since = new Date(Date.now() - 10 * 60000).toISOString();
+    const { data } = await client.from("sms_messages").select("data").eq("phone", phone).gte("updated_at", since);
+    return (data || []).some((r) => r.data && r.data.direction === "out" && !String(r.data.text || "").trim() && (r.data.media || []).length === n);
+  } catch { return false; }
+}
 
 export default async function handler(req, res) {
   try {
@@ -256,7 +265,10 @@ export default async function handler(req, res) {
       // id. Skip ids the send endpoint already logged — its record is richer
       // (author, property tag, sent status) and a relayed echo must not
       // overwrite it. Only then the informational log and the phone ping.
-      const { data: exist } = await client.from("sms_messages").select("id").eq("id", msg.id).maybeSingle();
+      let { data: exist } = await client.from("sms_messages").select("id").eq("id", msg.id).maybeSingle();
+      // Our own caption-less picture sends come back under Jivetel's copy of
+      // the image (a different URL) — match them by number + recency instead.
+      if (!exist && dir === "out" && !msg.text.trim() && media.length && await recentOutPic(client, e164(msg.to), media.length)) exist = { id: "pic-echo" };
       trace.decision = exist ? "dup-send-log" : "stored";
       if (!exist) {
         await storeSms({
@@ -275,7 +287,7 @@ export default async function handler(req, res) {
         });
         // Ping whoever OWNS the line the text came in on (their number in
         // JIVETEL_NUMBERS); unknown line → the whole team.
-        if (dir === "in") await pingInbound(msg);
+        if (dir === "in") { await pingInbound(msg); await noteOptOut(msg.from, msg.text, msg.name); }
       }
       // Informational Jivetel log — best-effort, after the store.
       try {
@@ -301,7 +313,8 @@ export default async function handler(req, res) {
       trace.dir = dir;
       const since = new Date(Date.now() - 10 * 60000).toISOString();
       const { data: dupRows } = await client.from("sms_messages").select("data").eq("phone", phone).gte("updated_at", since);
-      const dup = (dupRows || []).some((r) => r.data && r.data.direction === dir && String(r.data.text || "") === text && String(((r.data.media || [])[0]) || "") === String(media[0] || ""));
+      const picEcho = dir === "out" && !text.trim() && media.length > 0; // re-hosted image URL — match by count
+      const dup = (dupRows || []).some((r) => r.data && r.data.direction === dir && String(r.data.text || "") === text && (picEcho ? (r.data.media || []).length === media.length : String(((r.data.media || [])[0]) || "") === String(media[0] || "")));
       trace.decision = dup ? "dup-recent" : "stored";
       if (!dup) {
         const ts = body.timestamp ?? d.timestamp ?? null;
@@ -319,7 +332,7 @@ export default async function handler(req, res) {
           at,
           status: "",
         }).catch(() => {});
-        if (dir === "in") await pingInbound({ id, from, to, name, text, media });
+        if (dir === "in") { await pingInbound({ id, from, to, name, text, media }); await noteOptOut(from, text, name); }
       }
     }
     // Delivery receipts: a status-only event (MessageID, no MessageBody)

@@ -79,9 +79,26 @@ const btn = (kind) => ({
   ...(kind === "gold" ? { background: T.gold, color: "#fff", border: "none" } : kind === "ghost" ? { background: "#FBF3DD", color: "#8a6d1f", border: "1px solid #E8D59E" } : { background: "#fff", color: T.text, border: `1px solid ${T.border}` }),
 });
 const chip = (on) => ({ fontSize: 12, fontWeight: 650, padding: "6px 11px", minHeight: 32, borderRadius: 100, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "inherit", border: `1px solid ${on ? "#1C1C1E" : "#E5E5EA"}`, background: on ? "#1C1C1E" : "#fff", color: on ? "#fff" : "#3A3A3C", flexShrink: 0 });
+// 🚫 Do-not-text list (Elie 10/27/26 — an agent replied "Please remove me from
+// your text list"). Anyone who asks is never pitched again, from ANY listing:
+// replies like this are caught automatically, and ••• → "Never text again"
+// adds someone by hand. Shared by the team: app_settings "sms_optout"
+// {phones:{<10 digits>:{at,by,why,name}}}.
+export const OPT_OUT_RE = /^\s*stop\s*\.?\s*$|stop (texting|messaging|sending)|unsubscribe|remove me|take me off|off (of )?(your|the|this) (text |texting |mailing )?list|don'?t (text|message|contact) me|do not (text|message|contact)|no more (texts|messages)|opt(ed)?[- ]?out/i;
+export function useOptOut() {
+  const { appSettings, setAppSettings, flushAppSettings, currentUser } = useData() || {};
+  const phones = (((appSettings || []).find((x) => x.id === "sms_optout") || {}).phones) || {};
+  const save = (next) => { setAppSettings((prev) => [...(prev || []).filter((x) => x.id !== "sms_optout"), { id: "sms_optout", phones: next }]); if (flushAppSettings) setTimeout(flushAppSettings, 0); };
+  return {
+    has: (ph) => !!phones[digits(ph)],
+    add: (list) => { const n = { ...phones }; let ch = false; list.forEach(({ phone, why, name }) => { const d = digits(phone); if (d.length === 10 && !n[d]) { n[d] = { at: new Date().toISOString(), by: currentUser || "", why: String(why || "").slice(0, 160), name: name || "" }; ch = true; } }); if (ch) save(n); },
+    remove: (ph) => { const n = { ...phones }; delete n[digits(ph)]; save(n); },
+  };
+}
 const PILL = {
   new: ["NOT TEXTED", "#FBF3DD", "#8a6d1f"], texted: ["TEXTED", "#F2F2F7", "#6E6E73"], replied: ["REPLIED", "#E9F2FB", "#1D6FB8"],
   hot: ["🔥 INTERESTED", "#FDECEA", "#C0392B"], not: ["NOT INTERESTED", "#F2F2F7", "#AEAEB2"], nophone: ["NEEDS CELL", "#FFF4E5", "#B86E00"],
+  optout: ["🚫 DON'T TEXT", "#FDECEA", "#C0392B"],
 };
 const HDR = { fontSize: 11.5, fontWeight: 700, color: T.textSub, letterSpacing: 0.3, textTransform: "uppercase" };
 
@@ -336,7 +353,8 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
   const coverUrl = cover === "none" ? "" : cover === "frame" ? (vid ? thumbOf(vid) : "") : cover;
   const [skip14, setSkip14] = useState(true);
   const now = Date.now();
-  const list = targets.filter((a) => digits(a.phone).length === 10 && !(mode !== "follow" && skip14 && a.sentAt && now - new Date(a.sentAt).getTime() < 14 * DAY));
+  const optOut = useOptOut();
+  const list = targets.filter((a) => digits(a.phone).length === 10 && !optOut.has(a.phone) && !(mode !== "follow" && skip14 && a.sentAt && now - new Date(a.sentAt).getTime() < 14 * DAY));
   const finalText = (a) => msg.replace(/\{first\}/g, niceFirst(a.name)) + (link ? `\n\nHere's a video walkthrough so you can get a preview of the house: ${link}` : "");
   const [prog, setProg] = useState(null); // {i,n,ok,fail:[]}
   const sample = list[0] || targets[0];
@@ -408,7 +426,7 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
         <button disabled={!list.length || !msg.trim() || upPct != null} onClick={go} style={{ ...btn("gold"), width: "100%", minHeight: 48, fontSize: 15, opacity: list.length && msg.trim() && upPct == null ? 1 : 0.5 }}>
           Send to {list.length} agent{list.length === 1 ? "" : "s"}{from ? ` from ${fmtPhone(from)}` : ""}
         </button>
-        {targets.length > list.length && <div style={{ fontSize: 11.5, color: T.textTert, textAlign: "center", marginTop: 6 }}>{targets.length - list.length} skipped (no cell number{mode !== "follow" && skip14 ? " or texted in the last 14 days" : ""})</div>}
+        {targets.length > list.length && <div style={{ fontSize: 11.5, color: T.textTert, textAlign: "center", marginTop: 6 }}>{targets.length - list.length} skipped (no cell number, asked not to be texted{mode !== "follow" && skip14 ? ", or texted in the last 14 days" : ""})</div>}
       </>}>
       <div style={HDR}>Pitch</div>
       <div style={{ display: "flex", gap: 6, marginTop: 8, overflowX: "auto", paddingBottom: 2 }}>
@@ -632,6 +650,7 @@ export function ReverseTextsList({ property, showings, onOpen }) {
 export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, showings }) {
   const { sharedProps, setContacts, flushContacts, contacts, currentUser, appSettings, setAppSettings, flushAppSettings } = useData() || {};
   const { connected, threadFor } = useSmsTexting();
+  const optOut = useOptOut();
   const [filter, setFilter] = useState("all");
   const [imp, setImp] = useState(false);
   const [pitch, setPitch] = useState(null); // {targets, mode}
@@ -651,14 +670,21 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
     const lastIn = ins[ins.length - 1] || null;
     const auto = lastIn && classify ? classify(lastIn.text) : null;
     const lead = a.lead || (auto === "interest" || auto === "offer" ? "hot" : auto === "not" || auto === "badnum" ? "not" : "");
-    const st = !ok ? "nophone" : !a.sentAt ? "new" : lead === "hot" ? "hot" : lead === "not" ? "not" : lastIn ? "replied" : "texted";
+    const askedOut = ok && (optOut.has(a.phone) || (th.some((m) => m.direction === "in" && OPT_OUT_RE.test(String(m.text || "")))));
+    const st = askedOut ? "optout" : !ok ? "nophone" : !a.sentAt ? "new" : lead === "hot" ? "hot" : lead === "not" ? "not" : lastIn ? "replied" : "texted";
     const followDue = st === "texted" && !a.followAt && Date.now() - since > 3 * DAY;
-    return { a, st, lastIn, followDue };
+    return { a, st, lastIn, followDue, autoOut: askedOut && !optOut.has(a.phone) };
   });
+  // Someone replied "remove me" → onto the shared do-not-text list (once).
+  const autoOut = rows.filter((r) => r.autoOut).map((r) => ({ phone: r.a.phone, name: r.a.name, why: (r.lastIn && r.lastIn.text) || "asked not to be texted" })).map((x) => x.phone).join(",");
+  useEffect(() => {
+    if (!autoOut) return;
+    optOut.add(rows.filter((r) => r.autoOut).map((r) => ({ phone: r.a.phone, name: r.a.name, why: String((r.lastIn && r.lastIn.text) || "asked not to be texted") })));
+  }, [autoOut]); // eslint-disable-line react-hooks/exhaustive-deps
   const cnt = (k) => rows.filter((r) => r.st === k).length;
   const fresh = rows.filter((r) => r.st === "new");
   const due = rows.filter((r) => r.followDue);
-  const order = { hot: 0, replied: 1, new: 2, texted: 3, nophone: 4, not: 5 };
+  const order = { hot: 0, replied: 1, new: 2, texted: 3, nophone: 4, not: 5, optout: 6 };
   const shown = rows.filter((r) => filter === "all" || (filter === "noreply" ? r.st === "texted" : filter === "replied" ? !!r.lastIn : r.st === filter))
     .sort((x, y) => (order[x.st] - order[y.st]) || String((y.lastIn && y.lastIn.at) || y.a.addedAt || "").localeCompare(String((x.lastIn && x.lastIn.at) || x.a.addedAt || "")));
 
@@ -718,7 +744,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
 
       {agents.length > 0 && (
         <div style={{ display: "flex", gap: 6, marginTop: 10, overflowX: "auto", paddingBottom: 2 }}>
-          {[["all", `All ${agents.length}`], ["new", `Not texted ${cnt("new")}`], ["replied", `Replied ${rows.filter((r) => r.lastIn).length}`], ["hot", `🔥 Interested ${cnt("hot")}`], ["noreply", `No reply ${cnt("texted")}`], ...(cnt("nophone") ? [["nophone", `Needs cell ${cnt("nophone")}`]] : []), ["not", `Not interested ${cnt("not")}`]]
+          {[["all", `All ${agents.length}`], ["new", `Not texted ${cnt("new")}`], ["replied", `Replied ${rows.filter((r) => r.lastIn).length}`], ["hot", `🔥 Interested ${cnt("hot")}`], ["noreply", `No reply ${cnt("texted")}`], ...(cnt("nophone") ? [["nophone", `Needs cell ${cnt("nophone")}`]] : []), ["not", `Not interested ${cnt("not")}`], ...(cnt("optout") ? [["optout", `🚫 Don't text ${cnt("optout")}`]] : [])]
             .map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={chip(filter === k)}>{l}</button>)}
         </div>
       )}
@@ -735,7 +761,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
           {shown.map(({ a, st, lastIn }, i) => {
             const [bg, fg] = avC(a.name);
             const [pl, pbg, pfg] = PILL[st];
-            const dim = st === "not" || st === "nophone";
+            const dim = st === "not" || st === "nophone" || st === "optout";
             const sub = lastIn ? `“${String(lastIn.text || "📎 Attachment").slice(0, 80)}” · ${shortDate(lastIn.at)}`
               : st === "nophone" ? [a.officePhone ? `office ${fmtPhone(a.officePhone)}` : "no number", a.office].filter(Boolean).join(" · ")
               : [a.cellFrom && !/^(MLS|typed|known)$/.test(a.cellFrom) ? `📱 from ${a.cellFrom}` : "", a.office, a.buyers > 1 ? `${a.buyers} buyers searching` : a.buyers === 1 ? "1 buyer searching" : "", a.sentAt ? `texted ${shortDate(a.sentAt)}${a.followAt ? " · followed up" : ""}` : a.addedAt ? `added ${shortDate(a.addedAt)}` : ""].filter(Boolean).join(" · ");
@@ -764,7 +790,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
             ["🔥 Mark interested", () => patch(menu.id, (a) => ({ ...a, lead: "hot" }))],
             ["👎 Mark not interested", () => patch(menu.id, (a) => ({ ...a, lead: "not" }))],
             ...(menu.lead ? [["↺ Clear the mark", () => patch(menu.id, (a) => ({ ...a, lead: "" }))]] : []),
-            ...(connected && digits(menu.phone).length === 10 ? [["💬 Text just this agent", () => setPitch({ targets: [menu], mode: menu.sentAt ? "follow" : "new" })]] : []),
+            ...(connected && digits(menu.phone).length === 10 && !optOut.has(menu.phone) ? [["💬 Text just this agent", () => setPitch({ targets: [menu], mode: menu.sentAt ? "follow" : "new" })]] : []),
             [digits(menu.phone).length === 10 ? "✏️ Change the cell number" : "✏️ Enter the cell number", () => {
               const v = window.prompt(`Cell number for ${menu.name || "this agent"}:`, menu.phone || "");
               if (v == null) return;
@@ -772,6 +798,9 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
               if (d && d.length !== 10) { alert("That doesn't look like a 10-digit phone number."); return; }
               patch(menu.id, (a) => ({ ...a, ...("cell" in a ? {} : { officePhone: a.officePhone || a.phone || "" }), cell: d ? fmtPhone(d) : "", cellFrom: d ? "typed" : "" }));
             }],
+            ...(digits(menu.phone).length === 10 ? [optOut.has(menu.phone)
+              ? ["✅ Allow texting again", () => optOut.remove(menu.phone)]
+              : ["🚫 Never text again (any listing)", () => optOut.add([{ phone: menu.phone, name: menu.name, why: "marked by hand" }]), true]] : []),
             ["🗑 Remove from this list", () => save((getLatest().rpAgents || []).filter((a) => a.id !== menu.id)), true],
           ].map(([l, fn, red]) => (
             <button key={l} onClick={() => { fn(); setMenu(null); }} style={{ width: "100%", minHeight: 48, textAlign: "left", padding: "0 14px", marginTop: 6, borderRadius: 12, border: `1px solid ${T.border}`, background: "#fff", color: red ? T.red : T.text, fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>{l}</button>

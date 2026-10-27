@@ -8,8 +8,8 @@
 // for a picture message). Replies come back into the normal text threads.
 // Stored on the property: p.rpAgents[{id,name,cell,officePhone,cellFrom,email,
 // office,buyers,note,addedAt,addedBy,source,sentAt,sentBy,followAt,lead}],
-// p.rpPrice, p.rpVideoId, p.mlsSource (id in app_settings "mls_sources"),
-// p.mlsNumber, p.rpCheckedAt. ONLY a cell is ever texted (Elie 10/27/26: MLS
+// p.rpPrice, p.rpVideoId, p.mlsSources [ids in app_settings "mls_sources"],
+// p.mlsNumbers, p.rpCheckedAt. ONLY a cell is ever texted (Elie 10/27/26: MLS
 // lists show office lines) — office numbers are kept apart, and a missing cell
 // is filled from numbers the app already knows (ShowingTime, Contacts, other
 // listings) or by Cowork reading each agent's MLS business card.
@@ -538,54 +538,138 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
   );
 }
 
-// ── 🔑 Which MLS a listing is in (the list of MLSs is shared, app_settings
-// "mls_sources"; NO passwords — Cowork uses Elie's own signed-in Chrome) ─────
-function MlsSheet({ property, list, saveList, onUpdate, flush, onClose }) {
-  const [pick, setPick] = useState(property.mlsSource || "");
-  const [num, setNum] = useState(property.mlsNumber || "");
+// ── 🔑 MLS accounts (Elie 10/27/26): ONE shared list of every MLS Elie is in
+// (app_settings "mls_sources" {items:[{id,name,url,username,notes}]}), kept in
+// Showings → 🔑 MLS accounts. A listing just ticks which of them it's in
+// (p.mlsSources [ids], or ["none"] = not on any MLS; p.mlsNumbers {id:"#"});
+// the "On Market" checklist asks it. Older listings had one p.mlsSource /
+// p.mlsNumber — read through mlsIdsOf / mlsNumOf. NO passwords are ever saved:
+// Cowork works in Elie's own signed-in Chrome (Chrome keeps the passwords).
+export const mlsIdsOf = (p) => (Array.isArray(p && p.mlsSources) ? p.mlsSources : p && p.mlsSource ? [p.mlsSource] : []).map(String).filter((x) => x && x !== "none");
+export const mlsNoneOf = (p) => Array.isArray(p && p.mlsSources) && p.mlsSources.map(String).includes("none");
+export const mlsNumOf = (p, id) => ((p && p.mlsNumbers) || {})[id] || (p && String(p.mlsSource || "") === String(id) ? p.mlsNumber || "" : "");
+export function useMlsList() {
+  const { appSettings, setAppSettings, flushAppSettings } = useData() || {};
+  const list = ((appSettings || []).find((x) => x.id === "mls_sources") || {}).items || [];
+  const save = (items) => { setAppSettings((prev) => [...(prev || []).filter((x) => x.id !== "mls_sources"), { id: "mls_sources", items }]); if (flushAppSettings) setTimeout(flushAppSettings, 0); };
+  return [list, save];
+}
+const mlsInp = { width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "inherit", outline: "none", marginTop: 6, background: "#fff" };
+const siteHref = (u) => { const t = String(u || "").trim(); return !t ? "" : /^https?:\/\//i.test(t) ? t : `https://${t}`; };
+
+// Add / edit one MLS (name, website, the username Elie signs in with, notes).
+function MlsForm({ initial, onSave, onCancel, onRemove }) {
+  const [nm, setNm] = useState((initial && initial.name) || ""), [url, setUrl] = useState((initial && initial.url) || "");
+  const [user, setUser] = useState((initial && initial.username) || ""), [notes, setNotes] = useState((initial && initial.notes) || "");
+  const ok = nm.trim();
+  return (
+    <div style={{ background: "#F7F7FA", borderRadius: 14, padding: 12, marginTop: 8 }}>
+      <input autoFocus={!initial} value={nm} onChange={(e) => setNm(e.target.value)} placeholder="MLS name (e.g. Monmouth-Ocean MLS)" style={mlsInp} />
+      <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Website you sign in at (e.g. mls.example.com)" style={mlsInp} />
+      <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="Your username / login email (optional)" autoComplete="off" style={mlsInp} />
+      <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes for Cowork (optional — towns, where the report is)" style={mlsInp} />
+      <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 7, lineHeight: 1.45 }}>🔒 No password here — sign in once in Chrome and let Chrome remember it.</div>
+      <div style={{ display: "flex", gap: 8, marginTop: 9 }}>
+        {onRemove && <button onClick={onRemove} style={{ ...btn(), color: "#C0392B" }}>Remove</button>}
+        <span style={{ flex: 1 }} />
+        {onCancel && <button onClick={onCancel} style={btn()}>Cancel</button>}
+        <button disabled={!ok} onClick={() => onSave({ ...(initial || { id: `mls${Date.now()}` }), name: nm.trim(), url: url.trim(), username: user.trim(), notes: notes.trim() })} style={{ ...btn("gold"), opacity: ok ? 1 : 0.5 }}>{initial ? "Save" : "Add MLS"}</button>
+      </div>
+    </div>
+  );
+}
+
+// Tick which MLSs a listing is in (several allowed), ＋ add a new one in place.
+// value = array of MLS ids, or ["none"]. Used by the 🔑 MLS card and the
+// "On Market" checklist.
+export function MlsPicker({ value, onChange, allowNone = true }) {
+  const [list, saveList] = useMlsList();
   const [adding, setAdding] = useState(!list.length);
-  const [nm, setNm] = useState(""), [url, setUrl] = useState(""), [notes, setNotes] = useState("");
-  const inp = { width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "inherit", outline: "none", marginTop: 6 };
-  const add = () => {
-    if (!nm.trim()) return;
-    const m = { id: `mls${Date.now()}`, name: nm.trim(), url: url.trim(), notes: notes.trim() };
-    saveList([...list, m]); setPick(m.id); setAdding(false); setNm(""); setUrl(""); setNotes("");
-  };
+  const v = (value || []).map(String);
+  const none = v.includes("none");
+  const toggle = (id) => onChange(v.includes(id) ? v.filter((x) => x !== id) : [...v.filter((x) => x !== "none"), id]);
+  const row = (key, on, label, sub, click, first) => (
+    <button key={key} type="button" onClick={click} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", minHeight: 48, border: "none", borderTop: first ? "none" : `1px solid ${T.border}`, background: on ? T.goldLight : "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+      <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 6, border: `2px solid ${on ? T.gold : "#C7C7CC"}`, background: on ? T.gold : "#fff", color: "#fff", fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{on ? "✓" : ""}</span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 14, fontWeight: 700, color: T.text }}>{label}</span>
+        {sub && <span style={{ display: "block", fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</span>}
+      </span>
+    </button>
+  );
+  return (
+    <div>
+      <div style={{ border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", background: "#fff" }}>
+        {list.map((m, i) => row(m.id, v.includes(String(m.id)), m.name, [m.url, m.username].filter(Boolean).join(" · "), () => toggle(String(m.id)), i === 0))}
+        {allowNone && row("none", none, "Not on any MLS", "", () => onChange(none ? [] : ["none"]), !list.length)}
+        {!adding && <button type="button" onClick={() => setAdding(true)} style={{ width: "100%", padding: "12px", minHeight: 48, border: "none", borderTop: `1px solid ${T.border}`, background: "#fff", color: T.gold, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>＋ Add an MLS</button>}
+      </div>
+      {adding && <MlsForm onCancel={list.length ? () => setAdding(false) : null} onSave={(m) => { saveList([...list, m]); onChange([...v.filter((x) => x !== "none"), String(m.id)]); setAdding(false); }} />}
+    </div>
+  );
+}
+
+// 🔑 Showings → MLS accounts: the whole list — add, edit, remove; which
+// listings use each one.
+export function MlsAccountsSheet({ onClose }) {
+  const { sharedProps } = useData() || {};
+  const [list, saveList] = useMlsList();
+  const [edit, setEdit] = useState(null); // id | "new"
+  const usedBy = (id) => (sharedProps || []).filter((p) => p && !p.archived && mlsIdsOf(p).includes(String(id))).map(streetOf);
+  return (
+    <Sheet title="🔑 MLS accounts" onClose={onClose}>
+      <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.5 }}>Every MLS you're in. When a listing goes On Market you'll tick which of these it's in, and Cowork checks those for reverse-prospecting agents every Monday and Thursday at 8 AM — in your own Chrome, where you're already signed in. Passwords are never saved here.</div>
+      <div style={{ marginTop: 12, border: list.length ? `1px solid ${T.border}` : "none", borderRadius: 14, overflow: "hidden" }}>
+        {list.map((m, i) => {
+          const used = usedBy(m.id);
+          if (edit === m.id) return <div key={m.id} style={{ padding: "0 8px 8px", borderTop: i ? `1px solid ${T.border}` : "none" }}><MlsForm initial={m} onCancel={() => setEdit(null)}
+            onSave={(x) => { saveList(list.map((y) => (y.id === m.id ? x : y))); setEdit(null); }}
+            onRemove={() => { if (!window.confirm(`Remove ${m.name}?${used.length ? `\n\n${used.join(", ")} will no longer show it.` : ""}`)) return; saveList(list.filter((y) => y.id !== m.id)); setEdit(null); }} /></div>;
+          return (
+            <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", minHeight: 56, borderTop: i ? `1px solid ${T.border}` : "none", background: "#fff" }}>
+              <button onClick={() => setEdit(m.id)} style={{ flex: 1, minWidth: 0, border: "none", background: "none", padding: 0, textAlign: "left", cursor: "pointer", fontFamily: "inherit" }}>
+                <span style={{ display: "block", fontSize: 14.5, fontWeight: 700, color: T.text }}>{m.name}</span>
+                <span style={{ display: "block", fontSize: 12, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[m.username && `👤 ${m.username}`, m.url].filter(Boolean).join(" · ") || "Tap to add the website"}</span>
+                <span style={{ display: "block", fontSize: 11.5, color: used.length ? "#8a6d1f" : T.textTert, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{used.length ? `🏠 ${used.join(" · ")}` : "No listings yet"}</span>
+              </button>
+              {m.url && <a href={siteHref(m.url)} target="_blank" rel="noopener noreferrer" style={{ ...btn(), flex: "none", width: "auto", padding: "0 14px", display: "inline-flex", alignItems: "center", textDecoration: "none" }}>Open ↗</a>}
+            </div>
+          );
+        })}
+      </div>
+      {edit === "new"
+        ? <MlsForm onCancel={() => setEdit(null)} onSave={(m) => { saveList([...list, m]); setEdit(null); }} />
+        : <button onClick={() => setEdit("new")} style={{ ...btn("gold"), width: "100%", marginTop: 12 }}>＋ Add an MLS</button>}
+    </Sheet>
+  );
+}
+
+// Per listing: which MLSs it's in + its MLS # in each.
+function MlsSheet({ property, onUpdate, flush, onClose }) {
+  const [list] = useMlsList();
+  const [ids, setIds] = useState(() => (mlsNoneOf(property) ? ["none"] : mlsIdsOf(property)));
+  const [nums, setNums] = useState(() => Object.fromEntries(mlsIdsOf(property).map((id) => [id, mlsNumOf(property, id)])));
+  const picked = list.filter((m) => ids.includes(String(m.id)));
   const done = () => {
-    if (pick !== (property.mlsSource || "")) onUpdate(property.id, "mlsSource", pick);
-    if (num.trim() !== (property.mlsNumber || "")) onUpdate(property.id, "mlsNumber", num.trim());
+    onUpdate(property.id, "mlsSources", ids);
+    onUpdate(property.id, "mlsNumbers", Object.fromEntries(ids.filter((id) => (nums[id] || "").trim()).map((id) => [id, nums[id].trim()])));
     if (flush) setTimeout(flush, 0);
     onClose();
   };
   return (
     <Sheet title={`MLS · ${streetOf(property)}`} onClose={onClose} footer={<button onClick={done} style={{ ...btn("gold"), width: "100%" }}>Save</button>}>
-      <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.5 }}>Every Monday and Thursday at 8 AM, Cowork opens this listing's reverse-prospecting page in your Chrome, reads each new agent's business card for their <b>cell</b>, and adds them here. Log into each MLS once in Chrome (let Chrome save the password) — never type passwords into Claude.</div>
-      <div style={{ ...HDR, marginTop: 14 }}>Listed in</div>
-      <div style={{ marginTop: 6, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
-        {list.map((m, i) => (
-          <button key={m.id} onClick={() => setPick(m.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", minHeight: 48, border: "none", borderTop: i ? `1px solid ${T.border}` : "none", background: pick === m.id ? T.goldLight : "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: "block", fontSize: 14, fontWeight: 700, color: T.text }}>{m.name}</span>
-              {(m.url || m.notes) && <span style={{ display: "block", fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[m.url, m.notes].filter(Boolean).join(" · ")}</span>}
-            </span>
-            {pick === m.id && <span style={{ color: T.gold, fontWeight: 800 }}>✓</span>}
-          </button>
-        ))}
-        {!adding && <button onClick={() => setAdding(true)} style={{ width: "100%", padding: "12px", minHeight: 48, border: "none", borderTop: list.length ? `1px solid ${T.border}` : "none", background: "#fff", color: T.gold, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>＋ Add an MLS</button>}
-      </div>
-      {adding && (
-        <div style={{ marginTop: 10, background: "#F7F7FA", borderRadius: 14, padding: 12 }}>
-          <input value={nm} onChange={(e) => setNm(e.target.value)} placeholder="MLS name (e.g. Monmouth-Ocean MLS)" style={inp} />
-          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Website you log into (e.g. mls.example.com)" style={inp} />
-          <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes for Cowork (optional — towns it covers, where the report is)" style={inp} />
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            {list.length > 0 && <button onClick={() => setAdding(false)} style={btn()}>Cancel</button>}
-            <button disabled={!nm.trim()} onClick={add} style={{ ...btn("gold"), opacity: nm.trim() ? 1 : 0.5 }}>Add MLS</button>
+      <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.5 }}>Every Monday and Thursday at 8 AM, Cowork opens this listing's reverse-prospecting page in each MLS you tick, reads each new agent's business card for their <b>cell</b>, and adds them here.</div>
+      <div style={{ ...HDR, marginTop: 14, marginBottom: 6 }}>Listed in</div>
+      <MlsPicker value={ids} onChange={setIds} />
+      {picked.length > 0 && <>
+        <div style={{ ...HDR, marginTop: 14 }}>MLS listing # (optional — helps Cowork find it fast)</div>
+        {picked.map((m) => (
+          <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+            <span style={{ width: 120, flexShrink: 0, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+            <input value={nums[m.id] || ""} onChange={(e) => setNums((n) => ({ ...n, [m.id]: e.target.value }))} placeholder="e.g. 22633811" style={{ ...mlsInp, marginTop: 0 }} />
           </div>
-        </div>
-      )}
-      <div style={{ ...HDR, marginTop: 14 }}>MLS listing # (optional)</div>
-      <input value={num} onChange={(e) => setNum(e.target.value)} placeholder="e.g. 22633811 — helps Cowork find it fast" style={inp} />
+        ))}
+      </>}
     </Sheet>
   );
 }
@@ -648,7 +732,7 @@ export function ReverseTextsList({ property, showings, onOpen }) {
 
 // ── The tab ──────────────────────────────────────────────────────────────────
 export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, showings }) {
-  const { sharedProps, setContacts, flushContacts, contacts, currentUser, appSettings, setAppSettings, flushAppSettings } = useData() || {};
+  const { sharedProps, setContacts, flushContacts, contacts, currentUser } = useData() || {};
   const { connected, threadFor } = useSmsTexting();
   const optOut = useOptOut();
   const [filter, setFilter] = useState("all");
@@ -659,8 +743,9 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
   const save = (list) => { onUpdate(property.id, "rpAgents", list); if (flush) setTimeout(flush, 0); };
   const { find, agents } = useRpAgents(property, showings);
   const [mlsOpen, setMlsOpen] = useState(false);
-  const mlsList = ((appSettings || []).find((x) => x.id === "mls_sources") || {}).items || [];
-  const mls = mlsList.find((m) => String(m.id) === String(property.mlsSource || "")) || null;
+  const [mlsList] = useMlsList();
+  const mlsIn = mlsList.filter((m) => mlsIdsOf(property).includes(String(m.id)));
+  const mlsLabel = mlsIn.map((m) => `${m.name}${mlsNumOf(property, m.id) ? ` · #${mlsNumOf(property, m.id)}` : ""}`).join(", ");
 
   const rows = agents.map((a) => {
     const ok = digits(a.phone).length === 10;
@@ -722,8 +807,8 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
       <button onClick={() => setMlsOpen(true)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "none", borderRadius: 16, padding: "10px 13px", marginBottom: 10, cursor: "pointer", fontFamily: "inherit", textAlign: "left", minHeight: 52 }}>
         <span style={{ fontSize: 18 }}>🔑</span>
         <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: "block", fontSize: 13.5, fontWeight: 700, color: T.text }}>{mls ? `${mls.name}${property.mlsNumber ? ` · #${property.mlsNumber}` : ""}` : "Which MLS is this listed in?"}</span>
-          <span style={{ display: "block", fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{property.rpCheckedAt ? `Cowork last checked ${shortDate(property.rpCheckedAt)}` : mls ? "Cowork checks it Mon + Thu at 8 AM" : "Set it so Cowork can check for new agents Mon + Thu"}</span>
+          <span style={{ display: "block", fontSize: 13.5, fontWeight: 700, color: T.text }}>{mlsLabel || (mlsNoneOf(property) ? "Not on any MLS" : "Which MLSs is this listed in?")}</span>
+          <span style={{ display: "block", fontSize: 11.5, color: T.textSub, marginTop: 1 }}>{property.rpCheckedAt ? `Cowork last checked ${shortDate(property.rpCheckedAt)}` : mlsIn.length ? "Cowork checks it Mon + Thu at 8 AM" : "Set it so Cowork can check for new agents Mon + Thu"}</span>
         </span>
         <span style={{ color: "#C7C7CC", fontSize: 18 }}>›</span>
       </button>
@@ -808,9 +893,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
         </Sheet>
       )}
       {imp && <ImportSheet property={property} find={find} onAdd={addAgents} onClose={() => setImp(false)} />}
-      {mlsOpen && <MlsSheet property={property} list={mlsList} onUpdate={onUpdate} flush={flush}
-        saveList={(items) => { setAppSettings((prev) => [...(prev || []).filter((x) => x.id !== "mls_sources"), { id: "mls_sources", items }]); if (flushAppSettings) setTimeout(flushAppSettings, 0); }}
-        onClose={() => setMlsOpen(false)} />}
+      {mlsOpen && <MlsSheet property={property} onUpdate={onUpdate} flush={flush} onClose={() => setMlsOpen(false)} />}
       {pitch && <PitchSheet property={property} targets={pitch.targets} mode={pitch.mode} getLatest={getLatest} onUpdate={onUpdate}
         onSent={() => { if (flush) setTimeout(flush, 0); }} onClose={() => setPitch(null)} />}
     </div>

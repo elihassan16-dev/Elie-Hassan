@@ -13,11 +13,12 @@
 // lists show office lines) — office numbers are kept apart, and a missing cell
 // is filled from numbers the app already knows (ShowingTime, Contacts, other
 // listings) or by Cowork reading each agent's MLS business card.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { T } from "./theme";
 import { useData } from "./data/DataProvider";
 import { useSmsTexting } from "./sms";
-import { qbAuthFetch } from "./net";
+import { qbAuthFetch, uploadAttachment } from "./net";
+import { compressForText } from "./videoCompress";
 import { mediaOf, uploadToMedia } from "./mediaStore";
 
 const DAY = 86400000;
@@ -271,11 +272,47 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
     const base = String(v.thumb || "").split("?")[0] || (() => { const m = /^(https:\/\/[^/]+)\/([a-f0-9]{20,})\//i.exec(v.url || v.watch || ""); return m ? `${m[1]}/${m[2]}/thumbnails/thumbnail.jpg` : ""; })();
     return base ? `${base}?time=2s&height=720` : "";
   };
-  const link = vid ? `https://gpflips.com/v/${vid.uid}` : "";
+  // The video goes as a REAL attachment (Elie 10/27/26: "like I'd text anyone
+  // a video from my gallery") — a text-size copy made once per video and kept
+  // on the property (p.rpVideoMms[videoId] = {url,size,seconds,trimmed}).
+  const mms = vid ? ((property.rpVideoMms || {})[vid.id] || null) : null;
+  const [prep, setPrep] = useState(null); // {id, msg, pct, err}
+  const prepBusy = !!(vid && !mms && (!prep || prep.id !== vid.id || !prep.err));
+  useEffect(() => {
+    if (!vid || mms) return;
+    let dead = false;
+    const say = (msg, pct = null) => { if (!dead) setPrep({ id: vid.id, msg, pct }); };
+    (async () => {
+      try {
+        say("Getting the video…");
+        let url = "";
+        for (let i = 0; i < 70 && !url; i++) {
+          const d = await qbAuthFetch("/api/stream/download", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid: vid.uid }) });
+          if (d && d.status === "ready" && d.url) url = `/api/stream/file?uid=${encodeURIComponent(vid.uid)}&name=video`;
+          else { say("Getting the video…", (d && d.percent) || 0); await new Promise((r) => setTimeout(r, 2500)); }
+          if (dead) return;
+        }
+        if (!url) throw new Error("The video is still being prepared — try again in a minute.");
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`Couldn't download the video (${r.status}).`);
+        const blob = await r.blob();
+        if (dead) return;
+        say("Making a text-size copy…", 1);
+        const out = await compressForText(new File([blob], `${vid.name || "video"}.mp4`, { type: blob.type || "video/mp4" }), (pct) => say("Making a text-size copy…", pct));
+        if (dead) return;
+        say("Saving it…");
+        const att = await uploadAttachment(out.file, "sms");
+        const latest = (getLatest && getLatest()) || property;
+        onUpdate(property.id, "rpVideoMms", { ...(latest.rpVideoMms || {}), [vid.id]: { url: att.url, size: out.file.size, seconds: out.seconds, trimmed: out.trimmed, at: new Date().toISOString() } });
+        if (!dead) setPrep(null);
+      } catch (e) { if (!dead) setPrep({ id: vid.id, err: e.message || "Couldn't get the video ready." }); }
+    })();
+    return () => { dead = true; };
+  }, [vid && vid.id, !!mms]); // eslint-disable-line react-hooks/exhaustive-deps
   const [skip14, setSkip14] = useState(true);
   const now = Date.now();
   const list = targets.filter((a) => digits(a.phone).length === 10 && !(mode !== "follow" && skip14 && a.sentAt && now - new Date(a.sentAt).getTime() < 14 * DAY));
-  const finalText = (a) => msg.replace(/\{first\}/g, niceFirst(a.name)) + (link ? `\n\nI attached a video walkthrough so you can get a preview of the house: ${link}` : "");
+  const finalText = (a) => msg.replace(/\{first\}/g, niceFirst(a.name)) + (mms ? "\n\nI attached a video walkthrough so you can get a preview of the house." : "");
   const [prog, setProg] = useState(null); // {i,n,ok,fail:[]}
   const sample = list[0] || targets[0];
 
@@ -294,11 +331,15 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
     const res = { i: 0, n: list.length, ok: 0, fail: [] };
     setProg({ ...res });
     const sentIds = {};
-    const media = vid && /^https:\/\//.test(thumbOf(vid)) ? [thumbOf(vid)] : null;
     for (const a of list) {
       res.i += 1; setProg({ ...res });
-      try { await send(a.phone, finalText(a), media, streetOf(property)); res.ok += 1; sentIds[a.id] = { at: new Date().toISOString(), cell: a.phone, from: a.cellFrom || "" }; }
+      // The text first, then the video as its own message — so it lands under the words.
+      try { await send(a.phone, finalText(a), null, streetOf(property)); res.ok += 1; sentIds[a.id] = { at: new Date().toISOString(), cell: a.phone, from: a.cellFrom || "" }; }
       catch (e) { res.fail.push({ name: a.name, why: e.message || "failed" }); }
+      if (mms && sentIds[a.id]) {
+        try { await new Promise((r) => setTimeout(r, 600)); await send(a.phone, "", [mms.url], streetOf(property)); }
+        catch (e) { res.fail.push({ name: a.name, why: `text sent, but the video didn't go through (${e.message || "failed"})` }); }
+      }
       setProg({ ...res });
       await new Promise((r) => setTimeout(r, 350));
     }
@@ -338,7 +379,7 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
   return (
     <Sheet title={`${mode === "follow" ? "Follow up with" : "Text"} ${list.length} agent${list.length === 1 ? "" : "s"} · ${streetOf(property)}`} onClose={onClose} wide
       footer={<>
-        <button disabled={!list.length || !msg.trim() || upPct != null} onClick={go} style={{ ...btn("gold"), width: "100%", minHeight: 48, fontSize: 15, opacity: list.length && msg.trim() && upPct == null ? 1 : 0.5 }}>
+        <button disabled={!list.length || !msg.trim() || upPct != null || prepBusy} onClick={go} style={{ ...btn("gold"), width: "100%", minHeight: 48, fontSize: 15, opacity: list.length && msg.trim() && upPct == null && !prepBusy ? 1 : 0.5 }}>
           Send to {list.length} agent{list.length === 1 ? "" : "s"}{from ? ` from ${fmtPhone(from)}` : ""}
         </button>
         {targets.length > list.length && <div style={{ fontSize: 11.5, color: T.textTert, textAlign: "center", marginTop: 6 }}>{targets.length - list.length} skipped (no cell number{mode !== "follow" && skip14 ? " or texted in the last 14 days" : ""})</div>}
@@ -383,7 +424,10 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vid.name || "Video"}</div>
-            <div style={{ fontSize: 12, color: T.textSub }}>Adds: “I attached a video walkthrough so you can get a preview of the house” + the link</div>
+            <div style={{ fontSize: 12, color: prep && prep.err ? T.red : T.textSub }}>{
+              prep && prep.err ? `${prep.err} Pick another video or send without one.`
+              : mms ? `Sent as a video attachment right after the text · ${mms.seconds ? `${mms.seconds}s` : ""}${mms.trimmed ? " (first minute)" : ""} · ${(mms.size / 1048576).toFixed(1)} MB`
+              : prep ? `${prep.msg}${prep.pct ? ` ${prep.pct}%` : ""} (one time for this video)` : "Getting it ready…"}</div>
           </div>
           <button onClick={() => setVidPick((x) => !x)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", minHeight: 44, padding: "0 6px" }}>Change</button>
         </>) : (<>
@@ -409,8 +453,17 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
       {sample && (<>
         <div style={{ ...HDR, marginTop: 14 }}>Preview · {sample.name}</div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", marginTop: 8, gap: 4 }}>
-          {vid && thumbOf(vid) && <img src={thumbOf(vid)} alt="" style={{ width: 170, maxHeight: 220, objectFit: "cover", borderRadius: 18, border: "1px solid rgba(0,0,0,0.06)" }} />}
+          {/* text bubble renders below; the video tile follows it */}
           <div style={{ maxWidth: 330, background: T.gold, color: "#fff", borderRadius: 18, padding: "9px 12px", fontSize: 14, lineHeight: 1.42, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{finalText(sample)}</div>
+          {vid && (mms || prepBusy) && (
+            <div style={{ position: "relative", width: 150, height: 200, borderRadius: 18, overflow: "hidden", background: "#222", border: "1px solid rgba(0,0,0,0.06)" }}>
+              {thumbOf(vid) && <img src={thumbOf(vid)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: mms ? 1 : 0.5 }} />}
+              <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ width: 44, height: 44, borderRadius: 22, background: "rgba(0,0,0,0.45)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>▶</span>
+              </span>
+              {mms && mms.seconds ? <span style={{ position: "absolute", left: 8, bottom: 6, color: "#fff", fontSize: 11.5, fontWeight: 700, textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}>{Math.floor(mms.seconds / 60)}:{String(mms.seconds % 60).padStart(2, "0")}</span> : null}
+            </div>
+          )}
         </div>
       </>)}
 

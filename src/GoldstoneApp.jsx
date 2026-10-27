@@ -30,7 +30,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } fro
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { ReversePane, rpCount } from "./reverseProspect";
+import { ReversePane, ReverseTextsList, rpCount } from "./reverseProspect";
 import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsFeedSheet, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp, smsPropKey, setSmsPropTimeline } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
@@ -3497,6 +3497,14 @@ function ShowingsPage(){
               sentStamps={txSel.rowKey?((sel.showingTexts||{})[txSel.rowKey]||{}):{}}
               onClearStamp={(kind)=>{if(!txSel.rowKey)return;const cur={...((sel.showingTexts||{})[txSel.rowKey]||{})};delete cur[kind];onUpdate(sel.id,"showingTexts",{...(sel.showingTexts||{}),[txSel.rowKey]:cur});if(flushProps)setTimeout(flushProps,0);}}
               onSent={(kind)=>{if(kind&&txSel.rowKey){onUpdate(sel.id,"showingTexts",{...(sel.showingTexts||{}),[txSel.rowKey]:{...((sel.showingTexts||{})[txSel.rowKey]||{}),[kind]:new Date().toISOString()}});if(flushProps)setTimeout(flushProps,0);}}}/>
+          </>):mDetTab==="rp"?(<>
+            <div style={{padding:"12px 16px 10px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+              <div style={{fontSize:14.5,fontWeight:700,color:T.text}}>🎯 Reverse-prospecting texts</div>
+              <div style={{fontSize:11,color:T.textSub,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Who replied to your pitch for {String(sel.address).split(",")[0]} — and who didn't</div>
+            </div>
+            <div style={{flex:1,overflowY:"auto"}}>
+              <ReverseTextsList key={sel.id} property={sel} showings={all} onOpen={(o)=>setTxSel({phone:o.phone,name:o.name,buyer:false})}/>
+            </div>
           </>):(<>
             <div style={{padding:"12px 16px 10px",background:T.card,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
               <div style={{fontSize:14.5,fontWeight:700,color:T.text}}>💬 Messages</div>

@@ -224,9 +224,9 @@ function ImportSheet({ property, find, onAdd, onClose }) {
 // with {address} {town} {price} {facts} {me} placeholders (app_settings
 // "rp_pitches"), and every teammate's pitch then starts from it.
 const PITCHES = [
-  ["listed", "🏡 Just listed", (f) => `Hi {first}, this is ${f.me} with Goldstone Properties. I noticed you have buyers looking in ${f.town || "the area"}, and we just listed ${f.address}${f.facts ? `, a fully renovated ${f.facts}` : ", fully renovated"}${f.price ? ` at ${f.price}` : ""}. Could it work for any of your clients? Happy to set up a showing.`],
-  ["drop", "💲 Price drop", (f) => `Hi {first}, ${f.me} with Goldstone Properties here. We just dropped the price on ${f.address}${f.town ? ` in ${f.town}` : ""}${f.price ? ` to ${f.price}` : ""}. I know you have buyers searching in the area. Would any of them want to take a look?`],
-  ["open", "🚪 Open house", (f) => `Hi {first}, ${f.me} with Goldstone Properties. We're having an open house at ${f.address}${f.town ? ` in ${f.town}` : ""}${f.facts ? ` (${f.facts})` : ""}. Since your buyers are searching in the area, feel free to bring them by, or I can set up a private showing.`],
+  ["listed", "🏡 Just listed", (f) => `Hi {first}, this is ${f.me} with Goldstone Properties. I noticed you have buyers looking in ${f.town || "the area"}, and we just listed ${f.address}${f.facts ? `, a ${f.reno ? "fully renovated " : ""}${f.facts}` : f.reno ? ", fully renovated" : ""}${f.price ? ` at ${f.price}` : ""}. Could it work for any of your clients? Happy to set up a showing.`],
+  ["drop", "💲 Price drop", (f) => `Hi {first}, ${f.me} with Goldstone Properties here. We just dropped the price on ${f.address}${f.town ? ` in ${f.town}` : ""}${f.price ? ` to ${f.price}` : ""}${f.reno ? ". It's fully renovated" : ""}. I know you have buyers searching in the area. Would any of them want to take a look?`],
+  ["open", "🚪 Open house", (f) => `Hi {first}, ${f.me} with Goldstone Properties. We're having an open house at ${f.address}${f.town ? ` in ${f.town}` : ""}${f.facts || f.reno ? ` (${[f.reno && "fully renovated", f.facts].filter(Boolean).join(", ")})` : ""}. Since your buyers are searching in the area, feel free to bring them by, or I can set up a private showing.`],
   ["follow", "🔁 Follow-up", (f) => `Hi {first}, ${f.me} from Goldstone Properties again. Just checking in on ${f.address}. Did any of your buyers want to see it? Happy to work around their schedule.`],
 ];
 const TOKENS = ["address", "town", "price", "facts", "me"];
@@ -244,17 +244,20 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
   const me = firstOf(currentUser || "");
   const pi = property.propertyInfo || {};
   const [price, setPrice] = useState(property.rpPrice || "");
-  const fields = (pr) => ({
+  // "Fully renovated" only when Elie ticks it (Elie 10/27/26) — remembered per property.
+  const [reno, setReno] = useState(!!property.rpReno);
+  const fields = (pr, rn = reno) => ({
+    reno: rn,
     me, town: property.city || "", address: streetOf(property), price: money(pr),
     facts: [pi.beds && `${pi.beds} bed`, pi.baths && `${pi.baths} bath`].filter(Boolean).join(" / "),
   });
   const [kind, setKind] = useState(mode === "follow" ? "follow" : "listed");
-  const build = (k, pr) => (mine[k] ? fillTokens(mine[k], fields(pr)) : (PITCHES.find((x) => x[0] === k) || PITCHES[0])[2](fields(pr)));
+  const build = (k, pr, rn = reno) => (mine[k] ? fillTokens(mine[k], fields(pr, rn)) : (PITCHES.find((x) => x[0] === k) || PITCHES[0])[2](fields(pr, rn)));
   const [savedNote, setSavedNote] = useState("");
   const saveMine = (texts) => { setAppSettings((prev) => [...(prev || []).filter((x) => x.id !== "rp_pitches"), { id: "rp_pitches", texts }]); if (flushAppSettings) setTimeout(flushAppSettings, 0); };
   const [msg, setMsg] = useState(() => build(mode === "follow" ? "follow" : "listed", property.rpPrice || ""));
   const lastAuto = useRef(msg);
-  const reTemplate = (k, pr) => { const t = build(k, pr); setMsg(t); lastAuto.current = t; };
+  const reTemplate = (k, pr, rn = reno) => { const t = build(k, pr, rn); setMsg(t); lastAuto.current = t; };
 
   // The walkthrough video: the one picked for this property, else the newest.
   const videos = useMemo(() => mediaOf(property).filter((m) => m.kind === "video" && m.uid), [property]);
@@ -272,7 +275,7 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
   const [skip14, setSkip14] = useState(true);
   const now = Date.now();
   const list = targets.filter((a) => digits(a.phone).length === 10 && !(mode !== "follow" && skip14 && a.sentAt && now - new Date(a.sentAt).getTime() < 14 * DAY));
-  const finalText = (a) => msg.replace(/\{first\}/g, niceFirst(a.name)) + (link ? `\n\n🎬 Video walkthrough: ${link}` : "");
+  const finalText = (a) => msg.replace(/\{first\}/g, niceFirst(a.name)) + (link ? `\n\nI attached a video walkthrough so you can get a preview of the house: ${link}` : "");
   const [prog, setProg] = useState(null); // {i,n,ok,fail:[]}
   const sample = list[0] || targets[0];
 
@@ -307,6 +310,7 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
       return mode === "follow" ? { ...a, ...keep, followAt: x.at, followBy: currentUser || "" } : { ...a, ...keep, sentAt: x.at, sentBy: currentUser || "", followAt: null };
     }));
     if (String(price) !== String(property.rpPrice || "")) onUpdate(property.id, "rpPrice", price);
+    if (reno !== !!property.rpReno) onUpdate(property.id, "rpReno", reno);
     if (vidId !== (property.rpVideoId || "")) onUpdate(property.id, "rpVideoId", vidId);
     onSent && onSent();
   };
@@ -348,6 +352,10 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
         <input value={price} inputMode="numeric" placeholder="$ e.g. 489,900" onChange={(e) => { const v = e.target.value; setPrice(v); if (msg === lastAuto.current) reTemplate(kind, v); }}
           style={{ flex: 1, minWidth: 0, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 11px", fontSize: 14, fontFamily: "inherit", outline: "none" }} />
       </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, minHeight: 44, cursor: "pointer" }}>
+        <input type="checkbox" checked={reno} onChange={(e) => { const v = e.target.checked; setReno(v); if (msg === lastAuto.current) reTemplate(kind, price, v); }} style={{ width: 20, height: 20, accentColor: T.gold }} />
+        <span style={{ fontSize: 13.5, color: T.text }}>Mention it's fully renovated</span>
+      </label>
       <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={6} style={{ width: "100%", boxSizing: "border-box", marginTop: 10, border: `1px solid ${T.border}`, borderRadius: 14, padding: "11px 12px", fontSize: 14.5, lineHeight: 1.45, fontFamily: "inherit", resize: "vertical", outline: "none", background: "#F7F7FA" }} />
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
         <span style={{ flex: 1, minWidth: 160, fontSize: 11.5, color: T.textTert }}>{savedNote || `{first} becomes each agent's first name.`}</span>
@@ -375,7 +383,7 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vid.name || "Video"}</div>
-            <div style={{ fontSize: 12, color: T.textSub }}>Goes with every text · cover picture + watch link</div>
+            <div style={{ fontSize: 12, color: T.textSub }}>Adds: “I attached a video walkthrough so you can get a preview of the house” + the link</div>
           </div>
           <button onClick={() => setVidPick((x) => !x)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", minHeight: 44, padding: "0 6px" }}>Change</button>
         </>) : (<>

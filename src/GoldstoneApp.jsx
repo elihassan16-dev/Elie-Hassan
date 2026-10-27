@@ -22282,6 +22282,8 @@ function buildPhoneProps(showFeed,btAll,sharedProps){
   (sharedProps||[]).forEach(pp=>Object.entries(pp.showingPhones||{}).forEach(([k,list])=>(list||[]).forEach(x=>add(x,pp.address,((pp.showingSnapshots||{})[k]||{}).start||""))));
   (btAll||[]).forEach(l=>{const pp=(sharedProps||[]).find(x=>btMatchesProperty(l,x));if(pp)add(l.phone,pp.address,l.createdAt);});
   (sharedProps||[]).forEach(pp=>(pp.customLeads||[]).forEach(l=>String(l.phone||"").split(/[\/,;]| or /i).forEach(x=>add(x,pp.address,l.at))));
+  // 🎯 Reverse-prospecting agents belong to the listing they were pitched.
+  (sharedProps||[]).forEach(pp=>(pp.rpAgents||[]).forEach(a=>{if(a&&a.cell)add(a.cell,pp.address,a.sentAt||a.addedAt||"");}));
   m.forEach(l=>l.sort((a,b)=>String(b.at).localeCompare(String(a.at))));
   tl.forEach(l=>l.sort((a,b)=>String(a.at).localeCompare(String(b.at))));
   m.timeline=tl;
@@ -22790,6 +22792,11 @@ export function GoldstoneShell(){
     const m=new Map();
     (btAllG||[]).forEach(l=>{const e=smsE164(l.phone);if(e&&!m.has(e))m.set(e,{name:l.name||"",role:"buyer",addr:""});});
     (CONTACTS_G||[]).forEach(c=>{[c.phone,c.phone2,c.cell,c.mobile,c.altPhone,...(Array.isArray(c.phones)?c.phones:[])].filter(Boolean).forEach(x=>{const e=smsE164(String(x));if(e&&!m.has(e))m.set(e,{name:c.name||c.company||"",role:"contact",addr:""});});});
+    // 🎯 Reverse-prospecting agents (Elie 10/27/26: pitch conversations showed
+    // a bare number) — named, as agents, on the listing they were pitched.
+    const bestRp=new Map();
+    (sharedProps||[]).forEach(pp=>(pp.rpAgents||[]).forEach(a=>{const e=smsE164(a.cell||"");if(!e||!a.name)return;const at=String(a.sentAt||a.addedAt||"");const prev=bestRp.get(e);if(!prev||at>prev.at)bestRp.set(e,{at,who:{name:a.name,role:"agent",addr:String(pp.address||"").split(",")[0]}});}));
+    bestRp.forEach((v,e)=>m.set(e,v.who));
     (sharedProps||[]).forEach(pp=>Object.values(pp.showingSnapshots||{}).forEach(sn=>String(sn.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(sn.agent||pp.address))m.set(e,{name:sn.agent||"",role:"agent",addr:String(pp.address||"").split(",")[0]});})));
     (showFeedG||[]).forEach(s=>String(s.phone||"").split(/[\/,;]| or /i).forEach(x=>{const e=smsE164(x);if(e&&(s.agent||s.location))m.set(e,{name:s.agent||"",role:"agent",addr:String(s.location||s.summary||"").split(",")[0]});}));
     // Numbers the team attached to a showing by hand (＋ Add number) — named

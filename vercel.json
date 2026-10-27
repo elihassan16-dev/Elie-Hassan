@@ -24,6 +24,10 @@
       "destination": "/api/oauth/meta?k=pr"
     },
     {
+      "source": "/v/:uid",
+      "destination": "/api/v?uid=:uid"
+    },
+    {
       "source": "/((?!api/)(?!.*\\.).*)",
       "destination": "/index.html"
     }

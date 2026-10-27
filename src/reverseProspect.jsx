@@ -529,6 +529,62 @@ function MlsSheet({ property, list, saveList, onUpdate, flush, onClose }) {
   );
 }
 
+// The listing's agents with the cell we'd text (shared by the tab + texts column).
+function useRpAgents(property, showings) {
+  const { sharedProps, contacts } = useData() || {};
+  const find = useMemo(() => knownCells({ showings, contacts, props: sharedProps, skipPropId: property.id }), [showings, contacts, sharedProps, property.id]);
+  const office = useMemo(() => officeSetOf(property.rpAgents || []), [property.rpAgents]);
+  const agents = useMemo(() => (property.rpAgents || []).map((a) => resolveAgent(a, find, office)), [property.rpAgents, find, office]);
+  return { find, agents };
+}
+
+// 💬 Desktop right column on the Reverse tab (Elie 10/27/26): the text history
+// with this listing's reverse-prospecting agents — who replied, who didn't —
+// instead of the showings conversations. Tap one → the full conversation.
+export function ReverseTextsList({ property, showings, onOpen }) {
+  const { agents } = useRpAgents(property, showings);
+  const { connected, threadFor, unreadFor } = useSmsTexting();
+  if (connected === false) return <div style={{ padding: "34px 22px", textAlign: "center", color: T.textTert, fontSize: 12.5, lineHeight: 1.6 }}>Business texting isn't connected for your login.</div>;
+  const rows = agents.filter((a) => digits(a.phone).length === 10).map((a) => {
+    const since = a.sentAt ? new Date(a.sentAt).getTime() - 60000 : Infinity;
+    const th = threadFor(a.phone).filter((m) => m.kind !== "call" && new Date(m.at || 0).getTime() >= since);
+    if (!th.length) return null;
+    const last = th[th.length - 1];
+    const replied = th.some((m) => m.direction === "in");
+    return { a, last, replied, unread: unreadFor(a.phone), at: String(last.at || "") };
+  }).filter(Boolean).sort((x, y) => ((y.unread > 0) - (x.unread > 0)) || (y.replied - x.replied) || y.at.localeCompare(x.at));
+  const when = (iso) => { try { const d = new Date(iso), now = new Date(); if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }); } catch { return ""; } };
+  const snip = (m) => `${m.direction !== "in" ? "You: " : ""}${String(m.text || "").trim() || (Array.isArray(m.media) && m.media.length ? (m.media.some((u) => /\.(mp4|mov|3gp|m4v|webm)(\?|$)/i.test(u)) ? "🎬 Video" : "📷 Photo") : "")}`;
+  const sec = (label, list) => list.length > 0 && (<>
+    <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text, padding: "14px 2px 7px" }}>{label} ({list.length})</div>
+    <div style={{ background: "#fff", borderRadius: 14, overflow: "hidden" }}>
+      {list.map((r, i) => {
+        const [bg, fg] = avC(r.a.name);
+        return (
+          <div key={r.a.id} onClick={() => onOpen({ phone: r.a.phone, name: r.a.name })} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 13px", cursor: "pointer", borderTop: i ? "1px solid rgba(0,0,0,0.055)" : "none", background: r.unread > 0 ? T.goldLight : "#fff" }}>
+            <span style={{ width: 34, height: 34, borderRadius: 17, background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, fontWeight: 800, flexShrink: 0 }}>{initials(r.a.name)}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: r.unread > 0 ? 750 : 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.a.name || r.a.phone}</div>
+              <div style={{ fontSize: 12, color: r.unread > 0 ? T.text : T.textSub, fontWeight: r.unread > 0 ? 600 : 400, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{snip(r.last)}</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+              <span style={{ fontSize: 10.5, color: r.unread > 0 ? T.gold : T.textTert, fontWeight: r.unread > 0 ? 700 : 500 }}>{when(r.at)}</span>
+              {r.unread > 0 && <span style={{ minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9, background: T.gold, color: "#fff", fontSize: 10.5, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box" }}>{r.unread}</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </>);
+  return (
+    <div style={{ padding: "0 12px 24px" }}>
+      {rows.length === 0 && <div style={{ padding: "34px 16px", textAlign: "center", color: T.textTert, fontSize: 12.5, lineHeight: 1.6 }}>No texts to this listing's agents yet.<br />Once you send the pitch, every conversation shows up here.</div>}
+      {sec("💬 Replied", rows.filter((r) => r.replied))}
+      {sec("⏳ No reply yet", rows.filter((r) => !r.replied))}
+    </div>
+  );
+}
+
 // ── The tab ──────────────────────────────────────────────────────────────────
 export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, showings }) {
   const { sharedProps, setContacts, flushContacts, contacts, currentUser, appSettings, setAppSettings, flushAppSettings } = useData() || {};
@@ -539,9 +595,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
   const [menu, setMenu] = useState(null); // agent
   const getLatest = () => (sharedProps || []).find((x) => String(x.id) === String(property.id)) || property;
   const save = (list) => { onUpdate(property.id, "rpAgents", list); if (flush) setTimeout(flush, 0); };
-  const find = useMemo(() => knownCells({ showings, contacts, props: sharedProps, skipPropId: property.id }), [showings, contacts, sharedProps, property.id]);
-  const office = useMemo(() => officeSetOf(property.rpAgents || []), [property.rpAgents]);
-  const agents = (property.rpAgents || []).map((a) => resolveAgent(a, find, office));
+  const { find, agents } = useRpAgents(property, showings);
   const [mlsOpen, setMlsOpen] = useState(false);
   const mlsList = ((appSettings || []).find((x) => x.id === "mls_sources") || {}).items || [];
   const mls = mlsList.find((m) => String(m.id) === String(property.mlsSource || "")) || null;

@@ -134,7 +134,10 @@ function ImportSheet({ property, find, onAdd, onClose }) {
     setBusy(true); setErr("");
     try {
       const r = await qbAuthFetch("/api/ai/agents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images: shots.map((s) => s.data), text }) });
-      const got = (r.agents || []).map((a) => ({ ...a, cell: a.cell || "", officePhone: a.office_phone || "" }));
+      // A list Elie pasted or typed himself: an unlabeled number is the cell
+      // (only screenshots of MLS rosters default to office lines).
+      const typed = !shots.length;
+      const got = (r.agents || []).map((a) => ({ ...a, cell: a.cell || (typed ? a.office_phone || "" : ""), officePhone: typed && !a.cell ? "" : a.office_phone || "" }));
       const office = officeSetOf([...have, ...got]);
       const seenPh = new Set(have.map((a) => digits(a.cell)).filter((d) => d.length === 10));
       const seenEm = new Set(have.map((a) => emailKey(a.email)).filter(Boolean));
@@ -201,6 +204,10 @@ function ImportSheet({ property, find, onAdd, onClose }) {
                     {a.why === "dup" ? "Already on the list" : a.why === "nophone" ? `Needs a cell${a.officePhone ? ` · office ${fmtPhone(a.officePhone)}` : ""}${a.office ? ` · ${a.office}` : ""}` : [`📱 ${fmtPhone(a.cell)}`, a.cellFrom && a.cellFrom !== "MLS" ? `from ${a.cellFrom}` : "", a.office].filter(Boolean).join(" · ")}
                   </div>
                 </div>
+                {a.why === "nophone" && digits(a.officePhone).length === 10 && (
+                  <button onClick={(e) => { e.preventDefault(); setFound((f) => f.map((x, j) => (j === i ? { ...x, cell: fmtPhone(x.officePhone), cellFrom: "typed", officePhone: "", why: "new", pick: true } : x))); }}
+                    style={{ flexShrink: 0, minHeight: 36, padding: "0 10px", borderRadius: 100, border: "1px solid #E8D59E", background: "#FBF3DD", color: "#8a6d1f", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>📱 It's a cell</button>
+                )}
               </label>
             ))}
           </div>
@@ -212,15 +219,27 @@ function ImportSheet({ property, find, onAdd, onClose }) {
 }
 
 // ── 2. The pitch ─────────────────────────────────────────────────────────────
+// Standard wording (Elie 10/27/26: rewritten to read like a person texting).
+// Elie can replace any of them with his own — "⭐ Save as my wording" stores it
+// with {address} {town} {price} {facts} {me} placeholders (app_settings
+// "rp_pitches"), and every teammate's pitch then starts from it.
 const PITCHES = [
-  ["listed", "🏡 Just listed", (f) => `Hi {first}, it's ${f.me} with Goldstone Properties. Your buyers have been searching${f.town ? ` in ${f.town}` : " in this area"}, so I wanted you to see ${f.address} first${f.facts ? `: ${f.facts}` : ""}, fully renovated${f.price ? `, ${f.price}` : ""}. Happy to set up a showing or send more photos. Any of your clients a fit?`],
-  ["drop", "💲 Price drop", (f) => `Hi {first}, ${f.me} with Goldstone Properties. Quick heads up for your buyers searching${f.town ? ` in ${f.town}` : " in this area"}: we just reduced ${f.address}${f.price ? ` to ${f.price}` : ""}${f.facts ? ` (${f.facts}, fully renovated)` : ""}. Would any of your clients like to see it this week?`],
-  ["open", "🚪 Open house", (f) => `Hi {first}, it's ${f.me} with Goldstone Properties. We're holding an open house at ${f.address}${f.town ? ` in ${f.town}` : ""}${f.facts ? ` (${f.facts})` : ""}${f.price ? `, ${f.price}` : ""}. Your buyers' searches match it — bring them by, or I can set up a private showing.`],
-  ["follow", "🔁 Follow-up", (f) => `Hi {first}, ${f.me} again from Goldstone Properties — just following up on ${f.address}${f.town ? ` in ${f.town}` : ""}. Did any of your buyers want to take a look? Happy to work around their schedule.`],
+  ["listed", "🏡 Just listed", (f) => `Hi {first}, this is ${f.me} with Goldstone Properties. I noticed you have buyers looking in ${f.town || "the area"}, and we just listed ${f.address}${f.facts ? `, a fully renovated ${f.facts}` : ", fully renovated"}${f.price ? ` at ${f.price}` : ""}. Could it work for any of your clients? Happy to set up a showing.`],
+  ["drop", "💲 Price drop", (f) => `Hi {first}, ${f.me} with Goldstone Properties here. We just dropped the price on ${f.address}${f.town ? ` in ${f.town}` : ""}${f.price ? ` to ${f.price}` : ""}. I know you have buyers searching in the area. Would any of them want to take a look?`],
+  ["open", "🚪 Open house", (f) => `Hi {first}, ${f.me} with Goldstone Properties. We're having an open house at ${f.address}${f.town ? ` in ${f.town}` : ""}${f.facts ? ` (${f.facts})` : ""}. Since your buyers are searching in the area, feel free to bring them by, or I can set up a private showing.`],
+  ["follow", "🔁 Follow-up", (f) => `Hi {first}, ${f.me} from Goldstone Properties again. Just checking in on ${f.address}. Did any of your buyers want to see it? Happy to work around their schedule.`],
 ];
+const TOKENS = ["address", "town", "price", "facts", "me"];
+const fillTokens = (t, f) => TOKENS.reduce((x, k) => x.split(`{${k}}`).join(f[k] || ""), String(t || "")).replace(/ ,/g, ",").replace(/ {2,}/g, " ").trim();
+// The text on screen → a reusable template: the property's own details become placeholders.
+const toTokens = (t, f) => TOKENS.map((k) => [k, f[k]]).filter(([, v]) => v && String(v).length > 1).sort((x, y) => String(y[1]).length - String(x[1]).length)
+  .reduce((x, [k, v]) => x.split(String(v)).join(`{${k}}`), String(t || ""));
+// "ALEXANDRIA" → "Alexandria" (MLS rosters often shout names).
+const niceFirst = (n) => { const f = firstOf(n); return f === f.toUpperCase() && f.length > 1 ? f[0] + f.slice(1).toLowerCase() : f; };
 
 function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onClose }) {
-  const { currentUser } = useData() || {};
+  const { currentUser, appSettings, setAppSettings, flushAppSettings } = useData() || {};
+  const mine = (((appSettings || []).find((x) => x.id === "rp_pitches") || {}).texts) || {};
   const { send, from } = useSmsTexting();
   const me = firstOf(currentUser || "");
   const pi = property.propertyInfo || {};
@@ -230,7 +249,9 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
     facts: [pi.beds && `${pi.beds} bed`, pi.baths && `${pi.baths} bath`].filter(Boolean).join(" / "),
   });
   const [kind, setKind] = useState(mode === "follow" ? "follow" : "listed");
-  const build = (k, pr) => (PITCHES.find((x) => x[0] === k) || PITCHES[0])[2](fields(pr));
+  const build = (k, pr) => (mine[k] ? fillTokens(mine[k], fields(pr)) : (PITCHES.find((x) => x[0] === k) || PITCHES[0])[2](fields(pr)));
+  const [savedNote, setSavedNote] = useState("");
+  const saveMine = (texts) => { setAppSettings((prev) => [...(prev || []).filter((x) => x.id !== "rp_pitches"), { id: "rp_pitches", texts }]); if (flushAppSettings) setTimeout(flushAppSettings, 0); };
   const [msg, setMsg] = useState(() => build(mode === "follow" ? "follow" : "listed", property.rpPrice || ""));
   const lastAuto = useRef(msg);
   const reTemplate = (k, pr) => { const t = build(k, pr); setMsg(t); lastAuto.current = t; };
@@ -251,7 +272,7 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
   const [skip14, setSkip14] = useState(true);
   const now = Date.now();
   const list = targets.filter((a) => digits(a.phone).length === 10 && !(mode !== "follow" && skip14 && a.sentAt && now - new Date(a.sentAt).getTime() < 14 * DAY));
-  const finalText = (a) => msg.replace(/\{first\}/g, firstOf(a.name)) + (link ? `\n\n🎬 Video walkthrough: ${link}` : "");
+  const finalText = (a) => msg.replace(/\{first\}/g, niceFirst(a.name)) + (link ? `\n\n🎬 Video walkthrough: ${link}` : "");
   const [prog, setProg] = useState(null); // {i,n,ok,fail:[]}
   const sample = list[0] || targets[0];
 
@@ -328,7 +349,17 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
           style={{ flex: 1, minWidth: 0, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 11px", fontSize: 14, fontFamily: "inherit", outline: "none" }} />
       </div>
       <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={6} style={{ width: "100%", boxSizing: "border-box", marginTop: 10, border: `1px solid ${T.border}`, borderRadius: 14, padding: "11px 12px", fontSize: 14.5, lineHeight: 1.45, fontFamily: "inherit", resize: "vertical", outline: "none", background: "#F7F7FA" }} />
-      <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 4 }}>{"{first}"} becomes each agent's first name.</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+        <span style={{ flex: 1, minWidth: 160, fontSize: 11.5, color: T.textTert }}>{savedNote || `{first} becomes each agent's first name.`}</span>
+        {msg !== lastAuto.current && msg.trim() && (
+          <button onClick={() => { const t = toTokens(msg, fields(price)); saveMine({ ...mine, [kind]: t }); lastAuto.current = msg; setSavedNote("⭐ Saved — this pitch will start with your wording from now on."); }}
+            style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", minHeight: 44, padding: "0 4px" }}>⭐ Save as my wording</button>
+        )}
+        {mine[kind] && msg === lastAuto.current && (
+          <button onClick={() => { const n = { ...mine }; delete n[kind]; saveMine(n); const t = (PITCHES.find((x) => x[0] === kind) || PITCHES[0])[2](fields(price)); setMsg(t); lastAuto.current = t; setSavedNote(""); }}
+            style={{ background: "none", border: "none", color: T.textSub, fontWeight: 600, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", minHeight: 44, padding: "0 4px" }}>↺ Standard wording</button>
+        )}
+      </div>
 
       <div style={{ ...HDR, marginTop: 14 }}>🎬 Video walkthrough</div>
       <input ref={vidRef} type="file" accept="video/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; upload(f); }} />

@@ -80,8 +80,18 @@ let lastUpd = "";
 // One call can arrive as two CDR legs (two ids, same number/direction/
 // start/duration) — show it once, everywhere calls render.
 function dedupeCalls(rows) {
-  const seenCalls = [];
+  const seenCalls = [], seenPics = [];
   return rows.filter((m) => {
+    // Jivetel relays our own sent pictures back (sometimes twice) under its
+    // own copy of the image, so each looked like a new message — Elie
+    // 10/27/26 saw every pitch photo 3×. One caption-less outgoing picture
+    // per number per 3 minutes; the first (our send log) wins.
+    if (m.kind !== "call" && m.direction === "out" && !String(m.text || "").trim() && Array.isArray(m.media) && m.media.length) {
+      const p = e164(m.phone), t = new Date(m.at || 0).getTime(), n = m.media.length;
+      if (seenPics.some((s) => s.p === p && s.n === n && Math.abs(s.t - t) < 180000)) return false;
+      seenPics.push({ p, t, n });
+      return true;
+    }
     if (m.kind !== "call") return true;
     const p = e164(m.phone), t = new Date(m.at || 0).getTime(), talk = Number(m.talkSecs) || 0;
     if (seenCalls.some((s) => s.p === p && s.d === m.direction && Math.abs(s.t - t) < 120000 && Math.abs(s.talk - talk) <= 2)) return false;

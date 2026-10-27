@@ -8,7 +8,7 @@
 // GET ?cap=1 (signed-in) answers "is texting set up for me?" for the app.
 // Sent messages are logged to the shared sms_messages conversation store.
 import { requireAppUser } from "../../lib/showings.js";
-import { storeSms, e164, profileOf, firstName, checkOutreach, resolveSender } from "../../lib/jivetel.js";
+import { storeSms, e164, profileOf, firstName, checkOutreach, resolveSender, optedOut } from "../../lib/jivetel.js";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
@@ -59,6 +59,9 @@ export default async function handler(req, res) {
       const cap = firstName(gate.owner).replace(/^./, (c) => c.toUpperCase());
       return res.status(403).json({ error: `This is ${cap}'s contact — ${cap} just got an approval request. Once ${cap} approves, you can text them.`, needsApproval: true, owner: cap });
     }
+    // 🚫 They asked not to be texted (do-not-text list) — never send.
+    const out = await optedOut(to);
+    if (out) return res.status(403).json({ error: `${out.name || "This person"} asked not to be texted${out.at ? ` (${new Date(out.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })})` : ""}. They're on the do-not-text list.`, optedOut: true });
     const body = { to: e164(to), from: e164(from), message: String(message || "") };
     if (Array.isArray(media) && media.length) body.media = media;
     const r = await fetch("https://jivetel-txt.jivetel.com/api/send", {

@@ -295,7 +295,22 @@ function FramePicker({ video, frameAt, onPick, onClose }) {
   );
 }
 
-function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onClose }) {
+// When this listing was already pitched to a number, read from the texts
+// themselves (Elie 10/27/26: a pitch went out but its "texted" mark never got
+// saved, so the agent showed as new and got it twice). Matches the video link
+// (street slug, or the older video-id link) or the pitch's own wording.
+function pitchedAt(property, th) {
+  const slug = slugOf(property.address), street = streetOf(property).toLowerCase();
+  const uids = mediaOf(property).filter((m) => m.kind === "video" && m.uid).map((m) => String(m.uid).toLowerCase());
+  const m = th.find((x) => {
+    if (x.direction !== "out") return false;
+    const t = String(x.text || "").toLowerCase();
+    return (slug && t.includes(`gpflips.com/v/${slug}`)) || uids.some((u) => t.includes(`/v/${u}`)) || (street && t.includes(street) && t.includes("goldstone") && /buyers|clients/.test(t));
+  });
+  return m ? m.at || "" : "";
+}
+
+function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onClose, flush }) {
   const { currentUser, appSettings, setAppSettings, flushAppSettings } = useData() || {};
   const mine = (((appSettings || []).find((x) => x.id === "rp_pitches") || {}).texts) || {};
   const { send, from } = useSmsTexting();
@@ -370,14 +385,28 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
     setUpPct(null);
   };
 
+  // Marks who got it. Saved after EVERY text (not once at the end), so leaving
+  // the page, the app reloading or a stuck picture can't lose the "texted" mark.
+  const markSent = (sentIds) => {
+    const latest = (getLatest && getLatest()) || property;
+    onUpdate(property.id, "rpAgents", (latest.rpAgents || []).map((a) => {
+      const x = sentIds[a.id];
+      if (!x) return a;
+      const keep = "cell" in a && digits(a.cell).length === 10 ? {} : { cell: x.cell, cellFrom: x.from || "known", ...("cell" in a ? {} : { officePhone: a.officePhone || a.phone || "" }) };
+      return mode === "follow" ? { ...a, ...keep, followAt: x.at, followBy: currentUser || "" } : { ...a, ...keep, sentAt: x.at, sentBy: currentUser || "", followAt: null };
+    }));
+    if (flush) setTimeout(flush, 0);
+  };
   const go = async () => {
     const res = { i: 0, n: list.length, ok: 0, fail: [] };
     setProg({ ...res });
     const sentIds = {};
+    try { window.__gsUploads = (window.__gsUploads || 0) + 1; } catch { /* no window */ } // no auto-reload mid-send
+    try {
     for (const a of list) {
       res.i += 1; setProg({ ...res });
       // The text first, then the cover picture as its own message — so it lands under the words.
-      try { await send(a.phone, finalText(a), null, streetOf(property)); res.ok += 1; sentIds[a.id] = { at: new Date().toISOString(), cell: a.phone, from: a.cellFrom || "" }; }
+      try { await send(a.phone, finalText(a), null, streetOf(property)); res.ok += 1; sentIds[a.id] = { at: new Date().toISOString(), cell: a.phone, from: a.cellFrom || "" }; markSent(sentIds); }
       catch (e) { res.fail.push({ name: a.name, why: e.message || "failed" }); }
       if (/^https:\/\//.test(coverUrl) && sentIds[a.id]) {
         try { await new Promise((r) => setTimeout(r, 600)); await send(a.phone, "", [coverUrl], streetOf(property)); }
@@ -386,13 +415,8 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
       setProg({ ...res });
       await new Promise((r) => setTimeout(r, 350));
     }
-    const latest = (getLatest && getLatest()) || property;
-    onUpdate(property.id, "rpAgents", (latest.rpAgents || []).map((a) => {
-      const x = sentIds[a.id];
-      if (!x) return a;
-      const keep = "cell" in a && digits(a.cell).length === 10 ? {} : { cell: x.cell, cellFrom: x.from || "known", ...("cell" in a ? {} : { officePhone: a.officePhone || a.phone || "" }) };
-      return mode === "follow" ? { ...a, ...keep, followAt: x.at, followBy: currentUser || "" } : { ...a, ...keep, sentAt: x.at, sentBy: currentUser || "", followAt: null };
-    }));
+    } finally { try { window.__gsUploads = Math.max(0, (window.__gsUploads || 1) - 1); } catch { /* no window */ } }
+    markSent(sentIds);
     if (String(price) !== String(property.rpPrice || "")) onUpdate(property.id, "rpPrice", price);
     if (reno !== !!property.rpReno) onUpdate(property.id, "rpReno", reno);
     if (cover !== (property.rpCover || "frame")) onUpdate(property.id, "rpCover", cover);
@@ -747,10 +771,13 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
   const mlsIn = mlsList.filter((m) => mlsIdsOf(property).includes(String(m.id)));
   const mlsLabel = mlsIn.map((m) => `${m.name}${mlsNumOf(property, m.id) ? ` · #${mlsNumOf(property, m.id)}` : ""}`).join(", ");
 
-  const rows = agents.map((a) => {
-    const ok = digits(a.phone).length === 10;
+  const rows = agents.map((a0) => {
+    const ok = digits(a0.phone).length === 10;
+    const th = ok ? threadFor(a0.phone).filter((m) => m.kind !== "call") : [];
+    // Already pitched per the texts but never marked → count it as texted.
+    const seen = ok && !a0.sentAt ? pitchedAt(property, th) : "";
+    const a = seen ? { ...a0, sentAt: seen, sentFound: true } : a0;
     const since = a.sentAt ? new Date(a.sentAt).getTime() : 0;
-    const th = ok ? threadFor(a.phone).filter((m) => m.kind !== "call") : [];
     const ins = since ? th.filter((m) => m.direction === "in" && new Date(m.at || 0).getTime() > since) : [];
     const lastIn = ins[ins.length - 1] || null;
     const auto = lastIn && classify ? classify(lastIn.text) : null;
@@ -760,6 +787,13 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
     const followDue = st === "texted" && !a.followAt && Date.now() - since > 3 * DAY;
     return { a, st, lastIn, followDue, autoOut: askedOut && !optOut.has(a.phone) };
   });
+  // …and save that mark, once.
+  const found = rows.filter((r) => r.a.sentFound).map((r) => `${r.a.id}@${r.a.sentAt}`).join(",");
+  useEffect(() => {
+    if (!found) return;
+    const at = Object.fromEntries(rows.filter((r) => r.a.sentFound).map((r) => [r.a.id, r.a.sentAt]));
+    save((getLatest().rpAgents || []).map((a) => (at[a.id] && !a.sentAt ? { ...a, sentAt: at[a.id], sentBy: a.sentBy || "" } : a)));
+  }, [found]); // eslint-disable-line react-hooks/exhaustive-deps
   // Someone replied "remove me" → onto the shared do-not-text list (once).
   const autoOut = rows.filter((r) => r.autoOut).map((r) => ({ phone: r.a.phone, name: r.a.name, why: (r.lastIn && r.lastIn.text) || "asked not to be texted" })).map((x) => x.phone).join(",");
   useEffect(() => {
@@ -895,7 +929,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
       {imp && <ImportSheet property={property} find={find} onAdd={addAgents} onClose={() => setImp(false)} />}
       {mlsOpen && <MlsSheet property={property} onUpdate={onUpdate} flush={flush} onClose={() => setMlsOpen(false)} />}
       {pitch && <PitchSheet property={property} targets={pitch.targets} mode={pitch.mode} getLatest={getLatest} onUpdate={onUpdate}
-        onSent={() => { if (flush) setTimeout(flush, 0); }} onClose={() => setPitch(null)} />}
+        flush={flush} onSent={() => { if (flush) setTimeout(flush, 0); }} onClose={() => setPitch(null)} />}
     </div>
   );
 }

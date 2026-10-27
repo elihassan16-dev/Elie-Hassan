@@ -13,11 +13,11 @@
 // lists show office lines) — office numbers are kept apart, and a missing cell
 // is filled from numbers the app already knows (ShowingTime, Contacts, other
 // listings) or by Cowork reading each agent's MLS business card.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { T } from "./theme";
 import { useData } from "./data/DataProvider";
 import { useSmsTexting } from "./sms";
-import { qbAuthFetch } from "./net";
+import { qbAuthFetch, uploadAttachment } from "./net";
 import { mediaOf, uploadToMedia } from "./mediaStore";
 
 const DAY = 86400000;
@@ -239,6 +239,45 @@ const toTokens = (t, f) => TOKENS.map((k) => [k, f[k]]).filter(([, v]) => v && S
 // "ALEXANDRIA" → "Alexandria" (MLS rosters often shout names).
 const niceFirst = (n) => { const f = firstOf(n); return f === f.toUpperCase() && f.length > 1 ? f[0] + f.slice(1).toLowerCase() : f; };
 
+// 🎞 Any moment of the walkthrough as the cover: a row of stills across the
+// video plus a slider for the exact second (Cloudflare renders the frame).
+function FramePicker({ video, frameAt, onPick, onClose }) {
+  const [dur, setDur] = useState(Number(video.dur) || 0);
+  const [t, setT] = useState(2);
+  const [shown, setShown] = useState(2);
+  const tm = useRef(null);
+  useEffect(() => {
+    if (dur || !video.uid) return;
+    qbAuthFetch(`/api/stream/upload?uid=${encodeURIComponent(video.uid)}`).then((d) => { if (d && d.duration > 0) setDur(d.duration); }).catch(() => setDur(60));
+  }, [video.uid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const total = Math.max(1, Math.floor(dur || 60));
+  const marks = Array.from({ length: 12 }, (_, i) => Math.round(((i + 0.5) / 12) * total));
+  const move = (v) => { setT(v); clearTimeout(tm.current); tm.current = setTimeout(() => setShown(v), 250); };
+  const clock = (x) => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, "0")}`;
+  return (
+    <Sheet title="Pick a moment from the video" onClose={onClose} wide
+      footer={<button onClick={() => onPick(frameAt(video, shown))} style={{ ...btn("gold"), width: "100%", minHeight: 48, fontSize: 15 }}>Use this picture</button>}>
+      <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 10", borderRadius: 14, overflow: "hidden", background: "#111" }}>
+        <img src={frameAt(video, shown)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+        <span style={{ position: "absolute", left: 10, bottom: 8, color: "#fff", fontSize: 12.5, fontWeight: 700, background: "rgba(0,0,0,0.5)", borderRadius: 8, padding: "2px 7px" }}>{clock(shown)}</span>
+      </div>
+      <input type="range" min={0} max={total} step={1} value={t} onChange={(e) => move(Number(e.target.value))} aria-label="Moment in the video"
+        style={{ width: "100%", marginTop: 12, accentColor: T.gold, height: 32 }} />
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: T.textTert }}><span>0:00</span><span>{clock(t)}</span><span>{clock(total)}</span></div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))", gap: 6, marginTop: 10 }}>
+        {marks.map((m) => (
+          <button key={m} onClick={() => { setT(m); setShown(m); }} aria-label={`Frame at ${clock(m)}`}
+            style={{ position: "relative", aspectRatio: "1", minHeight: 44, padding: 0, borderRadius: 10, overflow: "hidden", cursor: "pointer", background: "#222", border: shown === m ? `3px solid ${T.gold}` : `1px solid ${T.border}` }}>
+            <img src={frameAt(video, m).replace("height=1080", "height=240")} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", color: "#fff", fontSize: 10.5, fontWeight: 700 }}>{clock(m)}</span>
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: T.textSub, marginTop: 10, lineHeight: 1.45 }}>Tap a still, or slide to the exact second. The picture goes to agents in high quality right after your text.</div>
+    </Sheet>
+  );
+}
+
 function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onClose }) {
   const { currentUser, appSettings, setAppSettings, flushAppSettings } = useData() || {};
   const mine = (((appSettings || []).find((x) => x.id === "rp_pitches") || {}).texts) || {};
@@ -282,6 +321,18 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
   const photos = useMemo(() => mediaOf(property).filter((m) => m.kind === "photo" && /^https:\/\//.test(m.url || "")), [property]);
   const [cover, setCover] = useState(() => property.rpCover || "frame"); // "frame" | photo url | "none"
   const [coverPick, setCoverPick] = useState(false);
+  // Elie 10/27/26: his own picture, or any moment of the video as the cover.
+  const [framePick, setFramePick] = useState(false);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const coverRef = useRef(null);
+  const frameAt = (v, sec) => { const b = thumbOf(v).split("?")[0]; return b ? `${b}?time=${Math.max(0, Math.round(sec))}s&height=1080` : ""; };
+  const uploadCover = async (f) => {
+    if (!f) return;
+    setCoverBusy(true);
+    try { const att = await uploadAttachment(f, "sms"); if (att && att.url) { setCover(att.url); setCoverPick(false); } }
+    catch (e) { alert(`Couldn't upload the picture: ${e.message || e}`); }
+    setCoverBusy(false);
+  };
   const coverUrl = cover === "none" ? "" : cover === "frame" ? (vid ? thumbOf(vid) : "") : cover;
   const [skip14, setSkip14] = useState(true);
   const now = Date.now();
@@ -427,12 +478,19 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
         <div style={{ width: 64, height: 64, borderRadius: 10, overflow: "hidden", background: "#F2F2F7", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: T.textTert, fontSize: 11 }}>
           {coverUrl ? <img src={coverUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "None"}
         </div>
-        <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: T.text }}>{cover === "none" ? "No picture" : cover === "frame" ? (vid ? "A still from the video" : "No picture (no video)") : "A photo from Media"}</div>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: T.text }}>{coverBusy ? "Uploading your picture…" : cover === "none" ? "No picture" : cover === "frame" ? (vid ? "A still from the video" : "No picture (no video)") : /thumbnails\/thumbnail\.jpg\?time=/.test(cover) ? `A moment from the video (${(/time=(\d+)/.exec(cover) || [])[1] || 0}s)` : photos.some((m) => m.url === cover) ? "A photo from Media" : "Your own picture"}</div>
         <button onClick={() => setCoverPick((x) => !x)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", minHeight: 44, padding: "0 6px" }}>{coverPick ? "Done" : "Change"}</button>
       </div>
+      <input ref={coverRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; uploadCover(f); }} />
+      {coverPick && (
+        <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+          <button onClick={() => coverRef.current && coverRef.current.click()} style={btn("ghost")}>📷 Upload a picture</button>
+          {vid && /^https:\/\/[^/]*(cloudflarestream\.com|videodelivery\.net)\//.test(thumbOf(vid)) && <button onClick={() => { setFramePick(true); setCoverPick(false); }} style={btn("ghost")}>🎞 Pick from the video</button>}
+        </div>
+      )}
       {coverPick && (
         <div style={{ marginTop: 6, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(76px, 1fr))", gap: 6 }}>
-          {[...(vid && thumbOf(vid) ? [["frame", thumbOf(vid), "Video still"]] : []), ...photos.map((m) => [m.url, m.thumb || m.url, ""]), ["none", "", "No picture"]].map(([val, img, label]) => (
+          {[...(cover !== "none" && cover !== "frame" && !photos.some((m) => m.url === cover) ? [[cover, cover, "Current"]] : []), ...(vid && thumbOf(vid) ? [["frame", thumbOf(vid), "Video still"]] : []), ...photos.map((m) => [m.url, m.thumb || m.url, ""]), ["none", "", "No picture"]].map(([val, img, label]) => (
             <button key={val} onClick={() => { setCover(val); setCoverPick(false); }} aria-label={label || "Photo"}
               style={{ position: "relative", aspectRatio: "1", minHeight: 44, borderRadius: 10, overflow: "hidden", padding: 0, cursor: "pointer", background: "#F2F2F7", border: cover === val ? `3px solid ${T.gold}` : `1px solid ${T.border}`, fontFamily: "inherit", fontSize: 11, color: T.textSub }}>
               {img ? <img src={img} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : label}
@@ -441,6 +499,8 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
           ))}
         </div>
       )}
+
+      {framePick && vid && <FramePicker video={vid} frameAt={frameAt} onPick={(url) => { setCover(url); setFramePick(false); }} onClose={() => setFramePick(false)} />}
 
       {sample && (<>
         <div style={{ ...HDR, marginTop: 14 }}>Preview · {sample.name}</div>

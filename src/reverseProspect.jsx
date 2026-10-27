@@ -13,12 +13,11 @@
 // lists show office lines) — office numbers are kept apart, and a missing cell
 // is filled from numbers the app already knows (ShowingTime, Contacts, other
 // listings) or by Cowork reading each agent's MLS business card.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { T } from "./theme";
 import { useData } from "./data/DataProvider";
 import { useSmsTexting } from "./sms";
-import { qbAuthFetch, uploadAttachment } from "./net";
-import { compressForText, TEXT_VIDEO_MAX } from "./videoCompress";
+import { qbAuthFetch } from "./net";
 import { mediaOf, uploadToMedia } from "./mediaStore";
 
 const DAY = 86400000;
@@ -31,6 +30,8 @@ const avC = (n) => { let h = 0; for (const c of String(n)) h = (h * 31 + c.charC
 const shortDate = (iso) => { try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ""; } };
 const money = (v) => { const n = parseFloat(String(v || "").replace(/[^0-9.]/g, "")); return n ? `$${Math.round(n).toLocaleString("en-US")}` : ""; };
 const streetOf = (p) => String((p && p.address) || "").split(",")[0].trim();
+// Same as api/v.js: "24A Dewey Dr, New Brunswick" → "24a-dewey-dr".
+const slugOf = (addr) => String(addr || "").split(",")[0].toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 const nameKey = (n) => String(n || "").toLowerCase().replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
 const emailKey = (e) => String(e || "").toLowerCase().trim();
 
@@ -272,49 +273,20 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
     const base = String(v.thumb || "").split("?")[0] || (() => { const m = /^(https:\/\/[^/]+)\/([a-f0-9]{20,})\//i.exec(v.url || v.watch || ""); return m ? `${m[1]}/${m[2]}/thumbnails/thumbnail.jpg` : ""; })();
     return base ? `${base}?time=2s&height=720` : "";
   };
-  // The video goes as a REAL attachment (Elie 10/27/26: "like I'd text anyone
-  // a video from my gallery") — a text-size copy made once per video and kept
-  // on the property (p.rpVideoMms[videoId] = {url,size,seconds,trimmed}).
-  // Copies made before the 1 MB limit (10/27/26) are remade.
-  const mms0 = vid ? ((property.rpVideoMms || {})[vid.id] || null) : null;
-  const mms = mms0 && mms0.size <= TEXT_VIDEO_MAX * 1.3 ? mms0 : null;
-  const [prep, setPrep] = useState(null); // {id, msg, pct, err}
-  const prepBusy = !!(vid && !mms && (!prep || prep.id !== vid.id || !prep.err));
-  useEffect(() => {
-    if (!vid || mms) return;
-    let dead = false;
-    const say = (msg, pct = null) => { if (!dead) setPrep({ id: vid.id, msg, pct }); };
-    (async () => {
-      try {
-        say("Getting the video…");
-        let url = "";
-        for (let i = 0; i < 70 && !url; i++) {
-          const d = await qbAuthFetch("/api/stream/download", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid: vid.uid }) });
-          if (d && d.status === "ready" && d.url) url = `/api/stream/file?uid=${encodeURIComponent(vid.uid)}&name=video`;
-          else { say("Getting the video…", (d && d.percent) || 0); await new Promise((r) => setTimeout(r, 2500)); }
-          if (dead) return;
-        }
-        if (!url) throw new Error("The video is still being prepared — try again in a minute.");
-        const r = await fetch(url);
-        if (!r.ok) throw new Error(`Couldn't download the video (${r.status}).`);
-        const blob = await r.blob();
-        if (dead) return;
-        say("Making a text-size copy…", 1);
-        const out = await compressForText(new File([blob], `${vid.name || "video"}.mp4`, { type: blob.type || "video/mp4" }), (pct) => say("Making a text-size copy…", pct));
-        if (dead) return;
-        say("Saving it…");
-        const att = await uploadAttachment(out.file, "sms");
-        const latest = (getLatest && getLatest()) || property;
-        onUpdate(property.id, "rpVideoMms", { ...(latest.rpVideoMms || {}), [vid.id]: { url: att.url, size: out.file.size, seconds: out.seconds, trimmed: out.trimmed, at: new Date().toISOString() } });
-        if (!dead) setPrep(null);
-      } catch (e) { if (!dead) setPrep({ id: vid.id, err: e.message || "Couldn't get the video ready." }); }
-    })();
-    return () => { dead = true; };
-  }, [vid && vid.id, !!mms]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The video goes as a short link to its full-quality watch page
+  // (gpflips.com/v/<street>) — a carrier picture message can't carry a clear
+  // 60-second video (Elie 10/27/26 tested ~1 MB: 30 s, blurry). To make agents
+  // want to tap it, a COVER PICTURE Elie picks (the video's own frame or any
+  // photo in Media) is sent right after the text.
+  const link = vid ? `gpflips.com/v/${slugOf(property.address)}` : "";
+  const photos = useMemo(() => mediaOf(property).filter((m) => m.kind === "photo" && /^https:\/\//.test(m.url || "")), [property]);
+  const [cover, setCover] = useState(() => property.rpCover || "frame"); // "frame" | photo url | "none"
+  const [coverPick, setCoverPick] = useState(false);
+  const coverUrl = cover === "none" ? "" : cover === "frame" ? (vid ? thumbOf(vid) : "") : cover;
   const [skip14, setSkip14] = useState(true);
   const now = Date.now();
   const list = targets.filter((a) => digits(a.phone).length === 10 && !(mode !== "follow" && skip14 && a.sentAt && now - new Date(a.sentAt).getTime() < 14 * DAY));
-  const finalText = (a) => msg.replace(/\{first\}/g, niceFirst(a.name)) + (mms ? "\n\nI attached a video walkthrough so you can get a preview of the house." : "");
+  const finalText = (a) => msg.replace(/\{first\}/g, niceFirst(a.name)) + (link ? `\n\nHere's a video walkthrough so you can get a preview of the house: ${link}` : "");
   const [prog, setProg] = useState(null); // {i,n,ok,fail:[]}
   const sample = list[0] || targets[0];
 
@@ -335,12 +307,12 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
     const sentIds = {};
     for (const a of list) {
       res.i += 1; setProg({ ...res });
-      // The text first, then the video as its own message — so it lands under the words.
+      // The text first, then the cover picture as its own message — so it lands under the words.
       try { await send(a.phone, finalText(a), null, streetOf(property)); res.ok += 1; sentIds[a.id] = { at: new Date().toISOString(), cell: a.phone, from: a.cellFrom || "" }; }
       catch (e) { res.fail.push({ name: a.name, why: e.message || "failed" }); }
-      if (mms && sentIds[a.id]) {
-        try { await new Promise((r) => setTimeout(r, 600)); await send(a.phone, "", [mms.url], streetOf(property)); }
-        catch (e) { res.fail.push({ name: a.name, why: `text sent, but the video didn't go through (${e.message || "failed"})` }); }
+      if (/^https:\/\//.test(coverUrl) && sentIds[a.id]) {
+        try { await new Promise((r) => setTimeout(r, 600)); await send(a.phone, "", [coverUrl], streetOf(property)); }
+        catch (e) { res.fail.push({ name: a.name, why: `text sent, but the picture didn't go through (${e.message || "failed"})` }); }
       }
       setProg({ ...res });
       await new Promise((r) => setTimeout(r, 350));
@@ -354,6 +326,7 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
     }));
     if (String(price) !== String(property.rpPrice || "")) onUpdate(property.id, "rpPrice", price);
     if (reno !== !!property.rpReno) onUpdate(property.id, "rpReno", reno);
+    if (cover !== (property.rpCover || "frame")) onUpdate(property.id, "rpCover", cover);
     if (vidId !== (property.rpVideoId || "")) onUpdate(property.id, "rpVideoId", vidId);
     onSent && onSent();
   };
@@ -381,7 +354,7 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
   return (
     <Sheet title={`${mode === "follow" ? "Follow up with" : "Text"} ${list.length} agent${list.length === 1 ? "" : "s"} · ${streetOf(property)}`} onClose={onClose} wide
       footer={<>
-        <button disabled={!list.length || !msg.trim() || upPct != null || prepBusy} onClick={go} style={{ ...btn("gold"), width: "100%", minHeight: 48, fontSize: 15, opacity: list.length && msg.trim() && upPct == null && !prepBusy ? 1 : 0.5 }}>
+        <button disabled={!list.length || !msg.trim() || upPct != null} onClick={go} style={{ ...btn("gold"), width: "100%", minHeight: 48, fontSize: 15, opacity: list.length && msg.trim() && upPct == null ? 1 : 0.5 }}>
           Send to {list.length} agent{list.length === 1 ? "" : "s"}{from ? ` from ${fmtPhone(from)}` : ""}
         </button>
         {targets.length > list.length && <div style={{ fontSize: 11.5, color: T.textTert, textAlign: "center", marginTop: 6 }}>{targets.length - list.length} skipped (no cell number{mode !== "follow" && skip14 ? " or texted in the last 14 days" : ""})</div>}
@@ -426,10 +399,7 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vid.name || "Video"}</div>
-            <div style={{ fontSize: 12, color: prep && prep.err ? T.red : T.textSub }}>{
-              prep && prep.err ? `${prep.err} Pick another video or send without one.`
-              : mms ? `Sent as a video attachment right after the text · ${mms.seconds ? `${mms.seconds}s` : ""}${mms.trimmed ? " (first 30 seconds)" : ""} · ${(mms.size / 1048576).toFixed(1)} MB`
-              : prep ? `${prep.msg}${prep.pct ? ` ${prep.pct}%` : ""} (one time for this video)` : "Getting it ready…"}</div>
+            <div style={{ fontSize: 12, color: T.textSub }}>Full quality — sent as {link}</div>
           </div>
           <button onClick={() => setVidPick((x) => !x)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", minHeight: 44, padding: "0 6px" }}>Change</button>
         </>) : (<>
@@ -452,20 +422,31 @@ function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onCl
         </div>
       )}
 
+      <div style={{ ...HDR, marginTop: 14 }}>🖼 Cover picture <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0 }}>— the sneak peek sent after the text</span></div>
+      <div style={{ marginTop: 8, border: `1px solid ${T.border}`, borderRadius: 14, padding: 10, display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ width: 64, height: 64, borderRadius: 10, overflow: "hidden", background: "#F2F2F7", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: T.textTert, fontSize: 11 }}>
+          {coverUrl ? <img src={coverUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "None"}
+        </div>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: T.text }}>{cover === "none" ? "No picture" : cover === "frame" ? (vid ? "A still from the video" : "No picture (no video)") : "A photo from Media"}</div>
+        <button onClick={() => setCoverPick((x) => !x)} style={{ background: "none", border: "none", color: T.gold, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit", minHeight: 44, padding: "0 6px" }}>{coverPick ? "Done" : "Change"}</button>
+      </div>
+      {coverPick && (
+        <div style={{ marginTop: 6, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(76px, 1fr))", gap: 6 }}>
+          {[...(vid && thumbOf(vid) ? [["frame", thumbOf(vid), "Video still"]] : []), ...photos.map((m) => [m.url, m.thumb || m.url, ""]), ["none", "", "No picture"]].map(([val, img, label]) => (
+            <button key={val} onClick={() => { setCover(val); setCoverPick(false); }} aria-label={label || "Photo"}
+              style={{ position: "relative", aspectRatio: "1", minHeight: 44, borderRadius: 10, overflow: "hidden", padding: 0, cursor: "pointer", background: "#F2F2F7", border: cover === val ? `3px solid ${T.gold}` : `1px solid ${T.border}`, fontFamily: "inherit", fontSize: 11, color: T.textSub }}>
+              {img ? <img src={img} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : label}
+              {img && label && <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", color: "#fff", fontSize: 10.5, fontWeight: 700, padding: "2px 0" }}>{label}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
       {sample && (<>
         <div style={{ ...HDR, marginTop: 14 }}>Preview · {sample.name}</div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", marginTop: 8, gap: 4 }}>
-          {/* text bubble renders below; the video tile follows it */}
           <div style={{ maxWidth: 330, background: T.gold, color: "#fff", borderRadius: 18, padding: "9px 12px", fontSize: 14, lineHeight: 1.42, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{finalText(sample)}</div>
-          {vid && (mms || prepBusy) && (
-            <div style={{ position: "relative", width: 150, height: 200, borderRadius: 18, overflow: "hidden", background: "#222", border: "1px solid rgba(0,0,0,0.06)" }}>
-              {thumbOf(vid) && <img src={thumbOf(vid)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: mms ? 1 : 0.5 }} />}
-              <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <span style={{ width: 44, height: 44, borderRadius: 22, background: "rgba(0,0,0,0.45)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>▶</span>
-              </span>
-              {mms && mms.seconds ? <span style={{ position: "absolute", left: 8, bottom: 6, color: "#fff", fontSize: 11.5, fontWeight: 700, textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}>{Math.floor(mms.seconds / 60)}:{String(mms.seconds % 60).padStart(2, "0")}</span> : null}
-            </div>
-          )}
+          {coverUrl && <img src={coverUrl} alt="" style={{ width: 180, maxHeight: 240, objectFit: "cover", borderRadius: 18, border: "1px solid rgba(0,0,0,0.06)" }} />}
         </div>
       </>)}
 

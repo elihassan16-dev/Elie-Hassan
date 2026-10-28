@@ -2911,7 +2911,7 @@ function PropertyShowings({property,showings,onUpdate,flush,onOpenSms,dense}){
           <span style={{width:7,height:7,borderRadius:4,background:dot,flexShrink:0}}/>
           <span title={nameTitle||name} style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...(nar?{flex:1,minWidth:0}:{flex:"0 0 150px"})}}>{name}</span>
           {/* 🎯 Booked after a reverse-prospecting pitch (Elie 10/28/26) */}
-          {rpTag&&<span title={`From reverse prospecting — texted ${rpTag} and then booked this showing`} style={{fontSize:10.5,fontWeight:800,background:"#EAF7EE",color:"#1E7B3C",border:"1px solid #BFE5CB",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap",flexShrink:0}}>{nar?"🎯":"🎯 Reverse"}</span>}
+          {rpTag&&<span title={`From reverse prospecting — texted ${rpTag} and then booked this showing`} style={{fontSize:10.5,fontWeight:800,background:"#EAF7EE",color:"#1E7B3C",border:"1px solid #BFE5CB",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap",flexShrink:0}}>🎯</span>}
           {srcTag&&<span title={`From the ${srcTag} ShowingTime calendar`} style={{fontSize:10.5,fontWeight:800,background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap",flexShrink:0,textTransform:"uppercase"}}>{srcTag}</span>}
           <span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0,...(nar?{}:{width:100,overflow:"hidden",textOverflow:"ellipsis"})}}>{meta}</span>
           {!nar&&<span style={{flex:1,minWidth:0,display:"flex"}}>{first?phoneSeg(first):<span style={{fontSize:11,color:T.textTert}}>No phone number.</span>}</span>}

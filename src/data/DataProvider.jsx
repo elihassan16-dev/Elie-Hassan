@@ -188,10 +188,21 @@ function useSyncedCollection(table, toRow, mapRows, reportError) {
   // Load from DB, but keep any locally-dirty (unsaved) rows so a refresh can't
   // revert an edit — or resurrect a locally-deleted row — before it's saved.
   const load = useCallback(async () => {
-    let q = supabase.from(table).select("*");
-    if (table === "app_settings") q = q.not("id", "in", `(${SERVER_ONLY_SETTINGS.join(",")})`).not("id", "like", "qb\\_cache%").not("id", "like", "alert\\_once\\_%").not("id", "like", "uprefs\\_%").not("id", "like", "mcp\\_%").not("id", "like", "badge\\_%").not("id", "in", `(${DIRECT_SETTINGS.join(",")})`);
-    const { data, error } = await q;
-    if (error || !data) return;
+    const query = () => {
+      let q = supabase.from(table).select("*");
+      if (table === "app_settings") q = q.not("id", "in", `(${SERVER_ONLY_SETTINGS.join(",")})`).not("id", "like", "qb\\_cache%").not("id", "like", "alert\\_once\\_%").not("id", "like", "uprefs\\_%").not("id", "like", "mcp\\_%").not("id", "like", "badge\\_%").not("id", "in", `(${DIRECT_SETTINGS.join(",")})`);
+      return q;
+    };
+    // Supabase returns at most 1,000 rows per request — page through so a big
+    // table never silently loses rows (a missing row here would also look
+    // "deleted" to the merge below). One page = the old single query.
+    const data = [];
+    for (let from = 0; from < 200000; from += 1000) {
+      const { data: page, error } = await query().order("id").range(from, from + 999);
+      if (error || !page) return;
+      data.push(...page);
+      if (page.length < 1000) break;
+    }
     const rows = mapRows(data);
     const dbIds = new Set(rows.map((r) => String(r.id)));
     // Rows that didn't change keep their existing object, and a reload that

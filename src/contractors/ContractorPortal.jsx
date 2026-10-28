@@ -285,7 +285,7 @@ export function ContractorPortal() {
       const up = await stage(file);
       if (up) {
         await save("contractor_docs", { id: Date.now(), jobId: selJob.id, orgId: contractorOrgId, name: up.name, url: up.url, mime: up.mime, by: displayName, at: new Date().toISOString() });
-        notify(null, { toAdmins: true, title: `${org?.name || displayName} uploaded a document`, body: `${up.name} — ${selJob.propertyAddress}`, url: `/?goto=chat:${selJob.propertyId || ""}` });
+        notify(null, { toAdmins: true, title: `${org?.name || displayName} uploaded a document`, body: `${up.name} — ${selJob.propertyAddress}`, url: `/?goto=job:${selJob.id}` });
       }
     } catch (ex) { setErr(ex.message || "Upload failed."); }
     setSowBusy(false);
@@ -304,7 +304,7 @@ export function ContractorPortal() {
     const writeStatus = async (patch, note) => {
       try {
         await save("site_status", { ...st, ...patch, updatedAt: new Date().toISOString(), updatedBy: displayName });
-        if (note) notify(null, { toAdmins: true, title: `Site status — ${j.propertyAddress || ""}`, body: `${note} — ${displayName} (${org?.name || "contractor"})`, url: `/?goto=chat:${j.propertyId || ""}` });
+        if (note) notify(null, { toAdmins: true, title: `Site status — ${j.propertyAddress || ""}`, body: `${note} — ${displayName} (${org?.name || "contractor"})`, url: `/?goto=job:${j.id}` });
       } catch (ex) { setErr(ex.message || "Couldn't update the status board."); }
     };
     const flipUtil = (u, label) => {
@@ -652,7 +652,7 @@ export function ContractorPortal() {
   const setTaskStatus = async (t, next) => {
     if (next === (t.status || "Not Started")) return;
     await save("contractor_tasks", { ...t, status: next, statusBy: displayName, doneAt: next === "Completed" ? new Date().toISOString() : null, doneBy: next === "Completed" ? displayName : null });
-    notify(null, { toAdmins: true, title: next === "Completed" ? `${org?.name || displayName} completed a task` : `${org?.name || displayName} updated a task`, body: `${t.text} — ${next} · ${selJob?.propertyAddress || ""}`, url: `/?goto=chat:${selJob?.propertyId || ""}` });
+    notify(null, { toAdmins: true, title: next === "Completed" ? `${org?.name || displayName} completed a task` : `${org?.name || displayName} updated a task`, body: `${t.text} — ${next} · ${selJob?.propertyAddress || ""}`, url: `/?goto=job:${selJob?.id || ""}` });
   };
   const sendRequest = async () => {
     const txt = reqText.trim(); if (!txt || !selJob) return;
@@ -661,7 +661,7 @@ export function ContractorPortal() {
     // Aimed at specific people → alert just them; otherwise the whole team.
     const title = `Task request from ${org?.name || displayName}`;
     const body = `${txt} — ${selJob.propertyAddress}`;
-    const url = `/?goto=chat:${selJob.propertyId || ""}`;
+    const url = `/?goto=job:${selJob.id}`;
     if (reqWho.length) notify(reqWho, { title, body, url });
     else if (roster.length) notify(roster, { title, body, url });
     else notify(null, { toAdmins: true, title, body, url });
@@ -862,7 +862,9 @@ export function ContractorPortal() {
     // crew on this job. Tagged people get an extra, louder @ ping on top.
     const title = `${org?.name || displayName} — ${msgTarget ? msgTarget.text : selJob.propertyAddress}`;
     const body = `${(displayName || "").split(" ")[0]}: ${txt || attLabel(msg.attachment)}`;
-    const url = `/?goto=chat:${selJob.propertyId || ""}`;
+    // job:<id> — the team app finds the property from the job (Elie 10/28/26:
+    // an empty chat:<propertyId> opened nothing).
+    const url = `/?goto=job:${selJob.id}`;
     notify(null, { toTeam: true, att: msg.attachment, title, body, url });
     notify(null, { toOrg: contractorOrgId, att: msg.attachment, title: `${displayName} — ${selJob.propertyAddress}`, body: txt || attLabel(msg.attachment), url: `/?goto=job:${selJob.id}` });
     if (msg.mentions && msg.mentions.length) notify(msg.mentions, { att: msg.attachment, title: `📣 You were tagged — ${title}`, body, url });

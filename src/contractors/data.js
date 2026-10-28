@@ -31,7 +31,17 @@ const scheduleSnap = () => {
 async function loadTable(table) {
   // RLS scopes results automatically: team sees everything, a contractor login
   // only ever receives their own company's rows.
-  const { data, error: err } = await supabase.from(table).select("id,data").order("id");
+  // Page through: Supabase hands back at most 1,000 rows per request, and with
+  // ids in time order the NEWEST rows were the ones cut off (Elie 10/28/26 —
+  // contractor videos/messages "ready" but nowhere in the chat).
+  const data = [];
+  let err = null;
+  for (let from = 0; from < 200000; from += 1000) {
+    const { data: page, error } = await supabase.from(table).select("id,data").order("id").range(from, from + 999);
+    if (error) { err = error; break; }
+    data.push(...(page || []));
+    if (!page || page.length < 1000) break;
+  }
   if (err) { store = { ...store, error: err.message || "Couldn't load portal data." }; emit(); return; }
   store = { ...store, error: "", [keyOf(table)]: (data || []).map((r) => r.data).filter(Boolean) };
   emit();

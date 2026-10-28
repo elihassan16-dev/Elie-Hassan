@@ -30,7 +30,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid, ctrJ
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
-import { ReversePane, ReverseTextsList, rpCount, MlsPicker, MlsAccountsSheet, mlsIdsOf, useMlsList } from "./reverseProspect";
+import { ReversePane, ReverseTextsList, rpCount, rpAgentForShowing, MlsPicker, MlsAccountsSheet, mlsIdsOf, useMlsList } from "./reverseProspect";
 import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsFeedSheet, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp, smsPropKey, setSmsPropTimeline } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
@@ -2890,7 +2890,7 @@ function PropertyShowings({property,showings,onUpdate,flush,onOpenSms,dense}){
   };
   // One condensed row for all three kinds — showing agent, hand-added lead,
   // BoldTrail buyer. Desktop: single line. Mobile: two lines. Gold stripes.
-  const CompactRow=({idx,dot,name,nameTitle,meta,phones,rowKey,leadVal,onLead,email,msgMeta,bt,onRemove,addUI,tmplOpts,srcTag})=>{
+  const CompactRow=({idx,dot,name,nameTitle,meta,phones,rowKey,leadVal,onLead,email,msgMeta,bt,onRemove,addUI,tmplOpts,srcTag,rpTag})=>{
     // nar: stacked two-line layout — phones/actions under the name. Mobile
     // always; desktop too when the Messages column narrows this one (dense).
     const nar=isMobile||!!dense;
@@ -2910,6 +2910,8 @@ function PropertyShowings({property,showings,onUpdate,flush,onOpenSms,dense}){
         <div style={{display:"flex",alignItems:"center",gap:7}}>
           <span style={{width:7,height:7,borderRadius:4,background:dot,flexShrink:0}}/>
           <span title={nameTitle||name} style={{fontSize:12.5,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",...(nar?{flex:1,minWidth:0}:{flex:"0 0 150px"})}}>{name}</span>
+          {/* 🎯 Booked after a reverse-prospecting pitch (Elie 10/28/26) */}
+          {rpTag&&<span title={`From reverse prospecting — texted ${rpTag} and then booked this showing`} style={{fontSize:10.5,fontWeight:800,background:"#EAF7EE",color:"#1E7B3C",border:"1px solid #BFE5CB",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap",flexShrink:0}}>🎯</span>}
           {srcTag&&<span title={`From the ${srcTag} ShowingTime calendar`} style={{fontSize:10.5,fontWeight:800,background:T.goldLight,color:"#8a6d1f",border:"1px solid #EAD9A9",borderRadius:8,padding:"1.5px 6px",whiteSpace:"nowrap",flexShrink:0,textTransform:"uppercase"}}>{srcTag}</span>}
           <span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0,...(nar?{}:{width:100,overflow:"hidden",textOverflow:"ellipsis"})}}>{meta}</span>
           {!nar&&<span style={{flex:1,minWidth:0,display:"flex"}}>{first?phoneSeg(first):<span style={{fontSize:11,color:T.textTert}}>No phone number.</span>}</span>}
@@ -2960,6 +2962,7 @@ function PropertyShowings({property,showings,onUpdate,flush,onOpenSms,dense}){
       leadVal={leadMap[k]||""} onLead={e=>setLead(s,e.target.value)}
       email={s.email||null} msgMeta={{key:k,label:`Showing \u2014 ${s.agent||"agent"}`,snap}}
       tmplOpts={tOpts} srcTag={ownerSrc?s.src:null}
+      rpTag={(()=>{const a=rpAgentForShowing(property,s);if(!a)return null;try{return new Date(a.sentAt).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch{return "earlier";}})()}
       addUI={addNumberUI(k,()=>addShowingPhone(s))}/>;
   };
   const LeadRowC=(l,idx)=>(
@@ -3496,7 +3499,7 @@ function ShowingsPage(){
               </div>
               {mDetTab==="rp"?(
                 <div style={{flex:1,overflowY:"auto"}}>
-                  <ReversePane key={sel.id} property={sel} showings={all} onUpdate={onUpdate} flush={flushProps} classify={classifySug} onOpenSms={(o)=>setTxSel({phone:o.phone,name:o.name,buyer:false})}/>
+                  <ReversePane key={sel.id} property={sel} showings={all} propShowings={matchedShowings(all,sel)} onUpdate={onUpdate} flush={flushProps} classify={classifySug} onOpenSms={(o)=>setTxSel({phone:o.phone,name:o.name,buyer:false})}/>
                 </div>
               ):isMobile&&mDetTab==="tx"&&smsPageOn?(
                 <div style={{flex:1,overflowY:"auto"}}>

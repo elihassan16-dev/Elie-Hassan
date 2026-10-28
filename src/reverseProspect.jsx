@@ -310,6 +310,27 @@ function pitchedAt(property, th) {
   return m ? m.at || "" : "";
 }
 
+// 📅 Booked a showing (Elie 10/28/26): a ShowingTime showing on this listing
+// booked AFTER we pitched the agent, matched by their cell, email or full name.
+// Cancelled / declined showings don't count.
+const phonesIn = (s) => (String(s || "").match(/\d[\d\s().+-]{8,}\d/g) || []).map(digits).filter((d) => d.length === 10);
+export function rpAgentForShowing(property, s) {
+  const t = new Date((s && s.start) || 0).getTime();
+  if (!t || /cancel|declin/i.test(String(s.status || ""))) return null;
+  const ph = new Set(phonesIn(s.phone)), em = emailKey(s.email), nm = nameKey(s.agent);
+  return ((property && property.rpAgents) || []).find((a) => a && a.sentAt && new Date(a.sentAt).getTime() <= t
+    && ((a.cell && ph.has(digits(a.cell))) || (em && a.email && emailKey(a.email) === em) || (nm.includes(" ") && nameKey(a.name) === nm))) || null;
+}
+// agent id → the first showing they booked after the pitch.
+function rpBookings(property, propShowings) {
+  const out = new Map();
+  [...(propShowings || [])].sort((x, y) => String(x.start || "").localeCompare(String(y.start || ""))).forEach((s) => {
+    const a = rpAgentForShowing(property, s);
+    if (a && !out.has(a.id)) out.set(a.id, s);
+  });
+  return out;
+}
+
 function PitchSheet({ property, targets, mode, getLatest, onUpdate, onSent, onClose, flush }) {
   const { currentUser, appSettings, setAppSettings, flushAppSettings } = useData() || {};
   const mine = (((appSettings || []).find((x) => x.id === "rp_pitches") || {}).texts) || {};
@@ -755,7 +776,7 @@ export function ReverseTextsList({ property, showings, onOpen }) {
 }
 
 // ── The tab ──────────────────────────────────────────────────────────────────
-export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, showings }) {
+export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, showings, propShowings }) {
   const { sharedProps, setContacts, flushContacts, contacts, currentUser } = useData() || {};
   const { connected, threadFor } = useSmsTexting();
   const optOut = useOptOut();
@@ -763,6 +784,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
   const [imp, setImp] = useState(false);
   const [pitch, setPitch] = useState(null); // {targets, mode}
   const [menu, setMenu] = useState(null); // agent
+  const [bookedOpen, setBookedOpen] = useState(false); // 📅 who booked a showing
   const getLatest = () => (sharedProps || []).find((x) => String(x.id) === String(property.id)) || property;
   const save = (list) => { onUpdate(property.id, "rpAgents", list); if (flush) setTimeout(flush, 0); };
   const { find, agents } = useRpAgents(property, showings);
@@ -771,6 +793,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
   const mlsIn = mlsList.filter((m) => mlsIdsOf(property).includes(String(m.id)));
   const mlsLabel = mlsIn.map((m) => `${m.name}${mlsNumOf(property, m.id) ? ` · #${mlsNumOf(property, m.id)}` : ""}`).join(", ");
 
+  const bookings = useMemo(() => rpBookings(property, propShowings), [property, propShowings]);
   const rows = agents.map((a0) => {
     const ok = digits(a0.phone).length === 10;
     const th = ok ? threadFor(a0.phone).filter((m) => m.kind !== "call") : [];
@@ -785,7 +808,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
     const askedOut = ok && (optOut.has(a.phone) || (th.some((m) => m.direction === "in" && OPT_OUT_RE.test(String(m.text || "")))));
     const st = askedOut ? "optout" : !ok ? "nophone" : !a.sentAt ? "new" : lead === "hot" ? "hot" : lead === "not" ? "not" : lastIn ? "replied" : "texted";
     const followDue = st === "texted" && !a.followAt && Date.now() - since > 3 * DAY;
-    return { a, st, lastIn, followDue, autoOut: askedOut && !optOut.has(a.phone) };
+    return { a, st, lastIn, followDue, autoOut: askedOut && !optOut.has(a.phone), booked: bookings.get(a0.id) || null };
   });
   // …and save that mark, once.
   const found = rows.filter((r) => r.a.sentFound).map((r) => `${r.a.id}@${r.a.sentAt}`).join(",");
@@ -804,7 +827,8 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
   const fresh = rows.filter((r) => r.st === "new");
   const due = rows.filter((r) => r.followDue);
   const order = { hot: 0, replied: 1, new: 2, texted: 3, nophone: 4, not: 5, optout: 6 };
-  const shown = rows.filter((r) => filter === "all" || (filter === "noreply" ? r.st === "texted" : filter === "replied" ? !!r.lastIn : r.st === filter))
+  const booked = rows.filter((r) => r.booked).length;
+  const shown = rows.filter((r) => filter === "all" || (filter === "booked" ? !!r.booked : filter === "noreply" ? r.st === "texted" : filter === "replied" ? !!r.lastIn : r.st === filter))
     .sort((x, y) => (order[x.st] - order[y.st]) || String((y.lastIn && y.lastIn.at) || y.a.addedAt || "").localeCompare(String((x.lastIn && x.lastIn.at) || x.a.addedAt || "")));
 
   const addAgents = (list) => {
@@ -849,7 +873,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
       <div style={{ background: "#fff", borderRadius: 16, padding: "12px 13px" }}>
         <div style={HDR}>Agents with buyers searching here</div>
         <div style={{ display: "flex", gap: 6, marginTop: 9 }}>
-          {statBox(agents.length, "Agents")}{statBox(rows.filter((r) => r.a.sentAt).length, "Texted")}{statBox(replied, "Replied")}{statBox(cnt("hot"), "Interested", true)}
+          {statBox(agents.length, "Agents")}{statBox(rows.filter((r) => r.a.sentAt).length, "Texted")}{statBox(replied, "Replied")}{statBox(cnt("hot"), "Interested", true)}<button onClick={() => booked && setBookedOpen(true)} aria-label="Agents who booked a showing" style={{ flex: 1, display: "flex", border: "none", padding: 0, background: "none", cursor: booked ? "pointer" : "default", fontFamily: "inherit" }}>{statBox(booked, booked ? "Booked ›" : "Booked")}</button>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 11 }}>
           <button onClick={() => setImp(true)} style={btn("ghost")}>📸 Add from MLS</button>
@@ -863,7 +887,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
 
       {agents.length > 0 && (
         <div style={{ display: "flex", gap: 6, marginTop: 10, overflowX: "auto", paddingBottom: 2 }}>
-          {[["all", `All ${agents.length}`], ["new", `Not texted ${cnt("new")}`], ["replied", `Replied ${rows.filter((r) => r.lastIn).length}`], ["hot", `🔥 Interested ${cnt("hot")}`], ["noreply", `No reply ${cnt("texted")}`], ...(cnt("nophone") ? [["nophone", `Needs cell ${cnt("nophone")}`]] : []), ["not", `Not interested ${cnt("not")}`], ...(cnt("optout") ? [["optout", `🚫 Don't text ${cnt("optout")}`]] : [])]
+          {[["all", `All ${agents.length}`], ["new", `Not texted ${cnt("new")}`], ["replied", `Replied ${rows.filter((r) => r.lastIn).length}`], ["hot", `🔥 Interested ${cnt("hot")}`], ...(booked ? [["booked", `📅 Booked ${booked}`]] : []), ["noreply", `No reply ${cnt("texted")}`], ...(cnt("nophone") ? [["nophone", `Needs cell ${cnt("nophone")}`]] : []), ["not", `Not interested ${cnt("not")}`], ...(cnt("optout") ? [["optout", `🚫 Don't text ${cnt("optout")}`]] : [])]
             .map(([k, l]) => <button key={k} onClick={() => setFilter(k)} style={chip(filter === k)}>{l}</button>)}
         </div>
       )}
@@ -877,7 +901,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
       ) : (
         <div style={{ background: "#fff", borderRadius: 16, marginTop: 10, overflow: "hidden" }}>
           {shown.length === 0 && <div style={{ padding: "18px 14px", textAlign: "center", fontSize: 13, color: T.textTert }}>Nobody here.</div>}
-          {shown.map(({ a, st, lastIn }, i) => {
+          {shown.map(({ a, st, lastIn, booked: bk }, i) => {
             const [bg, fg] = avC(a.name);
             const [pl, pbg, pfg] = PILL[st];
             const dim = st === "not" || st === "nophone" || st === "optout";
@@ -890,7 +914,7 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
                   <span style={{ width: 36, height: 36, borderRadius: 18, background: dim ? "#F2F2F7" : bg, color: dim ? "#8E8E93" : fg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, fontWeight: 800, flexShrink: 0 }}>{initials(a.name)}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: dim ? T.textTert : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name || fmtPhone(a.phone)}</div>
-                    <div style={{ fontSize: 12, color: T.textSub, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>
+                    <div style={{ fontSize: 12, color: T.textSub, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{bk && <b style={{ color: "#1E7B3C" }}>📅 Booked a showing {shortDate(bk.start)} · </b>}{sub}</div>
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.3, padding: "3px 8px", borderRadius: 100, background: pbg, color: pfg, whiteSpace: "nowrap", flexShrink: 0 }}>{pl}</span>
                 </div>
@@ -927,6 +951,29 @@ export function ReversePane({ property, onUpdate, flush, onOpenSms, classify, sh
         </Sheet>
       )}
       {imp && <ImportSheet property={property} find={find} onAdd={addAgents} onClose={() => setImp(false)} />}
+      {bookedOpen && (
+        <Sheet title={`📅 Booked a showing · ${booked}`} onClose={() => setBookedOpen(false)}>
+          <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.5, marginBottom: 10 }}>Agents from your reverse-prospecting texts who booked a showing at {streetOf(property)} afterwards.</div>
+          <div style={{ border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden" }}>
+            {rows.filter((r) => r.booked).sort((x, y) => String(y.booked.start || "").localeCompare(String(x.booked.start || ""))).map(({ a, booked: bk }, i) => {
+              const [bg, fg] = avC(a.name);
+              const when = (() => { try { return new Date(bk.start).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return ""; } })();
+              const ok = digits(a.phone).length === 10;
+              return (
+                <button key={a.id} onClick={() => { if (ok && onOpenSms) { setBookedOpen(false); onOpenSms({ phone: a.phone, name: a.name }); } }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", minHeight: 56, border: "none", borderTop: i ? `1px solid ${T.border}` : "none", background: "#fff", cursor: ok ? "pointer" : "default", fontFamily: "inherit", textAlign: "left" }}>
+                  <span style={{ width: 36, height: 36, borderRadius: 18, background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, fontWeight: 800, flexShrink: 0 }}>{initials(a.name)}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name || fmtPhone(a.phone)}</span>
+                    <span style={{ display: "block", fontSize: 12, color: "#1E7B3C", fontWeight: 600, marginTop: 1 }}>📅 {when}</span>
+                    <span style={{ display: "block", fontSize: 11.5, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[a.office, ok ? fmtPhone(a.phone) : "", a.sentAt ? `texted ${shortDate(a.sentAt)}` : ""].filter(Boolean).join(" · ")}</span>
+                  </span>
+                  {ok && <span style={{ color: "#C7C7CC", fontSize: 18 }}>›</span>}
+                </button>
+              );
+            })}
+          </div>
+        </Sheet>
+      )}
       {mlsOpen && <MlsSheet property={property} onUpdate={onUpdate} flush={flush} onClose={() => setMlsOpen(false)} />}
       {pitch && <PitchSheet property={property} targets={pitch.targets} mode={pitch.mode} getLatest={getLatest} onUpdate={onUpdate}
         flush={flush} onSent={() => { if (flush) setTimeout(flush, 0); }} onClose={() => setPitch(null)} />}

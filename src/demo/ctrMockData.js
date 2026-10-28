@@ -38,6 +38,14 @@ const SITE = [{ id: "1003", address: "1055 Huntingdon Dr, Westampton", utilities
   { id: 2, type: "final", trade: "", date: day10(8), time: "", note: "with Moshe", by: "Moshe Hamaoui", orgName: "", at: days(-1) },
 ] }];
 
+export function ctrJobsNow() { return JOBS; }
+const streetKey = (a) => String(a || "").split(",")[0].toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+export function jobPropertyOf(job, props) {
+  if (!job) return null;
+  const list = (props || []).filter((p) => p && !p.archived);
+  return list.find((p) => job.propertyId != null && String(p.id) === String(job.propertyId))
+    || (streetKey(job.propertyAddress) ? list.find((p) => streetKey(p.address) === streetKey(job.propertyAddress)) : null) || null;
+}
 export function useContractorData() {
   return { orgs: [ORG, ORG2], jobs: JOBS, tasks: TASKS, messages: MESSAGES, docs: [], siteStatus: SITE, save: async () => {}, remove: async () => {}, error: null };
 }

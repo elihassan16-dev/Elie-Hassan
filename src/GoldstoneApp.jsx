@@ -26,7 +26,7 @@ import { VoiceRecorder } from "./voiceRecorder";
 import { usePersistentDraft } from "./useDraft";
 import { FileActions } from "./fileActions";
 import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
-import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid } from "./contractors/data";
+import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid, ctrJobsNow, jobPropertyOf } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
@@ -13026,7 +13026,8 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const { isAdmin } = useAuth()||{};
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
   const ctrMsgsFor=(p)=>{
-    const pj=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id));
+    // Jobs saved without a propertyId still belong here when the street matches.
+    const pj=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id)||(!j.propertyId&&jobPropertyOf(j,[p])));
     return pj.flatMap(j=>(ctrMessages||[]).filter(m=>String(m.jobId)===String(j.id)).map(m=>({
       id:"ctr-"+m.id,author:m.author,text:m.text,at:m.at,attachment:m.attachment||null,readBy:m.readBy||[],
       taskRefText:m.taskRefText||null,taskRefId:m.taskRefId||null,replyTo:m.replyTo||null,mentions:m.mentions||null,
@@ -23031,6 +23032,7 @@ export function GoldstoneShell(){
     }catch{return null;}
   });
   // In-app jumps (🚨 urgent list / pop-up) reuse the notification deep links.
+  const[gotoTick,setGotoTick]=useState(0); // re-checks a job: link until contractor jobs have loaded
   useEffect(()=>{const f=(e)=>{if(e&&e.detail)setPendingGoto(String(e.detail));};window.addEventListener("gs-goto",f);return()=>window.removeEventListener("gs-goto",f);},[]);
   useEffect(()=>{
     if(!pendingGoto)return;
@@ -23046,6 +23048,16 @@ export function GoldstoneShell(){
     // 🎯 reverse:<propId> — Cowork's "new agents" push opens that listing's Reverse tab.
     if(kind==="reverse"){if(id){try{window.__showingsTarget={propId:id,tab:"rp"};}catch{/* no window */}}setActive("showings");setPendingGoto(null);return;}
     if(kind==="chat"&&id==="__office__"){setActive("messages");setNavChatId("__office__");setPendingGoto(null);return;}
+    // job:<jobId> — a contractor job chat (Elie 10/28/26: "Video ready to watch"
+    // from a contractor led nowhere). Opens that property's chat in Messages,
+    // where the contractor thread lives; waits for jobs + properties to load.
+    if(kind==="job"){
+      const jobs=ctrJobsNow();
+      if(!jobs||!(sharedProps||[]).length){const t=setTimeout(()=>setGotoTick(n=>n+1),800);return()=>clearTimeout(t);}
+      const p=jobPropertyOf(jobs.find(j=>String(j.id)===String(id)),sharedProps);
+      setActive("messages");if(p)setNavChatId(p.id);setPendingGoto(null);return;
+    }
+    if(kind==="chat"&&!id){setActive("messages");setPendingGoto(null);return;}
     if(kind==="chat"||kind==="prop"){
       const p=(sharedProps||[]).find(x=>String(x.id)===String(id));
       if(p){setActive(kind==="chat"?"messages":"properties");(kind==="chat"?setNavChatId:setNavPropId)(p.id);setPendingGoto(null);}
@@ -23053,7 +23065,7 @@ export function GoldstoneShell(){
       return; // properties not in yet — re-run when they arrive
     }
     setPendingGoto(null); // unknown kind (e.g. a contractor link) — ignore
-  },[pendingGoto,sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[pendingGoto,sharedProps,gotoTick]); // eslint-disable-line react-hooks/exhaustive-deps
   // Opening (or returning to) the app nudges the showing watcher immediately —
   // scheduled checks cover the idle hours, this covers "I'm looking right now".
   useEffect(()=>{

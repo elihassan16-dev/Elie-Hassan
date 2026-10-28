@@ -13026,8 +13026,9 @@ function MessagingCenter({sharedProps,setSharedProps,initialSelId,onNavConsumed}
   const { isAdmin } = useAuth()||{};
   const ctrOrgName=(oid)=>((ctrOrgs||[]).find(o=>String(o.id)===String(oid))||{}).name||"Contractor";
   const ctrMsgsFor=(p)=>{
-    // Jobs saved without a propertyId still belong here when the street matches.
-    const pj=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id)||(!j.propertyId&&jobPropertyOf(j,[p])));
+    // A job whose propertyId is missing or points at a property that's gone
+    // (archived / re-added) still belongs here when the street matches.
+    const pj=(ctrJobs||[]).filter(j=>String(j.propertyId)===String(p.id)||String((jobPropertyOf(j,sharedProps)||{}).id)===String(p.id));
     return pj.flatMap(j=>(ctrMessages||[]).filter(m=>String(m.jobId)===String(j.id)).map(m=>({
       id:"ctr-"+m.id,author:m.author,text:m.text,at:m.at,attachment:m.attachment||null,readBy:m.readBy||[],
       taskRefText:m.taskRefText||null,taskRefId:m.taskRefId||null,replyTo:m.replyTo||null,mentions:m.mentions||null,

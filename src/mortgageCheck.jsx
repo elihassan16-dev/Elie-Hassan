@@ -10,6 +10,7 @@
 import { useEffect, useRef } from "react";
 import { useData } from "./data/DataProvider";
 import { qbAuthFetch, notify } from "./net";
+import { supabase } from "./supabaseClient";
 import { withSubs } from "./subtasks";
 
 const OFFICE_TASK_PID = "__office_task__";
@@ -78,7 +79,22 @@ async function findPayment(item, ym, rentals, props, cache) {
 
 export function MortgageChecklistSync() {
   const d = useData() || {};
-  const { rentals, sharedProps, officeTasks, setOfficeTasks, flushOfficeTasks, teamMembers, currentUser, fresh } = d;
+  const { rentals, sharedProps, officeTasks, setOfficeTasks, flushOfficeTasks, teamMembers, currentUser, fresh, appSettings, setAppSettings, flushAppSettings } = d;
+  // Months whose list was already made (shared, app_settings "mortgage_checklist"
+  // {made:{"2026-10":<ms>}}). Deleting or clearing the task used to make the next
+  // device that opened the app build a brand-new list — every tick gone, Late
+  // again, a new urgent pop-up and push (Elie 10/29/26). A month is made ONCE.
+  const madeRow = (appSettings || []).find((x) => x && x.id === "mortgage_checklist") || null;
+  const made = (madeRow && madeRow.made) || {};
+  const markMade = (ym) => {
+    if (!setAppSettings) return;
+    setAppSettings((prev) => {
+      const row = (prev || []).find((x) => x && x.id === "mortgage_checklist") || { id: "mortgage_checklist", made: {} };
+      if ((row.made || {})[ym]) return prev;
+      return [...(prev || []).filter((x) => x.id !== "mortgage_checklist"), { ...row, made: { ...(row.made || {}), [ym]: Date.now() } }];
+    });
+    if (flushAppSettings) setTimeout(flushAppSettings, 0);
+  };
   // Wait for this session's first full load (rentals + office tasks), never a stale snapshot.
   const loading = !fresh;
   const busy = useRef(false);
@@ -93,19 +109,31 @@ export function MortgageChecklistSync() {
     if (!runsHere || loading || !setOfficeTasks || !Array.isArray(officeTasks)) return;
     const ym = ymOf(new Date());
     const aid = autoIdFor(ym);
-    if (officeTasks.some((t) => t && t.autoId === aid)) return;
+    if (!Array.isArray(appSettings)) return;
+    if (officeTasks.some((t) => t && t.autoId === aid)) { if (!made[ym]) markMade(ym); return; }
+    if (made[ym]) return; // made already this month and since deleted — leave it gone
     const subs = mortgageItems(rentals, sharedProps);
-    if (!subs.length) return;
+    if (!subs.length || busy.current) return;
     const [y, m] = ym.split("-").map(Number);
     const task = {
       id: taskIdFor(ym), text: `Mortgage payments — ${MONTHS[m - 1]}${y !== new Date().getFullYear() ? ` ${y}` : ""}`,
       status: "Not Started", assignee: elie, delegate: esti, assignedAt: Date.now(), assignedBy: "Automation",
       cat: "Automation", autoId: aid, mtgYm: ym, subtasks: subs,
     };
-    setOfficeTasks((prev) => ((prev || []).some((t) => t && t.autoId === aid) ? prev : [...(prev || []), task]));
-    if (flushOfficeTasks) setTimeout(flushOfficeTasks, 0);
-    Promise.resolve(notify([esti], { title: "New task for you", body: `${task.text} — ${subs.length} properties to check`, tag: `task-${task.id}`, url: `/?goto=task:office:${task.id}` })).catch(() => {});
-  }, [runsHere, loading, officeTasks, rentals, sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Ask the database itself first: a device whose load failed is holding an
+    // old copy without this month's task, and "creating" it would overwrite the
+    // real one — ticks, Late flags and all.
+    busy.current = true;
+    supabase.from("office_tasks").select("id").eq("id", String(task.id)).maybeSingle().then(({ data, error }) => {
+      busy.current = false;
+      if (error) return; // can't tell — try again on the next load
+      markMade(ym);
+      if (data) return; // it's there; this device just hasn't loaded it
+      setOfficeTasks((prev) => ((prev || []).some((t) => t && t.autoId === aid) ? prev : [...(prev || []), task]));
+      if (flushOfficeTasks) setTimeout(flushOfficeTasks, 0);
+      Promise.resolve(notify([esti], { title: "New task for you", body: `${task.text} — ${subs.length} properties to check`, tag: `task-${task.id}`, url: `/?goto=task:office:${task.id}` })).catch(() => {});
+    }, () => { busy.current = false; });
+  }, [runsHere, loading, officeTasks, rentals, sharedProps, appSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 2) QuickBooks auto-tick (every 2 hours per device) + 3) Late / urgent from the 6th.
   useEffect(() => {

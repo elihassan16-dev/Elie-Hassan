@@ -247,9 +247,19 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
           <button onClick={onClose} style={{ background: "none", border: "none", color: T.gold, fontWeight: 600, fontSize: 15, cursor: "pointer", fontFamily: "inherit", padding: "4px 0", minHeight: 44, flexShrink: 0 }}>‹ Reports</button>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700, color: T.text }}>💵 Cash-Out Analysis</div>
-            <div style={{ fontSize: 12.5, color: T.textSub, lineHeight: 1.45 }}>What you walk away with at each closing: sale price minus selling costs, every loan and its interest to closing, and open bills, plus the interest reserve back.</div>
+            <div style={{ fontSize: 12.5, color: T.textSub, lineHeight: 1.45 }}>{isMobile ? "What you walk away with at each closing." : "What you walk away with at each closing: sale price minus selling costs, every loan and its interest to closing, and open bills, plus the interest reserve back."}</div>
           </div>
         </div>
+        {isMobile ? (
+          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ ...segWrap, display: "flex" }}>{[["closing", "In Closing"], ["pipeline", "Pipeline"], ["model", `📌 Model${pins.size ? ` (${pins.size})` : ""}`]].map(([k, l]) => <button key={k} onClick={() => setView(k)} style={{ ...segBtn(view === k), flex: 1, whiteSpace: "nowrap" }}>{l}</button>)}</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ ...segWrap, display: "flex", flex: 1 }}>{[["actual", "Actuals"], ["projected", "Projected"]].map(([k, l]) => <button key={k} onClick={() => setSrc(k)} style={{ ...segBtn(src === k), flex: 1 }}>{l}</button>)}</div>
+              <button onClick={exportCsv} aria-label="Export CSV" style={{ ...segBtn(false), background: "#fff", border: `1px solid ${T.border}`, minHeight: 38 }}>⬇ CSV</button>
+              <button onClick={exportPdf} aria-label="PDF" style={{ ...segBtn(false), background: "#fff", border: `1px solid ${T.border}`, minHeight: 38 }}>📄 PDF</button>
+            </div>
+          </div>
+        ) : (
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
           <div style={segWrap}>{[["closing", "In Closing"], ["pipeline", "In Closing + On Market + Construction"], ["model", `📌 Model${pins.size ? ` (${pins.size})` : ""}`]].map(([k, l]) => <button key={k} onClick={() => setView(k)} style={segBtn(view === k)}>{l}</button>)}</div>
           <span style={{ fontSize: 12.5, color: T.textSub }}>Sale price from</span>
@@ -258,11 +268,64 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
           <button onClick={exportCsv} style={{ ...segBtn(false), background: "#fff", border: `1px solid ${T.border}` }}>⬇ Export CSV</button>
           <button onClick={exportPdf} style={{ ...segBtn(false), background: "#fff", border: `1px solid ${T.border}` }}>📄 PDF</button>
         </div>
+        )}
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "0 10px 24px" : "0 24px 28px" }}>
         {!rows.length ? (
           <div style={{ background: "#fff", borderRadius: 14, padding: "28px 20px", textAlign: "center", color: T.textSub, fontSize: 14 }}>
             {view === "model" ? "No deals pinned yet. Switch to another view and tap 📌 next to the deals you want to model." : view === "closing" ? "No deals are In Closing right now." : "No deals in the pipeline."}
+          </div>
+        ) : isMobile ? (
+          // 📱 Phones (Elie 10/30/26): one card per deal, line by line.
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ background: T.goldLight, borderRadius: 14, padding: "12px 14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span style={{ fontWeight: 800, fontSize: 14, color: T.text }}>Total · {rows.length} deal{rows.length === 1 ? "" : "s"}</span>
+                <span style={{ fontWeight: 800, fontSize: 20, color: "#8a6d1f", fontVariantNumeric: "tabular-nums" }}>{money(sum("cash"))}</span>
+              </div>
+              {[["Sale price", money(sum("sale"))], ["Selling costs", money(-sum("selling"))], ["Loans + interest", money(-sum("loans"))], ["Interest reserve", `+${money(sum("reserve"))}`], ["Open bills", money(-sum("billsTotal"))]].map(([l, v]) => (
+                <div key={l} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: T.textSub, marginTop: 4, fontVariantNumeric: "tabular-nums" }}><span>{l}</span><span>{v}</span></div>
+              ))}
+            </div>
+            {rows.map((r) => {
+              const [c, bg] = SC[r.p.status] || [T.textSub, T.bg];
+              const pinned = pins.has(String(r.p.id));
+              const line = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.border}`, minHeight: 44, fontSize: 14 };
+              const lbl = { color: T.textSub, fontSize: 13.5 };
+              const tapRow = (kind, label, value, note, color) => (
+                <button onClick={() => setPop({ kind, id: r.p.id })} style={{ ...line, width: "100%", background: "none", borderLeft: "none", borderRight: "none", borderBottom: "none", fontFamily: "inherit", cursor: "pointer", textAlign: "left" }}>
+                  <span style={lbl}>{label}{note && <span style={{ ...sub, color: note.color || T.textTert }}>{note.text}</span>}</span>
+                  <span style={{ color: color || T.blue, fontVariantNumeric: "tabular-nums", fontSize: 14.5 }}>{value} <span style={{ color: T.textTert }}>›</span></span>
+                </button>
+              );
+              return (
+                <div key={r.p.id} style={{ background: "#fff", borderRadius: 14, boxShadow: T.shadow, padding: "10px 14px 6px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 8 }}>
+                    <button onClick={() => togglePin(r.p.id)} aria-label={pinned ? "Unpin from model" : "Pin to model"} style={{ width: 40, height: 40, borderRadius: 20, border: "none", background: pinned ? T.goldLight : "transparent", cursor: "pointer", fontSize: 16, opacity: pinned ? 1 : 0.35, flexShrink: 0 }}>📌</button>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: T.text, fontSize: 15, lineHeight: 1.25 }}>{r.p.address}{r.p.city ? `, ${r.p.city}` : ""}</div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: c, background: bg, borderRadius: 20, padding: "2px 8px", display: "inline-block", marginTop: 3 }}>{r.p.status}</span>
+                    </div>
+                  </div>
+                  <div style={line}>
+                    <span style={lbl}>Closing date<span style={sub}>{r.closeSrc} · {r.d} days{r.p.coCloseDate && canEdit ? <> · <button onClick={() => set(r.p, "coCloseDate", "")} style={{ ...tap, fontSize: 11 }}>reset</button></> : null}</span></span>
+                    <input type="date" disabled={!canEdit} value={r.close} onChange={(e) => set(r.p, "coCloseDate", e.target.value || "")} style={{ ...inp, width: 150, fontSize: 14, padding: "7px 8px" }} />
+                  </div>
+                  <div style={line}>
+                    <span style={lbl}>Sale price<span style={sub}>{r.own ? <>your price{canEdit ? <> · <button onClick={() => set(r.p, "coSalePrice", "")} style={{ ...tap, fontSize: 11 }}>reset</button></> : null}</> : r.baseSrc}</span></span>
+                    <NumIn value={r.sale} width={130} disabled={!canEdit} onSave={(v) => set(r.p, "coSalePrice", v === "" || Math.round(v) === Math.round(r.base) ? "" : v)} />
+                  </div>
+                  {tapRow("sell", "Selling costs", money(-r.selling), r.paidCredit > 0 ? { text: `${money(r.paidCredit)} already paid`, color: "#1E7B3C" } : null)}
+                  {tapRow("loans", "Loans + interest", money(-r.loans), r.lenderCredit > 0 ? { text: `${money(r.lenderCredit)} interest paid ahead back`, color: "#1E7B3C" } : null)}
+                  <div style={line}><span style={lbl}>Interest reserve</span><span style={{ color: r.reserve > 0 ? "#1E7B3C" : T.textTert, fontWeight: r.reserve > 0 ? 600 : 400, fontVariantNumeric: "tabular-nums" }}>{r.reserve > 0 ? `+${money(r.reserve)}` : "$0"}</span></div>
+                  {tapRow("bills", "Open bills", r.billsCount ? money(-r.billsTotal) : r.ctrBills.length ? "$0" : "＋ Add", r.billsCount ? { text: `${r.billsCount} bill${r.billsCount === 1 ? "" : "s"}` } : null, r.billsCount || r.ctrBills.length ? null : T.textTert)}
+                  <div style={{ ...line, borderTop: `1.5px solid ${T.text}22` }}>
+                    <span style={{ fontWeight: 800, color: T.text, fontSize: 14.5 }}>Est. cash out</span>
+                    <span style={{ fontWeight: 800, fontSize: 18, color: r.cash < 0 ? T.red : "#8a6d1f", fontVariantNumeric: "tabular-nums" }}>{money(r.cash)}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div style={{ background: "#fff", borderRadius: 14, boxShadow: T.shadow, overflow: "auto" }}>

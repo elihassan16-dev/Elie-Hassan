@@ -55,7 +55,7 @@ const PROPS = [
     contacts: [2002],
   },
   {
-    id: 1003, address: "1030 Hanover Blvd", city: "Browns Mills", state: "NJ", zip: "08015", status: "On Market", qbProjectId: "qb-1003",
+    id: 1003, address: "1030 Hanover Blvd", city: "Browns Mills", state: "NJ", zip: "08015", status: "In Closing", qbProjectId: "qb-1003",
     walkVideos: [],
     media: [
       { id: "v:demowalk1", kind: "video", uid: "demowalk1", stream: true, url: "", thumb: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSczMDAnIGhlaWdodD0nMzAwJz48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9J2cnIHgxPScwJyB5MT0nMCcgeDI9JzEnIHkyPScxJz48c3RvcCBvZmZzZXQ9JzAnIHN0b3AtY29sb3I9JyM2ZjdjODknLz48c3RvcCBvZmZzZXQ9JzEnIHN0b3AtY29sb3I9JyMzZjRjNTgnLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0nMzAwJyBoZWlnaHQ9JzMwMCcgZmlsbD0ndXJsKCNnKScvPjwvc3ZnPg==", name: "Walkthrough — kitchen & baths.mp4", size: 61 * 1024 * 1024, dur: 168, at: Date.now() - 50 * 60000, by: "Elie Hassan", src: "record", punchAt: Date.now() - 20 * 60000 },
@@ -77,8 +77,11 @@ const PROPS = [
       { date: "2026-06-17", type: "Expense", num: "", vendor: "MCD Builds LLC", memo: "", amount: -15000, lineKey: "rh1#0" },
       { date: "2026-07-13", type: "Expense", num: "", vendor: "Flex Architecture LLC", memo: "", amount: -950, lineKey: "rh2#0" },
     ],
-    financials: FIN({ purchasePrice: "150000", rehabCosts: "72000", salePrice: "329900", holdPeriod: "7" }),
-    propertyInfo: { type: "Single Family", beds: "3", baths: "1.5", sqft: "1290", yearBuilt: "1958", lot: "", parcel: "", lockboxCode: "1030", lockboxLocation: "Side rail", notes: "" },
+    financials: FIN({ purchasePrice: "150000", rehabCosts: "72000", salePrice: "329900", holdPeriod: "7", actualSalePrice: "335000", hmRate: "10.5",
+      actualSellingCostItems: [{ id: "c1", title: "Commission", autoType: "commission", resp: "Seller Pays", commissionPct: "2.5" }, { id: "ih-flatfee", title: "Listing flat fee", autoType: "flatfee", resp: "Seller Pays" }, { id: "c2", title: "Transfer Tax", autoType: "tax", resp: "Seller Pays" }, { id: "ih-staging", title: "Staging", resp: "Seller Pays", amount: "2500" }, { id: "c3", title: "Attorney", resp: "Seller Pays", amount: "1200" }] }),
+    // 💵 Cash-Out Analysis preview: a hard-money loan on the deal.
+    qbLoanCustom: [{ id: "hm1", name: "Kiavi — hard money", amount: 204000 }],
+    propertyInfo: { type: "Single Family", beds: "3", baths: "1.5", sqft: "1290", yearBuilt: "1958", lot: "", parcel: "", lockboxCode: "1030", lockboxLocation: "Side rail", notes: "", closingDateScheduled: "2026-11-20" },
     tasks: [{ id: 4, text: "Sign and lock box pickup", status: "Not Started", assignee: "Moshe Hamaoui", delegate: "", assignedAt: Date.now(), assignedBy: "Elie Hassan" }],
     contacts: [],
     // Internal chat next to the contractor's EXTERNAL thread — the messages
@@ -160,7 +163,7 @@ export function DataProvider({ children }) {
   const [contacts, setContacts] = useState(CONTACTS);
   const [automations, setAutomations] = useState([]);
   const [funders, setFunders] = useState([{ id: 1, name: "J. Klein", ledger: [] }]);
-  const [draws, setDraws] = useState([]);
+  const [draws, setDraws] = useState([{ id: 1, funderId: 1, funderName: "J. Klein", amount: 60000, rate: 12, dateFunded: "2026-06-02", propertyId: 1003, payments: [] }, { id: 2, funderName: "Elie Hassan", amount: 25000, rate: 0, dateFunded: "2026-05-20", propertyId: 1001, payments: [] }]);
   const [officeMessages, setOfficeMessages] = useState(OFFICE_MSGS);
   const [officeTasks, setOfficeTasks] = useState(OFFICE_TASKS);
   const [bankAccounts, setBankAccounts] = useState([]);

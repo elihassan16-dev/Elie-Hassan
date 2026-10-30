@@ -44,6 +44,7 @@ import { SowPdfPreview } from "./contractors/SowPdfPreview";
 import { ScopeBuilder, scopeSummary } from "./contractors/scope";
 import { scopeToText } from "./contractors/sowLibrary";
 import { PlatinumCard, PlatinumChips, PlatinumTab, usePlatinum } from "./platinum";
+import { CashOutReport } from "./cashOutReport";
 import { RentalsSidebar, RentalsDashboard, useDashPeriod, firstDataMonth } from "./rentalsDash";
 import { DelinquencyReport } from "./rentalsDelinq";
 import { useQbPinSync } from "./rentalPins";
@@ -18531,13 +18532,14 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     {id:"sold",icon:"💵",title:`Sold in ${nowYear} — Profit by Deal`,desc:`Every deal sold this year — sale, all-in cost and profit, live from QuickBooks. Tap a cost for the breakdown; switch to ${nowYear-1} inside.`},
     {id:"loc",icon:"📄",title:"Outstanding LOC by Deal",desc:"Who you owe line-of-credit to, by property — oldest funding first."},
     {id:"future",icon:"📈",title:"Available Future Funds",desc:"LOC capital freeing up from your upcoming closings."},
+    {id:"cashout",icon:"💵",title:"Cash-Out Analysis",desc:"What you walk away with at each closing — sale price minus selling costs, loans + interest to closing and open bills, plus the reserve back. Pin deals to model."},
     {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Bank loan, credit lines with their splits, interest reserve and true equity — live from QuickBooks."},
     {id:"hold",icon:"🏗️",title:"Construction Holdback vs Actuals",desc:"Bank's construction holdback vs your underwriting estimate, per property."},
     {id:"draw",icon:"🏦",title:"Construction Draw Report",desc:"Holdback vs draws pinned from each property's mortgage account, and what's left."},
     {id:"closings",icon:"📅",title:"Upcoming Closings — Capital Flow",desc:"In-closing sales returning LOC capital vs under-contract buys needing equity, with a running balance."},
     {id:"cashflow",icon:"💰",title:"Monthly Cash Flow — Closings",desc:"Net cash landing each month as your in-closing deals settle — sale minus costs, payoffs and unpaid interest."},
   ];
-  const rep=(open&&open!=="bs")?REPORTS[open]:null;
+  const rep=(open&&open!=="bs"&&open!=="cashout")?REPORTS[open]:null;
 
   return(
     <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?"14px":"18px 24px"}}>
@@ -18557,6 +18559,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       </div>
       </>}
 
+      {open==="cashout"&&<CashOutReport sharedProps={sharedProps} accounts={accounts} spend={spend} requestSpend={connected?requestSpend:null} canEdit={canEdit} updateProp={updateProp} isMobile={isMobile} onClose={()=>setOpen(null)}/>}
       {open==="bs"&&<FinDealMoney bsProps={bsProps} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={holdbackOf} onClose={()=>setOpen(null)}/>}
       {rep&&(
         <div onClick={soldPage?undefined:()=>setOpen(null)} style={soldPage?{}:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>

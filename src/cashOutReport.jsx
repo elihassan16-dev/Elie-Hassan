@@ -143,6 +143,12 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
   };
 }
 
+// Phone spreadsheet: whole dollars, no "$" (the header says it), "−" for out.
+const plain = (v) => `${v < 0 ? "−" : ""}${Math.round(Math.abs(Number(v) || 0)).toLocaleString("en-US")}`;
+const shortDate = (ymd) => { const d = new Date(`${ymd}T12:00:00`); return isNaN(d) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); };
+const mCell = { padding: "8px 2px", borderBottom: `1px solid ${T.border}`, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", verticalAlign: "middle", letterSpacing: "-0.01em" };
+const mHead = { ...mCell, padding: "7px 2px", fontSize: 9, fontWeight: 700, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.02em", background: "#FAFAFC", whiteSpace: "normal", lineHeight: 1.15, verticalAlign: "bottom" };
+const mTap = { background: "none", border: "none", padding: "6px 0", fontFamily: "inherit", fontSize: 10, cursor: "pointer", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em", minHeight: 32 };
 const cell = { padding: "10px 12px", borderBottom: `1px solid ${T.border}`, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", verticalAlign: "middle" };
 const head = { ...cell, fontSize: 10.5, fontWeight: 700, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", background: "#FAFAFC", position: "sticky", top: 0, zIndex: 1 };
 const tap = { background: "none", border: "none", padding: 0, color: T.blue, fontFamily: "inherit", fontSize: 13, cursor: "pointer", textDecoration: "underline dotted", textUnderlineOffset: 3, fontVariantNumeric: "tabular-nums" };
@@ -270,62 +276,55 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
         </div>
         )}
       </div>
-      <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "0 10px 24px" : "0 24px 28px" }}>
+      <div style={{ flex: 1, overflow: "auto", padding: isMobile ? "0 6px 24px" : "0 24px 28px" }}>
         {!rows.length ? (
           <div style={{ background: "#fff", borderRadius: 14, padding: "28px 20px", textAlign: "center", color: T.textSub, fontSize: 14 }}>
             {view === "model" ? "No deals pinned yet. Switch to another view and tap 📌 next to the deals you want to model." : view === "closing" ? "No deals are In Closing right now." : "No deals in the pipeline."}
           </div>
         ) : isMobile ? (
-          // 📱 Phones (Elie 10/30/26): one card per deal, line by line.
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ background: T.goldLight, borderRadius: 14, padding: "12px 14px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <span style={{ fontWeight: 800, fontSize: 14, color: T.text }}>Total · {rows.length} deal{rows.length === 1 ? "" : "s"}</span>
-                <span style={{ fontWeight: 800, fontSize: 20, color: "#8a6d1f", fontVariantNumeric: "tabular-nums" }}>{money(sum("cash"))}</span>
-              </div>
-              {[["Sale price", money(sum("sale"))], ["Selling costs", money(-sum("selling"))], ["Loans + interest", money(-sum("loans"))], ["Interest reserve", `+${money(sum("reserve"))}`], ["Open bills", money(-sum("billsTotal"))]].map(([l, v]) => (
-                <div key={l} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: T.textSub, marginTop: 4, fontVariantNumeric: "tabular-nums" }}><span>{l}</span><span>{v}</span></div>
-              ))}
-            </div>
-            {rows.map((r) => {
-              const [c, bg] = SC[r.p.status] || [T.textSub, T.bg];
-              const pinned = pins.has(String(r.p.id));
-              const line = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.border}`, minHeight: 44, fontSize: 14 };
-              const lbl = { color: T.textSub, fontSize: 13.5 };
-              const tapRow = (kind, label, value, note, color) => (
-                <button onClick={() => setPop({ kind, id: r.p.id })} style={{ ...line, width: "100%", background: "none", borderLeft: "none", borderRight: "none", borderBottom: "none", fontFamily: "inherit", cursor: "pointer", textAlign: "left" }}>
-                  <span style={lbl}>{label}{note && <span style={{ ...sub, color: note.color || T.textTert }}>{note.text}</span>}</span>
-                  <span style={{ color: color || T.blue, fontVariantNumeric: "tabular-nums", fontSize: 14.5 }}>{value} <span style={{ color: T.textTert }}>›</span></span>
-                </button>
-              );
-              return (
-                <div key={r.p.id} style={{ background: "#fff", borderRadius: 14, boxShadow: T.shadow, padding: "10px 14px 6px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 8 }}>
-                    <button onClick={() => togglePin(r.p.id)} aria-label={pinned ? "Unpin from model" : "Pin to model"} style={{ width: 40, height: 40, borderRadius: 20, border: "none", background: pinned ? T.goldLight : "transparent", cursor: "pointer", fontSize: 16, opacity: pinned ? 1 : 0.35, flexShrink: 0 }}>📌</button>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, color: T.text, fontSize: 15, lineHeight: 1.25 }}>{r.p.address}{r.p.city ? `, ${r.p.city}` : ""}</div>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: c, background: bg, borderRadius: 20, padding: "2px 8px", display: "inline-block", marginTop: 3 }}>{r.p.status}</span>
-                    </div>
-                  </div>
-                  <div style={line}>
-                    <span style={lbl}>Closing date<span style={sub}>{r.closeSrc} · {r.d} days{r.p.coCloseDate && canEdit ? <> · <button onClick={() => set(r.p, "coCloseDate", "")} style={{ ...tap, fontSize: 11 }}>reset</button></> : null}</span></span>
-                    <input type="date" disabled={!canEdit} value={r.close} onChange={(e) => set(r.p, "coCloseDate", e.target.value || "")} style={{ ...inp, width: 150, fontSize: 14, padding: "7px 8px" }} />
-                  </div>
-                  <div style={line}>
-                    <span style={lbl}>Sale price<span style={sub}>{r.own ? <>your price{canEdit ? <> · <button onClick={() => set(r.p, "coSalePrice", "")} style={{ ...tap, fontSize: 11 }}>reset</button></> : null}</> : r.baseSrc}</span></span>
-                    <NumIn value={r.sale} width={130} disabled={!canEdit} onSave={(v) => set(r.p, "coSalePrice", v === "" || Math.round(v) === Math.round(r.base) ? "" : v)} />
-                  </div>
-                  {tapRow("sell", "Selling costs", money(-r.selling), r.paidCredit > 0 ? { text: `${money(r.paidCredit)} already paid`, color: "#1E7B3C" } : null)}
-                  {tapRow("loans", "Loans + interest", money(-r.loans), r.lenderCredit > 0 ? { text: `${money(r.lenderCredit)} interest paid ahead back`, color: "#1E7B3C" } : null)}
-                  <div style={line}><span style={lbl}>Interest reserve</span><span style={{ color: r.reserve > 0 ? "#1E7B3C" : T.textTert, fontWeight: r.reserve > 0 ? 600 : 400, fontVariantNumeric: "tabular-nums" }}>{r.reserve > 0 ? `+${money(r.reserve)}` : "$0"}</span></div>
-                  {tapRow("bills", "Open bills", r.billsCount ? money(-r.billsTotal) : r.ctrBills.length ? "$0" : "＋ Add", r.billsCount ? { text: `${r.billsCount} bill${r.billsCount === 1 ? "" : "s"}` } : null, r.billsCount || r.ctrBills.length ? null : T.textTert)}
-                  <div style={{ ...line, borderTop: `1.5px solid ${T.text}22` }}>
-                    <span style={{ fontWeight: 800, color: T.text, fontSize: 14.5 }}>Est. cash out</span>
-                    <span style={{ fontWeight: 800, fontSize: 18, color: r.cash < 0 ? T.red : "#8a6d1f", fontVariantNumeric: "tabular-nums" }}>{money(r.cash)}</span>
-                  </div>
-                </div>
-              );
-            })}
+          // 📱 Phones (Elie 10/30/26: "like a spreadsheet on the mobile app as
+          // well — smaller lettering is fine"): the same columns squeezed to the
+          // screen, whole dollars without "$"; tap the property to change its
+          // closing date / sale price / pin, tap a number for its breakdown.
+          <div style={{ background: "#fff", borderRadius: 12, boxShadow: T.shadow, overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 10 }}>
+              <thead><tr>{["Property", "Sale", "Selling", "Loans", "Resrv", "Bills", "Cash out"].map((h, i) => (
+                <th key={h} style={{ ...mHead, textAlign: i ? "right" : "left", paddingLeft: i ? 2 : 6, paddingRight: i === 6 ? 6 : 2 }}>{h}</th>
+              ))}</tr></thead>
+              <tbody>
+                {rows.map((r) => {
+                  const [c] = SC[r.p.status] || [T.textSub];
+                  const pinned = pins.has(String(r.p.id));
+                  const numBtn = (kind, v, color) => <button onClick={() => setPop({ kind, id: r.p.id })} style={{ ...mTap, color: color || T.blue }}>{v}</button>;
+                  return (
+                    <tr key={r.p.id}>
+                      <td style={{ ...mCell, textAlign: "left", whiteSpace: "normal", paddingLeft: 6, minWidth: 64 }}>
+                        <button onClick={() => setPop({ kind: "deal", id: r.p.id })} style={{ background: "none", border: "none", padding: 0, textAlign: "left", fontFamily: "inherit", cursor: "pointer", color: T.text, width: "100%" }}>
+                          <span style={{ display: "block", fontWeight: 700, fontSize: 10.5, lineHeight: 1.2 }}>{pinned ? "📌 " : ""}{String(r.p.address || "").replace(/,.*$/, "")}</span>
+                          <span style={{ display: "block", fontSize: 10, color: c, fontWeight: 600, marginTop: 1 }}>{shortDate(r.close)} · {r.d}d{r.p.coCloseDate ? " ✎" : ""}</span>
+                        </button>
+                      </td>
+                      <td style={mCell}><button onClick={() => setPop({ kind: "deal", id: r.p.id })} style={{ ...mTap, color: r.own ? "#8a6d1f" : T.text, textDecoration: "none" }}>{plain(r.sale)}</button></td>
+                      <td style={mCell}>{numBtn("sell", plain(-r.selling))}</td>
+                      <td style={mCell}>{numBtn("loans", plain(-r.loans))}</td>
+                      <td style={{ ...mCell, color: r.reserve > 0 ? "#1E7B3C" : T.textTert }}>{r.reserve > 0 ? `+${plain(r.reserve)}` : "0"}</td>
+                      <td style={mCell}>{numBtn("bills", r.billsCount ? plain(-r.billsTotal) : r.ctrBills.length ? "0" : "＋", r.billsCount || r.ctrBills.length ? null : T.textTert)}</td>
+                      <td style={{ ...mCell, fontWeight: 800, color: r.cash < 0 ? T.red : "#8a6d1f", paddingRight: 6 }}>{plain(r.cash)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot><tr style={{ background: T.goldLight }}>
+                <td style={{ ...mCell, textAlign: "left", fontWeight: 800, borderBottom: "none", paddingLeft: 6 }}>Total</td>
+                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none" }}>{plain(sum("sale"))}</td>
+                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none" }}>{plain(-sum("selling"))}</td>
+                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none" }}>{plain(-sum("loans"))}</td>
+                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none", color: "#1E7B3C" }}>+{plain(sum("reserve"))}</td>
+                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none" }}>{plain(-sum("billsTotal"))}</td>
+                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none", color: "#8a6d1f", paddingRight: 6 }}>{plain(sum("cash"))}</td>
+              </tr></tfoot>
+            </table>
+            <div style={{ fontSize: 10.5, color: T.textTert, padding: "6px 8px" }}>All amounts in $. Tap a property to change its closing date, sale price or 📌 pin; tap a blue number for the breakdown.</div>
           </div>
         ) : (
           <div style={{ background: "#fff", borderRadius: 14, boxShadow: T.shadow, overflow: "auto" }}>
@@ -417,6 +416,24 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
             return dup.length ? <div style={{ fontSize: 12, color: T.textTert, marginTop: 8, lineHeight: 1.45 }}>Not counted again: {dup.join(", ")} — the same money as the private lenders above.</div> : null;
           })()}
           {cur.reserve > 0 && <div style={{ fontSize: 12.5, color: "#1E7B3C", marginTop: 8 }}>+{money(cur.reserve)} interest reserve comes back to you (shown in its own column).</div>}
+        </Sheet>
+      )}
+
+      {cur && pop.kind === "deal" && (
+        <Sheet title={String(cur.p.address || "").replace(/,.*$/, "")} sub={cur.p.status} isMobile={isMobile} onClose={() => setPop(null)}>
+          <div style={{ ...rowS, borderTop: "none" }}>
+            <span>Closing date<span style={small}>{cur.closeSrc} · {cur.d} days{cur.p.coCloseDate && canEdit ? <> · <button onClick={() => set(cur.p, "coCloseDate", "")} style={{ ...tap, fontSize: 11.5 }}>reset</button></> : null}</span></span>
+            <input type="date" disabled={!canEdit} value={cur.close} onChange={(e) => set(cur.p, "coCloseDate", e.target.value || "")} style={{ ...inp, width: 150, fontSize: 15, padding: "8px" }} />
+          </div>
+          <div style={rowS}>
+            <span>Sale price<span style={small}>{cur.own ? <>your price{canEdit ? <> · <button onClick={() => set(cur.p, "coSalePrice", "")} style={{ ...tap, fontSize: 11.5 }}>reset</button></> : null}</> : cur.baseSrc}</span></span>
+            <NumIn value={cur.sale} width={140} disabled={!canEdit} onSave={(v) => set(cur.p, "coSalePrice", v === "" || Math.round(v) === Math.round(cur.base) ? "" : v)} />
+          </div>
+          <div style={rowS}>
+            <span>📌 Pin to my model<span style={small}>shows in the 📌 Model view</span></span>
+            <button onClick={() => togglePin(cur.p.id)} style={{ minHeight: 44, padding: "0 16px", borderRadius: 22, border: "none", background: pins.has(String(cur.p.id)) ? T.gold : "rgba(118,118,128,0.12)", color: pins.has(String(cur.p.id)) ? "#fff" : T.text, fontWeight: 700, fontSize: 14, fontFamily: "inherit", cursor: "pointer" }}>{pins.has(String(cur.p.id)) ? "Pinned ✓" : "Pin"}</button>
+          </div>
+          <div style={totS}><span>Est. cash out</span><span>{money(cur.cash)}</span></div>
         </Sheet>
       )}
 

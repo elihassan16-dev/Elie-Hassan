@@ -9,7 +9,10 @@
 //  • selling-cost lines he leaves out (p.coSellOff = item keys),
 //  • selling costs QuickBooks shows ALREADY PAID on the deal's project are
 //    credited back (Elie 10/30/26) — they're spent, not owed at closing,
-//  • the whole line of credit is paid off at closing (full principal),
+//  • the line of credit = the private lenders' money: paid off at closing as
+//    principal + interest to the closing date. The QuickBooks credit-line
+//    accounts on the deal are the SAME money, so they're only counted when no
+//    private-lender funding is linked to the deal (Elie 10/30/26: "double dipping"),
 //  • open bills he types per vendor (p.coBills [{id,vendor,amount,note}]),
 //  • 📌 pins for a model (his own, prefs.coPins) + views: In Closing by date,
 //    the pipeline (In Closing + On Market + Under Construction), 📌 Model.
@@ -73,13 +76,14 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
   const hmInterest = Math.round(hm.full * (hm.rate / 100) / 365 * d);
   const credit = creditLines(p, accounts, bankAccounts).filter((c) => c.rate > 0);
   const lenders = privateLenderPayoff(drawsForProperty(p, draws), close);
-  const loans = hm.drawn + hmInterest + credit.reduce((s, c) => s + c.balance, 0) + lenders.reduce((s, l) => s + l.total, 0);
+  const creditCounted = !lenders.length; // lenders linked → QuickBooks credit lines are the same money
+  const loans = hm.drawn + hmInterest + (creditCounted ? credit.reduce((s, c) => s + c.balance, 0) : 0) + lenders.reduce((s, l) => s + l.total, 0);
   const allIn = p.qbAllInCost !== undefined && p.qbAllInCost !== null && p.qbAllInCost !== "" ? Number(p.qbAllInCost) : (p.qbProjectId && spend && spend[p.qbProjectId] && spend[p.qbProjectId].allIn != null ? spend[p.qbProjectId].allIn : null);
   const reserve = Math.max(0, interestReserveLeft(p, accounts, bankAccounts, allIn) || 0);
   const bills = (p.coBills || []).filter((b) => n(b.amount));
   const billsTotal = bills.reduce((s, b) => s + n(b.amount), 0);
   return {
-    p, close, closeSrc, d, sale, own, baseSrc, base, sc, lines, selling, paidCredit, hm, hmInterest, credit, lenders, loans, reserve, bills, billsTotal,
+    p, close, closeSrc, d, sale, own, baseSrc, base, sc, lines, selling, paidCredit, hm, hmInterest, credit, creditCounted, lenders, loans, reserve, bills, billsTotal,
     cash: Math.round(sale - selling - loans + reserve - billsTotal),
   };
 }
@@ -224,7 +228,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
             </table>
           </div>
         )}
-        <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 10, lineHeight: 1.5 }}>Hard-money interest runs from today to the closing date on the full loan (incl. any undrawn holdback), the way the Financial Overview figures it. Lines of credit are paid off in full at closing; private lenders get principal + interest to the closing date; your own 0% loans are paid back with no interest. Selling costs QuickBooks already shows as paid on the deal are credited back.</div>
+        <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 10, lineHeight: 1.5 }}>Hard-money interest runs from today to the closing date on the full loan (incl. any undrawn holdback), the way the Financial Overview figures it. Your line of credit is the private lenders' money, paid off at closing as principal + interest to the closing date (the QuickBooks credit-line accounts are the same money and only count when no lender funding is linked to the deal); your own 0% loans are paid back with no interest. Selling costs QuickBooks already shows as paid on the deal are credited back.</div>
       </div>
 
       {cur && pop.kind === "sell" && (
@@ -249,12 +253,13 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
             const items = [];
             cur.hm.lenders.forEach((x) => { const nm = x.name.split(":").pop().trim(); items.push([/hard money/i.test(nm) ? nm : `Hard money — ${nm}`, "principal drawn", x.balance]); });
             if (cur.hmInterest) items.push(["Hard-money interest to closing", `${cur.hm.rate}% on ${money(cur.hm.full)}${cur.hm.undrawn ? ` (incl. ${money(cur.hm.undrawn)} undrawn holdback)` : ""} · ${cur.d} days`, cur.hmInterest]);
-            cur.credit.forEach((c) => items.push([`Line of credit — ${c.name.split(":").pop().trim()}`, "full principal paid at closing", c.balance]));
+            if (cur.creditCounted) cur.credit.forEach((c) => items.push([`Line of credit — ${c.name.split(":").pop().trim()}`, "full principal paid at closing (no private-lender funding linked)", c.balance]));
             cur.lenders.forEach((l) => items.push([l.owner ? `${l.lender} — 0% loan` : `Private lender — ${l.lender}`, l.owner ? "principal paid back at closing, no interest" : `${money(l.principal)} + interest to closing @ ${Math.round(l.rate * 10000) / 100}%`, l.total]));
             if (!items.length) return <div style={{ fontSize: 13.5, color: T.textSub, padding: "8px 0" }}>No loans linked to this deal yet — link them on the Property Balance Sheet.</div>;
             return items.map(([a, b, v], i) => <div key={i} style={{ ...rowS, borderTop: i ? rowS.borderTop : "none" }}><span>{a}<span style={small}>{b}</span></span><span style={{ fontVariantNumeric: "tabular-nums" }}>{money(v)}</span></div>);
           })()}
           <div style={totS}><span>Total</span><span>{money(cur.loans)}</span></div>
+          {!cur.creditCounted && cur.credit.length > 0 && <div style={{ fontSize: 12, color: T.textTert, marginTop: 8, lineHeight: 1.45 }}>Not counted again: {cur.credit.map((c) => `${c.name.split(":").pop().trim()} ${money(c.balance)}`).join(", ")} in QuickBooks — that's the same line-of-credit money as the private lenders above.</div>}
           {cur.reserve > 0 && <div style={{ fontSize: 12.5, color: "#1E7B3C", marginTop: 8 }}>+{money(cur.reserve)} interest reserve comes back to you (shown in its own column).</div>}
         </Sheet>
       )}

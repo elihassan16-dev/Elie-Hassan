@@ -143,6 +143,20 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
   };
 }
 
+// Every loan line on a deal, as [label, detail, amount] — Loans pop-up + breakdown.
+function loanItems(cur) {
+  const items = [];
+  cur.hmRows.filter((x) => !x.sameAs).forEach((x) => { const nm = x.name.split(":").pop().trim(); items.push([/hard money/i.test(nm) ? nm : `Hard money — ${nm}`, "principal drawn", x.balance]); });
+  if (cur.hmInterest) items.push(["Hard-money interest to closing", `${cur.hm.rate}% on the ${money(cur.hmDrawn)} drawn · ${cur.d} days`, cur.hmInterest]);
+  if (cur.creditCounted) cur.credit.forEach((c) => items.push([`Line of credit — ${c.name.split(":").pop().trim()}`, "full principal paid at closing (no private-lender funding linked)", c.balance]));
+  cur.floats.forEach((e) => items.push([`🌉 Float — ${e.name.replace(/^.* — floated until next draw — /, "").replace(/^Borrowed — /, "")}`, "your own money, paid back at closing · no interest", e.bal]));
+  cur.lenders.forEach((l) => {
+    items.push([l.owner ? `${l.lender} — 0% loan` : `Private lender — ${l.lender}`, l.owner ? "principal paid back at closing, no interest" : `${money(l.principal)} + interest to closing @ ${Math.round(l.rate * 10000) / 100}%`, l.total]);
+    if (l.credit) items.push([`${l.lender} — interest already paid ahead`, "his ledger shows interest owed below $0 — comes back to you", -l.credit]);
+  });
+  return items;
+}
+
 // Phone spreadsheet: whole dollars, no "$" (the header says it), "−" for out.
 const plain = (v) => `${v < 0 ? "−" : ""}${Math.round(Math.abs(Number(v) || 0)).toLocaleString("en-US")}`;
 const shortDate = (ymd) => { const d = new Date(`${ymd}T12:00:00`); return isNaN(d) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); };
@@ -282,49 +296,48 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
             {view === "model" ? "No deals pinned yet. Switch to another view and tap 📌 next to the deals you want to model." : view === "closing" ? "No deals are In Closing right now." : "No deals in the pipeline."}
           </div>
         ) : isMobile ? (
-          // 📱 Phones (Elie 10/30/26: "like a spreadsheet on the mobile app as
-          // well — smaller lettering is fine"): the same columns squeezed to the
-          // screen, whole dollars without "$"; tap the property to change its
-          // closing date / sale price / pin, tap a number for its breakdown.
-          <div style={{ background: "#fff", borderRadius: 12, boxShadow: T.shadow, overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 10 }}>
-              <thead><tr>{["Property", "Sale", "Selling", "Loans", "Resrv", "Bills", "Cash out"].map((h, i) => (
-                <th key={h} style={{ ...mHead, textAlign: i ? "right" : "left", paddingLeft: i ? 2 : 6, paddingRight: i === 6 ? 6 : 2 }}>{h}</th>
+          // 📱 Phones (Elie 10/30/26): one clean line per deal — property ·
+          // closing date · sale price · costs (selling + loans + bills − reserve
+          // back, in one number) · cash out. Tap costs/cash out for the whole
+          // breakdown line by line; tap the property / date / price to edit.
+          <div style={{ background: "#fff", borderRadius: 12, boxShadow: T.shadow, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed", fontSize: 11.5 }}>
+              <colgroup><col style={{ width: "33%" }} /><col style={{ width: "15%" }} /><col style={{ width: "18%" }} /><col style={{ width: "17%" }} /><col style={{ width: "17%" }} /></colgroup>
+              <thead><tr>{["Property", "Closes", "Sale", "Costs", "Cash out"].map((h, i) => (
+                <th key={h} style={{ ...mHead, fontSize: 9.5, textAlign: i ? "right" : "left", paddingLeft: i ? 2 : 8, paddingRight: i === 4 ? 8 : 2 }}>{h}</th>
               ))}</tr></thead>
               <tbody>
                 {rows.map((r) => {
                   const [c] = SC[r.p.status] || [T.textSub];
                   const pinned = pins.has(String(r.p.id));
-                  const numBtn = (kind, v, color) => <button onClick={() => setPop({ kind, id: r.p.id })} style={{ ...mTap, color: color || T.blue }}>{v}</button>;
+                  const edit = () => setPop({ kind: "deal", id: r.p.id });
+                  const open = () => setPop({ kind: "cash", id: r.p.id });
+                  const btn = { background: "none", border: "none", padding: 0, fontFamily: "inherit", cursor: "pointer", width: "100%", minHeight: 40, fontVariantNumeric: "tabular-nums", fontSize: 11.5 };
                   return (
                     <tr key={r.p.id}>
-                      <td style={{ ...mCell, textAlign: "left", whiteSpace: "normal", paddingLeft: 6, minWidth: 64 }}>
-                        <button onClick={() => setPop({ kind: "deal", id: r.p.id })} style={{ background: "none", border: "none", padding: 0, textAlign: "left", fontFamily: "inherit", cursor: "pointer", color: T.text, width: "100%" }}>
-                          <span style={{ display: "block", fontWeight: 700, fontSize: 10.5, lineHeight: 1.2 }}>{pinned ? "📌 " : ""}{String(r.p.address || "").replace(/,.*$/, "")}</span>
-                          <span style={{ display: "block", fontSize: 10, color: c, fontWeight: 600, marginTop: 1 }}>{shortDate(r.close)} · {r.d}d{r.p.coCloseDate ? " ✎" : ""}</span>
+                      <td style={{ ...mCell, textAlign: "left", paddingLeft: 8 }}>
+                        <button onClick={edit} style={{ ...btn, textAlign: "left", color: T.text, fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
+                          <span style={{ width: 7, height: 7, borderRadius: 4, background: c, flexShrink: 0 }} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pinned && view !== "model" ? "📌 " : ""}{String(r.p.address || "").replace(/,.*$/, "")}</span>
                         </button>
                       </td>
-                      <td style={mCell}><button onClick={() => setPop({ kind: "deal", id: r.p.id })} style={{ ...mTap, color: r.own ? "#8a6d1f" : T.text, textDecoration: "none" }}>{plain(r.sale)}</button></td>
-                      <td style={mCell}>{numBtn("sell", plain(-r.selling))}</td>
-                      <td style={mCell}>{numBtn("loans", plain(-r.loans))}</td>
-                      <td style={{ ...mCell, color: r.reserve > 0 ? "#1E7B3C" : T.textTert }}>{r.reserve > 0 ? `+${plain(r.reserve)}` : "0"}</td>
-                      <td style={mCell}>{numBtn("bills", r.billsCount ? plain(-r.billsTotal) : r.ctrBills.length ? "0" : "＋", r.billsCount || r.ctrBills.length ? null : T.textTert)}</td>
-                      <td style={{ ...mCell, fontWeight: 800, color: r.cash < 0 ? T.red : "#8a6d1f", paddingRight: 6 }}>{plain(r.cash)}</td>
+                      <td style={mCell}><button onClick={edit} style={{ ...btn, textAlign: "right", color: r.p.coCloseDate ? "#8a6d1f" : T.textSub }}>{shortDate(r.close)}</button></td>
+                      <td style={mCell}><button onClick={edit} style={{ ...btn, textAlign: "right", color: r.own ? "#8a6d1f" : T.text }}>{plain(r.sale)}</button></td>
+                      <td style={mCell}><button onClick={open} style={{ ...btn, textAlign: "right", color: T.blue }}>{plain(r.cash - r.sale)}</button></td>
+                      <td style={{ ...mCell, paddingRight: 8 }}><button onClick={open} style={{ ...btn, textAlign: "right", fontWeight: 800, color: r.cash < 0 ? T.red : "#8a6d1f" }}>{plain(r.cash)}</button></td>
                     </tr>
                   );
                 })}
               </tbody>
               <tfoot><tr style={{ background: T.goldLight }}>
-                <td style={{ ...mCell, textAlign: "left", fontWeight: 800, borderBottom: "none", paddingLeft: 6 }}>Total</td>
+                <td style={{ ...mCell, textAlign: "left", fontWeight: 800, borderBottom: "none", paddingLeft: 8 }}>Total · {rows.length}</td>
+                <td style={{ ...mCell, borderBottom: "none" }} />
                 <td style={{ ...mCell, fontWeight: 800, borderBottom: "none" }}>{plain(sum("sale"))}</td>
-                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none" }}>{plain(-sum("selling"))}</td>
-                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none" }}>{plain(-sum("loans"))}</td>
-                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none", color: "#1E7B3C" }}>+{plain(sum("reserve"))}</td>
-                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none" }}>{plain(-sum("billsTotal"))}</td>
-                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none", color: "#8a6d1f", paddingRight: 6 }}>{plain(sum("cash"))}</td>
+                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none" }}>{plain(sum("cash") - sum("sale"))}</td>
+                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none", color: "#8a6d1f", paddingRight: 8 }}>{plain(sum("cash"))}</td>
               </tr></tfoot>
             </table>
-            <div style={{ fontSize: 10.5, color: T.textTert, padding: "6px 8px" }}>All amounts in $. Tap a property to change its closing date, sale price or 📌 pin; tap a blue number for the breakdown.</div>
+            <div style={{ fontSize: 10.5, color: T.textTert, padding: "6px 8px", lineHeight: 1.4 }}>All amounts in $. Costs = selling costs + loans & interest + open bills − interest reserve back. Tap costs or cash out for the full breakdown; tap a property, date or price to change it.</div>
           </div>
         ) : (
           <div style={{ background: "#fff", borderRadius: 14, boxShadow: T.shadow, overflow: "auto" }}>
@@ -398,15 +411,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
       {cur && pop.kind === "loans" && (
         <Sheet title="Loans + interest" sub={`${cur.p.address} · closing ${mdy(cur.close)} (${cur.d} days)`} isMobile={isMobile} onClose={() => setPop(null)}>
           {(() => {
-            const items = [];
-            cur.hmRows.filter((x) => !x.sameAs).forEach((x) => { const nm = x.name.split(":").pop().trim(); items.push([/hard money/i.test(nm) ? nm : `Hard money — ${nm}`, "principal drawn", x.balance]); });
-            if (cur.hmInterest) items.push(["Hard-money interest to closing", `${cur.hm.rate}% on the ${money(cur.hmDrawn)} drawn · ${cur.d} days`, cur.hmInterest]);
-            if (cur.creditCounted) cur.credit.forEach((c) => items.push([`Line of credit — ${c.name.split(":").pop().trim()}`, "full principal paid at closing (no private-lender funding linked)", c.balance]));
-            cur.floats.forEach((e) => items.push([`🌉 Float — ${e.name.replace(/^.* — floated until next draw — /, "").replace(/^Borrowed — /, "")}`, "your own money, paid back at closing · no interest", e.bal]));
-            cur.lenders.forEach((l) => {
-              items.push([l.owner ? `${l.lender} — 0% loan` : `Private lender — ${l.lender}`, l.owner ? "principal paid back at closing, no interest" : `${money(l.principal)} + interest to closing @ ${Math.round(l.rate * 10000) / 100}%`, l.total]);
-              if (l.credit) items.push([`${l.lender} — interest already paid ahead`, "his ledger shows interest owed below $0 — comes back to you", -l.credit]);
-            });
+            const items = loanItems(cur);
             if (!items.length) return <div style={{ fontSize: 13.5, color: T.textSub, padding: "8px 0" }}>No loans linked to this deal yet — link them on the Property Balance Sheet.</div>;
             return items.map(([a, b, v], i) => <div key={i} style={{ ...rowS, borderTop: i ? rowS.borderTop : "none" }}><span>{a}<span style={small}>{b}</span></span><span style={{ fontVariantNumeric: "tabular-nums" }}>{money(v)}</span></div>);
           })()}
@@ -418,6 +423,42 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
           {cur.reserve > 0 && <div style={{ fontSize: 12.5, color: "#1E7B3C", marginTop: 8 }}>+{money(cur.reserve)} interest reserve comes back to you (shown in its own column).</div>}
         </Sheet>
       )}
+
+      {cur && pop.kind === "cash" && (() => {
+        const secHead = (label, total, editKind) => (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "14px 0 2px", gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: T.textSub, textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}{editKind && canEdit ? <button onClick={() => setPop({ kind: editKind, id: cur.p.id })} style={{ ...tap, fontSize: 11.5, marginLeft: 8, textTransform: "none", letterSpacing: 0, fontWeight: 600 }}>Edit ›</button> : null}</span>
+            <span style={{ fontSize: 13.5, fontWeight: 800, fontVariantNumeric: "tabular-nums", color: total > 0 ? "#1E7B3C" : T.text }}>{total > 0 ? "+" : ""}{money(total)}</span>
+          </div>
+        );
+        const li = (key, label, note, amount) => (
+          <div key={key} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0 6px 10px", borderTop: `1px solid ${T.border}`, fontSize: 13 }}>
+            <span style={{ color: T.text, minWidth: 0 }}>{label}{note && <span style={small}>{note}</span>}</span>
+            <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: amount > 0 ? "#1E7B3C" : T.textSub }}>{amount > 0 ? "+" : ""}{money(amount)}</span>
+          </div>
+        );
+        const sell = cur.lines.length ? cur.lines.filter((l) => l.on) : [];
+        const loansL = loanItems(cur);
+        const ctr = cur.ctrBills.filter((c) => c.on);
+        return (
+          <Sheet title={String(cur.p.address || "").replace(/,.*$/, "")} sub={`${cur.p.status} · closes ${mdy(cur.close)} (${cur.d} days)`} isMobile={isMobile} onClose={() => setPop(null)}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: T.textSub, textTransform: "uppercase", letterSpacing: "0.04em" }}>Sale price{canEdit ? <button onClick={() => setPop({ kind: "deal", id: cur.p.id })} style={{ ...tap, fontSize: 11.5, marginLeft: 8, textTransform: "none", letterSpacing: 0, fontWeight: 600 }}>Edit ›</button> : null}<span style={{ ...small, textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>{cur.own ? "your price" : cur.baseSrc}</span></span>
+              <span style={{ fontSize: 15, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{money(cur.sale)}</span>
+            </div>
+            {secHead("Selling costs", -cur.selling, "sell")}
+            {sell.length ? sell.map((l) => li(l.key, l.title, l.paid > 0 ? `${money(l.paid)} already paid in QuickBooks` : "", -l.owed)) : li("st", "Selling costs (total)", cur.sc.source, -cur.selling)}
+            {secHead("Loans + interest", -cur.loans, "loans")}
+            {loansL.length ? loansL.map(([a, b, v], i) => li(`l${i}`, a, b, -v)) : li("nl", "No loans linked", "", 0)}
+            {cur.reserve > 0 && <>{secHead("Interest reserve back", cur.reserve)}{li("rs", "Left in the reserve — comes back to you", "", cur.reserve)}</>}
+            {secHead("Open bills", -cur.billsTotal, "bills")}
+            {ctr.map((c) => li(c.key, `👷 ${c.vendor}`, `contract ${money(c.contract)} · paid ${money(c.paid)}`, -c.left))}
+            {cur.bills.map((b) => li(`b${b.id}`, `✍️ ${b.vendor}`, b.note, -n(b.amount)))}
+            {!ctr.length && !cur.bills.length && li("nb", "No open bills", "", 0)}
+            <div style={{ ...totS, marginTop: 14 }}><span>Est. cash out</span><span>{money(cur.cash)}</span></div>
+          </Sheet>
+        );
+      })()}
 
       {cur && pop.kind === "deal" && (
         <Sheet title={String(cur.p.address || "").replace(/,.*$/, "")} sub={cur.p.status} isMobile={isMobile} onClose={() => setPop(null)}>

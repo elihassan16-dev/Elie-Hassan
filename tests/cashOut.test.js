@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   loanEntries, hardMoney, interestReserveLeft, creditLines, sellingLines, sellingCosts,
-  closingDates, privateLenderPayoff, openBillsFor, contractorBalances, unpaidTotal, pnlAllIn, cashOut, balanceSheet,
+  closingDates, privateLenderPayoff, manualBills, contractorBalances, pnlAllIn, cashOut, balanceSheet,
 } from "../lib/cashOut.js";
 
 const accounts = [
@@ -98,33 +98,25 @@ test("private-lender payoff projects interest to the closing date; owner loans a
   assert.equal(r[1].total, 50000);
 });
 
-test("open bills: only lines for this project, scaled to what's still unpaid", () => {
-  const p = { ...baseProp(), qbProjectId: "77" };
-  const bills = [
-    { VendorRef: { name: "ABC Plumbing" }, Balance: 500, TotalAmt: 1000, DueDate: "2026-11-30", Line: [
-      { Amount: 800, AccountBasedExpenseLineDetail: { CustomerRef: { value: "77", name: "12 Main St" } } },
-      { Amount: 200, AccountBasedExpenseLineDetail: { CustomerRef: { value: "99", name: "5 Other Rd" } } },
-    ] },
-    { VendorRef: { name: "Paid Co" }, Balance: 0, TotalAmt: 300, Line: [{ Amount: 300, AccountBasedExpenseLineDetail: { CustomerRef: { value: "77" } } }] },
-  ];
-  const b = openBillsFor(p, bills);
-  assert.equal(b.length, 1);
-  assert.equal(b[0].amount, 400);                        // 800 × 500/1000
+test("open bills are the ones the user enters; blanks ignored", () => {
+  const m = manualBills([{ amount: 1200, note: "Plumber" }, { amount: "350", note: "PSE&G" }, { amount: 0 }]);
+  assert.equal(m.total, 1550);
+  assert.equal(m.bills.length, 2);
+  assert.equal(manualBills(undefined).total, 0);
 });
 
-test("contractor balances + bills never count the same vendor twice", () => {
-  const p = baseProp();
+test("contractor balances are listed for reference (hired jobs on this property only)", () => {
   const jobs = [
     { id: "j1", propertyId: 1, orgId: "o1", status: "active", title: "Full reno", price: 50000, changeOrders: [{ amount: 5000 }], payments: [{ amount: 40000 }] },
     { id: "j2", propertyId: 1, orgId: "o2", status: "bid", price: 9000 },
     { id: "j3", propertyId: 2, orgId: "o1", status: "active", price: 1000 },
   ];
-  const orgs = [{ id: "o1", name: "MCD Builds LLC" }, { id: "o2", name: "Bidder" }];
-  const c = contractorBalances(p, jobs, orgs);
+  const c = contractorBalances(baseProp(), jobs, [{ id: "o1", name: "MCD Builds LLC" }]);
   assert.deepEqual(c.map((x) => [x.vendor, x.left]), [["MCD Builds LLC", 15000]]);
-  const u = unpaidTotal([{ vendor: "MCD Builds", amount: 3000 }, { vendor: "PSE&G", amount: 200 }], c);
-  assert.equal(u.total, 15200);
-  assert.equal(u.bills[0].inContract, true);
+  // ...and never change the cash out.
+  const withJobs = cashOut(baseProp(), ctx({ jobs, orgs: [] }), { defaultClose: "2026-12-31" });
+  const without = cashOut(baseProp(), ctx(), { defaultClose: "2026-12-31" });
+  assert.equal(withJobs.cashOut, without.cashOut);
 });
 
 test("P&L all-in from a raw Intuit report or an imported copy", () => {
@@ -140,18 +132,18 @@ test("P&L all-in from a raw Intuit report or an imported copy", () => {
 const ctx = (extra = {}) => ({ accounts, bankAccounts, draws: [
   { funderName: "Abe Lender", amount: 100000, rate: 12, dateFunded: "2026-01-01" },
   { funderName: "Elie Hassan", amount: 20000, rate: 0, dateFunded: "2026-03-01" },
-], bills: [], jobs: [], orgs: [], today: "2026-10-31", allIn: null, ...extra });
+], jobs: [], orgs: [], today: "2026-10-31", allIn: null, ...extra });
 
-test("cash out = sale − selling − HM − HM interest − private payoff + reserve − unpaid", () => {
+test("cash out = sale − selling − HM − HM interest − private payoff + reserve − open bills entered", () => {
   const p = baseProp();
-  const r = cashOut(p, ctx(), { defaultClose: "2026-12-31" });
+  const r = cashOut(p, ctx(), { defaultClose: "2026-12-31", openBills: [{ amount: 2500, note: "Electrician" }] });
   assert.equal(r.close, "2026-12-15");
   assert.equal(r.closeSource, "calendar");
   assert.equal(r.days, 45);
   const hmInt = Math.round(330000 * 0.10 / 365 * 45);
   assert.equal(r.hmInterest, hmInt);
   const plInt = 100000 * 0.12 / 365 * 348;               // Jan 1 → Dec 15
-  const expected = 480000 - 12600 - 300000 - hmInt - (100000 + plInt + 20000) + 22000 - 0;
+  const expected = 480000 - 12600 - 300000 - hmInt - (100000 + plInt + 20000) + 22000 - 2500;
   assert.equal(r.cashOut, Math.round(expected));
   assert.equal(r.ownerPayoff, 20000);                    // owner 0% loan = payoff, not cash out
   assert.equal(r.creditSubtracted, false);
@@ -190,11 +182,13 @@ test("connector text: every field shows, goal over/under, owner payoff called ou
   const { fmtBalanceSheet, fmtForecast } = await import("../lib/mcpMore.js");
   const sheet = fmtBalanceSheet(balanceSheet(baseProp(), ctx()));
   for (const s of ["$300,000 drawn", "full commitment $330,000", "Interest per month: $2,500 on drawn · $2,750 on full", "Interest reserve left: $22,000", "TD LOC $60,000", "Selling costs — actual: $12,600", "projected $", "Elie Hassan (owner)", "Sale price: $480,000", "closing (Calendar): 2026-12-15"]) assert.ok(sheet.includes(s), `missing: ${s}\n${sheet}`);
-  const r = [cashOut(baseProp(), ctx(), { defaultClose: "2026-12-31" })];
+  const r = [cashOut(baseProp(), ctx(), { defaultClose: "2026-12-31", openBills: [{ amount: 2500, note: "Electrician" }] })];
   const over = fmtForecast(r, r[0].cashOut - 1000, "2026-12-31");
   assert.match(over, /Goal \$[\d,]+: over by \$1,000\./);
   const under = fmtForecast(r, r[0].cashOut + 2500, "2026-12-31");
   assert.match(under, /short by \$2,500\./);
   assert.match(under, /after repaying \$20,000 of owner loans/);
   assert.match(under, /Elie Hassan — owner loan, payoff/);
+  assert.match(under, /open bills \$2,500 \(Electrician \$2,500\)/);
+  assert.match(sheet, /Contractor balances left \(reference — not counted/);
 });

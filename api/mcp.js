@@ -31,6 +31,7 @@ const INSTRUCTIONS = `Goldstone Properties is a real-estate flip and rental comp
 - Scope of work: write it in the house style (see create_scope_of_work), show it to the user, then create_scope_of_work makes the branded PDF, files it on the property and returns a link (email it with send_email attachments [{url, name}]).
 - Contractors: contractor_waiting = what's waiting on the team (change orders, bids, requests, unread messages); contractor_jobs; contractor_messages reads a job chat. message_contractor and decide_change_order reach the contractor — show the user first and wait for a yes; then confirmed=true.
 - deal_numbers and lender_balances are admin-only money numbers (same math as the app).
+- Cash-out analysis (admin-only, read-only): property_balance_sheet = a deal's hard money drawn/full, reserve, credit lines, actual selling costs, open bills, sale price + closing date; liquidation_forecast = estimated cash out per deal + total vs a goal — pull these instead of asking the user to type numbers.
 - Showing follow-ups in bulk: list_showings → draft one text per agent not followed up → show the whole list → ONE yes → send_texts with confirmed=true. list_leads shows new seller leads (or BoldTrail buyer leads).
 - Tasks: delete_task (confirm first), task_contact attaches/removes contacts on a task.
 - Media: property_media lists a property's photos; add_photos copies picture links in; remove_media (confirm first).

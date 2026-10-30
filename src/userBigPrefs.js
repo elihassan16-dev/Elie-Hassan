@@ -5,7 +5,7 @@
 // with "Exceeded maximum allowed HTTP header size" (Elie 10/5/26).
 import { supabase } from "./supabaseClient";
 
-export const BIG_KEYS = ["smsRead", "taskSeenIds", "propPushOrder", "callDismiss"];
+export const BIG_KEYS = ["smsRead", "taskSeenIds", "propPushOrder", "callDismiss", "coPins"];
 const rowId = (uid) => `uprefs_${uid}`;
 
 export async function sessionUid() {

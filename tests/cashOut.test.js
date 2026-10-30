@@ -140,7 +140,7 @@ test("cash out = sale − selling − HM − HM interest − private payoff + re
   assert.equal(r.close, "2026-12-15");
   assert.equal(r.closeSource, "calendar");
   assert.equal(r.days, 45);
-  const hmInt = Math.round(330000 * 0.10 / 365 * 45);
+  const hmInt = Math.round(300000 * 0.10 / 365 * 45);  // on the drawn balance only
   assert.equal(r.hmInterest, hmInt);
   const plInt = 100000 * 0.12 / 365 * 348;               // Jan 1 → Dec 15
   const expected = 480000 - 12600 - 300000 - hmInt - (100000 + plInt + 20000) + 22000 - 2500;

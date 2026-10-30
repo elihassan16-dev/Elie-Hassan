@@ -961,18 +961,24 @@ const hasInhouseRows=(items)=>(items||[]).some(i=>i.inhouse||i.autoType==="flatf
 function addInhousePackage(prev){
   const titles=prev.map(i=>String(i.title||"").toLowerCase());
   const has=(f)=>titles.some(f);
-  const base=Date.now();
-  const add=[{id:base+1,title:"Listing flat fee",autoType:"flatfee",auto:true,resp:"Seller Pays",inhouse:true,amountOverride:""}];
-  if(!has(t=>t.includes("staging")))add.push({id:base+2,title:"Staging",autoType:null,auto:false,resp:"Seller Pays",amount:"2500",inhouse:true});
-  if(!has(t=>t.includes("picture")||t.includes("boost")||t.includes("marketing")))add.push({id:base+3,title:"Pictures / boosting & marketing",autoType:null,auto:false,resp:"Seller Pays",amount:"1000",inhouse:true});
-  if(!has(t=>t.includes("pre-list")||t.includes("prelist")||t.includes("pre list")))add.push({id:base+4,title:"Pre-list inspection",autoType:null,auto:false,resp:"Seller Pays",amount:"550",inhouse:true});
-  if(!has(t=>t.includes("misc")))add.push({id:base+5,title:"Miscellaneous",autoType:null,auto:false,resp:"Seller Pays",amount:"1000",inhouse:true});
+  // Fixed ids: two devices adding the package at the same moment merge into
+  // the SAME lines instead of doubling them (Elie 10/30/26 — every line twice).
+  const add=[{id:"ih-flatfee",title:"Listing flat fee",autoType:"flatfee",auto:true,resp:"Seller Pays",inhouse:true,amountOverride:""}];
+  if(!has(t=>t.includes("staging")))add.push({id:"ih-staging",title:"Staging",autoType:null,auto:false,resp:"Seller Pays",amount:"2500",inhouse:true});
+  if(!has(t=>t.includes("picture")||t.includes("boost")||t.includes("marketing")))add.push({id:"ih-pictures",title:"Pictures / boosting & marketing",autoType:null,auto:false,resp:"Seller Pays",amount:"1000",inhouse:true});
+  if(!has(t=>t.includes("pre-list")||t.includes("prelist")||t.includes("pre list")))add.push({id:"ih-prelist",title:"Pre-list inspection",autoType:null,auto:false,resp:"Seller Pays",amount:"550",inhouse:true});
+  if(!has(t=>t.includes("misc")))add.push({id:"ih-misc",title:"Miscellaneous",autoType:null,auto:false,resp:"Seller Pays",amount:"1000",inhouse:true});
   const ci=prev.findIndex(i=>i.autoType==="commission");
   const lowered=prev.some(i=>!i.auto&&/misc/i.test(i.title||"")&&String(i.amount)==="2000");
   const out=prev.map(i=>!i.auto&&/misc/i.test(i.title||"")&&String(i.amount)==="2000"?{...i,amount:"1000"}:i);
   out.splice(ci<0?out.length:ci+1,0,...add);
   return {items:out,lowered};
 }
+// The same package line more than once (the 10/30/26 double-add): keep the
+// first of each, drop the copies. Only package lines are ever touched.
+const ihKey=(i)=>i.autoType==="flatfee"?"flatfee":i.inhouse?"t:"+String(i.title||"").toLowerCase().replace(/[^a-z0-9]/g,""):null;
+const ihDupes=(items)=>{const seen=new Set();return (items||[]).some(i=>{const k=ihKey(i);if(!k)return false;if(seen.has(k))return true;seen.add(k);return false;});};
+const dropIhDupes=(items)=>{const seen=new Set();return (items||[]).filter(i=>{const k=ihKey(i);if(!k)return true;if(seen.has(k))return false;seen.add(k);return true;});};
 // ─── Selling Costs Popup ──────────────────────────────────────────────────────
 function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, blank, allowInhouse=false}){
   const isMobile=useIsMobile();
@@ -23219,8 +23225,11 @@ export function GoldstoneShell(){
     if(!isAdmin||loading)return;
     const yr=String(new Date().getFullYear());
     const needs=(p)=>{
-      if(!p||p.archived)return null;
+      if(!p)return null;
       const f=p.financials||{};
+      const dup=ihDupes(f.sellingCostItems)||ihDupes(f.actualSellingCostItems);
+      if(dup)return {dup:true};
+      if(p.archived)return null;
       if(p.status==="Sold"&&String(f.sellingDate||"").slice(0,4)<yr)return null;
       const pj=(f.sellingCostItems||[]).length&&!f.inhouseApplied&&inhouseEligible(f.sellingCostItems)&&!hasInhouseRows(f.sellingCostItems);
       const ac=(f.actualSellingCostItems||[]).length&&!f.acInhouseApplied&&inhouseEligible(f.actualSellingCostItems)&&!hasInhouseRows(f.actualSellingCostItems);
@@ -23233,6 +23242,11 @@ export function GoldstoneShell(){
     setSharedProps(prev=>prev.map(p=>{
       const w=needs(p);if(!w)return p;
       const f={...(p.financials||{})};
+      if(w.dup){
+        if(ihDupes(f.sellingCostItems)){f.sellingCostItems=dropIhDupes(f.sellingCostItems);f.sellingCosts=String(cfSellingOf(f.salePrice,f.sellingCostItems,f.sellingCosts));}
+        if(ihDupes(f.actualSellingCostItems)){f.actualSellingCostItems=dropIhDupes(f.actualSellingCostItems);f.actualSellingCosts=String(cfSellingOf(f.actualSalePrice||f.salePrice,f.actualSellingCostItems,f.actualSellingCosts));}
+        return {...p,financials:f};
+      }
       if(w.pj){const it=addInhousePackage(f.sellingCostItems).items;f.sellingCostItems=it;f.sellingCosts=String(cfSellingOf(f.salePrice,it,f.sellingCosts));f.inhouseApplied=true;}
       if(w.seed){const base=(f.sellingCostItems||[]).map(i=>({...i}));const it=inhouseEligible(base)&&!hasInhouseRows(base)?addInhousePackage(base).items:base;f.actualSellingCostItems=it;f.actualSellingCosts=String(cfSellingOf(f.actualSalePrice,it,""));if(inhouseEligible(it))f.acInhouseApplied=true;}
       if(w.ac){const it=addInhousePackage(f.actualSellingCostItems).items;f.actualSellingCostItems=it;f.actualSellingCosts=String(cfSellingOf(f.actualSalePrice||f.salePrice,it,f.actualSellingCosts));f.acInhouseApplied=true;}

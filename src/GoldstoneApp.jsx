@@ -951,6 +951,28 @@ function BuyingCostsPopup({items, purchasePrice, currentResp, onChange, onClose}
 // tiered by sale price (overridable — Elie's number always wins) and the
 // standard prep costs get added once. Items carry inhouse:true for the tag.
 const INHOUSE_FLAT_FEE=(sp)=>{const v=n(sp);return v<=350000?1200:v<=500000?1500:2000;};
+const inhouseEligible=(items)=>{const c=(items||[]).find(i=>i.autoType==="commission");const pct=c?parseFloat(c.commissionPct)||0:0;return pct>0&&pct<=3;};
+const hasInhouseRows=(items)=>(items||[]).some(i=>i.inhouse||i.autoType==="flatfee");
+// The package itself — shared by the Selling Costs popup (Financial Overview
+// AND Actuals) and the one-time backfill (Elie 10/30/26: "make sure all the
+// ones I have right now have that same formula"). Flat fee right after the
+// commission; staging / pictures / pre-list / misc only when no line by that
+// name exists; an untouched $2,000 Miscellaneous drops to $1,000.
+function addInhousePackage(prev){
+  const titles=prev.map(i=>String(i.title||"").toLowerCase());
+  const has=(f)=>titles.some(f);
+  const base=Date.now();
+  const add=[{id:base+1,title:"Listing flat fee",autoType:"flatfee",auto:true,resp:"Seller Pays",inhouse:true,amountOverride:""}];
+  if(!has(t=>t.includes("staging")))add.push({id:base+2,title:"Staging",autoType:null,auto:false,resp:"Seller Pays",amount:"2500",inhouse:true});
+  if(!has(t=>t.includes("picture")||t.includes("boost")||t.includes("marketing")))add.push({id:base+3,title:"Pictures / boosting & marketing",autoType:null,auto:false,resp:"Seller Pays",amount:"1000",inhouse:true});
+  if(!has(t=>t.includes("pre-list")||t.includes("prelist")||t.includes("pre list")))add.push({id:base+4,title:"Pre-list inspection",autoType:null,auto:false,resp:"Seller Pays",amount:"550",inhouse:true});
+  if(!has(t=>t.includes("misc")))add.push({id:base+5,title:"Miscellaneous",autoType:null,auto:false,resp:"Seller Pays",amount:"1000",inhouse:true});
+  const ci=prev.findIndex(i=>i.autoType==="commission");
+  const lowered=prev.some(i=>!i.auto&&/misc/i.test(i.title||"")&&String(i.amount)==="2000");
+  const out=prev.map(i=>!i.auto&&/misc/i.test(i.title||"")&&String(i.amount)==="2000"?{...i,amount:"1000"}:i);
+  out.splice(ci<0?out.length:ci+1,0,...add);
+  return {items:out,lowered};
+}
 // ─── Selling Costs Popup ──────────────────────────────────────────────────────
 function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, blank, allowInhouse=false}){
   const isMobile=useIsMobile();
@@ -1003,21 +1025,11 @@ function SellingCostsPopup({items, salePrice, currentResp, onChange, onClose, bl
     if(injectedRef.current||hasIH)return;
     injectedRef.current=true;
     setLoc(prev=>{
-      const titles=prev.map(i=>String(i.title||"").toLowerCase());
-      const has=(f)=>titles.some(f);
-      const base=Date.now();
-      const add=[{id:base+1,title:"Listing flat fee",autoType:"flatfee",auto:true,resp:"Seller Pays",inhouse:true,amountOverride:""}];
-      if(!has(t=>t.includes("staging")))add.push({id:base+2,title:"Staging",autoType:null,auto:false,resp:"Seller Pays",amount:"2500",inhouse:true});
-      if(!has(t=>t.includes("picture")||t.includes("boost")||t.includes("marketing")))add.push({id:base+3,title:"Pictures / boosting & marketing",autoType:null,auto:false,resp:"Seller Pays",amount:"1000",inhouse:true});
-      if(!has(t=>t.includes("pre-list")||t.includes("prelist")||t.includes("pre list")))add.push({id:base+4,title:"Pre-list inspection",autoType:null,auto:false,resp:"Seller Pays",amount:"550",inhouse:true});
-      if(!has(t=>t.includes("misc")))add.push({id:base+5,title:"Miscellaneous",autoType:null,auto:false,resp:"Seller Pays",amount:"1000",inhouse:true});
-      const ci=prev.findIndex(i=>i.autoType==="commission");
       // The old default Miscellaneous ($2,000) padded for costs that are now
       // their own lines — an untouched one drops to $1,000 with the package.
-      miscLoweredRef.current=prev.some(i=>!i.auto&&/misc/i.test(i.title||"")&&String(i.amount)==="2000");
-      const out=prev.map(i=>!i.auto&&/misc/i.test(i.title||"")&&String(i.amount)==="2000"?{...i,amount:"1000"}:i);
-      out.splice(ci<0?out.length:ci+1,0,...add);
-      return out;
+      const r=addInhousePackage(prev);
+      miscLoweredRef.current=r.lowered;
+      return r.items;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[commPctNow,allowInhouse,hasIH]);
@@ -2284,7 +2296,9 @@ function FinOverview({property,onUpdate}){
       {showBuying&&<BuyingCostsPopup items={buyingItems} purchasePrice={f.purchasePrice} currentResp={f.transferTaxResp} onChange={(items,total,resp,taxAmt)=>upMany({buyingCostItems:items,buyingCosts:String(total),buyingTransferTax:String(taxAmt||0),transferTaxResp:resp})} onClose={()=>setShowBuying(false)}/>}
       {showSelling&&<SellingCostsPopup items={sellingItems} salePrice={f.salePrice} currentResp={f.transferTaxResp} allowInhouse={!f.inhouseApplied} onChange={(items,total,ih)=>upMany({sellingCostItems:items,sellingCosts:String(total),...(ih?{inhouseApplied:true}:{})})} onClose={()=>setShowSelling(false)}/>}
       {showHolding&&<HoldingCostsPopup items={holdingItems} holdPeriod={f.holdPeriod} onChange={(items,total)=>upMany({holdingCostItems:items,annualHoldingCosts:String(total)})} onClose={()=>setShowHolding(false)}/>}
-      {showActualSelling&&<SellingCostsPopup items={acSellingItems} salePrice={f.actualSalePrice||f.salePrice} currentResp={f.transferTaxResp} onChange={(items,total)=>upMany({actualSellingCostItems:items,actualSellingCosts:String(total)})} onClose={()=>setShowActualSelling(false)}/>}
+      {/* Actuals get the same in-house formula (Elie 10/30/26) and start from the
+          Financial Overview's lines when nothing's been entered yet. */}
+      {showActualSelling&&<SellingCostsPopup items={acSellingItems.length?acSellingItems:(f.sellingCostItems||[]).map(i=>({...i}))} salePrice={f.actualSalePrice||f.salePrice} currentResp={f.transferTaxResp} allowInhouse={!f.acInhouseApplied} onChange={(items,total)=>upMany({actualSellingCostItems:items,actualSellingCosts:String(total),...(inhouseEligible(items)?{acInhouseApplied:true}:{})})} onClose={()=>setShowActualSelling(false)}/>}
       {showFinancingP&&<FinancingPopup fin={f} onSave={(vals)=>upMany(vals)} onClose={()=>setShowFinancingP(false)}/>}
       {showActualFinancing&&<ActualFinancingPopup f={f} liveHmTotal={liveHmTotal} liveGapPrinc={equityRequired} actualHoldMonths={actualHoldMonths} locDraws={locDraws}
         excludedDraws={(property.locDrawsExcluded||[]).filter(id=>(draws||[]).some(d=>String(d.id)===String(id))).length}
@@ -23195,6 +23209,36 @@ export function GoldstoneShell(){
     });
     if(changed) setSharedProps(()=>next);
   },[sharedProps,isAdmin,setSharedProps]);
+
+  // 🏠 In-house package backfill (Elie 10/30/26): every current deal whose
+  // selling costs — Financial Overview or Actuals — show a commission of 3% or
+  // less but never got the package now gets it, once (inhouseApplied /
+  // acInhouseApplied), exactly as the popup adds it. Deals sold in an earlier
+  // year are closed books and are left alone.
+  useEffect(()=>{
+    if(!isAdmin||loading)return;
+    const yr=String(new Date().getFullYear());
+    const needs=(p)=>{
+      if(!p||p.archived)return null;
+      const f=p.financials||{};
+      if(p.status==="Sold"&&String(f.sellingDate||"").slice(0,4)<yr)return null;
+      const pj=(f.sellingCostItems||[]).length&&!f.inhouseApplied&&inhouseEligible(f.sellingCostItems)&&!hasInhouseRows(f.sellingCostItems);
+      const ac=(f.actualSellingCostItems||[]).length&&!f.acInhouseApplied&&inhouseEligible(f.actualSellingCostItems)&&!hasInhouseRows(f.actualSellingCostItems);
+      // A sale price is in but no actual selling costs at all (they counted as $0):
+      // start them from the Financial Overview's lines, package included.
+      const seed=!(f.actualSellingCostItems||[]).length&&!n(f.actualSellingCosts)&&n(f.actualSalePrice)>0&&(f.sellingCostItems||[]).length>0;
+      return pj||ac||seed?{pj,ac,seed}:null;
+    };
+    if(!sharedProps.some(needs))return;
+    setSharedProps(prev=>prev.map(p=>{
+      const w=needs(p);if(!w)return p;
+      const f={...(p.financials||{})};
+      if(w.pj){const it=addInhousePackage(f.sellingCostItems).items;f.sellingCostItems=it;f.sellingCosts=String(cfSellingOf(f.salePrice,it,f.sellingCosts));f.inhouseApplied=true;}
+      if(w.seed){const base=(f.sellingCostItems||[]).map(i=>({...i}));const it=inhouseEligible(base)&&!hasInhouseRows(base)?addInhousePackage(base).items:base;f.actualSellingCostItems=it;f.actualSellingCosts=String(cfSellingOf(f.actualSalePrice,it,""));if(inhouseEligible(it))f.acInhouseApplied=true;}
+      if(w.ac){const it=addInhousePackage(f.actualSellingCostItems).items;f.actualSellingCostItems=it;f.actualSellingCosts=String(cfSellingOf(f.actualSalePrice||f.salePrice,it,f.actualSellingCosts));f.acInhouseApplied=true;}
+      return {...p,financials:f};
+    }));
+  },[sharedProps,isAdmin,loading,setSharedProps]);
 
   // ☑ One-time grouping (Elie 10/13/26): separate "Turn on water / electric /
   // gas" tasks become ONE "Turn on utilities" task with those as checklist items —

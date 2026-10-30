@@ -162,7 +162,7 @@ export function DataProvider({ children }) {
   const [leads, setLeads] = useState([]);
   const [contacts, setContacts] = useState(CONTACTS);
   const [automations, setAutomations] = useState([]);
-  const [funders, setFunders] = useState([{ id: 1, name: "J. Klein", ledger: [] }]);
+  const [funders, setFunders] = useState([{ id: 1, name: "J. Klein", ledger: [{ id: 1, type: "distribution", amount: 5000, date: "2026-08-01" }] }]);
   const [draws, setDraws] = useState([{ id: 1, funderId: 1, funderName: "J. Klein", amount: 60000, rate: 12, dateFunded: "2026-06-02", propertyId: 1003, payments: [] }, { id: 2, funderName: "Elie Hassan", amount: 25000, rate: 0, dateFunded: "2026-05-20", propertyId: 1001, payments: [] }]);
   const [officeMessages, setOfficeMessages] = useState(OFFICE_MSGS);
   const [officeTasks, setOfficeTasks] = useState(OFFICE_TASKS);

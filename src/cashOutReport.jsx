@@ -122,9 +122,9 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
   const hmRows = hm.lenders.map((e) => { const m = pool.find((x) => !x.used && near(e.balance, x.l.principal)); if (m) { m.used = true; return { ...e, sameAs: [m.l.lender] }; } return { ...e }; });
   hmRows.forEach((e) => { if (e.sameAs) return; const left = pool.filter((x) => !x.used); if (left.length > 1 && near(e.balance, left.reduce((t, x) => t + x.l.principal, 0))) { left.forEach((x) => { x.used = true; }); e.sameAs = left.map((x) => x.l.lender); } });
   const hmDrawn = hmRows.filter((e) => !e.sameAs).reduce((t, e) => t + e.balance, 0);
-  const hmUndrawn = hmDrawn > 0 || !hmRows.length ? hm.undrawn : 0; // no real hard-money loan → no holdback interest
-  const hmFull = hmDrawn + hmUndrawn;
-  const hmInterest = Math.round(hmFull * (hm.rate / 100) / 365 * d);
+  // Interest on what's actually drawn — the current loan balance; undrawn
+  // holdback isn't on the balance, so it isn't charged (Elie 10/30/26).
+  const hmInterest = Math.round(hmDrawn * (hm.rate / 100) / 365 * d);
   // 🌉 Money floated to the deal from your own accounts (3185 etc. — Bank-Recon
   // bridges incl. the auto-float): paid back at closing, no interest (Elie 10/30/26).
   const floats = loanEntries(p, accounts, bankAccounts).filter((e) => e.bridge && e.bal > 0.5);
@@ -138,7 +138,7 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
   const billsCount = bills.length + ctrBills.filter((c) => c.on).length;
   const billsTotal = bills.reduce((s, b) => s + n(b.amount), 0) + ctrBills.reduce((s, c) => s + (c.on ? c.left : 0), 0);
   return {
-    p, close, closeSrc, d, sale, own, baseSrc, base, sc, lines, selling, paidCredit, hm, hmRows, hmDrawn, hmUndrawn, hmFull, hmInterest, floats, floatTotal, credit, creditCounted, lenders, loans, reserve, bills, ctrBills, billsCount, billsTotal, lenderCredit: 0,
+    p, close, closeSrc, d, sale, own, baseSrc, base, sc, lines, selling, paidCredit, hm, hmRows, hmDrawn, hmInterest, floats, floatTotal, credit, creditCounted, lenders, loans, reserve, bills, ctrBills, billsCount, billsTotal, lenderCredit: 0,
     cash: Math.round(sale - selling - loans + reserve - billsTotal),
   };
 }
@@ -376,7 +376,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
             </table>
           </div>
         )}
-        <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 10, lineHeight: 1.5 }}>Hard-money interest runs from today to the closing date on the full loan (incl. any undrawn holdback), the way the Financial Overview figures it. Your line of credit is the private lenders' money, paid off at closing as principal + interest to the closing date (the QuickBooks credit-line accounts are the same money and only count when no lender funding is linked to the deal); your own 0% loans are paid back with no interest. Selling costs QuickBooks already shows as paid on the deal are credited back.</div>
+        <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 10, lineHeight: 1.5 }}>Hard-money interest runs from today to the closing date on the loan balance drawn so far (undrawn holdback isn't charged). Your line of credit is the private lenders' money, paid off at closing as principal + interest to the closing date (the QuickBooks credit-line accounts are the same money and only count when no lender funding is linked to the deal); your own 0% loans are paid back with no interest. Selling costs QuickBooks already shows as paid on the deal are credited back.</div>
       </div>
 
       {cur && pop.kind === "sell" && (
@@ -400,7 +400,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
           {(() => {
             const items = [];
             cur.hmRows.filter((x) => !x.sameAs).forEach((x) => { const nm = x.name.split(":").pop().trim(); items.push([/hard money/i.test(nm) ? nm : `Hard money — ${nm}`, "principal drawn", x.balance]); });
-            if (cur.hmInterest) items.push(["Hard-money interest to closing", `${cur.hm.rate}% on ${money(cur.hmFull)}${cur.hmUndrawn ? ` (incl. ${money(cur.hmUndrawn)} undrawn holdback)` : ""} · ${cur.d} days`, cur.hmInterest]);
+            if (cur.hmInterest) items.push(["Hard-money interest to closing", `${cur.hm.rate}% on the ${money(cur.hmDrawn)} drawn · ${cur.d} days`, cur.hmInterest]);
             if (cur.creditCounted) cur.credit.forEach((c) => items.push([`Line of credit — ${c.name.split(":").pop().trim()}`, "full principal paid at closing (no private-lender funding linked)", c.balance]));
             cur.floats.forEach((e) => items.push([`🌉 Float — ${e.name.replace(/^.* — floated until next draw — /, "").replace(/^Borrowed — /, "")}`, "your own money, paid back at closing · no interest", e.bal]));
             cur.lenders.forEach((l) => {

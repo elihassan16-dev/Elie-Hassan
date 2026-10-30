@@ -13,7 +13,11 @@
 //    principal + interest to the closing date. The QuickBooks credit-line
 //    accounts on the deal are the SAME money, so they're only counted when no
 //    private-lender funding is linked to the deal (Elie 10/30/26: "double dipping"),
-//  • open bills he types per vendor (p.coBills [{id,vendor,amount,note}]),
+//  • open bills: every contractor not paid in full (contract − job payments −
+//    matching QuickBooks payments not pinned yet; untick → p.coBillsOff) plus
+//    the ones he types per vendor (p.coBills [{id,vendor,amount,note}]),
+//  • a lender whose ledger shows interest owed below $0 was paid ahead — that
+//    comes off his payoff (deal by deal in closing order),
 //  • 📌 pins for a model (his own, prefs.coPins) + views: In Closing by date,
 //    the pipeline (In Closing + On Market + Under Construction), 📌 Model.
 // Saved fields live on the property, so everyone sees the same analysis;
@@ -25,7 +29,40 @@ import { useAuth } from "./auth/AuthProvider";
 import { Sheet } from "./platinum";
 import { printHtml } from "./pdfViewer";
 import { loanEntries, hardMoney, interestReserveLeft, creditLines, sellingCosts, closingDates, privateLenderPayoff } from "../lib/cashOut.js";
-import { drawsForProperty } from "../lib/dealMath.js";
+import { drawsForProperty, funderStats } from "../lib/dealMath.js";
+import { useContractorData, jobTotal, jobPaid, jobPropertyOf } from "./contractors/data";
+import { qbAuthFetch } from "./net";
+
+// 👷 Contractors still to be paid on a deal (Elie 10/30/26): per company, every
+// hired job's contract (price + change orders) − what's paid — the payments on
+// the job PLUS QuickBooks payments on the deal's project that match the company
+// and aren't pinned to the job yet (same match as the job's auto-pin), so it
+// goes down by itself as he pays them in QuickBooks.
+const SKIP_JOB = ["bid", "awaiting_price", "removed"];
+function contractorOwed(p, { jobs, orgs, props, qbTx }) {
+  const mine = (jobs || []).filter((j) => j && !SKIP_JOB.includes(j.status) && String((jobPropertyOf(j, props) || {}).id) === String(p.id));
+  const items = p.qbProjectId && qbTx ? qbTx[p.qbProjectId] : null;
+  const byOrg = {};
+  mine.forEach((j) => { (byOrg[j.orgId] = byOrg[j.orgId] || []).push(j); });
+  return Object.entries(byOrg).map(([orgId, js]) => {
+    const vendor = ((orgs || []).find((o) => String(o.id) === String(orgId)) || {}).name || "Contractor";
+    const contract = js.reduce((t, j) => t + jobTotal(j), 0);
+    const pinned = js.reduce((t, j) => t + jobPaid(j), 0);
+    const have = new Set(js.flatMap((j) => (j.payments || []).map((x) => x.qbId).filter(Boolean)));
+    const excl = new Set(js.flatMap((j) => j.qbExcluded || []));
+    const word = (vendor.trim().split(/\s+/)[0] || "").toLowerCase();
+    const kOf = (t) => t.id || `${t.date}|${t.vendor}|${t.amount}`;
+    // A payment typed on the job by hand (no QuickBooks link) with the same
+    // amount as a QuickBooks line is that line — never count it twice.
+    const typed = js.flatMap((j) => (j.payments || []).filter((x) => !x.qbId).map((x) => Math.round(Number(x.amount) || 0)));
+    const qbNew = items && word.length >= 3 ? items.filter((t) => (t.section || "").toLowerCase() !== "income" && [t.vendor, t.memo].filter(Boolean).join(" ").toLowerCase().includes(word) && !have.has(kOf(t)) && !excl.has(kOf(t)))
+      .filter((t) => { const i = typed.indexOf(Math.round(Math.abs(Number(t.amount) || 0))); if (i < 0) return true; typed.splice(i, 1); return false; })
+      .reduce((t, x) => t + Math.abs(Number(x.amount) || 0), 0) : 0;
+    const paid = pinned + qbNew;
+    return { key: `org:${orgId}`, vendor, jobs: js.length, contract, paid, qbNew, left: Math.max(0, Math.round(contract - paid)) };
+  }).filter((c) => c.left > 0.5 && c.contract > 0);
+}
+const qbTxCache = {}; // projectId → {at, items}
 
 const n = (v) => { const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, "")); return isNaN(x) ? 0 : x; };
 const money = (v) => `${v < 0 ? "−" : ""}$${Math.round(Math.abs(Number(v) || 0)).toLocaleString("en-US")}`;
@@ -52,7 +89,7 @@ function paidInQb(line, rows) {
 }
 
 // One deal's whole analysis.
-function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultClose }) {
+function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultClose, ctr }) {
   const f = p.financials || {};
   const cal = closingDates(p).calendar;
   const close = p.coCloseDate || cal || defaultClose;
@@ -96,9 +133,12 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
   const allIn = p.qbAllInCost !== undefined && p.qbAllInCost !== null && p.qbAllInCost !== "" ? Number(p.qbAllInCost) : (p.qbProjectId && spend && spend[p.qbProjectId] && spend[p.qbProjectId].allIn != null ? spend[p.qbProjectId].allIn : null);
   const reserve = Math.max(0, interestReserveLeft(p, accounts, bankAccounts, allIn) || 0);
   const bills = (p.coBills || []).filter((b) => n(b.amount));
-  const billsTotal = bills.reduce((s, b) => s + n(b.amount), 0);
+  const billsOff = new Set((p.coBillsOff || []).map(String));
+  const ctrBills = contractorOwed(p, ctr).map((c) => ({ ...c, on: !billsOff.has(c.key) }));
+  const billsCount = bills.length + ctrBills.filter((c) => c.on).length;
+  const billsTotal = bills.reduce((s, b) => s + n(b.amount), 0) + ctrBills.reduce((s, c) => s + (c.on ? c.left : 0), 0);
   return {
-    p, close, closeSrc, d, sale, own, baseSrc, base, sc, lines, selling, paidCredit, hm, hmRows, hmDrawn, hmUndrawn, hmFull, hmInterest, floats, floatTotal, credit, creditCounted, lenders, loans, reserve, bills, billsTotal,
+    p, close, closeSrc, d, sale, own, baseSrc, base, sc, lines, selling, paidCredit, hm, hmRows, hmDrawn, hmUndrawn, hmFull, hmInterest, floats, floatTotal, credit, creditCounted, lenders, loans, reserve, bills, ctrBills, billsCount, billsTotal, lenderCredit: 0,
     cash: Math.round(sale - selling - loans + reserve - billsTotal),
   };
 }
@@ -124,7 +164,9 @@ function NumIn({ value, onSave, width = 104, disabled, placeholder }) {
 }
 
 export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canEdit, updateProp, isMobile, onClose }) {
-  const { draws, bankAccounts } = useData() || {};
+  const { draws, bankAccounts, funders } = useData() || {};
+  const { jobs: ctrJobs, orgs: ctrOrgs } = useContractorData() || {};
+  const [qbTx, setQbTx] = useState(() => Object.fromEntries(Object.entries(qbTxCache).map(([k, v]) => [k, v.items])));
   const { prefs, savePrefs } = useAuth() || {};
   const ls = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
   const [src, setSrc] = useState(() => ls("gs_co_src", "actual"));
@@ -148,8 +190,37 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
   const key = list.map((p) => p.qbProjectId).filter(Boolean).join(",");
   useEffect(() => { if (requestSpend && list.length) requestSpend(list); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ctx = { accounts, bankAccounts, spend, draws, src, today, defaultClose };
-  const rows = list.map((p) => analyse(p, ctx))
+  // QuickBooks transactions for deals with contractors still owed (10-min cache).
+  const ctrKey = list.filter((p) => p.qbProjectId && (ctrJobs || []).some((j) => !SKIP_JOB.includes(j.status) && String((jobPropertyOf(j, sharedProps) || {}).id) === String(p.id))).map((p) => p.qbProjectId).join(",");
+  useEffect(() => {
+    let alive = true;
+    ctrKey.split(",").filter(Boolean).filter((id) => !qbTxCache[id] || Date.now() - qbTxCache[id].at > 600000).forEach((id) => {
+      qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`).then((d) => {
+        qbTxCache[id] = { at: Date.now(), items: (d && d.items) || [] };
+        if (alive) setQbTx((m) => ({ ...m, [id]: qbTxCache[id].items }));
+      }).catch(() => { /* QuickBooks unreachable — the job payments still count */ });
+    });
+    return () => { alive = false; };
+  }, [ctrKey]);
+
+  const ctx = { accounts, bankAccounts, spend, draws, src, today, defaultClose, ctr: { jobs: ctrJobs, orgs: ctrOrgs, props: sharedProps, qbTx } };
+  const rows = list.map((p) => analyse(p, ctx));
+  // A lender whose ledger shows interest owed BELOW zero was paid interest
+  // ahead — that comes back off what we pay him at closing (Elie 10/30/26, BIL).
+  // Applied deal by deal in closing-date order, never more than his payoff.
+  const credits = {};
+  (funders || []).forEach((f) => { const st = funderStats(f, draws); if (st.interestOwed < -0.5) credits[String(f.name || "").trim().toLowerCase()] = { name: f.name, left: -st.interestOwed }; });
+  [...rows].sort((a, b) => String(a.close).localeCompare(String(b.close))).forEach((r) => {
+    r.lenders = r.lenders.map((l) => {
+      const c = !l.owner && credits[String(l.lender || "").trim().toLowerCase()];
+      if (!c || c.left < 0.5) return l;
+      const use = Math.round(Math.min(c.left, l.total)); c.left -= use;
+      return { ...l, credit: use };
+    });
+    r.lenderCredit = r.lenders.reduce((t, l) => t + (l.credit || 0), 0);
+    r.loans -= r.lenderCredit; r.cash += r.lenderCredit;
+  });
+  rows
     .sort((a, b) => (view === "closing" ? String(a.close).localeCompare(String(b.close)) : 0) || PIPE.indexOf(a.p.status) - PIPE.indexOf(b.p.status) || String(a.p.address || "").localeCompare(String(b.p.address || "")));
   const sum = (k) => rows.reduce((s, r) => s + r[k], 0);
   const cur = pop ? rows.find((r) => String(r.p.id) === String(pop.id)) : null;
@@ -225,7 +296,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
                       <td style={cell}><button onClick={() => setPop({ kind: "sell", id: r.p.id })} style={tap}>{money(-r.selling)}</button>{r.paidCredit > 0 && <span style={{ ...sub, color: "#1E7B3C" }}>{money(r.paidCredit)} already paid</span>}</td>
                       <td style={cell}><button onClick={() => setPop({ kind: "loans", id: r.p.id })} style={tap}>{money(-r.loans)}</button></td>
                       <td style={{ ...cell, color: r.reserve > 0 ? "#1E7B3C" : T.textTert, fontWeight: r.reserve > 0 ? 600 : 400 }}>{r.reserve > 0 ? `+${money(r.reserve)}` : "$0"}</td>
-                      <td style={cell}><button onClick={() => setPop({ kind: "bills", id: r.p.id })} style={{ ...tap, color: r.bills.length ? T.blue : T.textTert }}>{r.bills.length ? money(-r.billsTotal) : "＋ Add"}</button>{r.bills.length > 0 && <span style={sub}>{r.bills.length} bill{r.bills.length === 1 ? "" : "s"}</span>}</td>
+                      <td style={cell}><button onClick={() => setPop({ kind: "bills", id: r.p.id })} style={{ ...tap, color: r.billsCount || r.ctrBills.length ? T.blue : T.textTert }}>{r.billsCount ? money(-r.billsTotal) : r.ctrBills.length ? "$0" : "＋ Add"}</button>{r.billsCount > 0 && <span style={sub}>{r.billsCount} bill{r.billsCount === 1 ? "" : "s"}</span>}</td>
                       <td style={{ ...cell, fontWeight: 800, fontSize: 14, color: r.cash < 0 ? T.red : "#8a6d1f" }}>{money(r.cash)}</td>
                     </tr>
                   );
@@ -270,7 +341,10 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
             if (cur.hmInterest) items.push(["Hard-money interest to closing", `${cur.hm.rate}% on ${money(cur.hmFull)}${cur.hmUndrawn ? ` (incl. ${money(cur.hmUndrawn)} undrawn holdback)` : ""} · ${cur.d} days`, cur.hmInterest]);
             if (cur.creditCounted) cur.credit.forEach((c) => items.push([`Line of credit — ${c.name.split(":").pop().trim()}`, "full principal paid at closing (no private-lender funding linked)", c.balance]));
             cur.floats.forEach((e) => items.push([`🌉 Float — ${e.name.replace(/^.* — floated until next draw — /, "").replace(/^Borrowed — /, "")}`, "your own money, paid back at closing · no interest", e.bal]));
-            cur.lenders.forEach((l) => items.push([l.owner ? `${l.lender} — 0% loan` : `Private lender — ${l.lender}`, l.owner ? "principal paid back at closing, no interest" : `${money(l.principal)} + interest to closing @ ${Math.round(l.rate * 10000) / 100}%`, l.total]));
+            cur.lenders.forEach((l) => {
+              items.push([l.owner ? `${l.lender} — 0% loan` : `Private lender — ${l.lender}`, l.owner ? "principal paid back at closing, no interest" : `${money(l.principal)} + interest to closing @ ${Math.round(l.rate * 10000) / 100}%`, l.total]);
+              if (l.credit) items.push([`${l.lender} — interest already paid ahead`, "his ledger shows interest owed below $0 — comes back to you", -l.credit]);
+            });
             if (!items.length) return <div style={{ fontSize: 13.5, color: T.textSub, padding: "8px 0" }}>No loans linked to this deal yet — link them on the Property Balance Sheet.</div>;
             return items.map(([a, b, v], i) => <div key={i} style={{ ...rowS, borderTop: i ? rowS.borderTop : "none" }}><span>{a}<span style={small}>{b}</span></span><span style={{ fontVariantNumeric: "tabular-nums" }}>{money(v)}</span></div>);
           })()}
@@ -283,24 +357,35 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
         </Sheet>
       )}
 
-      {cur && pop.kind === "bills" && <BillsSheet r={cur} canEdit={canEdit} isMobile={isMobile} onSave={(list) => set(cur.p, "coBills", list)} onClose={() => setPop(null)} />}
+      {cur && pop.kind === "bills" && <BillsSheet r={cur} canEdit={canEdit} isMobile={isMobile} onSave={(list) => set(cur.p, "coBills", list)} onToggle={(k) => { const off = new Set((cur.p.coBillsOff || []).map(String)); off.has(k) ? off.delete(k) : off.add(k); set(cur.p, "coBillsOff", [...off]); }} onClose={() => setPop(null)} />}
     </div>
   );
 }
 
-function BillsSheet({ r, canEdit, isMobile, onSave, onClose }) {
+function BillsSheet({ r, canEdit, isMobile, onSave, onToggle, onClose }) {
   const [vendor, setVendor] = useState(""), [amt, setAmt] = useState(""), [note, setNote] = useState("");
   const list = r.p.coBills || [];
   const add = () => { if (!vendor.trim() || !n(amt)) return; onSave([...list, { id: Date.now(), vendor: vendor.trim(), amount: n(amt), note: note.trim() }]); setVendor(""); setAmt(""); setNote(""); };
   const field = { ...inp, textAlign: "left", padding: "10px 11px", fontSize: 14, minWidth: 0 };
   return (
     <Sheet title="Open bills" sub={r.p.address} isMobile={isMobile} onClose={onClose}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", margin: "2px 0 2px" }}>👷 Contractors not paid in full · updates with QuickBooks</div>
+      {r.ctrBills.length ? r.ctrBills.map((c, i) => (
+        <div key={c.key} style={{ ...rowS, borderTop: i ? rowS.borderTop : "none" }}>
+          <button disabled={!canEdit} onClick={() => onToggle(c.key)} style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", padding: 0, cursor: canEdit ? "pointer" : "default", fontFamily: "inherit", textAlign: "left", flex: 1, minWidth: 0, minHeight: 44 }}>
+            <span style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${c.on ? T.gold : "#C7C7CC"}`, background: c.on ? T.gold : "#fff", color: "#fff", fontWeight: 800, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{c.on ? "✓" : ""}</span>
+            <span style={{ color: c.on ? T.text : T.textTert, textDecoration: c.on ? "none" : "line-through", fontSize: 13.5 }}>{c.vendor}<span style={small}>contract {money(c.contract)}{c.jobs > 1 ? ` (${c.jobs} jobs)` : ""} · paid {money(c.paid)}{c.qbNew > 0 ? ` (incl. ${money(c.qbNew)} just paid in QuickBooks)` : ""}</span></span>
+          </button>
+          <span style={{ color: c.on ? T.text : T.textTert, textDecoration: c.on ? "none" : "line-through", fontVariantNumeric: "tabular-nums" }}>{money(c.left)}</span>
+        </div>
+      )) : <div style={{ fontSize: 13.5, color: T.textSub, padding: "6px 0" }}>Every contractor on this deal is paid in full.</div>}
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", margin: "14px 0 2px" }}>✍️ Added by you · stays until you change it</div>
       {list.length ? list.map((b, i) => (
         <div key={b.id} style={{ ...rowS, borderTop: i ? rowS.borderTop : "none" }}>
           <span>{b.vendor}{b.note && <span style={small}>{b.note}</span>}</span>
           <span style={{ display: "flex", alignItems: "center", gap: 6, fontVariantNumeric: "tabular-nums" }}>{money(b.amount)}{canEdit && <button onClick={() => onSave(list.filter((x) => x.id !== b.id))} aria-label={`Remove ${b.vendor}`} style={{ width: 36, height: 36, border: "none", background: "none", color: T.red, fontSize: 15, cursor: "pointer" }}>✕</button>}</span>
         </div>
-      )) : <div style={{ fontSize: 13.5, color: T.textSub, padding: "6px 0" }}>No open bills on this deal.</div>}
+      )) : <div style={{ fontSize: 13.5, color: T.textSub, padding: "6px 0" }}>Nothing added by hand.</div>}
       {canEdit && <>
         <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", margin: "12px 0 6px" }}>Add a bill</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

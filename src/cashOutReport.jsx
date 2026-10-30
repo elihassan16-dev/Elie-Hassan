@@ -24,7 +24,7 @@ import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";
 import { Sheet } from "./platinum";
 import { printHtml } from "./pdfViewer";
-import { hardMoney, interestReserveLeft, creditLines, sellingCosts, closingDates, privateLenderPayoff } from "../lib/cashOut.js";
+import { loanEntries, hardMoney, interestReserveLeft, creditLines, sellingCosts, closingDates, privateLenderPayoff } from "../lib/cashOut.js";
 import { drawsForProperty } from "../lib/dealMath.js";
 
 const n = (v) => { const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, "")); return isNaN(x) ? 0 : x; };
@@ -88,13 +88,17 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
   const hmUndrawn = hmDrawn > 0 || !hmRows.length ? hm.undrawn : 0; // no real hard-money loan → no holdback interest
   const hmFull = hmDrawn + hmUndrawn;
   const hmInterest = Math.round(hmFull * (hm.rate / 100) / 365 * d);
-  const loans = hmDrawn + hmInterest + (creditCounted ? credit.reduce((s, c) => s + c.balance, 0) : 0) + lenders.reduce((s, l) => s + l.total, 0);
+  // 🌉 Money floated to the deal from your own accounts (3185 etc. — Bank-Recon
+  // bridges incl. the auto-float): paid back at closing, no interest (Elie 10/30/26).
+  const floats = loanEntries(p, accounts, bankAccounts).filter((e) => e.bridge && e.bal > 0.5);
+  const floatTotal = floats.reduce((t, e) => t + e.bal, 0);
+  const loans = hmDrawn + hmInterest + (creditCounted ? credit.reduce((s, c) => s + c.balance, 0) : 0) + lenders.reduce((s, l) => s + l.total, 0) + floatTotal;
   const allIn = p.qbAllInCost !== undefined && p.qbAllInCost !== null && p.qbAllInCost !== "" ? Number(p.qbAllInCost) : (p.qbProjectId && spend && spend[p.qbProjectId] && spend[p.qbProjectId].allIn != null ? spend[p.qbProjectId].allIn : null);
   const reserve = Math.max(0, interestReserveLeft(p, accounts, bankAccounts, allIn) || 0);
   const bills = (p.coBills || []).filter((b) => n(b.amount));
   const billsTotal = bills.reduce((s, b) => s + n(b.amount), 0);
   return {
-    p, close, closeSrc, d, sale, own, baseSrc, base, sc, lines, selling, paidCredit, hm, hmRows, hmDrawn, hmUndrawn, hmFull, hmInterest, credit, creditCounted, lenders, loans, reserve, bills, billsTotal,
+    p, close, closeSrc, d, sale, own, baseSrc, base, sc, lines, selling, paidCredit, hm, hmRows, hmDrawn, hmUndrawn, hmFull, hmInterest, floats, floatTotal, credit, creditCounted, lenders, loans, reserve, bills, billsTotal,
     cash: Math.round(sale - selling - loans + reserve - billsTotal),
   };
 }
@@ -265,6 +269,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
             cur.hmRows.filter((x) => !x.sameAs).forEach((x) => { const nm = x.name.split(":").pop().trim(); items.push([/hard money/i.test(nm) ? nm : `Hard money — ${nm}`, "principal drawn", x.balance]); });
             if (cur.hmInterest) items.push(["Hard-money interest to closing", `${cur.hm.rate}% on ${money(cur.hmFull)}${cur.hmUndrawn ? ` (incl. ${money(cur.hmUndrawn)} undrawn holdback)` : ""} · ${cur.d} days`, cur.hmInterest]);
             if (cur.creditCounted) cur.credit.forEach((c) => items.push([`Line of credit — ${c.name.split(":").pop().trim()}`, "full principal paid at closing (no private-lender funding linked)", c.balance]));
+            cur.floats.forEach((e) => items.push([`🌉 Float — ${e.name.replace(/^.* — floated until next draw — /, "").replace(/^Borrowed — /, "")}`, "your own money, paid back at closing · no interest", e.bal]));
             cur.lenders.forEach((l) => items.push([l.owner ? `${l.lender} — 0% loan` : `Private lender — ${l.lender}`, l.owner ? "principal paid back at closing, no interest" : `${money(l.principal)} + interest to closing @ ${Math.round(l.rate * 10000) / 100}%`, l.total]));
             if (!items.length) return <div style={{ fontSize: 13.5, color: T.textSub, padding: "8px 0" }}>No loans linked to this deal yet — link them on the Property Balance Sheet.</div>;
             return items.map(([a, b, v], i) => <div key={i} style={{ ...rowS, borderTop: i ? rowS.borderTop : "none" }}><span>{a}<span style={small}>{b}</span></span><span style={{ fontVariantNumeric: "tabular-nums" }}>{money(v)}</span></div>);

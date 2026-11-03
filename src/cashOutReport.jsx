@@ -28,8 +28,8 @@ import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";
 import { Sheet } from "./platinum";
 import { printHtml } from "./pdfViewer";
-import { loanEntries, hardMoney, interestReserveLeft, creditLines, sellingCosts, closingDates, privateLenderPayoff } from "../lib/cashOut.js";
-import { drawsForProperty, funderStats } from "../lib/dealMath.js";
+import { loanEntries, hardMoney, interestReserveLeft, creditLines, sellingCosts, sellingLines, closingDates, privateLenderPayoff } from "../lib/cashOut.js";
+import { drawsForProperty, funderStats, finProfit } from "../lib/dealMath.js";
 import { useContractorData, jobTotal, jobPaid, jobPropertyOf } from "./contractors/data";
 import { qbAuthFetch } from "./net";
 
@@ -140,7 +140,22 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
   return {
     p, close, closeSrc, d, sale, own, baseSrc, base, sc, lines, selling, paidCredit, hm, hmRows, hmDrawn, hmInterest, floats, floatTotal, credit, creditCounted, lenders, loans, reserve, bills, ctrBills, billsCount, billsTotal, lenderCredit: 0,
     cash: Math.round(sale - selling - loans + reserve - billsTotal),
+    ...dealProfit(p, sale),
   };
+}
+
+// 📈 Profit (Elie 11/3/26: "so I see the difference between cash out and
+// profit") = the Financial Overview's profit (finProfit — Actual when the deal
+// uses actuals, else Projected), moved to this report's sale price: + the price
+// difference − the extra selling costs it brings (same selling-cost list).
+function dealProfit(p, sale) {
+  const f = p.financials || {};
+  const fp = finProfit(f, p.status, (p.propertyInfo || {}).closingDateScheduled);
+  const basePrice = fp.useActual ? n(f.actualSalePrice) : n(f.salePrice);
+  const items = fp.useActual ? f.actualSellingCostItems || [] : f.sellingCostItems || [];
+  const sellAt = (price) => sellingLines(price, items).reduce((t, l) => t + l.amount, 0);
+  const adj = items.length ? (sale - basePrice) - (sellAt(sale) - sellAt(basePrice)) : sale - basePrice;
+  return { profit: Math.round(fp.effective + adj), profitBase: Math.round(fp.effective), profitSrc: fp.useActual ? "Actual" : "Projected", profitAdj: Math.round(adj) };
 }
 
 // Every loan line on a deal, as [label, detail, amount] — Loans pop-up + breakdown.
@@ -248,15 +263,15 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
 
   const exportCsv = () => {
     const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
-    const lines = [["Property", "Status", "Closing date", "Sale price", "Selling costs", "Loans + interest", "Interest reserve", "Open bills", "Est. cash out"].map(q).join(",")];
-    rows.forEach((r) => lines.push([r.p.address, r.p.status, mdy(r.close), r.sale, r.selling, r.loans, r.reserve, r.billsTotal, r.cash].map(q).join(",")));
-    lines.push(["Total", "", "", sum("sale"), sum("selling"), sum("loans"), sum("reserve"), sum("billsTotal"), sum("cash")].map(q).join(","));
+    const lines = [["Property", "Status", "Closing date", "Sale price", "Selling costs", "Loans + interest", "Interest reserve", "Open bills", "Est. cash out", "Profit"].map(q).join(",")];
+    rows.forEach((r) => lines.push([r.p.address, r.p.status, mdy(r.close), r.sale, r.selling, r.loans, r.reserve, r.billsTotal, r.cash, r.profit].map(q).join(",")));
+    lines.push(["Total", "", "", sum("sale"), sum("selling"), sum("loans"), sum("reserve"), sum("billsTotal"), sum("cash"), sum("profit")].map(q).join(","));
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" })); a.download = `Cash-Out Analysis ${today}.csv`; a.click();
   };
   const exportPdf = () => {
     const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-    const tr = rows.map((r) => `<tr><td style="text-align:left"><b>${esc(r.p.address)}</b><br><span style="color:#888">${esc(r.p.status)}</span></td><td>${mdy(r.close)}</td><td>${money(r.sale)}</td><td>${money(-r.selling)}</td><td>${money(-r.loans)}</td><td>${money(r.reserve)}</td><td>${money(-r.billsTotal)}</td><td><b>${money(r.cash)}</b></td></tr>`).join("");
-    const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;padding:24px;color:#1c1c1e}h1{font-size:20px;margin:0 0 4px}p{color:#666;font-size:12px;margin:0 0 14px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:7px 8px;border-bottom:1px solid #e5e5ea;text-align:right}th{font-size:10px;text-transform:uppercase;color:#888}tfoot td{font-weight:800;background:#F8F1E0}</style></head><body><h1>Goldstone Properties — Cash-Out Analysis</h1><p>${esc(new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }))} · sale price from ${src === "projected" ? "Projected" : "Actuals"}</p><table><thead><tr><th style="text-align:left">Property</th><th>Closing</th><th>Sale price</th><th>Selling</th><th>Loans + interest</th><th>Reserve</th><th>Open bills</th><th>Est. cash out</th></tr></thead><tbody>${tr}</tbody><tfoot><tr><td style="text-align:left">Total · ${rows.length}</td><td></td><td>${money(sum("sale"))}</td><td>${money(-sum("selling"))}</td><td>${money(-sum("loans"))}</td><td>${money(sum("reserve"))}</td><td>${money(-sum("billsTotal"))}</td><td>${money(sum("cash"))}</td></tr></tfoot></table></body></html>`;
+    const tr = rows.map((r) => `<tr><td style="text-align:left"><b>${esc(r.p.address)}</b><br><span style="color:#888">${esc(r.p.status)}</span></td><td>${mdy(r.close)}</td><td>${money(r.sale)}</td><td>${money(-r.selling)}</td><td>${money(-r.loans)}</td><td>${money(r.reserve)}</td><td>${money(-r.billsTotal)}</td><td><b>${money(r.cash)}</b></td><td>${money(r.profit)}</td></tr>`).join("");
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;padding:24px;color:#1c1c1e}h1{font-size:20px;margin:0 0 4px}p{color:#666;font-size:12px;margin:0 0 14px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:7px 8px;border-bottom:1px solid #e5e5ea;text-align:right}th{font-size:10px;text-transform:uppercase;color:#888}tfoot td{font-weight:800;background:#F8F1E0}</style></head><body><h1>Goldstone Properties — Cash-Out Analysis</h1><p>${esc(new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }))} · sale price from ${src === "projected" ? "Projected" : "Actuals"}</p><table><thead><tr><th style="text-align:left">Property</th><th>Closing</th><th>Sale price</th><th>Selling</th><th>Loans + interest</th><th>Reserve</th><th>Open bills</th><th>Est. cash out</th><th>Profit</th></tr></thead><tbody>${tr}</tbody><tfoot><tr><td style="text-align:left">Total · ${rows.length}</td><td></td><td>${money(sum("sale"))}</td><td>${money(-sum("selling"))}</td><td>${money(-sum("loans"))}</td><td>${money(sum("reserve"))}</td><td>${money(-sum("billsTotal"))}</td><td>${money(sum("cash"))}</td><td>${money(sum("profit"))}</td></tr></tfoot></table></body></html>`;
     printHtml(html, { title: "Cash-Out Analysis", filename: "Cash-Out Analysis.pdf" });
   };
 
@@ -302,9 +317,9 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
           // breakdown line by line; tap the property / date / price to edit.
           <div style={{ background: "#fff", borderRadius: 12, boxShadow: T.shadow, overflow: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed", fontSize: 11.5 }}>
-              <colgroup><col style={{ width: "33%" }} /><col style={{ width: "15%" }} /><col style={{ width: "18%" }} /><col style={{ width: "17%" }} /><col style={{ width: "17%" }} /></colgroup>
-              <thead><tr>{["Property", "Closes", "Sale", "Costs", "Cash out"].map((h, i) => (
-                <th key={h} style={{ ...mHead, fontSize: 9.5, textAlign: i ? "right" : "left", paddingLeft: i ? 2 : 8, paddingRight: i === 4 ? 8 : 2 }}>{h}</th>
+              <colgroup><col style={{ width: "27%" }} /><col style={{ width: "12%" }} /><col style={{ width: "16%" }} /><col style={{ width: "16%" }} /><col style={{ width: "15%" }} /><col style={{ width: "14%" }} /></colgroup>
+              <thead><tr>{["Property", "Closes", "Sale", "Costs", "Cash out", "Profit"].map((h, i) => (
+                <th key={h} style={{ ...mHead, fontSize: 9.5, textAlign: i ? "right" : "left", paddingLeft: i ? 2 : 8, paddingRight: i === 5 ? 8 : 2 }}>{h}</th>
               ))}</tr></thead>
               <tbody>
                 {rows.map((r) => {
@@ -312,7 +327,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
                   const pinned = pins.has(String(r.p.id));
                   const edit = () => setPop({ kind: "deal", id: r.p.id });
                   const open = () => setPop({ kind: "cash", id: r.p.id });
-                  const btn = { background: "none", border: "none", padding: 0, fontFamily: "inherit", cursor: "pointer", width: "100%", minHeight: 40, fontVariantNumeric: "tabular-nums", fontSize: 11.5 };
+                  const btn = { background: "none", border: "none", padding: 0, fontFamily: "inherit", cursor: "pointer", width: "100%", minHeight: 40, fontVariantNumeric: "tabular-nums", fontSize: 11 };
                   return (
                     <tr key={r.p.id}>
                       <td style={{ ...mCell, textAlign: "left", paddingLeft: 8 }}>
@@ -324,7 +339,8 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
                       <td style={mCell}><button onClick={edit} style={{ ...btn, textAlign: "right", color: r.p.coCloseDate ? "#8a6d1f" : T.textSub }}>{shortDate(r.close)}</button></td>
                       <td style={mCell}><button onClick={edit} style={{ ...btn, textAlign: "right", color: r.own ? "#8a6d1f" : T.text }}>{plain(r.sale)}</button></td>
                       <td style={mCell}><button onClick={open} style={{ ...btn, textAlign: "right", color: T.blue }}>{plain(r.cash - r.sale)}</button></td>
-                      <td style={{ ...mCell, paddingRight: 8 }}><button onClick={open} style={{ ...btn, textAlign: "right", fontWeight: 800, color: r.cash < 0 ? T.red : "#8a6d1f" }}>{plain(r.cash)}</button></td>
+                      <td style={mCell}><button onClick={open} style={{ ...btn, textAlign: "right", fontWeight: 800, color: r.cash < 0 ? T.red : "#8a6d1f" }}>{plain(r.cash)}</button></td>
+                      <td style={{ ...mCell, paddingRight: 8 }}><button onClick={() => setPop({ kind: "profit", id: r.p.id })} style={{ ...btn, textAlign: "right", fontWeight: 700, color: r.profit < 0 ? T.red : "#1E7B3C" }}>{plain(r.profit)}</button></td>
                     </tr>
                   );
                 })}
@@ -334,16 +350,17 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
                 <td style={{ ...mCell, borderBottom: "none" }} />
                 <td style={{ ...mCell, fontWeight: 800, borderBottom: "none" }}>{plain(sum("sale"))}</td>
                 <td style={{ ...mCell, fontWeight: 800, borderBottom: "none" }}>{plain(sum("cash") - sum("sale"))}</td>
-                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none", color: "#8a6d1f", paddingRight: 8 }}>{plain(sum("cash"))}</td>
+                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none", color: "#8a6d1f" }}>{plain(sum("cash"))}</td>
+                <td style={{ ...mCell, fontWeight: 800, borderBottom: "none", color: "#1E7B3C", paddingRight: 8 }}>{plain(sum("profit"))}</td>
               </tr></tfoot>
             </table>
-            <div style={{ fontSize: 10.5, color: T.textTert, padding: "6px 8px", lineHeight: 1.4 }}>All amounts in $. Costs = selling costs + loans & interest + open bills − interest reserve back. Tap costs or cash out for the full breakdown; tap a property, date or price to change it.</div>
+            <div style={{ fontSize: 10.5, color: T.textTert, padding: "6px 8px", lineHeight: 1.4 }}>All amounts in $. Costs = selling costs + loans & interest + open bills − interest reserve back. Profit = the Financial Overview's profit at this sale price. Tap costs or cash out for the full breakdown, profit for how it's figured; tap a property, date or price to change it.</div>
           </div>
         ) : (
           <div style={{ background: "#fff", borderRadius: 14, boxShadow: T.shadow, overflow: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 13, minWidth: 980 }}>
+            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 13, minWidth: 1080 }}>
               <thead><tr>
-                <th style={{ ...head, textAlign: "left" }}>Property</th><th style={head}>Closing date</th><th style={head}>Sale price</th><th style={head}>Selling costs</th><th style={head}>Loans + interest</th><th style={head}>Interest reserve</th><th style={head}>Open bills</th><th style={head}>Est. cash out</th>
+                <th style={{ ...head, textAlign: "left" }}>Property</th><th style={head}>Closing date</th><th style={head}>Sale price</th><th style={head}>Selling costs</th><th style={head}>Loans + interest</th><th style={head}>Interest reserve</th><th style={head}>Open bills</th><th style={head}>Est. cash out</th><th style={head}>Profit</th>
               </tr></thead>
               <tbody>
                 {rows.map((r) => {
@@ -373,6 +390,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
                       <td style={{ ...cell, color: r.reserve > 0 ? "#1E7B3C" : T.textTert, fontWeight: r.reserve > 0 ? 600 : 400 }}>{r.reserve > 0 ? `+${money(r.reserve)}` : "$0"}</td>
                       <td style={cell}><button onClick={() => setPop({ kind: "bills", id: r.p.id })} style={{ ...tap, color: r.billsCount || r.ctrBills.length ? T.blue : T.textTert }}>{r.billsCount ? money(-r.billsTotal) : r.ctrBills.length ? "$0" : "＋ Add"}</button>{r.billsCount > 0 && <span style={sub}>{r.billsCount} bill{r.billsCount === 1 ? "" : "s"}</span>}</td>
                       <td style={{ ...cell, fontWeight: 800, fontSize: 14, color: r.cash < 0 ? T.red : "#8a6d1f" }}>{money(r.cash)}</td>
+                      <td style={cell}><button onClick={() => setPop({ kind: "profit", id: r.p.id })} style={{ ...tap, fontWeight: 700, fontSize: 13.5, color: r.profit < 0 ? T.red : "#1E7B3C" }}>{money(r.profit)}</button><span style={sub}>{r.profitSrc.toLowerCase()}</span></td>
                     </tr>
                   );
                 })}
@@ -385,6 +403,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
                 <td style={{ ...cell, fontWeight: 800, borderBottom: "none", color: "#1E7B3C" }}>+{money(sum("reserve"))}</td>
                 <td style={{ ...cell, fontWeight: 800, borderBottom: "none" }}>{money(-sum("billsTotal"))}</td>
                 <td style={{ ...cell, fontWeight: 800, fontSize: 15, borderBottom: "none", color: "#8a6d1f" }}>{money(sum("cash"))}</td>
+                <td style={{ ...cell, fontWeight: 800, fontSize: 14, borderBottom: "none", color: "#1E7B3C" }}>{money(sum("profit"))}</td>
               </tr></tfoot>
             </table>
           </div>
@@ -456,9 +475,20 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
             {cur.bills.map((b) => li(`b${b.id}`, `✍️ ${b.vendor}`, b.note, -n(b.amount)))}
             {!ctr.length && !cur.bills.length && li("nb", "No open bills", "", 0)}
             <div style={{ ...totS, marginTop: 14 }}><span>Est. cash out</span><span>{money(cur.cash)}</span></div>
+            <button onClick={() => setPop({ kind: "profit", id: cur.p.id })} style={{ ...totS, width: "100%", border: "none", background: "#EAF7EE", color: "#1E7B3C", fontFamily: "inherit", cursor: "pointer", marginTop: 8 }}><span>Profit ›</span><span>{money(cur.profit)}</span></button>
           </Sheet>
         );
       })()}
+
+      {cur && pop.kind === "profit" && (
+        <Sheet title="Profit" sub={`${String(cur.p.address || "").replace(/,.*$/, "")} · from the Financial Overview (${cur.profitSrc})`} isMobile={isMobile} onClose={() => setPop(null)}>
+          <div style={{ ...rowS, borderTop: "none" }}><span>{cur.profitSrc} profit in the Financial Overview<span style={small}>the same number as on the property's Financial Overview</span></span><span style={{ fontVariantNumeric: "tabular-nums" }}>{money(cur.profitBase)}</span></div>
+          {cur.profitAdj !== 0 && <div style={rowS}><span>At this report's sale price<span style={small}>{money(cur.sale)} — the price difference less the selling costs it changes</span></span><span style={{ fontVariantNumeric: "tabular-nums", color: cur.profitAdj > 0 ? "#1E7B3C" : T.text }}>{cur.profitAdj > 0 ? "+" : ""}{money(cur.profitAdj)}</span></div>}
+          <div style={{ ...totS, background: "#EAF7EE", color: "#1E7B3C" }}><span>Profit</span><span>{money(cur.profit)}</span></div>
+          <div style={{ ...rowS, marginTop: 8 }}><span>Est. cash out<span style={small}>cash you walk away with at closing</span></span><span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, whiteSpace: "nowrap" }}>{money(cur.cash)}</span></div>
+          <div style={rowS}><span>Difference (cash out − profit)<span style={small}>{cur.cash >= cur.profit ? "your own money (equity) coming back on top of the profit" : "less cash than profit — some of the profit already went out or is still owed"}</span></span><span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, whiteSpace: "nowrap" }}>{money(cur.cash - cur.profit)}</span></div>
+        </Sheet>
+      )}
 
       {cur && pop.kind === "deal" && (
         <Sheet title={String(cur.p.address || "").replace(/,.*$/, "")} sub={cur.p.status} isMobile={isMobile} onClose={() => setPop(null)}>

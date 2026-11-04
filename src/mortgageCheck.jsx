@@ -56,6 +56,14 @@ async function findPayment(item, ym, rentals, props, cache) {
     const pin = (src.qbPins || []).find((p) => p.cat === "Mortgage" && (p.forYm === ym || normDate(p.date).slice(0, 7) === ym));
     if (pin) return { date: normDate(pin.date), amount: pin.amount, account: pin.accountName || "Mortgage" };
   }
+  // 1b) A flip's "Debt service paid" line already on its Property Balance Sheet
+  // (qbDebtTxns — auto-pinned from QuickBooks — or one typed in) dated this month.
+  // These were showing on 8 Lupine's balance sheet while the checklist still
+  // said "not paid" (Elie 11/4/26).
+  if (ref.kind === "prop") {
+    const pinned = [...(src.qbDebtTxns || []), ...(src.qbDebtCustom || [])].find((t) => t && normDate(t.date).slice(0, 7) === ym && Math.abs(Number(t.amount) || 0) > 0);
+    if (pinned) return { date: normDate(pinned.date), amount: pinned.amount, account: pinned.vendor || pinned.label || "Debt service" };
+  }
   // 2) A payment line in the linked mortgage / loan account(s) this month.
   const accts = ref.kind === "rental"
     ? [...(src.qbMortgageAccounts || []), ...(src.qbPinRules || []).filter((x) => x.cat === "Mortgage").map((x) => x.accountId)]

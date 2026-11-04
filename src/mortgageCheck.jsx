@@ -163,10 +163,10 @@ export function MortgageChecklistSync() {
     };
     if (task.qbCheckedAt && lateDue && open.length) { pushLate(open); up(flagLate); return; }
     if (busy.current || !open.length) return;
-    let last = 0; try { last = Number(localStorage.getItem(`gs_mtg_check_${ym}`)) || 0; } catch { /* private mode */ }
+    let last = 0; try { last = Number(localStorage.getItem(`gs_mtg_check2_${ym}`)) || 0; } catch { /* private mode */ }
     if (Date.now() - last < 2 * 3600 * 1000) return;
     busy.current = true;
-    try { localStorage.setItem(`gs_mtg_check_${ym}`, String(Date.now())); } catch { /* ignore */ }
+    try { localStorage.setItem(`gs_mtg_check2_${ym}`, String(Date.now())); } catch { /* ignore */ }
     (async () => {
       const cache = {};
       const found = {};

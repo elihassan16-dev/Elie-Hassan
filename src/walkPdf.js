@@ -3,6 +3,7 @@
 // video frame and the snippet it came from ("video 0:38–0:52 · 14 sec").
 const fmtT = (t) => `${Math.floor(t / 60)}:${String(Math.floor(Math.max(0, t) % 60)).padStart(2, "0")}`;
 export const snippetLabel = (it, multi) => {
+  if (it.photo) return ""; // a photo someone sent — no video moment to cite
   const dur = Math.max(0, Math.round((it.end || 0) - (it.start || 0)));
   const pre = multi ? `video ${it.clip || 1} · ` : "video ";
   return dur > 0 ? `${pre}${fmtT(it.start)}–${fmtT(it.end)} · ${dur} sec` : `${pre}${fmtT(it.start || 0)}`;

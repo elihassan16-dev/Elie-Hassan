@@ -866,6 +866,29 @@ function FrameAdjust({ src, item, onUse, onClose, onPickFile }) {
   );
 }
 
+// 📷 Photo punch lists (Elie 11/5/26): pictures someone sent — pasted from
+// WhatsApp (Ctrl+V), dragged in, or picked — become items with no video.
+// Shrunk like the video frames (long side 900, JPEG) so lists still sync.
+function photoToJpeg(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const k = Math.min(1, 900 / Math.max(img.naturalWidth || 900, img.naturalHeight || 900));
+        const c = document.createElement("canvas");
+        c.width = Math.max(2, Math.round((img.naturalWidth || 900) * k)); c.height = Math.max(2, Math.round((img.naturalHeight || 900) * k));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL("image/jpeg", 0.78));
+      } catch { resolve(null); }
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+const imageFilesOf = (list) => Array.from(list || []).filter((f) => f && /^image\//.test(f.type || ""));
+
 export function WalkthroughModal({ property, onUpdate, onClose }) {
   const mail = useOutlookMail();
   const job = useWalkJob(property.id);
@@ -1020,7 +1043,42 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
 
   const up = (id, k, v) => wkSet(property.id, { items: items.map((it) => (it.id === id ? { ...it, [k]: v } : it)) });
   const del = (id) => wkSet(property.id, { items: items.filter((it) => it.id !== id) });
-  const addBlank = () => wkSet(property.id, { items: [...items, { id: Date.now(), title: "", detail: "", room: "General", quote: "", start: 0, end: 0, image: null, clip: job?.clips || 1 }] });
+  const addBlank = () => { setAdding(false); wkSet(property.id, { items: [...(wkGet(property.id)?.items || []), { id: Date.now(), title: "", detail: "", room: "General", quote: "", start: 0, end: 0, image: null, clip: job?.clips || 1, ...(job?.clips ? {} : { photo: true }) }] }); };
+  // Each picture → its own item (photo, blank title to type the note), in order.
+  const addPhotos = async (files, intoId) => {
+    const fl = imageFilesOf(files);
+    if (!fl.length) return false;
+    setErr("");
+    const pics = (await Promise.all(fl.map(photoToJpeg))).filter(Boolean);
+    if (!pics.length) { setErr("Couldn't read that picture — try saving it first, then pick it."); return true; }
+    const cur = wkGet(property.id)?.items || [];
+    if (intoId != null) {
+      wkSet(property.id, { items: cur.map((i) => (i.id === intoId ? { ...i, image: pics[0], frameManual: true } : i)) });
+      setFlash("✓ Photo updated"); setTimeout(() => setFlash(""), 2000);
+      return true;
+    }
+    const at = Date.now();
+    wkSet(property.id, { items: [...cur, ...pics.map((img, k) => ({ id: at + k, title: "", detail: "", room: "General", quote: "", start: 0, end: 0, image: img, clip: 0, photo: true }))] });
+    setAdding(false);
+    setFlash(`✓ ${pics.length} photo${pics.length !== 1 ? "s" : ""} added — type what needs doing under each`); setTimeout(() => setFlash(""), 3000);
+    return true;
+  };
+  const addPhotosRef = useRef(addPhotos); addPhotosRef.current = addPhotos;
+  // Ctrl+V / ⌘V anywhere in the punch list: pasted pictures become items.
+  useEffect(() => {
+    const onPaste = (e) => {
+      if (step === "rec") return;
+      const files = Array.from((e.clipboardData && e.clipboardData.files) || []);
+      const fromItems = Array.from((e.clipboardData && e.clipboardData.items) || []).filter((x) => x.kind === "file").map((x) => x.getAsFile()).filter(Boolean);
+      const pics = imageFilesOf(files.length ? files : fromItems);
+      if (!pics.length) return; // plain text pastes into the box as usual
+      e.preventDefault();
+      addPhotosRef.current(pics);
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [step]);
+  const [dragOver, setDragOver] = useState(false);
 
   const makeTasks = () => {
     const good = items.filter((it) => it.title.trim());
@@ -1107,12 +1165,16 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
 
   return (
     <div onClick={view === "rec" ? undefined : onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 460, display: "flex", alignItems: "center", justifyContent: "center", padding: 10, backdropFilter: "blur(5px)" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: T.bg, borderRadius: 20, width: "min(560px,96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: T.shadowMd }}>
+      <div onClick={(e) => e.stopPropagation()}
+        onDragOver={(e) => { if (view !== "rec" && Array.from(e.dataTransfer?.types || []).includes("Files")) { e.preventDefault(); setDragOver(true); } }}
+        onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
+        onDrop={(e) => { setDragOver(false); const pics = imageFilesOf(e.dataTransfer?.files); if (pics.length) { e.preventDefault(); addPhotos(pics); } }}
+        style={{ background: T.bg, borderRadius: 20, width: "min(560px,96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: dragOver ? `0 0 0 3px ${T.gold}, ${T.shadowMd}` : T.shadowMd }}>
         <div style={{ padding: "16px 18px 12px", background: T.card, borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexShrink: 0 }}>
           <div>
             <div style={{ fontWeight: 800, fontSize: 16, color: T.text }}>🎥 Walkthrough — {property.address}</div>
             <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 2 }}>
-              {view === "review" ? `${items.length} item${items.length !== 1 ? "s" : ""}${(job?.clips || 1) > 1 ? ` from ${job.clips} videos` : ""} — tap any text to edit, × to drop` : "Walk and talk — the AI writes the punch list."}
+              {dragOver ? "Drop the pictures — each one becomes an item" : view === "review" ? `${items.length} item${items.length !== 1 ? "s" : ""}${(job?.clips || 1) > 1 ? ` from ${job.clips} videos` : ""} — tap any text to edit, × to drop · paste or drag pictures in to add` : "Walk and talk — the AI writes the punch list. Or build it from pictures."}
             </div>
           </div>
           {view !== "rec" && <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1 }}>×</button>}
@@ -1153,6 +1215,17 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
               📁 Upload videos (camera roll / sent to you)
               <input type="file" accept="video/*,audio/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) { setErr(""); setAdding(false); startWalkClips(property, fl); } e.target.value = ""; }} />
             </label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <label style={{ ...btn(T.card, T.text), flex: 1.4, padding: "14px 12px", fontSize: 14, textAlign: "center", border: `1px solid ${T.border}` }}>
+                📷 From photos — no video
+                <div style={{ fontSize: 11, fontWeight: 500, color: T.textSub, marginTop: 3 }}>{onPhone ? "Pick the pictures you were sent" : "Pick them — or paste (Ctrl+V) / drag them in from WhatsApp"}</div>
+                <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) addPhotos(fl); e.target.value = ""; }} />
+              </label>
+              <button onClick={addBlank} style={{ ...btn(T.card, T.text), flex: 1, padding: "14px 12px", fontSize: 14, border: `1px solid ${T.border}` }}>
+                ✍️ Type it myself
+                <div style={{ fontSize: 11, fontWeight: 500, color: T.textSub, marginTop: 3 }}>Start a blank list</div>
+              </button>
+            </div>
             {onPhone && (
               <label style={{ ...btn(T.card, T.text), padding: "14px 16px", fontSize: 15, textAlign: "center", border: `1px solid ${T.border}` }}>
                 📤 Send to Media — build the list on the computer
@@ -1209,17 +1282,26 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
                 <div key={room}>
                   <div style={{ padding: "8px 14px 4px", fontSize: 10, fontWeight: 800, color: T.textTert, letterSpacing: "0.05em", background: T.bg }}>{room.toUpperCase()} · {items.filter((i) => (i.room || "General") === room).length}</div>
                   {items.filter((i) => (i.room || "General") === room).map((it) => (
-                    <div key={it.id} style={{ display: "flex", gap: 10, padding: "10px 12px", background: T.card, borderBottom: `1px solid ${T.border}`, alignItems: "center" }}>
+                    <div key={it.id} onDrop={(e) => { const pics = imageFilesOf(e.dataTransfer?.files); if (pics.length) { e.preventDefault(); e.stopPropagation(); setDragOver(false); addPhotos(pics.slice(0, 1), it.id); } }} style={{ display: "flex", gap: 10, padding: "10px 12px", background: T.card, borderBottom: `1px solid ${T.border}`, alignItems: "center" }}>
+                      {it.photo ? (
+                        <label title="Tap to pick a picture (or drop one on this row)" style={{ position: "relative", width: 82, height: 58, borderRadius: 9, overflow: "hidden", background: T.bg, flexShrink: 0, cursor: "pointer", display: "block" }}>
+                          {it.image
+                            ? <img src={it.image} alt="" style={{ width: 82, height: 58, objectFit: "cover", display: "block" }} />
+                            : <div style={{ width: 82, height: 58, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 18, color: T.textTert }}>📷<span style={{ fontSize: 10, fontWeight: 600 }}>Add photo</span></div>}
+                          <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) addPhotos(fl.slice(0, 1), it.id); e.target.value = ""; }} />
+                        </label>
+                      ) : (
                       <button onClick={() => setAdjust(it.id)} title="Tap to pick a better frame from the video" style={{ position: "relative", width: 82, height: 58, padding: 0, border: "none", borderRadius: 9, overflow: "hidden", background: T.bg, flexShrink: 0, cursor: "pointer", minHeight: 58 }}>
                         {it.image
                           ? <img src={it.image} alt="" style={{ width: 82, height: 58, objectFit: "cover", display: "block" }} />
                           : <div style={{ width: 82, height: 58, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📷</div>}
                         <span style={{ position: "absolute", right: 3, bottom: 3, width: 18, height: 18, borderRadius: 9, background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>🎞</span>
                       </button>
+                      )}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <input value={it.title} onChange={(e) => up(it.id, "title", e.target.value)} placeholder="What needs doing…" style={{ width: "100%", border: "none", background: "transparent", fontSize: 13, fontWeight: 650, color: T.text, outline: "none", fontFamily: "inherit", padding: 0 }} />
                         <input value={it.detail} onChange={(e) => up(it.id, "detail", e.target.value)} placeholder="Detail for the contractor…" style={{ width: "100%", border: "none", background: "transparent", fontSize: 11, color: T.textSub, outline: "none", fontFamily: "inherit", padding: "2px 0 0" }} />
-                        <div style={{ fontSize: 10, color: T.textTert, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{snippetLabel(it, multiClip)}{it.quote ? ` · "${it.quote}"` : ""}</div>
+                        {!it.photo && <div style={{ fontSize: 10, color: T.textTert, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{snippetLabel(it, multiClip)}{it.quote ? ` · "${it.quote}"` : ""}</div>}
                       </div>
                       <button onClick={() => { const idx = items.findIndex((i) => i.id === it.id); const copy = { ...it, id: Date.now(), title: "", detail: "", quote: "" }; wkSet(property.id, { items: [...items.slice(0, idx + 1), copy, ...items.slice(idx + 1)] }); }} title="Duplicate — another note with this same photo" style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer", width: 26, flexShrink: 0, padding: 0 }}>⧉</button>
                       <button onClick={() => del(it.id)} style={{ background: "none", border: "none", color: T.red, fontSize: 17, cursor: "pointer", width: 26, flexShrink: 0 }}>×</button>
@@ -1227,7 +1309,14 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
                   ))}
                 </div>
               ))}
-              <button onClick={addBlank} style={{ display: "block", width: "100%", minHeight: 44, background: "transparent", border: "none", color: T.blue, cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 600 }}>+ Add item</button>
+              <div style={{ display: "flex" }}>
+                <button onClick={addBlank} style={{ flex: 1, minHeight: 44, background: "transparent", border: "none", color: T.blue, cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 600 }}>+ Add item</button>
+                <label style={{ flex: 1, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center", color: T.blue, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                  📷 Add photos
+                  <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => { const fl = Array.from(e.target.files || []); if (fl.length) addPhotos(fl); e.target.value = ""; }} />
+                </label>
+              </div>
+              {!onPhone && <div style={{ textAlign: "center", fontSize: 11, color: T.textTert, marginTop: -6, paddingBottom: 8 }}>or copy a picture (e.g. in WhatsApp) and press Ctrl+V here · drag pictures in · drop one on a row to set its photo</div>}
               {(job?.transcript || []).length > 0 && (
                 <div style={{ padding: "0 14px 12px" }}>
                   <button onClick={() => setShowTx((v) => !v)} style={{ background: "none", border: "none", color: T.textTert, cursor: "pointer", fontSize: 11.5, fontFamily: "inherit", fontWeight: 600, padding: 0 }}>
@@ -1251,8 +1340,8 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
                 <button onClick={() => { setErr(""); setAdding(true); }} style={{ ...btn(T.bg, T.text), flex: 1, border: `1px solid ${T.border}`, padding: "9px 12px", fontSize: 12.5 }}>➕ Add another video</button>
                 <button onClick={() => { if (window.confirm("Throw away this punch list and start fresh?")) { setAdding(false); clearWalkJob(property.id); } }} title="Start over" style={{ ...btn(T.bg, T.red), border: `1px solid ${T.border}`, padding: "9px 14px", fontSize: 12.5 }}>🗑</button>
               </div>
-              {items.some((it) => it.title) && (() => {
-                const missing = items.some((it) => it.title && !it.image);
+              {items.some((it) => it.title && !it.photo) && (() => {
+                const missing = items.some((it) => it.title && !it.image && !it.photo);
                 return (
                   <label style={{ ...btn(T.bg, T.textSub), border: `1px dashed ${T.border}`, padding: "9px 12px", fontSize: 12, textAlign: "center", display: "block" }}>
                     {missing

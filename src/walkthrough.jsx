@@ -732,7 +732,7 @@ const RED = "#FF3B30";
 // a tall video letterboxed in a capped-height box saved a different crop
 // and the red box landed off the picture).
 function snapRegion(video, cx, cy, z, shape) {
-  const vw = video.videoWidth || 960, vh = video.videoHeight || 540;
+  const vw = video.videoWidth || video.naturalWidth || 960, vh = video.videoHeight || video.naturalHeight || 540;
   const sw = vw / z, sh = vh / z, sx = Math.max(0, Math.min(vw - sw, cx * vw - sw / 2)), sy = Math.max(0, Math.min(vh - sh, cy * vh - sh / 2));
   const k = Math.min(1, 720 / Math.max(sw, sh));
   const w = Math.max(2, Math.round(sw * k)), h = Math.max(2, Math.round(sh * k));
@@ -749,8 +749,11 @@ function snapRegion(video, cx, cy, z, shape) {
   }
   return c.toDataURL("image/jpeg", 0.8);
 }
-function FrameAdjust({ src, item, onUse, onClose, onPickFile }) {
-  const vRef = useRef(null), boxRef = useRef(null);
+// imageSrc (photo items, Elie 11/5/26): the same zoom / box / circle editor on
+// a picture instead of a video — no scrubbing.
+function FrameAdjust({ src, imageSrc, item, onUse, onClose, onPickFile, onPickImage }) {
+  const vRef = useRef(null), boxRef = useRef(null), imgRef = useRef(null);
+  const isImg = !!imageSrc;
   const s = Number(item.start) || 0, e = Number(item.end) || 0;
   const lo = Math.max(0, s - 5);
   const [hi, setHi] = useState((e > s ? e : s + 5) + 5);
@@ -766,6 +769,7 @@ function FrameAdjust({ src, item, onUse, onClose, onPickFile }) {
   const [shape, setShape] = useState(null);    // {kind,x,y,w,h} in 0..1 of the visible box
   const drag = useRef(null);
   useEffect(() => {
+    if (isImg) return;
     const v = vRef.current; if (!v || !src) return;
     setReady(false); setBad("");
     const onMeta = () => { setReady(true); if (v.videoWidth && v.videoHeight) setAr(v.videoWidth / v.videoHeight); if (v.duration && isFinite(v.duration)) setHi((h) => Math.min(h, Math.max(lo + 1, v.duration - 0.05))); try { v.currentTime = t; } catch { /* ignore */ } };
@@ -784,6 +788,12 @@ function FrameAdjust({ src, item, onUse, onClose, onPickFile }) {
   const move = (ev) => { const d = drag.current; if (!d) return; const p = pt(ev); if (d.kind === "draw") setShape({ kind: tool, x: Math.min(d.x0, p.x), y: Math.min(d.y0, p.y), w: Math.abs(p.x - d.x0), h: Math.abs(p.y - d.y0) }); else if (zoom > 1) { setCx(clampC(d.cx0 - (p.x - d.x0) / zoom, zoom)); setCy(clampC(d.cy0 - (p.y - d.y0) / zoom, zoom)); } };
   const up = () => { const d = drag.current; drag.current = null; if (d && d.kind === "draw") { setShape((sh) => (sh && sh.w > 0.01 && sh.h > 0.01 ? sh : null)); setTool(null); } };
   const snap = async (asNew) => {
+    if (isImg) {
+      const im = imgRef.current; if (!im) return;
+      try { const data = snapRegion(im, cx, cy, zoom, shape); if (data) onUse(data, null, { asNew, zoom, cx, cy, shape }); }
+      catch { setBad("Couldn't save that picture — try again."); }
+      return;
+    }
     const v = vRef.current; if (!v) return;
     setBusy(asNew ? "new" : "use");
     try {
@@ -802,15 +812,16 @@ function FrameAdjust({ src, item, onUse, onClose, onPickFile }) {
       <div onClick={(ev) => ev.stopPropagation()} style={{ background: T.bg, borderRadius: 18, width: "min(680px,96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: T.shadowMd }}>
         <div style={{ padding: "13px 16px 10px", background: T.card, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "flex-start", gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 15, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🎞 Pick the photo — {item.title || "item"}</div>
-            <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 2 }}>Said at {fmtT(s)}{e > s ? `–${fmtT(e)}` : ""} · scrub, zoom in, mark the spot</div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isImg ? "📷 Mark the photo" : "🎞 Pick the photo"} — {item.title || "item"}</div>
+            <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 2 }}>{isImg ? "Zoom in, drag to move, circle or box the spot" : <>Said at {fmtT(s)}{e > s ? `–${fmtT(e)}` : ""} · scrub, zoom in, mark the spot</>}</div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: T.textTert, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
-        {src ? (
+        {src || isImg ? (
           <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
             <div ref={boxRef} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} style={{ position: "relative", width: "100%", maxWidth: `calc(46vh * ${ar})`, aspectRatio: String(ar), margin: "0 auto", background: "#000", borderRadius: 12, overflow: "hidden", touchAction: "none", cursor: tool ? "crosshair" : zoom > 1 ? "grab" : "default", userSelect: "none" }}>
-              <video ref={vRef} src={src} muted playsInline preload="auto" onTimeUpdate={onTime} onPause={() => setPlaying(false)} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", display: "block", transform: `scale(${zoom}) translate(${tx}%, ${ty}%)`, transformOrigin: "center", transition: drag.current ? "none" : "transform 0.12s" }} />
+              {isImg ? <img ref={imgRef} src={imageSrc} alt="" draggable={false} onLoad={(ev) => { const im = ev.currentTarget; setReady(true); setBad(""); if (im.naturalWidth && im.naturalHeight) setAr(im.naturalWidth / im.naturalHeight); }} onError={() => setBad("Couldn't open that picture.")} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", display: "block", transform: `scale(${zoom}) translate(${tx}%, ${ty}%)`, transformOrigin: "center", userSelect: "none", pointerEvents: "none" }} /> : null}
+              {!isImg && <video ref={vRef} src={src} muted playsInline preload="auto" onTimeUpdate={onTime} onPause={() => setPlaying(false)} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", display: "block", transform: `scale(${zoom}) translate(${tx}%, ${ty}%)`, transformOrigin: "center", transition: drag.current ? "none" : "transform 0.12s" }} />}
               {shape && shape.w > 0 && (
                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
                   {shape.kind === "circle"
@@ -825,18 +836,24 @@ function FrameAdjust({ src, item, onUse, onClose, onPickFile }) {
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <div style={{ fontSize: 12, color: T.red, flex: 1, minWidth: 160 }}>{bad}</div>
                 <label style={{ padding: "8px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontWeight: 700, fontSize: 12.5, cursor: "pointer", minHeight: 36, display: "inline-flex", alignItems: "center" }}>
-                  📁 Pick the video
-                  <input type="file" accept="video/*" style={{ display: "none" }} onChange={(ev) => { const f = ev.target.files && ev.target.files[0]; if (f) onPickFile(f); ev.target.value = ""; }} />
+                  {isImg ? "📁 Pick the picture" : "📁 Pick the video"}
+                  <input type="file" accept={isImg ? "image/*" : "video/*"} style={{ display: "none" }} onChange={(ev) => { const f = ev.target.files && ev.target.files[0]; if (f) (isImg ? onPickImage : onPickFile)(f); ev.target.value = ""; }} />
                 </label>
               </div>
             )}
-            <input type="range" min={lo} max={hi} step={0.05} value={Math.min(hi, Math.max(lo, t))} onChange={(ev) => seek(Number(ev.target.value))} disabled={!ready} style={{ width: "100%", accentColor: T.gold }} />
+            {isImg && onPickImage && !bad && (
+              <label style={{ alignSelf: "flex-start", fontSize: 12, fontWeight: 700, color: T.blue, cursor: "pointer", padding: "2px 2px" }}>
+                ↻ Use a different picture
+                <input type="file" accept="image/*" style={{ display: "none" }} onChange={(ev) => { const f = ev.target.files && ev.target.files[0]; if (f) onPickImage(f); ev.target.value = ""; }} />
+              </label>
+            )}
+            {!isImg && (<><input type="range" min={lo} max={hi} step={0.05} value={Math.min(hi, Math.max(lo, t))} onChange={(ev) => seek(Number(ev.target.value))} disabled={!ready} style={{ width: "100%", accentColor: T.gold }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
               {nb("−1s", -1)}{nb("−0.2", -0.2)}
               <button onClick={toggle} disabled={!ready} style={{ width: 44, height: 36, minHeight: 36, borderRadius: 18, border: "none", background: T.gold, color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>{playing ? "❚❚" : "▶"}</button>
               {nb("+0.2", 0.2)}{nb("+1s", 1)}
               <span style={{ fontSize: 12.5, fontWeight: 700, color: T.textSub, fontVariantNumeric: "tabular-nums", marginLeft: 6 }}>{fmtT(t)}.{String(Math.floor((t % 1) * 10))}</span>
-            </div>
+            </div></>)}
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: T.textSub }}>🔍 Zoom</span>
               <input type="range" min={1} max={3} step={0.1} value={zoom} onChange={(ev) => setZ(Number(ev.target.value))} disabled={!ready} style={{ flex: 1, minWidth: 120, accentColor: T.gold }} />
@@ -849,7 +866,7 @@ function FrameAdjust({ src, item, onUse, onClose, onPickFile }) {
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button onClick={onClose} style={{ flex: 1, minWidth: 90, padding: 12, borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.textSub, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
               <button onClick={() => snap(true)} disabled={!ready || !!busy} title="Keep this item as it is and add another item with this picture — a second note about something else in the same shot" style={{ flex: 1.2, minWidth: 150, padding: 12, borderRadius: 12, border: `1px solid ${T.gold}`, background: T.goldLight, color: "#8a6d1f", fontWeight: 800, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", opacity: !ready || busy ? 0.6 : 1 }}>{busy === "new" ? "Adding…" : "＋ Save as a new item"}</button>
-              <button onClick={() => snap(false)} disabled={!ready || !!busy} style={{ flex: 1.4, minWidth: 150, padding: 12, borderRadius: 12, border: "none", background: T.gold, color: "#fff", fontWeight: 800, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 2px 10px ${T.gold}55`, opacity: !ready || busy ? 0.6 : 1 }}>{busy === "use" ? "Snapping…" : "✓ Use this frame"}</button>
+              <button onClick={() => snap(false)} disabled={!ready || !!busy} style={{ flex: 1.4, minWidth: 150, padding: 12, borderRadius: 12, border: "none", background: T.gold, color: "#fff", fontWeight: 800, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 2px 10px ${T.gold}55`, opacity: !ready || busy ? 0.6 : 1 }}>{busy === "use" ? "Snapping…" : isImg ? "✓ Use this picture" : "✓ Use this frame"}</button>
             </div>
           </div>
         ) : (
@@ -1053,12 +1070,12 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
     if (!pics.length) { setErr("Couldn't read that picture — try saving it first, then pick it."); return true; }
     const cur = wkGet(property.id)?.items || [];
     if (intoId != null) {
-      wkSet(property.id, { items: cur.map((i) => (i.id === intoId ? { ...i, image: pics[0], frameManual: true } : i)) });
+      wkSet(property.id, { items: cur.map((i) => (i.id === intoId ? { ...i, image: pics[0], photoOrig: pics[0], frameManual: true } : i)) });
       setFlash("✓ Photo updated"); setTimeout(() => setFlash(""), 2000);
       return true;
     }
     const at = Date.now();
-    wkSet(property.id, { items: [...cur, ...pics.map((img, k) => ({ id: at + k, title: "", detail: "", room: "General", quote: "", start: 0, end: 0, image: img, clip: 0, photo: true }))] });
+    wkSet(property.id, { items: [...cur, ...pics.map((img, k) => ({ id: at + k, title: "", detail: "", room: "General", quote: "", start: 0, end: 0, image: img, photoOrig: img, clip: 0, photo: true }))] });
     setAdding(false);
     setFlash(`✓ ${pics.length} photo${pics.length !== 1 ? "s" : ""} added — type what needs doing under each`); setTimeout(() => setFlash(""), 3000);
     return true;
@@ -1283,7 +1300,12 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
                   <div style={{ padding: "8px 14px 4px", fontSize: 10, fontWeight: 800, color: T.textTert, letterSpacing: "0.05em", background: T.bg }}>{room.toUpperCase()} · {items.filter((i) => (i.room || "General") === room).length}</div>
                   {items.filter((i) => (i.room || "General") === room).map((it) => (
                     <div key={it.id} onDrop={(e) => { const pics = imageFilesOf(e.dataTransfer?.files); if (pics.length) { e.preventDefault(); e.stopPropagation(); setDragOver(false); addPhotos(pics.slice(0, 1), it.id); } }} style={{ display: "flex", gap: 10, padding: "10px 12px", background: T.card, borderBottom: `1px solid ${T.border}`, alignItems: "center" }}>
-                      {it.photo ? (
+                      {it.photo && it.image ? (
+                        <button onClick={() => setAdjust(it.id)} title="Tap to zoom in and circle the spot" style={{ position: "relative", width: 82, height: 58, padding: 0, border: "none", borderRadius: 9, overflow: "hidden", background: T.bg, flexShrink: 0, cursor: "pointer", minHeight: 58 }}>
+                          <img src={it.image} alt="" style={{ width: 82, height: 58, objectFit: "cover", display: "block" }} />
+                          <span style={{ position: "absolute", right: 3, bottom: 3, width: 18, height: 18, borderRadius: 9, background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>◯</span>
+                        </button>
+                      ) : it.photo ? (
                         <label title="Tap to pick a picture (or drop one on this row)" style={{ position: "relative", width: 82, height: 58, borderRadius: 9, overflow: "hidden", background: T.bg, flexShrink: 0, cursor: "pointer", display: "block" }}>
                           {it.image
                             ? <img src={it.image} alt="" style={{ width: 82, height: 58, objectFit: "cover", display: "block" }} />
@@ -1369,19 +1391,21 @@ export function WalkthroughModal({ property, onUpdate, onClose }) {
       {adjItem && (
         <FrameAdjust
           key={adjItem.id + ":" + srcTick}
-          src={clipSrcFor(adjItem.clip || 1)}
+          src={adjItem.photo ? null : clipSrcFor(adjItem.clip || 1)}
+          imageSrc={adjItem.photo ? (adjItem.photoOrig || adjItem.image) : null}
+          onPickImage={async (f) => { const img = await photoToJpeg(f); if (img) { wkSet(property.id, { items: (wkGet(property.id)?.items || []).map((i) => (i.id === adjItem.id ? { ...i, image: img, photoOrig: img } : i)) }); setSrcTick((x) => x + 1); } }}
           item={adjItem}
           onClose={() => setAdjust(null)}
           onUse={(data, at, o) => {
             if (o && o.asNew) {
               // A second note about something else in the same shot: same clip, moment and room, blank text, this picture.
               const idx = items.findIndex((i) => i.id === adjItem.id);
-              const copy = { ...adjItem, id: Date.now(), title: "", detail: "", quote: "", image: data, frameAt: at, frameManual: true };
+              const copy = { ...adjItem, id: Date.now(), title: "", detail: "", quote: "", image: data, ...(adjItem.photo ? { photoOrig: adjItem.photoOrig || adjItem.image } : { frameAt: at }), frameManual: true };
               wkSet(property.id, { items: [...items.slice(0, idx + 1), copy, ...items.slice(idx + 1)] });
               setAdjust(null); setFlash("✓ New item added under this one — give it a title"); setTimeout(() => setFlash(""), 3000);
               return;
             }
-            wkSet(property.id, { items: items.map((i) => (i.id === adjItem.id ? { ...i, image: data, frameAt: at, frameManual: true } : i)) }); setAdjust(null); setFlash("✓ Photo updated"); setTimeout(() => setFlash(""), 2000);
+            wkSet(property.id, { items: items.map((i) => (i.id === adjItem.id ? { ...i, image: data, ...(i.photo ? { photoOrig: i.photoOrig || i.image } : { frameAt: at }), frameManual: true } : i)) }); setAdjust(null); setFlash("✓ Photo updated"); setTimeout(() => setFlash(""), 2000);
           }}
           onPickFile={(f) => { wkKeepSrc(property.id, adjItem.clip || 1, URL.createObjectURL(f), f.name || ""); setSrcTick((x) => x + 1); }}
         />

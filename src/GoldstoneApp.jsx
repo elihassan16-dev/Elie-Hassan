@@ -21,7 +21,7 @@ import { urgentNext, urgentMark, UrgentChip, UrgentTag, UrgentTile, UrgentSheet,
 import { PayoffStatementSheet } from "./payoffSheet";
 import { PostsPage, PostsNudge, PostWatcher, PostEditor } from "./flyers";
 import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
-import { MediaBubble, SwipeReply, MentionText, typedMentions } from "./chatMedia";
+import { MediaBubble, SwipeReply, MentionText, typedMentions, ChatGallery } from "./chatMedia";
 import { VoiceRecorder } from "./voiceRecorder";
 import { usePersistentDraft } from "./useDraft";
 import { FileActions } from "./fileActions";
@@ -8169,7 +8169,7 @@ function TaskMessagesBody({title,task,contacts=[],messages:allMsgs,currentUser,t
         </div>}
         <div style={{flex:1,overflowY:"auto",padding:"12px 16px",display:"flex",flexDirection:"column",gap:10,minHeight:120,...(listStyle||{})}}>
           {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"24px 0"}}>{subFilter?"No messages about this item yet.":"No messages yet. Leave a note for your team below."}</div>}
-          {messages.map(m=>{const mine=m.author===currentUser;return(
+          <ChatGallery messages={messages}>{messages.map(m=>{const mine=m.author===currentUser;return(
             <SwipeReply key={m.id} onReply={()=>setReply(m)} align={mine?"flex-end":"flex-start"} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"85%"}}>
               {!mine&&<div style={{fontSize:10,color:T.textTert,marginBottom:2,paddingLeft:4}}>{(m.author||"—").split(" ")[0]} · {fmt(m.at)}</div>}
               <div style={{display:"flex",alignItems:"center",gap:6,flexDirection:mine?"row-reverse":"row",maxWidth:"100%"}}>
@@ -8184,7 +8184,7 @@ function TaskMessagesBody({title,task,contacts=[],messages:allMsgs,currentUser,t
               </div>
               {mine&&<div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:5,marginTop:2}}><span style={{fontSize:10,color:T.textTert}}>{fmt(m.at)} ·</span><ReadReceipt readBy={m.readBy} author={m.author} m={m} people={teamMembers}/></div>}
             </SwipeReply>
-          );})}
+          );})}</ChatGallery>
         </div>
         <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,flexShrink:0}}>
           {involved.length>1&&(
@@ -8897,7 +8897,7 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
         <div style={{padding:"6px 16px 0",fontSize:11,fontWeight:600,color:ext?"#B45309":T.blue,flexShrink:0}}>{ext?`This is the ${orgName} job thread — everything here reaches their whole team.`:"Contractors can NEVER read this — it also shows in the property chat as a 🔒 thread."}</div>
         <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"10px 16px",display:"flex",flexDirection:"column",gap:10,minHeight:140,background:ext?"#FFF9EC":"#fff"}}>
           {msgs.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"26px 0"}}>{ext?"No messages with them on this job yet.":"No internal notes on this task yet."}</div>}
-          {msgs.map(m=>{
+          <ChatGallery messages={msgs}>{msgs.map(m=>{
             // Only your OWN messages sit right — a teammate's external message
             // shows left with a light-gold tint, not as if you sent it.
             const sameSide=ext&&m.side==="team";
@@ -8912,7 +8912,7 @@ function ExternalTaskChat({task,job,orgName,property,currentUser,teamMembers,ctr
                 {m.attachment&&<MessageAttachment att={m.attachment} mine={mine}/>}
               </div>
             </div>
-          );})}
+          );})}</ChatGallery>
         </div>
         <div style={{padding:"10px 12px max(10px,env(safe-area-inset-bottom))",borderTop:ext?"2px solid #E8A33D":`2px solid ${T.blue}`,background:ext?"#FFF9EC":"#fff",flexShrink:0}}>
           <ChatComposer onSend={(txt,att,mn)=>send(txt,att,mn)} people={tagPeople} currentUser={currentUser} filesFolder={property&&property.filesFolder||null}
@@ -12876,7 +12876,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
       )}
       <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
         {messages.length===0&&<div style={{textAlign:"center",color:T.textTert,fontSize:13,padding:"30px 0"}}>No messages yet for this property. Start the conversation below.</div>}
-        {threads.map(th=>{
+        <ChatGallery messages={messages}>{threads.map(th=>{
           const{root,replies}=th;
           const rootMine=root.author===currentUser;
           const taskTag=(txt,state)=><span title={state==="deleted"?"This task was deleted — the conversation is kept here":"This message is on a task"} style={{fontSize:10,fontWeight:700,color:"#b8912e",background:T.goldLight,border:`1px solid ${T.gold}`,borderRadius:20,padding:"2px 8px",maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block"}}>↳ Task: {txt}{state==="deleted"?<span style={{color:T.red,fontWeight:800}}> · deleted task</span>:state==="Completed"?<span style={{color:"#15803D",fontWeight:800}}> · ✓ completed</span>:null}</span>;
@@ -12954,7 +12954,7 @@ function MessageThread({property,messages,currentUser,teamMembers,onSend,onDelet
               {isCtr&&<div style={{fontSize:10,color:"#B45309",fontWeight:600,paddingBottom:3}}>👁 {root.ctrLabel}'s team sees everything in this box — tap it to message them. Your internal chat stays hidden from them.</div>}
             </div>
           );
-        })}
+        })}</ChatGallery>
       </div>
       {!selMode&&reply&&(
         reply.ctrLabel

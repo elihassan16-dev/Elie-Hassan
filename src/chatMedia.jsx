@@ -9,11 +9,11 @@
 //     double-tap to zoom, swipe down to close, ⬇ Save / ⤴ Share.
 //   • SwipeReply — swipe a message to the right to reply to it.
 //   • MentionText — tagged people's @names show IN the message.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, createContext, useContext, useMemo } from "react";
 import { T } from "./theme";
 import { linkifyText } from "./sms";
 import { FileActions } from "./fileActions";
-import { PhotoViewer } from "./photoViewer";
+import { PhotoViewer, viewerWhen } from "./photoViewer";
 import { useVideoUpload, VideoUploadBubble, localPreview, retryUpload } from "./videoUpload";
 
 const GOLD_DARK = "#8a6d1f";
@@ -173,6 +173,8 @@ function PendingMedia({ att, mine }) {
 // extra: more chips next to ⬇ Save / ⤴ Share (e.g. 💾 Save to Files).
 export function MediaBubble({ att: given, mine, extra = null }) {
   const [open, setOpen] = useState(null);
+  const gallery = useContext(ChatGalleryCtx);
+  const openAt = (list, i) => { const u = list[i] && list[i].url; if (gallery && u && gallery.open(u)) return; setOpen(i); };
   // On the sender's device a finished upload shows right away, without
   // waiting for the saved message to be patched and synced back.
   const live = useVideoUpload(given && given.pending ? given.uploadId : null);
@@ -184,9 +186,9 @@ export function MediaBubble({ att: given, mine, extra = null }) {
   const viewer = (items) => open != null && <MediaViewer items={items} index={open} onClose={() => setOpen(null)} />;
   if (att.kind === "images" && Array.isArray(att.items)) {
     const items = att.items.map((it) => ({ ...it, kind: "image" }));
-    return <div><Grid items={items} srcOf={(it) => it.url} onOpen={(i) => setOpen(i)} />{acts(att)}{viewer(items)}</div>;
+    return <div><Grid items={items} srcOf={(it) => it.url} onOpen={(i) => openAt(items, i)} />{acts(att)}{viewer(items)}</div>;
   }
-  if (att.kind === "image") return <div><Photo src={att.url} w={att.w} h={att.h} mw={maxW()} onOpen={() => setOpen(0)} />{acts(att)}{viewer([att])}</div>;
+  if (att.kind === "image") return <div><Photo src={att.url} w={att.w} h={att.h} mw={maxW()} onOpen={() => openAt([att], 0)} />{acts(att)}{viewer([att])}</div>;
   if (att.kind === "video") {
     const thumb = att.stream ? streamThumb(att) : "";
     // Before Cloudflare tells us the size, assume a phone video (standing up).
@@ -194,8 +196,8 @@ export function MediaBubble({ att: given, mine, extra = null }) {
     return (
       <div>
         {thumb
-          ? <Photo src={thumb} w={w} h={h} mw={maxW()} mh={340} onOpen={() => setOpen(0)}>{playIcon()}{att.dur ? <span style={{ position: "absolute", left: 8, bottom: 7, color: "#fff", fontSize: 11.5, fontWeight: 700, textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}>🎥 {fmtDur(att.dur)}</span> : null}</Photo>
-          : <VideoFrame att={att} onOpen={() => setOpen(0)} />}
+          ? <Photo src={thumb} w={w} h={h} mw={maxW()} mh={340} onOpen={() => openAt([att], 0)}>{playIcon()}{att.dur ? <span style={{ position: "absolute", left: 8, bottom: 7, color: "#fff", fontSize: 11.5, fontWeight: 700, textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}>🎥 {fmtDur(att.dur)}</span> : null}</Photo>
+          : <VideoFrame att={att} onOpen={() => openAt([att], 0)} />}
         {(!att.stream || att.uid) && acts(att)}
         {viewer([att])}
       </div>
@@ -233,10 +235,46 @@ export function MediaViewer({ items, index = 0, onClose }) {
     url: it.kind === "video" && it.stream ? (it.watch || "") : it.url,
     embed: it.kind === "video" && it.stream ? `${it.url}${String(it.url).includes("?") ? "&" : "?"}autoplay=true` : null,
     thumb: it.kind === "video" && it.stream ? streamThumb(it) : null,
-    file: it, title: it.kind === "video" ? "Video" : "Photo", sub: it.name || "",
+    file: it,
+    title: it.who ? String(it.who).split(" ")[0] : it.kind === "video" ? "Video" : "Photo",
+    sub: it.at ? viewerWhen(it.at) : it.name || "",
   }));
   return <PhotoViewer items={list} index={index} onClose={onClose} />;
 }
+
+// 🖼 Whole-conversation gallery (Elie 11/6/26 — "like texting on a regular
+// phone or WhatsApp"): wrap a chat's message list in <ChatGallery messages>
+// and tapping any photo / video opens the viewer on it with EVERY picture in
+// that conversation to swipe through, each with who sent it and when.
+// Messages: {author|by, at, attachment} (team / contractor chats) or
+// {by, direction, at, media:[url…]} (texts).
+const ChatGalleryCtx = createContext(null);
+const VIDEO_RE = /\.(mp4|mov|3gp2?|webm|m4v)(\?|$)/i;
+export function galleryItemsOf(messages, whoOf) {
+  const out = [];
+  [...(messages || [])].filter(Boolean).sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0)).forEach((m) => {
+    const base = { at: m.at, who: whoOf ? whoOf(m) : m.author || m.by || "" };
+    const a = m.attachment;
+    if (a && !a.pending && !a.failed) {
+      if (a.kind === "images" && Array.isArray(a.items)) a.items.forEach((it) => { if (it && it.url) out.push({ ...it, kind: "image", ...base }); });
+      else if ((a.kind === "image" || a.kind === "video") && a.url) out.push({ ...a, ...base });
+    }
+    if (Array.isArray(m.media)) m.media.forEach((u) => { if (u) out.push({ url: u, kind: VIDEO_RE.test(u) ? "video" : "image", name: "", ...base }); });
+  });
+  return out;
+}
+export function ChatGallery({ messages, whoOf, children }) {
+  const items = useMemo(() => galleryItemsOf(messages, whoOf), [messages]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [open, setOpen] = useState(null);
+  const api = useMemo(() => ({ open: (url) => { const i = items.findIndex((x) => x.url === url); if (i < 0) return false; setOpen(i); return true; } }), [items]);
+  return (
+    <ChatGalleryCtx.Provider value={api}>
+      {children}
+      {open != null && items[open] && <MediaViewer items={items} index={open} onClose={() => setOpen(null)} />}
+    </ChatGalleryCtx.Provider>
+  );
+}
+export const useChatGallery = () => useContext(ChatGalleryCtx);
 
 // ── swipe right to reply ─────────────────────────────────────────────────────
 // align: "flex-start" | "flex-end" — how the message sits in its row.

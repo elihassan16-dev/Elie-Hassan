@@ -11,6 +11,7 @@ import { qbAuthFetch, uploadAttachment } from "./net";
 import { sessionUid, loadBigPrefs, saveBigPrefs } from "./userBigPrefs";
 import { T } from "./theme";
 import { SmsChatIcon } from "./icons";
+import { PhotoViewer, viewerWhen } from "./photoViewer";
 
 // Turn bare URLs inside message text into tappable links. Returns a mixed
 // array of strings and <a> elements; plain text passes through untouched.
@@ -931,6 +932,17 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
   const [findQ, setFindQ] = useState(null); // null = closed
   const findQl = (findQ || "").trim().toLowerCase();
   const visThread = findQl ? thread.filter((m) => String(m.text || "").toLowerCase().includes(findQl)) : thread;
+  // 🖼 Tap a picture → the in-app viewer with EVERY picture in this
+  // conversation, oldest → newest, who sent it + when (Elie 11/6/26: "like
+  // texting on a regular phone or WhatsApp" — it used to open an outside link).
+  const [pvAt, setPvAt] = useState(null);
+  const pics = [];
+  [...thread].sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0)).forEach((m) => {
+    if (m.kind === "call" || !Array.isArray(m.media)) return;
+    const who = m.direction === "in" ? (name || "Them") : ((m.by || "").split(" ")[0] || "You");
+    m.media.forEach((u, i) => { if (u && !/\.(mp4|mov|3gp2?|webm|m4v)(\?|$)/i.test(u)) pics.push({ key: `${m.id}#${i}`, kind: "image", url: u, title: who, sub: viewerWhen(m.at), file: { kind: "image", url: u, name: `text-photo-${i + 1}.jpg` } }); });
+  });
+  const openPic = (u) => { const i = pics.findIndex((x) => x.url === u); if (i >= 0) setPvAt(i); else window.open(u, "_blank", "noopener"); };
   const hiText = (text) => {
     const s = String(text || "");
     if (!findQl) return s;
@@ -1077,6 +1089,7 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
               💬 {otherN} message{otherN !== 1 ? "s" : ""} about other properties — <span style={{ color: "#2563EB", fontWeight: 800 }}>view ›</span>
             </div>
           )}
+          {pvAt != null && pics[pvAt] && <PhotoViewer items={pics} index={pvAt} onClose={() => setPvAt(null)} />}
           {thread.length === 0 && (propK && view === "prop"
             ? <div style={{ textAlign: "center", color: T.textTert, fontSize: 12.5, padding: "20px 10px", lineHeight: 1.55 }}>No texts about {prop} yet.<br />Anything you send from here files under this property.</div>
             : <div style={{ textAlign: "center", color: T.textTert, fontSize: 12.5, padding: "30px 10px" }}>No texts with this number yet. Pick a template below or write your own — it sends from the company line, and their replies show up right here.</div>)}
@@ -1147,7 +1160,7 @@ export function SmsThreadPane({ phone, name, sub = "", prop = "", templates = []
                       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: m.text ? 7 : 0 }}>
                         {m.media.map((u, i) => /\.(mp4|mov|3gp2?|webm|m4v)(\?|$)/i.test(u)
                           ? <video key={i} src={u} controls style={{ maxWidth: "100%", borderRadius: 10, maxHeight: 280 }} />
-                          : <a key={i} href={u} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                          : <a key={i} href={u} target="_blank" rel="noopener noreferrer" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openPic(u); }} style={{ cursor: "zoom-in" }}>
                               <img src={u} alt="attachment" style={{ maxWidth: "100%", borderRadius: 10, maxHeight: 280, display: "block" }}
                                 onError={(ev) => { const a = document.createElement("a"); a.href = u; a.target = "_blank"; a.rel = "noopener noreferrer"; a.textContent = "📎 Attachment"; a.style.cssText = `color:${mine ? "#fff" : "#2563EB"};text-decoration:underline;font-size:12.5px`; ev.currentTarget.parentNode.replaceWith(a); }} />
                             </a>)}

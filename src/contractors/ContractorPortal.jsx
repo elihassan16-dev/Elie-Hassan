@@ -15,7 +15,7 @@ import { FaceIdSetting } from "../faceId";
 import { ShareInPortal } from "../shareIn";
 import { useAppBadge } from "../appBadge";
 import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage, resumeVideoUploads } from "../videoUpload";
-import { MediaBubble, SwipeReply, MentionText, typedMentions } from "../chatMedia";
+import { MediaBubble, SwipeReply, MentionText, typedMentions, ChatGallery } from "../chatMedia";
 import { VoiceRecorder } from "../voiceRecorder";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
 import { MicIcon, TeamChatIcon } from "../icons";
@@ -1053,7 +1053,7 @@ export function ContractorPortal() {
                           );
                         })()}
                         {thread.length === 0 && selJob.status !== "bid" && <div style={{ textAlign: "center", color: T.textTert, fontSize: 13, padding: "40px 0" }}>No messages yet on this job. Say hello below.</div>}
-                        {groups.map((g) => (
+                        <ChatGallery messages={thread}>{groups.map((g) => (
                           <div key={g.key} style={{ background: T.card, borderRadius: 16, boxShadow: T.shadow, padding: "10px 12px" }}>
                             <div style={{ marginBottom: 9 }}>
                               {g.key === "general"
@@ -1092,7 +1092,7 @@ export function ContractorPortal() {
                               })}
                             </div>
                           </div>
-                        ))}
+                        ))}</ChatGallery>
                       </div>
                     );
                   })()}

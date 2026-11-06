@@ -14,7 +14,7 @@ import { linkifyText, rescuePastedLink, SmsThreadPopup } from "../sms";
 import { notify, qbAuthFetch, uploadAttachment, attLabel, STREAM_VIDEO_CAP, urgentPing } from "../net";
 import { UrgentChip, UrgentTag, RED as URGENT_RED } from "../urgent";
 import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, bindCtrVideoMessage } from "../videoUpload";
-import { MediaBubble, SwipeReply, MentionText } from "../chatMedia";
+import { MediaBubble, SwipeReply, MentionText, ChatGallery } from "../chatMedia";
 import { VoiceRecorder } from "../voiceRecorder";
 import { usePersistentDraft } from "../useDraft";
 import { useContractorData, jobTotal, jobPaid, jobLeft, jobDays, money, fmtDate, fmtWhen } from "./data";
@@ -1059,7 +1059,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
       {tab2 === "messages" && (<>
         <div ref={scrollRef} style={{ maxHeight: 360, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, padding: "4px 2px" }}>
           {thread.length === 0 && <div style={{ textAlign: "center", color: T.textTert, fontSize: 13, padding: "26px 0" }}>No messages on this job yet.</div>}
-          {thread.map((m) => { const mine = m.side === "team"; return (
+          <ChatGallery messages={thread}>{thread.map((m) => { const mine = m.side === "team"; return (
             <SwipeReply key={m.id} onReply={() => setReplyTo(m)} align={mine ? "flex-end" : "flex-start"} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "86%" }}>
               {!mine && <div style={{ fontSize: 10, color: T.textTert, margin: "0 0 2px 8px" }}>{(m.author || "").split(" ")[0]} · {fmtWhen(m.at)}</div>}
               <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: mine ? "row-reverse" : "row" }}>
@@ -1076,7 +1076,7 @@ export function JobDetail({ j, org, isAdmin = true, qbProjectId = null, tasks, m
               </div>
               {mine && <div style={{ fontSize: 10, color: T.textTert, margin: "2px 8px 0", textAlign: "right" }}>{fmtWhen(m.at)}</div>}
             </SwipeReply>
-          ); })}
+          ); })}</ChatGallery>
         </div>
         {replyTo && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.cardAlt, borderLeft: `3px solid ${T.gold}`, borderRadius: 8 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>↩ Replying to <b>{(replyTo.author || "").split(" ")[0]}</b>: {replyTo.text || (replyTo.attachment ? "📎 attachment" : "")}</span><button onClick={() => setReplyTo(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}
         {pending && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.goldLight, border: `1px solid ${T.gold}55`, borderRadius: 10 }}><span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(pending.kind === "image" || pending.kind === "images") && pending.uploadId && localPreview(pending.uploadId) ? <img src={localPreview(pending.uploadId)} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover", verticalAlign: "middle", marginRight: 6 }} /> : pending.kind === "video" ? "🎬 " : "📎 "}{pending.name}{pending.pending ? " — uploading, OK to send" : ""}</span><button onClick={() => setPending(null)} style={{ background: "none", border: "none", color: T.textTert, fontSize: 15, cursor: "pointer" }}>×</button></div>}

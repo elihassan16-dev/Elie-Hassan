@@ -10,6 +10,8 @@ export default defineConfig({
   server: { port: 5173 },
   build: {
     rollupOptions: {
+      // 🌐 site.html = the public company website (src/site), served at /company.
+      input: { main: "index.html", site: "site.html" },
       output: {
         // Split dependencies out of the app bundle so they stay byte-identical
         // (and therefore browser/SW-cached) across our frequent deploys — a

@@ -28,6 +28,10 @@
       "destination": "/api/v?uid=:uid"
     },
     {
+      "source": "/company",
+      "destination": "/site.html"
+    },
+    {
       "source": "/((?!api/)(?!.*\\.).*)",
       "destination": "/index.html"
     }

@@ -1,6 +1,6 @@
 // 🌐 Goldstone Properties public website (Elie 11/8/26 — approved the dark +
 // gold concept). Plain JS, no app code: it reads /api/site/listings (only
-// the public fields of our On Market / In Closing / recently Sold homes) and
+// the public fields of our On Market / In Closing homes) and
 // posts the "Sell to us" form to /api/site/lead (→ New Leads + team push).
 // Served at gpflips.com/company now; Elie's own domain points here later.
 import "./site.css";
@@ -9,9 +9,9 @@ const EMAIL = "info@goldstonepropertiesnj.com";
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const money = (n) => "$" + Math.round(n).toLocaleString("en-US");
-const KIND = { sale: "For Sale", pending: "Under Contract", sold: "Sold" };
-const LOGO = `<svg width="40" height="44" viewBox="0 0 100 110" aria-hidden="true"><g fill="none" stroke="#C9A24E" stroke-width="2.4"><path d="M50 3 93 28v54L50 107 7 82V28z"/><path d="M22 22v66M30 18v74M38 14v82M46 38h47M46 48h47M46 58h47M46 68h47M46 38 76 20M46 30l40-2M46 68l30 18M46 78l40 4"/></g></svg>`;
-const HOUSE = `<svg class="house" viewBox="0 0 800 480" fill="none" aria-hidden="true"><g stroke="rgba(233,207,138,.55)" stroke-width="1.4"><path d="M60 470V250L330 90l270 160v220"/><path d="M600 470V300h180v170"/><path d="M590 300l100-70 100 70"/><path d="M20 470h780"/></g><g fill="rgba(255,205,120,.5)"><rect x="120" y="300" width="70" height="90"/><rect x="230" y="300" width="70" height="90"/><rect x="360" y="300" width="70" height="90"/><rect x="470" y="300" width="70" height="90"/><rect x="290" y="180" width="80" height="60"/><rect x="640" y="340" width="100" height="70" opacity=".7"/></g><rect x="300" y="410" width="60" height="60" fill="rgba(255,205,120,.45)"/></svg>`;
+const KIND = { sale: "For Sale", pending: "Under Contract" }; // no Sold on the site (Elie 11/8/26)
+const logo = (h = 44) => `<img class="mark" src="/site/mark.png" alt="" width="${Math.round(h * 0.87)}" height="${h}">`; // the real Goldstone hexagon (assets/icon-foreground.png)
+const LOGO = logo(54);
 
 const state = { listings: null, filter: "sale", form: { condition: "", timeline: "" } };
 
@@ -23,7 +23,7 @@ function factsHtml(l) {
   if (l.renovated) f.push(`<span><b>Fully renovated</b></span>`);
   return f.length ? `<div class="facts">${f.join("")}</div>` : "";
 }
-const priceHtml = (l) => l.kind === "sold" ? `<div class="price ask">Sold</div>` : l.price ? `<div class="price">${money(l.price)}</div>` : `<div class="price ask">Price on request</div>`;
+const priceHtml = (l) => l.price ? `<div class="price">${money(l.price)}</div>` : `<div class="price ask">Price on request</div>`;
 const coverOf = (l) => (l.photos[0] && l.photos[0].url) || (l.video && l.video.poster) || "";
 
 function card(l) {
@@ -31,7 +31,7 @@ function card(l) {
   const n = l.photos.length;
   return `<button class="card" data-id="${esc(l.id)}" aria-label="${esc(l.street)}, ${esc(l.town)}">
     <div class="ph">${cover ? `<div class="cover" style="background-image:url('${esc(cover)}')"></div>` : `<div class="noimg">${LOGO}</div>`}
-      ${l.kind !== "sale" ? `<span class="pill st ${l.kind === "sold" ? "sold" : ""}">${KIND[l.kind]}</span>` : ""}
+      ${l.kind !== "sale" ? `<span class="pill st">${KIND[l.kind]}</span>` : ""}
       ${n ? `<span class="pill cnt">▣ ${n} photo${n === 1 ? "" : "s"}</span>` : ""}
       ${l.video ? `<span class="pill vid"><span class="play">▶</span>Video tour</span>` : ""}
     </div>
@@ -42,9 +42,9 @@ function card(l) {
 function renderListings() {
   const box = $("#grid"), tabs = $("#filters");
   if (!state.listings) { box.innerHTML = `<div class="grid">${"<div class='skel'></div>".repeat(3)}</div>`; tabs.innerHTML = ""; return; }
-  const counts = { sale: 0, pending: 0, sold: 0 };
-  state.listings.forEach((l) => counts[l.kind]++);
-  if (!counts[state.filter]) state.filter = ["sale", "pending", "sold"].find((k) => counts[k]) || "sale";
+  const counts = { sale: 0, pending: 0 };
+  state.listings.forEach((l) => { if (l.kind in counts) counts[l.kind]++; });
+  if (!counts[state.filter]) state.filter = ["sale", "pending"].find((k) => counts[k]) || "sale";
   tabs.innerHTML = Object.keys(KIND).filter((k) => counts[k] || k === "sale")
     .map((k) => `<button data-f="${k}" class="${state.filter === k ? "on" : ""}">${KIND[k]}${counts[k] ? ` · ${counts[k]}` : ""}</button>`).join("");
   const list = state.listings.filter((l) => l.kind === state.filter);
@@ -56,8 +56,6 @@ function renderHeroAndAbout() {
   const withPics = (state.listings || []).filter((l) => coverOf(l));
   const n = (state.listings || []).filter((l) => l.kind === "sale").length;
   if (state.listings) $("#statHomes").textContent = String(n);
-  const hero = withPics.find((l) => l.kind === "sale") || withPics[0];
-  if (hero) { const bg = $("#heroBg"); bg.classList.add("photo"); bg.style.backgroundImage = `url('${coverOf(hero).replace(/'/g, "%27")}')`; $("#heroHouse").style.display = "none"; }
   const duo = $("#duo");
   const pics = withPics.slice(0, 2);
   if (pics.length === 2) {
@@ -169,9 +167,9 @@ function page() {
   const year = new Date().getFullYear();
   return `
 <header class="hero" id="top">
-  <div class="bg" id="heroBg"></div><span id="heroHouse">${HOUSE}</span><div class="shade"></div>
+  <div class="bg photo" id="heroBg"></div><div class="shade"></div>
   <nav class="top" aria-label="Main"><div class="wrap">
-    <a class="brand" href="#top">${LOGO}<div><b>GOLDSTONE</b><small>PROPERTIES</small></div></a>
+    <a class="brand" href="#top">${LOGO}<div class="wm"><b>GOLDSTONE</b><small>PROPERTIES</small></div></a>
     <div class="links"><a href="#about">About</a><a href="#listings">Listings</a><a href="#sell">Sell Your House</a><a href="mailto:${EMAIL}">Contact</a><a class="btn gold" href="#sell">Sell to Us</a></div>
   </div></nav>
   <div class="wrap">
@@ -200,7 +198,7 @@ function page() {
       <div><h3>We hold</h3><p>A growing rental portfolio across New Jersey.</p></div>
     </div>
   </div>
-  <div class="duo" id="duo"><div class="art">${LOGO.replace('width="40" height="44"', 'width="150" height="165"')}</div></div>
+  <div class="duo" id="duo"><div class="art">${logo(170)}</div></div>
 </div></section>
 <section class="listings" id="listings"><div class="wrap">
   <div class="lhead"><div><div class="kick">Available now</div><h2>Our Listings</h2></div><div class="filters" id="filters" role="tablist"></div></div>
@@ -221,7 +219,7 @@ function page() {
 </div></section>
 </main>
 <footer><div class="wrap">
-  <a class="brand" href="#top">${LOGO.replace('width="40" height="44"', 'width="34" height="38"')}<div><b>GOLDSTONE</b><small>PROPERTIES</small></div></a>
+  <a class="brand" href="#top">${logo(40)}<div class="wm"><b>GOLDSTONE</b><small>PROPERTIES</small></div></a>
   <div>New Jersey · <a href="mailto:${EMAIL}">${EMAIL}</a></div>
   <div>© ${year} Goldstone Properties</div>
 </div></footer>`;

@@ -7,7 +7,7 @@
 // What shows:
 //   For Sale        = status On Market
 //   Under Contract  = status In Closing
-//   Sold            = status Sold in the last 12 months, only with website photos
+//   (Sold homes are NOT shown — Elie 11/8/26)
 // A listing is hidden when p.web.hide is set (the app's 🌐 Website sheet).
 // Photos: p.web.photos [{id,url,w,h}] chosen in that sheet, in order (first =
 // cover); none chosen → the property's Zillow photos (src "zillow"). Video:
@@ -18,7 +18,7 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://wtmsukjnuqsprtvfytin.supabase.co";
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const SHOW = { "On Market": "sale", "In Closing": "pending", Sold: "sold" };
+const SHOW = { "On Market": "sale", "In Closing": "pending" }; // no Sold on the site (Elie 11/8/26)
 const httpsOnly = (u) => (/^https:\/\//i.test(String(u || "")) ? String(u) : "");
 const num = (v) => { const n = Number(String(v ?? "").replace(/[^0-9.]/g, "")); return isFinite(n) && n > 0 ? n : 0; };
 const short = (v, n = 40) => String(v ?? "").trim().slice(0, n);
@@ -49,10 +49,6 @@ export function publicListing(p) {
     video = web.video && web.video.uid ? streamOf(web.video)
       : p.rpVideoId && p.rpVideoId !== "none" ? streamOf(media.find((m) => m.kind === "video" && m.id === p.rpVideoId)) : null;
   }
-  if (kind === "sold") {
-    const sold = Date.parse(String((p.financials || {}).sellingDate || "").slice(0, 10));
-    if (!photos.length || (sold && Date.now() - sold > 365 * 86400000)) return null;
-  }
   const pi = p.propertyInfo || {};
   return {
     id: slugOf(p.address) || String(p.id),
@@ -74,7 +70,7 @@ export default async function handler(req, res) {
     const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
     const { data, error } = await db.from("properties").select("data").in("status", Object.keys(SHOW));
     if (error) throw error;
-    const rank = { sale: 0, pending: 1, sold: 2 };
+    const rank = { sale: 0, pending: 1 };
     const listings = (data || []).map((r) => r && r.data && publicListing(r.data)).filter(Boolean)
       .sort((a, b) => rank[a.kind] - rank[b.kind] || (b.photos.length ? 1 : 0) - (a.photos.length ? 1 : 0) || a.town.localeCompare(b.town));
     res.setHeader("Cache-Control", "public, max-age=60, s-maxage=120, stale-while-revalidate=600");

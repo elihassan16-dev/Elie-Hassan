@@ -20,6 +20,7 @@ import { MortgageChecklistSync } from "./mortgageCheck";
 import { urgentNext, urgentMark, UrgentChip, UrgentTag, UrgentTile, UrgentSheet, UrgentAlert, useSetTaskUrgent, RED as URGENT_RED, RED_TEXT as URGENT_TEXT } from "./urgent";
 import { PayoffStatementSheet } from "./payoffSheet";
 import { PostsPage, PostsNudge, PostWatcher, PostEditor } from "./flyers";
+import { WebsiteListingSheet } from "./websiteListing";
 import { startVideoUpload, startMediaUpload, localPreview, resolveVideoAttachment, videoUploadState, useVideoUpload, VideoUploadBubble, setVideoPatcher, bindCtrVideoMessage, resumeVideoUploads } from "./videoUpload";
 import { MediaBubble, SwipeReply, MentionText, typedMentions, ChatGallery } from "./chatMedia";
 import { VoiceRecorder } from "./voiceRecorder";
@@ -6435,6 +6436,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   const { isAdmin }=useAuth()||{};
   const[headMenu,setHeadMenu]=useState(null); // ••• menu anchor rect (Post · Archive)
   const[postOpen,setPostOpen]=useState(false);
+  const[webOpen,setWebOpen]=useState(false); // 🌐 public website listing (Elie 11/8/26)
   const[walk,setWalk]=useState(()=>!!(PROP_VIEW_MEM.get(property.id)||{}).walk); // 🎥 narrated walkthrough → AI punch list
   useEffect(()=>{PROP_VIEW_MEM.set(property.id,{tab,walk});},[property.id,tab,walk]);
   const walkJob=useWalkJob(property.id);             // background transcription status for the Tasks-tab button
@@ -6498,9 +6500,11 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
             style={{flexShrink:0,width:44,height:44,marginRight:-8,marginLeft:"auto",borderRadius:22,border:"none",background:headMenu?"rgba(118,118,128,0.12)":"none",color:T.textSub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,fontFamily:"inherit"}}>{DOTS_SVG}</button>}
           {headMenu&&<DotsMenu r={headMenu} onClose={()=>setHeadMenu(null)} rows={[
             isAdmin&&property.status!=="New Leads"&&{k:"post",label:"Make a Facebook post",icon:"📣",run:()=>setPostOpen(true)},
+            isAdmin&&property.status!=="New Leads"&&{k:"web",label:"Website listing",icon:"🌐",run:()=>setWebOpen(true)},
             onArchive&&{k:"arch",label:"Archive",icon:"🗄",red:true,run:()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}},
           ].filter(Boolean)}/>}
           {postOpen&&<PostEditor property={property} onClose={()=>setPostOpen(false)} isMobile={isMobile}/>}
+          {webOpen&&<WebsiteListingSheet property={property} onUpdate={onUpdate} onClose={()=>setWebOpen(false)}/>}
         </div>
         <div style={{marginBottom:14,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <StatusPicker value={property.status} property={property} onChange={v=>onUpdate(property.id,"status",v)}
@@ -23068,6 +23072,7 @@ export function GoldstoneShell(){
     if(kind==="tasks"){setActive("tasks");setPendingGoto(null);return;}
     if(kind==="posts"){setActive("posts");setPendingGoto(null);return;}
     if(kind==="rentals"){setActive("rentals");setPendingGoto(null);return;}
+    if(kind==="leads"){setActive("leads");setPendingGoto(null);return;} // 🌐 website "sell to us" form
     // task:<propId|office>:<taskId> — open that property's task popup on the
     // Dashboard and light the exact task up in gold (email/push deep links).
     if(kind==="task"){const j=id.indexOf(":");const pid=j<0?id:id.slice(0,j),tid=j<0?"":id.slice(j+1);try{window.__taskTarget={propId:pid,taskId:tid};setTimeout(()=>window.dispatchEvent(new Event("gs-task-target")),0);}catch{/* no window */}setActive("tasks");setPendingGoto(null);return;}

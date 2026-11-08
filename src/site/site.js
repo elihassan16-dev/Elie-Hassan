@@ -54,8 +54,6 @@ function renderListings() {
 
 function renderHeroAndAbout() {
   const withPics = (state.listings || []).filter((l) => coverOf(l));
-  const n = (state.listings || []).filter((l) => l.kind === "sale").length;
-  if (state.listings) $("#statHomes").textContent = String(n);
   const duo = $("#duo");
   const pics = withPics.slice(0, 2);
   if (pics.length === 2) {
@@ -177,12 +175,6 @@ function page() {
     <h1>Homes, <em class="it">reimagined.</em></h1>
     <p>We buy houses across New Jersey, renovate them top to bottom with care, and bring them back to market ready for the next family.</p>
     <div class="cta"><a class="btn gold" href="#listings">View our listings</a><a class="btn ghost" href="#sell">Get a cash offer →</a></div>
-    <div class="stats">
-      <div><b id="statHomes">—</b><span>Homes on market</span></div>
-      <div><b>NJ</b><span>Statewide</span></div>
-      <div><b>Cash</b><span>Fast, as-is offers</span></div>
-      <div><b>A–Z</b><span>Full renovations</span></div>
-    </div>
   </div>
 </header>
 <main>

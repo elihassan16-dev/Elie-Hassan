@@ -2434,10 +2434,14 @@ function FinOverview({property,onUpdate}){
 const PTABS=["Financial Overview","QuickBooks","Tasks","People","Files","Emails"]; // People = Contractors + Contacts (10/18/26)
 
 // ─── Showings tab — pull ShowingTime calendar feed, match to this property ─────
+// House numbers match when the digits match and the unit letters agree or one
+// side has none — ShowingTime writes "24 A Dewey Drive" for our "24A Dewey Dr"
+// (Elie 11/9/26: those showings were on the calendar but not under the property).
+const sameHouseNum=(x,y)=>{if(!x||!y)return false;const mx=x.match(/^(\d+)([a-z]?)$/),my=y.match(/^(\d+)([a-z]?)$/);if(!mx||!my)return x===y;return mx[1]===my[1]&&(!mx[2]||!my[2]||mx[2]===my[2]);};
 function showingMatchesProperty(text,p){
   const a=`${p.address||""} ${p.city||""}`;
   const hn=qbHouseNum(a),thn=qbHouseNum(text||"");
-  if(!hn||!thn||hn!==thn)return false;
+  if(!sameHouseNum(hn,thn))return false;
   const words=new Set(qbStreetWords(a));
   return qbStreetWords(text||"").some(w=>words.has(w));
 }

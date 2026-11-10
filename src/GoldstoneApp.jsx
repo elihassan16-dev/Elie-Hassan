@@ -32,7 +32,7 @@ import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
 import { ReversePane, ReverseTextsList, rpCount, rpAgentForShowing, MlsPicker, MlsAccountsSheet, mlsIdsOf, useMlsList } from "./reverseProspect";
-import { useSmsTexting, useJivetelCall, SmsBadge, SmsThreadPopup, SmsFeedSheet, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp, smsPropKey, setSmsPropTimeline } from "./sms";
+import { useSmsTexting, useJivetelCall, callIsMine, SmsBadge, SmsThreadPopup, SmsFeedSheet, SmsThreadPane, CallA, TextA, CallTextCards, sendToMyPhone, linkifyText, rescuePastedLink, smsE164, setSmsDirectory, setSmsThreadActions, smsThreadForProp, smsPropKey, setSmsPropTimeline } from "./sms";
 import { ContactShareModal, ContactCardBubble } from "./contactShare";
 import { ContactActions, contactPill } from "./contactActions";
 import { useBtLeads, btMatchesProperty } from "./btLeads";
@@ -9353,6 +9353,7 @@ function TasksPage({onNavigate}){
   },[]);
   // ── 🏠 Dashboard bits: stat tiles, 📅 Today (both sizes), follow-ups due ──
   const {connected:dashSmsOn,msgs:dashMsgs,unreadFor:dashUnreadFor}=useSmsTexting();
+  const dashJv=useJivetelCall();
   const dashCounts=(()=>{
     if(!dashSmsOn)return{missed:0,texts:0};
     const now=Date.now();
@@ -9360,7 +9361,7 @@ function TasksPage({onNavigate}){
     const lastOut={};
     dashMsgs.forEach(m=>{if(m.direction==="out"||m.direction==="call-out"){const p=smsE164(m.phone);if(p&&(!lastOut[p]||String(m.at)>lastOut[p]))lastOut[p]=String(m.at);}});
     const byPhone={};
-    dashMsgs.forEach(m=>{if(m.kind!=="call"||!m.missed||m.direction!=="call-in")return;const p=smsE164(m.phone);if(p&&(!byPhone[p]||String(m.at)>String(byPhone[p].at)))byPhone[p]=m;});
+    dashMsgs.forEach(m=>{if(m.kind!=="call"||!m.missed||m.direction!=="call-in"||!callIsMine(m,dashJv))return;const p=smsE164(m.phone);if(p&&(!byPhone[p]||String(m.at)>String(byPhone[p].at)))byPhone[p]=m;});
     const missed=Object.values(byPhone).filter(m=>{if(dism[m.id])return false;const p=smsE164(m.phone);if(lastOut[p]&&lastOut[p]>String(m.at))return false;const t=new Date(m.at).getTime();return !isNaN(t)&&now-t<7*86400000;}).length;
     const texts=[...new Set(dashMsgs.filter(m=>m.kind!=="call").map(m=>smsE164(m.phone)).filter(Boolean))].filter(p=>dashUnreadFor(p)>0).length;
     return{missed,texts};
@@ -22914,7 +22915,7 @@ function PhoneTopButton(){
   // the first-ever open doesn't light up with months of history).
   const seen=String((prefs||{}).callsSeenAt||"");
   const weekAgo=new Date(Date.now()-7*86400000).toISOString();
-  const missedN=(msgs||[]).filter(m=>m.kind==="call"&&m.missed&&m.direction==="call-in"&&String(m.at||"")>seen&&String(m.at||"")>weekAgo).length;
+  const missedN=(msgs||[]).filter(m=>m.kind==="call"&&m.missed&&m.direction==="call-in"&&callIsMine(m,jv)&&String(m.at||"")>seen&&String(m.at||"")>weekAgo).length;
   const openUp=()=>{setOpen(true);if(savePrefs)Promise.resolve(savePrefs({callsSeenAt:new Date().toISOString()})).catch(()=>{/* badge just stays */});};
   return(<>
     <button onClick={openUp} title="Phone — dialer & call history" aria-label="Phone" style={{...TOPBAR_SEG,color:GREEN_TXT}}><PhoneIcon size={17} strokeWidth={1.6}/>
@@ -23135,8 +23136,9 @@ export function GoldstoneShell(){
   // 🔴 Red number on the app icon (Elie 10/18/26): unread team/office messages +
   // new tasks + unread text threads + missed calls since the phone popup was opened.
   const {connected:bSmsOn,msgs:bMsgs,unreadFor:bUnreadFor}=useSmsTexting();
+  const bJv=useJivetelCall();
   const badgeTexts=useMemo(()=>bSmsOn?[...new Set((bMsgs||[]).filter(m=>m.kind!=="call"&&m.direction==="in").map(m=>smsE164(m.phone)).filter(Boolean))].filter(ph=>bUnreadFor(ph)>0).length:0,[bSmsOn,bMsgs,prefs.smsRead]); // eslint-disable-line react-hooks/exhaustive-deps
-  const badgeCalls=useMemo(()=>{const seen=String(prefs.callsSeenAt||"");const wk=new Date(Date.now()-7*86400000).toISOString();return bSmsOn?(bMsgs||[]).filter(m=>m.kind==="call"&&m.missed&&m.direction==="call-in"&&String(m.at||"")>seen&&String(m.at||"")>wk).length:0;},[bSmsOn,bMsgs,prefs.callsSeenAt]);
+  const badgeCalls=useMemo(()=>{const seen=String(prefs.callsSeenAt||"");const wk=new Date(Date.now()-7*86400000).toISOString();return bSmsOn?(bMsgs||[]).filter(m=>m.kind==="call"&&m.missed&&m.direction==="call-in"&&callIsMine(m,bJv)&&String(m.at||"")>seen&&String(m.at||"")>wk).length:0;},[bSmsOn,bMsgs,prefs.callsSeenAt,bJv]);
   useAppBadge(unreadTotal+newTaskCount+badgeTexts+badgeCalls,!loading&&!!prefs._bigReady);
   // Remember the last page (per browser) so a reload or remount lands back
   // where you were instead of the default page.

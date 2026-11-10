@@ -747,7 +747,7 @@ export function CallTextCards({ prefs = {}, savePrefs }) {
   });
   const byPhone = {};
   msgs.forEach((m) => {
-    if (m.kind !== "call" || !m.missed || m.direction !== "call-in") return;
+    if (m.kind !== "call" || !m.missed || m.direction !== "call-in" || !callIsMine(m, jv)) return;
     const p = e164(m.phone);
     if (p && (!byPhone[p] || String(m.at) > String(byPhone[p].at))) byPhone[p] = m;
   });
@@ -1251,6 +1251,21 @@ const feedStamp = (iso) => {
 const prettyPh = (p) => { const d = String(p || "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : String(p || ""); };
 const ROLE_TAG = { agent: ["AGENT", "#E8F4FF", "#0A66C2", "#0A84FF"], buyer: ["BUYER", "#EDFBF1", "#15803D", "#34C759"], lead: ["LEAD", "#F3E8FF", "#7C3AED", "#AF52DE"] };
 const initialsOfName = (n) => { const w = String(n || "").trim().split(/\s+/).filter((x) => /[A-Za-z]/.test(x)); return w.length ? (w[0][0] + (w.length > 1 ? w[w.length - 1][0] : "")).toUpperCase() : "#"; };
+
+// A missed call is mine when it rang MY extension, or a line that isn't any
+// one teammate's (the master line / ring groups, e.g. ext 9100) — a call to
+// someone else's extension stays off my dashboard, badge and phone icon
+// (Elie 11/10/26: Moshe saw calls that rang Elie's ext 101). Until we know
+// who I am (jv.me) or the call has no extension, it counts for everyone.
+export function callIsMine(m, jv) {
+  const ext = String((m && m.ext) || "").split("@")[0].trim();
+  const me = String((jv && jv.me) || "").toLowerCase();
+  if (!ext || !me) return true;
+  const owner = Object.keys((jv && jv.exts) || {}).find((k) => String(jv.exts[k]) === ext);
+  if (!owner) return true;
+  const o = owner.toLowerCase();
+  return o === me || me.startsWith(o) || o.startsWith(me);
+}
 
 // An incoming text is mine to answer when it came to my own line, or I've texted
 // that number from my line before. Rows without a line (very old) count for all.

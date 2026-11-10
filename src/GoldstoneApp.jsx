@@ -15347,7 +15347,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
 const BS_STATUSES=["Purchased","Under Construction","On Market","In Closing"];
 // Shared calc for a property's interest reserve and personal equity (needs the live
 // QuickBooks account balances + all-in spend). Used by the BS report and Bank Recon.
-const bsAcctBal=(accounts,id)=>{const a=(accounts||[]).find(x=>x.id===id);return a?-(a.balance||0):0;};
+const bsAcctBal=(accounts,id)=>{const a=(accounts||[]).find(x=>String(x.id)===String(id));return a?-(a.balance||0):0;};
 const bsSum=(arr)=>(arr||[]).reduce((s,l)=>s+(Number(l.amount)||0),0);
 // Pinned payment lists are magnitudes, not signed ledger lines: the feed paints
 // the direction itself (every debt/rehab row reads as money out), and QuickBooks
@@ -15710,7 +15710,7 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
               {canEdit&&<button onClick={()=>del(b.id)} title="Delete" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>}
             </div>
             <div onClick={()=>setBalModal(b.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",background:T.gold+"14",cursor:"pointer"}}>
-              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Expected balance</div><div style={{fontSize:11,color:T.textTert}}>{list.length} line item{list.length!==1?"s":""}{isCol?" · collapsed":""} · tap to reconcile</div></div>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,fontWeight:800,color:T.gold}}>Expected balance</div><div style={{fontSize:11,color:T.textTert}}>{list.length+adjustments.length} line item{list.length+adjustments.length!==1?"s":""}{isCol?" · collapsed":""} · tap to reconcile</div></div>
               <span style={{fontSize:17,fontWeight:800,color:T.text,whiteSpace:"nowrap"}}>{fmtD(expected)}</span>
               <span style={{color:T.gold,fontSize:16,flexShrink:0}}>›</span>
             </div>
@@ -17677,13 +17677,16 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
   // Report 3 — property balance sheet, spreadsheet style (same figures as the BS report).
   const rptBS=useMemo(()=>{
     const rows=[...bsProps].sort((a,b)=>BS_STATUSES.indexOf(a.status)-BS_STATUSES.indexOf(b.status)||(a.address||"").localeCompare(b.address||"")).map(p=>{
-      const m=bsMetrics(p,accounts,spend,bankAccounts);const cf=m.equity==null?null:Math.max(0,m.equity-m.reserve);
-      return {address:p.address,totalLoans:m.totalLoans,allIn:m.allIn,cf,ir:m.reserve,equity:m.equity};
+      // Interest reserve = the SAME figure Bank Reconciliation holds (dmPotMath:
+      // honors a custom reserve amount / "rest → construction"), not the
+      // older all-of-the-pot shortcut (Elie 11/10/26 code check).
+      const m=bsMetrics(p,accounts,spend,bankAccounts);const dm=dmPotMath(p,accounts,spend,bankAccounts);const ir=dm.upfront?m.reserve:dm.reserveLeft;const cf=m.equity==null?null:Math.max(0,m.equity-ir);
+      return {address:p.address,totalLoans:m.totalLoans,allIn:m.allIn,cf,ir,equity:m.equity};
     });
     const total={totalLoans:0,allIn:0,cf:0,ir:0,equity:0,anyAllIn:false};
     rows.forEach(r=>{total.totalLoans+=r.totalLoans||0;if(r.allIn!=null){total.allIn+=r.allIn;total.anyAllIn=true;}total.cf+=r.cf||0;total.ir+=r.ir||0;if(r.equity!=null)total.equity+=r.equity;});
     return {rows,total};
-  },[bsProps,accounts,spend]);
+  },[bsProps,accounts,spend,bankAccounts]);
 
   // Report 4 — construction holdback (what the bank holds) vs the underwriting
   // construction estimate (the rehab figure). Holdback is entered per property.

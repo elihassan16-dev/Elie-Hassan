@@ -20515,7 +20515,16 @@ function FunderEmailSheet({funder,buildFile,onSaveEmail,onClose}){
     try{
       const file=await buildFile();
       const html=`<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1a1a1a">${esc(note).replace(/\n/g,"<br>")}</div>`;
-      await mail.sendNew({to:addr,subject,html,files:[file]});
+      // Sent by the SERVER from your own Goldstone mailbox (Elie 11/10/26: on
+      // iPhone the in-browser Microsoft sign-in timed out — "timed_out"). The
+      // old in-browser Outlook send is only a fallback when the server can't.
+      const b64=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(",")[1]||"");r.onerror=()=>no(new Error("Couldn't read the PDF."));r.readAsDataURL(file);});
+      try{
+        await qbAuthFetch("/api/email/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:addr,subject,html,attachments:[{name:file.name||"Statement.pdf",type:file.type||"application/pdf",base64:b64}]})});
+      }catch(serverErr){
+        if(!mail.signedIn)throw serverErr;
+        await mail.sendNew({to:addr,subject,html,files:[file]});
+      }
       if(to==="new"&&saveIt&&onSaveEmail)onSaveEmail(addr);
       setState("sent");
     }catch(e){setState(String(e?.message||"Couldn't send — make sure you're signed in on the Email page."));}
@@ -20556,7 +20565,6 @@ function FunderEmailSheet({funder,buildFile,onSaveEmail,onClose}){
             <div style={lbl}>Message</div>
             <textarea value={note} onChange={e=>setNote(e.target.value)} rows={7} style={{...inp,resize:"vertical",lineHeight:1.45}}/>
             <button onClick={preview} style={{marginTop:10,background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:"6px 0"}}>📄 Preview the PDF</button>
-            {!mail.signedIn&&mail.ready&&<div style={{marginTop:8,background:T.goldLight,borderRadius:10,padding:"10px 12px",fontSize:13,color:"#8a6d1f"}}>Sign in to Outlook once to send from your email. <button onClick={()=>mail.signIn()} style={{background:"none",border:"none",color:T.blue,fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:13,padding:0}}>Sign in</button></div>}
             {state&&state!=="sending"&&<div style={{marginTop:10,background:"#fdecec",borderRadius:10,padding:"9px 12px",fontSize:13,color:"#b3261e",fontWeight:600}}>⚠️ {state}</div>}
             <button onClick={send} disabled={!okAddr||state==="sending"} style={{marginTop:14,width:"100%",minHeight:50,borderRadius:14,border:"none",background:okAddr?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:16,cursor:okAddr?"pointer":"default",fontFamily:"inherit"}}>{state==="sending"?"Sending…":"✉ Send statement"}</button>
           </>}

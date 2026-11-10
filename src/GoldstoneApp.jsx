@@ -52,6 +52,8 @@ import { useQbPinSync } from "./rentalPins";
 import { FaceIdSetting } from "./faceId";
 import { ShareInTeam } from "./shareIn";
 import { useAppBadge } from "./appBadge";
+import { buildXlsx } from "./xlsxWrite";
+import { saveMadeFile } from "./fileSave";
 
 // Reactively tracks whether we're on a phone-width screen (sidebar -> bottom tabs).
 function useIsMobile(breakpoint = 768) {
@@ -15628,6 +15630,9 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
   const[adjDraft,setAdjDraft]=useState({label:"",amount:""});
   const[editAdjId,setEditAdjId]=useState(null); // adjustment being edited (else null = adding new)
   const[collapsed,setCollapsed]=useState({});   // bank id → line items hidden
+  const[xlOpen,setXlOpen]=useState(false);       // ⬇ Excel pop-up (Elie 11/10/26)
+  const[xlPick,setXlPick]=useState({});          // bank id → picked for the download
+  const[xlBusy,setXlBusy]=useState(false);
   const toggleCollapse=(id)=>setCollapsed(c=>({...c,[id]:!c[id]}));
   const props=useMemo(()=>(sharedProps||[]).filter(p=>!p.archived&&BS_STATUSES.includes(p.status)),[sharedProps]);
   const projKey=props.map(p=>p.qbProjectId).filter(Boolean).join(",");
@@ -15681,9 +15686,10 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
       </Card>}
 
       {bank.length===0&&<div style={{padding:"22px 16px",fontSize:13,color:T.textTert,textAlign:"center"}}>No bank accounts yet. Add one above.</div>}
-      {bank.length>1&&(()=>{const allCol=bank.every(b=>collapsed[b.id]);return(
-        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
-          <button onClick={()=>{const next={};if(!allCol)bank.forEach(b=>{next[b.id]=true;});setCollapsed(next);}} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",padding:"4px 6px"}}>{allCol?"Expand all":"Collapse all"}</button>
+      {bank.length>0&&(()=>{const allCol=bank.every(b=>collapsed[b.id]);return(
+        <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:6,marginBottom:8}}>
+          <button onClick={()=>{const all={};bank.forEach(b=>{all[b.id]=true;});setXlPick(all);setXlOpen(true);}} title="Download these numbers to Excel" style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:999,color:T.text,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",padding:"7px 14px",minHeight:36}}>⬇ Excel</button>
+          {bank.length>1&&<button onClick={()=>{const next={};if(!allCol)bank.forEach(b=>{next[b.id]=true;});setCollapsed(next);}} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",padding:"4px 6px"}}>{allCol?"Expand all":"Collapse all"}</button>}
         </div>
       );})()}
       {bank.map(b=>{
@@ -15785,6 +15791,91 @@ function FinBankRecon({sharedProps,onOpenProperty,isMobile,canEdit=true}){
         );
       })}
       {unassigned.length>0&&<div style={{fontSize:11.5,color:T.textTert,textAlign:"center",marginTop:8,lineHeight:1.5}}>{unassigned.length} propert{unassigned.length!==1?"ies aren't":"y isn't"} assigned to a bank account yet — set one on each property in the Property BS Report.</div>}
+
+      {xlOpen&&(()=>{
+        // ⬇ Excel (Elie 11/10/26): pick one or several accounts. One account =
+        // one page; several = a Summary page + one page per account. Every
+        // amount is exactly as it counts on this page (floats / loans minus).
+        const picked=bank.filter(b=>xlPick[b.id]);
+        const actualOf=(b)=>(b.actual!==""&&b.actual!=null)?num(b.actual):null;
+        const statusOf=(diff)=>diff==null?"Enter the actual balance":Math.abs(diff)<1?"Reconciled ✓":diff<0?`Transfer ${fmtD(-diff)} in`:`${fmtD(diff)} more than expected`;
+        const asOf=new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+        const plainKind=(k)=>String(k||"").replace(/^[^A-Za-z(]+/,"");
+        const countsAs=(a)=>a.autoFloat?"Float until next draw":isHeldAdj(a)?"Held funder money":!a.propertyId?"":({loan:"Loan on the deal",draw:"Construction draw",bridge:"Construction bridge (float)",none:"Not a loan — just tracked"})[a.linkKind||"loan"]||"";
+        const addrOf=(id)=>id?((props.find(pp=>String(pp.id)===String(id))||(sharedProps||[]).find(pp=>String(pp.id)===String(id))||{}).address||""):"";
+        const acctSheet=(b)=>{
+          const list=itemsOf(b.id),adjs=(b.adjustments||[]).filter(a=>!(a.autoFloat&&Math.abs(Number(a.amount)||0)<0.5));
+          const rows=[[{v:b.name||"Bank account",s:"title"}],[{v:`As of ${asOf}`,s:"sub"}],[],
+            [{v:"Property / description",s:"head"},{v:"Type",s:"head"},{v:"Linked deal",s:"head"},{v:"Counts as",s:"head"},{v:"Amount",s:"headR"}]];
+          const merges=["A1:E1","A2:E2"];
+          const sec=(t)=>{rows.push([{v:t,s:"sec"},{v:"",s:"sec"},{v:"",s:"sec"},{v:"",s:"sec"},{v:"",s:"sec"}]);};
+          const funds=list.filter(x=>x.kind!=="🔨 Construction"),con=list.filter(x=>x.kind==="🔨 Construction");
+          if(funds.length){sec("⏳ Interest reserve / funds");funds.forEach(x=>rows.push([x.p.address||"",plainKind(x.kind),"","",{v:Number(x.amt)||0,s:"money"}]));}
+          if(con.length){sec("🔨 Construction");con.forEach(x=>rows.push([x.p.address||"","Construction","","",{v:Number(x.amt)||0,s:"money"}]));}
+          if(adjs.length){sec("✎ Loans & floats — adjustments");adjs.forEach(a=>rows.push([a.label||"Adjustment",a.autoFloat||a.linkKind==="bridge"?"🌉 Float":isHeldAdj(a)?"Held":a.tag||"",addrOf(a.propertyId),countsAs(a),{v:Number(a.amount)||0,s:"money"}]));}
+          if(!list.length&&!adjs.length)rows.push([{v:"No line items",s:"sub"}]);
+          const exp=expectedOf(b),act=actualOf(b),diff=act!=null?act-exp:null;
+          rows.push([]);
+          rows.push([{v:"Expected balance",s:"gold"},{v:"",s:"gold"},{v:"",s:"gold"},{v:"",s:"gold"},{v:exp,s:"goldMoney"}]);
+          rows.push(["Actual bank balance","","","",act!=null?{v:act,s:"money"}:{v:"—",s:"sub"}]);
+          rows.push([{v:"Difference",s:"totalLbl"},{v:statusOf(diff),s:"totalLbl"},{v:"",s:"totalLbl"},{v:"",s:"totalLbl"},diff!=null?{v:diff,s:"totalMoney"}:{v:"",s:"totalLbl"}]);
+          return{name:b.name||"Bank account",cols:[38,28,24,26,16],rows,merges};
+        };
+        const summarySheet=()=>{
+          const rows=[[{v:"Goldstone Properties — Bank Reconciliation",s:"title"}],[{v:`As of ${asOf}`,s:"sub"}],[],
+            [{v:"Bank account",s:"head"},{v:"Line items",s:"headR"},{v:"Expected balance",s:"headR"},{v:"Actual bank balance",s:"headR"},{v:"Difference",s:"headR"},{v:"Status",s:"head"}]];
+          let tExp=0,tAct=0,tN=0,anyAct=false;
+          picked.forEach(b=>{const n=itemsOf(b.id).length+(b.adjustments||[]).filter(a=>!(a.autoFloat&&Math.abs(Number(a.amount)||0)<0.5)).length;const exp=expectedOf(b),act=actualOf(b),diff=act!=null?act-exp:null;tExp+=exp;tN+=n;if(act!=null){tAct+=act;anyAct=true;}
+            rows.push([b.name||"Bank account",{v:n,s:"int"},{v:exp,s:"money"},act!=null?{v:act,s:"money"}:"",diff!=null?{v:diff,s:"money"}:"",{v:statusOf(diff),s:diff!=null&&Math.abs(diff)<1?"green":diff!=null?"red":"sub"}]);});
+          rows.push([{v:"Total",s:"totalLbl"},{v:tN,s:"intB"},{v:tExp,s:"totalMoney"},anyAct?{v:tAct,s:"totalMoney"}:{v:"",s:"totalLbl"},{v:"",s:"totalLbl"},{v:"",s:"totalLbl"}]);
+          return{name:"Summary",cols:[34,12,18,20,16,34],rows,merges:["A1:F1","A2:F2"]};
+        };
+        const go=async()=>{
+          if(!picked.length||xlBusy)return;setXlBusy(true);
+          try{
+            const sheets=picked.length===1?[acctSheet(picked[0])]:[summarySheet(),...picked.map(acctSheet)];
+            const today=new Date().toISOString().slice(0,10);
+            const fname=(picked.length===1?`${picked[0].name||"Bank account"} ${today}`:`Bank Reconciliation ${today}`).replace(/[\\/:*?"<>|]+/g,"-")+".xlsx";
+            const blob=buildXlsx(sheets);
+            const r=await saveMadeFile(new File([blob],fname,{type:blob.type}));
+            if(r!=="cancel")setXlOpen(false);
+          }catch(e){window.alert("Couldn't make the Excel file — "+(e&&e.message||e));}
+          finally{setXlBusy(false);}
+        };
+        const allOn=bank.every(b=>xlPick[b.id]);
+        return(
+          <div onClick={()=>setXlOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:245,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:460,maxWidth:"100%",maxHeight:isMobile?"88vh":"86vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,paddingBottom:isMobile?"env(safe-area-inset-bottom)":0}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,padding:"16px 18px 10px"}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:17,color:T.text}}>Download to Excel</div>
+                  <div style={{fontSize:12,color:T.textSub,marginTop:2}}>{bank.length} bank account{bank.length!==1?"s":""} · pick one or more</div>
+                </div>
+                <button onClick={()=>setXlOpen(false)} aria-label="Close" style={{background:"none",border:"none",color:T.textSub,fontSize:24,cursor:"pointer",fontFamily:"inherit",lineHeight:1,padding:0,width:44,height:44,minHeight:44,marginTop:-10,marginRight:-12,flexShrink:0}}>×</button>
+              </div>
+              {bank.length>1&&<div style={{display:"flex",justifyContent:"flex-end",padding:"0 12px 4px"}}>
+                <button onClick={()=>{const nx={};if(!allOn)bank.forEach(b=>{nx[b.id]=true;});setXlPick(nx);}} style={{background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",padding:"6px 6px",minHeight:32}}>{allOn?"Clear all":"Select all"}</button>
+              </div>}
+              <div style={{overflowY:"auto",borderTop:`1px solid ${T.border}`}}>
+                {bank.map(b=>{const on=!!xlPick[b.id];const n=itemsOf(b.id).length+(b.adjustments||[]).filter(a=>!(a.autoFloat&&Math.abs(Number(a.amount)||0)<0.5)).length;return(
+                  <button key={b.id} onClick={()=>setXlPick(pk=>({...pk,[b.id]:!pk[b.id]}))} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"11px 18px",minHeight:56,background:"none",border:"none",borderBottom:`1px solid ${T.border}`,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                    <span style={{width:22,height:22,borderRadius:11,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",border:on?"none":`1.5px solid ${T.textTert}`,background:on?T.gold:"transparent",color:"#fff",fontSize:13,fontWeight:800}}>{on?"✓":""}</span>
+                    <span style={{flex:1,minWidth:0}}>
+                      <span style={{display:"block",fontSize:14,fontWeight:650,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.name||"Bank account"}</span>
+                      <span style={{display:"block",fontSize:11.5,color:T.textTert}}>{n} line item{n!==1?"s":""}</span>
+                    </span>
+                    <span style={{fontSize:14,fontWeight:700,color:T.text,whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{fmtD(expectedOf(b))}</span>
+                  </button>
+                );})}
+              </div>
+              <div style={{padding:"12px 18px 16px"}}>
+                <div style={{fontSize:11.5,color:T.textTert,lineHeight:1.5,marginBottom:10}}>{picked.length<=1?"One account = one page with every line.":`${picked.length} accounts = a Summary page + one page for each.`} Floats and loans come out as minus numbers, the same as on this page.</div>
+                <button onClick={go} disabled={!picked.length||xlBusy} style={{width:"100%",minHeight:46,borderRadius:14,border:"none",background:picked.length?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:15,cursor:picked.length?"pointer":"default",fontFamily:"inherit"}}>{xlBusy?"Making the file…":picked.length?`⬇ Download ${picked.length===1?"1 account":`${picked.length} accounts`}`:"Pick an account"}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {balModal&&(()=>{
         const b=bank.find(x=>String(x.id)===String(balModal));if(!b)return null;

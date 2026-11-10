@@ -93,3 +93,15 @@ async function shareOrSave(item, onStatus, mode) {
 }
 export const saveItem = (item, onStatus = () => {}) => shareOrSave(item, onStatus, "save");
 export const shareItem = (item, onStatus = () => {}) => shareOrSave(item, onStatus, "share");
+
+// A file we made in the browser (Excel export…): app = native share sheet,
+// phone = share sheet (Save to Files / WhatsApp / Mail), computer = download.
+export async function saveMadeFile(file) {
+  if (isNative()) return nativeShareFiles([file]);
+  if (isPhone() && canShareFiles([file])) {
+    try { await navigator.share({ files: [file] }); return "done"; }
+    catch (e) { if (e && e.name === "AbortError") return "cancel"; }
+  }
+  download([file]);
+  return "done";
+}

@@ -22,7 +22,7 @@ const FIN = (over = {}) => ({
 
 const PROPS = [
   {
-    id: 1001, address: "417 Lakeview Ter", city: "Pemberton", state: "NJ", zip: "08068", status: "Under Construction",
+    id: 1001, bsBankAccount: 1, address: "417 Lakeview Ter", city: "Pemberton", state: "NJ", zip: "08068", status: "Under Construction",
     pinnedEmails: [{ id: "pin1", conversationId: "conv-16f", internetMessageId: "", subject: "Re: 16 Falmouth Contract review", from: "Martin Pankiewicz", fromAddr: "martin@pankiewiczlaw.com", date: days(-0.1), preview: "Attached is the revised rider signed by my client — please confirm…" }],
     financials: FIN({
       arvAi: {
@@ -55,7 +55,7 @@ const PROPS = [
     contacts: [2002],
   },
   {
-    id: 1003, address: "1030 Hanover Blvd", city: "Browns Mills", state: "NJ", zip: "08015", status: "In Closing", qbProjectId: "qb-1003",
+    id: 1003, bsBankAccount: 1, address: "1030 Hanover Blvd", city: "Browns Mills", state: "NJ", zip: "08015", status: "In Closing", qbProjectId: "qb-1003",
     walkVideos: [],
     media: [
       { id: "v:demowalk1", kind: "video", uid: "demowalk1", stream: true, url: "", thumb: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSczMDAnIGhlaWdodD0nMzAwJz48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9J2cnIHgxPScwJyB5MT0nMCcgeDI9JzEnIHkyPScxJz48c3RvcCBvZmZzZXQ9JzAnIHN0b3AtY29sb3I9JyM2ZjdjODknLz48c3RvcCBvZmZzZXQ9JzEnIHN0b3AtY29sb3I9JyMzZjRjNTgnLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0nMzAwJyBoZWlnaHQ9JzMwMCcgZmlsbD0ndXJsKCNnKScvPjwvc3ZnPg==", name: "Walkthrough — kitchen & baths.mp4", size: 61 * 1024 * 1024, dur: 168, at: Date.now() - 50 * 60000, by: "Elie Hassan", src: "record", punchAt: Date.now() - 20 * 60000 },
@@ -166,7 +166,10 @@ export function DataProvider({ children }) {
   const [draws, setDraws] = useState([{ id: 1, funderId: 1, funderName: "J. Klein", amount: 60000, rate: 12, dateFunded: "2026-06-02", propertyId: 1003, payments: [] }, { id: 2, funderName: "Elie Hassan", amount: 25000, rate: 0, dateFunded: "2026-05-20", propertyId: 1001, payments: [] }]);
   const [officeMessages, setOfficeMessages] = useState(OFFICE_MSGS);
   const [officeTasks, setOfficeTasks] = useState(OFFICE_TASKS);
-  const [bankAccounts, setBankAccounts] = useState([]);
+  const [bankAccounts, setBankAccounts] = useState([
+    { id: 1, name: "Chase 3185 (GP Groner)", actual: "85210", adjustments: [{ id: 11, label: "1030 Hanover Blvd — floated until next draw", amount: -25000, propertyId: 1003, linkKind: "bridge", autoFloat: true }, { id: 12, label: "Small loan from Moshe", amount: -4000 }, { id: 13, label: "Held — funder money (J. Klein)", amount: 5000, heldFunderId: 1 }] },
+    { id: 2, name: "TD Reserve 7701", actual: "", adjustments: [{ id: 21, label: "Opening cushion", amount: 2500 }] },
+  ]);
   const [appSettings, setAppSettings] = useState([{ id: "features", flags: {}, who: {} }, { id: "followups", items: [] }, { id: "spec_picks", items: DEMO_PICKS }]);
   const [rentals, setRentals] = useState([]);
   const [team, setTeam] = useState(TEAM);

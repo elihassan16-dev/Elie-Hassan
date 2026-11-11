@@ -4,7 +4,7 @@
 // returns the messages — view only, no reply/forward/delete surface exists.
 import { requireAppUser } from "../../lib/showings.js";
 import { profileOf } from "../../lib/jivetel.js";
-import { fetchThreadFromAnyMailbox, mailSweepConfigured } from "../../lib/mailsweep.js";
+import { fetchThreadFromAnyMailbox, teamAttachment, mailSweepConfigured } from "../../lib/mailsweep.js";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
@@ -15,7 +15,12 @@ export default async function handler(req, res) {
   if (prof?.role === "contractor") return res.status(403).json({ error: "Not available on contractor accounts." });
   if (!mailSweepConfigured()) return res.status(200).json({ unavailable: true, messages: [] });
   try {
-    const { internetMessageId, conversationId } = req.body || {};
+    const { internetMessageId, conversationId, attachment } = req.body || {};
+    // 📎 One attachment from that mailbox (view only): { attachment: { mbi, messageId, id } }
+    if (attachment) {
+      try { return res.status(200).json(await teamAttachment({ mbi: attachment.mbi, messageId: attachment.messageId, attachmentId: attachment.id })); }
+      catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+    }
     if (!internetMessageId && !conversationId) return res.status(400).json({ error: "internetMessageId or conversationId required." });
     const r = await fetchThreadFromAnyMailbox({ internetMessageId, conversationId });
     return res.status(200).json(r);

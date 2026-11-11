@@ -40,7 +40,7 @@ export const POST_KINDS = [
 const KIND_LABEL = Object.fromEntries(POST_KINDS.map((k) => [k.key, k.label]));
 // Which template a property status calls for (Under Construction still shows
 // the purchase; In Closing is still a listing).
-export const kindForStatus = (s) => (s === "Purchased" || s === "Under Construction" ? "purchased" : s === "On Market" || s === "In Closing" ? "listed" : s === "Sold" ? "sold" : "");
+export const kindForStatus = (s) => (s === "Purchased" || s === "Under Construction" ? "purchased" : s === "On Market" || s === "Attorney Review" || s === "In Closing" ? "listed" : s === "Sold" ? "sold" : "");
 const AUTO = { Purchased: "purchased", "On Market": "listed", Sold: "sold" };
 const KICKERS = {
   purchased: ["JUST ACQUIRED", "JUST PURCHASED", "NEW PROJECT"],

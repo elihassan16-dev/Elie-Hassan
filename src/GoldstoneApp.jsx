@@ -71,8 +71,8 @@ function useIsMobile(breakpoint = 768) {
 // T (theme tokens) now lives in src/theme.js — imported above, shared with the
 // contractor portal so both faces of the app look identical.
 
-const SC={"Under Contract":{color:"#9333EA",bg:"#F3E8FF"},"Purchased":{color:"#2563EB",bg:"#DBEAFE"},"Under Construction":{color:"#EA580C",bg:"#FFEDD5"},"On Market":{color:"#16A34A",bg:"#DCFCE7"},"In Closing":{color:"#CA8A04",bg:"#FEF9C3"},"Sold":{color:"#65A30D",bg:"#ECFCCB"},"Rental":{color:"#0891B2",bg:"#CFFAFE"},"New Leads":{color:"#DB2777",bg:"#FCE7F3"}};
-const DEFAULT_ORDER=["Under Contract","In Closing","Purchased","Under Construction","On Market","Rental","New Leads","Sold"];
+const SC={"Under Contract":{color:"#9333EA",bg:"#F3E8FF"},"Purchased":{color:"#2563EB",bg:"#DBEAFE"},"Under Construction":{color:"#EA580C",bg:"#FFEDD5"},"On Market":{color:"#16A34A",bg:"#DCFCE7"},"Attorney Review":{color:"#4F46E5",bg:"#E0E7FF"},"In Closing":{color:"#CA8A04",bg:"#FEF9C3"},"Sold":{color:"#65A30D",bg:"#ECFCCB"},"Rental":{color:"#0891B2",bg:"#CFFAFE"},"New Leads":{color:"#DB2777",bg:"#FCE7F3"}};
+const DEFAULT_ORDER=["Under Contract","Attorney Review","In Closing","Purchased","Under Construction","On Market","Rental","New Leads","Sold"];
 
 // ── Status-change gate ──────────────────────────────────────────────────────
 // Moving a property FORWARD into a status runs its requirement list first — the
@@ -84,8 +84,8 @@ const DEFAULT_ORDER=["Under Contract","In Closing","Purchased","Under Constructi
 //   • contact — a name (+ optional phone/email) that must be entered
 // The lists are editable by the admin in Settings → Status Requirements and shared
 // live to the whole team. Backward corrections are never gated.
-const STATUS_FLOW=["New Leads","Under Contract","Purchased","Under Construction","On Market","In Closing","Sold"];
-const GATE_STATUSES=["Under Contract","Purchased","Under Construction","On Market","In Closing","Sold","Rental"];
+const STATUS_FLOW=["New Leads","Under Contract","Purchased","Under Construction","On Market","Attorney Review","In Closing","Sold"];
+const GATE_STATUSES=["Under Contract","Purchased","Under Construction","On Market","Attorney Review","In Closing","Sold","Rental"];
 
 // Property fields a "field" requirement can demand. top/key say where the value
 // lives on the property object so the gate can read the current value and save it.
@@ -138,6 +138,11 @@ const DEFAULT_GATE_REQS={
     _ck("om_live","Photos taken & listing is live"),
     _fd("om_mls","mlsSources"),
   ],
+  // ⚖️ Attorney Review (Elie 11/11/26): sits between On Market and In Closing —
+  // no checklist to enter it; the In Closing checklist is what's asked when it
+  // moves on. 2 business days still in it → urgent "everyone" task (server:
+  // lib/attorneyReview.js).
+  "Attorney Review":[],
   "In Closing":[
     _fd("ic_sd","sellingDate"),
     _ck("ic_offer","Buyer offer accepted & contract signed"),
@@ -182,7 +187,7 @@ function statusIsForward(from,to){
   return ti>fi;
 }
 // Fixed display order for the Properties page (New Leads lives in the Leads section).
-const PROP_ORDER=["Under Contract","Purchased","Under Construction","On Market","In Closing","Sold","Rental"];
+const PROP_ORDER=["Under Contract","Purchased","Under Construction","On Market","Attorney Review","In Closing","Sold","Rental"];
 
 // Small localStorage-backed preference helpers (per device) for UI settings that
 // should survive an app reload — e.g. the property list's status sort/filter.
@@ -3054,7 +3059,7 @@ function PropertyShowings({property,showings,onUpdate,flush,onOpenSms,dense}){
       const handPhones=new Set(customLeads.flatMap(l=>parseShowingPhones(l.phone)).map(x=>x.replace(/\D/g,"")));
       // BoldTrail buyers only matter while the property is actively selling —
       // sold/old deals keep their Agents history but never grow a Buyers tab.
-      const btActive=property.status==="On Market"||property.status==="In Closing";
+      const btActive=property.status==="On Market"||property.status==="Attorney Review"||property.status==="In Closing";
       const tab=btActive?leadTab:"agents";
       const btShown=(btActive?btAllLeads:[]).filter(l=>btMatchesProperty(l,property))
         .filter(l=>{const d=String(l.phone||"").replace(/\D/g,"");return !d||!handPhones.has(d);})
@@ -3334,7 +3339,7 @@ function ShowingsPage(){
   const propTxUnread=(p)=>smsPageOn?propertyTexters(p,all,btPageLeads).reduce((n,x)=>n+txUnreadFor(x.phone),0):0;
   const cutoff=Date.now()-3600000;
   const statusRank=(s)=>s==="On Market"?0:1; // On Market group first, then In Closing
-  const rows=sharedProps.filter(p=>!p.archived&&(p.status==="On Market"||p.status==="In Closing"))
+  const rows=sharedProps.filter(p=>!p.archived&&(p.status==="On Market"||p.status==="Attorney Review"||p.status==="In Closing"))
     .map(p=>{
       const mine=matchedShowings(all,p);
       const upTs=mine.filter(s=>s.ts>=cutoff).map(s=>s.ts).sort((a,b)=>a-b);
@@ -6465,7 +6470,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
   // How long we've owned it — shown for every post-purchase stage, frozen at the
   // sale date once Sold. Needs the purchase date on the Financial Overview.
   const ownedInfo=(()=>{
-    if(!["Purchased","Under Construction","On Market","In Closing","Sold","Rental"].includes(property.status))return null;
+    if(!["Purchased","Under Construction","On Market","Attorney Review","In Closing","Sold","Rental"].includes(property.status))return null;
     const pd=String((property.financials||{}).purchaseDate||"").slice(0,10);if(!pd)return null;
     const start=new Date(pd+"T00:00:00");if(isNaN(start))return null;
     const soldIso=property.status==="Sold"?String((property.financials||{}).sellingDate||"").slice(0,10):"";
@@ -7234,7 +7239,7 @@ function NewLeadsPage(){
 }
 
 // ─── Portfolio Overview ───────────────────────────────────────────────────────
-const ACTIVE_STATUSES=["Under Contract","Purchased","Under Construction","On Market","In Closing"];
+const ACTIVE_STATUSES=["Under Contract","Purchased","Under Construction","On Market","Attorney Review","In Closing"];
 const STATUS_COLORS=Object.fromEntries(Object.entries(SC).map(([k,v])=>[k,{bg:v.bg,badge:v.color}]));
 
 // Unread-email badge per property: counts unread messages across each property's
@@ -7716,7 +7721,9 @@ function AssigneeAvatar({name,size=24}){
 // The delegation mark, used EVERYWHERE a task shows its people: ONE circle —
 // whoever is DOING the task — with a tiny corner badge for the owner when it's
 // been delegated. One footprint, so columns and lists always line up.
-function DoerAvatar({assignee,delegate,size=24}){
+function DoerAvatar({assignee,delegate,size=24,team=false}){
+  // 👥 An "everyone" task (t.team — e.g. the attorney-review escalation).
+  if(team&&!assignee&&!delegate)return <span title="Everyone" style={{width:size,height:size,borderRadius:"50%",background:"#FDF6E3",border:`1px solid ${T.gold}`,fontSize:size*0.5,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,lineHeight:1}}>👥</span>;
   const badge=delegate&&assignee&&delegate!==assignee;
   return(
     <span style={{position:"relative",display:"inline-flex",flexShrink:0}}>
@@ -7890,7 +7897,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
   );
   const unreadEl=msgUnread>0?<span title={`${msgUnread} new message${msgUnread===1?"":"s"}`} style={{minWidth:20,height:20,padding:"0 6px",borderRadius:10,background:T.red,color:"#fff",fontSize:10.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxSizing:"border-box"}}>{msgUnread}</span>:null;
   const first=(n)=>String(n||"").split(" ")[0];
-  const whoTxt=t.assignee?(t.delegate?`${first(t.assignee)} → ${first(t.delegate)}`:first(t.assignee)):"—";
+  const whoTxt=t.assignee?(t.delegate?`${first(t.assignee)} → ${first(t.delegate)}`:first(t.assignee)):t.team?"Everyone":"—";
   const isOfficeRow=String(t.propId)===OFFICE_TASK_PID;
   const addr=isOfficeRow?"Company":(t.propAddr||"");
   const titleEl=(
@@ -7913,7 +7920,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
           <div style={{fontSize:12.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{addr}{t.delegate?` · → ${first(t.delegate)}`:""}</div>
         </div>
         {unreadEl}
-        <DoerAvatar assignee={t.assignee} delegate={t.delegate} size={24}/>
+        <DoerAvatar assignee={t.assignee} delegate={t.delegate} team={t.team} size={24}/>
       </div>
       </SwipeToDelete>
       </>
@@ -7926,7 +7933,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
         {selectMode?<input type="checkbox" checked={!!selected} onClick={e=>e.stopPropagation()} onChange={()=>onToggleSelect(t)} style={{width:16,height:16,cursor:"pointer",accentColor:T.gold}}/>:pick?pickC(22):doneC(22)}
         {titleEl}
         <span onClick={(e)=>{if(!isOfficeRow&&onNavigate&&t.propId){e.stopPropagation();onNavigate(t.propId);}}} title={isOfficeRow?undefined:"Open this property"} style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12.5,color:T.textSub}}>{addr}</span>
-        <span style={{display:"flex",alignItems:"center",gap:6,minWidth:0,fontSize:12.5,color:T.textSub}}><DoerAvatar assignee={t.assignee} delegate={t.delegate} size={22}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{whoTxt}</span></span>
+        <span style={{display:"flex",alignItems:"center",gap:6,minWidth:0,fontSize:12.5,color:T.textSub}}><DoerAvatar assignee={t.assignee} delegate={t.delegate} team={t.team} size={22}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{whoTxt}</span></span>
         <span style={{justifySelf:"end",display:"flex"}}>{unreadEl||<span style={{color:"#C7C7CC",fontSize:16}}>›</span>}</span>
       </div>
       </>
@@ -7946,7 +7953,7 @@ function TaskRow({t,onStatusChange,onRename,onDelete,onContact,onMessage,onAssig
           : null}
       {unreadEl}
       <button onClick={()=>onAssign&&onAssign(t)} title={t.assignee?`Owner: ${t.assignee}${t.delegate?` · Delegated to ${t.delegate}`:""} — tap to change`:"Assign / delegate"} style={{background:"none",border:"none",padding:0,cursor:"pointer",display:"flex",flexShrink:0,...fadeBit}}>
-        <DoerAvatar assignee={t.assignee} delegate={t.delegate} size={D}/>
+        <DoerAvatar assignee={t.assignee} delegate={t.delegate} team={t.team} size={D}/>
       </button>
     </div>
     {viewerEl}
@@ -8299,9 +8306,9 @@ function TaskPopup({task,isMobile,currentUser,teamMembers,contacts=[],saveFolder
         <div style={sec}>
           <div style={h6}>Who's doing it</div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <DoerAvatar assignee={task.assignee} delegate={task.delegate} size={30}/>
+            <DoerAvatar assignee={task.assignee} delegate={task.delegate} team={task.team} size={30}/>
             <div style={{flex:1,minWidth:0,fontSize:14.5,color:T.text}}>
-              {task.assignee?<>{task.delegate?`${first(task.delegate)} (for ${first(task.assignee)})`:task.assignee}<div style={{fontSize:12,color:T.textSub}}>{task.delegate?`Owner ${task.assignee} · delegated to ${task.delegate}`:"Owner"}</div></>:<span style={{color:T.textTert}}>Nobody yet</span>}
+              {task.assignee?<>{task.delegate?`${first(task.delegate)} (for ${first(task.assignee)})`:task.assignee}<div style={{fontSize:12,color:T.textSub}}>{task.delegate?`Owner ${task.assignee} · delegated to ${task.delegate}`:"Owner"}</div></>:<span style={{color:task.team?T.text:T.textTert}}>{task.team?"👥 Everyone — the whole team":"Nobody yet"}</span>}
             </div>
             <button onClick={()=>onAssign(task)} style={mini}>{task.assignee?"Change":"Assign"}</button>
           </div>
@@ -9665,7 +9672,7 @@ function TasksPage({onNavigate}){
   const assignTsOf=(t)=>Number(t.assignedAt||t.id)||0;
   const officeMappedAll=(officeTasks||[]).filter(t=>!t.deleted&&(t.text||"").trim()).map(t=>({...t,propId:OFFICE_TASK_PID,propAddr:"Company Tasks",propStatus:""}));
   const recentAssigned=[...allTasks,...officeMappedAll]
-    .filter(t=>(t.assignee===CURRENT_USER||t.delegate===CURRENT_USER)&&(Date.now()-assignTsOf(t))<=RECENT_WINDOW_MS)
+    .filter(t=>(t.assignee===CURRENT_USER||t.delegate===CURRENT_USER||(t.team&&!t.assignee))&&(Date.now()-assignTsOf(t))<=RECENT_WINDOW_MS)
     .sort((a,b)=>assignTsOf(b)-assignTsOf(a));
 
   // Completing a task stamps who/when — the Completed popup shows the full story.
@@ -9712,7 +9719,7 @@ function TasksPage({onNavigate}){
   }
 
   // On my plate = I'm the delegate, or I'm the owner and it isn't delegated away.
-  const myTasks=allTasks.filter(t=>t.delegate===CURRENT_USER||(t.assignee===CURRENT_USER&&!t.delegate));
+  const myTasks=allTasks.filter(t=>t.delegate===CURRENT_USER||(t.assignee===CURRENT_USER&&!t.delegate)||(t.team&&!t.assignee&&!t.delegate));
   // Tasks I own and delegated to someone else — so I can track whether they're done.
   const assignedByMe=allTasks.filter(t=>t.assignee===CURRENT_USER&&t.delegate&&t.delegate!==CURRENT_USER);
   // A member's plate = they own it or it's delegated to them.
@@ -9930,7 +9937,7 @@ function TasksPage({onNavigate}){
                   <div style={{fontSize:11,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>When status becomes</div>
                   <select value={newAuto.trigger} onChange={e=>setNewAuto(a=>({...a,trigger:e.target.value}))}
                     style={{width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,border:bdr,background:T.bg,color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"}}>
-                    {["Under Contract","Purchased","Under Construction","On Market","In Closing"].map(s=><option key={s}>{s}</option>)}
+                    {["Under Contract","Purchased","Under Construction","On Market","Attorney Review","In Closing"].map(s=><option key={s}>{s}</option>)}
                   </select>
                 </div>
                 {/* Task list */}
@@ -10049,7 +10056,7 @@ function TasksPage({onNavigate}){
             {byProp&&(()=>{
               const isOpenT=(t)=>t.status!=="Completed"&&t.status!=="N/A";
               // "Mine" = I own it, it's delegated to me, or I delegated it out.
-              const isMineT=(t)=>t.assignee===CURRENT_USER||t.delegate===CURRENT_USER;
+              const isMineT=(t)=>t.assignee===CURRENT_USER||t.delegate===CURRENT_USER||(t.team&&!t.assignee);
               // Task-chat messages I haven't read yet, totaled across the property.
               const unreadOf=(ts)=>ts.reduce((n,t)=>n+(t.messages||[]).filter(m=>isUnreadForUser(m,CURRENT_USER)).length,0);
               const rows=[];
@@ -10157,7 +10164,7 @@ function TasksPage({onNavigate}){
                       {/* Your tasks (owned, delegated to you, or delegated BY you)
                           bold and on top; everyone else's in a lighter shade below. */}
                       {(()=>{
-                        const isMineT=(t)=>t.assignee===CURRENT_USER||t.delegate===CURRENT_USER;
+                        const isMineT=(t)=>t.assignee===CURRENT_USER||t.delegate===CURRENT_USER||(t.team&&!t.assignee);
                         const mineTs=openTs.filter(isMineT),otherTs=openTs.filter(t=>!isMineT(t));
                         const row=(t,mine)=>{
                           const hl=hlTaskId!=null&&String(t.id)===String(hlTaskId);
@@ -10227,7 +10234,7 @@ function TasksPage({onNavigate}){
                 const me=CURRENT_USER;
                 const whoSel=sheetWho.length?sheetWho:["me"];
                 const everyone=whoSel.includes("everyone");
-                const matchWho=(t)=>everyone||whoSel.some(w=>w==="me"?(t.assignee===me||t.delegate===me):w==="unassigned"?!t.assignee:(t.assignee===w||t.delegate===w));
+                const matchWho=(t)=>everyone||whoSel.some(w=>w==="me"?(t.assignee===me||t.delegate===me||(t.team&&!t.assignee)):w==="unassigned"?!t.assignee:(t.assignee===w||t.delegate===w));
                 const q=sheetQ.trim().toLowerCase();
                 const base=[...officeMappedAll.map(t=>({...t,propAddr:"Company"})),...allTasks]
                   .filter(t=>matchWho(t)&&(sheetDone?taskIsDone(t):!taskIsDone(t))&&(!filterProps.size||filterProps.has(t.propAddr))&&(!q||`${t.text} ${t.propAddr} ${t.assignee||""} ${t.delegate||""}`.toLowerCase().includes(q)));
@@ -11191,7 +11198,7 @@ const archiveDaysLeft=(p)=>{
   return Math.max(0,Math.ceil(ARCHIVE_DAYS-elapsed/(24*60*60*1000)));
 };
 // Statuses that can trigger an automation rule.
-const AUTO_TRIGGERS=["Under Contract","Purchased","Under Construction","On Market","In Closing"];
+const AUTO_TRIGGERS=["Under Contract","Purchased","Under Construction","On Market","Attorney Review","In Closing"];
 // Settings → Automations: build rules that add tasks when a property hits a status.
 function AutomationsPanel(){
   const { automations, setAutomations, teamMembers:TEAM_MEMBERS } = useData();
@@ -15345,7 +15352,7 @@ function PropertyBSDetail({property,accounts,allIn,allInLoading,pnl,bankAccounts
 }
 
 // Owned/active properties we show on the Property Balance Sheet (excludes Under Contract).
-const BS_STATUSES=["Purchased","Under Construction","On Market","In Closing"];
+const BS_STATUSES=["Purchased","Under Construction","On Market","Attorney Review","In Closing"];
 // Shared calc for a property's interest reserve and personal equity (needs the live
 // QuickBooks account balances + all-in spend). Used by the BS report and Bank Recon.
 const bsAcctBal=(accounts,id)=>{const a=(accounts||[]).find(x=>String(x.id)===String(id));return a?-(a.balance||0):0;};
@@ -15401,7 +15408,7 @@ const slimSpend=(spend)=>Object.fromEntries(Object.entries(spend||{}).map(([k,v]
 // every other morning. Mornings, not rolling hours (Elie 9/9): a 7:35 PM pull
 // was still counted fresh at 8:35 the next day. A day starts at 5 AM Eastern
 // (same rule as the server, lib/quickbooks.js etDayStart).
-const QB_SPEND_TIER={"Under Construction":"day","Purchased":"slow","On Market":"slow","In Closing":"slow"};
+const QB_SPEND_TIER={"Under Construction":"day","Purchased":"slow","On Market":"slow","Attorney Review":"slow","In Closing":"slow"};
 const qbSpendTier=(status)=>QB_SPEND_TIER[status]||null;
 const etDayStart=(daysBack=0,hour=5)=>{
   const now=Date.now();
@@ -23135,7 +23142,7 @@ export function GoldstoneShell(){
   // assigned to me and not in that set is "new" until I open the Tasks tab.
   const myTaskIds = useMemo(()=>{
     const ids=[];
-    (sharedProps||[]).forEach(p=>(p.tasks||[]).forEach(t=>{ if(!t.deleted&&(t.assignee===displayName||t.delegate===displayName)) ids.push(String(t.id)); }));
+    (sharedProps||[]).forEach(p=>(p.tasks||[]).forEach(t=>{ if(!t.deleted&&(t.assignee===displayName||t.delegate===displayName||(t.team&&!t.assignee))) ids.push(String(t.id)); }));
     return ids;
   },[sharedProps,displayName]);
   const taskSeen = Array.isArray(prefs.taskSeenIds)?prefs.taskSeenIds:null;

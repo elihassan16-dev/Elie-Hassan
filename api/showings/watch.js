@@ -5,9 +5,14 @@
 // (one real feed check per 4 minutes; notifications only for new showings,
 // only to the configured recipients).
 import { checkNewShowings } from "../../lib/showings.js";
+import { checkAttorneyReview } from "../../lib/attorneyReview.js";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   const r = await checkNewShowings();
-  res.status(200).json({ ok: true, fresh: (r && r.fresh) || 0, skipped: !!(r && r.skipped) });
+  // ⚖️ Same heartbeat: properties stuck in Attorney Review 2+ business days
+  // (lib/attorneyReview.js, self-throttled to one check per 10 minutes).
+  let ar = null;
+  try { ar = await checkAttorneyReview(); } catch (e) { ar = { error: String(e && e.message || e).slice(0, 120) }; }
+  res.status(200).json({ ok: true, fresh: (r && r.fresh) || 0, skipped: !!(r && r.skipped), ar });
 }

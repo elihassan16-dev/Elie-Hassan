@@ -33,7 +33,7 @@ function buildDigest(name, props) {
 // ── Wide, report-style PDF (landscape), styled like the app ──────────────────
 const GOLD = "#B8953F", INK = "#1B1A17", SUB = "#6B6862", LINE = "#E4E0D7";
 // Same status colors the website uses.
-const PROP_SC = { "Under Contract": { color: "#9333EA", bg: "#F3E8FF" }, "Purchased": { color: "#2563EB", bg: "#DBEAFE" }, "Under Construction": { color: "#EA580C", bg: "#FFEDD5" }, "On Market": { color: "#16A34A", bg: "#DCFCE7" }, "In Closing": { color: "#CA8A04", bg: "#FEF9C3" }, "Sold": { color: "#65A30D", bg: "#ECFCCB" }, "Rental": { color: "#0891B2", bg: "#CFFAFE" }, "New Leads": { color: "#DB2777", bg: "#FCE7F3" } };
+const PROP_SC = { "Under Contract": { color: "#9333EA", bg: "#F3E8FF" }, "Purchased": { color: "#2563EB", bg: "#DBEAFE" }, "Under Construction": { color: "#EA580C", bg: "#FFEDD5" }, "On Market": { color: "#16A34A", bg: "#DCFCE7" }, "Attorney Review": { color: "#4F46E5", bg: "#E0E7FF" }, "In Closing": { color: "#CA8A04", bg: "#FEF9C3" }, "Sold": { color: "#65A30D", bg: "#ECFCCB" }, "Rental": { color: "#0891B2", bg: "#CFFAFE" }, "New Leads": { color: "#DB2777", bg: "#FCE7F3" } };
 const TASK_SC = { "Not Started": { bg: "#F2F2F7", color: "#8A8A8E" }, "In Progress": { bg: "#FFF4E5", color: "#FF9500" }, "Completed": { bg: "#EDFBF1", color: "#34C759" }, "N/A": { bg: "#F2F2F7", color: "#AEAEB2" } };
 
 function buildDigestPdf(name, d, dateStr) {

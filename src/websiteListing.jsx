@@ -11,7 +11,7 @@ import { T } from "./theme";
 import { mediaOf } from "./mediaStore";
 import { streamThumb } from "./chatMedia";
 
-const SITE_STATUSES = { "On Market": "For Sale", "In Closing": "Under Contract", Sold: "Sold" };
+const SITE_STATUSES = { "On Market": "For Sale", "Attorney Review": "Under Contract", "In Closing": "Under Contract", Sold: "Sold" };
 export const siteSlug = (addr) => String(addr || "").split(",")[0].toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 const HDR = { fontSize: 12, fontWeight: 700, color: T.textSub, letterSpacing: 0.3, textTransform: "uppercase", margin: "18px 0 8px" };
 const inp = { width: "100%", boxSizing: "border-box", border: `1px solid ${T.border}`, borderRadius: 10, padding: "11px 12px", fontSize: 16, fontFamily: "inherit", outline: "none", background: "#fff", color: T.text };

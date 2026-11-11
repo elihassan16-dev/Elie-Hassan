@@ -135,6 +135,9 @@ export default async function handler(req, res) {
         const at = e.time_start ? new Date(Number(e.time_start) * 1000).toISOString() : new Date().toISOString();
         const name = inbound ? String(e.orig_from_name || "") : "";
         const missed = inbound && !answered;
+        // 📼 Went to voicemail: the far leg is the voicemail box (NetSapiens
+        // marks it "vmail…" in the term_* fields). Read by the connector's recent_calls.
+        const vm = inbound && Object.entries(e).some(([k, v]) => /^term_/.test(k) && /vmail|voicemail/i.test(String(v || "")));
         // One call, two CDRs: click-to-call (and some routed calls) emit a
         // record PER LEG with distinct cdr_ids — same number, same direction,
         // same start/duration. The second leg is the same call; skip it.
@@ -157,7 +160,7 @@ export default async function handler(req, res) {
           status: "",
         }).catch(() => {});
         if (!calls.some((c) => c.id === e.cdr_id)) {
-          calls.push({ id: e.cdr_id, dir: inbound ? "in" : "out", phone: other, name, ext, at, talk, answered });
+          calls.push({ id: e.cdr_id, dir: inbound ? "in" : "out", phone: other, name, ext, at, talk, answered, ...(vm ? { vm: true } : {}) });
           dirty = true;
         }
         // One missed call can arrive as several leg records at once — only the

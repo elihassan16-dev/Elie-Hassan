@@ -581,13 +581,25 @@ function Card({children,style={}}){return <div style={{background:T.card,borderR
 // ─── StatusPicker — iOS-style pill that opens a colored dropdown list ────────
 function StatusPicker({value,onChange,size="md",onGateSave,property}){
   const{appSettings}=useData()||{};
-  const[open,setOpen]=useState(false);
+  const[open,setOpen]=useState(null); // the pill's screen rect while the menu is open
   const[gate,setGate]=useState(null); // {to,reqs} — target status awaiting its checklist
   const sc=SC[value]||{color:T.gold,bg:T.goldLight};
+  // The menu floats over the page (portal, fixed) so a table or card with
+  // hidden overflow can't cut it off, and opens UPWARD when there isn't room
+  // below (Elie 11/11/26 — the bottom rows' menu was clipped).
+  // Scrolling the page under a floating menu would leave it behind — close it.
+  useEffect(()=>{if(!open)return;const c=()=>setOpen(null);window.addEventListener("scroll",c,true);window.addEventListener("resize",c);return()=>{window.removeEventListener("scroll",c,true);window.removeEventListener("resize",c);};},[open]);
+  const menuPos=(r)=>{
+    const vw=window.innerWidth,vh=window.innerHeight,want=Object.keys(SC).length*34+14;
+    const below=vh-r.bottom-12,above=r.top-12;
+    const up=below<Math.min(want,260)&&above>below;
+    const left=Math.max(8,Math.min(r.left,vw-178));
+    return up?{left,bottom:vh-r.top+6,maxHeight:Math.max(140,above-6)}:{left,top:r.bottom+6,maxHeight:Math.max(140,below-6)};
+  };
   const pillFs=size==="sm"?11:13;
   const pillPad=size==="sm"?"3px 10px":"6px 14px";
   const pick=(s)=>{
-    setOpen(false);
+    setOpen(null);
     if(s===value)return;
     const reqs=statusIsForward(value,s)?gateReqsFor(appSettings,s):[];
     if(reqs.length){ setGate({to:s,reqs}); return; }
@@ -595,13 +607,13 @@ function StatusPicker({value,onChange,size="md",onGateSave,property}){
   };
   return(
     <div style={{position:"relative",display:"inline-block"}}>
-      <span onClick={()=>setOpen(o=>!o)}
+      <span onClick={e=>{const r=e.currentTarget.getBoundingClientRect();setOpen(o=>o?null:r);}}
         style={{background:sc.bg,color:sc.color,fontSize:pillFs,fontWeight:700,padding:pillPad,borderRadius:20,whiteSpace:"nowrap",cursor:"pointer",display:"inline-block",userSelect:"none"}}>
         {value}
       </span>
-      {open&&<>
-        <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:99}}/>
-        <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,background:"#fff",borderRadius:14,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",padding:6,zIndex:100,minWidth:150,display:"flex",flexDirection:"column",gap:3}}>
+      {open&&createPortal(<>
+        <div onClick={()=>setOpen(null)} style={{position:"fixed",inset:0,zIndex:399}}/>
+        <div style={{position:"fixed",...menuPos(open),background:"#fff",borderRadius:14,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",padding:6,zIndex:400,minWidth:150,display:"flex",flexDirection:"column",gap:3,overflowY:"auto",boxSizing:"border-box"}}>
           {Object.keys(SC).map(s=>{
             const ssc=SC[s];
             const selected=s===value;
@@ -615,7 +627,7 @@ function StatusPicker({value,onChange,size="md",onGateSave,property}){
             );
           })}
         </div>
-      </>}
+      </>,document.body)}
       {gate&&<StatusGateModal from={value} to={gate.to} reqs={gate.reqs} property={property}
         onCancel={()=>setGate(null)}
         onConfirm={(answers,note,fieldValues)=>{ onChange(gate.to); onGateSave&&onGateSave(gate.to,answers,note,fieldValues); setGate(null); }}/>}

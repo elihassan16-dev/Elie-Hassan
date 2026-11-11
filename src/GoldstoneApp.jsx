@@ -4965,8 +4965,9 @@ function fileIcon(name="",mime=""){
 // rows = [{k,label,icon,run,red}] — red rows sit after a thick separator.
 // Solid white: a fixed div with backdrop-filter is restyled as a popup dim by index.css.
 function DotsMenu({r,rows,onClose}){
-  const W=240,vw=window.innerWidth,vh=window.innerHeight;
-  const H=rows.length*48+8;
+  const hasSub=rows.some(x=>x&&x.sub);
+  const vw=window.innerWidth,vh=window.innerHeight,W=hasSub?Math.min(270,vw-24):240;
+  const H=rows.reduce((t,x)=>t+(x.sub?60:48),8);
   const left=Math.max(12,Math.min(vw-W-12,r.right-W));
   const below=r.bottom+6+H<vh-90;
   const top=below?r.bottom+6:Math.max(12,r.top-6-H);
@@ -4977,7 +4978,7 @@ function DotsMenu({r,rows,onClose}){
         {rows.map((x,i)=>(
           <button key={x.k} role="menuitem" onClick={()=>{onClose();x.run();}}
             style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",minHeight:48,padding:"0 16px",border:"none",borderTop:i===0?"none":x.red?"6px solid rgba(118,118,128,0.10)":"0.5px solid rgba(60,60,67,0.18)",background:"none",color:x.red?T.red:T.text,fontSize:16,fontFamily:"inherit",cursor:"pointer",textAlign:"left"}}>
-            <span>{x.label}</span><span style={{display:"flex",alignItems:"center",fontSize:16,color:x.red?T.red:T.text}}>{x.icon}</span>
+            <span style={{minWidth:0,padding:x.sub?"8px 0":0}}>{x.label}{x.sub&&<span style={{display:"block",fontSize:12.5,color:T.textSub,marginTop:1,lineHeight:1.3}}>{x.sub}</span>}</span><span style={{display:"flex",alignItems:"center",fontSize:16,color:x.red?T.red:T.text,flexShrink:0,marginLeft:10}}>{x.icon}</span>
           </button>
         ))}
       </div>
@@ -20645,6 +20646,9 @@ function FunderSendSheet({funder,mode="email",buildFile,onStatementPrint,onSaveE
       </div>
     </div>,document.body);
 }
+// Financial Section sub-tabs (phones: the first three + "More ▾" — Elie 11/11/26).
+const FIN_TABS=[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["find","🔍 Find a Transaction"],["reports","Report Center"],["sold","🏷 Sold Properties"],["docs","Document Creator"]];
+const FIN_TAB_SHORT={loc:"Line of Credits",bs:"Property BS",bank:"Bank Recon",find:"Find",reports:"Reports",sold:"Sold",docs:"Documents"};
 function FinancialSectionPage({onNavigate,canEdit=true}){
   const { funders, setFunders:rawSetFunders, flushFunders, draws, setDraws:rawSetDraws, flushDraws, sharedProps, setSharedProps, flushProps, setOfficeTasks, flushOfficeTasks, teamMembers, currentUser, bankAccounts, setBankAccounts, flushBank } = useData();
   // View-only members: block every write path (setters become no-ops).
@@ -20666,6 +20670,9 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
   const[paybackPick,setPaybackPick]=useState(null);    // funder whose ↩ pick-the-loan popup is open
   const[paybackAll,setPaybackAll]=useState(false);     // the one global ↩ pick-the-property popup
   const[rowMenu,setRowMenu]=useState(null);            // {id,x,y} of the open register-row actions menu
+  const[ddMenu,setDdMenu]=useState(null);              // {k, r, f?} — the header / lender / register drop-down that is open (Elie 11/11/26)
+  const openDd=(k,f)=>(e)=>{const r=e.currentTarget.getBoundingClientRect();setDdMenu(m=>m&&m.k===k?null:{k,r,f});};
+  const goTab=(k)=>{if(k!==subTab)navPush(((st,bp)=>()=>{setSubTab(st);setBsSel(bp);})(subTab,bsSel));setSubTab(k);setBsSel(null);};
   const[drawModal,setDrawModal]=useState(null);        // {} new, or draw obj, or {defaultFunderId}
   const save=()=>{setTimeout(()=>{flushFunders&&flushFunders();flushDraws&&flushDraws();},0);};
 
@@ -20878,7 +20885,6 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
 
   // The little ↩ payback icon — same one on every lender row and in the lender page
   // header, so tapping it anywhere already knows who's being paid back.
-  const payIcon={width:30,height:30,borderRadius:"50%",background:T.goldLight,border:`1.5px dashed ${T.gold}`,color:"#8a6d1f",fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit",padding:0};
   const funderRow=(f)=>{
     const s=funderStats(f,draws);const active=String(f.id)===String(selId);
     return(
@@ -20923,11 +20929,9 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
           {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:16,cursor:"pointer",padding:"2px 4px"}}>‹</button>}
           <div style={{fontSize:20,fontWeight:800,color:T.text,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
-          {canEdit&&<button onClick={()=>setPaybackPick(f)} title={`Pay back ${f.name} — pick the loan`} style={payIcon}>↩</button>}
-          <button onClick={()=>setEmailFor({f,mode:"pdf"})} title="PDF for this lender — statement or full register" style={{...finBtn(false),padding:"6px 12px"}}>⭳ PDF</button>
-          <button onClick={()=>setEmailFor({f,mode:"email"})} title="Email this lender his statement or full register as a PDF" style={{...finBtn(false),padding:"6px 12px"}}>✉ Email</button>
-          {canEdit&&<button onClick={()=>setFunderModal(f)} style={{...finBtn(false),padding:"6px 12px"}}>Edit</button>}
-          {canEdit&&<button onClick={()=>deleteFunder(f.id)} title="Delete lender" style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>🗑</button>}
+          {/* ↗ Send ▾ (PDF / Email) + ••• (Pay back / Edit / Delete) — Elie 11/11/26 */}
+          <button onClick={openDd("send",f)} title="PDF or email — statement or full register" style={{...finBtn(false),padding:"0 14px",minHeight:36,borderRadius:18,display:"inline-flex",alignItems:"center",gap:4,flexShrink:0,...(ddMenu&&ddMenu.k==="send"?{borderColor:T.gold}:{})}}>↗ Send ▾</button>
+          {canEdit&&<button onClick={openDd("lender",f)} aria-label="More for this lender" title="Pay back, edit or delete" style={{width:36,height:36,minHeight:36,borderRadius:18,border:"none",background:ddMenu&&ddMenu.k==="lender"?"rgba(118,118,128,0.24)":"rgba(118,118,128,0.12)",color:T.text,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,padding:0}}>{DOTS_SVG}</button>}
         </div>
         {(f.address||f.phone||f.email)&&<div style={{fontSize:12.5,color:T.textSub,marginBottom:f.notes?6:14,display:"flex",flexWrap:"wrap",gap:"3px 14px"}}>
           {f.address&&<span>🏠 {f.address}</span>}
@@ -20956,15 +20960,11 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
         {/* Toolbar */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8,flexWrap:"wrap"}}>
           <div style={{fontSize:14,fontWeight:800,color:T.text}}>Register</div>
-          {canEdit&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            <button onClick={()=>setRegisterImport(true)} title="Import a CSV register" style={{...finBtn(false),padding:"6px 10px",fontSize:12}}>⇪ Import</button>
-            <button onClick={()=>setLedgerModal(true)} style={{...finBtn(false),padding:"6px 10px",fontSize:12}}>+ Wire / entry</button>
-            <button onClick={()=>setDrawModal({defaultFunderId:f.id})} style={{...finBtn(true),padding:"6px 12px",fontSize:12}}>+ Funding</button>
-          </div>}
+          {canEdit&&<button onClick={openDd("add",f)} title="Add a funding, a wire / entry, or import a register" style={{...finBtn(true),padding:"0 14px",minHeight:36,borderRadius:18,fontSize:13}}>＋ Add ▾</button>}
         </div>
         <div style={{fontSize:11,color:T.textTert,marginBottom:8}}>Chronological — wires in, fundings out, paybacks (with interest). Running balance = his un-deployed cash.</div>
         <div style={{background:T.card,borderRadius:12,boxShadow:T.shadow,overflow:"hidden"}}>
-          {reg.length===0&&<div style={{padding:"18px",textAlign:"center",color:T.textTert,fontSize:13}}>Nothing yet. Start with <b>+ Wire / entry</b> for money he sent you, then <b>+ Funding</b> when you deploy it into a deal.</div>}
+          {reg.length===0&&<div style={{padding:"18px",textAlign:"center",color:T.textTert,fontSize:13}}>Nothing yet. Tap <b>＋ Add</b> → <b>Wire / entry</b> for money he sent you, then <b>Funding</b> when you deploy it into a deal.</div>}
           {reg.map((e,ri)=>{const m=kindMeta(e);const set=e.kind==="payback"&&e.draw&&(e.draw.principalHandling||e.draw.interestHandling);
             const rowBg=ri%2?T.cardAlt:T.card;return(
             <div key={e.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px 6px 12px",background:rowBg,borderTop:ri?FIN_HAIR:"none"}}>
@@ -21011,6 +21011,24 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           </div>
         </>
       );})()}
+      {ddMenu&&(()=>{const f=ddMenu.f;const close=()=>setDdMenu(null);
+        const rows=ddMenu.k==="page"?[
+          {k:"pay",label:"Record a payback",sub:"Pick the lender + loan",icon:"↩",run:()=>setPaybackAll(true)},
+          {k:"lender",label:"Add a lender",icon:"＋",run:()=>setFunderModal({})},
+          {k:"backup",label:"Backup",sub:"Download everything",icon:"⬇",run:downloadBackup},
+        ]:ddMenu.k==="send"?[
+          {k:"pdf",label:"PDF",sub:"Statement or full register",icon:"📄",run:()=>setEmailFor({f,mode:"pdf"})},
+          {k:"email",label:`Email it to ${f.name}`,sub:f.email||"Add his email when you send",icon:"✉️",run:()=>setEmailFor({f,mode:"email"})},
+        ]:ddMenu.k==="lender"?[
+          {k:"pay",label:`Pay back ${f.name}`,icon:"↩",run:()=>setPaybackPick(f)},
+          {k:"edit",label:"Edit lender",icon:"✏️",run:()=>setFunderModal(f)},
+          {k:"del",label:"Delete lender",icon:"🗑",red:true,run:()=>deleteFunder(f.id)},
+        ]:ddMenu.k==="add"?[
+          {k:"fund",label:"Funding",sub:"His money into a property",icon:"🏠",run:()=>setDrawModal({defaultFunderId:f.id})},
+          {k:"wire",label:"Wire / entry",sub:"Wire in, interest paid out, adjustment",icon:"💵",run:()=>setLedgerModal(true)},
+          {k:"imp",label:"Import register",sub:"From a CSV file",icon:"⇪",run:()=>setRegisterImport(true)},
+        ]:ddMenu.k==="tabs"?FIN_TABS.slice(3).map(([k,l])=>({k,label:l,icon:subTab===k?"✓":"",run:()=>goTab(k)})):[];
+        return <DotsMenu r={ddMenu.r} rows={rows} onClose={close}/>;})()}
       {drawModal&&<FinDrawModal draw={drawModal.id?drawModal:null} defaultFunderId={drawModal.defaultFunderId} funders={list} properties={sharedProps} onSave={saveDraw} onClose={()=>setDrawModal(null)}/>}
 
       {/* Header + sub-tabs */}
@@ -21019,21 +21037,22 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           <div style={{fontSize:isMobile?19:22,fontWeight:800,color:T.text}}>Financial Section</div>
           <span style={{fontSize:10,fontWeight:800,background:T.gold,color:"#fff",borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>Private</span>
           {!canEdit&&<span style={{fontSize:10,fontWeight:800,background:T.bg,color:T.textSub,border:`1px solid ${T.border}`,borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>View only</span>}
-          {canEdit&&subTab==="loc"&&<div style={{marginLeft:"auto",display:"flex",gap:8}}>
-            <button onClick={()=>setPaybackAll(true)} title="Pay back a loan — pick the property, the lender's tagged on each" style={{...finBtn(false),padding:"8px 12px",border:`1.5px dashed ${T.gold}`,background:T.goldLight,color:"#8a6d1f"}}>↩ Payback</button>
-            <button onClick={downloadBackup} title="Download a backup file of all financial data" style={{...finBtn(false),padding:"8px 12px"}}>⬇ Backup</button>
-            <button onClick={()=>setFunderModal({})} style={{...finBtn(false),padding:"8px 12px"}}>+ Lender</button>
-            <button onClick={()=>setDrawModal({})} style={{...finBtn(true),padding:"8px 14px"}}>+ Draw</button>
+          {canEdit&&subTab==="loc"&&<div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
+            <button onClick={()=>setDrawModal({})} style={{...finBtn(true),padding:"0 16px",minHeight:38,borderRadius:19}}>＋ Draw</button>
+            <button onClick={openDd("page")} aria-label="More — payback, add a lender, backup" title="Record a payback, add a lender, backup" style={{width:38,height:38,minHeight:38,borderRadius:19,border:"none",background:ddMenu&&ddMenu.k==="page"?"rgba(118,118,128,0.24)":"rgba(118,118,128,0.12)",color:T.text,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,padding:0}}>{DOTS_SVG}</button>
           </div>}
         </div>
         {/* Sub-tabs — full-width scrollable capsule. (The old ‹ Back / ⌂ capsule
             that shared this row collided with the scrolling tabs on phones and
             was removed at Elie's request — the tabs themselves are the nav.) */}
         <div style={{marginTop:12}}>
-          <div style={SEG_WRAP}>
-            {[["loc","Line of Credits"],["bs","Property BS Report"],["bank","Bank Reconciliation"],["find","🔍 Find a Transaction"],["reports","Report Center"],["sold","🏷 Sold Properties"],["docs","Document Creator"]].map(([k,l])=>(
-              <button key={k} onClick={()=>{if(k!==subTab)navPush(((st,bp)=>()=>{setSubTab(st);setBsSel(bp);})(subTab,bsSel));setSubTab(k);setBsSel(null);}} style={{...segTab(subTab===k),fontSize:isMobile?12:12.5,...(subTab===k?{color:T.gold}:{})}}>{l}</button>
+          <div style={isMobile?{...SEG_WRAP,width:"100%",overflowX:"hidden"}:SEG_WRAP}>
+            {(isMobile?FIN_TABS.slice(0,3).map(([k,l])=>[k,FIN_TAB_SHORT[k]||l]):FIN_TABS).map(([k,l])=>(
+              <button key={k} onClick={()=>goTab(k)} style={{...segTab(subTab===k),fontSize:isMobile?12:12.5,...(isMobile?{flex:1,minWidth:0,padding:"8px 4px"}:{}),...(subTab===k?{color:T.gold}:{})}}>{l}</button>
             ))}
+            {isMobile&&(()=>{const cur=FIN_TABS.slice(3).find(([k])=>k===subTab);return(
+              <button onClick={openDd("tabs")} style={{...segTab(!!cur),fontSize:12,flex:1,minWidth:0,padding:"8px 4px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",...(cur?{color:T.gold}:{})}}>{cur?(FIN_TAB_SHORT[cur[0]]||cur[1]):"More"} ▾</button>
+            );})()}
           </div>
         </div>
       </div>

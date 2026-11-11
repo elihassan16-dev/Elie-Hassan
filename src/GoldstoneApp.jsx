@@ -20815,7 +20815,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
         ["In properties now",fmtD(s.deployed)],
       ],
       rows,
-      totals:{n:inRange.length,inn:fmtD(tin),out:fmtD(tout),int:`${fmtD(earned)} earned`,bal:fmtD(endBal)},
+      totals:{n:inRange.length,inn:fmtD(tin),out:fmtD(tout),int:`+${fmtD(earned)}`,bal:fmtD(endBal)},
       foot:`Balance = ${f.name}'s money with Goldstone that is not placed in a property (available). Money placed in a property shows as "Funded" (out of the balance) and comes back as "Paid back", with the interest it earned in the Interest column. Interest is day-counted at each loan's own rate (default ${hasRate(f.rate)?f.rate:15}% / yr); interest still building on open loans is on the open-loans page${o.openPage?"":" (not included)"}. Private & confidential.`,
       open:o.openPage?{asOf:new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),rows:open.map(d=>[`${d.propertyLabel||"—"}${drawPaid(d)>0?` (paid down from ${fmtD(d.amount)})`:""}`,finFmtDate(d.dateFunded),`${drawDays(d)}d @ ${drawRatePct(d)}%`,fmtD(drawBalance(d)),fmtD(drawInterest(d))]),total:[fmtD(sum(open,drawBalance)),fmtD(sum(open,drawInterest))]}:null,
     });

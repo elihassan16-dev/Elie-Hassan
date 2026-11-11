@@ -44,9 +44,18 @@ export async function funderRegisterPdfFile(d) {
 
   // ── Register table ──
   // x positions: date | type | note | in (r) | out (r) | interest (r) | balance (r)
-  const X = { date: M + 3, type: M + 62, note: M + 150 };
-  const R = { inn: M + CW * 0.665, out: M + CW * 0.765, int: M + CW * 0.87, bal: W - M - 3 };
-  const noteW = R.inn - X.note - 52;
+  // Four equal money columns wide enough for $1,000,000.00+ (Elie 11/11/26:
+  // the totals row overlapped on BIL's register).
+  const COLW = 74;
+  const X = { date: M + 3, type: M + 66, note: M + 148 };
+  const R = { bal: W - M - 3 }; R.int = R.bal - COLW; R.out = R.int - COLW; R.inn = R.out - COLW;
+  const noteW = R.inn - COLW + 6 - X.note;
+  // Right-aligned amount that never spills into the next column: shrinks to fit.
+  const amt = (text, right, size) => {
+    let fs = size; doc.setFontSize(fs);
+    while (fs > 6 && doc.getTextWidth(String(text)) > COLW - 8) { fs -= 0.4; doc.setFontSize(fs); }
+    doc.text(String(text), right, y, { align: "right" }); doc.setFontSize(size);
+  };
   const head = () => {
     doc.setFont("helvetica", "bold"); doc.setFontSize(6.8); doc.setTextColor(...SUB);
     doc.text("DATE", X.date, y); doc.text("TYPE", X.type, y); doc.text("PROPERTY / NOTE", X.note, y);
@@ -78,10 +87,10 @@ export async function funderRegisterPdfFile(d) {
       doc.setFont("helvetica", "normal"); doc.setFontSize(8.6); doc.setTextColor(...INK);
       doc.text(note, X.note, y);
     }
-    if (r.inn) { doc.setTextColor(...GREEN); doc.text(r.inn, R.inn, y, { align: "right" }); }
-    if (r.out) { doc.setTextColor(...RED); doc.text(r.out, R.out, y, { align: "right" }); }
-    if (r.int) { doc.setFont("helvetica", "bold"); doc.setTextColor(...hex(r.intColor || "#B8953F")); doc.text(r.int, R.int, y, { align: "right" }); doc.setFont("helvetica", r.bf ? "bold" : "normal"); }
-    doc.setTextColor(...INK); doc.text(String(r.bal || ""), R.bal, y, { align: "right" });
+    if (r.inn) { doc.setTextColor(...GREEN); amt(r.inn, R.inn, 8.6); }
+    if (r.out) { doc.setTextColor(...RED); amt(r.out, R.out, 8.6); }
+    if (r.int) { doc.setFont("helvetica", "bold"); doc.setTextColor(...hex(r.intColor || "#B8953F")); amt(r.int, R.int, 8.6); doc.setFont("helvetica", r.bf ? "bold" : "normal"); }
+    doc.setTextColor(...INK); amt(r.bal || "", R.bal, 8.6);
     y += h - 6;
     doc.setDrawColor(242, 242, 242); doc.setLineWidth(0.6); doc.line(M, y - 4, W - M, y - 4);
     y += 7;
@@ -92,10 +101,10 @@ export async function funderRegisterPdfFile(d) {
   doc.setDrawColor(51, 51, 51); doc.setLineWidth(1.2); doc.line(M, y - 9, W - M, y - 9);
   doc.setFont("helvetica", "bold"); doc.setFontSize(8.6); doc.setTextColor(...INK);
   doc.text(`Period totals · ${d.totals.n} transaction${d.totals.n === 1 ? "" : "s"}`, X.date, y);
-  doc.setTextColor(...GREEN); doc.text(d.totals.inn, R.inn, y, { align: "right" });
-  doc.setTextColor(...RED); doc.text(d.totals.out, R.out, y, { align: "right" });
-  doc.setTextColor(...GOLD); doc.text(d.totals.int, R.int, y, { align: "right" });
-  doc.setTextColor(...INK); doc.text(d.totals.bal, R.bal, y, { align: "right" });
+  doc.setTextColor(...GREEN); amt(d.totals.inn, R.inn, 8.6);
+  doc.setTextColor(...RED); amt(d.totals.out, R.out, 8.6);
+  doc.setTextColor(...GOLD); amt(d.totals.int, R.int, 8.6);
+  doc.setTextColor(...INK); amt(d.totals.bal, R.bal, 8.6);
   y += 20;
 
   // footnote

@@ -69,8 +69,8 @@ const money = (v) => `${v < 0 ? "−" : ""}$${Math.round(Math.abs(Number(v) || 0
 const todayYmd = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
 const days = (a, b) => { const x = Date.parse(`${a}T12:00:00Z`), y = Date.parse(`${b}T12:00:00Z`); return isNaN(x) || isNaN(y) ? 0 : Math.max(0, Math.round((y - x) / 86400000)); };
 const mdy = (ymd) => { const m = String(ymd || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[2]}/${m[3]}/${m[1]}` : ""; };
-const PIPE = ["In Closing", "On Market", "Under Construction"];
-const OWNED = ["Purchased", "Under Construction", "On Market", "In Closing"];
+const PIPE = ["In Closing", "Attorney Review", "On Market", "Under Construction"];
+const OWNED = ["Purchased", "Under Construction", "On Market", "Attorney Review", "In Closing"];
 
 // Selling-cost lines ↔ QuickBooks P&L accounts on the deal's project, for the
 // "already paid" credit. Only costs that are paid BEFORE closing can show up.
@@ -183,7 +183,7 @@ const head = { ...cell, fontSize: 10.5, fontWeight: 700, color: T.textTert, text
 const tap = { background: "none", border: "none", padding: 0, color: T.blue, fontFamily: "inherit", fontSize: 13, cursor: "pointer", textDecoration: "underline dotted", textUnderlineOffset: 3, fontVariantNumeric: "tabular-nums" };
 const sub = { display: "block", fontSize: 10.5, color: T.textTert, marginTop: 2 };
 const inp = { border: `1px solid ${T.border}`, borderRadius: 8, padding: "5px 8px", fontSize: 13, fontFamily: "inherit", background: "#fff", color: T.text, textAlign: "right", fontVariantNumeric: "tabular-nums" };
-const SC = { "In Closing": ["#7B3FB8", "#F3EAFB"], "On Market": ["#1E7B3C", "#EAF7EE"], "Under Construction": ["#B86E00", "#FFF4E5"], Purchased: ["#1D6FB8", "#E9F2FB"] };
+const SC = { "In Closing": ["#7B3FB8", "#F3EAFB"], "On Market": ["#1E7B3C", "#EAF7EE"], "Attorney Review": ["#4F46E5", "#E0E7FF"], "Under Construction": ["#B86E00", "#FFF4E5"], Purchased: ["#1D6FB8", "#E9F2FB"] };
 const segBtn = (on) => ({ padding: "6px 13px", borderRadius: 100, border: "none", background: on ? "#fff" : "transparent", boxShadow: on ? "0 1px 3px rgba(0,0,0,0.12)" : "none", color: on ? T.text : T.textSub, fontWeight: 600, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", minHeight: 32 });
 const segWrap = { display: "inline-flex", background: "rgba(118,118,128,0.12)", borderRadius: 100, padding: 3 };
 const rowS = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 0", borderTop: `1px solid ${T.border}`, fontSize: 13.5 };

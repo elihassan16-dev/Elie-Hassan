@@ -14,7 +14,7 @@ import { supabase } from "./supabaseClient";
 import { withSubs } from "./subtasks";
 
 const OFFICE_TASK_PID = "__office_task__";
-const HOLDING = ["Purchased", "Under Construction", "On Market", "In Closing"];
+const HOLDING = ["Purchased", "Under Construction", "On Market", "Attorney Review", "In Closing"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const ymOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 const autoIdFor = (ym) => `mortgages:${ym}`;

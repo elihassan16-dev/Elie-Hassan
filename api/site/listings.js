@@ -18,7 +18,7 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://wtmsukjnuqsprtvfytin.supabase.co";
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const SHOW = { "On Market": "sale", "In Closing": "pending" }; // no Sold on the site (Elie 11/8/26)
+const SHOW = { "On Market": "sale", "Attorney Review": "pending", "In Closing": "pending" }; // no Sold on the site (Elie 11/8/26)
 const httpsOnly = (u) => (/^https:\/\//i.test(String(u || "")) ? String(u) : "");
 const num = (v) => { const n = Number(String(v ?? "").replace(/[^0-9.]/g, "")); return isFinite(n) && n > 0 ? n : 0; };
 const short = (v, n = 40) => String(v ?? "").trim().slice(0, n);

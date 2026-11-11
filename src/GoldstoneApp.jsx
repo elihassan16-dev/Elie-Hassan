@@ -40,6 +40,7 @@ import { eventLabel as ctrEventLabel, eventIcon as ctrEventIcon, EVENT_TYPES as 
 import { sowPdfFile } from "./contractors/sowPdf";
 import { jvPdfFile } from "./jvPdf";
 import { funderStatementPdfFile } from "./funderStatementPdf";
+import { funderRegisterPdfFile } from "./funderRegisterPdf";
 import { printHtml, showPdf, openFile, inAppPdf } from "./pdfViewer";
 import { SowPdfPreview } from "./contractors/SowPdfPreview";
 import { ScopeBuilder, scopeSummary } from "./contractors/scope";
@@ -20513,79 +20514,132 @@ function FinTxnSearch({isMobile,sharedProps,onOpenProperty}){
 // ✉ Email a lender his statement (Elie 10/19/26): to the email on file or a
 // new one (optionally saved on the lender), editable note, the statement PDF
 // attached — sent as a new email from the signed-in Outlook mailbox.
-function FunderEmailSheet({funder,buildFile,onSaveEmail,onClose}){
+// 📄 / 📒 What to send a lender (Elie approved the preview 11/11/26): the
+// Statement (summary) or the Full register (every transaction, running
+// balance) for a date range — from ⭳ PDF (mode "pdf") or ✉ Email (mode "email").
+const LENDER_PRESETS=[["all","All time"],["year","This year"],["last","Last year"],["custom","📅 Custom"]];
+const ymdLocal=(d)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const lenderRange=(preset,from,to)=>{
+  const now=new Date(),y=now.getFullYear(),today=ymdLocal(now);
+  if(preset==="year")return{from:`${y}-01-01`,to:today};
+  if(preset==="last")return{from:`${y-1}-01-01`,to:`${y-1}-12-31`};
+  if(preset==="custom")return{from:from||"",to:to||today};
+  return{from:"",to:today};
+};
+function FunderSendSheet({funder,mode="email",buildFile,onStatementPrint,onSaveEmail,onClose}){
   const mail=useOutlookMail();
+  const isPdf=mode==="pdf";
   const onFile=String(funder.email||"").trim();
   const first=String(funder.name||"").trim().split(/\s+/)[0]||"there";
   const today=new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"});
+  const[kind,setKind]=useState("statement");           // "statement" | "register"
+  const[preset,setPreset]=useState("all");
+  const[cFrom,setCFrom]=useState(`${new Date().getFullYear()}-01-01`);
+  const[cTo,setCTo]=useState(ymdLocal(new Date()));
+  const[carry,setCarry]=useState(true);
+  const[openPage,setOpenPage]=useState(false);
+  const rg=lenderRange(preset,cFrom,cTo);
+  const nice=(ymd)=>{if(!ymd)return "";const[a,b,c]=ymd.split("-").map(Number);return new Date(a,b-1,c).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});};
+  const rangeTxt=rg.from?`${nice(rg.from)} – ${nice(rg.to)}`:`everything through ${nice(rg.to)}`;
+  const opts={kind,from:rg.from,to:rg.to,carry,openPage};
+  const make=()=>buildFile(opts);
   const[to,setTo]=useState(onFile?"file":"new");
   const[newEmail,setNewEmail]=useState("");
   const[saveIt,setSaveIt]=useState(!onFile);
-  const[subject,setSubject]=useState(`Goldstone Properties — your statement as of ${today}`);
-  const[note,setNote]=useState(`Hi ${first},\n\nAttached is your up-to-date statement with Goldstone Properties as of ${today}.\n\nLet me know if you have any questions.\n\nThank you,\nGoldstone Properties`);
+  const autoSubject=kind==="register"?`Goldstone Properties — your register (${rangeTxt})`:`Goldstone Properties — your statement as of ${today}`;
+  const autoNote=kind==="register"
+    ?`Hi ${first},\n\nAttached is your full register with Goldstone Properties — every transaction from ${rg.from?`${nice(rg.from)} to ${nice(rg.to)}`:`the start through ${nice(rg.to)}`}, with your running balance.\n\nLet me know if you have any questions.\n\nThank you,\nGoldstone Properties`
+    :`Hi ${first},\n\nAttached is your up-to-date statement with Goldstone Properties as of ${today}.\n\nLet me know if you have any questions.\n\nThank you,\nGoldstone Properties`;
+  const[subject,setSubject]=useState(null);           // null = follow the choice above
+  const[note,setNote]=useState(null);
+  const subj=subject==null?autoSubject:subject, body=note==null?autoNote:note;
   const[state,setState]=useState(""); // "" | "sending" | "sent" | error text
   const addr=to==="file"?onFile:newEmail.trim();
   const okAddr=/^\S+@\S+\.\S+$/.test(addr);
+  const okDates=kind!=="register"||preset!=="custom"||(!rg.from||rg.from<=rg.to);
   const esc=(x)=>String(x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-  const preview=()=>showPdf(buildFile,{title:"Lender statement",subtitle:funder.name});
+  const title=kind==="register"?"Lender register":"Lender statement";
+  const preview=()=>showPdf(make,{title,subtitle:funder.name});
+  const openIt=()=>{if(kind==="statement"&&onStatementPrint){onStatementPrint();onClose();return;}showPdf(make,{title,subtitle:funder.name});};
   const send=async()=>{
-    if(!okAddr||state==="sending")return;
+    if(!okAddr||!okDates||state==="sending")return;
     setState("sending");
     try{
-      const file=await buildFile();
-      const html=`<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1a1a1a">${esc(note).replace(/\n/g,"<br>")}</div>`;
+      const file=await make();
+      const html=`<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1a1a1a">${esc(body).replace(/\n/g,"<br>")}</div>`;
       // Sent by the SERVER from your own Goldstone mailbox (Elie 11/10/26: on
       // iPhone the in-browser Microsoft sign-in timed out — "timed_out"). The
       // old in-browser Outlook send is only a fallback when the server can't.
       const b64=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(",")[1]||"");r.onerror=()=>no(new Error("Couldn't read the PDF."));r.readAsDataURL(file);});
       try{
-        await qbAuthFetch("/api/email/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:addr,subject,html,attachments:[{name:file.name||"Statement.pdf",type:file.type||"application/pdf",base64:b64}]})});
+        await qbAuthFetch("/api/email/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:addr,subject:subj,html,attachments:[{name:file.name||"Statement.pdf",type:file.type||"application/pdf",base64:b64}]})});
       }catch(serverErr){
         if(!mail.signedIn)throw serverErr;
-        await mail.sendNew({to:addr,subject,html,files:[file]});
+        await mail.sendNew({to:addr,subject:subj,html,files:[file]});
       }
       if(to==="new"&&saveIt&&onSaveEmail)onSaveEmail(addr);
       setState("sent");
-    }catch(e){setState(String(e?.message||"Couldn't send — make sure you're signed in on the Email page."));}
+    }catch(e){setState(String(e?.message||"Couldn't send — try again."));}
   };
   const inp={width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,fontSize:15,fontFamily:"inherit",background:T.bg,color:T.text,outline:"none",boxSizing:"border-box"};
   const lbl={fontSize:12,fontWeight:700,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.04em",margin:"0 0 6px"};
-  const opt=(k,title,sub)=>(
-    <button onClick={()=>{setTo(k);setState("");}} style={{display:"flex",alignItems:"center",gap:12,width:"100%",minHeight:52,padding:"10px 12px",borderRadius:12,border:to===k?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:to===k?"#FFFCF5":"#fff",cursor:"pointer",fontFamily:"inherit",textAlign:"left",marginBottom:8}}>
-      <span style={{width:20,height:20,borderRadius:10,border:`2px solid ${to===k?T.gold:"#C7C7CC"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{to===k&&<span style={{width:10,height:10,borderRadius:5,background:T.gold}}/>}</span>
-      <span style={{minWidth:0}}><span style={{display:"block",fontSize:15,fontWeight:600,color:T.text}}>{title}</span>{sub&&<span style={{display:"block",fontSize:13,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</span>}</span>
-    </button>
-  );
+  const radio=(on)=>(<span style={{width:20,height:20,borderRadius:10,border:`2px solid ${on?T.gold:"#C7C7CC"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{on&&<span style={{width:10,height:10,borderRadius:5,background:T.gold}}/>}</span>);
+  const optBtn=(on,onClick,children)=>(<button onClick={onClick} style={{display:"flex",alignItems:"flex-start",gap:12,width:"100%",minHeight:52,padding:"11px 12px",borderRadius:12,border:on?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:on?"#FFFCF5":"#fff",cursor:"pointer",fontFamily:"inherit",textAlign:"left",marginBottom:8}}>{radio(on)}<span style={{minWidth:0}}>{children}</span></button>);
+  const opt=(k,title,sub)=>optBtn(to===k,()=>{setTo(k);setState("");},<><span style={{display:"block",fontSize:15,fontWeight:600,color:T.text}}>{title}</span>{sub&&<span style={{display:"block",fontSize:13,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</span>}</>);
+  const kindOpt=(k,title,sub)=>optBtn(kind===k,()=>{setKind(k);setState("");},<><span style={{display:"block",fontSize:15,fontWeight:650,color:T.text}}>{title}</span><span style={{display:"block",fontSize:12.5,color:T.textSub,lineHeight:1.35,marginTop:2}}>{sub}</span></>);
+  const check=(on,set,label)=>(<label style={{display:"flex",alignItems:"center",gap:9,marginTop:9,fontSize:13.5,color:T.text,cursor:"pointer",minHeight:30}}><input type="checkbox" checked={on} onChange={e=>set(e.target.checked)} style={{width:18,height:18,accentColor:T.gold}}/>{label}</label>);
+  const chooser=(<>
+    <div style={lbl}>What to send</div>
+    {kindOpt("statement","📄 Statement","The summary — totals, open loans with interest so far, paid-back loans.")}
+    {kindOpt("register","📒 Full register","Every transaction line by line — wires in, money placed in each property, paybacks, interest earned, reinvested or paid out — with a running balance.")}
+    {kind==="register"&&<div style={{margin:"6px 0 4px"}}>
+      <div style={{...lbl,marginTop:8}}>Dates</div>
+      <div style={{...SEG_WRAP,width:"100%",display:"flex"}}>{LENDER_PRESETS.map(([k,l])=><button key={k} onClick={()=>setPreset(k)} style={{...segTab(preset===k),flex:1,minWidth:0,padding:"7px 4px",fontSize:12.5}}>{l}</button>)}</div>
+      {preset==="custom"
+        ?<div style={{display:"flex",gap:8,marginTop:8}}>
+          <label style={{flex:1,minWidth:0}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textTert,margin:"0 0 3px 2px"}}>FROM</span><input type="date" value={cFrom} onChange={e=>setCFrom(e.target.value)} style={{...inp,padding:"9px 10px",fontSize:14}}/></label>
+          <label style={{flex:1,minWidth:0}}><span style={{display:"block",fontSize:10.5,fontWeight:700,color:T.textTert,margin:"0 0 3px 2px"}}>TO</span><input type="date" value={cTo} onChange={e=>setCTo(e.target.value)} style={{...inp,padding:"9px 10px",fontSize:14}}/></label>
+        </div>
+        :<div style={{fontSize:12.5,color:T.textSub,margin:"8px 2px 0"}}>{rg.from?`${nice(rg.from)} – ${nice(rg.to)}`:`From the first transaction through ${nice(rg.to)}`}</div>}
+      {!okDates&&<div style={{fontSize:12.5,color:T.red,marginTop:6}}>The From date is after the To date.</div>}
+      {rg.from&&check(carry,setCarry,"Start with the balance carried forward")}
+      {check(openPage,setOpenPage,"Include the open loans + interest so far (page 2)")}
+    </div>}
+  </>);
   return createPortal(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:430,display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(480px,96vw)",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}}>
-        <div style={{padding:"16px 20px 12px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:17,fontWeight:800,color:T.text}}>Email statement</div><div style={{fontSize:13,color:T.textSub}}>{funder.name} · PDF as of {today}</div></div>
-          <button onClick={onClose} aria-label="Close" style={{width:36,height:36,borderRadius:18,border:"none",background:"rgba(118,118,128,0.12)",color:T.textSub,fontSize:16,cursor:"pointer"}}>✕</button>
+        <div style={{padding:"16px 20px 12px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+          <div style={{minWidth:0}}><div style={{fontSize:17,fontWeight:800,color:T.text}}>{isPdf?`⭳ PDF for ${funder.name}`:`Email ${funder.name}`}</div><div style={{fontSize:13,color:T.textSub}}>{kind==="register"?`Full register · ${rangeTxt}`:`Statement as of ${today}`}</div></div>
+          <button onClick={onClose} aria-label="Close" style={{width:36,height:36,borderRadius:18,border:"none",background:"rgba(118,118,128,0.12)",color:T.textSub,fontSize:16,cursor:"pointer",flexShrink:0}}>✕</button>
         </div>
         <div style={{padding:"16px 20px 20px"}}>
           {state==="sent"?(
             <div style={{textAlign:"center",padding:"18px 4px"}}>
               <div style={{fontSize:40}}>✅</div>
               <div style={{fontSize:16,fontWeight:700,color:T.text,marginTop:6}}>Sent to {addr}</div>
-              <div style={{fontSize:13,color:T.textSub,marginTop:4}}>From your Outlook, with the statement PDF attached.</div>
+              <div style={{fontSize:13,color:T.textSub,marginTop:4}}>From your email, with the {kind==="register"?"register":"statement"} PDF attached.</div>
               <button onClick={onClose} style={{marginTop:16,minHeight:46,padding:"0 28px",borderRadius:12,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Done</button>
             </div>
-          ):<>
-            <div style={lbl}>Send to</div>
+          ):isPdf?<>
+            {chooser}
+            <button onClick={openIt} disabled={!okDates} style={{marginTop:14,width:"100%",minHeight:50,borderRadius:14,border:"none",background:okDates?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:16,cursor:okDates?"pointer":"default",fontFamily:"inherit"}}>📄 Open the PDF</button>
+          </>:<>
+            {chooser}
+            <div style={{...lbl,marginTop:12}}>Send to</div>
             {onFile&&opt("file","His email on file",onFile)}
             {opt("new",onFile?"A different email":"Add his email",null)}
             {to==="new"&&<div style={{margin:"-2px 0 10px"}}>
-              <input autoFocus value={newEmail} onChange={e=>{setNewEmail(e.target.value);setState("");}} placeholder="name@email.com" inputMode="email" autoCapitalize="none" autoCorrect="off" style={inp}/>
+              <input value={newEmail} onChange={e=>{setNewEmail(e.target.value);setState("");}} placeholder="name@email.com" inputMode="email" autoCapitalize="none" autoCorrect="off" style={inp}/>
               {onSaveEmail&&<label style={{display:"flex",alignItems:"center",gap:8,marginTop:8,fontSize:13.5,color:T.text,cursor:"pointer"}}><input type="checkbox" checked={saveIt} onChange={e=>setSaveIt(e.target.checked)} style={{width:18,height:18,accentColor:T.gold}}/>{onFile?`Replace ${first}'s email on file with this one`:`Save as ${first}'s email`}</label>}
             </div>}
             <div style={{...lbl,marginTop:8}}>Subject</div>
-            <input value={subject} onChange={e=>setSubject(e.target.value)} style={{...inp,marginBottom:12}}/>
+            <input value={subj} onChange={e=>setSubject(e.target.value)} style={{...inp,marginBottom:12}}/>
             <div style={lbl}>Message</div>
-            <textarea value={note} onChange={e=>setNote(e.target.value)} rows={7} style={{...inp,resize:"vertical",lineHeight:1.45}}/>
-            <button onClick={preview} style={{marginTop:10,background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:"6px 0"}}>📄 Preview the PDF</button>
+            <textarea value={body} onChange={e=>setNote(e.target.value)} rows={7} style={{...inp,resize:"vertical",lineHeight:1.45}}/>
+            <button onClick={preview} disabled={!okDates} style={{marginTop:10,background:"none",border:"none",color:T.gold,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:"6px 0"}}>👁 Preview the PDF</button>
             {state&&state!=="sending"&&<div style={{marginTop:10,background:"#fdecec",borderRadius:10,padding:"9px 12px",fontSize:13,color:"#b3261e",fontWeight:600}}>⚠️ {state}</div>}
-            <button onClick={send} disabled={!okAddr||state==="sending"} style={{marginTop:14,width:"100%",minHeight:50,borderRadius:14,border:"none",background:okAddr?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:16,cursor:okAddr?"pointer":"default",fontFamily:"inherit"}}>{state==="sending"?"Sending…":"✉ Send statement"}</button>
+            <button onClick={send} disabled={!okAddr||!okDates||state==="sending"} style={{marginTop:14,width:"100%",minHeight:50,borderRadius:14,border:"none",background:okAddr&&okDates?T.gold:T.border,color:"#fff",fontWeight:800,fontSize:16,cursor:okAddr&&okDates?"pointer":"default",fontFamily:"inherit"}}>{state==="sending"?"Sending…":`✉ Send ${kind==="register"?"register":"statement"}`}</button>
           </>}
         </div>
       </div>
@@ -20711,6 +20765,61 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       foot:`Interest accrues day-counted at each loan's own rate (default ${hasRate(f.rate)?f.rate:15}% / yr). Private & confidential.`,
     });
   };
+  // 📒 Full register PDF for a date range (Elie 11/11/26) — the lender page's
+  // own register (funderRegister: same lines + running available balance).
+  const registerFile=(f,o={})=>{
+    const s=funderStats(f,draws);
+    const propOf=(d)=>(d&&d.propertyLabel)||((sharedProps||[]).find(p=>String(p.id)===String(d&&d.propertyId))||{}).address||"Property";
+    const all=funderRegister(f,draws);
+    const from=o.from||"",to=o.to||"9999-12-31";
+    const before=from?all.filter(e=>String(e.date||"")<from):[];
+    const startBal=before.length?before[before.length-1].balance:0;
+    const inRange=all.filter(e=>(!from||String(e.date||"")>=from)&&String(e.date||"")<=to);
+    const dt=(ymd)=>{if(!ymd)return "—";const[a,b,c]=String(ymd).slice(0,10).split("-").map(Number);return new Date(a,b-1,c).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});};
+    const $=(v)=>fmtD(Math.abs(v)).replace(/^-/,"");
+    const TAG={principal:["Wire in","#EAF7EE","#15803D"],fund:["Funded","#E9F2FB","#1D6FB8"],payment:["Partial paydown","#FFF4E5","#B86E00"],payback:["Paid back","#EAF7EE","#15803D"],reinvest:["Reinvested","#E8EEFD","#2563EB"],distribution:["Interest paid out","#FDECEC","#C0392B"],withdrawal:["Withdrawn","#FDECEC","#C0392B"],adjustment:["Adjustment","#F2F2F7","#555555"],interest_adjust:["Interest adj.","#FDF6E3","#8A6D1F"]};
+    let tin=0,tout=0,tint=0,earned=0,paidOut=0,reinv=0;
+    const rows=inRange.map(e=>{
+      const t=TAG[e.kind]||["Other","#F2F2F7","#555555"];
+      const d=e.draw;const r={date:dt(e.date),type:t[0],tag:[t[1],t[2]],note:"",inn:"",out:"",int:"",bal:fmtD(e.balance)};
+      const amt=Number(e.amount)||0;
+      if(e.kind==="principal"){r.inn=$(amt);tin+=amt;r.note=e.note||`Wire from ${f.name}`;}
+      else if(e.kind==="fund"){r.out=$(amt);tout+=amt;r.note=`${d?propOf(d):e.note||"Property"}${d?` · ${drawRatePct(d)}%`:""}`;}
+      else if(e.kind==="payment"){r.inn=$(amt);tin+=amt;r.note=e.note||"Partial paydown";}
+      else if(e.kind==="payback"){r.inn=$(amt);tin+=amt;const it=Number(e.interest)||0;if(it){r.int=`+${$(it)}`;tint+=it;earned+=it;}r.note=`${d?propOf(d):e.note||"Property"} — principal back${d?` · ${drawDays(d)} days`:""}`;}
+      else if(e.kind==="reinvest"){r.inn=$(amt);tin+=amt;reinv+=amt;r.note=e.note||"Interest reinvested";}
+      else if(e.kind==="distribution"){r.int=`-${$(amt)}`;r.intColor="#C0392B";tint-=amt;paidOut+=amt;r.note=e.note||"Interest paid out";}
+      else if(e.kind==="withdrawal"){r.out=$(amt);tout+=amt;r.note=e.note||"Principal sent back to him";}
+      else if(e.kind==="adjustment"){if(amt>=0){r.inn=$(amt);tin+=amt;}else{r.out=$(amt);tout+=-amt;}r.note=e.note||"Capital adjustment";}
+      else if(e.kind==="interest_adjust"){r.int=`${amt<0?"-":"+"}${$(amt)}`;r.intColor=amt<0?"#C0392B":"#B8953F";tint+=amt;r.note=e.note||"Interest adjustment";}
+      return r;
+    });
+    const endBal=inRange.length?inRange[inRange.length-1].balance:startBal;
+    const showCarry=!!from&&o.carry!==false;
+    if(showCarry)rows.unshift({bf:true,date:dt(from),note:"Balance carried forward",bal:fmtD(startBal)});
+    const nice=(ymd)=>dt(ymd);
+    const mine=funderDraws(f,draws);const open=[...mine.filter(d=>!d.paybackDate)].sort((a,b)=>String(a.dateFunded||"").localeCompare(String(b.dateFunded||"")));
+    const sum=(arr,fn)=>arr.reduce((x,d)=>x+fn(d),0);
+    return funderRegisterPdfFile({
+      name:f.name,
+      range:from?`${nice(from)} – ${nice(o.to)}`:`All transactions through ${nice(o.to)}`,
+      made:new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
+      kpis:[
+        [from?`Balance forward ${dt(from).replace(/, \d{4}$/,"")}`:"Starting balance",fmtD(startBal)],
+        ["Money in (period)",fmtD(tin),"#15803D"],
+        ["Money out (period)",fmtD(tout),"#C0392B"],
+        [`Available ${dt(o.to).replace(/, \d{4}$/,"")}`,fmtD(endBal),endBal<0?"#C0392B":null],
+        ["Interest earned",fmtD(earned),"#B8953F"],
+        ["Interest paid out",fmtD(paidOut),"#C0392B"],
+        ["Interest reinvested",fmtD(reinv),"#2563EB"],
+        ["In properties now",fmtD(s.deployed)],
+      ],
+      rows,
+      totals:{n:inRange.length,inn:fmtD(tin),out:fmtD(tout),int:`${fmtD(earned)} earned`,bal:fmtD(endBal)},
+      foot:`Balance = ${f.name}'s money with Goldstone that is not placed in a property (available). Money placed in a property shows as "Funded" (out of the balance) and comes back as "Paid back", with the interest it earned in the Interest column. Interest is day-counted at each loan's own rate (default ${hasRate(f.rate)?f.rate:15}% / yr); interest still building on open loans is on the open-loans page${o.openPage?"":" (not included)"}. Private & confidential.`,
+      open:o.openPage?{asOf:new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),rows:open.map(d=>[`${d.propertyLabel||"—"}${drawPaid(d)>0?` (paid down from ${fmtD(d.amount)})`:""}`,finFmtDate(d.dateFunded),`${drawDays(d)}d @ ${drawRatePct(d)}%`,fmtD(drawBalance(d)),fmtD(drawInterest(d))]),total:[fmtD(sum(open,drawBalance)),fmtD(sum(open,drawInterest))]}:null,
+    });
+  };
   const generateReport=(f)=>{
     if(inAppPdf()){showPdf(()=>statementFile(f),{title:"Lender statement",subtitle:f.name});return;}
     const s=funderStats(f,draws);
@@ -20815,8 +20924,8 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
           {isMobile&&<button onClick={()=>setSelId(null)} style={{background:"none",border:"none",color:T.gold,fontWeight:600,fontSize:16,cursor:"pointer",padding:"2px 4px"}}>‹</button>}
           <div style={{fontSize:20,fontWeight:800,color:T.text,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
           {canEdit&&<button onClick={()=>setPaybackPick(f)} title={`Pay back ${f.name} — pick the loan`} style={payIcon}>↩</button>}
-          <button onClick={()=>generateReport(f)} title="Generate a PDF statement for this lender" style={{...finBtn(false),padding:"6px 12px"}}>⭳ PDF</button>
-          <button onClick={()=>setEmailFor(f)} title="Email this lender his statement as a PDF" style={{...finBtn(false),padding:"6px 12px"}}>✉ Email</button>
+          <button onClick={()=>setEmailFor({f,mode:"pdf"})} title="PDF for this lender — statement or full register" style={{...finBtn(false),padding:"6px 12px"}}>⭳ PDF</button>
+          <button onClick={()=>setEmailFor({f,mode:"email"})} title="Email this lender his statement or full register as a PDF" style={{...finBtn(false),padding:"6px 12px"}}>✉ Email</button>
           {canEdit&&<button onClick={()=>setFunderModal(f)} style={{...finBtn(false),padding:"6px 12px"}}>Edit</button>}
           {canEdit&&<button onClick={()=>deleteFunder(f.id)} title="Delete lender" style={{background:"none",border:`1px solid ${T.border}`,color:T.textTert,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>🗑</button>}
         </div>
@@ -20880,7 +20989,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
       {canEdit&&<AutoFloatSync/>}
       {funderModal&&<FinFunderModal funder={funderModal.id?funderModal:null} onSave={(f)=>funderModal.id?updateFunder(f):addFunder(f)} onClose={()=>setFunderModal(null)}/>}
-      {emailFor&&<FunderEmailSheet funder={emailFor} buildFile={()=>statementFile(emailFor)} onSaveEmail={canEdit?(email)=>updateFunder({...emailFor,email}):null} onClose={()=>setEmailFor(null)}/>}
+      {emailFor&&<FunderSendSheet funder={emailFor.f} mode={emailFor.mode} buildFile={(o)=>o&&o.kind==="register"?registerFile(emailFor.f,o):statementFile(emailFor.f)} onStatementPrint={emailFor.mode==="pdf"?()=>generateReport(emailFor.f):null} onSaveEmail={canEdit?(email)=>updateFunder({...emailFor.f,email}):null} onClose={()=>setEmailFor(null)}/>}
       {ledgerModal&&sel&&<FinLedgerModal funderName={sel.name} onSave={(e)=>addLedger(sel.id,e)} onClose={()=>setLedgerModal(false)}/>}
       {registerImport&&sel&&<FinRegisterImport funder={sel} onImport={(entries)=>addLedgerBulk(sel.id,entries)} onClose={()=>setRegisterImport(false)}/>}
       {paybackPick&&<FinPaybackPick funder={paybackPick} draws={draws} onPick={(d)=>{setPaybackPick(null);setPaybackModal(d);}} onClose={()=>setPaybackPick(null)}/>}

@@ -22011,6 +22011,20 @@ function PropertyEmails({property,onUpdate,isMobile}){
   const[teamView,setTeamView]=useState(null);   // teammate's pin being viewed read-only
   const[teamMsgs,setTeamMsgs]=useState(null);
   const[teamFrom,setTeamFrom]=useState("");
+  const[teamMbi,setTeamMbi]=useState(null);     // which team mailbox the thread came from (for 📎)
+  const[attBusy,setAttBusy]=useState("");       // attachment id being opened
+  // 📎 Open an attachment from a teammate's mailbox — PDFs in the in-app viewer,
+  // everything else opens / downloads (view only, Elie 11/11/26).
+  const openTeamAtt=(m,a)=>{
+    const get=async()=>{
+      const r=await qbAuthFetch("/api/email/thread",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({attachment:{mbi:teamMbi,messageId:m.id,id:a.id}})});
+      const bin=atob(r.base64||"");const u8=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);
+      return new File([u8],r.name||a.name||"attachment",{type:r.contentType||a.contentType||"application/octet-stream"});
+    };
+    if(/pdf/i.test(a.contentType||"")||/\.pdf$/i.test(a.name||"")){showPdf(get,{title:a.name||"Attachment",subtitle:m.from||""});return;}
+    setAttBusy(a.id);
+    get().then(f=>openFile(f,{title:a.name})).catch(e=>window.alert(e.message||"Couldn't open that attachment.")).finally(()=>setAttBusy(""));
+  };
   const[senderOpen,setSenderOpen]=useState(null); // sender-group key whose page is open
   // ✉️ Start a NEW email chain about this property: subject pre-filled with the
   // address (add "— septic" etc.), To/Cc with autocomplete; after sending, the
@@ -22074,9 +22088,9 @@ function PropertyEmails({property,onUpdate,isMobile}){
   // 👁 Read-only view of a chain that lives in a teammate's mailbox — the
   // server finds it via the app's Mail.Read permission. View only, no reply.
   const openTeamView=(p)=>{
-    setTeamView(p);setTeamMsgs(null);setTeamFrom("");
+    setTeamView(p);setTeamMsgs(null);setTeamFrom("");setTeamMbi(null);
     qbAuthFetch("/api/email/thread",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({internetMessageId:p.internetMessageId||"",conversationId:p.conversationId||""})})
-      .then(r=>{setTeamMsgs((r&&r.messages)||[]);setTeamFrom((r&&r.mailbox)||"");})
+      .then(r=>{setTeamMsgs((r&&r.messages)||[]);setTeamFrom((r&&r.mailbox)||"");setTeamMbi(r&&r.mbi!=null?r.mbi:null);})
       .catch(()=>setTeamMsgs([]));
   };
 
@@ -22105,16 +22119,21 @@ function PropertyEmails({property,onUpdate,isMobile}){
   useEffect(()=>{
     if(!viewer){setViewMsgs(null);setVReply(null);setVExpanded({});return;}
     let alive=true;setViewMsgs(null);setVReply(null);setVExpanded({});
+    // Not in MY mailbox (or Outlook isn't signed in here) → the read-only team
+    // view, which the server opens from whichever teammate's mailbox has it
+    // (Elie 11/11/26: Esti's Cal Media email showed only a summary).
+    const toTeam=()=>{if(!alive)return;const v=viewer;setViewer(null);openTeamView(v);};
     (async()=>{
       let convId=null;
-      const hit=await mail.findByInternetId(viewer.internetMessageId);
-      if(hit)convId=hit.conversationId;else if(viewer.conversationId)convId=viewer.conversationId;
-      if(!convId){if(alive)setViewMsgs([]);return;}
-      try{const m=await mail.getConversation(convId);if(alive){setViewMsgs(m);setVExpanded(m&&m.length?{[m[m.length-1].id]:true}:{});}
+      if(!mail.signedIn){toTeam();return;}
+      try{const hit=await mail.findByInternetId(viewer.internetMessageId);
+        if(hit)convId=hit.conversationId;else if(viewer.conversationId&&!viewer.internetMessageId)convId=viewer.conversationId;}catch{/* fall through */}
+      if(!convId){toTeam();return;}
+      try{const m=await mail.getConversation(convId);if(!m||!m.length){toTeam();return;}if(alive){setViewMsgs(m);setVExpanded(m&&m.length?{[m[m.length-1].id]:true}:{});}
         // Opening the chain marks its unread messages read, clearing the dot.
         const unread=m.filter(x=>x.isRead===false);
         if(unread.length){await Promise.all(unread.map(u=>mail.markRead(u.id)));if(alive)setUnreadMap(mm=>({...mm,[viewer.id]:0}));}
-      }catch{if(alive)setViewMsgs([]);}
+      }catch{toTeam();}
     })();
     return ()=>{alive=false;};
   },[viewer]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -22302,9 +22321,18 @@ function PropertyEmails({property,onUpdate,isMobile}){
                       <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.from||"(unknown)"}</div>
                       <div style={{fontSize:11,color:T.textTert}}>{mailWhen(m.at)}</div>
                     </div>
-                    {m.hasAttachments&&<span title="Has attachments (open from the mailbox it lives in)" style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
+                    {m.hasAttachments&&<span title="Has attachments — tap one below to open it" style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
                   </div>
                   <MailBody message={m} mail={null}/>
+                  {(m.attachments||[]).length>0&&teamMbi!=null&&<div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 14px 12px",borderTop:`1px solid ${T.border}`}}>
+                    {m.attachments.map(a=>(
+                      <button key={a.id} onClick={()=>openTeamAtt(m,a)} disabled={attBusy===a.id} title={`Open ${a.name}`} style={{display:"inline-flex",alignItems:"center",gap:6,maxWidth:"100%",minHeight:36,padding:"6px 12px",borderRadius:18,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                        <span>{/pdf/i.test(a.contentType||"")||/\.pdf$/i.test(a.name)?"📄":/image/i.test(a.contentType||"")?"🖼":"📎"}</span>
+                        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{attBusy===a.id?"Opening…":a.name}</span>
+                        {a.size>0&&<span style={{color:T.textTert,fontWeight:500,flexShrink:0}}>{a.size>=1048576?`${(a.size/1048576).toFixed(1)} MB`:`${Math.max(1,Math.round(a.size/1024))} KB`}</span>}
+                      </button>
+                    ))}
+                  </div>}
                 </div>
               ))}
             </div>

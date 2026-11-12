@@ -639,7 +639,7 @@ function StatusPicker({value,onChange,size="md",onGateSave,property}){
 // Handles three requirement kinds — check / field / contact — and only lets the
 // user confirm once every one is satisfied. Field values are written back to the
 // property via the fieldValues map returned to onConfirm.
-function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
+export function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
   const[state,setState]=useState(()=>{
     const s={};
     reqs.forEach(r=>{
@@ -650,6 +650,7 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
     return s;
   });
   const[note,setNote]=useState("");
+  const[pick,setPick]=useState({}); // per-row search text for the people picker
   const setV=(id,v)=>setState(st=>({...st,[id]:v}));
   // One pick instead of retyping a name: contacts ALREADY on this lead/property
   // first, then everyone who showed it (hottest lead first), then the whole
@@ -659,18 +660,25 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
   const[mlsList]=useMlsList();
   const leadOpts=useMemo(()=>{
     const out=[],seen=new Set();
-    const push=(nm,phone,email,tag)=>{
+    const push=(nm,phone,email,tag,rank)=>{
       const name=(nm||"").trim();if(!name)return;
       const key=name.toLowerCase();if(seen.has(key))return;seen.add(key);
-      out.push({name,phone:parseShowingPhones(phone)[0]||String(phone||"").trim(),email:email||"",tag:tag||""});
+      out.push({name,phone:parseShowingPhones(phone)[0]||String(phone||"").trim(),email:email||"",tag:tag||"",rank:rank||0});
     };
-    (property?.contacts||[]).forEach(c=>push(c.name,c.phone,c.email,c.role||"on this one"));
+    (property?.contacts||[]).forEach(c=>push(c.name,c.phone,c.email,c.role||"on this one",0));
     const shows=[];
     Object.entries(property?.showingSnapshots||{}).forEach(([k,sn])=>shows.push({nm:sn.agent||sn.summary,ph:sn.phone,em:sn.email,lead:(property.showingLeads||{})[k]||""}));
     (property?.customLeads||[]).forEach(l=>shows.push({nm:l.name,ph:l.phone,em:"",lead:l.lead||""}));
-    shows.sort((a,b)=>showingLeadRank(a.lead)-showingLeadRank(b.lead)).forEach(x=>{const meta=SHOWING_LEADS.find(m=>m.key===x.lead);push(x.nm,x.ph,x.em,meta?meta.short:"showed it");});
-    (dirContacts||[]).forEach(c=>push(c.name,c.phone,c.email,c.role||"directory"));
-    return out;
+    // Warmest first — but an agent with NO status set is the ORDINARY case, so
+    // they belong above "Not interested"/"Wrong number", which sink to the
+    // bottom. showingLeadRank ranks unset 99 (dead last), which buried every
+    // ordinary agent underneath the dead ones and made the list look like it
+    // held nothing but rejections and contractors.
+    const DEAD=new Set(["not","badnum"]);
+    shows.sort((a,b)=>showingLeadRank(a.lead)-showingLeadRank(b.lead))
+      .forEach(x=>{const meta=SHOWING_LEADS.find(m=>m.key===x.lead);push(x.nm,x.ph,x.em,meta?meta.short:"showed it",DEAD.has(x.lead)?3:1);});
+    (dirContacts||[]).forEach(c=>push(c.name,c.phone,c.email,c.role||"directory",2));
+    return out.sort((a,b)=>a.rank-b.rank);
   },[property,dirContacts]);
   const isDone=(r)=>{
     const v=state[r.id];
@@ -746,12 +754,27 @@ function StatusGateModal({from,to,reqs,property,onCancel,onConfirm}){
                     {done&&<span style={{fontSize:11,color:"#1a8f43",fontWeight:700}}>✓</span>}
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                    {leadOpts.length>0&&(
-                      <select value="" onChange={e=>{const o=leadOpts[Number(e.target.value)];if(o)setV(r.id,{name:o.name,phone:o.phone,email:o.email});}} style={{...dInp,width:"100%",minWidth:0,maxWidth:"100%",fontWeight:600,color:"#8a6d1f",background:T.goldLight,borderColor:T.gold}}>
-                        <option value="">👥 Pick a contact / who showed it — or type below…</option>
-                        {leadOpts.map((o,i)=><option key={i} value={i}>{o.name}{o.tag?` — ${o.tag}`:""}{o.phone?` · ${o.phone}`:""}</option>)}
-                      </select>
-                    )}
+                    {leadOpts.length>0&&(()=>{
+                      const q=pick[r.id]||"";
+                      const hits=matchPeople(leadOpts,q);
+                      return(
+                        <div style={{border:`1px solid ${T.gold}`,borderRadius:8,background:T.goldLight,overflow:"hidden"}}>
+                          <input value={q} onChange={e=>setPick(p=>({...p,[r.id]:e.target.value}))} placeholder="🔍 Search a name or number…"
+                            style={{...dInp,width:"100%",border:"none",borderRadius:0,background:"transparent",fontWeight:600,color:"#8a6d1f"}}/>
+                          <div style={{maxHeight:188,overflowY:"auto",background:"#fff",borderTop:`1px solid ${T.gold}`}}>
+                            {hits.length===0?(
+                              <div style={{padding:"11px 12px",fontSize:12.5,color:T.textSub}}>Nobody by that name — just type it in below.</div>
+                            ):hits.slice(0,80).map((o,i)=>(
+                              <button key={i} type="button" onClick={()=>{setV(r.id,{name:o.name,phone:o.phone,email:o.email});setPick(p=>({...p,[r.id]:""}));}}
+                                style={{display:"block",width:"100%",textAlign:"left",minHeight:44,padding:"8px 11px",border:"none",borderBottom:i===hits.length-1?"none":`1px solid ${T.border}`,background:(c.name||"").toLowerCase()===o.name.toLowerCase()?T.goldLight:"#fff",cursor:"pointer",fontFamily:"inherit",boxSizing:"border-box"}}>
+                                <div style={{fontSize:13.5,fontWeight:600,color:T.text}}>{o.name}</div>
+                                {(o.tag||o.phone)&&<div style={{fontSize:11.5,color:T.textSub,marginTop:1}}>{[o.tag,o.phone].filter(Boolean).join(" · ")}</div>}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <input value={c.name||""} onChange={e=>setV(r.id,{...c,name:e.target.value})} placeholder="Name *" style={{...dInp,width:"100%"}}/>
                     <div style={{display:"flex",gap:6}}>
                       <input value={c.phone||""} onChange={e=>setV(r.id,{...c,phone:e.target.value})} placeholder="Phone" style={{...dInp,flex:1,minWidth:0,fontWeight:400}}/>
@@ -2536,6 +2559,18 @@ const SHOWING_LEADS=[
   {key:"badnum",label:"❌ Wrong number",short:"Wrong number",color:"#6B7280",bg:"#F3F4F6"},
 ];
 const showingLeadRank=(k)=>{const i=SHOWING_LEADS.findIndex(x=>x.key===k);return i<0?99:i;};
+// Find a person in a picker list by name, phone or email. Digits typed are
+// matched against digits only, so "908 421" finds (908) 421-0340.
+const matchPeople=(list,q)=>{
+  const s=String(q||"").trim().toLowerCase();
+  if(!s)return list;
+  const digits=s.replace(/\D/g,"");
+  return list.filter(o=>{
+    if(String(o.name||"").toLowerCase().includes(s))return true;
+    if(String(o.email||"").toLowerCase().includes(s))return true;
+    return digits.length>=3&&String(o.phone||"").replace(/\D/g,"").includes(digits);
+  });
+};
 // Stable identity of a showing: its date/time (to the minute) + agent name.
 // We deliberately DON'T use the calendar UID — ShowingTime regenerates a new UID
 // for every event on every feed export, which would detach saved leads on refresh.

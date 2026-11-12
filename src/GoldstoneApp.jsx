@@ -30,6 +30,7 @@ import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPick
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid, ctrJobsNow, jobPropertyOf } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { finProfit } from "../lib/dealMath.js";
+import { useOpenBills, syncOpenBills } from "./openBills";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
 import { ReversePane, ReverseTextsList, rpCount, rpAgentForShowing, MlsPicker, MlsAccountsSheet, mlsIdsOf, useMlsList } from "./reverseProspect";
@@ -2101,8 +2102,15 @@ function WhatIfPopup({property,onClose}){
 }
 function FinOverview({property,onUpdate}){
   const isMobile=useIsMobile();
-  const { draws } = useData();
+  const { draws, sharedProps } = useData();
   const f=property.financials;
+  // 👷 Open bills — the same live number the Cash-Out Analysis uses, taken off the
+  // Actual profit (Elie 11/12/26); stored on the deal so every other screen matches.
+  const ctrData=useContractorData();
+  const ob=useOpenBills(property,sharedProps,ctrData);
+  const[showOB,setShowOB]=useState(false);
+  useEffect(()=>{syncOpenBills(property,ob.total,ob.ready,onUpdate);},[ob.ready,ob.total]); // eslint-disable-line react-hooks/exhaustive-deps
+  const acOB=ob.ready?ob.total:n((f||{}).acOpenBills);
   // Auto-match this property's private-lender draws from the Financial Section
   // (by explicit link or strong address match) — surfaced in the Financing popup.
   const locDraws=drawsForProperty(property,draws);
@@ -2184,7 +2192,7 @@ function FinOverview({property,onUpdate}){
                       + Math.round(n(f.rehabCosts)*(1-n(f.rehabFinPct||100)/100))
                       + buyingTotal+liveHmReserve+liveHmOrigFee+liveHmDoc;
   const liveGapBalloon= Math.round(liveGapPrinc*(n(f.gapRate||15)/100)/12*holdPeriodMonths);
-  const _fp=finProfit(f,property.status,(property.propertyInfo||{}).closingDateScheduled); // single source of truth (matches Portfolio)
+  const _fp=finProfit(f,property.status,(property.propertyInfo||{}).closingDateScheduled,{openBills:acOB}); // single source of truth (matches Portfolio + Cash-Out)
   const hmInterestFinal = _fp.hmInterest;   // live from the saved inputs - moves with the hold period
   const locInterestFinal= _fp.gapInterest;
   // Interest + lender fees (origination + doc) — same definition as the popup.
@@ -2202,7 +2210,7 @@ function FinOverview({property,onUpdate}){
   const acBuying = n(f.actualBuyingCosts);
   const acRehab  = n(f.actualRehabCosts);
   const acHolding= n(f.actualHoldingCosts);
-  const acCosts  = acPP+acBuying+acRehab+acHolding;
+  const acCosts  = acPP+acBuying+acRehab+acOB+acHolding;
 
   // ── Actual selling costs — own popup, blank by default ──
   const acSalePrice=n(f.actualSalePrice);
@@ -2323,6 +2331,19 @@ function FinOverview({property,onUpdate}){
             aVal={f.actualBuyingCosts} aEdit={v=>up("actualBuyingCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
           <EditGridRow label="Rehab Costs" pVal={n(f.rehabCosts)} pEdit={v=>up("rehabCosts",v)}
             aVal={f.actualRehabCosts} aEdit={v=>up("actualRehabCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
+          {showActual&&acOB>0&&<>
+            <div onClick={()=>setShowOB(x=>!x)} style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46,cursor:"pointer"}}>
+              <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:isMobile?13.5:14,color:T.text}}>Open bills<span style={{display:"block",fontSize:11.5,color:T.textTert,marginTop:1}}>still owed — not paid in QuickBooks yet {showOB?"▴":"▾"}</span></div>
+              <div style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:12.5,color:T.textTert}}>—</div>
+              <div style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:isMobile?13:13.5,fontWeight:650,color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{fmtD(acOB)}</div>
+            </div>
+            {showOB&&<div style={{padding:isMobile?"0 12px 10px":"0 18px 10px",fontSize:12.5,color:T.textSub}}>
+              {ob.ctrBills.filter(c=>c.on).map(c=><div key={c.key} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"4px 0"}}><span>👷 {c.vendor} <span style={{color:T.textTert}}>· contract {fmtD(c.contract)} · paid {fmtD(c.paid)}</span></span><span style={{fontVariantNumeric:"tabular-nums"}}>{fmtD(c.left)}</span></div>)}
+              {ob.bills.map(b=><div key={b.id} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"4px 0"}}><span>✍️ {b.vendor}{b.note?<span style={{color:T.textTert}}> · {b.note}</span>:null}</span><span style={{fontVariantNumeric:"tabular-nums"}}>{fmtD(n(b.amount))}</span></div>)}
+              {!ob.ready&&<div style={{color:T.textTert,padding:"4px 0"}}>Last saved total — updating…</div>}
+              <div style={{color:T.textTert,paddingTop:4}}>Same list as the Cash-Out Analysis (untick or add bills there).</div>
+            </div>}
+          </>}
           <PopupGridRow label="Holding Costs" pVal={holdingTotal} onOpenP={()=>setShowHolding(true)}
             aVal={f.actualHoldingCosts} aEdit={v=>up("actualHoldingCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
           <TotalGridRow label="Total Costs" pVal={totalCosts} aVal={showActual&&acCosts!==0?acCosts:null} showActual={showActual} dimP={f.useActualProfit}/>

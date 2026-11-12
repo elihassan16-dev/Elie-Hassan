@@ -55,7 +55,7 @@ const PROPS = [
     contacts: [2002],
   },
   {
-    id: 1003, bsBankAccount: 1, address: "1030 Hanover Blvd", city: "Browns Mills", state: "NJ", zip: "08015", status: "In Closing", qbProjectId: "qb-1003",
+    id: 1003, bsBankAccount: 1, address: "1030 Hanover Blvd", city: "Browns Mills", state: "NJ", zip: "08015", status: "In Closing", qbProjectId: "qb-1003", coBills: [{ id: 1, vendor: "Garden State Plumbing", amount: "4500", note: "final payment" }],
     walkVideos: [],
     media: [
       { id: "v:demowalk1", kind: "video", uid: "demowalk1", stream: true, url: "", thumb: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSczMDAnIGhlaWdodD0nMzAwJz48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9J2cnIHgxPScwJyB5MT0nMCcgeDI9JzEnIHkyPScxJz48c3RvcCBvZmZzZXQ9JzAnIHN0b3AtY29sb3I9JyM2ZjdjODknLz48c3RvcCBvZmZzZXQ9JzEnIHN0b3AtY29sb3I9JyMzZjRjNTgnLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0nMzAwJyBoZWlnaHQ9JzMwMCcgZmlsbD0ndXJsKCNnKScvPjwvc3ZnPg==", name: "Walkthrough — kitchen & baths.mp4", size: 61 * 1024 * 1024, dur: 168, at: Date.now() - 50 * 60000, by: "Elie Hassan", src: "record", punchAt: Date.now() - 20 * 60000 },

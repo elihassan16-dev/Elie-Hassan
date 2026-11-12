@@ -4966,8 +4966,11 @@ function fileIcon(name="",mime=""){
 // Solid white: a fixed div with backdrop-filter is restyled as a popup dim by index.css.
 function DotsMenu({r,rows,onClose}){
   const hasSub=rows.some(x=>x&&x.sub);
-  const vw=window.innerWidth,vh=window.innerHeight,W=hasSub?Math.min(270,vw-24):240;
-  const H=rows.reduce((t,x)=>t+(x.sub?60:48),8);
+  // Computers (mouse) get a compact menu — 48pt rows are for fingers (Elie 11/12/26: "a little bit big").
+  const fine=typeof window!=="undefined"&&window.matchMedia&&window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+  const vw=window.innerWidth,vh=window.innerHeight,W=hasSub?Math.min(fine?240:270,vw-24):(fine?200:240);
+  const rowH=fine?36:48,subH=fine?48:60;
+  const H=rows.reduce((t,x)=>t+(x.sub?subH:rowH),8);
   const left=Math.max(12,Math.min(vw-W-12,r.right-W));
   const below=r.bottom+6+H<vh-90;
   const top=below?r.bottom+6:Math.max(12,r.top-6-H);
@@ -4977,8 +4980,8 @@ function DotsMenu({r,rows,onClose}){
       <div role="menu" onClick={e=>e.stopPropagation()} style={{position:"fixed",left,top,width:W,borderRadius:14,overflow:"hidden",background:"#FFFFFF",boxShadow:"0 10px 40px rgba(0,0,0,0.22), 0 0 0 0.5px rgba(0,0,0,0.08)",padding:"4px 0",transformOrigin:below?"top right":"bottom right",animation:"gsMenuIn .16s ease-out"}}>
         {rows.map((x,i)=>(
           <button key={x.k} role="menuitem" onClick={()=>{onClose();x.run();}}
-            style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",minHeight:48,padding:"0 16px",border:"none",borderTop:i===0?"none":x.red?"6px solid rgba(118,118,128,0.10)":"0.5px solid rgba(60,60,67,0.18)",background:"none",color:x.red?T.red:T.text,fontSize:16,fontFamily:"inherit",cursor:"pointer",textAlign:"left"}}>
-            <span style={{minWidth:0,padding:x.sub?"8px 0":0}}>{x.label}{x.sub&&<span style={{display:"block",fontSize:12.5,color:T.textSub,marginTop:1,lineHeight:1.3}}>{x.sub}</span>}</span><span style={{display:"flex",alignItems:"center",fontSize:16,color:x.red?T.red:T.text,flexShrink:0,marginLeft:10}}>{x.icon}</span>
+            style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",minHeight:x.sub?subH:rowH,padding:fine?"0 12px":"0 16px",border:"none",borderTop:i===0?"none":x.red?"6px solid rgba(118,118,128,0.10)":"0.5px solid rgba(60,60,67,0.18)",background:"none",color:x.red?T.red:T.text,fontSize:fine?14:16,fontFamily:"inherit",cursor:"pointer",textAlign:"left"}}>
+            <span style={{minWidth:0,padding:x.sub?"8px 0":0}}>{x.label}{x.sub&&<span style={{display:"block",fontSize:fine?11.5:12.5,color:T.textSub,marginTop:1,lineHeight:1.3}}>{x.sub}</span>}</span><span style={{display:"flex",alignItems:"center",fontSize:fine?14:16,color:x.red?T.red:T.text,flexShrink:0,marginLeft:10}}>{x.icon}</span>
           </button>
         ))}
       </div>
@@ -20816,7 +20819,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
         ["Money in (period)",fmtD(tin),"#15803D"],
         ["Money out (period)",fmtD(tout),"#C0392B"],
         [`Available ${dt(o.to).replace(/, \d{4}$/,"")}`,fmtD(endBal),endBal<0?"#C0392B":null],
-        ["Interest earned",fmtD(earned),"#B8953F"],
+        ["Interest on paybacks",fmtD(earned),"#B8953F"],
         ["Interest paid out",fmtD(paidOut),"#C0392B"],
         ["Interest reinvested",fmtD(reinv),"#2563EB"],
         ["In properties now",fmtD(s.deployed)],
@@ -21032,7 +21035,7 @@ function FinancialSectionPage({onNavigate,canEdit=true}){
       {drawModal&&<FinDrawModal draw={drawModal.id?drawModal:null} defaultFunderId={drawModal.defaultFunderId} funders={list} properties={sharedProps} onSave={saveDraw} onClose={()=>setDrawModal(null)}/>}
 
       {/* Header + sub-tabs */}
-      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"12px 14px 0":"14px 24px 0",flexShrink:0}}>
+      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:isMobile?"12px 14px 10px":"14px 24px 12px",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <div style={{fontSize:isMobile?19:22,fontWeight:800,color:T.text}}>Financial Section</div>
           <span style={{fontSize:10,fontWeight:800,background:T.gold,color:"#fff",borderRadius:20,padding:"3px 8px",textTransform:"uppercase",letterSpacing:"0.05em"}}>Private</span>

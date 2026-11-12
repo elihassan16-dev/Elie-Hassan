@@ -79,6 +79,23 @@ function PdfSheet({ make, title, subtitle, onClose }) {
   const [state, setState] = useState("busy"); // busy | ok | error
   const [msg, setMsg] = useState("");
   const phone = typeof window !== "undefined" && window.innerWidth < 700;
+  // 🔍 Zoom (Elie 11/12/26: "the letters are very small"): 1 = the page fills
+  // the viewer's width (bigger viewer on computers); − / + / Fit, and
+  // Ctrl/⌘ + mouse wheel. Pages are drawn sharp enough for up to 300%.
+  const [zoom, setZoom] = useState(1);
+  const scrollRef = useRef(null);
+  const ZMIN = 0.5, ZMAX = 3;
+  const setZ = (z) => setZoom(Math.max(ZMIN, Math.min(ZMAX, Math.round(z * 100) / 100)));
+  useEffect(() => {
+    const host = pagesRef.current; if (!host) return;
+    [...host.querySelectorAll("canvas")].forEach((cv) => { cv.style.width = `${zoom * 100}%`; });
+  }, [zoom, state]);
+  useEffect(() => {
+    const el = scrollRef.current; if (!el) return;
+    const onWheel = (e) => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); setZoom((z) => Math.max(ZMIN, Math.min(ZMAX, Math.round((z * (e.deltaY < 0 ? 1.1 : 1 / 1.1)) * 100) / 100))); };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
   useEffect(() => {
     let dead = false;
     (async () => {
@@ -93,10 +110,11 @@ function PdfSheet({ make, title, subtitle, onClose }) {
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
           const v1 = page.getViewport({ scale: 1 });
-          const vp = page.getViewport({ scale: (cssW / v1.width) * Math.min(3, (window.devicePixelRatio || 1) * 1.25) });
+          // Sharp enough to zoom in: ~2× the fit size (capped so big reports stay light).
+          const vp = page.getViewport({ scale: Math.min(4.5, (cssW / v1.width) * Math.min(4, (window.devicePixelRatio || 1) * 2)) });
           const cv = document.createElement("canvas");
           cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
-          cv.style.cssText = "width:100%;height:auto;display:block;background:#fff;border-radius:4px;box-shadow:0 4px 18px rgba(0,0,0,0.14);margin-bottom:12px";
+          cv.style.cssText = "width:100%;max-width:none;height:auto;display:block;background:#fff;border-radius:4px;box-shadow:0 4px 18px rgba(0,0,0,0.14);margin:0 auto 12px";
           host.appendChild(cv);
           await page.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
         }
@@ -120,18 +138,25 @@ function PdfSheet({ make, title, subtitle, onClose }) {
   const btn = (primary) => ({ flex: 1, minHeight: 50, borderRadius: 25, border: "none", background: primary ? T.gold : "rgba(118,118,128,0.12)", color: primary ? "#fff" : T.text, fontWeight: 650, fontSize: 15.5, cursor: file ? "pointer" : "default", fontFamily: "inherit", opacity: file ? 1 : 0.55 });
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 3200, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: phone ? "flex-end" : "center", justifyContent: "center" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: T.bg, width: phone ? "100%" : 600, maxHeight: phone ? "94vh" : "92vh", height: phone ? "94vh" : "auto", borderRadius: phone ? "28px 28px 0 0" : 24, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: T.bg, width: phone ? "100%" : "min(1100px, 94vw)", maxHeight: phone ? "94vh" : "94vh", height: phone ? "94vh" : "94vh", borderRadius: phone ? "28px 28px 0 0" : 24, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         {phone && <div style={{ width: 36, height: 5, borderRadius: 3, background: "rgba(60,60,67,0.3)", margin: "8px auto 0", flexShrink: 0 }} />}
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px 6px" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
             {subtitle && <div style={{ fontSize: 13, color: T.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>}
           </div>
+          {state === "ok" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 2, background: "rgba(118,118,128,0.12)", borderRadius: 18, padding: 2, flexShrink: 0 }}>
+              <button onClick={() => setZ(zoom - 0.25)} disabled={zoom <= ZMIN} aria-label="Zoom out" title="Zoom out" style={{ width: 34, height: 32, minHeight: 32, border: "none", borderRadius: 16, background: "transparent", fontSize: 18, fontWeight: 700, color: zoom <= ZMIN ? T.textTert : T.text, cursor: "pointer", fontFamily: "inherit" }}>−</button>
+              <button onClick={() => setZ(1)} title="Fit the page to the width" style={{ minWidth: 52, height: 32, minHeight: 32, border: "none", borderRadius: 16, background: zoom === 1 ? "#fff" : "transparent", fontSize: 12.5, fontWeight: 700, color: T.text, cursor: "pointer", fontFamily: "inherit", fontVariantNumeric: "tabular-nums" }}>{zoom === 1 ? "Fit" : `${Math.round(zoom * 100)}%`}</button>
+              <button onClick={() => setZ(zoom + 0.25)} disabled={zoom >= ZMAX} aria-label="Zoom in" title="Zoom in (or Ctrl + scroll)" style={{ width: 34, height: 32, minHeight: 32, border: "none", borderRadius: 16, background: "transparent", fontSize: 18, fontWeight: 700, color: zoom >= ZMAX ? T.textTert : T.text, cursor: "pointer", fontFamily: "inherit" }}>+</button>
+            </div>
+          )}
           <button onClick={onClose} aria-label="Close" style={{ width: 44, height: 44, border: "none", background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
             <span style={{ width: 30, height: 30, borderRadius: 15, background: "rgba(118,118,128,0.12)", color: T.textSub, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>✕</span>
           </button>
         </div>
-        <div style={{ flex: 1, overflowY: "auto", overscrollBehavior: "contain", padding: "8px 16px 12px", WebkitOverflowScrolling: "touch" }}>
+        <div ref={scrollRef} style={{ flex: 1, overflow: "auto", overscrollBehavior: "contain", padding: "8px 16px 12px", WebkitOverflowScrolling: "touch" }}>
           {state === "busy" && <div style={{ textAlign: "center", color: T.textSub, fontSize: 14, padding: "40px 0" }}>Making the PDF…</div>}
           {state === "error" && <div style={{ textAlign: "center", color: T.red, fontSize: 14, padding: "40px 0" }}>{msg}</div>}
           <div ref={pagesRef} />

@@ -17,6 +17,7 @@ import { useSmsTexting } from "../sms";
 import { useContractorData } from "./data";
 import { SOW_CATS, SOW_STATUS, NEXT_STATUS, catOf, libraryFrom, libAdd, libEdit, libRemove, scopeToText, scopeCounts } from "./sowLibrary";
 import { sowPdfFile } from "./sowPdf";
+import { isNative, nativeShareFiles } from "../native";
 import { SowPdfPreview } from "./SowPdfPreview";
 import { useSpeechToText, micBtnStyle, micGlyph } from "../useSpeech";
 import { useOneDrive } from "../onedrive/useOneDrive";
@@ -402,11 +403,32 @@ function ShareSheet({ property, sow, items, changed, previewJob, currentUser, se
     catch (ex) { setErr(ex.message || "Text didn't go."); }
     setBusy(""); setMode(null);
   };
+  // 📱 WhatsApp sends the PDF FILE itself — "902 Woodlane Rd - Scope of Work
+  // v1.pdf" — not a text with a long storage link (Elie 11/12/26). Phones / the
+  // app: the share sheet with the file → pick WhatsApp + the person. Computers
+  // (WhatsApp Web can't take a file from a link): the PDF downloads and the
+  // chat opens, ready to attach it with 📎.
+  const fileShareOk = (f) => { try { return !!(navigator.canShare && navigator.canShare({ files: [f] })); } catch { return false; } };
+  const onPhone = () => isNative() || /iphone|ipad|ipod|android/i.test(navigator.userAgent || "") || (/Macintosh/.test(navigator.userAgent || "") && navigator.maxTouchPoints > 1);
   const doWa = async (phone) => {
     const b = await build(); if (!b) return;
+    if (isNative()) { try { await nativeShareFiles([b.file]); record(b, "on WhatsApp", phone || ""); } catch { /* cancelled */ } return; }
+    if (onPhone() && fileShareOk(b.file)) {
+      try { await navigator.share({ files: [b.file] }); record(b, "on WhatsApp", phone || ""); }
+      catch (e) {
+        // iPhone only opens the share sheet straight from a tap — building the
+        // PDF took too long. It's ready now: the next tap opens it instantly.
+        if (e && e.name === "NotAllowedError") setDone("PDF is ready — tap WhatsApp again to send it.");
+      }
+      return;
+    }
+    const u = URL.createObjectURL(b.file);
+    const a = document.createElement("a"); a.href = u; a.download = b.file.name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 60000);
     const digits = String(phone || "").replace(/\D/g, "");
-    window.open(`https://wa.me/${digits ? (digits.length === 10 ? "1" + digits : digits) : ""}?text=${encodeURIComponent(msgText(b))}`, "_blank");
+    window.open(`https://wa.me/${digits ? (digits.length === 10 ? "1" + digits : digits) : ""}`, "_blank");
     record(b, "on WhatsApp", phone || "");
+    setDone(`Downloaded "${b.file.name}" — attach it in WhatsApp with 📎.`);
   };
   const doEmail = async (email) => {
     const b = await build(); if (!b) return;
@@ -477,7 +499,7 @@ function ShareSheet({ property, sow, items, changed, previewJob, currentUser, se
           {mode === null && (
             <>
               {opt("💬", "Text it", smsOn ? "From your Goldstone line — link to the PDF" : "Texting isn't connected on this account", () => { if (!smsOn) { setErr("Texting isn't connected on this account."); return; } setMode("text"); })}
-              {opt("📱", "WhatsApp", "Opens WhatsApp with the link ready", () => setMode("wa"))}
+              {opt("📱", "WhatsApp", "Sends the PDF itself — pick WhatsApp + the person", () => (typeof navigator !== "undefined" && onPhone() ? doWa("") : setMode("wa")))}
               {opt("✉️", "Email it", "Opens your mail app with the link", () => setMode("email"))}
               {opt("👷", "Send to their portal", pJobs.length ? `${pJobs.length} job${pJobs.length === 1 ? "" : "s"} on this property` : "No portal job on this property yet — use 🧾 Request a bid", () => { if (!pJobs.length) { setErr("No portal job here yet — send a 🧾 Request a bid from the Contractors tab first."); return; } setMode("portal"); })}
               {opt("🔗", "Copy the link", "Paste it anywhere", doCopy)}
@@ -499,7 +521,7 @@ function ShareSheet({ property, sow, items, changed, previewJob, currentUser, se
             <div style={{ padding: "6px 16px 14px" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.textSub, marginBottom: 8 }}>{mode === "wa" ? "WHATSAPP TO" : "EMAIL TO"}</div>
               {contacts.filter((o) => (mode === "wa" ? o.phone : o.email)).map((o) => <button key={o.id} onClick={() => (mode === "wa" ? doWa(o.phone) : doEmail(o.email))} style={{ ...chip(false), marginRight: 6, marginBottom: 6 }}>{o.name}</button>)}
-              <button onClick={() => (mode === "wa" ? doWa("") : doEmail(""))} style={{ ...btn(), display: "block", marginTop: 6 }}>{mode === "wa" ? "Pick the person in WhatsApp" : "Type the address in my mail app"}</button>
+              <button onClick={() => (mode === "wa" ? doWa("") : doEmail(""))} style={{ ...btn(), display: "block", marginTop: 6 }}>{mode === "wa" ? "Download the PDF + open WhatsApp" : "Type the address in my mail app"}</button>
               <button onClick={() => setMode(null)} style={{ ...btn("ghost"), marginTop: 10 }}>‹ Back</button>
             </div>
           )}

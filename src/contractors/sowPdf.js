@@ -245,9 +245,11 @@ export async function sowPdfFile(job) {
     doc.text(`Goldstone Properties · gpflips.com${structured && job.sowVersion ? ` · Scope v${job.sowVersion}` : ""} · page ${i} of ${pages}`, margin, H - 28);
   }
 
-  const safe = String(job.propertyAddress || "job").replace(/[^a-zA-Z0-9 ,.-]/g, "").slice(0, 60);
+  // "902 Woodlane Rd - Scope of Work v1.pdf" — the street first, so it reads
+  // right as a WhatsApp / email attachment (Elie 11/12/26).
+  const street = String(job.propertyAddress || "Property").split(",")[0].replace(/[^a-zA-Z0-9 .-]/g, "").replace(/\s+/g, " ").trim().slice(0, 50) || "Property";
   const vtag = structured && job.sowVersion ? ` v${job.sowVersion}` : "";
-  return new File([doc.output("blob")], `Scope of Work${vtag} - ${safe}.pdf`, { type: "application/pdf" });
+  return new File([doc.output("blob")], `${street} - Scope of Work${vtag}.pdf`, { type: "application/pdf" });
 }
 
 // One tap → the SOW opens as a real PDF in the browser's viewer (generated

@@ -162,7 +162,13 @@ function dealProfit(p, sale, src) {
   const items = useAct ? f.actualSellingCostItems || [] : f.sellingCostItems || [];
   const sellAt = (price) => sellingLines(price, items).reduce((t, l) => t + l.amount, 0);
   const adj = items.length ? (sale - basePrice) - (sellAt(sale) - sellAt(basePrice)) : sale - basePrice;
-  return { profit: Math.round(base + adj), profitBase: Math.round(base), profitSrc: useAct ? "Actual" : "Projected", profitAdj: Math.round(adj) };
+  const pc = useAct ? fp.actual : fp.projected;
+  // The Financial Overview's own lines, in the order Elie reads them (11/12/26).
+  const profitRows = {
+    purchase: pc.purchase, buying: pc.buying, rehab: pc.rehab, holding: pc.holding, sale: pc.sale, selling: pc.selling,
+    interest: useAct ? pc.hmInterest + pc.gapInterest : pc.interest,
+  };
+  return { profit: Math.round(base + adj), profitBase: Math.round(base), profitSrc: useAct ? "Actual" : "Projected", profitAdj: Math.round(adj), profitRows };
 }
 
 // Every loan line on a deal, as [label, detail, amount] — Loans pop-up + breakdown.
@@ -491,15 +497,39 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
         );
       })()}
 
-      {cur && pop.kind === "profit" && (
-        <Sheet title="Profit" sub={`${String(cur.p.address || "").replace(/,.*$/, "")} · from the Financial Overview (${cur.profitSrc})`} isMobile={isMobile} onClose={() => setPop(null)}>
-          <div style={{ ...rowS, borderTop: "none" }}><span>{cur.profitSrc} profit in the Financial Overview<span style={small}>the same number as on the property's Financial Overview</span></span><span style={{ fontVariantNumeric: "tabular-nums" }}>{money(cur.profitBase)}</span></div>
-          {cur.profitAdj !== 0 && <div style={rowS}><span>At this report's sale price<span style={small}>{money(cur.sale)} — the price difference less the selling costs it changes</span></span><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: cur.profitAdj > 0 ? "#1E7B3C" : T.text }}>{cur.profitAdj > 0 ? "+" : ""}{money(cur.profitAdj)}</span></div>}
-          <div style={{ ...totS, background: "#EAF7EE", color: "#1E7B3C" }}><span>Profit</span><span>{money(cur.profit)}</span></div>
-          <div style={{ ...rowS, marginTop: 8 }}><span>Est. cash out<span style={small}>cash you walk away with at closing</span></span><span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, whiteSpace: "nowrap" }}>{money(cur.cash)}</span></div>
-          <div style={rowS}><span>Difference (cash out − profit)<span style={small}>{cur.cash >= cur.profit ? "your own money (equity) coming back on top of the profit" : "less cash than profit — some of the profit already went out or is still owed"}</span></span><span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, whiteSpace: "nowrap" }}>{money(cur.cash - cur.profit)}</span></div>
-        </Sheet>
-      )}
+      {cur && pop.kind === "profit" && (() => {
+        const r = cur.profitRows, act = cur.profitSrc === "Actual";
+        const allIn = r.purchase + r.buying, costs = allIn + r.rehab + r.holding;
+        const line = (label, v, o = {}) => (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, padding: o.total ? "9px 0" : "7px 0", borderTop: o.total ? `1px solid ${T.text}` : o.first ? "none" : `1px solid ${T.border}`, fontSize: 13.5, fontWeight: o.total ? 700 : 400, paddingLeft: o.indent ? 14 : 0, color: o.indent ? T.textSub : T.text }}>
+            <span>{label}</span><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: o.minus && v ? T.red : undefined }}>{o.minus && v ? "−" : ""}{money(Math.abs(v))}</span>
+          </div>
+        );
+        const hd = (t) => <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", margin: "12px 0 2px" }}>{t}</div>;
+        const openBills = Math.round(cur.billsTotal || 0);
+        return (
+          <Sheet title="Profit" sub={`${String(cur.p.address || "").replace(/,.*$/, "")} · ${cur.profitSrc} column of the Financial Overview`} isMobile={isMobile} onClose={() => setPop(null)}>
+            {hd("Cost")}
+            {line("Purchase price", r.purchase, { first: true, indent: true })}
+            {line("Closing costs", r.buying, { indent: true })}
+            {line("All-in purchase", allIn)}
+            {line(act ? "Rehab (QuickBooks)" : "Rehab", r.rehab)}
+            {line("Holding costs", r.holding)}
+            {line("Total cost", costs, { total: true })}
+            {hd("Sale")}
+            {line("Sale price", r.sale, { first: true })}
+            {line("Commissions & selling costs", -r.selling, { minus: true })}
+            {line(act ? "Interest (hard money + line of credit)" : "Interest + lender fees", -r.interest, { minus: true })}
+            {line("Less total cost (from above)", -costs, { minus: true })}
+            {cur.profitAdj !== 0 && line(`Sale price in this report (${money(cur.sale)})`, cur.profitAdj, { minus: cur.profitAdj < 0 })}
+            <div style={{ ...totS, background: "#EAF7EE", color: cur.profit < 0 ? T.red : "#1E7B3C" }}><span>Profit</span><span>{money(cur.profit)}</span></div>
+            <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 8, lineHeight: 1.4 }}>
+              {cur.profitAdj === 0 ? "Same numbers as the property's Financial Overview — both screens use the one profit formula." : "Matches the Financial Overview except for the sale price this report uses."}
+              {openBills > 0 && <> Open bills of {money(openBills)} (Cash-Out list) aren't in the rehab number until they're paid in QuickBooks.</>}
+            </div>
+          </Sheet>
+        );
+      })()}
 
       {cur && pop.kind === "deal" && (
         <Sheet title={String(cur.p.address || "").replace(/,.*$/, "")} sub={cur.p.status} isMobile={isMobile} onClose={() => setPop(null)}>

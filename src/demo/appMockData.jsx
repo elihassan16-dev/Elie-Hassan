@@ -77,7 +77,7 @@ const PROPS = [
       { date: "2026-06-17", type: "Expense", num: "", vendor: "MCD Builds LLC", memo: "", amount: -15000, lineKey: "rh1#0" },
       { date: "2026-07-13", type: "Expense", num: "", vendor: "Flex Architecture LLC", memo: "", amount: -950, lineKey: "rh2#0" },
     ],
-    financials: FIN({ purchasePrice: "150000", rehabCosts: "72000", salePrice: "329900", holdPeriod: "7", actualSalePrice: "335000", hmRate: "10.5",
+    financials: FIN({ purchasePrice: "150000", rehabCosts: "72000", salePrice: "329900", holdPeriod: "7", actualSalePrice: "335000", actualPurchasePrice: "150000", actualBuyingCosts: "6240", actualRehabCosts: "74850", actualHoldingCosts: "5910", hmRate: "10.5",
       actualSellingCostItems: [{ id: "c1", title: "Commission", autoType: "commission", resp: "Seller Pays", commissionPct: "2.5" }, { id: "ih-flatfee", title: "Listing flat fee", autoType: "flatfee", resp: "Seller Pays" }, { id: "c2", title: "Transfer Tax", autoType: "tax", resp: "Seller Pays" }, { id: "ih-staging", title: "Staging", resp: "Seller Pays", amount: "2500" }, { id: "c3", title: "Attorney", resp: "Seller Pays", amount: "1200" }] }),
     // 💵 Cash-Out Analysis preview: a hard-money loan on the deal.
     qbLoanCustom: [{ id: "hm1", name: "Kiavi — hard money", amount: 204000 }],

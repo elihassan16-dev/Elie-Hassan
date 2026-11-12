@@ -29,6 +29,8 @@ import { FileActions } from "./fileActions";
 import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid, ctrJobsNow, jobPropertyOf } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
+import { finProfit } from "../lib/dealMath.js";
+import { useOpenBills, syncOpenBills } from "./openBills";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
 import { ReversePane, ReverseTextsList, rpCount, rpAgentForShowing, MlsPicker, MlsAccountsSheet, mlsIdsOf, useMlsList } from "./reverseProspect";
@@ -406,92 +408,9 @@ function acHmFwdLive(f,close,loan,rate){
 // ─── SINGLE SOURCE OF TRUTH for a property's profit ───────────────────────────
 // Used by BOTH the Financial Overview banner and the Portfolio Overview so the
 // two can never disagree. Mirrors the Financial Overview formulas exactly.
-// If you change a profit rule, change it HERE only.
-function finProfit(f,status,closingSched){
-  if(!f) return {netProfit:0,acNet:0,effective:0,useActual:false,equityRequired:0};
-  const buyingItems=f.buyingCostItems||[];
-  const buyingTotal=buyingItems.length>0?calcBuyingTotal(buyingItems,f.purchasePrice):n(f.buyingCosts)||0;
-  const sellingItems=f.sellingCostItems||[];
-  const holdingItems=f.holdingCostItems||[];
-  const months=n(f.holdPeriod)||0;
-  const sellingOf=(sp,items,flat)=>items.length>0
-    ?items.filter(i=>i.resp!=="N/A"&&i.resp!=="Maybe").reduce((s,i)=>{
-        if(i.autoType==="commission")return s+Math.round(n(sp)*(parseFloat(i.commissionPct||0)/100));
-        if(i.autoType==="flatfee")return s+(n(i.amountOverride)>0?n(i.amountOverride):INHOUSE_FLAT_FEE(sp));
-        if(i.autoType==="tax"){const rtf=calcNJRTF(n(sp));return i.resp==="Seller Pays"?s+rtf.total:i.resp==="Split"?s+Math.round(rtf.total/2):s;}
-        return s+n(i.amount);
-      },0)
-    :n(flat)||0;
-
-  // ── Projected ──
-  const sellingTotal=sellingOf(f.salePrice,sellingItems,f.sellingCosts);
-  const holdingTotal=holdingItems.length>0?holdingItems.reduce((s,i)=>s+(i.perYear?n(i.amount)/12:n(i.amount))*months,0):n(f.annualHoldingCosts)||0;
-  const totalCosts=n(f.purchasePrice)+buyingTotal+n(f.rehabCosts)+holdingTotal;
-  const liveHmLoan=Math.round(n(f.purchasePrice)*(n(f.hmLoanPct||90)/100));
-  const liveRehabLoan=Math.round(n(f.rehabCosts)*(n(f.rehabFinPct||100)/100));
-  const liveHmTotal=liveHmLoan+liveRehabLoan;
-  // Interest on the FULL hard-money commitment (purchase + rehab financing) —
-  // matches the Financing Breakdown popup and the Actual-financing math.
-  const liveHmMonthly=Math.round(liveHmTotal*(n(f.hmRate||9)/100)/12);
-  const liveHmReserve=Math.round(liveHmMonthly*months);
-  const liveHmOrigFee=Math.round(liveHmTotal*(n(f.hmOrigPct||0)/100));
-  const liveHmDoc=n(f.hmDocFee||1000);
-  const liveGapPrinc=Math.round(n(f.purchasePrice)*(1-n(f.hmLoanPct||90)/100))+Math.round(n(f.rehabCosts)*(1-n(f.rehabFinPct||100)/100))+buyingTotal+liveHmReserve+liveHmOrigFee+liveHmDoc;
-  const liveGapBalloon=Math.round(liveGapPrinc*(n(f.gapRate||15)/100)/12*months);
-  // Debt service = interest + the lender's fees (origination + doc), matching the
-  // Financing Breakdown popup and the Actual-financing math — fees are borrowing
-  // costs and belong in the total (and in net profit).
-  const snapOnly=finSnapOnly(f);
-  const hmInterestP=(snapOnly&&n(f.hmInterest))||liveHmReserve;
-  const gapInterestP=(snapOnly&&n(f.locInterest))||liveGapBalloon;
-  const debtService=hmInterestP+liveHmOrigFee+liveHmDoc+gapInterestP;
-  const netProfit=n(f.salePrice)-sellingTotal-debtService-totalCosts;
-
-  // ── Actual ──
-  const actualHoldMonths=f.purchaseDate&&f.sellingDate?parseFloat(((new Date(f.sellingDate)-new Date(f.purchaseDate))/(1000*60*60*24*30.44)).toFixed(1)):months;
-  const acCosts=n(f.actualPurchasePrice)+n(f.actualBuyingCosts)+n(f.actualRehabCosts)+n(f.actualHoldingCosts);
-  const acSalePrice=n(f.actualSalePrice);
-  const acSelling=sellingOf(acSalePrice,f.actualSellingCostItems||[],f.actualSellingCosts);
-  const acHmLoanAmt=n(f.acHmLoanAmt)||liveHmTotal;
-  const acHmRate=f.acHmRate!==undefined?n(f.acHmRate):n(f.hmRate||9);
-  const acHmOrigPct=f.acHmOrigPct!==undefined?n(f.acHmOrigPct):n(f.hmOrigPct||0);
-  const acHmDocAmt=f.acHmDocFee!==undefined?n(f.acHmDocFee):n(f.hmDocFee||1000);
-  const equityRequired=(snapOnly&&n(f.locLoan))||liveGapPrinc;
-  const acGapLoanAmt=n(f.acGapLoanAmt)||equityRequired;
-  // Insurance is paid in full at closing (you're reimbursed the unused portion when
-  // you cancel after the sale), so the whole annual premium is cash you need for the
-  // down payment — even though profit only carries the prorated hold-period portion
-  // (already handled in holdingTotal above). Add the full premium on top of the gap.
-  const annualInsurance=(holdingItems||[]).filter(i=>(i.title||"").toLowerCase().includes("insurance")).reduce((s,i)=>s+(i.perYear?n(i.amount):n(i.amount)*12),0);
-  // Property taxes: at closing you escrow/prepay roughly half a year, so count half
-  // the annual tax as cash to close (profit still carries the true prorated portion
-  // via holdingTotal above).
-  const taxEscrow=Math.round((holdingItems||[]).filter(i=>(i.title||"").toLowerCase().includes("tax")).reduce((s,i)=>s+(i.perYear?n(i.amount):n(i.amount)*12),0)*0.5);
-  const acGapRate=f.acGapRate!==undefined?n(f.acGapRate):n(f.gapRate||15);
-  const acHmMonthlyInt=Math.round(acHmLoanAmt*(acHmRate/100)/12);
-  // "From today forward" mode: total HM interest = paid so far (from QuickBooks) +
-  // interest still to accrue to close. The popup computes and stores that total in
-  // hmInterest, so read it back here rather than re-deriving without QuickBooks.
-  const acClose=closingSched||f.sellingDate||f.acHmPayoffDate||"";
-  const acHmFwd=acHmFwdLive(f,acClose,acHmLoanAmt,acHmRate);
-  const acHmInterest=f.acHmInterestOverride!==undefined&&f.acHmInterestOverride!==""?n(f.acHmInterestOverride):(acHmFwd!=null?acHmFwd:Math.round(acHmMonthlyInt*actualHoldMonths)+Math.round(acHmLoanAmt*(acHmOrigPct/100))+acHmDocAmt);
-  const acGapBalloon=f.acGapInterestOverride!==undefined&&f.acGapInterestOverride!==""?n(f.acGapInterestOverride):Math.round(acGapLoanAmt*(acGapRate/100)/12*actualHoldMonths);
-  const acNet=acSalePrice>0?acSalePrice-acSelling-(acHmInterest+acGapBalloon)-acCosts:0;
-
-  const useActual=!!(f.useActualProfit&&acSalePrice>0);
-  // Equity required: the estimate (gap + full insurance + half-year tax escrow),
-  // UNLESS the deal is past Under Contract and an actual LOC / gap amount has been
-  // entered (Actual Financing popup, reconciled to the balance sheet) — then that
-  // real number overrides the estimate.
-  const estEquity=equityRequired+annualInsurance+taxEscrow;
-  const actualEquity=n(f.acGapLoanAmt);
-  const useActualEquity=!!(status&&status!=="Under Contract"&&status!=="New Leads"&&actualEquity>0);
-  return {netProfit,acNet,effective:useActual?acNet:netProfit,useActual,equityRequired:useActualEquity?actualEquity:estEquity,equityIsActual:useActualEquity,
-    // Breakdown pieces (projected) — exposed for the Investor Packet so it prints
-    // the exact same numbers as the Financial Overview, never a re-derivation.
-    buyingTotal,sellingTotal,holdingTotal:Math.round(holdingTotal),debtService,hmLoanTotal:liveHmTotal,
-    hmInterest:hmInterestP,gapInterest:gapInterestP};
-}
+// If you change a profit rule, change it in lib/dealMath.js only.
+// finProfit lives in lib/dealMath.js — ONE copy for the Financial Overview,
+// Portfolio, Cash-Out Analysis and the Claude connector (Elie 11/12/26: "1000% in sync").
 
 // ─── NJ Realty Transfer Tax ───────────────────────────────────────────────────
 function calcNJRTF(price){
@@ -2183,8 +2102,15 @@ function WhatIfPopup({property,onClose}){
 }
 function FinOverview({property,onUpdate}){
   const isMobile=useIsMobile();
-  const { draws } = useData();
+  const { draws, sharedProps } = useData();
   const f=property.financials;
+  // 👷 Open bills — the same live number the Cash-Out Analysis uses, taken off the
+  // Actual profit (Elie 11/12/26); stored on the deal so every other screen matches.
+  const ctrData=useContractorData();
+  const ob=useOpenBills(property,sharedProps,ctrData);
+  const[showOB,setShowOB]=useState(false);
+  useEffect(()=>{syncOpenBills(property,ob.total,ob.ready,onUpdate);},[ob.ready,ob.total]); // eslint-disable-line react-hooks/exhaustive-deps
+  const acOB=ob.ready?ob.total:n((f||{}).acOpenBills);
   // Auto-match this property's private-lender draws from the Financial Section
   // (by explicit link or strong address match) — surfaced in the Financing popup.
   const locDraws=drawsForProperty(property,draws);
@@ -2266,7 +2192,7 @@ function FinOverview({property,onUpdate}){
                       + Math.round(n(f.rehabCosts)*(1-n(f.rehabFinPct||100)/100))
                       + buyingTotal+liveHmReserve+liveHmOrigFee+liveHmDoc;
   const liveGapBalloon= Math.round(liveGapPrinc*(n(f.gapRate||15)/100)/12*holdPeriodMonths);
-  const _fp=finProfit(f,property.status,(property.propertyInfo||{}).closingDateScheduled); // single source of truth (matches Portfolio)
+  const _fp=finProfit(f,property.status,(property.propertyInfo||{}).closingDateScheduled,{openBills:acOB}); // single source of truth (matches Portfolio + Cash-Out)
   const hmInterestFinal = _fp.hmInterest;   // live from the saved inputs - moves with the hold period
   const locInterestFinal= _fp.gapInterest;
   // Interest + lender fees (origination + doc) — same definition as the popup.
@@ -2284,7 +2210,7 @@ function FinOverview({property,onUpdate}){
   const acBuying = n(f.actualBuyingCosts);
   const acRehab  = n(f.actualRehabCosts);
   const acHolding= n(f.actualHoldingCosts);
-  const acCosts  = acPP+acBuying+acRehab+acHolding;
+  const acCosts  = acPP+acBuying+acRehab+acOB+acHolding;
 
   // ── Actual selling costs — own popup, blank by default ──
   const acSalePrice=n(f.actualSalePrice);
@@ -2405,6 +2331,19 @@ function FinOverview({property,onUpdate}){
             aVal={f.actualBuyingCosts} aEdit={v=>up("actualBuyingCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
           <EditGridRow label="Rehab Costs" pVal={n(f.rehabCosts)} pEdit={v=>up("rehabCosts",v)}
             aVal={f.actualRehabCosts} aEdit={v=>up("actualRehabCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
+          {showActual&&acOB>0&&<>
+            <div onClick={()=>setShowOB(x=>!x)} style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46,cursor:"pointer"}}>
+              <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:isMobile?13.5:14,color:T.text}}>Open bills<span style={{display:"block",fontSize:11.5,color:T.textTert,marginTop:1}}>still owed — not paid in QuickBooks yet {showOB?"▴":"▾"}</span></div>
+              <div style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:12.5,color:T.textTert}}>—</div>
+              <div style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:isMobile?13:13.5,fontWeight:650,color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{fmtD(acOB)}</div>
+            </div>
+            {showOB&&<div style={{padding:isMobile?"0 12px 10px":"0 18px 10px",fontSize:12.5,color:T.textSub}}>
+              {ob.ctrBills.filter(c=>c.on).map(c=><div key={c.key} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"4px 0"}}><span>👷 {c.vendor} <span style={{color:T.textTert}}>· contract {fmtD(c.contract)} · paid {fmtD(c.paid)}</span></span><span style={{fontVariantNumeric:"tabular-nums"}}>{fmtD(c.left)}</span></div>)}
+              {ob.bills.map(b=><div key={b.id} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"4px 0"}}><span>✍️ {b.vendor}{b.note?<span style={{color:T.textTert}}> · {b.note}</span>:null}</span><span style={{fontVariantNumeric:"tabular-nums"}}>{fmtD(n(b.amount))}</span></div>)}
+              {!ob.ready&&<div style={{color:T.textTert,padding:"4px 0"}}>Last saved total — updating…</div>}
+              <div style={{color:T.textTert,paddingTop:4}}>Same list as the Cash-Out Analysis (untick or add bills there).</div>
+            </div>}
+          </>}
           <PopupGridRow label="Holding Costs" pVal={holdingTotal} onOpenP={()=>setShowHolding(true)}
             aVal={f.actualHoldingCosts} aEdit={v=>up("actualHoldingCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
           <TotalGridRow label="Total Costs" pVal={totalCosts} aVal={showActual&&acCosts!==0?acCosts:null} showActual={showActual} dimP={f.useActualProfit}/>

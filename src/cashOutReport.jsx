@@ -30,39 +30,10 @@ import { Sheet } from "./platinum";
 import { printHtml } from "./pdfViewer";
 import { loanEntries, hardMoney, interestReserveLeft, creditLines, sellingCosts, sellingLines, closingDates, privateLenderPayoff } from "../lib/cashOut.js";
 import { drawsForProperty, funderStats, finProfit, settledByLender } from "../lib/dealMath.js";
-import { useContractorData, jobTotal, jobPaid, jobPropertyOf } from "./contractors/data";
+import { useContractorData } from "./contractors/data";
+import { openBillsOf, dealJobs, useQbProjectTx, syncOpenBills } from "./openBills";
 import { qbAuthFetch } from "./net";
 
-// 👷 Contractors still to be paid on a deal (Elie 10/30/26): per company, every
-// hired job's contract (price + change orders) − what's paid — the payments on
-// the job PLUS QuickBooks payments on the deal's project that match the company
-// and aren't pinned to the job yet (same match as the job's auto-pin), so it
-// goes down by itself as he pays them in QuickBooks.
-const SKIP_JOB = ["bid", "awaiting_price", "removed"];
-function contractorOwed(p, { jobs, orgs, props, qbTx }) {
-  const mine = (jobs || []).filter((j) => j && !SKIP_JOB.includes(j.status) && String((jobPropertyOf(j, props) || {}).id) === String(p.id));
-  const items = p.qbProjectId && qbTx ? qbTx[p.qbProjectId] : null;
-  const byOrg = {};
-  mine.forEach((j) => { (byOrg[j.orgId] = byOrg[j.orgId] || []).push(j); });
-  return Object.entries(byOrg).map(([orgId, js]) => {
-    const vendor = ((orgs || []).find((o) => String(o.id) === String(orgId)) || {}).name || "Contractor";
-    const contract = js.reduce((t, j) => t + jobTotal(j), 0);
-    const pinned = js.reduce((t, j) => t + jobPaid(j), 0);
-    const have = new Set(js.flatMap((j) => (j.payments || []).map((x) => x.qbId).filter(Boolean)));
-    const excl = new Set(js.flatMap((j) => j.qbExcluded || []));
-    const word = (vendor.trim().split(/\s+/)[0] || "").toLowerCase();
-    const kOf = (t) => t.id || `${t.date}|${t.vendor}|${t.amount}`;
-    // A payment typed on the job by hand (no QuickBooks link) with the same
-    // amount as a QuickBooks line is that line — never count it twice.
-    const typed = js.flatMap((j) => (j.payments || []).filter((x) => !x.qbId).map((x) => Math.round(Number(x.amount) || 0)));
-    const qbNew = items && word.length >= 3 ? items.filter((t) => (t.section || "").toLowerCase() !== "income" && [t.vendor, t.memo].filter(Boolean).join(" ").toLowerCase().includes(word) && !have.has(kOf(t)) && !excl.has(kOf(t)))
-      .filter((t) => { const i = typed.indexOf(Math.round(Math.abs(Number(t.amount) || 0))); if (i < 0) return true; typed.splice(i, 1); return false; })
-      .reduce((t, x) => t + Math.abs(Number(x.amount) || 0), 0) : 0;
-    const paid = pinned + qbNew;
-    return { key: `org:${orgId}`, vendor, jobs: js.length, contract, paid, qbNew, left: Math.max(0, Math.round(contract - paid)) };
-  }).filter((c) => c.left > 0.5 && c.contract > 0);
-}
-const qbTxCache = {}; // projectId → {at, items}
 
 const n = (v) => { const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, "")); return isNaN(x) ? 0 : x; };
 const money = (v) => `${v < 0 ? "−" : ""}$${Math.round(Math.abs(Number(v) || 0)).toLocaleString("en-US")}`;
@@ -132,15 +103,11 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
   const loans = hmDrawn + hmInterest + (creditCounted ? credit.reduce((s, c) => s + c.balance, 0) : 0) + lenders.reduce((s, l) => s + l.total, 0) + floatTotal;
   const allIn = p.qbAllInCost !== undefined && p.qbAllInCost !== null && p.qbAllInCost !== "" ? Number(p.qbAllInCost) : (p.qbProjectId && spend && spend[p.qbProjectId] && spend[p.qbProjectId].allIn != null ? spend[p.qbProjectId].allIn : null);
   const reserve = Math.max(0, interestReserveLeft(p, accounts, bankAccounts, allIn) || 0);
-  const bills = (p.coBills || []).filter((b) => n(b.amount));
-  const billsOff = new Set((p.coBillsOff || []).map(String));
-  const ctrBills = contractorOwed(p, ctr).map((c) => ({ ...c, on: !billsOff.has(c.key) }));
-  const billsCount = bills.length + ctrBills.filter((c) => c.on).length;
-  const billsTotal = bills.reduce((s, b) => s + n(b.amount), 0) + ctrBills.reduce((s, c) => s + (c.on ? c.left : 0), 0);
+  const { bills, ctrBills, count: billsCount, total: billsTotal } = openBillsOf(p, ctr);
   return {
     p, close, closeSrc, d, sale, own, baseSrc, base, sc, lines, selling, paidCredit, hm, hmRows, hmDrawn, hmInterest, floats, floatTotal, credit, creditCounted, lenders, loans, reserve, bills, ctrBills, billsCount, billsTotal, lenderCredit: 0,
     cash: Math.round(sale - selling - loans + reserve - billsTotal),
-    ...dealProfit(p, sale, src),
+    ...dealProfit(p, sale, src, billsTotal),
   };
 }
 
@@ -153,16 +120,22 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
 // Actual said $38,287 — the deal's "Actual Feeds Portfolio" was off, and the
 // report followed that instead of its Actuals switch). Actuals = the Overview's
 // Actual profit whenever the deal has an actual sale price; otherwise Projected.
-function dealProfit(p, sale, src) {
+function dealProfit(p, sale, src, openBills) {
   const f = p.financials || {};
-  const fp = finProfit(f, p.status, (p.propertyInfo || {}).closingDateScheduled);
+  const fp = finProfit(f, p.status, (p.propertyInfo || {}).closingDateScheduled, { openBills });
   const useAct = src !== "projected" && n(f.actualSalePrice) > 0;
   const base = useAct ? fp.acNet : fp.netProfit;
   const basePrice = useAct ? n(f.actualSalePrice) : n(f.salePrice);
   const items = useAct ? f.actualSellingCostItems || [] : f.sellingCostItems || [];
   const sellAt = (price) => sellingLines(price, items).reduce((t, l) => t + l.amount, 0);
   const adj = items.length ? (sale - basePrice) - (sellAt(sale) - sellAt(basePrice)) : sale - basePrice;
-  return { profit: Math.round(base + adj), profitBase: Math.round(base), profitSrc: useAct ? "Actual" : "Projected", profitAdj: Math.round(adj) };
+  const pc = useAct ? fp.actual : fp.projected;
+  // The Financial Overview's own lines, in the order Elie reads them (11/12/26).
+  const profitRows = {
+    purchase: pc.purchase, buying: pc.buying, rehab: pc.rehab, openBills: useAct ? pc.openBills : 0, holding: pc.holding, sale: pc.sale, selling: pc.selling,
+    interest: useAct ? pc.hmInterest + pc.gapInterest : pc.interest,
+  };
+  return { profit: Math.round(base + adj), profitBase: Math.round(base), profitSrc: useAct ? "Actual" : "Projected", profitAdj: Math.round(adj), profitRows };
 }
 
 // Every loan line on a deal, as [label, detail, amount] — Loans pop-up + breakdown.
@@ -209,7 +182,6 @@ function NumIn({ value, onSave, width = 104, disabled, placeholder }) {
 export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canEdit, updateProp, isMobile, onClose }) {
   const { draws, bankAccounts, funders } = useData() || {};
   const { jobs: ctrJobs, orgs: ctrOrgs } = useContractorData() || {};
-  const [qbTx, setQbTx] = useState(() => Object.fromEntries(Object.entries(qbTxCache).map(([k, v]) => [k, v.items])));
   const { prefs, savePrefs } = useAuth() || {};
   const ls = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
   const [src, setSrc] = useState(() => ls("gs_co_src", "actual"));
@@ -234,23 +206,19 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
   useEffect(() => { if (requestSpend && list.length) requestSpend(list); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // QuickBooks transactions for deals with contractors still owed (10-min cache).
-  const ctrKey = list.filter((p) => p.qbProjectId && (ctrJobs || []).some((j) => !SKIP_JOB.includes(j.status) && String((jobPropertyOf(j, sharedProps) || {}).id) === String(p.id))).map((p) => p.qbProjectId).join(",");
-  useEffect(() => {
-    let alive = true;
-    ctrKey.split(",").filter(Boolean).filter((id) => !qbTxCache[id] || Date.now() - qbTxCache[id].at > 600000).forEach((id) => {
-      qbAuthFetch(`/api/quickbooks/transactions?customerId=${encodeURIComponent(id)}`).then((d) => {
-        qbTxCache[id] = { at: Date.now(), items: (d && d.items) || [] };
-        if (alive) setQbTx((m) => ({ ...m, [id]: qbTxCache[id].items }));
-      }).catch(() => { /* QuickBooks unreachable — the job payments still count */ });
-    });
-    return () => { alive = false; };
-  }, [ctrKey]);
+  const ctrIds = list.filter((p) => p.qbProjectId && dealJobs(p, ctrJobs, sharedProps).length).map((p) => p.qbProjectId);
+  const { tx: qbTx, ready: qbReady } = useQbProjectTx(ctrIds);
 
   // Interest a lender has already been paid (BIL is paid monthly) is settled —
   // it comes off his payoff instead of being charged a second time.
   const settledFrac = settledByLender(funders, draws);
   const ctx = { accounts, bankAccounts, spend, draws, src, today, defaultClose, settledFrac, ctr: { jobs: ctrJobs, orgs: ctrOrgs, props: sharedProps, qbTx } };
   const rows = list.map((p) => analyse(p, ctx));
+  // Keep each deal's stored open bills (what the Financial Overview / Portfolio
+  // profit reads) equal to this live number once everything has loaded.
+  const ctrReady = Array.isArray(ctrJobs) && Array.isArray(ctrOrgs) && qbReady;
+  const billsSig = rows.map((r) => `${r.p.id}:${Math.round(r.billsTotal)}`).join(",");
+  useEffect(() => { if (ctrReady && updateProp) rows.forEach((r) => syncOpenBills(r.p, r.billsTotal, true, updateProp)); }, [ctrReady, billsSig]); // eslint-disable-line react-hooks/exhaustive-deps
   // A lender whose ledger shows interest owed BELOW zero was paid interest
   // ahead — that comes back off what we pay him at closing (Elie 10/30/26, BIL).
   // Applied deal by deal in closing-date order, never more than his payoff.
@@ -491,15 +459,38 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
         );
       })()}
 
-      {cur && pop.kind === "profit" && (
-        <Sheet title="Profit" sub={`${String(cur.p.address || "").replace(/,.*$/, "")} · from the Financial Overview (${cur.profitSrc})`} isMobile={isMobile} onClose={() => setPop(null)}>
-          <div style={{ ...rowS, borderTop: "none" }}><span>{cur.profitSrc} profit in the Financial Overview<span style={small}>the same number as on the property's Financial Overview</span></span><span style={{ fontVariantNumeric: "tabular-nums" }}>{money(cur.profitBase)}</span></div>
-          {cur.profitAdj !== 0 && <div style={rowS}><span>At this report's sale price<span style={small}>{money(cur.sale)} — the price difference less the selling costs it changes</span></span><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: cur.profitAdj > 0 ? "#1E7B3C" : T.text }}>{cur.profitAdj > 0 ? "+" : ""}{money(cur.profitAdj)}</span></div>}
-          <div style={{ ...totS, background: "#EAF7EE", color: "#1E7B3C" }}><span>Profit</span><span>{money(cur.profit)}</span></div>
-          <div style={{ ...rowS, marginTop: 8 }}><span>Est. cash out<span style={small}>cash you walk away with at closing</span></span><span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, whiteSpace: "nowrap" }}>{money(cur.cash)}</span></div>
-          <div style={rowS}><span>Difference (cash out − profit)<span style={small}>{cur.cash >= cur.profit ? "your own money (equity) coming back on top of the profit" : "less cash than profit — some of the profit already went out or is still owed"}</span></span><span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, whiteSpace: "nowrap" }}>{money(cur.cash - cur.profit)}</span></div>
-        </Sheet>
-      )}
+      {cur && pop.kind === "profit" && (() => {
+        const r = cur.profitRows, act = cur.profitSrc === "Actual";
+        const allIn = r.purchase + r.buying, costs = allIn + r.rehab + r.openBills + r.holding;
+        const line = (label, v, o = {}) => (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, padding: o.total ? "9px 0" : "7px 0", borderTop: o.total ? `1px solid ${T.text}` : o.first ? "none" : `1px solid ${T.border}`, fontSize: 13.5, fontWeight: o.total ? 700 : 400, paddingLeft: o.indent ? 14 : 0, color: o.indent ? T.textSub : T.text }}>
+            <span>{label}</span><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: o.minus && v ? T.red : undefined }}>{o.minus && v ? "−" : ""}{money(Math.abs(v))}</span>
+          </div>
+        );
+        const hd = (t) => <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textTert, textTransform: "uppercase", letterSpacing: "0.05em", margin: "12px 0 2px" }}>{t}</div>;
+        return (
+          <Sheet title="Profit" sub={`${String(cur.p.address || "").replace(/,.*$/, "")} · ${cur.profitSrc} column of the Financial Overview`} isMobile={isMobile} onClose={() => setPop(null)}>
+            {hd("Cost")}
+            {line("Purchase price", r.purchase, { first: true, indent: true })}
+            {line("Closing costs", r.buying, { indent: true })}
+            {line("All-in purchase", allIn)}
+            {line(act ? "Rehab (paid)" : "Rehab", r.rehab)}
+            {act && line("Open bills (still owed)", r.openBills)}
+            {line("Holding costs", r.holding)}
+            {line("Total cost", costs, { total: true })}
+            {hd("Sale")}
+            {line("Sale price", r.sale, { first: true })}
+            {line("Commissions & selling costs", -r.selling, { minus: true })}
+            {line(act ? "Interest (hard money + line of credit)" : "Interest + lender fees", -r.interest, { minus: true })}
+            {line("Less total cost (from above)", -costs, { minus: true })}
+            {cur.profitAdj !== 0 && line(`Sale price in this report (${money(cur.sale)})`, cur.profitAdj, { minus: cur.profitAdj < 0 })}
+            <div style={{ ...totS, background: "#EAF7EE", color: cur.profit < 0 ? T.red : "#1E7B3C" }}><span>Profit</span><span>{money(cur.profit)}</span></div>
+            <div style={{ fontSize: 11.5, color: T.textTert, marginTop: 8, lineHeight: 1.4 }}>
+              {cur.profitAdj === 0 ? "Same numbers as the property's Financial Overview — both screens use the one profit formula." : "Matches the Financial Overview except for the sale price this report uses."}
+            </div>
+          </Sheet>
+        );
+      })()}
 
       {cur && pop.kind === "deal" && (
         <Sheet title={String(cur.p.address || "").replace(/,.*$/, "")} sub={cur.p.status} isMobile={isMobile} onClose={() => setPop(null)}>

@@ -24,3 +24,15 @@ test("projected pieces add up to netProfit", () => {
   const p = fp.projected;
   assert.ok(Math.abs(p.sale - p.selling - p.interest - (p.purchase + p.buying + p.rehab + p.holding) - fp.netProfit) < 1);
 });
+
+test("open bills come off only when the rehab is the QuickBooks number (or Elie says so)", () => {
+  const base = { ...f, acOpenBills: "12000" };
+  const typed = finProfit(base, "In Closing", "");                       // rehab typed by hand → all-in
+  const qb = finProfit({ ...base, acRehabSrc: "qb" }, "In Closing", "");   // imported → paid so far
+  assert.equal(typed.actual.openBills, 0);
+  assert.equal(qb.actual.openBills, 12000);
+  assert.equal(typed.acNet - qb.acNet, 12000);
+  assert.equal(finProfit({ ...base, acRehabSrc: "qb", acOpenBillsMode: "incl" }, "", "").actual.openBills, 0);
+  assert.equal(finProfit({ ...base, acOpenBillsMode: "add" }, "", "").actual.openBills, 12000);
+  assert.equal(finProfit({ ...base, acRehabSrc: "qb" }, "", "", { openBills: 500 }).actual.openBills, 500); // live number wins
+});

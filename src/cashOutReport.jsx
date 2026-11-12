@@ -132,7 +132,7 @@ function dealProfit(p, sale, src, openBills) {
   const pc = useAct ? fp.actual : fp.projected;
   // The Financial Overview's own lines, in the order Elie reads them (11/12/26).
   const profitRows = {
-    purchase: pc.purchase, buying: pc.buying, rehab: pc.rehab, openBills: useAct ? pc.openBills : 0, holding: pc.holding, sale: pc.sale, selling: pc.selling,
+    purchase: pc.purchase, buying: pc.buying, rehab: pc.rehab, openBills: useAct ? pc.openBills : 0, openBillsIncl: useAct && !pc.openBillsOn ? pc.openBillsAll : 0, holding: pc.holding, sale: pc.sale, selling: pc.selling,
     interest: useAct ? pc.hmInterest + pc.gapInterest : pc.interest,
   };
   return { profit: Math.round(base + adj), profitBase: Math.round(base), profitSrc: useAct ? "Actual" : "Projected", profitAdj: Math.round(adj), profitRows };
@@ -475,7 +475,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
             {line("Closing costs", r.buying, { indent: true })}
             {line("All-in purchase", allIn)}
             {line(act ? "Rehab (paid)" : "Rehab", r.rehab)}
-            {act && line("Open bills (still owed)", r.openBills)}
+            {act && r.openBillsIncl > 0 ? line(`Open bills ${money(r.openBillsIncl)} — already in your rehab`, 0) : act && line("Open bills (still owed)", r.openBills)}
             {line("Holding costs", r.holding)}
             {line("Total cost", costs, { total: true })}
             {hd("Sale")}

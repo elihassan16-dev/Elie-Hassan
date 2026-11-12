@@ -29,7 +29,7 @@ import { FileActions } from "./fileActions";
 import { OrgPane, OrgModal, sameOrgCompany, JobDetail as CtrJobDetail, QBPayPicker } from "./contractors/ContractorsAdminPage";
 import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid, ctrJobsNow, jobPropertyOf } from "./contractors/data";
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
-import { finProfit } from "../lib/dealMath.js";
+import { finProfit, openBillsCounted } from "../lib/dealMath.js";
 import { useOpenBills, syncOpenBills } from "./openBills";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
@@ -2110,7 +2110,10 @@ function FinOverview({property,onUpdate}){
   const ob=useOpenBills(property,sharedProps,ctrData);
   const[showOB,setShowOB]=useState(false);
   useEffect(()=>{syncOpenBills(property,ob.total,ob.ready,onUpdate);},[ob.ready,ob.total]); // eslint-disable-line react-hooks/exhaustive-deps
-  const acOB=ob.ready?ob.total:n((f||{}).acOpenBills);
+  const acOBAll=ob.ready?ob.total:n((f||{}).acOpenBills);
+  const acOBOn=openBillsCounted(f||{});          // typed rehab = all-in → not taken off again
+  const acOB=acOBOn?acOBAll:0;
+  const setOBMode=(m)=>upMany({acOpenBillsMode:m});
   // Auto-match this property's private-lender draws from the Financial Section
   // (by explicit link or strong address match) — surfaced in the Financing popup.
   const locDraws=drawsForProperty(property,draws);
@@ -2192,7 +2195,7 @@ function FinOverview({property,onUpdate}){
                       + Math.round(n(f.rehabCosts)*(1-n(f.rehabFinPct||100)/100))
                       + buyingTotal+liveHmReserve+liveHmOrigFee+liveHmDoc;
   const liveGapBalloon= Math.round(liveGapPrinc*(n(f.gapRate||15)/100)/12*holdPeriodMonths);
-  const _fp=finProfit(f,property.status,(property.propertyInfo||{}).closingDateScheduled,{openBills:acOB}); // single source of truth (matches Portfolio + Cash-Out)
+  const _fp=finProfit(f,property.status,(property.propertyInfo||{}).closingDateScheduled,{openBills:acOBAll}); // single source of truth (matches Portfolio + Cash-Out)
   const hmInterestFinal = _fp.hmInterest;   // live from the saved inputs - moves with the hold period
   const locInterestFinal= _fp.gapInterest;
   // Interest + lender fees (origination + doc) — same definition as the popup.
@@ -2330,17 +2333,25 @@ function FinOverview({property,onUpdate}){
           <PopupGridRow label="Buying Costs" pVal={buyingTotal} onOpenP={()=>setShowBuying(true)}
             aVal={f.actualBuyingCosts} aEdit={v=>up("actualBuyingCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
           <EditGridRow label="Rehab Costs" pVal={n(f.rehabCosts)} pEdit={v=>up("rehabCosts",v)}
-            aVal={f.actualRehabCosts} aEdit={v=>up("actualRehabCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
-          {showActual&&acOB>0&&<>
+            aVal={f.actualRehabCosts} aEdit={v=>upMany({actualRehabCosts:v,acRehabSrc:"manual"})} showActual={showActual} dimP={f.useActualProfit}/>
+          {showActual&&acOBAll>0&&<>
             <div onClick={()=>setShowOB(x=>!x)} style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46,cursor:"pointer"}}>
-              <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:isMobile?13.5:14,color:T.text}}>Open bills<span style={{display:"block",fontSize:11.5,color:T.textTert,marginTop:1}}>still owed — not paid in QuickBooks yet {showOB?"▴":"▾"}</span></div>
+              <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:isMobile?13.5:14,color:T.text}}>Open bills<span style={{display:"block",fontSize:11.5,color:T.textTert,marginTop:1}}>{acOBOn?"still owed — added to rehab":"already in your rehab number — not added"} {showOB?"▴":"▾"}</span></div>
               <div style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:12.5,color:T.textTert}}>—</div>
-              <div style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:isMobile?13:13.5,fontWeight:650,color:GREEN_TXT,fontVariantNumeric:"tabular-nums"}}>{fmtD(acOB)}</div>
+              <div style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:isMobile?13:13.5,fontWeight:acOBOn?650:450,color:acOBOn?GREEN_TXT:T.textTert,textDecoration:acOBOn?"none":"line-through",fontVariantNumeric:"tabular-nums"}}>{fmtD(acOBAll)}</div>
             </div>
             {showOB&&<div style={{padding:isMobile?"0 12px 10px":"0 18px 10px",fontSize:12.5,color:T.textSub}}>
               {ob.ctrBills.filter(c=>c.on).map(c=><div key={c.key} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"4px 0"}}><span>👷 {c.vendor} <span style={{color:T.textTert}}>· contract {fmtD(c.contract)} · paid {fmtD(c.paid)}</span></span><span style={{fontVariantNumeric:"tabular-nums"}}>{fmtD(c.left)}</span></div>)}
               {ob.bills.map(b=><div key={b.id} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"4px 0"}}><span>✍️ {b.vendor}{b.note?<span style={{color:T.textTert}}> · {b.note}</span>:null}</span><span style={{fontVariantNumeric:"tabular-nums"}}>{fmtD(n(b.amount))}</span></div>)}
               {!ob.ready&&<div style={{color:T.textTert,padding:"4px 0"}}>Last saved total — updating…</div>}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",padding:"8px 0 2px"}} onClick={e=>e.stopPropagation()}>
+                <span style={{color:T.text}}>Add open bills on top of the rehab?</span>
+                <span style={{...SEG_WRAP,display:"inline-flex"}}>
+                  <button onClick={()=>setOBMode("add")} style={segTab(acOBOn)}>Yes</button>
+                  <button onClick={()=>setOBMode("incl")} style={segTab(!acOBOn)}>No — rehab includes them</button>
+                </span>
+              </div>
+              <div style={{color:T.textTert,paddingTop:2}}>{f.acOpenBillsMode?"Your choice for this deal.":f.acRehabSrc==="qb"?"Rehab came from QuickBooks (paid so far), so they're added.":"You typed the rehab yourself, so it's treated as all-in."}</div>
               <div style={{color:T.textTert,paddingTop:4}}>Same list as the Cash-Out Analysis (untick or add bills there).</div>
             </div>}
           </>}
@@ -4690,6 +4701,7 @@ function QuickBooksTab({property,onUpdate}){
     if(sel.income)  put("actualSalePrice",data.income||0);
     if(sel.purchase)put("actualPurchasePrice",b.purchase);
     if(sel.rehab)   put("actualRehabCosts",b.rehab);
+    if(ch.actualRehabCosts!==undefined)ch.acRehabSrc="qb"; // QuickBooks = paid so far → open bills come off too
     if(sel.buying)  put("actualBuyingCosts",b.buying);
     if(sel.holding&&b.holding!==0){ch.actualHoldingCosts=String(Math.round(b.holding));ch.actualHoldingCostItems=[];}
     if(sel.selling) put("actualSellingCosts",b.selling);

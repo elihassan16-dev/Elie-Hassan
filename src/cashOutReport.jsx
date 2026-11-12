@@ -140,7 +140,7 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
   return {
     p, close, closeSrc, d, sale, own, baseSrc, base, sc, lines, selling, paidCredit, hm, hmRows, hmDrawn, hmInterest, floats, floatTotal, credit, creditCounted, lenders, loans, reserve, bills, ctrBills, billsCount, billsTotal, lenderCredit: 0,
     cash: Math.round(sale - selling - loans + reserve - billsTotal),
-    ...dealProfit(p, sale),
+    ...dealProfit(p, sale, src),
   };
 }
 
@@ -148,14 +148,21 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
 // profit") = the Financial Overview's profit (finProfit — Actual when the deal
 // uses actuals, else Projected), moved to this report's sale price: + the price
 // difference − the extra selling costs it brings (same selling-cost list).
-function dealProfit(p, sale) {
+// The report's own Actuals / Projected switch decides which profit (Elie 11/12/26:
+// 13 Winding Way showed the $29,799 projection while the Financial Overview's
+// Actual said $38,287 — the deal's "Actual Feeds Portfolio" was off, and the
+// report followed that instead of its Actuals switch). Actuals = the Overview's
+// Actual profit whenever the deal has an actual sale price; otherwise Projected.
+function dealProfit(p, sale, src) {
   const f = p.financials || {};
   const fp = finProfit(f, p.status, (p.propertyInfo || {}).closingDateScheduled);
-  const basePrice = fp.useActual ? n(f.actualSalePrice) : n(f.salePrice);
-  const items = fp.useActual ? f.actualSellingCostItems || [] : f.sellingCostItems || [];
+  const useAct = src !== "projected" && n(f.actualSalePrice) > 0;
+  const base = useAct ? fp.acNet : fp.netProfit;
+  const basePrice = useAct ? n(f.actualSalePrice) : n(f.salePrice);
+  const items = useAct ? f.actualSellingCostItems || [] : f.sellingCostItems || [];
   const sellAt = (price) => sellingLines(price, items).reduce((t, l) => t + l.amount, 0);
   const adj = items.length ? (sale - basePrice) - (sellAt(sale) - sellAt(basePrice)) : sale - basePrice;
-  return { profit: Math.round(fp.effective + adj), profitBase: Math.round(fp.effective), profitSrc: fp.useActual ? "Actual" : "Projected", profitAdj: Math.round(adj) };
+  return { profit: Math.round(base + adj), profitBase: Math.round(base), profitSrc: useAct ? "Actual" : "Projected", profitAdj: Math.round(adj) };
 }
 
 // Every loan line on a deal, as [label, detail, amount] — Loans pop-up + breakdown.
@@ -483,7 +490,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
       {cur && pop.kind === "profit" && (
         <Sheet title="Profit" sub={`${String(cur.p.address || "").replace(/,.*$/, "")} · from the Financial Overview (${cur.profitSrc})`} isMobile={isMobile} onClose={() => setPop(null)}>
           <div style={{ ...rowS, borderTop: "none" }}><span>{cur.profitSrc} profit in the Financial Overview<span style={small}>the same number as on the property's Financial Overview</span></span><span style={{ fontVariantNumeric: "tabular-nums" }}>{money(cur.profitBase)}</span></div>
-          {cur.profitAdj !== 0 && <div style={rowS}><span>At this report's sale price<span style={small}>{money(cur.sale)} — the price difference less the selling costs it changes</span></span><span style={{ fontVariantNumeric: "tabular-nums", color: cur.profitAdj > 0 ? "#1E7B3C" : T.text }}>{cur.profitAdj > 0 ? "+" : ""}{money(cur.profitAdj)}</span></div>}
+          {cur.profitAdj !== 0 && <div style={rowS}><span>At this report's sale price<span style={small}>{money(cur.sale)} — the price difference less the selling costs it changes</span></span><span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: cur.profitAdj > 0 ? "#1E7B3C" : T.text }}>{cur.profitAdj > 0 ? "+" : ""}{money(cur.profitAdj)}</span></div>}
           <div style={{ ...totS, background: "#EAF7EE", color: "#1E7B3C" }}><span>Profit</span><span>{money(cur.profit)}</span></div>
           <div style={{ ...rowS, marginTop: 8 }}><span>Est. cash out<span style={small}>cash you walk away with at closing</span></span><span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, whiteSpace: "nowrap" }}>{money(cur.cash)}</span></div>
           <div style={rowS}><span>Difference (cash out − profit)<span style={small}>{cur.cash >= cur.profit ? "your own money (equity) coming back on top of the profit" : "less cash than profit — some of the profit already went out or is still owed"}</span></span><span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, whiteSpace: "nowrap" }}>{money(cur.cash - cur.profit)}</span></div>

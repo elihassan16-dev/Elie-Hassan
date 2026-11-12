@@ -192,3 +192,32 @@ test("connector text: every field shows, goal over/under, owner payoff called ou
   assert.match(under, /open bills \$2,500 \(Electrician \$2,500\)/);
   assert.match(sheet, /Contractor balances left \(reference — not counted/);
 });
+
+// Interest a lender has already been paid must not be charged again in his
+// payoff (Elie 11/12/26). BIL is paid monthly, so his 16 Falmouth payoff was
+// billing him ~$26k of interest he had already received.
+test("private-lender payoff drops interest already paid", () => {
+  const funded = "2026-04-20", close = "2026-12-19";
+  const draws = [{ id: 1, funderName: "BIL", amount: 308002, rate: 15, dateFunded: funded }];
+
+  // Paid nothing: charged in full, exactly as before.
+  const gross = privateLenderPayoff(draws, close)[0];
+  assert.ok(gross.interest > 25000, "full interest when nothing is settled");
+  assert.equal(Math.round(gross.total), Math.round(308002 + gross.interest));
+
+  // Squared up to date: only interest accrued since then is still owed.
+  const net = privateLenderPayoff(draws, close, { bil: 1 })[0];
+  const toToday = privateLenderPayoff(draws, new Date().toISOString().slice(0, 10))[0].interest;
+  assert.ok(net.interest < gross.interest, "settled interest comes off");
+  assert.ok(Math.abs(net.interest - (gross.interest - toToday)) < 1, "only interest since he was settled");
+  assert.equal(net.interestSettled, Math.round(toToday));
+  assert.equal(Math.round(net.grossInterest), Math.round(gross.interest));
+
+  // Half settled, and never negative.
+  const half = privateLenderPayoff(draws, close, { bil: 0.5 })[0];
+  assert.ok(half.interest > net.interest && half.interest < gross.interest);
+  assert.ok(privateLenderPayoff(draws, close, { bil: 1 })[0].interest >= 0);
+
+  // Another lender's name is untouched.
+  assert.equal(Math.round(privateLenderPayoff(draws, close, { someoneelse: 1 })[0].interest), Math.round(gross.interest));
+});

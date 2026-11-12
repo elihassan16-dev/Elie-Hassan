@@ -318,7 +318,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
                       <td style={mCell}><button onClick={edit} style={{ ...btn, textAlign: "right", color: r.p.coCloseDate ? "#8a6d1f" : T.textSub }}>{shortDate(r.close)}</button></td>
                       <td style={mCell}><button onClick={edit} style={{ ...btn, textAlign: "right", color: r.own ? "#8a6d1f" : T.text }}>{plain(r.sale)}</button></td>
                       <td style={mCell}><button onClick={open} style={{ ...btn, textAlign: "right", color: T.blue }}>{plain(r.cash - r.sale)}</button></td>
-                      <td style={mCell}><button onClick={open} style={{ ...btn, textAlign: "right", fontWeight: 800, color: r.cash < 0 ? T.red : "#8a6d1f" }}>{plain(r.cash)}</button></td>
+                      <td style={mCell}><button onClick={() => setPop({ kind: "cashsum", id: r.p.id })} style={{ ...btn, textAlign: "right", fontWeight: 800, color: r.cash < 0 ? T.red : "#8a6d1f" }}>{plain(r.cash)}</button></td>
                       <td style={{ ...mCell, paddingRight: 8 }}><button onClick={() => setPop({ kind: "profit", id: r.p.id })} style={{ ...btn, textAlign: "right", fontWeight: 700, color: r.profit < 0 ? T.red : "#1E7B3C" }}>{plain(r.profit)}</button></td>
                     </tr>
                   );
@@ -368,7 +368,7 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
                       <td style={cell}><button onClick={() => setPop({ kind: "loans", id: r.p.id })} style={tap}>{money(-r.loans)}</button></td>
                       <td style={{ ...cell, color: r.reserve > 0 ? "#1E7B3C" : T.textTert, fontWeight: r.reserve > 0 ? 600 : 400 }}>{r.reserve > 0 ? `+${money(r.reserve)}` : "$0"}</td>
                       <td style={cell}><button onClick={() => setPop({ kind: "bills", id: r.p.id })} style={{ ...tap, color: r.billsCount || r.ctrBills.length ? T.blue : T.textTert }}>{r.billsCount ? money(-r.billsTotal) : r.ctrBills.length ? "$0" : "＋ Add"}</button>{r.billsCount > 0 && <span style={sub}>{r.billsCount} bill{r.billsCount === 1 ? "" : "s"}</span>}</td>
-                      <td style={{ ...cell, fontWeight: 800, fontSize: 14, color: r.cash < 0 ? T.red : "#8a6d1f" }}>{money(r.cash)}</td>
+                      <td style={cell}><button onClick={() => setPop({ kind: "cashsum", id: r.p.id })} style={{ ...tap, fontWeight: 800, fontSize: 14, color: r.cash < 0 ? T.red : "#8a6d1f" }}>{money(r.cash)}</button></td>
                       <td style={cell}><button onClick={() => setPop({ kind: "profit", id: r.p.id })} style={{ ...tap, fontWeight: 700, fontSize: 13.5, color: r.profit < 0 ? T.red : "#1E7B3C" }}>{money(r.profit)}</button><span style={sub}>{r.profitSrc.toLowerCase()}</span></td>
                     </tr>
                   );
@@ -421,6 +421,27 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
           {cur.reserve > 0 && <div style={{ fontSize: 12.5, color: "#1E7B3C", marginTop: 8 }}>+{money(cur.reserve)} interest reserve comes back to you (shown in its own column).</div>}
         </Sheet>
       )}
+
+      {cur && pop.kind === "cashsum" && (() => {
+        // 💵 Est. cash out, consolidated (Elie 11/12/26): the same five numbers as the row.
+        const line = (label, sub, v, o = {}) => (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 0", borderTop: o.first ? "none" : `1px solid ${T.border}`, fontSize: 14 }}>
+            <span style={{ minWidth: 0 }}>{o.kind ? <button onClick={() => setPop({ kind: o.kind, id: cur.p.id })} style={{ ...tap, color: T.text, fontSize: 14, textDecoration: "none" }}>{label} <span style={{ color: T.textTert }}>›</span></button> : label}{sub && <span style={small}>{sub}</span>}</span>
+            <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", fontWeight: o.bold ? 700 : 500, color: v < 0 ? T.red : v > 0 && !o.bold ? "#1E7B3C" : T.text }}>{v < 0 ? "−" : o.plus && v > 0 ? "+" : ""}{money(Math.abs(v))}</span>
+          </div>
+        );
+        return (
+          <Sheet title="Est. cash out" sub={`${String(cur.p.address || "").replace(/,.*$/, "")} · closes ${mdy(cur.close)} (${cur.d} days)`} isMobile={isMobile} onClose={() => setPop(null)}>
+            {line("Sale price", cur.own ? "your price" : cur.baseSrc, cur.sale, { first: true, bold: true, kind: "deal" })}
+            {line("Selling costs", "commission, transfer tax, closing", -cur.selling, { kind: "sell" })}
+            {line("Loans + interest", `paid off at closing · interest to ${mdy(cur.close)}`, -cur.loans, { kind: "loans" })}
+            {cur.reserve > 0 && line("Interest reserve back", "left in the reserve — comes back to you", cur.reserve, { plus: true })}
+            {line("Open bills", `${cur.billsCount} bill${cur.billsCount === 1 ? "" : "s"} still owed`, -cur.billsTotal, { kind: "bills" })}
+            <div style={{ ...totS, color: cur.cash < 0 ? T.red : T.text }}><span>Est. cash out</span><span>{money(cur.cash)}</span></div>
+            <button onClick={() => setPop({ kind: "cash", id: cur.p.id })} style={{ ...tap, display: "block", margin: "12px auto 0", fontSize: 13, minHeight: 32 }}>See every line</button>
+          </Sheet>
+        );
+      })()}
 
       {cur && pop.kind === "cash" && (() => {
         const secHead = (label, total, editKind) => (

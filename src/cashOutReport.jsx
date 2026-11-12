@@ -29,7 +29,7 @@ import { useAuth } from "./auth/AuthProvider";
 import { Sheet } from "./platinum";
 import { printHtml } from "./pdfViewer";
 import { loanEntries, hardMoney, interestReserveLeft, creditLines, sellingCosts, sellingLines, closingDates, privateLenderPayoff } from "../lib/cashOut.js";
-import { drawsForProperty, funderStats, finProfit } from "../lib/dealMath.js";
+import { drawsForProperty, funderStats, finProfit, settledByLender } from "../lib/dealMath.js";
 import { useContractorData, jobTotal, jobPaid, jobPropertyOf } from "./contractors/data";
 import { qbAuthFetch } from "./net";
 
@@ -89,7 +89,7 @@ function paidInQb(line, rows) {
 }
 
 // One deal's whole analysis.
-function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultClose, ctr }) {
+function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultClose, ctr, settledFrac }) {
   const f = p.financials || {};
   const cal = closingDates(p).calendar;
   const close = p.coCloseDate || cal || defaultClose;
@@ -111,7 +111,7 @@ function analyse(p, { accounts, bankAccounts, spend, draws, src, today, defaultC
   const hm = hardMoney(p, accounts, bankAccounts);
   const d = days(today, close);
   const credit = creditLines(p, accounts, bankAccounts).filter((c) => c.rate > 0);
-  const lenders = privateLenderPayoff(drawsForProperty(p, draws), close);
+  const lenders = privateLenderPayoff(drawsForProperty(p, draws), close, settledFrac);
   const creditCounted = !lenders.length; // lenders linked → QuickBooks credit lines are the same money
   // A loan on the balance sheet whose balance IS a private lender's principal
   // (to the dollar — one lender, or all the remaining ones together) is that
@@ -173,7 +173,8 @@ function loanItems(cur) {
   if (cur.creditCounted) cur.credit.forEach((c) => items.push([`Line of credit — ${c.name.split(":").pop().trim()}`, "full principal paid at closing (no private-lender funding linked)", c.balance]));
   cur.floats.forEach((e) => items.push([`🌉 Float — ${e.name.replace(/^.* — floated until next draw — /, "").replace(/^Borrowed — /, "")}`, "your own money, paid back at closing · no interest", e.bal]));
   cur.lenders.forEach((l) => {
-    items.push([l.owner ? `${l.lender} — 0% loan` : `Private lender — ${l.lender}`, l.owner ? "principal paid back at closing, no interest" : `${money(l.principal)} + interest to closing @ ${Math.round(l.rate * 10000) / 100}%`, l.total]);
+    items.push([l.owner ? `${l.lender} — 0% loan` : `Private lender — ${l.lender}`, l.owner ? "principal paid back at closing, no interest" : `${money(l.principal)} + ${money(l.grossInterest != null ? l.grossInterest : l.interest)} interest to closing @ ${Math.round(l.rate * 10000) / 100}%`, l.total + (l.interestSettled || 0)]);
+    if (l.interestSettled > 0) items.push([`${l.lender} — interest you've already paid him`, "paid out as he went — not charged again at closing", -l.interestSettled]);
     if (l.credit) items.push([`${l.lender} — interest already paid ahead`, "his ledger shows interest owed below $0 — comes back to you", -l.credit]);
   });
   return items;
@@ -245,7 +246,10 @@ export function CashOutReport({ sharedProps, accounts, spend, requestSpend, canE
     return () => { alive = false; };
   }, [ctrKey]);
 
-  const ctx = { accounts, bankAccounts, spend, draws, src, today, defaultClose, ctr: { jobs: ctrJobs, orgs: ctrOrgs, props: sharedProps, qbTx } };
+  // Interest a lender has already been paid (BIL is paid monthly) is settled —
+  // it comes off his payoff instead of being charged a second time.
+  const settledFrac = settledByLender(funders, draws);
+  const ctx = { accounts, bankAccounts, spend, draws, src, today, defaultClose, settledFrac, ctr: { jobs: ctrJobs, orgs: ctrOrgs, props: sharedProps, qbTx } };
   const rows = list.map((p) => analyse(p, ctx));
   // A lender whose ledger shows interest owed BELOW zero was paid interest
   // ahead — that comes back off what we pay him at closing (Elie 10/30/26, BIL).

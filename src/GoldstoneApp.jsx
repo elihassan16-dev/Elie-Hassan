@@ -31,6 +31,7 @@ import { useContractorData, jobTotal as ctrJobTotal, jobPaid as ctrJobPaid, ctrJ
 import { useSpeechToText, micBtnStyle, micGlyph } from "./useSpeech";
 import { finProfit, openBillsCounted } from "../lib/dealMath.js";
 import { useOpenBills, syncOpenBills } from "./openBills";
+import { AddressAutocomplete } from "./addressAutocomplete";
 import { MicIcon, TeamChatIcon, SmsChatIcon, PhoneIcon, MailIcon, SearchIcon, SparkleIcon, GearIcon } from "./icons";
 import { MediaGallery, collectMedia } from "./MediaGallery";
 import { ReversePane, ReverseTextsList, rpCount, rpAgentForShowing, MlsPicker, MlsAccountsSheet, mlsIdsOf, useMlsList } from "./reverseProspect";
@@ -7185,8 +7186,8 @@ function NewLeadsPage(){
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               <div>
                 <div style={{fontSize:12,color:T.textSub,marginBottom:5,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>Property address</div>
-                <input style={iS} value={form.addr} onChange={e=>setForm(f=>({...f,addr:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addLead()} placeholder="123 Main St, Willingboro, NJ 08046" autoFocus/>
-                <div style={{fontSize:11,color:T.textTert,marginTop:5}}>Paste the whole thing — street, town, state and zip get split automatically.</div>
+                <AddressAutocomplete style={iS} value={form.addr} onChange={v=>setForm(f=>({...f,addr:v}))} onEnter={addLead} placeholder="Start typing — 123 Main St, Willingboro…" autoFocus/>
+                <div style={{fontSize:11,color:T.textTert,marginTop:5}}>Start typing and pick the address from the list (New Jersey first) — or paste the whole thing.</div>
               </div>
               {form.addr.trim()&&(()=>{const p=parseFullAddress(form.addr);return(
                 <div style={{fontSize:12,color:T.textSub,background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"7px 10px"}}>

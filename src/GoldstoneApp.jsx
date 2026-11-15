@@ -22392,45 +22392,47 @@ function PropertyEmails({property,onUpdate,isMobile}){
       <button onClick={()=>pinChain(c)} style={{padding:"6px 13px",borderRadius:20,background:suggested?T.gold:T.goldLight,border:suggested?"none":`1px solid ${T.gold}`,color:suggested?"#fff":T.gold,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0,minHeight:32}}>📌 Pin</button>
     </div>
   );
-  const pillBtn=(on)=>({flexShrink:0,minHeight:32,padding:"0 12px",borderRadius:16,border:"none",background:on?T.text:"rgba(118,118,128,0.12)",color:on?"#fff":T.text,fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
+  const pillBtn=(on)=>({flexShrink:0,height:32,padding:"0 12px",borderRadius:16,border:"1px solid rgba(0,0,0,0.05)",background:on?"#fff":"rgba(118,118,128,0.08)",boxShadow:on?"0 1px 4px rgba(0,0,0,0.14)":"none",color:on?T.gold:T.text,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:4});
   const avatar=(c,size)=>(<span style={{width:size,height:size,borderRadius:"50%",background:c.mine?c.catCfg.color:"#B0B4BA",color:"#fff",fontSize:size*0.36,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{mailInitials(c.title)}</span>);
 
   // ── Left: the list of chats ──
   const listPane=(
-    <div style={{display:"flex",flexDirection:"column",minHeight:0,height:"100%",background:isMobile?"transparent":"#FAFAFC",borderRight:isMobile?"none":`1px solid ${T.border}`}}>
-      <div style={{padding:isMobile?"0 0 8px":"14px 14px 8px",display:"flex",gap:8,alignItems:"center"}}>
+    <div style={{display:"flex",flexDirection:"column",minHeight:0,height:"100%",background:isMobile?"transparent":"#fff",borderRight:isMobile?"none":"1px solid rgba(0,0,0,0.08)"}}>
+      <div style={{padding:isMobile?"0 0 8px":"12px 12px 8px",display:"flex",gap:6,alignItems:"center"}}>
         <div style={{flex:1,position:"relative"}}>
           <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",fontSize:12.5,color:T.textTert}}>🔍</span>
-          <input value={listQ} onChange={e=>setListQ(e.target.value)} placeholder="Search emails, people…" style={{...iS,padding:"9px 12px 9px 32px",background:"rgba(118,118,128,0.10)",border:"none",borderRadius:10}}/>
+          <input value={listQ} onChange={e=>setListQ(e.target.value)} placeholder="Search" style={{...iS,height:34,padding:"0 10px 0 30px",background:"rgba(118,118,128,0.10)",border:"none",borderRadius:10,fontSize:13.5}}/>
         </div>
         {mail.signedIn
-          ?<><button onClick={()=>setComposeP({to:"",cc:"",subject:`${property.address||""}${property.city?`, ${property.city}`:""} — `,text:"",files:[]})} title="New email" style={{width:38,height:38,borderRadius:19,border:"none",background:T.gold,color:"#fff",fontSize:16,cursor:"pointer",flexShrink:0}}>✎</button>
-            <button onClick={()=>setPicker(true)} title="Pin an email to this property" style={{width:38,height:38,borderRadius:19,border:"none",background:"rgba(118,118,128,0.12)",fontSize:15,cursor:"pointer",flexShrink:0}}>📌</button></>
+          ?<><button onClick={()=>setComposeP({to:"",cc:"",subject:`${property.address||""}${property.city?`, ${property.city}`:""} — `,text:"",files:[]})} title="New email" style={{width:34,height:34,borderRadius:17,border:"none",background:T.gold,color:"#fff",fontSize:15,cursor:"pointer",flexShrink:0}}>✎</button>
+            <button onClick={()=>setPicker(true)} title="Pin an email to this property" style={{width:34,height:34,borderRadius:17,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",fontSize:13.5,cursor:"pointer",flexShrink:0}}>📌</button></>
           :<button onClick={()=>mail.signIn()} style={{minHeight:38,padding:"0 12px",borderRadius:19,border:`1px solid ${T.border}`,background:"#fff",color:T.blue,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Connect Outlook</button>}
       </div>
-      <div style={{display:"flex",gap:6,padding:isMobile?"0 0 10px":"0 14px 10px",overflowX:"auto",overflowY:"hidden",flexShrink:0}}>
-        <button onClick={()=>setMailFilter("all")} style={pillBtn(mailFilter==="all")}>All</button>
-        <button onClick={()=>setMailFilter("mine")} style={pillBtn(mailFilter==="mine")}>Mine</button>
-        {MAIL_CATS.filter(c=>counts[c.key]>0).map(c=><button key={c.key} onClick={()=>setMailFilter(c.key)} style={pillBtn(mailFilter===c.key)}>{c.key==="Quote"?"Quotes":c.key==="Legal"?"Attorney":c.name}</button>)}
+      <div style={{padding:isMobile?"0 0 10px":"0 12px 10px",flexShrink:0}}>
+        <div style={{...SEG_WRAP,maxWidth:"100%"}}>
+          {[["all","All"],["mine","Mine"],...MAIL_CATS.filter(c=>counts[c.key]>0).map(c=>[c.key,c.key==="Quote"?"Quotes":c.key==="Legal"?"Attorney":c.key==="Septic"?"Septic":c.name])].map(([k,l])=>(
+            <button key={k} onClick={()=>setMailFilter(k)} style={{...segTab(mailFilter===k),padding:"5px 11px",fontSize:12.5}}>{l}</button>
+          ))}
+        </div>
       </div>
-      <div style={{flex:1,overflowY:"auto",minHeight:0,background:isMobile?T.card:"transparent",borderRadius:isMobile?T.radius:0,border:isMobile?`1px solid ${T.border}`:"none"}}>
+      <div style={{flex:1,overflowY:"auto",minHeight:0,scrollbarWidth:"thin",background:isMobile?T.card:"transparent",borderRadius:isMobile?T.radius:0,border:isMobile?`1px solid ${T.border}`:"none",borderTop:isMobile?undefined:"1px solid rgba(0,0,0,0.06)"}}>
         {pinned.length===0&&<div style={{padding:"26px 18px",textAlign:"center",color:T.textTert,fontSize:13,lineHeight:1.5}}>No emails here yet. Tap 📌 to pin the email chains for this property — title, attorney, lender, septic — and each company becomes a chat.</div>}
         {pinned.length>0&&chats.length===0&&<div style={{padding:"18px 16px",fontSize:12.5,color:T.textTert}}>Nothing matches.</div>}
         {chats.map((c,i)=>{const on=!isMobile&&c.k===chatKey;const lp=c.latest;return(
-          <button key={c.k} onClick={()=>setChatKey(c.k)} style={{display:"flex",gap:11,alignItems:"flex-start",width:"100%",textAlign:"left",padding:"11px 14px",border:"none",borderTop:i?`1px solid ${T.border}`:"none",background:on?T.goldLight:"transparent",cursor:"pointer",fontFamily:"inherit",minHeight:64}}>
-            {avatar(c,42)}
+          <button key={c.k} onClick={()=>setChatKey(c.k)} style={{display:"flex",gap:10,alignItems:"flex-start",width:"100%",textAlign:"left",padding:"9px 12px",border:"none",borderTop:i?"1px solid rgba(0,0,0,0.06)":"none",background:on?"rgba(184,149,63,0.12)":"transparent",cursor:"pointer",fontFamily:"inherit",minHeight:58}}>
+            {avatar(c,36)}
             <span style={{flex:1,minWidth:0}}>
               <span style={{display:"flex",justifyContent:"space-between",gap:6,alignItems:"baseline"}}>
-                <b style={{fontSize:14.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.title}</b>
-                <span style={{fontSize:11.5,color:c.unread?T.gold:T.textTert,whiteSpace:"nowrap",fontWeight:c.unread?700:400}}>{mailWhen(lp.date)}</span>
+                <span style={{fontSize:13.5,fontWeight:650,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.title}</span>
+                <span style={{fontSize:11,color:c.unread?T.gold:T.textTert,whiteSpace:"nowrap",fontWeight:c.unread?700:400}}>{mailWhen(lp.date)}</span>
               </span>
               <span style={{display:"flex",gap:5,alignItems:"center",margin:"2px 0 2px"}}>
-                <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.03em",color:c.catCfg.color,background:c.catCfg.color+"1A",borderRadius:6,padding:"1px 6px",textTransform:"uppercase"}}>{c.cat==="Quote"?"Quotes":c.cat==="Legal"?"Attorney":c.catCfg.name}</span>
+                <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.02em",color:c.catCfg.color,background:c.catCfg.color+"18",borderRadius:5,padding:"0 5px",textTransform:"uppercase",lineHeight:"15px"}}>{c.cat==="Quote"?"Quotes":c.cat==="Legal"?"Attorney":c.catCfg.name}</span>
                 {!c.mine&&<span style={{fontSize:10,fontWeight:800,color:T.textSub,background:"#F1F1F4",borderRadius:6,padding:"1px 6px"}}>👁 {String(c.teamOwner).split(" ")[0]}'s email</span>}
                 {c.items.length>1&&<span style={{fontSize:10.5,color:T.textTert}}>{c.items.length} subjects</span>}
               </span>
               <span style={{display:"flex",justifyContent:"space-between",gap:6,alignItems:"center"}}>
-                <span style={{fontSize:12.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:c.unread?700:400}}>{lp.from?`${String(lp.from).split(" ")[0]}: `:""}{lp.preview||lp.subject||""}</span>
+                <span style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:c.unread?650:400}}>{lp.from?`${String(lp.from).split(" ")[0]}: `:""}{lp.preview||lp.subject||""}</span>
                 {c.unread>0&&<span style={{background:T.gold,color:"#fff",borderRadius:10,fontSize:11,fontWeight:800,padding:"1px 7px",flexShrink:0}}>{c.unread}</span>}
               </span>
             </span>
@@ -22445,14 +22447,14 @@ function PropertyEmails({property,onUpdate,isMobile}){
   const shown=onlyFiles?msgs.filter(m=>m.hasAtt||(m.atts&&m.atts.length)):msgs;
   const chatPane=chat&&(
     <div style={{display:"flex",flexDirection:"column",minHeight:0,height:"100%",background:"#fff"}}>
-      <div style={{padding:isMobile?"10px 12px":"12px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0,paddingTop:isMobile?"max(10px,env(safe-area-inset-top))":undefined}}>
+      <div style={{padding:isMobile?"max(10px,env(safe-area-inset-top)) 12px 10px":"10px 16px",minHeight:60,boxSizing:"border-box",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0,background:"#fff"}}>
         {isMobile&&<button onClick={()=>setChatKey(null)} style={{background:"none",border:"none",color:T.gold,fontSize:24,fontWeight:600,cursor:"pointer",padding:"0 6px 0 0",minHeight:44,lineHeight:1}}>‹</button>}
-        {avatar(chat,isMobile?34:38)}
+        {avatar(chat,isMobile?34:34)}
         <div style={{flex:1,minWidth:0}}>
           {renaming!=null
             ?<div style={{display:"flex",gap:6}}><input autoFocus value={renaming} onChange={e=>setRenaming(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveName();if(e.key==="Escape")setRenaming(null);}} placeholder={chat.auto} style={{flex:1,minWidth:0,padding:"6px 10px",borderRadius:8,border:`1.5px solid ${T.gold}`,fontSize:15,fontWeight:700,fontFamily:"inherit",outline:"none"}}/><button onClick={saveName} style={{...pillBtn(true),background:T.gold}}>Save</button></div>
-            :<button onClick={()=>setRenaming(chat.title)} title="Rename this chat" style={{background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:"inherit",textAlign:"left",maxWidth:"100%",display:"block"}}><b style={{fontSize:isMobile?15.5:16.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{chat.title} <span style={{fontSize:13,opacity:0.55}}>✏️</span></b></button>}
-          <div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{[...new Set(msgs.map(m=>m.fromName).filter(Boolean).map(n=>String(n).replace(/\s+via\s+.*/i,"")))].slice(0,5).join(" · ")||" "}</div>
+            :<button onClick={()=>setRenaming(chat.title)} title="Rename this chat" style={{background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:"inherit",textAlign:"left",maxWidth:"100%",display:"block"}}><span style={{fontSize:15,fontWeight:650,lineHeight:1.3,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{chat.title} <span style={{fontSize:12,color:T.textTert,fontWeight:400}}>✎</span></span></button>}
+          <div style={{fontSize:11.5,lineHeight:1.35,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[...new Set(msgs.map(m=>m.fromName).filter(Boolean).map(n=>String(n).replace(/\s+via\s+.*/i,"")))].slice(0,5).join(" · ")||(loading?"Loading…":`${chat.items.length} subject${chat.items.length>1?"s":""}`)}</div>
         </div>
         {msgs.some(m=>m.hasAtt||(m.atts&&m.atts.length))&&<button onClick={()=>setOnlyFiles(v=>!v)} style={pillBtn(onlyFiles)}>📎{isMobile?"":onlyFiles?" All messages":" Files"}</button>}
         {!isMobile&&mail.signedIn&&<button onClick={newEmail} title="Start a new email (new subject)" style={pillBtn(false)}>✉️ New</button>}
@@ -22475,7 +22477,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
               {showSubj&&<div style={{alignSelf:"center",maxWidth:"86%",fontSize:11.5,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,padding:"4px 10px",color:T.textSub,margin:"4px 0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>✉️ {m.subject||m.pin.subject||"(no subject)"}</div>}
               {!ours&&<div style={{fontSize:11,color:T.textTert,margin:"6px 0 1px 4px"}}>{String(m.fromName||"").replace(/\s+via\s+.*/i,"")} · {mailTime(m.at)}</div>}
               <div style={{display:"flex",alignItems:"center",gap:6,alignSelf:ours?"flex-end":"flex-start",maxWidth:isMobile?"88%":"72%",width:isFull?(isMobile?"88%":"72%"):undefined}}>
-                <div style={{background:ours?"#F3E8C8":"#fff",border:`1px solid ${isTarget?T.gold:ours?"#E8D9AC":T.border}`,borderRadius:18,padding:isFull?"4px":"9px 13px",fontSize:14,lineHeight:1.42,color:T.text,minWidth:0,flex:isFull?1:undefined,boxShadow:isTarget?`0 0 0 2px ${T.gold}55`:"none"}}>
+                <div style={{background:ours?"#F3E8C8":"#fff",border:`1px solid ${isTarget?T.gold:ours?"#E8D9AC":T.border}`,borderRadius:18,padding:isFull?"4px":"8px 12px",fontSize:isMobile?14:13.5,lineHeight:1.42,color:T.text,minWidth:0,flex:isFull?1:undefined,boxShadow:isTarget?`0 0 0 2px ${T.gold}55`:"none"}}>
                   {isFull
                     ?<div style={{borderRadius:14,overflow:"hidden",background:"#fff"}}><MailBody message={m.raw} mail={m.team?null:mail} trimQuote/></div>
                     :<div style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{m.summary?<span style={{color:T.textSub}}>{m.text||"(couldn't open this email)"}</span>:(long?m.text.slice(0,600).replace(/\s+\S*$/,"")+"…":m.text||<span style={{color:T.textTert}}>(no text — see the attachment)</span>)}</div>}
@@ -22498,8 +22500,8 @@ function PropertyEmails({property,onUpdate,isMobile}){
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",fontSize:12,color:T.textSub,marginBottom:7}}>
             {isMobile
               ?<select value={draft.mode} onChange={e=>setDraft(d=>({...d,mode:e.target.value}))} style={{minHeight:30,borderRadius:15,border:"none",background:T.text,color:"#fff",fontWeight:700,fontSize:12.5,padding:"0 10px",fontFamily:"inherit"}}><option value="all">↩ Reply all</option><option value="one">↩ Reply</option><option value="fwd">→ Forward</option></select>
-              :<span style={{display:"inline-flex",background:"rgba(118,118,128,0.12)",borderRadius:16,padding:2}}>
-              {[["all","↩ Reply all"],["one","↩ Reply"],["fwd","→ Forward"]].map(([k,l])=><button key={k} onClick={()=>setDraft(d=>({...d,mode:k}))} style={{minHeight:28,padding:"0 10px",borderRadius:14,border:"none",background:draft.mode===k?"#fff":"transparent",boxShadow:draft.mode===k?"0 1px 3px rgba(0,0,0,0.12)":"none",color:T.text,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>)}
+              :<span style={{...SEG_WRAP,padding:2}}>
+              {[["all","↩ Reply all"],["one","↩ Reply"],["fwd","→ Forward"]].map(([k,l])=><button key={k} onClick={()=>setDraft(d=>({...d,mode:k}))} style={{...segTab(draft.mode===k),padding:"4px 10px",fontSize:12}}>{l}</button>)}
             </span>}
             {draft.mode!=="fwd"&&isMobile&&<span style={{background:"rgba(118,118,128,0.12)",borderRadius:12,padding:"3px 10px",color:T.text,fontWeight:600}}>{[...recips.to,...recips.cc].length?`${rName([...recips.to,...recips.cc][0])}${[...recips.to,...recips.cc].length>1?` +${[...recips.to,...recips.cc].length-1}`:""}`:"—"}</span>}
             {draft.mode!=="fwd"&&!isMobile&&<>
@@ -22534,8 +22536,8 @@ function PropertyEmails({property,onUpdate,isMobile}){
     <div style={{padding:isMobile?"14px":"16px 20px"}}>
       {isMobile
         ? listPane
-        : <div style={{display:"flex",height:"calc(100vh - 250px)",minHeight:540,background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden"}}>
-            <div style={{width:330,flexShrink:0,minHeight:0}}>{listPane}</div>
+        : <div style={{display:"flex",height:"calc(100vh - 230px)",minHeight:520,background:"#fff",borderRadius:T.radius,boxShadow:T.shadow,border:"1px solid rgba(0,0,0,0.06)",overflow:"hidden"}}>
+            <div style={{width:300,flexShrink:0,minHeight:0}}>{listPane}</div>
             <div style={{flex:1,minWidth:0,minHeight:0}}>{chatPane||<div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:T.textTert,fontSize:14,background:"#F5F5F7"}}>{pinned.length?"Pick a chat":"Pin an email to start"}</div>}</div>
           </div>}
       {isMobile&&chatPane&&createPortal(<div style={{position:"fixed",inset:0,zIndex:240,background:"#fff",display:"flex",flexDirection:"column"}}>{chatPane}</div>,document.body)}

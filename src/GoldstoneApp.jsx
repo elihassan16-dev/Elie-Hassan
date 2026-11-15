@@ -22076,7 +22076,10 @@ const mailPlain=(m)=>{
   h=stripQuotedReply(h).replace(/<(style|script|head|title)[\s\S]*?<\/\1>/gi,"").replace(/<br\s*\/?>/gi,"\n").replace(/<\/(p|div|li|tr|h\d|table)>/gi,"\n").replace(/<[^>]+>/g,"");
   let out=h;
   try{const ta=document.createElement("textarea");ta.innerHTML=h;out=ta.value;}catch{/* keep */}
-  return out.replace(/ /g," ").replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
+  return out.replace(/ /g," ")
+    .replace(/^\s*You don.t often get email from [^\n]*$/im,"")
+    .replace(/^\s*CAUTION: This (e-?mail|message) originated from outside[^\n]*$/im,"")
+    .replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
 };
 const MAIL_OURS_DOMAIN="@goldstonepropertiesnj.com";
 const mailInitials=(n)=>String(n||"?").replace(/[^A-Za-z0-9 ]/g," ").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"✉";
@@ -22455,7 +22458,8 @@ function PropertyEmails({property,onUpdate,isMobile}){
         {!isMobile&&mail.signedIn&&<button onClick={newEmail} title="Start a new email (new subject)" style={pillBtn(false)}>✉️ New</button>}
         <button onClick={()=>setChainsOpen(true)} title="Subjects in this chat" style={{...pillBtn(false),width:36,padding:0}}>•••</button>
       </div>
-      <div ref={scrollRef} style={{flex:1,overflowY:"auto",minHeight:0,background:"#F5F5F7",padding:isMobile?"10px 12px":"14px 20px",display:"flex",flexDirection:"column",gap:4}}>
+      <div ref={scrollRef} style={{flex:1,overflowY:"auto",minHeight:0,background:"#F5F5F7"}}>
+      <div style={{padding:isMobile?"10px 12px":"14px 20px",display:"flex",flexDirection:"column",gap:4}}>
         {loading&&<div style={{alignSelf:"center",fontSize:12,color:T.textTert,padding:8}}>Loading the emails…</div>}
         {onlyFiles&&<div style={{alignSelf:"center",fontSize:11.5,color:T.textSub,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,padding:"4px 10px",margin:"2px 0 6px"}}>📎 Only emails with files · <button onClick={()=>setOnlyFiles(false)} style={{background:"none",border:"none",color:T.blue,fontWeight:700,cursor:"pointer",padding:0,fontFamily:"inherit",fontSize:11.5}}>Show all</button></div>}
         {shown.map(m=>{
@@ -22463,7 +22467,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
           const day=mailDay(m.at);const showDay=day!==lastDay;lastDay=day;
           const showSubj=m.pin.id!==lastPin;lastPin=m.pin.id;
           const isTarget=target&&m.id===target.id&&draft.targetId;
-          const long=m.text.length>650;
+          const long=false; // Elie 11/15/26: always the whole email
           const isFull=!!full[m.id];
           return(
             <Fragment key={m.id}>
@@ -22475,7 +22479,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
                   {isFull
                     ?<div style={{borderRadius:14,overflow:"hidden",background:"#fff"}}><MailBody message={m.raw} mail={m.team?null:mail} trimQuote/></div>
                     :<div style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{m.summary?<span style={{color:T.textSub}}>{m.text||"(couldn't open this email)"}</span>:(long?m.text.slice(0,600).replace(/\s+\S*$/,"")+"…":m.text||<span style={{color:T.textTert}}>(no text — see the attachment)</span>)}</div>}
-                  {!m.summary&&(isFull||long||!isMobile)&&<button onClick={()=>setFull(f=>({...f,[m.id]:!isFull}))} style={{display:"block",background:"none",border:"none",color:isFull||long?"#8a6d1f":T.textTert,fontWeight:isFull||long?700:500,fontSize:isFull||long?12.5:11.5,cursor:"pointer",padding:isFull?"6px 10px 4px":"4px 0 0",fontFamily:"inherit"}}>{isFull?"Show less ▴":long?"Show full email ▾":"View original"}</button>}
+                  {!m.summary&&<button onClick={()=>setFull(f=>({...f,[m.id]:!isFull}))} style={{display:"block",background:"none",border:"none",color:isFull||long?"#8a6d1f":T.textTert,fontWeight:isFull||long?700:500,fontSize:isFull||long?12.5:11.5,cursor:"pointer",padding:isFull?"6px 10px 4px":"4px 0 0",fontFamily:"inherit"}}>{isFull?"Show less ▴":long?"Show full email ▾":"View original"}</button>}
                 </div>
                 {!ours&&!m.team&&!m.summary&&<button onClick={()=>setDraft(d=>({...d,targetId:m.id,mode:d.mode==="fwd"?"all":d.mode}))} title="Reply to this email" style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontSize:13,cursor:"pointer",flexShrink:0,padding:0}}>↩</button>}
               </div>
@@ -22485,6 +22489,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
           );
         })}
         {!loading&&!shown.length&&<div style={{alignSelf:"center",fontSize:12.5,color:T.textTert,padding:20}}>No emails to show.</div>}
+      </div>
       </div>
       {/* Typing box — sends a REAL email reply into the same thread */}
       {teamBox

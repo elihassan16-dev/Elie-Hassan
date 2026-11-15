@@ -30,6 +30,14 @@ export function groupChains(items) {
 // Outlook / Microsoft 365 mail via Microsoft Graph — reuses the same MSAL sign-in
 // as the Files tab, just with Mail.Read + Mail.Send delegated scopes. Everything
 // is the SIGNED-IN user's own mailbox (/me), so each teammate sees their own email.
+// ✍️ The signed-in teammate's email signature (Elie 11/15/26) — Microsoft
+// doesn't let apps read Outlook signatures, so the app keeps its own copy
+// (prefs.mailSig, set in the shell) and adds it to every email sent from here.
+let MAIL_SIG = "";
+export const setMailSignature = (html) => { MAIL_SIG = String(html || ""); };
+export const withSignature = (html) => (MAIL_SIG && !/data-gs-sig/.test(String(html || ""))
+  ? `${html || ""}<br><div data-gs-sig="1">${MAIL_SIG}</div>` : (html || ""));
+
 export function useOutlookMail() {
   const [ready, setReady] = useState(false);
   const [account, setAccount] = useState(null);
@@ -302,7 +310,8 @@ export function useOutlookMail() {
   // the recipients AND flagged as Outlook mentions). With mentions we go through a
   // draft (createReply → set body/recipients/mentions → send) so the flag sticks;
   // without, the simple reply action is enough.
-  const reply = useCallback(async (id, html, all = false, cc = "", mentions = [], files = []) => {
+  const reply = useCallback(async (id, html0, all = false, cc = "", mentions = [], files = []) => {
+    const html = withSignature(html0);
     const ccList = parseRecipients(cc);
     const mentionObjs = buildMentions(mentions);
     if (mentionObjs.length === 0 && !(files && files.length)) {
@@ -330,7 +339,8 @@ export function useOutlookMail() {
   // Forward a message. Plain forwards use the one-shot Graph action; a Cc or new
   // attachments need the draft path (createForward → patch → attach → send), which
   // also carries the original message's own attachments along automatically.
-  const forward = useCallback(async (id, { to, cc = "", html = "", files = [] } = {}) => {
+  const forward = useCallback(async (id, { to, cc = "", html: html0 = "", files = [] } = {}) => {
+    const html = withSignature(html0);
     const toList = parseRecipients(to);
     if (!toList.length) throw new Error("Add at least one recipient to forward to.");
     const ccList = parseRecipients(cc);
@@ -347,7 +357,8 @@ export function useOutlookMail() {
 
   // Compose & send a brand-new message. `mentions` [{name,address}] are @-mentioned;
   // `bcc` and `files` (File objects to attach) are optional.
-  const sendNew = useCallback(async ({ to, cc, bcc, subject, html, mentions = [], files = [] }) => {
+  const sendNew = useCallback(async ({ to, cc, bcc, subject, html: html0, mentions = [], files = [] }) => {
+    const html = withSignature(html0);
     const mentionObjs = buildMentions(mentions);
     const toSet = parseRecipients(to);
     const have = new Set(toSet.map((r) => (r.emailAddress && r.emailAddress.address || "").toLowerCase()));
@@ -376,5 +387,11 @@ export function useOutlookMail() {
     });
   }, [graph, addAttachments]);
 
-  return { ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, getAttachmentBlob, getInlineImages, searchPeople, conversationUnread, markRead, markUnread, markConversationRead, reply, forward, sendNew };
+  // The newest sent emails with their bodies — the signature finder reads these.
+  const sentBodies = useCallback(async (n = 8) => {
+    const d = await graph(`/me/mailFolders/sentitems/messages?$top=${n}&$orderby=sentDateTime desc&$select=id,body,sentDateTime,hasAttachments`);
+    return d.value || [];
+  }, [graph]);
+
+  return { sentBodies, ready, account, signedIn: !!account, signIn, signOut, listChains, fetchInbox, searchMail, getConversation, findByInternetId, getAttachments, getAttachmentBlob, getInlineImages, searchPeople, conversationUnread, markRead, markUnread, markConversationRead, reply, forward, sendNew };
 }

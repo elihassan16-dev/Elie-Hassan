@@ -4,7 +4,8 @@ import { createPortal } from "react-dom";
 import { useData } from "./data/DataProvider";
 import { useAuth } from "./auth/AuthProvider";
 import { useOneDrive } from "./onedrive/useOneDrive";
-import { useOutlookMail, groupChains } from "./outlook/useOutlookMail";
+import { useOutlookMail, groupChains, setMailSignature } from "./outlook/useOutlookMail";
+import { MailSignatureSheet } from "./mailSignature";
 import { forceUpdate } from "./autoUpdate";
 import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
@@ -22060,18 +22061,93 @@ function useEmailAiTags(){
     })();
   },[sharedProps]); // eslint-disable-line react-hooks/exhaustive-deps
 }
+// ─── 💬 Property emails as CHATS (Elie approved the mockup 11/15/26) ─────────
+// One chat per party (the AI "who is this with" grouping, renameable per
+// property in p.mailChatNames[key]); every chain with them merged oldest →
+// newest as bubbles (theirs left, ours right), each subject change marked,
+// attachments as cards, long emails cut to a few lines with "Show full email".
+// Replies are REAL replies to the exact email (same thread on their end); ↩ on
+// any bubble targets that email, the default is the newest one. Chains living
+// in a teammate's mailbox are read-only (👁). Desktop = list + chat side by
+// side; phones = list, then the chat full screen.
+const mailPlain=(m)=>{
+  const b=(m&&m.body)||{};
+  let h=b.contentType==="text"?mailEsc(b.content||""):String(b.content||"");
+  h=stripQuotedReply(h).replace(/<(style|script|head|title)[\s\S]*?<\/\1>/gi,"").replace(/<br\s*\/?>/gi,"\n").replace(/<\/(p|div|li|tr|h\d|table)>/gi,"\n").replace(/<[^>]+>/g,"");
+  let out=h;
+  try{const ta=document.createElement("textarea");ta.innerHTML=h;out=ta.value;}catch{/* keep */}
+  return out.replace(/ /g," ").replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
+};
+const MAIL_OURS_DOMAIN="@goldstonepropertiesnj.com";
+const mailInitials=(n)=>String(n||"?").replace(/[^A-Za-z0-9 ]/g," ").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"✉";
+const mailDay=(iso)=>{try{const d=new Date(iso),now=new Date();const y=new Date(now);y.setDate(now.getDate()-1);if(d.toDateString()===now.toDateString())return "Today";if(d.toDateString()===y.toDateString())return "Yesterday";return d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric",...(d.getFullYear()!==now.getFullYear()?{year:"numeric"}:{})});}catch{return "";}};
+const mailTime=(iso)=>{try{return new Date(iso).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});}catch{return "";}};
+
+// Attachment cards under a bubble. Mine = from my mailbox (open + save to the
+// property's Files); team = a teammate's mailbox (open only).
+function ChatMailAtts({msg,mail,od,folder,ours}){
+  const[atts,setAtts]=useState(msg.team?(msg.atts||[]):null);
+  const[busy,setBusy]=useState("");
+  const[saved,setSaved]=useState({});
+  useEffect(()=>{
+    if(msg.team||!msg.hasAtt)return;let alive=true;
+    mail.getAttachments(msg.id).then(a=>{if(alive)setAtts(a||[]);}).catch(()=>{if(alive)setAtts([]);});
+    return ()=>{alive=false;};
+  },[msg.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  if(!atts||!atts.length)return null;
+  const isRef=(a)=>a["@odata.type"]==="#microsoft.graph.referenceAttachment";
+  const fileOf=async(a)=>{
+    if(msg.team){
+      const r=await qbAuthFetch("/api/email/thread",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({attachment:{mbi:msg.mbi,messageId:msg.id,id:a.id}})});
+      return base64ToFile(r.base64||"",r.name||a.name,r.contentType||a.contentType);
+    }
+    const blob=await mail.getAttachmentBlob(msg.id,a.id);
+    return new File([blob],a.name||"attachment",{type:a.contentType||blob.type||"application/octet-stream"});
+  };
+  const open=(a)=>{
+    if(isRef(a)){if(a.sourceUrl)window.open(a.sourceUrl,"_blank");return;}
+    if(/pdf/i.test(a.contentType||"")||/\.pdf$/i.test(a.name||"")){showPdf(()=>fileOf(a),{title:a.name||"Attachment",subtitle:msg.fromName||""});return;}
+    setBusy(a.id);
+    fileOf(a).then(f=>openFile(f,{title:a.name})).catch(e=>window.alert(e.message||"Couldn't open that file.")).finally(()=>setBusy(""));
+  };
+  const save=async(a)=>{
+    if(!folder||!folder.driveId||!folder.id){window.alert("Connect this property's Files folder first (Files tab).");return;}
+    setSaved(s=>({...s,[a.id]:"…"}));
+    try{const f=await fileOf(a);await od.uploadFile(folder.driveId,folder.id,f);setSaved(s=>({...s,[a.id]:"✓"}));}
+    catch(e){setSaved(s=>({...s,[a.id]:""}));window.alert("Couldn't save to Files: "+(e.message||"error"));}
+  };
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:5,alignItems:ours?"flex-end":"flex-start",marginTop:5}}>
+      {atts.map(a=>{
+        const ext=(String(a.name||"").split(".").pop()||"").toUpperCase().slice(0,4);
+        const pdf=/pdf/i.test(a.contentType||"")||ext==="PDF";
+        const img=/image/i.test(a.contentType||"");
+        return(
+          <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,maxWidth:"min(320px,88%)",background:"#fff",border:`1px solid ${T.border}`,borderRadius:14,padding:"8px 10px"}}>
+            <button onClick={()=>open(a)} style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1,background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:"inherit",textAlign:"left",minHeight:40}}>
+              <span style={{width:32,height:40,borderRadius:5,background:pdf?"#E5484D":img?"#1D6FB8":"#8E8E93",color:"#fff",fontSize:9.5,fontWeight:800,display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:5,flexShrink:0}}>{isRef(a)?"LINK":(ext||"FILE")}</span>
+              <span style={{minWidth:0}}>
+                <span style={{display:"block",fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name||"attachment"}</span>
+                <span style={{display:"block",fontSize:11,color:T.textTert}}>{busy===a.id?"Opening…":`${a.size?fmtBytes(a.size)+" · ":""}tap to open`}</span>
+              </span>
+            </button>
+            {!msg.team&&!isRef(a)&&<button onClick={()=>save(a)} title="Save to the property's Files" style={{flexShrink:0,minWidth:36,height:32,borderRadius:16,border:`1px solid ${T.border}`,background:"#fff",color:saved[a.id]==="✓"?"#1E7B3C":T.textSub,fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"0 8px"}}>{saved[a.id]||"⤓ Files"}</button>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PropertyEmails({property,onUpdate,isMobile}){
   const mail=useOutlookMail();
   const od=useOneDrive();
-  const{contacts}=useData()||{};
+  const{prefs}=useAuth()||{};
   const appPeople=useMailPeople(); // contacts book + everyone from pinned chains
-  const filesFolder=property.filesFolder||null; // OneDrive/SharePoint folder for this property's Files
+  const filesFolder=property.filesFolder||null;
   const pinned=property.pinnedEmails||[];
-  // One row per PARTY (Elie's rule): the AI names who a chain is really with
-  // ("ICD Connected" — through e-sign relays, support desks, employees), and
-  // every chain with that party rolls into one row no matter the bucket. An
-  // untagged pin borrows the party of a tagged pin from the same sender;
-  // otherwise the sender-key fallback keeps today's behavior.
+  // One chat per PARTY (Elie's rule): the AI names who a chain is really with;
+  // an untagged pin borrows the party of a tagged pin from the same sender.
   const partyKeyOf=(p)=>{
     const pk=(x)=>"p:"+String(x).toLowerCase().replace(/[^a-z0-9]/g,"");
     if(p.ai&&p.ai.party)return pk(p.ai.party);
@@ -22083,36 +22159,31 @@ function PropertyEmails({property,onUpdate,isMobile}){
   const[chains,setChains]=useState(null);
   const[pickErr,setPickErr]=useState("");
   const[q,setQ]=useState("");
-  const[viewer,setViewer]=useState(null);      // pinned email being opened
-  const[viewMsgs,setViewMsgs]=useState(null);   // resolved thread messages (or [] if not in mailbox)
-  const[vExpanded,setVExpanded]=useState({});   // message id -> open (latest opens by default)
-  const[vReply,setVReply]=useState(null);       // {all, text, cc}
-  const[vSending,setVSending]=useState(false);
+  const[listQ,setListQ]=useState("");
   const[unreadMap,setUnreadMap]=useState({});   // pin id -> unread message count
-  const[inBox,setInBox]=useState({});           // pin id -> lives in MY mailbox? (false = teammate's)
-  const[mailFilter,setMailFilter]=useState("all"); // all | mine | a MAIL_CATS key
-  const[teamView,setTeamView]=useState(null);   // teammate's pin being viewed read-only
-  const[teamMsgs,setTeamMsgs]=useState(null);
-  const[teamFrom,setTeamFrom]=useState("");
-  const[teamMbi,setTeamMbi]=useState(null);     // which team mailbox the thread came from (for 📎)
-  const[attBusy,setAttBusy]=useState("");       // attachment id being opened
-  // 📎 Open an attachment from a teammate's mailbox — PDFs in the in-app viewer,
-  // everything else opens / downloads (view only, Elie 11/11/26).
-  const openTeamAtt=(m,a)=>{
-    const get=async()=>{
-      const r=await qbAuthFetch("/api/email/thread",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({attachment:{mbi:teamMbi,messageId:m.id,id:a.id}})});
-      const bin=atob(r.base64||"");const u8=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);
-      return new File([u8],r.name||a.name||"attachment",{type:r.contentType||a.contentType||"application/octet-stream"});
-    };
-    if(/pdf/i.test(a.contentType||"")||/\.pdf$/i.test(a.name||"")){showPdf(get,{title:a.name||"Attachment",subtitle:m.from||""});return;}
-    setAttBusy(a.id);
-    get().then(f=>openFile(f,{title:a.name})).catch(e=>window.alert(e.message||"Couldn't open that attachment.")).finally(()=>setAttBusy(""));
-  };
-  const[senderOpen,setSenderOpen]=useState(null); // sender-group key whose page is open
-  // ✉️ Start a NEW email chain about this property: subject pre-filled with the
-  // address (add "— septic" etc.), To/Cc with autocomplete; after sending, the
-  // chain is found in Sent Items and pinned here automatically.
+  const[inBox,setInBox]=useState({});           // pin id -> lives in MY mailbox?
+  const[mailFilter,setMailFilter]=useState("all");
+  const[chatKey,setChatKey]=useState(null);
+  const[threads,setThreads]=useState({});       // pin id -> {state, src, mailbox, mbi, msgs}
+  const[full,setFull]=useState({});             // msg id -> show the whole email
+  const[onlyFiles,setOnlyFiles]=useState(false);
+  const blankDraft={mode:"all",text:"",cc:"",to:"",files:[],mentions:[],targetId:null,showCc:false};
+  const[draft,setDraft]=useState(blankDraft);
+  const[sending,setSending]=useState(false);
+  const[renaming,setRenaming]=useState(null);   // text while renaming the open chat
+  const[chainsOpen,setChainsOpen]=useState(false);
+  const[sigOpen,setSigOpen]=useState(false);
+  const[labelPin,setLabelPin]=useState(null);
+  const scrollRef=useRef(null);
+  const fileRef=useRef(null);
+  const pinKey=pinned.map(p=>p.id).join(",");
+  const me=String(mail.account?.username||"").toLowerCase();
+  const isOurs=(addr)=>{const a=String(addr||"").toLowerCase();return !!a&&(a===me||a.endsWith(MAIL_OURS_DOMAIN));};
+
+  // ✉️ Start a NEW email (new subject): To/Cc with autocomplete, subject starts
+  // with the address; after sending, the chain is found in Sent Items + pinned.
   const[composeP,setComposeP]=useState(null); // {to,cc,subject,text,files,sending,err}
+  const savePinned=(next)=>{onUpdate(property.id,"pinnedEmails",next);};
   const sendComposeP=async()=>{
     const c=composeP;if(!c||!c.to.trim()||c.sending)return;
     const subject=(c.subject||"").trim().replace(/\s*[—-]\s*$/,"")||`${property.address||""}${property.city?`, ${property.city}`:""}`;
@@ -22120,7 +22191,6 @@ function PropertyEmails({property,onUpdate,isMobile}){
     try{
       await mail.sendNew({to:c.to,cc:c.cc||"",subject,html:`<div>${mailEsc(c.text||"").replace(/\n/g,"<br>")}</div>`,files:c.files||[]});
       setComposeP(null);
-      // Pin the new chain (retry a few times — Sent Items can lag a moment).
       (async()=>{
         for(const wait of[1500,3500,7000]){
           await new Promise(r=>setTimeout(r,wait));
@@ -22130,7 +22200,9 @@ function PropertyEmails({property,onUpdate,isMobile}){
             if(hit){
               if(!(property.pinnedEmails||[]).some(pe=>(pe.internetMessageId&&pe.internetMessageId===hit.latest.internetMessageId)||pe.conversationId===hit.key)){
                 const note=autoMailLabel({subject,bodyPreview:c.text||""});
-                savePinned([...(property.pinnedEmails||[]),{...buildEmailPin(hit),...(note?{label:{kind:"general",note}}:{})}]);
+                // Filed under the chat it was written from (same party key).
+                const party=c.party?{ai:{cat:note||"Other",desc:"",party:c.party}}:{};
+                savePinned([...(property.pinnedEmails||[]),{...buildEmailPin(hit),...(note?{label:{kind:"general",note}}:{}),...party}]);
               }
               return;
             }
@@ -22139,26 +22211,17 @@ function PropertyEmails({property,onUpdate,isMobile}){
       })();
     }catch(e){setComposeP({...c,sending:false,err:e.message||"Couldn't send."});}
   };
-  const vScrollRef=useRef(null);
-  const pinKey=pinned.map(p=>p.id).join(",");
 
-  // Show an unread dot on each pinned chain that has unread messages in my
-  // mailbox — and remember whether each chain IS in my mailbox at all (that's
-  // what decides open-and-reply vs the read-only 👁 view).
+  // Unread counts + whether each chain is in MY mailbox (reply) or a teammate's (👁).
   useEffect(()=>{
     if(!mail.signedIn||pinned.length===0)return;let alive=true;
-    // All pins checked in parallel, applied in ONE state update at the end —
-    // applying per-pin re-sorted and re-shaded the rows as each answer landed,
-    // which read as constant blinking on logins with many teammate chains.
     (async()=>{
       const un={},inb={};
       await Promise.all(pinned.map(async(p)=>{
-        let convId=p.conversationId;
-        let hit=null;
+        let convId=p.conversationId,hit=null;
         if(p.internetMessageId){try{hit=await mail.findByInternetId(p.internetMessageId);if(hit)convId=hit.conversationId;}catch{/* keep stored */}}
         const n=await mail.conversationUnread(convId);
         un[p.id]=n;
-        // Older pins without a Message-ID stay "mine" (legacy open behavior).
         inb[p.id]=p.internetMessageId?(!!hit||n>0):true;
       }));
       if(!alive)return;
@@ -22166,31 +22229,17 @@ function PropertyEmails({property,onUpdate,isMobile}){
       setInBox(m=>({...m,...inb}));
     })();
     return ()=>{alive=false;};
-  },[mail.signedIn,pinKey,viewer]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[mail.signedIn,pinKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 👁 Read-only view of a chain that lives in a teammate's mailbox — the
-  // server finds it via the app's Mail.Read permission. View only, no reply.
-  const openTeamView=(p)=>{
-    setTeamView(p);setTeamMsgs(null);setTeamFrom("");setTeamMbi(null);
-    qbAuthFetch("/api/email/thread",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({internetMessageId:p.internetMessageId||"",conversationId:p.conversationId||""})})
-      .then(r=>{setTeamMsgs((r&&r.messages)||[]);setTeamFrom((r&&r.mailbox)||"");setTeamMbi(r&&r.mbi!=null?r.mbi:null);})
-      .catch(()=>setTeamMsgs([]));
-  };
-
-  const savePinned=(next)=>{onUpdate(property.id,"pinnedEmails",next);};
   const pinChain=(c)=>{const m=c.latest;if(pinned.some(p=>p.internetMessageId&&p.internetMessageId===m.internetMessageId))return;
     savePinned([...pinned,{id:Date.now()+"_"+Math.round(Math.random()*1e6),conversationId:c.key,internetMessageId:m.internetMessageId||"",subject:m.subject||"",from:mailAddr(m.from),fromAddr:m.from?.emailAddress?.address||"",date:m.receivedDateTime||"",preview:m.bodyPreview||""}]);};
-  // Unpinning also remembers the chain in autoPinSkip so the auto matcher
-  // never pins it back (applies to hand pins too — an unpin means "not here").
   const unpin=(id)=>{
     const pe=pinned.find(p=>p.id===id);
     savePinned(pinned.filter(p=>p.id!==id));
     if(pe)onUpdate(property.id,"autoPinSkip",[...new Set([...(property.autoPinSkip||[]),...[pe.conversationId,pe.internetMessageId].filter(Boolean)])].slice(-500));
   };
-  const[labelPin,setLabelPin]=useState(null); // pin whose label editor is open
   const setPinLabel=(pinId,val)=>{savePinned(pinned.map(p=>p.id!==pinId?p:(val?{...p,label:val}:(()=>{const{label,...rest}=p;return rest;})())));setLabelPin(null);};
   const propTasks=(property.tasks||[]).map(t=>({id:t.id,text:t.text}));
-  const taskName=(tid)=>{const t=(property.tasks||[]).find(x=>String(x.id)===String(tid));return t?t.text:"";};
 
   useEffect(()=>{
     if(!picker||!mail.signedIn)return;let alive=true;setChains(null);setPickErr("");
@@ -22198,57 +22247,138 @@ function PropertyEmails({property,onUpdate,isMobile}){
     return ()=>{alive=false;};
   },[picker,mail.signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Open a pinned thread: resolve it in the current user's mailbox by Message-ID.
-  useEffect(()=>{
-    if(!viewer){setViewMsgs(null);setVReply(null);setVExpanded({});return;}
-    let alive=true;setViewMsgs(null);setVReply(null);setVExpanded({});
-    // Not in MY mailbox (or Outlook isn't signed in here) → the read-only team
-    // view, which the server opens from whichever teammate's mailbox has it
-    // (Elie 11/11/26: Esti's Cal Media email showed only a summary).
-    const toTeam=()=>{if(!alive)return;const v=viewer;setViewer(null);openTeamView(v);};
-    (async()=>{
-      let convId=null;
-      if(!mail.signedIn){toTeam();return;}
-      try{const hit=await mail.findByInternetId(viewer.internetMessageId);
-        if(hit)convId=hit.conversationId;else if(viewer.conversationId&&!viewer.internetMessageId)convId=viewer.conversationId;}catch{/* fall through */}
-      if(!convId){toTeam();return;}
-      try{const m=await mail.getConversation(convId);if(!m||!m.length){toTeam();return;}if(alive){setViewMsgs(m);setVExpanded(m&&m.length?{[m[m.length-1].id]:true}:{});}
-        // Opening the chain marks its unread messages read, clearing the dot.
-        const unread=m.filter(x=>x.isRead===false);
-        if(unread.length){await Promise.all(unread.map(u=>mail.markRead(u.id)));if(alive)setUnreadMap(mm=>({...mm,[viewer.id]:0}));}
-      }catch{toTeam();}
-    })();
-    return ()=>{alive=false;};
-  },[viewer]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ── The chats ──
+  const names=property.mailChatNames||{};
+  const chatsAll=(()=>{
+    const out=[];
+    pinned.forEach(p=>{
+      const k=partyKeyOf(p);let c=out.find(x=>x.k===k);
+      if(!c){c={k,items:[]};out.push(c);}
+      c.items.push({p,cat:mailCatOf(p),mine:inBox[p.id]!==false});
+    });
+    out.forEach(c=>{
+      c.mine=c.items.some(x=>x.mine);
+      c.unread=c.items.reduce((n,x)=>n+(x.mine?(unreadMap[x.p.id]||0):0),0);
+      c.latest=[...c.items].sort((a,b)=>String(b.p.date||"").localeCompare(String(a.p.date||"")))[0].p;
+      const wp=c.items.find(x=>x.p.ai&&x.p.ai.party);
+      c.auto=(wp&&wp.p.ai.party)||mailSenderTitle(c.items.map(x=>x.p));
+      c.title=names[c.k]||c.auto;
+      const tally={};c.items.forEach(x=>{tally[x.cat]=(tally[x.cat]||0)+1;});
+      c.cat=Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0]||"Other";
+      c.catCfg=MAIL_CATS.find(x=>x.key===c.cat)||MAIL_CATS[MAIL_CATS.length-1];
+      c.teamOwner=c.mine?"":(c.latest.autoBy||"a teammate");
+    });
+    out.sort((a,b)=>((b.unread>0)-(a.unread>0))||((b.mine?1:0)-(a.mine?1:0))||String(b.latest.date||"").localeCompare(String(a.latest.date||"")));
+    return out;
+  })();
+  const counts={all:chatsAll.length,mine:chatsAll.filter(c=>c.mine).length};
+  MAIL_CATS.forEach(c=>{counts[c.key]=chatsAll.filter(x=>x.cat===c.key).length;});
+  const lq=listQ.trim().toLowerCase();
+  const chats=chatsAll.filter(c=>(mailFilter==="all"||(mailFilter==="mine"?c.mine:c.cat===mailFilter))
+    &&(!lq||[c.title,c.auto,...c.items.map(x=>`${x.p.subject} ${x.p.from} ${x.p.fromAddr} ${x.p.preview}`)].join(" ").toLowerCase().includes(lq)));
+  const chat=chatsAll.find(c=>c.k===chatKey)||null;
+  // Computers open the newest chat right away (phones start on the list).
+  useEffect(()=>{if(!isMobile&&!chat&&chats.length)setChatKey(chats[0].k);},[isMobile,chats.length,!!chat]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Land on the most recent message when a thread opens (scroll to the bottom).
-  useEffect(()=>{
-    if(!viewMsgs||!viewMsgs.length)return;
-    const el=vScrollRef.current;if(!el)return;
-    const go=()=>{el.scrollTop=el.scrollHeight;};
-    requestAnimationFrame(go);const t=setTimeout(go,350);
-    return ()=>clearTimeout(t);
-  },[viewMsgs]);
-
-  const vSendReply=async()=>{
-    if(!vReply||!viewMsgs?.length)return;const last=viewMsgs[viewMsgs.length-1];
-    const body=`<div>${mailEsc(vReply.text).replace(/\n/g,"<br>")}</div>`;
-    setVSending(true);
+  // Load every chain in the open chat: from MY mailbox when it's there (reply),
+  // else read-only from whichever teammate's mailbox has it.
+  const loadPin=async(p,mine)=>{
+    setThreads(t=>({...t,[p.id]:{...(t[p.id]||{}),state:(t[p.id]&&t[p.id].msgs)?"ok":"loading"}}));
+    const toTeam=async()=>{
+      try{
+        const r=await qbAuthFetch("/api/email/thread",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({internetMessageId:p.internetMessageId||"",conversationId:p.conversationId||""})});
+        const msgs=(r&&r.messages)||[];
+        setThreads(t=>({...t,[p.id]:{state:msgs.length?"ok":"none",src:"team",mailbox:(r&&r.mailbox)||"",mbi:r&&r.mbi!=null?r.mbi:null,msgs}}));
+      }catch{setThreads(t=>({...t,[p.id]:{state:"none",src:"team",msgs:[]}}));}
+    };
+    if(!mine||!mail.signedIn)return toTeam();
+    let convId=null;
     try{
-      if(vReply.fwd)await mail.forward(last.id,{to:vReply.to||"",cc:vReply.cc||"",html:vReply.text.trim()?body:"",files:vReply.files||[]});
-      else await mail.reply(last.id,body,vReply.all,vReply.cc||"",vReply.mentions||[],vReply.files||[]);
-      setVReply(null);
-      const convId=last.conversationId||viewer.conversationId;
-      if(convId){const m=await mail.getConversation(convId);setViewMsgs(m);setVExpanded(m&&m.length?{[m[m.length-1].id]:true}:{});}
-    }catch(e){ alert("Couldn't send: "+(e.message||"unknown error")); }
-    setVSending(false);
+      if(p.internetMessageId){const hit=await mail.findByInternetId(p.internetMessageId);if(hit)convId=hit.conversationId;}
+      else convId=p.conversationId;
+    }catch{/* fall through */}
+    if(!convId)return toTeam();
+    try{
+      const m=await mail.getConversation(convId);
+      if(!m||!m.length)return toTeam();
+      setThreads(t=>({...t,[p.id]:{state:"ok",src:"me",msgs:m}}));
+      const unread=m.filter(x=>x.isRead===false);
+      if(unread.length){await Promise.all(unread.map(u=>mail.markRead(u.id).catch(()=>{})));setUnreadMap(mm=>({...mm,[p.id]:0}));}
+    }catch{toTeam();}
+  };
+  useEffect(()=>{
+    if(!chat)return;
+    chat.items.forEach(x=>{if(!threads[x.p.id])loadPin(x.p,x.mine);});
+    setDraft(blankDraft);setOnlyFiles(false);setRenaming(null);
+  },[chatKey,chat&&chat.items.map(x=>x.p.id).join(","),mail.signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Every message in the chat, oldest → newest.
+  const msgs=(()=>{
+    if(!chat)return [];
+    const all=[],seen=new Set();
+    chat.items.forEach(x=>{
+      const th=threads[x.p.id];
+      if(!th||th.state!=="ok"){
+        if(th&&th.state==="none")all.push({id:"pin:"+x.p.id,at:x.p.date,fromName:x.p.from,fromAddr:x.p.fromAddr,subject:x.p.subject,pin:x.p,summary:true,text:x.p.preview||""});
+        return;
+      }
+      th.msgs.forEach(m=>{
+        const team=th.src==="team";
+        const at=team?m.at:(m.receivedDateTime||m.sentDateTime);
+        const fromAddr=team?m.fromAddr:(m.from?.emailAddress?.address||"");
+        const k=`${String(at||"").slice(0,16)}|${String(fromAddr).toLowerCase()}|${mailSubjKey(m.subject)}`;
+        if(seen.has(k))return;seen.add(k);
+        all.push({id:m.id,at,fromName:team?m.from:mailAddr(m.from),fromAddr,subject:m.subject||"",raw:m,team,mbi:th.mbi,mailbox:th.mailbox,pin:x.p,hasAtt:!!m.hasAttachments,atts:m.attachments,text:mailPlain(m)});
+      });
+    });
+    return all.sort((a,b)=>String(a.at||"").localeCompare(String(b.at||"")));
+  })();
+  const loading=chat?chat.items.some(x=>!threads[x.p.id]||threads[x.p.id].state==="loading"):false;
+  const replyable=msgs.filter(m=>!m.team&&!m.summary);
+  const target=replyable.find(m=>m.id===draft.targetId)||replyable[replyable.length-1]||null;
+  const teamBox=chat&&!replyable.length&&!loading?(msgs.find(m=>m.mailbox)||{}).mailbox||chat.teamOwner:"";
+  useEffect(()=>{const el=scrollRef.current;if(!el)return;const go=()=>{el.scrollTop=el.scrollHeight;};requestAnimationFrame(go);const t=setTimeout(go,400);return ()=>clearTimeout(t);},[chatKey,msgs.length]);
+
+  // Who a reply goes to (shown above the typing box).
+  const recips=(()=>{
+    if(!target)return {to:[],cc:[]};
+    const r=target.raw;const out=(l)=>(l||[]).filter(x=>x&&x.emailAddress&&String(x.emailAddress.address||"").toLowerCase()!==me);
+    const from=r.from?[r.from]:[];
+    const fromMe=String(r.from?.emailAddress?.address||"").toLowerCase()===me;
+    if(draft.mode==="one")return {to:fromMe?out(r.toRecipients).slice(0,1):from,cc:[]};
+    return {to:fromMe?out(r.toRecipients):[...from,...out(r.toRecipients)],cc:out(r.ccRecipients)};
+  })();
+  const rName=(x)=>{const n=x.emailAddress.name||x.emailAddress.address||"";return n.split(/[\s@]/)[0]||n;};
+
+  const send=async()=>{
+    if(!target||sending)return;
+    const d=draft;
+    if(d.mode==="fwd"?!String(d.to||"").trim():!d.text.trim())return;
+    const body=`<div>${mailEsc(d.text).replace(/\n/g,"<br>")}</div>`;
+    setSending(true);
+    try{
+      if(d.mode==="fwd")await mail.forward(target.id,{to:d.to||"",cc:d.cc||"",html:d.text.trim()?body:"",files:d.files||[]});
+      else await mail.reply(target.id,body,d.mode==="all",d.cc||"",d.mentions||[],d.files||[]);
+      setDraft(blankDraft);
+      loadPin(target.pin,true);
+    }catch(e){window.alert("Couldn't send: "+(e.message||"unknown error"));}
+    setSending(false);
+  };
+  const newEmail=()=>{
+    const them=[...msgs].reverse().find(m=>m.fromAddr&&!isOurs(m.fromAddr));
+    setComposeP({to:them?them.fromAddr:"",cc:"",subject:`${property.address||""}${property.city?`, ${property.city}`:""} — `,text:"",files:[],party:chat?chat.auto:""});
+  };
+  const saveName=()=>{
+    if(!chat||renaming==null)return;
+    const v=renaming.trim();const next={...names};
+    if(!v||v===chat.auto)delete next[chat.k];else next[chat.k]=v.slice(0,60);
+    onUpdate(property.id,"mailChatNames",next);setRenaming(null);
   };
 
   const isPinned=(c)=>pinned.some(p=>(p.internetMessageId&&p.internetMessageId===c.latest.internetMessageId)||p.conversationId===c.key);
   const term=q.trim().toLowerCase();
   const suggestions=(chains||[]).filter(c=>!isPinned(c)&&chainMatchesProperty(c,property));
   const others=(chains||[]).filter(c=>!isPinned(c)&&!chainMatchesProperty(c,property)&&(!term||((c.latest.subject||"")+" "+mailAddr(c.latest.from)+" "+(c.latest.bodyPreview||"")).toLowerCase().includes(term)));
-
   const iS={width:"100%",padding:"10px 12px 10px 34px",borderRadius:T.radiusSm,background:T.bg,border:`1px solid ${T.border}`,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
   const chainRow=(c,suggested)=>(
     <div key={c.key} style={{display:"flex",gap:10,alignItems:"center",padding:"10px 16px",borderTop:`1px solid ${T.border}`}}>
@@ -22256,184 +22386,196 @@ function PropertyEmails({property,onUpdate,isMobile}){
         <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.latest.subject||"(no subject)"}</div>
         <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mailAddr(c.latest.from)} · {mailWhen(c.latest.receivedDateTime)}{c.count>1?` · ${c.count}`:""}</div>
       </div>
-      <button onClick={()=>pinChain(c)} style={{padding:"6px 13px",borderRadius:20,background:suggested?T.gold:T.goldLight,border:suggested?"none":`1px solid ${T.gold}`,color:suggested?"#fff":T.gold,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>📌 Pin</button>
+      <button onClick={()=>pinChain(c)} style={{padding:"6px 13px",borderRadius:20,background:suggested?T.gold:T.goldLight,border:suggested?"none":`1px solid ${T.gold}`,color:suggested?"#fff":T.gold,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0,minHeight:32}}>📌 Pin</button>
+    </div>
+  );
+  const pillBtn=(on)=>({flexShrink:0,minHeight:32,padding:"0 12px",borderRadius:16,border:"none",background:on?T.text:"rgba(118,118,128,0.12)",color:on?"#fff":T.text,fontSize:12.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
+  const avatar=(c,size)=>(<span style={{width:size,height:size,borderRadius:"50%",background:c.mine?c.catCfg.color:"#B0B4BA",color:"#fff",fontSize:size*0.36,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{mailInitials(c.title)}</span>);
+
+  // ── Left: the list of chats ──
+  const listPane=(
+    <div style={{display:"flex",flexDirection:"column",minHeight:0,height:"100%",background:isMobile?"transparent":"#FAFAFC",borderRight:isMobile?"none":`1px solid ${T.border}`}}>
+      <div style={{padding:isMobile?"0 0 8px":"14px 14px 8px",display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{flex:1,position:"relative"}}>
+          <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",fontSize:12.5,color:T.textTert}}>🔍</span>
+          <input value={listQ} onChange={e=>setListQ(e.target.value)} placeholder="Search emails, people…" style={{...iS,padding:"9px 12px 9px 32px",background:"rgba(118,118,128,0.10)",border:"none",borderRadius:10}}/>
+        </div>
+        {mail.signedIn
+          ?<><button onClick={()=>setComposeP({to:"",cc:"",subject:`${property.address||""}${property.city?`, ${property.city}`:""} — `,text:"",files:[]})} title="New email" style={{width:38,height:38,borderRadius:19,border:"none",background:T.gold,color:"#fff",fontSize:16,cursor:"pointer",flexShrink:0}}>✎</button>
+            <button onClick={()=>setPicker(true)} title="Pin an email to this property" style={{width:38,height:38,borderRadius:19,border:"none",background:"rgba(118,118,128,0.12)",fontSize:15,cursor:"pointer",flexShrink:0}}>📌</button></>
+          :<button onClick={()=>mail.signIn()} style={{minHeight:38,padding:"0 12px",borderRadius:19,border:`1px solid ${T.border}`,background:"#fff",color:T.blue,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Connect Outlook</button>}
+      </div>
+      <div style={{display:"flex",gap:6,padding:isMobile?"0 0 10px":"0 14px 10px",overflowX:"auto",overflowY:"hidden",flexShrink:0}}>
+        <button onClick={()=>setMailFilter("all")} style={pillBtn(mailFilter==="all")}>All</button>
+        <button onClick={()=>setMailFilter("mine")} style={pillBtn(mailFilter==="mine")}>Mine</button>
+        {MAIL_CATS.filter(c=>counts[c.key]>0).map(c=><button key={c.key} onClick={()=>setMailFilter(c.key)} style={pillBtn(mailFilter===c.key)}>{c.key==="Quote"?"Quotes":c.key==="Legal"?"Attorney":c.name}</button>)}
+      </div>
+      <div style={{flex:1,overflowY:"auto",minHeight:0,background:isMobile?T.card:"transparent",borderRadius:isMobile?T.radius:0,border:isMobile?`1px solid ${T.border}`:"none"}}>
+        {pinned.length===0&&<div style={{padding:"26px 18px",textAlign:"center",color:T.textTert,fontSize:13,lineHeight:1.5}}>No emails here yet. Tap 📌 to pin the email chains for this property — title, attorney, lender, septic — and each company becomes a chat.</div>}
+        {pinned.length>0&&chats.length===0&&<div style={{padding:"18px 16px",fontSize:12.5,color:T.textTert}}>Nothing matches.</div>}
+        {chats.map((c,i)=>{const on=!isMobile&&c.k===chatKey;const lp=c.latest;return(
+          <button key={c.k} onClick={()=>setChatKey(c.k)} style={{display:"flex",gap:11,alignItems:"flex-start",width:"100%",textAlign:"left",padding:"11px 14px",border:"none",borderTop:i?`1px solid ${T.border}`:"none",background:on?T.goldLight:"transparent",cursor:"pointer",fontFamily:"inherit",minHeight:64}}>
+            {avatar(c,42)}
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{display:"flex",justifyContent:"space-between",gap:6,alignItems:"baseline"}}>
+                <b style={{fontSize:14.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.title}</b>
+                <span style={{fontSize:11.5,color:c.unread?T.gold:T.textTert,whiteSpace:"nowrap",fontWeight:c.unread?700:400}}>{mailWhen(lp.date)}</span>
+              </span>
+              <span style={{display:"flex",gap:5,alignItems:"center",margin:"2px 0 2px"}}>
+                <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.03em",color:c.catCfg.color,background:c.catCfg.color+"1A",borderRadius:6,padding:"1px 6px",textTransform:"uppercase"}}>{c.cat==="Quote"?"Quotes":c.cat==="Legal"?"Attorney":c.catCfg.name}</span>
+                {!c.mine&&<span style={{fontSize:10,fontWeight:800,color:T.textSub,background:"#F1F1F4",borderRadius:6,padding:"1px 6px"}}>👁 {String(c.teamOwner).split(" ")[0]}'s email</span>}
+                {c.items.length>1&&<span style={{fontSize:10.5,color:T.textTert}}>{c.items.length} subjects</span>}
+              </span>
+              <span style={{display:"flex",justifyContent:"space-between",gap:6,alignItems:"center"}}>
+                <span style={{fontSize:12.5,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:c.unread?700:400}}>{lp.from?`${String(lp.from).split(" ")[0]}: `:""}{lp.preview||lp.subject||""}</span>
+                {c.unread>0&&<span style={{background:T.gold,color:"#fff",borderRadius:10,fontSize:11,fontWeight:800,padding:"1px 7px",flexShrink:0}}>{c.unread}</span>}
+              </span>
+            </span>
+          </button>
+        );})}
+      </div>
+    </div>
+  );
+
+  // ── Right: the open chat ──
+  let lastDay="",lastPin="";
+  const shown=onlyFiles?msgs.filter(m=>m.hasAtt||(m.atts&&m.atts.length)):msgs;
+  const chatPane=chat&&(
+    <div style={{display:"flex",flexDirection:"column",minHeight:0,height:"100%",background:"#fff"}}>
+      <div style={{padding:isMobile?"10px 12px":"12px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0,paddingTop:isMobile?"max(10px,env(safe-area-inset-top))":undefined}}>
+        {isMobile&&<button onClick={()=>setChatKey(null)} style={{background:"none",border:"none",color:T.gold,fontSize:24,fontWeight:600,cursor:"pointer",padding:"0 6px 0 0",minHeight:44,lineHeight:1}}>‹</button>}
+        {avatar(chat,isMobile?34:38)}
+        <div style={{flex:1,minWidth:0}}>
+          {renaming!=null
+            ?<div style={{display:"flex",gap:6}}><input autoFocus value={renaming} onChange={e=>setRenaming(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveName();if(e.key==="Escape")setRenaming(null);}} placeholder={chat.auto} style={{flex:1,minWidth:0,padding:"6px 10px",borderRadius:8,border:`1.5px solid ${T.gold}`,fontSize:15,fontWeight:700,fontFamily:"inherit",outline:"none"}}/><button onClick={saveName} style={{...pillBtn(true),background:T.gold}}>Save</button></div>
+            :<button onClick={()=>setRenaming(chat.title)} title="Rename this chat" style={{background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:"inherit",textAlign:"left",maxWidth:"100%",display:"block"}}><b style={{fontSize:isMobile?15.5:16.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{chat.title} <span style={{fontSize:13,opacity:0.55}}>✏️</span></b></button>}
+          <div style={{fontSize:12,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{[...new Set(msgs.map(m=>m.fromName).filter(Boolean).map(n=>String(n).replace(/\s+via\s+.*/i,"")))].slice(0,5).join(" · ")||" "}</div>
+        </div>
+        {msgs.some(m=>m.hasAtt||(m.atts&&m.atts.length))&&<button onClick={()=>setOnlyFiles(v=>!v)} style={pillBtn(onlyFiles)}>📎{isMobile?"":onlyFiles?" All messages":" Files"}</button>}
+        {!isMobile&&mail.signedIn&&<button onClick={newEmail} title="Start a new email (new subject)" style={pillBtn(false)}>✉️ New</button>}
+        <button onClick={()=>setChainsOpen(true)} title="Subjects in this chat" style={{...pillBtn(false),width:36,padding:0}}>•••</button>
+      </div>
+      <div ref={scrollRef} style={{flex:1,overflowY:"auto",minHeight:0,background:"#F5F5F7",padding:isMobile?"10px 12px":"14px 20px",display:"flex",flexDirection:"column",gap:4}}>
+        {loading&&<div style={{alignSelf:"center",fontSize:12,color:T.textTert,padding:8}}>Loading the emails…</div>}
+        {onlyFiles&&<div style={{alignSelf:"center",fontSize:11.5,color:T.textSub,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,padding:"4px 10px",margin:"2px 0 6px"}}>📎 Only emails with files · <button onClick={()=>setOnlyFiles(false)} style={{background:"none",border:"none",color:T.blue,fontWeight:700,cursor:"pointer",padding:0,fontFamily:"inherit",fontSize:11.5}}>Show all</button></div>}
+        {shown.map(m=>{
+          const ours=isOurs(m.fromAddr);
+          const day=mailDay(m.at);const showDay=day!==lastDay;lastDay=day;
+          const showSubj=m.pin.id!==lastPin;lastPin=m.pin.id;
+          const isTarget=target&&m.id===target.id&&draft.targetId;
+          const long=m.text.length>650;
+          const isFull=!!full[m.id];
+          return(
+            <Fragment key={m.id}>
+              {showDay&&<div style={{alignSelf:"center",fontSize:11.5,color:T.textTert,fontWeight:700,margin:"8px 0 2px"}}>{day}</div>}
+              {showSubj&&<div style={{alignSelf:"center",maxWidth:"86%",fontSize:11.5,background:"#fff",border:`1px solid ${T.border}`,borderRadius:10,padding:"4px 10px",color:T.textSub,margin:"4px 0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>✉️ {m.subject||m.pin.subject||"(no subject)"}</div>}
+              {!ours&&<div style={{fontSize:11,color:T.textTert,margin:"6px 0 1px 4px"}}>{String(m.fromName||"").replace(/\s+via\s+.*/i,"")} · {mailTime(m.at)}</div>}
+              <div style={{display:"flex",alignItems:"center",gap:6,alignSelf:ours?"flex-end":"flex-start",maxWidth:isMobile?"88%":"72%",width:isFull?(isMobile?"88%":"72%"):undefined}}>
+                <div style={{background:ours?"#F3E8C8":"#fff",border:`1px solid ${isTarget?T.gold:ours?"#E8D9AC":T.border}`,borderRadius:18,padding:isFull?"4px":"9px 13px",fontSize:14,lineHeight:1.42,color:T.text,minWidth:0,flex:isFull?1:undefined,boxShadow:isTarget?`0 0 0 2px ${T.gold}55`:"none"}}>
+                  {isFull
+                    ?<div style={{borderRadius:14,overflow:"hidden",background:"#fff"}}><MailBody message={m.raw} mail={m.team?null:mail} trimQuote/></div>
+                    :<div style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{m.summary?<span style={{color:T.textSub}}>{m.text||"(couldn't open this email)"}</span>:(long?m.text.slice(0,600).replace(/\s+\S*$/,"")+"…":m.text||<span style={{color:T.textTert}}>(no text — see the attachment)</span>)}</div>}
+                  {!m.summary&&(isFull||long||!isMobile)&&<button onClick={()=>setFull(f=>({...f,[m.id]:!isFull}))} style={{display:"block",background:"none",border:"none",color:isFull||long?"#8a6d1f":T.textTert,fontWeight:isFull||long?700:500,fontSize:isFull||long?12.5:11.5,cursor:"pointer",padding:isFull?"6px 10px 4px":"4px 0 0",fontFamily:"inherit"}}>{isFull?"Show less ▴":long?"Show full email ▾":"View original"}</button>}
+                </div>
+                {!ours&&!m.team&&!m.summary&&<button onClick={()=>setDraft(d=>({...d,targetId:m.id,mode:d.mode==="fwd"?"all":d.mode}))} title="Reply to this email" style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${T.border}`,background:"#fff",color:T.textSub,fontSize:13,cursor:"pointer",flexShrink:0,padding:0}}>↩</button>}
+              </div>
+              {(m.hasAtt||(m.atts&&m.atts.length>0))&&<ChatMailAtts msg={m} mail={mail} od={od} folder={filesFolder} ours={ours}/>}
+              {ours&&<div style={{alignSelf:"flex-end",fontSize:11,color:T.textTert,margin:"1px 4px 4px"}}>{mailTime(m.at)} · Sent{m.raw&&m.raw.toRecipients&&m.raw.toRecipients.length?` to ${m.raw.toRecipients.map(r=>(r.emailAddress.name||r.emailAddress.address||"").split(/[\s@]/)[0]).join(", ")}`:""}</div>}
+            </Fragment>
+          );
+        })}
+        {!loading&&!shown.length&&<div style={{alignSelf:"center",fontSize:12.5,color:T.textTert,padding:20}}>No emails to show.</div>}
+      </div>
+      {/* Typing box — sends a REAL email reply into the same thread */}
+      {teamBox
+        ?<div style={{borderTop:`1px solid ${T.border}`,background:"#EFF6FF",color:"#1D4ED8",fontSize:12.5,fontWeight:600,padding:"12px 16px max(12px,env(safe-area-inset-bottom))",lineHeight:1.45,flexShrink:0}}>👁 This conversation is in {String(teamBox).split(" ")[0]}'s email — you can read it and open the files; {String(teamBox).split(" ")[0]} replies from their login.</div>
+        :target&&<div style={{borderTop:`1px solid ${T.border}`,background:"#fff",padding:isMobile?"8px 10px max(10px,env(safe-area-inset-bottom))":"10px 16px 12px",flexShrink:0}}>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",fontSize:12,color:T.textSub,marginBottom:7}}>
+            {isMobile
+              ?<select value={draft.mode} onChange={e=>setDraft(d=>({...d,mode:e.target.value}))} style={{minHeight:30,borderRadius:15,border:"none",background:T.text,color:"#fff",fontWeight:700,fontSize:12.5,padding:"0 10px",fontFamily:"inherit"}}><option value="all">↩ Reply all</option><option value="one">↩ Reply</option><option value="fwd">→ Forward</option></select>
+              :<span style={{display:"inline-flex",background:"rgba(118,118,128,0.12)",borderRadius:16,padding:2}}>
+              {[["all","↩ Reply all"],["one","↩ Reply"],["fwd","→ Forward"]].map(([k,l])=><button key={k} onClick={()=>setDraft(d=>({...d,mode:k}))} style={{minHeight:28,padding:"0 10px",borderRadius:14,border:"none",background:draft.mode===k?"#fff":"transparent",boxShadow:draft.mode===k?"0 1px 3px rgba(0,0,0,0.12)":"none",color:T.text,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>)}
+            </span>}
+            {draft.mode!=="fwd"&&isMobile&&<span style={{background:"rgba(118,118,128,0.12)",borderRadius:12,padding:"3px 10px",color:T.text,fontWeight:600}}>{[...recips.to,...recips.cc].length?`${rName([...recips.to,...recips.cc][0])}${[...recips.to,...recips.cc].length>1?` +${[...recips.to,...recips.cc].length-1}`:""}`:"—"}</span>}
+            {draft.mode!=="fwd"&&!isMobile&&<>
+              <span>To</span>{recips.to.map((x,i)=><span key={"t"+i} title={x.emailAddress.address} style={{background:"rgba(118,118,128,0.12)",borderRadius:12,padding:"2px 9px",color:T.text,fontWeight:600}}>{rName(x)}</span>)}
+              {recips.cc.length>0&&<><span>Cc</span>{recips.cc.map((x,i)=><span key={"c"+i} title={x.emailAddress.address} style={{background:"rgba(118,118,128,0.12)",borderRadius:12,padding:"2px 9px",color:T.text,fontWeight:600}}>{rName(x)}</span>)}</>}
+            </>}
+            {!draft.showCc&&<button onClick={()=>setDraft(d=>({...d,showCc:true}))} style={{background:"none",border:`1px dashed ${T.border}`,borderRadius:12,padding:"2px 9px",color:T.blue,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>＋ Cc</button>}
+            {draft.targetId&&<span style={{marginLeft:"auto",color:"#8a6d1f",fontWeight:700}}>Replying to {String(target.fromName||"").split(" ")[0]}'s {mailTime(target.at)} email · <button onClick={()=>setDraft(d=>({...d,targetId:null}))} style={{background:"none",border:"none",color:T.blue,cursor:"pointer",padding:0,fontFamily:"inherit",fontSize:12,fontWeight:700}}>use newest</button></span>}
+          </div>
+          {draft.mode==="fwd"&&<RecipientInput value={draft.to} onChange={v=>setDraft(d=>({...d,to:v}))} placeholder="Forward to — name or email…" style={{width:"100%",padding:"8px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:6}} contacts={appPeople} mail={mail}/>}
+          {draft.showCc&&<RecipientInput value={draft.cc} onChange={v=>setDraft(d=>({...d,cc:v}))} placeholder="Cc — add people…" style={{width:"100%",padding:"8px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:6}} contacts={appPeople} mail={mail}/>}
+          {(draft.files||[]).length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>{draft.files.map((f,i)=><span key={i} style={{display:"inline-flex",alignItems:"center",gap:5,background:T.bg,border:`1px solid ${T.border}`,borderRadius:12,padding:"3px 4px 3px 9px",fontSize:12}}>📎 <span style={{maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</span><button onClick={()=>setDraft(d=>({...d,files:d.files.filter((_,j)=>j!==i)}))} style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:14,padding:"0 4px"}}>×</button></span>)}</div>}
+          <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+            <input ref={fileRef} type="file" multiple style={{display:"none"}} onChange={e=>{const l=[...(e.target.files||[])];if(l.length)setDraft(d=>({...d,files:[...(d.files||[]),...l]}));e.target.value="";}}/>
+            <button onClick={()=>fileRef.current&&fileRef.current.click()} title="Attach files" style={{width:40,height:40,borderRadius:20,border:"none",background:"rgba(118,118,128,0.12)",fontSize:17,cursor:"pointer",flexShrink:0}}>📎</button>
+            <div style={{flex:1,minWidth:0}}>
+              <MentionTextarea value={draft.text} onChange={v=>setDraft(d=>({...d,text:v}))} mentions={draft.mentions||[]} onMentionsChange={ms=>setDraft(d=>({...d,mentions:ms}))} contacts={appPeople} mail={mail} placeholder={draft.mode==="fwd"?"Add a note (optional)…":"Write a reply… (sends as an email)"} style={{width:"100%",padding:"10px 14px",borderRadius:20,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",minHeight:42,maxHeight:180,resize:"none",lineHeight:1.45}}/>
+            </div>
+            {(()=>{const ok=!sending&&(draft.mode==="fwd"?String(draft.to||"").trim():draft.text.trim());return(
+              <button onClick={send} disabled={!ok} title="Send" style={{width:40,height:40,borderRadius:20,border:"none",background:ok?T.gold:"#D1D1D6",color:"#fff",fontSize:16,cursor:ok?"pointer":"default",flexShrink:0}}>{sending?"…":"➤"}</button>
+            );})()}
+          </div>
+          <div style={{fontSize:11,color:T.textTert,marginTop:6,display:"flex",gap:8,flexWrap:"wrap"}}>
+            {!isMobile&&<span>{/^re:/i.test(target.subject||"")?target.subject:`Re: ${target.subject||"(no subject)"}`}</span>}
+            <button onClick={()=>setSigOpen(true)} style={{background:"none",border:"none",padding:0,color:prefs&&prefs.mailSig?T.textTert:T.blue,fontWeight:600,fontSize:11,cursor:"pointer",fontFamily:"inherit",marginLeft:"auto"}}>✍️ {prefs&&prefs.mailSig?"Signature on · edit":"Add your email signature"}</button>
+          </div>
+        </div>}
     </div>
   );
 
   return(
-    <div style={{padding:isMobile?"14px":"20px 24px"}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-        <div style={{fontSize:15,fontWeight:800,color:T.text}}>Pinned email chains</div>
-        <div style={{marginLeft:"auto",display:"flex",gap:8}}>
-          {mail.signedIn&&<button onClick={()=>setComposeP({to:"",cc:"",subject:`${property.address||""}${property.city?`, ${property.city}`:""} — `,text:"",files:[]})} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.card,border:`1.5px solid ${T.gold}`,color:"#8a6d1f",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>✉️ New email</button>}
-          {mail.signedIn
-            ? <button onClick={()=>setPicker(true)} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>📌 Pin an email</button>
-            : <button onClick={()=>mail.signIn()} style={{padding:"8px 14px",borderRadius:T.radiusSm,background:T.card,border:`1px solid ${T.border}`,color:T.blue,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Connect Outlook to pin</button>}
-        </div>
-      </div>
+    <div style={{padding:isMobile?"14px":"16px 20px"}}>
+      {isMobile
+        ? listPane
+        : <div style={{display:"flex",height:"calc(100vh - 250px)",minHeight:540,background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden"}}>
+            <div style={{width:330,flexShrink:0,minHeight:0}}>{listPane}</div>
+            <div style={{flex:1,minWidth:0,minHeight:0}}>{chatPane||<div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:T.textTert,fontSize:14,background:"#F5F5F7"}}>{pinned.length?"Pick a chat":"Pin an email to start"}</div>}</div>
+          </div>}
+      {isMobile&&chatPane&&createPortal(<div style={{position:"fixed",inset:0,zIndex:240,background:"#fff",display:"flex",flexDirection:"column"}}>{chatPane}</div>,document.body)}
 
-      {pinned.length===0
-        ? <div style={{padding:"24px 16px",textAlign:"center",color:T.textTert,fontSize:13,background:T.card,borderRadius:T.radius,border:`1px dashed ${T.border}`}}>No emails pinned yet. Pin the chains that relate to this property — attorney, septic, title, inspection — so they live right here.</div>
-        : (()=>{
-            // ── Buckets + yours-first (per signed-in user) + filter chips ──
-            const isMineP=(p)=>inBox[p.id]!==false;
-            const withCat=pinned.map(p=>({p,cat:mailCatOf(p),mine:isMineP(p)}));
-            const counts={all:pinned.length,mine:withCat.filter(x=>x.mine).length};
-            MAIL_CATS.forEach(c=>{counts[c.key]=withCat.filter(x=>x.cat===c.key).length;});
-            const shownPins=withCat.filter(x=>mailFilter==="all"?true:mailFilter==="mine"?x.mine:x.cat===mailFilter);
-            const chipB=(key,label)=>(
-              <button key={key} onClick={()=>setMailFilter(key)} style={{flexShrink:0,padding:"6px 12px",borderRadius:16,border:mailFilter===key?`1.5px solid ${T.gold}`:`1px solid ${T.border}`,background:mailFilter===key?T.goldLight:"#fff",color:mailFilter===key?"#8a6d1f":T.textSub,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{label}</button>
-            );
-            const initials=(n)=>String(n||"?").trim().split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase()||"👥";
-            return(<>
-              <div style={{display:"flex",gap:6,marginBottom:10,overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain",paddingBottom:2,WebkitOverflowScrolling:"touch"}}>
-                {chipB("all",`All · ${counts.all}`)}
-                {chipB("mine",`👤 Yours · ${counts.mine}`)}
-                {MAIL_CATS.filter(c=>counts[c.key]>0).map(c=>chipB(c.key,`${c.icon} ${c.key==="Quote"?"Quotes":c.name} · ${counts[c.key]}`))}
-              </div>
-              <div style={{background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`,overflow:"hidden"}}>
-                {shownPins.length===0&&<div style={{padding:"18px 16px",fontSize:12.5,color:T.textTert}}>Nothing in this bucket.</div>}
-                {(()=>{
-                  // One row per PARTY across ALL buckets: every chain with a
-                  // company rolls into a single row — who wrote last, chain
-                  // count, one unread total — filed under the bucket most of
-                  // their chains belong to. Tap → their page; a single-chain
-                  // party opens the thread directly.
-                  const senders=[];
-                  shownPins.forEach(x=>{const k=partyKeyOf(x.p);let s=senders.find(y=>y.k===k);if(!s){s={k,items:[]};senders.push(s);}s.items.push(x);});
-                  senders.forEach(s=>{
-                    s.mine=s.items.some(x=>x.mine);
-                    s.unread=s.items.reduce((n,x)=>n+(x.mine?(unreadMap[x.p.id]||0):0),0);
-                    s.latestP=[...s.items].sort((a,b)=>String(b.p.date||"").localeCompare(String(a.p.date||"")))[0].p;
-                    const withParty=s.items.find(x=>x.p.ai&&x.p.ai.party);
-                    s.title=(withParty&&withParty.p.ai.party)||mailSenderTitle(s.items.map(x=>x.p));
-                    s.auto=s.items.every(x=>x.p.auto);
-                    const tally={};s.items.forEach(x=>{tally[x.cat]=(tally[x.cat]||0)+1;});
-                    s.cat=Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0]||"Other";
-                  });
-                  senders.sort((a,b)=>((b.mine?1:0)-(a.mine?1:0))||String(b.latestP.date||"").localeCompare(String(a.latestP.date||"")));
-                  const sGroups=MAIL_CATS.map(c=>({c,senders:senders.filter(s=>s.cat===c.key)})).filter(g=>g.senders.length);
-                  return sGroups.map((g,gi)=>(<Fragment key={g.c.key}>
-                    <div style={{padding:"7px 16px 4px",fontSize:10.5,fontWeight:800,letterSpacing:"0.05em",color:g.c.color,borderTop:gi===0?"none":`1px solid ${T.border}`}}>{g.c.icon} {g.c.name.toUpperCase()}</div>
-                    {g.senders.map(s=>{
-                      const single=s.items.length===1;
-                      const onOpen=()=>{if(single){const x=s.items[0];x.mine?setViewer(x.p):openTeamView(x.p);}else setSenderOpen(s.k);};
-                      return(
-                        <div key={s.k} style={{display:"flex",gap:11,alignItems:"center",padding:"11px 16px",borderTop:`1px solid ${T.border}55`,background:s.unread>0?"#F5F9FF":"transparent",opacity:s.mine?1:0.62}}>
-                          <div style={{width:8,flexShrink:0}}>{s.unread>0&&<span style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
-                          <span style={{width:32,height:32,borderRadius:10,background:"#EEF0F4",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{g.c.icon}</span>
-                          <div onClick={onOpen} style={{flex:1,minWidth:0,cursor:"pointer"}}>
-                            <div style={{fontSize:13.5,fontWeight:800,color:s.mine?T.text:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title}</div>
-                            <div style={{fontSize:11.5,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.latestP.ai&&s.latestP.ai.desc?<span style={{color:"#8a6d1f",fontWeight:700}}>{s.latestP.ai.desc} · </span>:null}{s.latestP.from&&s.latestP.from!==s.title?`${s.latestP.from} · `:""}{s.latestP.subject||s.latestP.preview||""} · {mailWhen(s.latestP.date)}</div>
-                          </div>
-                          {s.auto&&<span title="Pinned automatically" style={{fontSize:10,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
-                          {!s.mine&&<span title={`Matched in ${s.latestP.autoBy||"a teammate"}'s inbox`} style={{width:22,height:22,borderRadius:"50%",background:"#EEE7D4",color:"#8a6d1f",fontSize:10,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(s.latestP.autoBy)}</span>}
-                          {s.unread>0&&<span style={{fontSize:10.5,fontWeight:800,color:"#fff",background:T.red,borderRadius:10,padding:"3px 9px",flexShrink:0,whiteSpace:"nowrap"}}>{s.unread} new</span>}
-                          <span style={{fontSize:10.5,fontWeight:800,color:T.textSub,background:"#F1F1F4",borderRadius:10,padding:"3px 9px",flexShrink:0,whiteSpace:"nowrap"}}>{s.items.length} chain{s.items.length>1?"s":""}</span>
-                          {single&&<button onClick={()=>setLabelPin(s.items[0].p)} title="Label / link this chain" style={{background:s.items[0].p.label?T.goldLight:"none",border:s.items[0].p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:s.items[0].p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:"5px 8px"}}>🏷</button>}
-                          {single&&<button onClick={()=>unpin(s.items[0].p.id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>}
-                          <span onClick={onOpen} style={{color:"#C7CBD1",fontSize:15,flexShrink:0,cursor:"pointer"}}>›</span>
-                        </div>
-                      );
-                    })}
-                  </Fragment>));
-                })()}
-              </div>
-            </>);
-          })()}
-      {/* A company's page: every chain with them on this property */}
-      {senderOpen&&(()=>{
-        const inGroup=pinned.map(p=>({p,mine:inBox[p.id]!==false})).filter(x=>partyKeyOf(x.p)===senderOpen)
-          .sort((a,b)=>String(b.p.date||"").localeCompare(String(a.p.date||"")));
-        if(!inGroup.length)return null;
-        const withParty=inGroup.find(x=>x.p.ai&&x.p.ai.party);
-        const title=(withParty&&withParty.p.ai.party)||mailSenderTitle(inGroup.map(x=>x.p));
-        const cat=MAIL_CATS.find(c=>c.key===mailCatOf(inGroup[0].p))||MAIL_CATS[MAIL_CATS.length-1];
-        return(
-          <div onClick={()=>setSenderOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
-            <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"86vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-              <div style={{padding:"13px 16px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-                <span style={{width:30,height:30,borderRadius:9,background:"#EEF0F4",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{cat.icon}</span>
-                <span style={{minWidth:0,flex:1}}>
-                  <div style={{fontSize:14.5,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
-                  <div style={{fontSize:11,color:T.textTert}}>{inGroup.length} email chain{inGroup.length>1?"s":""} · {property.address}</div>
-                </span>
-                <button onClick={()=>setSenderOpen(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
-              </div>
-              <div style={{overflowY:"auto",flex:1}}>
-                {inGroup.map(({p,mine})=>{const unread=mine&&(unreadMap[p.id]||0)>0;return(
-                  <div key={p.id} style={{display:"flex",gap:10,alignItems:"center",padding:"11px 16px",borderTop:`1px solid ${T.border}55`,background:unread?"#F5F9FF":"transparent"}}>
-                    <div style={{width:8,flexShrink:0}}>{unread&&<span style={{display:"block",width:8,height:8,borderRadius:"50%",background:T.blue}}/>}</div>
-                    <div onClick={()=>mine?setViewer(p):openTeamView(p)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
-                      <div style={{fontSize:13,fontWeight:unread?800:700,color:mine?T.blue:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
-                      <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.ai&&p.ai.desc?<span style={{color:"#8a6d1f",fontWeight:700}}>{p.ai.desc} · </span>:null}{p.from} · {mailWhen(p.date)}{mine?"":` · ${p.autoBy||"a teammate"}'s`}</div>
-                    </div>
-                    {p.auto&&<span style={{fontSize:10,fontWeight:800,color:"#8a6d1f",background:T.goldLight,border:`1px solid ${T.gold}55`,borderRadius:8,padding:"1px 6px",flexShrink:0,letterSpacing:"0.03em"}}>AUTO</span>}
-                    <button onClick={()=>setLabelPin(p)} title="Label / link this chain" style={{background:p.label?T.goldLight:"none",border:p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0,padding:"5px 8px"}}>🏷</button>
-                    <button onClick={()=>unpin(p.id)} title="Unpin" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:18,lineHeight:1,flexShrink:0}}>×</button>
-                  </div>
-                );})}
-              </div>
+      {/* ••• Subjects in this chat: label / link to a task, unpin */}
+      {chainsOpen&&chat&&(
+        <div onClick={()=>setChainsOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:300,padding:isMobile?0:16,boxSizing:"border-box"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:520,maxWidth:"100%",maxHeight:"80vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
+            <div style={{padding:"14px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:15,fontWeight:800}}>{chat.title}</div><div style={{fontSize:11.5,color:T.textTert}}>{chat.items.length} subject{chat.items.length>1?"s":""} in this chat</div></div>
+              <button onClick={()=>setChainsOpen(false)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer"}}>×</button>
             </div>
-          </div>
-        );
-      })()}
-      {/* 👁 Read-only viewer for a teammate's chain */}
-      {teamView&&(
-        <div onClick={()=>setTeamView(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:252,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:isMobile?"20px 20px 0 0":20,width:680,maxWidth:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-            <div style={{padding:"14px 18px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-              <div style={{flex:1,minWidth:0,fontSize:15,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{teamView.subject||"(no subject)"}</div>
-              <button onClick={()=>setTeamView(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
-            </div>
-            <div style={{background:"#EFF6FF",borderBottom:"1px solid #BFDBFE",color:"#1D4ED8",fontSize:11.5,fontWeight:700,padding:"8px 18px",flexShrink:0,lineHeight:1.45}}>👁 View only — this thread lives in {teamFrom||"a teammate"}'s mailbox. Replying happens from their login.</div>
-            <div style={{flex:1,overflowY:"auto",padding:isMobile?12:16}}>
-              {teamMsgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Opening the thread…</div>}
-              {teamMsgs&&teamMsgs.length===0&&(
-                <div style={{padding:"18px",background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`}}>
-                  <div style={{fontSize:13.5,fontWeight:700,color:T.text}}>{teamView.subject||"(no subject)"}</div>
-                  <div style={{fontSize:12,color:T.textTert,marginTop:3}}>{teamView.from} · {mailWhen(teamView.date)}</div>
-                  {teamView.preview&&<div style={{fontSize:13,color:T.textSub,marginTop:8,lineHeight:1.5}}>{teamView.preview}</div>}
-                  <div style={{fontSize:11.5,color:T.textTert,marginTop:12,lineHeight:1.5,paddingTop:10,borderTop:`1px solid ${T.border}`}}>Couldn't locate the full thread in any team mailbox — the pinned summary above stays as the reference.</div>
-                </div>
-              )}
-              {teamMsgs&&teamMsgs.map(m=>(
-                <div key={m.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:T.radius,marginBottom:10,overflow:"hidden"}}>
-                  <div style={{display:"flex",gap:10,alignItems:"center",padding:"10px 14px",borderBottom:`1px solid ${T.border}`}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.from||"(unknown)"}</div>
-                      <div style={{fontSize:11,color:T.textTert}}>{mailWhen(m.at)}</div>
-                    </div>
-                    {m.hasAttachments&&<span title="Has attachments — tap one below to open it" style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
+            <div style={{overflowY:"auto"}}>
+              {chat.items.slice().sort((a,b)=>String(b.p.date||"").localeCompare(String(a.p.date||""))).map(({p})=>(
+                <div key={p.id} style={{display:"flex",gap:10,alignItems:"center",padding:"11px 16px",borderTop:`1px solid ${T.border}`}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.subject||"(no subject)"}</div>
+                    <div style={{fontSize:11.5,color:T.textTert}}>{p.from} · {mailWhen(p.date)}{p.auto?" · pinned automatically":""}</div>
                   </div>
-                  <MailBody message={m} mail={null}/>
-                  {(m.attachments||[]).length>0&&teamMbi!=null&&<div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 14px 12px",borderTop:`1px solid ${T.border}`}}>
-                    {m.attachments.map(a=>(
-                      <button key={a.id} onClick={()=>openTeamAtt(m,a)} disabled={attBusy===a.id} title={`Open ${a.name}`} style={{display:"inline-flex",alignItems:"center",gap:6,maxWidth:"100%",minHeight:36,padding:"6px 12px",borderRadius:18,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-                        <span>{/pdf/i.test(a.contentType||"")||/\.pdf$/i.test(a.name)?"📄":/image/i.test(a.contentType||"")?"🖼":"📎"}</span>
-                        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{attBusy===a.id?"Opening…":a.name}</span>
-                        {a.size>0&&<span style={{color:T.textTert,fontWeight:500,flexShrink:0}}>{a.size>=1048576?`${(a.size/1048576).toFixed(1)} MB`:`${Math.max(1,Math.round(a.size/1024))} KB`}</span>}
-                      </button>
-                    ))}
-                  </div>}
+                  <button onClick={()=>setLabelPin(p)} title="Label / link to a task" style={{background:p.label?T.goldLight:"none",border:p.label?`1px solid ${T.gold}`:"none",borderRadius:14,color:p.label?T.gold:T.textTert,cursor:"pointer",fontSize:14,padding:"6px 9px"}}>🏷</button>
+                  <button onClick={()=>{unpin(p.id);if(chat.items.length<=1){setChainsOpen(false);setChatKey(null);}}} title="Unpin from this property" style={{background:"none",border:"none",color:T.textTert,cursor:"pointer",fontSize:13,fontWeight:700,padding:"6px 6px",fontFamily:"inherit"}}>Unpin</button>
                 </div>
               ))}
+            </div>
+            <div style={{padding:"12px 16px max(12px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",gap:8,flexWrap:"wrap"}}>
+              {mail.signedIn&&<button onClick={()=>{setChainsOpen(false);newEmail();}} style={{...pillBtn(false),minHeight:40}}>✉️ New email (new subject)</button>}
+              {mail.signedIn&&<button onClick={()=>{setChainsOpen(false);setPicker(true);}} style={{...pillBtn(false),minHeight:40}}>📌 Pin another email</button>}
+              {names[chat.k]&&<button onClick={()=>{const n={...names};delete n[chat.k];onUpdate(property.id,"mailChatNames",n);setChainsOpen(false);}} style={{...pillBtn(false),minHeight:40}}>↺ Use the name “{chat.auto}”</button>}
             </div>
           </div>
         </div>
       )}
       {labelPin&&<MailLabelPopover current={labelPin.label} tasks={propTasks} centered onClose={()=>setLabelPin(null)} onSet={v=>setPinLabel(labelPin.id,v)}/>}
+      {sigOpen&&<MailSignatureSheet mail={mail} isMobile={isMobile} onClose={()=>setSigOpen(false)}/>}
 
-      {/* ✉️ New chain composer */}
+      {/* ✉️ New email (new subject) */}
       {composeP&&(()=>{
         const inp={width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8};
         return(
-        <div onClick={()=>!composeP.sending&&setComposeP(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:253,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+        <div onClick={()=>!composeP.sending&&setComposeP(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:310,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
             <div style={{padding:"14px 18px",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
               <div style={{minWidth:0,flex:1}}>
                 <div style={{fontSize:15,fontWeight:800,color:T.text}}>✉️ New email</div>
-                <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Starts a chain pinned to {property.address} — add the topic after the address</div>
+                <div style={{fontSize:11,color:T.textTert,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>A new subject{composeP.party?` in the ${composeP.party} chat`:""} — filed on {property.address}</div>
               </div>
               <button onClick={()=>!composeP.sending&&setComposeP(null)} style={{background:"none",border:"none",color:T.textTert,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
             </div>
@@ -22443,6 +22585,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
               <input value={composeP.subject} onChange={e=>setComposeP(c=>({...c,subject:e.target.value}))} placeholder="Subject" style={{...inp,fontWeight:700}}/>
               <textarea value={composeP.text} onChange={e=>setComposeP(c=>({...c,text:e.target.value}))} placeholder="Write your email…" rows={7} style={{...inp,resize:"vertical",lineHeight:1.55}}/>
               <AttachFilesRow files={composeP.files} onChange={f=>setComposeP(c=>({...c,files:f}))} disabled={composeP.sending}/>
+              <button onClick={()=>setSigOpen(true)} style={{display:"block",marginTop:10,background:"none",border:"none",padding:0,color:prefs&&prefs.mailSig?T.textTert:T.blue,fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✍️ {prefs&&prefs.mailSig?"Your signature is added automatically · edit":"Add your email signature"}</button>
               {composeP.err&&<div style={{marginTop:8,fontSize:12.5,color:T.red}}>{composeP.err}</div>}
             </div>
             <div style={{padding:"12px 18px max(12px,env(safe-area-inset-bottom))",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8,flexShrink:0}}>
@@ -22453,9 +22596,9 @@ function PropertyEmails({property,onUpdate,isMobile}){
         </div>
         );
       })()}
-      {/* Picker */}
+      {/* 📌 Pin an email */}
       {picker&&(
-        <div onClick={()=>setPicker(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:250,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
+        <div onClick={()=>setPicker(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:310,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:isMobile?"20px 20px 0 0":20,width:560,maxWidth:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
             <div style={{padding:"16px 18px 10px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div><div style={{fontWeight:800,fontSize:16,color:T.text}}>Pin an email chain</div><div style={{fontSize:11.5,color:T.textTert}}>{property.address}</div></div>
@@ -22480,79 +22623,6 @@ function PropertyEmails({property,onUpdate,isMobile}){
                 </>
               )}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Viewer */}
-      {viewer&&(
-        <div onClick={()=>setViewer(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:251,backdropFilter:"blur(4px)",padding:isMobile?0:16,boxSizing:"border-box"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:T.bg,borderRadius:isMobile?"20px 20px 0 0":20,width:680,maxWidth:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:T.shadowMd,overflow:"hidden"}}>
-            <div style={{padding:"13px 16px 11px",background:"#fff",borderBottom:"1px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-              <span style={{width:8,height:8,borderRadius:"50%",background:"#4F46E5",flexShrink:0}}/>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:14.5,fontWeight:700,color:T.text,letterSpacing:-0.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewer.subject||"(no subject)"}</div>
-                {viewMsgs&&viewMsgs.length>0&&<div style={{fontSize:11,color:T.textSub,marginTop:1}}>{viewMsgs.length} message{viewMsgs.length!==1?"s":""} · newest at the bottom</div>}
-              </div>
-              <button onClick={()=>setViewer(null)} aria-label="Close" style={{width:28,height:28,borderRadius:"50%",background:"rgba(118,118,128,0.08)",border:"none",fontSize:13,color:T.textSub,cursor:"pointer",lineHeight:1,flexShrink:0,padding:0,fontFamily:"inherit"}}>✕</button>
-            </div>
-            <div ref={vScrollRef} style={{flex:1,overflowY:"auto",padding:isMobile?12:16}}>
-              {viewMsgs===null&&<div style={{padding:24,textAlign:"center",color:T.textTert,fontSize:13}}>Opening the thread…</div>}
-              {viewMsgs&&viewMsgs.length===0&&(
-                <div style={{padding:"18px",background:T.card,borderRadius:T.radius,border:`1px solid ${T.border}`}}>
-                  <div style={{fontSize:13.5,fontWeight:700,color:T.text}}>{viewer.subject||"(no subject)"}</div>
-                  <div style={{fontSize:12,color:T.textTert,marginTop:3}}>{viewer.from} · {mailWhen(viewer.date)}</div>
-                  {viewer.preview&&<div style={{fontSize:13,color:T.textSub,marginTop:8,lineHeight:1.5}}>{viewer.preview}</div>}
-                  <div style={{fontSize:11.5,color:T.textTert,marginTop:12,lineHeight:1.5,paddingTop:10,borderTop:`1px solid ${T.border}`}}>This thread isn't in your mailbox, so the full conversation can't open here — but the pinned details above stay as a reference for the property.</div>
-                </div>
-              )}
-              {viewMsgs&&viewMsgs.map(m=>{
-                const open=!!vExpanded[m.id];
-                const fromA=String(m.from?.emailAddress?.address||"").toLowerCase();
-                const ours=fromA&&(fromA===String(mail.account?.username||"").toLowerCase()||fromA.endsWith("@goldstonepropertiesnj.com"));
-                return(
-                <div key={m.id} style={{background:"#fff",borderRadius:14,marginBottom:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.07)",borderLeft:ours?`3px solid ${T.gold}`:"3px solid transparent"}}>
-                  <div onClick={()=>setVExpanded(e=>({...e,[m.id]:!open}))} title={open?"Collapse":"Read this message"} style={{padding:"10px 13px",display:"flex",gap:9,alignItems:"center",cursor:"pointer"}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{display:"flex",alignItems:"baseline",gap:7,minWidth:0}}>
-                        <b style={{fontSize:12.5,color:ours?"#8a6d1f":T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"55%"}}>{mailAddr(m.from)||"(unknown)"}{ours?" · Goldstone":""}</b>
-                        {!open&&<span style={{fontSize:11.5,color:T.textTert,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.bodyPreview||""}</span>}
-                      </div>
-                      {open&&<div style={{fontSize:10.5,color:T.textTert,marginTop:1}}>{mailWhenFull(m.receivedDateTime||m.sentDateTime)}</div>}
-                    </div>
-                    {m.hasAttachments&&<span style={{fontSize:12,color:T.textTert,flexShrink:0}}>📎</span>}
-                    {!open&&<span style={{fontSize:10.5,color:T.textTert,whiteSpace:"nowrap",flexShrink:0}}>{mailWhenFull(m.receivedDateTime||m.sentDateTime)}</span>}
-                    <span style={{fontSize:11,color:"#C7C7CC",flexShrink:0}}>{open?"▾":"▸"}</span>
-                  </div>
-                  {open&&<><div style={{borderTop:"1px solid rgba(0,0,0,0.055)"}}><MailBody message={m} mail={mail} trimQuote/></div>
-                    {m.hasAttachments&&<EmailAttachments messageId={m.id} mail={mail} od={od} folder={filesFolder}/>}</>}
-                </div>
-              );})}
-            </div>
-            {/* Reply bar */}
-            {viewMsgs&&viewMsgs.length>0&&(
-              <div style={{borderTop:`1px solid ${T.border}`,background:T.card,padding:isMobile?"10px 12px max(10px,env(safe-area-inset-bottom))":"12px 18px",flexShrink:0}}>
-                {!vReply
-                  ? <div style={{display:"inline-flex",alignItems:"center",borderRadius:18,background:"rgba(118,118,128,0.08)",border:"1px solid rgba(0,0,0,0.05)",padding:3,gap:2,maxWidth:"100%",overflowX:"auto",overflowY:"hidden",overscrollBehavior:"contain"}}>
-                      {[["↩ Reply All",()=>setVReply({all:true,text:"",cc:"",mentions:[],files:[]})],["↩ Reply",()=>setVReply({all:false,text:"",cc:"",mentions:[],files:[]})],["→ Forward",()=>setVReply({fwd:true,to:"",cc:"",text:"",files:[]})]].map(([l,fn])=>(
-                        <button key={l} onClick={fn} style={{flex:"0 0 auto",whiteSpace:"nowrap",padding:"8px 16px",borderRadius:14,border:"none",background:"transparent",color:T.text,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
-                      ))}
-                    </div>
-                  : <div>
-                      <div style={{fontSize:11.5,fontWeight:700,color:T.textSub,marginBottom:6}}>{vReply.fwd?`Forward "${viewer?.subject||"(no subject)"}"`:`${vReply.all?"Reply all":"Reply"} to ${mailAddr(viewMsgs[viewMsgs.length-1]?.from)}`}</div>
-                      {vReply.fwd&&<RecipientInput value={vReply.to} onChange={v=>setVReply(d=>({...d,to:v}))} placeholder="To — who should get this?" style={{width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}} contacts={appPeople} mail={mail}/>}
-                      <RecipientInput value={vReply.cc} onChange={v=>setVReply(d=>({...d,cc:v}))} placeholder={vReply.fwd?"Cc (optional)":"Cc — add people to this reply"} style={{width:"100%",padding:"9px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:13.5,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}} contacts={appPeople} mail={mail}/>
-                      <MentionTextarea value={vReply.text} onChange={v=>setVReply(d=>({...d,text:v}))} mentions={vReply.mentions||[]} onMentionsChange={ms=>setVReply(d=>({...d,mentions:ms}))} contacts={appPeople} mail={mail} placeholder={vReply.fwd?"Add a note (optional) — the original email is included below it":"Write your reply…  (type @ to tag someone)"} style={{width:"100%",padding:"10px 12px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",minHeight:90,resize:"vertical",lineHeight:1.5}}/>
-                      <div style={{marginTop:8}}><AttachFilesRow files={vReply.files||[]} onChange={fs=>setVReply(d=>({...d,files:fs}))} disabled={vSending}/></div>
-                      <div style={{display:"flex",gap:8,marginTop:8,justifyContent:"flex-end"}}>
-                        <button onClick={()=>setVReply(null)} style={{padding:"9px 16px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:T.card,color:T.textSub,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
-                        {(()=>{const blocked=vSending||(vReply.fwd?!String(vReply.to||"").trim():!vReply.text.trim());return(
-                        <button onClick={vSendReply} disabled={blocked} style={{padding:"9px 18px",borderRadius:T.radiusSm,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",opacity:blocked?0.6:1,pointerEvents:blocked?"none":"auto"}}>{vSending?"Sending…":vReply.fwd?"Forward":"Send"}</button>
-                        );})()}
-                      </div>
-                    </div>}
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -23083,6 +23153,9 @@ export function GoldstoneShell(){
   // onto their properties (runs app-wide, not just on the Email page).
   useEmailAutoPin();
   useEmailAiTags();
+  // ✍️ This teammate's email signature rides on every email the app sends.
+  const mailSigNow=(prefs&&prefs.mailSig)||"";
+  useEffect(()=>{setMailSignature(mailSigNow);},[mailSigNow]);
   featSync(appSettings); // mirror the ⚙️ feature switches for gates everywhere
 
   // ── 📖 App-wide phone directory + conversation quick-actions ───────────────

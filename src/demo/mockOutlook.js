@@ -23,6 +23,21 @@ const MSGS = [
     bodyPreview: "Attached is the revised rider signed by my client — please confirm and we're clear to proceed.",
     body: { contentType: "text", content: "Morris,\n\nAttached is the revised rider signed by my client. Please countersign and return, and we are clear to proceed to closing.\n\nRegards,\nMartin" + tail("Martin Pankiewicz", "Aug 18, 2026") } },
 ];
+const TITLE = "jane@fidelitytitle.com";
+const MORE = {
+  "conv-title": [
+    { id: "t1", conversationId: "conv-title", subject: "417 Lakeview Ter — closing docs", from: P("Jane Doe", TITLE), toRecipients: [P("Elie Hassan", "elie@goldstonepropertiesnj.com")], ccRecipients: [P("Mark Rossi", "mark@fidelitytitle.com")], receivedDateTime: days(-2), hasAttachments: true, isRead: true,
+      body: { contentType: "text", content: "Hi Elie,\n\nAttached is the title commitment. We still need the payoff letter from Lending Home and the seller's ID.\n\nThanks,\nJane Doe\nFidelity National Title" } },
+    { id: "t2", conversationId: "conv-title", subject: "Re: 417 Lakeview Ter — closing docs", from: P("Elie Hassan", "elie@goldstonepropertiesnj.com"), toRecipients: [P("Jane Doe", TITLE)], ccRecipients: [P("Mark Rossi", "mark@fidelitytitle.com")], receivedDateTime: days(-1.9), hasAttachments: false, isRead: true,
+      body: { contentType: "text", content: "Thanks Jane — I asked Lending Home for the payoff, should have it tomorrow." } },
+    { id: "t3", conversationId: "conv-title", subject: "Re: 417 Lakeview Ter — closing docs", from: P("Jane Doe", TITLE), toRecipients: [P("Elie Hassan", "elie@goldstonepropertiesnj.com")], ccRecipients: [P("Mark Rossi", "mark@fidelitytitle.com")], receivedDateTime: days(-0.05), hasAttachments: true, isRead: false,
+      body: { contentType: "text", content: "Updated CD attached, please review and confirm the payoff figure before 3 PM." } },
+  ],
+};
+const ATTS = { em1: [{ id: "a1", name: "Contract_16_Falmouth.pdf", contentType: "application/pdf", size: 412000 }], em5: [{ id: "a2", name: "Rider_signed.pdf", contentType: "application/pdf", size: 98000 }],
+  t1: [{ id: "a3", name: "Title_Commitment.pdf", contentType: "application/pdf", size: 212000 }], t3: [{ id: "a4", name: "Closing_Disclosure_v2.pdf", contentType: "application/pdf", size: 340000 }] };
+export const setMailSignature = () => {};
+export const withSignature = (h) => h;
 export function groupChains(items) {
   const byConv = new Map();
   for (const m of items || []) {
@@ -42,9 +57,10 @@ export function useOutlookMail() {
     listChains: async () => ({ chains: [], next: null }),
     fetchInbox: async () => [],
     searchMail: async () => [],
-    getConversation: async () => MSGS,
+    getConversation: async (id) => MORE[id] || MSGS,
     findByInternetId: async () => ({ conversationId: "conv-16f" }),
-    getAttachments: async () => [],
+    getAttachments: async (id) => ATTS[id] || [],
+    sentBodies: async () => [],
     getAttachmentBlob: async () => null,
     getInlineImages: async () => ({}),
     searchPeople: async () => [],

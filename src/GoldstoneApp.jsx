@@ -6,6 +6,7 @@ import { useAuth } from "./auth/AuthProvider";
 import { useOneDrive } from "./onedrive/useOneDrive";
 import { useOutlookMail, groupChains, setMailSignature } from "./outlook/useOutlookMail";
 import { MailSignatureSheet } from "./mailSignature";
+import { memGet as mailMemGet, cacheGet as mailCacheGet, cachePut as mailCachePut, unreadGet as mailUnreadGet, unreadPut as mailUnreadPut } from "./mailCache";
 import { forceUpdate } from "./autoUpdate";
 import { supabase } from "./supabaseClient";
 import { mkLead } from "./seed";
@@ -22218,14 +22219,23 @@ function PropertyEmails({property,onUpdate,isMobile}){
   // Unread counts + whether each chain is in MY mailbox (reply) or a teammate's (👁).
   useEffect(()=>{
     if(!mail.signedIn||pinned.length===0)return;let alive=true;
+    // Checked ones from the last 3 minutes show at once and aren't asked again.
+    const known={},knownIn={};
+    pinned.forEach(p=>{const c=mailUnreadGet(`${me||"?"}|${p.id}`);if(c){known[p.id]=c.n;knownIn[p.id]=c.inb;}});
+    if(Object.keys(known).length){setUnreadMap(m=>({...m,...known}));setInBox(m=>({...m,...knownIn}));}
     (async()=>{
       const un={},inb={};
       await Promise.all(pinned.map(async(p)=>{
-        let convId=p.conversationId,hit=null;
-        if(p.internetMessageId){try{hit=await mail.findByInternetId(p.internetMessageId);if(hit)convId=hit.conversationId;}catch{/* keep stored */}}
-        const n=await mail.conversationUnread(convId);
+        const key=`${me||"?"}|${p.id}`;
+        const c=mailUnreadGet(key);
+        if(c&&Date.now()-c.at<180000)return;
+        const th=mailMemGet(key);
+        let convId=th&&th.data&&th.data.src==="me"&&th.data.convId?th.data.convId:p.conversationId,hit=th&&th.data&&th.data.src==="me"?{conversationId:convId}:null;
+        if(!hit&&p.internetMessageId){try{hit=await mail.findByInternetId(p.internetMessageId);if(hit)convId=hit.conversationId;}catch{/* keep stored */}}
+        let n=0;try{n=await mail.conversationUnread(convId);}catch{/* 0 */}
         un[p.id]=n;
         inb[p.id]=p.internetMessageId?(!!hit||n>0):true;
+        mailUnreadPut(key,n,inb[p.id]);
       }));
       if(!alive)return;
       setUnreadMap(m=>({...m,...un}));
@@ -22283,35 +22293,67 @@ function PropertyEmails({property,onUpdate,isMobile}){
   // Computers open the newest chat right away (phones start on the list).
   useEffect(()=>{if(!isMobile&&!chat&&chats.length)setChatKey(chats[0].k);},[isMobile,chats.length,!!chat]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Get the newest chats ready in the background so they open instantly.
+  const prefetchSig=chatsAll.slice(0,6).map(c=>c.k).join(",")+"|"+mail.signedIn;
+  useEffect(()=>{
+    if(!pinned.length)return;let alive=true;
+    const t=setTimeout(async()=>{
+      for(const c of chatsAll.slice(0,6)){
+        for(const x of c.items.slice(0,3)){if(!alive)return;await loadPin(x.p,x.mine);}
+      }
+    },800);
+    return ()=>{alive=false;clearTimeout(t);};
+  },[prefetchSig]); // eslint-disable-line react-hooks/exhaustive-deps
   // Load every chain in the open chat: from MY mailbox when it's there (reply),
   // else read-only from whichever teammate's mailbox has it.
-  const loadPin=async(p,mine)=>{
-    setThreads(t=>({...t,[p.id]:{...(t[p.id]||{}),state:(t[p.id]&&t[p.id].msgs)?"ok":"loading"}}));
+  // Saved copy first (instant), then a quiet refresh when it's older than 2 min.
+  const cacheKey=(p)=>`${me||"?"}|${p.id}`;
+  const busyPins=useRef(new Set());
+  const loadPin=async(p,mine,force)=>{
+    const key=cacheKey(p);
+    let cached=mailMemGet(key);
+    if(cached)setThreads(t=>({...t,[p.id]:{...cached.data,state:"ok"}}));
+    else{
+      setThreads(t=>t[p.id]&&t[p.id].msgs?t:({...t,[p.id]:{...(t[p.id]||{}),state:"loading"}}));
+      cached=await mailCacheGet(key);
+      if(cached)setThreads(t=>({...t,[p.id]:{...cached.data,state:"ok"}}));
+    }
+    if(cached&&!force&&Date.now()-cached.at<120000)return;
+    if(busyPins.current.has(p.id))return;
+    busyPins.current.add(p.id);
+    const put=(v)=>{setThreads(t=>({...t,[p.id]:v}));if(v.state==="ok")mailCachePut(key,v);};
+    const keepOr=(v)=>{if(cached)setThreads(t=>({...t,[p.id]:{...cached.data,state:"ok"}}));else put(v);};
     const toTeam=async()=>{
       try{
-        const r=await qbAuthFetch("/api/email/thread",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({internetMessageId:p.internetMessageId||"",conversationId:p.conversationId||""})});
+        const prefer=cached&&cached.data&&cached.data.src==="team"?cached.data.mbi:null;
+        const r=await qbAuthFetch("/api/email/thread",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({internetMessageId:p.internetMessageId||"",conversationId:p.conversationId||"",...(prefer!=null?{mbi:prefer}:{})})});
         const msgs=(r&&r.messages)||[];
-        setThreads(t=>({...t,[p.id]:{state:msgs.length?"ok":"none",src:"team",mailbox:(r&&r.mailbox)||"",mbi:r&&r.mbi!=null?r.mbi:null,msgs}}));
-      }catch{setThreads(t=>({...t,[p.id]:{state:"none",src:"team",msgs:[]}}));}
+        if(msgs.length)put({state:"ok",src:"team",mailbox:(r&&r.mailbox)||"",mbi:r&&r.mbi!=null?r.mbi:null,msgs});
+        else keepOr({state:"none",src:"team",msgs:[]});
+      }catch{keepOr({state:"none",src:"team",msgs:[]});}
     };
-    if(!mine||!mail.signedIn)return toTeam();
-    let convId=null;
     try{
-      if(p.internetMessageId){const hit=await mail.findByInternetId(p.internetMessageId);if(hit)convId=hit.conversationId;}
-      else convId=p.conversationId;
-    }catch{/* fall through */}
-    if(!convId)return toTeam();
-    try{
-      const m=await mail.getConversation(convId);
-      if(!m||!m.length)return toTeam();
-      setThreads(t=>({...t,[p.id]:{state:"ok",src:"me",msgs:m}}));
-      const unread=m.filter(x=>x.isRead===false);
-      if(unread.length){await Promise.all(unread.map(u=>mail.markRead(u.id).catch(()=>{})));setUnreadMap(mm=>({...mm,[p.id]:0}));}
-    }catch{toTeam();}
+      if(!mine||!mail.signedIn)return await toTeam();
+      let convId=cached&&cached.data&&cached.data.src==="me"?cached.data.convId:null;
+      if(!convId){
+        try{
+          if(p.internetMessageId){const hit=await mail.findByInternetId(p.internetMessageId);if(hit)convId=hit.conversationId;}
+          else convId=p.conversationId;
+        }catch{/* fall through */}
+      }
+      if(!convId)return await toTeam();
+      try{
+        const m=await mail.getConversation(convId);
+        if(!m||!m.length)return await toTeam();
+        put({state:"ok",src:"me",convId,msgs:m});
+        const unread=m.filter(x=>x.isRead===false);
+        if(unread.length){await Promise.all(unread.map(u=>mail.markRead(u.id).catch(()=>{})));setUnreadMap(mm=>({...mm,[p.id]:0}));mailUnreadPut(key,0,true);}
+      }catch{await toTeam();}
+    }finally{busyPins.current.delete(p.id);}
   };
   useEffect(()=>{
     if(!chat)return;
-    chat.items.forEach(x=>{if(!threads[x.p.id])loadPin(x.p,x.mine);});
+    chat.items.forEach(x=>loadPin(x.p,x.mine));
     setDraft(blankDraft);setOnlyFiles(false);setRenaming(null);
   },[chatKey,chat&&chat.items.map(x=>x.p.id).join(","),mail.signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -22392,7 +22434,7 @@ function PropertyEmails({property,onUpdate,isMobile}){
       <button onClick={()=>pinChain(c)} style={{padding:"6px 13px",borderRadius:20,background:suggested?T.gold:T.goldLight,border:suggested?"none":`1px solid ${T.gold}`,color:suggested?"#fff":T.gold,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",flexShrink:0,minHeight:32}}>📌 Pin</button>
     </div>
   );
-  const pillBtn=(on)=>({flexShrink:0,height:32,padding:"0 12px",borderRadius:16,border:"1px solid rgba(0,0,0,0.05)",background:on?"#fff":"rgba(118,118,128,0.08)",boxShadow:on?"0 1px 4px rgba(0,0,0,0.14)":"none",color:on?T.gold:T.text,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:4});
+  const pillBtn=(on)=>({flexShrink:0,height:32,padding:"0 12px",borderRadius:16,border:"1px solid rgba(0,0,0,0.05)",background:on?"#fff":"rgba(118,118,128,0.08)",boxShadow:on?"0 1px 4px rgba(0,0,0,0.14)":"none",color:on?T.gold:T.text,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:4,boxSizing:"border-box"});
   const avatar=(c,size)=>(<span style={{width:size,height:size,borderRadius:"50%",background:c.mine?c.catCfg.color:"#B0B4BA",color:"#fff",fontSize:size*0.36,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{mailInitials(c.title)}</span>);
 
   // ── Left: the list of chats ──

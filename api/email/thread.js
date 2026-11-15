@@ -15,14 +15,14 @@ export default async function handler(req, res) {
   if (prof?.role === "contractor") return res.status(403).json({ error: "Not available on contractor accounts." });
   if (!mailSweepConfigured()) return res.status(200).json({ unavailable: true, messages: [] });
   try {
-    const { internetMessageId, conversationId, attachment } = req.body || {};
+    const { internetMessageId, conversationId, attachment, mbi } = req.body || {};
     // 📎 One attachment from that mailbox (view only): { attachment: { mbi, messageId, id } }
     if (attachment) {
       try { return res.status(200).json(await teamAttachment({ mbi: attachment.mbi, messageId: attachment.messageId, attachmentId: attachment.id })); }
       catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
     }
     if (!internetMessageId && !conversationId) return res.status(400).json({ error: "internetMessageId or conversationId required." });
-    const r = await fetchThreadFromAnyMailbox({ internetMessageId, conversationId });
+    const r = await fetchThreadFromAnyMailbox({ internetMessageId, conversationId, prefer: mbi });
     return res.status(200).json(r);
   } catch (e) {
     return res.status(500).json({ error: e.message });

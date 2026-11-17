@@ -6,6 +6,7 @@ import { useAuth } from "./auth/AuthProvider";
 import { useOneDrive } from "./onedrive/useOneDrive";
 import { useOutlookMail, groupChains, setMailSignature } from "./outlook/useOutlookMail";
 import { MailSignatureSheet } from "./mailSignature";
+import { DealSummarySheet } from "./dealSummary";
 import { memGet as mailMemGet, cacheGet as mailCacheGet, cachePut as mailCachePut, unreadGet as mailUnreadGet, unreadPut as mailUnreadPut } from "./mailCache";
 import { forceUpdate } from "./autoUpdate";
 import { supabase } from "./supabaseClient";
@@ -2112,6 +2113,7 @@ function FinOverview({property,onUpdate}){
   const ctrData=useContractorData();
   const ob=useOpenBills(property,sharedProps,ctrData);
   const[showOB,setShowOB]=useState(false);
+  const[sumOpen,setSumOpen]=useState(false); // 📄 Deal summary pop-up
   useEffect(()=>{syncOpenBills(property,ob.total,ob.ready,onUpdate);},[ob.ready,ob.total]); // eslint-disable-line react-hooks/exhaustive-deps
   const acOBAll=ob.ready?ob.total:n((f||{}).acOpenBills);
   const acOBOn=openBillsCounted(f||{});          // typed rehab = all-in → not taken off again
@@ -2297,7 +2299,15 @@ function FinOverview({property,onUpdate}){
             <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10}}>
               <span style={{width:8,height:8,borderRadius:4,background:netProfit>=0?T.green:T.red,display:"inline-block"}}/>
               <span style={{fontSize:12.5,fontWeight:650,color:T.textSub}}>Net Profit</span>
+              <button onClick={()=>setSumOpen(true)} title="A one-page summary of these numbers — screenshot or PDF" style={{marginLeft:"auto",height:30,padding:"0 12px",borderRadius:15,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",color:T.text,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}>📄 Summary</button>
             </div>
+            {sumOpen&&<DealSummarySheet title={String(property.address||"").replace(/,.*$/,"")} sub={[property.city,property.status].filter(Boolean).join(" · ")} isMobile={isMobile}
+              initial={f.useActualProfit&&hasAc?"actual":"projected"}
+              views={{
+                projected:{purchase:n(f.purchasePrice),buying:buyingTotal,rehab:n(f.rehabCosts),holding:holdingTotal,sale:n(f.salePrice),selling:sellingTotal,financing:debtService,profit:netProfit,cashIn:equityRequired,months:holdPeriodMonths},
+                ...(hasAc?{actual:{purchase:acPP,buying:acBuying,rehab:acRehab,openBills:acOB,holding:acHolding,sale:acSalePrice,selling:acSelling,financing:acDebt,profit:acNet,cashIn:_fp.equityRequired}}:{}),
+              }}
+              onClose={()=>setSumOpen(false)}/>}
             <div style={{display:"flex",alignItems:"stretch"}}>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:11,fontWeight:650,color:T.textTert,letterSpacing:"0.02em",marginBottom:3}}>PROJECTED</div>
@@ -6861,6 +6871,7 @@ function AddressEditPopup({rec,onSave,onClose}){
 }
 function LeadDetail({lead,onUpdate}){
   const { contacts: CONTACTS } = useData();
+  const[sumOpen,setSumOpen]=useState(false); // 📄 Deal summary pop-up
   const[tab,setTab]=useState("Financial Overview");
   const[showInfo,setShowInfo]=useState(false); // Property Info popup
   const[editAddr,setEditAddr]=useState(false);
@@ -6963,7 +6974,11 @@ function LeadDetail({lead,onUpdate}){
                 <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
                   <span style={{width:8,height:8,borderRadius:4,background:netProfit>=0?T.green:T.red,display:"inline-block"}}/>
                   <span style={{fontSize:12.5,fontWeight:650,color:T.textSub}}>Projected Profit</span>
+                  <button onClick={()=>setSumOpen(true)} title="A one-page summary of these numbers — screenshot or PDF" style={{marginLeft:"auto",height:30,padding:"0 12px",borderRadius:15,border:"1px solid rgba(0,0,0,0.05)",background:"rgba(118,118,128,0.08)",color:T.text,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}>📄 Summary</button>
                 </div>
+                {sumOpen&&<DealSummarySheet title={lead.address||"Lead"} sub={[lead.city,lead.state].filter(Boolean).join(", ")} isMobile={typeof window!=="undefined"&&window.innerWidth<768}
+                  views={{projected:{purchase:n(f.purchasePrice),buying:buyingTotal,rehab:n(f.rehabCosts),holding:holdingTotal,sale:n(f.salePrice),selling:sellingTotal,financing:debtService,profit:netProfit,cashIn:equityRequired,months:holdPeriodMonths}}}
+                  onClose={()=>setSumOpen(false)}/>}
                 <div style={{fontSize:28,fontWeight:750,letterSpacing:"-0.02em",color:netProfit>=0?GREEN_TXT:T.red,fontVariantNumeric:"tabular-nums"}}>{fmtD(netProfit)}</div>
                 {equityRequired>0&&<div style={{fontSize:11.5,color:T.textTert,marginTop:3}}>{Math.round(netProfit/equityRequired*1000)/10}% return on cash in</div>}
               </div>

@@ -3304,7 +3304,10 @@ function ShowingsPage(){
   // the mobile Messages tab, and decides nothing else (cheap linear scans).
   const propTxUnread=(p)=>smsPageOn?propertyTexters(p,all,btPageLeads).reduce((n,x)=>n+txUnreadFor(x.phone),0):0;
   const cutoff=Date.now()-3600000;
-  const statusRank=(s)=>s==="On Market"?0:1; // On Market group first, then In Closing
+  // One block per status, in the real pipeline order (On Market → Attorney
+  // Review → In Closing). The showing-count sort below only orders rows WITHIN
+  // a status, so a status never heads up two separate blocks in the list.
+  const statusRank=(s)=>{const i=PROP_ORDER.indexOf(s);return i===-1?99:i;};
   const rows=sharedProps.filter(p=>!p.archived&&(p.status==="On Market"||p.status==="Attorney Review"||p.status==="In Closing"))
     .map(p=>{
       const mine=matchedShowings(all,p);

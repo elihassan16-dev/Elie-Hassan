@@ -1453,7 +1453,7 @@ function DateGridRow({label,value,onChange,showActual}){
     </div>
   );
 }
-function EditGridRow({label,pVal,pEdit,aVal,aEdit,showActual,readOnlyActual,suffix,dim,dimP}){
+function EditGridRow({label,pVal,pEdit,aVal,aEdit,showActual,readOnlyActual,suffix,dim,dimP,onLockedTap}){
   const isMobile=useIsMobile();
   const[editingP,setEditingP]=useState(false);
   const[editingA,setEditingA]=useState(false);
@@ -1469,7 +1469,7 @@ function EditGridRow({label,pVal,pEdit,aVal,aEdit,showActual,readOnlyActual,suff
           ?<input autoFocus value={rawP} onChange={e=>setRawP(e.target.value.replace(/[^\d.]/g,""))}
               onBlur={()=>{setEditingP(false);pEdit(rawP);}} onKeyDown={e=>e.key==="Enter"&&e.target.blur()}
               style={inS}/>
-          :<span onClick={pEdit?()=>{setRawP(String(pVal||""));setEditingP(true);}:undefined} style={{fontSize:isMobile?13:13.5,color:pColor,cursor:pEdit?"pointer":"default",fontVariantNumeric:"tabular-nums"}}>{suffix?`${pVal||0} ${suffix}`:fmtD(n(pVal))}</span>}
+          :<span onClick={pEdit?()=>{setRawP(String(pVal||""));setEditingP(true);}:onLockedTap} style={{fontSize:isMobile?13:13.5,color:pColor,cursor:pEdit||onLockedTap?"pointer":"default",fontVariantNumeric:"tabular-nums"}}>{suffix?`${pVal||0} ${suffix}`:fmtD(n(pVal))}</span>}
       </div>
       {showActual&&<div style={{padding:isMobile?"6px 8px":"6px 14px",textAlign:"right"}}>
         {readOnlyActual?<span style={{fontSize:13,color:T.textTert}}>—</span>:
@@ -1482,7 +1482,7 @@ function EditGridRow({label,pVal,pEdit,aVal,aEdit,showActual,readOnlyActual,suff
     </div>
   );
 }
-function PopupGridRow({label,pVal,onOpenP,aVal,aEdit,onOpenA,showActual,aIsPopup,dimP}){
+function PopupGridRow({label,pVal,onOpenP,aVal,aEdit,onOpenA,showActual,aIsPopup,dimP,onLockedTap}){
   const isMobile=useIsMobile();
   const[editingA,setEditingA]=useState(false);
   const[rawA,setRawA]=useState("");
@@ -1490,7 +1490,7 @@ function PopupGridRow({label,pVal,onOpenP,aVal,aEdit,onOpenA,showActual,aIsPopup
   return(
     <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46}}>
       <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:isMobile?13.5:14,color:T.text}}>{label}</div>
-      <div onClick={onOpenP||undefined} style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:isMobile?13:13.5,color:dimP?T.textTert:T.textSub,fontWeight:500,cursor:onOpenP?"pointer":"default",fontVariantNumeric:"tabular-nums"}}>{fmtD(pVal)}{onOpenP?finChev:null}</div>
+      <div onClick={onOpenP||onLockedTap} style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:isMobile?13:13.5,color:dimP?T.textTert:T.textSub,fontWeight:500,cursor:onOpenP||onLockedTap?"pointer":"default",fontVariantNumeric:"tabular-nums"}}>{fmtD(pVal)}{onOpenP?finChev:null}</div>
       {showActual&&<div style={{padding:aIsPopup?(isMobile?"9px 8px":"9px 14px"):(isMobile?"6px 8px":"6px 14px"),textAlign:"right"}}>
         {aIsPopup
           ? <span onClick={onOpenA} style={{fontSize:n(aVal)!==0?(isMobile?13:13.5):12.5,fontWeight:n(aVal)!==0?650:450,color:n(aVal)!==0?GREEN_TXT:T.textTert,cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>{n(aVal)!==0?<>{fmtD(n(aVal))}{finChev}</>:<>Enter{finChev}</>}</span>
@@ -2118,6 +2118,8 @@ function FinOverview({property,onUpdate}){
   // 🔒 Past Under Contract the projected numbers are frozen (Elie 11/18/26) —
   // move it back to Under Contract to change them.
   const pLocked=finLocked(property.status);
+  const[lockMsg,setLockMsg]=useState(false);
+  const lockTap=pLocked?()=>setLockMsg(true):undefined;
   useEffect(()=>{syncOpenBills(property,ob.total,ob.ready,onUpdate);},[ob.ready,ob.total]); // eslint-disable-line react-hooks/exhaustive-deps
   const acOBAll=ob.ready?ob.total:n((f||{}).acOpenBills);
   const acOBOn=openBillsCounted(f||{});          // typed rehab = all-in → not taken off again
@@ -2289,8 +2291,17 @@ function FinOverview({property,onUpdate}){
         </div>}
       </div>
       {f.useActualProfit&&<div style={{textAlign:"center",fontSize:11.5,color:T.gold,marginBottom:2}}>Actual net profit feeds Portfolio Overview · projected shown faded for reference</div>}
-      {pLocked&&<div style={{textAlign:"center",fontSize:11.5,color:T.textSub,margin:"2px 0 4px"}}>🔒 Projected numbers locked{f.proforma&&f.proforma.at?` since ${new Date(f.proforma.at).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}`:""} — they're your original underwriting. To change them, move the property back to Under Contract.</div>}
       {whatIf&&<WhatIfPopup property={property} onClose={()=>setWhatIf(false)}/>}
+      {lockMsg&&<div onClick={()=>setLockMsg(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.3)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:330,padding:16}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:300,maxWidth:"100%",boxShadow:"0 18px 50px rgba(0,0,0,0.25)",overflow:"hidden",textAlign:"center"}}>
+          <div style={{padding:"20px 18px 14px"}}>
+            <div style={{fontSize:26,lineHeight:1}}>🔒</div>
+            <div style={{fontSize:16,fontWeight:700,color:T.text,marginTop:8}}>Numbers are locked</div>
+            <div style={{fontSize:13.5,color:T.textSub,marginTop:5,lineHeight:1.4}}>Locked because this property is {property.status}.</div>
+          </div>
+          <button onClick={()=>setLockMsg(false)} style={{width:"100%",minHeight:46,border:"none",borderTop:"1px solid rgba(0,0,0,0.08)",background:"#fff",color:T.blue,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>OK</button>
+        </div>
+      </div>}
 
       <div style={{maxWidth:showActual?900:560,margin:"0 auto"}}>
 
@@ -2346,11 +2357,11 @@ function FinOverview({property,onUpdate}){
         {/* ── Acquisition & Costs ── */}
         <FinSecHd label="Acquisition & Costs" color={T.gold} showActual={showActual} cols={!showActual}/>
         <div className="fin-card" style={FIN_CARD}>
-          <EditGridRow label="Purchase Price" pVal={n(f.purchasePrice)} pEdit={pLocked?null:v=>up("purchasePrice",v)}
+          <EditGridRow label="Purchase Price" pVal={n(f.purchasePrice)} pEdit={pLocked?null:v=>up("purchasePrice",v)} onLockedTap={lockTap}
             aVal={f.actualPurchasePrice} aEdit={v=>up("actualPurchasePrice",v)} showActual={showActual} dimP={f.useActualProfit}/>
-          <PopupGridRow label="Buying Costs" pVal={buyingTotal} onOpenP={pLocked?null:()=>setShowBuying(true)}
+          <PopupGridRow label="Buying Costs" pVal={buyingTotal} onOpenP={pLocked?null:()=>setShowBuying(true)} onLockedTap={lockTap}
             aVal={f.actualBuyingCosts} aEdit={v=>up("actualBuyingCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
-          <EditGridRow label="Rehab Costs" pVal={n(f.rehabCosts)} pEdit={pLocked?null:v=>up("rehabCosts",v)}
+          <EditGridRow label="Rehab Costs" pVal={n(f.rehabCosts)} pEdit={pLocked?null:v=>up("rehabCosts",v)} onLockedTap={lockTap}
             aVal={f.actualRehabCosts} aEdit={v=>upMany({actualRehabCosts:v,acRehabSrc:"manual"})} showActual={showActual} dimP={f.useActualProfit}/>
           {showActual&&acOBAll>0&&<>
             <div onClick={()=>setShowOB(x=>!x)} style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46,cursor:"pointer"}}>
@@ -2373,7 +2384,7 @@ function FinOverview({property,onUpdate}){
               <div style={{color:T.textTert,paddingTop:4}}>Same list as the Cash-Out Analysis (untick or add bills there).</div>
             </div>}
           </>}
-          <PopupGridRow label="Holding Costs" pVal={holdingTotal} onOpenP={pLocked?null:()=>setShowHolding(true)}
+          <PopupGridRow label="Holding Costs" pVal={holdingTotal} onOpenP={pLocked?null:()=>setShowHolding(true)} onLockedTap={lockTap}
             aVal={f.actualHoldingCosts} aEdit={v=>up("actualHoldingCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
           <TotalGridRow label="Total Costs" pVal={totalCosts} aVal={showActual&&acCosts!==0?acCosts:null} showActual={showActual} dimP={f.useActualProfit}/>
         </div>
@@ -2381,13 +2392,13 @@ function FinOverview({property,onUpdate}){
         {/* ── Financing ── */}
         <FinSecHd label="Financing" color={T.blue} showActual={showActual}/>
         <div className="fin-card" style={FIN_CARD}>
-          <EditGridRow label="Hold Period" pVal={f.holdPeriod||"0"} pEdit={pLocked?null:v=>up("holdPeriod",v.replace(/[^\d.]/g,""))}
+          <EditGridRow label="Hold Period" pVal={f.holdPeriod||"0"} pEdit={pLocked?null:v=>up("holdPeriod",v.replace(/[^\d.]/g,""))} onLockedTap={lockTap}
             aVal={null} showActual={showActual} readOnlyActual suffix="months" dimP={f.useActualProfit}/>
           <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46}}>
-            <div onClick={pLocked?undefined:()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 12px":"11px 18px",fontSize:isMobile?13.5:14,color:f.useActualProfit?T.textTert:T.text,cursor:"pointer"}}>
+            <div onClick={pLocked?lockTap:()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 12px":"11px 18px",fontSize:isMobile?13.5:14,color:f.useActualProfit?T.textTert:T.text,cursor:"pointer"}}>
               Financing Details
             </div>
-            <div onClick={pLocked?undefined:()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:isMobile?12.5:13,color:f.useActualProfit?T.textTert:T.textSub,fontWeight:500,textAlign:"right",cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>
+            <div onClick={pLocked?lockTap:()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:isMobile?12.5:13,color:f.useActualProfit?T.textTert:T.textSub,fontWeight:500,textAlign:"right",cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>
               HM {fmtD(liveHmTotal)} · Gap {fmtD(equityRequired)}{finChev}
             </div>
             {showActual&&<div onClick={()=>setShowActualFinancing(true)} style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:f.acHmLoanAmt||f.acGapLoanAmt?(isMobile?12.5:13):12.5,fontWeight:f.acHmLoanAmt||f.acGapLoanAmt?650:450,color:f.acHmLoanAmt||f.acGapLoanAmt?GREEN_TXT:T.textTert,textAlign:"right",cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>
@@ -2400,7 +2411,7 @@ function FinOverview({property,onUpdate}){
         {/* ── Revenue ── */}
         <FinSecHd label="Revenue" color={T.green} showActual={showActual}/>
         <div className="fin-card" style={FIN_CARD}>
-          <EditGridRow label="Sale Price" pVal={n(f.salePrice)} pEdit={pLocked?null:v=>up("salePrice",v)}
+          <EditGridRow label="Sale Price" pVal={n(f.salePrice)} pEdit={pLocked?null:v=>up("salePrice",v)} onLockedTap={lockTap}
             aVal={f.actualSalePrice} aEdit={v=>up("actualSalePrice",v)} showActual={showActual} dimP={f.useActualProfit}/>
           {featOn("arvUnderwriter")&&!pLocked&&<ArvUnderwriter address={`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`} f={f} upMany={upMany} isMobile={isMobile} pinfo={property.propertyInfo} onInfo={(patch)=>onUpdate(property.id,"propertyInfo",{...(property.propertyInfo||{}),...patch})}/>}
         </div>
@@ -2408,7 +2419,7 @@ function FinOverview({property,onUpdate}){
         {/* ── Selling Costs ── */}
         <FinSecHd label="Selling Costs" color={T.red} showActual={showActual}/>
         <div className="fin-card" style={FIN_CARD}>
-          <PopupGridRow label="Commission + Transfer Tax" pVal={sellingTotal} onOpenP={pLocked?null:()=>setShowSelling(true)}
+          <PopupGridRow label="Commission + Transfer Tax" pVal={sellingTotal} onOpenP={pLocked?null:()=>setShowSelling(true)} onLockedTap={lockTap}
             aVal={acSelling} onOpenA={()=>setShowActualSelling(true)} showActual={showActual} aIsPopup dimP={f.useActualProfit}/>
         </div>
         {showActual&&<div style={{fontSize:11.5,color:T.textTert,margin:"7px 8px 0",lineHeight:1.5}}>Commission recalculates automatically from the actual sale price once it's entered.</div>}

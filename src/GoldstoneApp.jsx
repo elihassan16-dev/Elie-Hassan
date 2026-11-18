@@ -7,6 +7,7 @@ import { useOneDrive } from "./onedrive/useOneDrive";
 import { useOutlookMail, groupChains, setMailSignature } from "./outlook/useOutlookMail";
 import { MailSignatureSheet } from "./mailSignature";
 import { DealSummarySheet } from "./dealSummary";
+import { finLocked, proformaUpdate, useDealHistorySync, DealHistoryReport } from "./dealHistory";
 import { memGet as mailMemGet, cacheGet as mailCacheGet, cachePut as mailCachePut, unreadGet as mailUnreadGet, unreadPut as mailUnreadPut } from "./mailCache";
 import { forceUpdate } from "./autoUpdate";
 import { supabase } from "./supabaseClient";
@@ -1468,7 +1469,7 @@ function EditGridRow({label,pVal,pEdit,aVal,aEdit,showActual,readOnlyActual,suff
           ?<input autoFocus value={rawP} onChange={e=>setRawP(e.target.value.replace(/[^\d.]/g,""))}
               onBlur={()=>{setEditingP(false);pEdit(rawP);}} onKeyDown={e=>e.key==="Enter"&&e.target.blur()}
               style={inS}/>
-          :<span onClick={()=>{setRawP(String(pVal||""));setEditingP(true);}} style={{fontSize:isMobile?13:13.5,color:pColor,cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>{suffix?`${pVal||0} ${suffix}`:fmtD(n(pVal))}</span>}
+          :<span onClick={pEdit?()=>{setRawP(String(pVal||""));setEditingP(true);}:undefined} style={{fontSize:isMobile?13:13.5,color:pColor,cursor:pEdit?"pointer":"default",fontVariantNumeric:"tabular-nums"}}>{suffix?`${pVal||0} ${suffix}`:fmtD(n(pVal))}</span>}
       </div>
       {showActual&&<div style={{padding:isMobile?"6px 8px":"6px 14px",textAlign:"right"}}>
         {readOnlyActual?<span style={{fontSize:13,color:T.textTert}}>—</span>:
@@ -1489,7 +1490,7 @@ function PopupGridRow({label,pVal,onOpenP,aVal,aEdit,onOpenA,showActual,aIsPopup
   return(
     <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46}}>
       <div style={{padding:isMobile?"9px 12px":"9px 18px",fontSize:isMobile?13.5:14,color:T.text}}>{label}</div>
-      <div onClick={onOpenP} style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:isMobile?13:13.5,color:dimP?T.textTert:T.textSub,fontWeight:500,cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>{fmtD(pVal)}{finChev}</div>
+      <div onClick={onOpenP||undefined} style={{padding:isMobile?"9px 8px":"9px 14px",textAlign:"right",fontSize:isMobile?13:13.5,color:dimP?T.textTert:T.textSub,fontWeight:500,cursor:onOpenP?"pointer":"default",fontVariantNumeric:"tabular-nums"}}>{fmtD(pVal)}{onOpenP?finChev:null}</div>
       {showActual&&<div style={{padding:aIsPopup?(isMobile?"9px 8px":"9px 14px"):(isMobile?"6px 8px":"6px 14px"),textAlign:"right"}}>
         {aIsPopup
           ? <span onClick={onOpenA} style={{fontSize:n(aVal)!==0?(isMobile?13:13.5):12.5,fontWeight:n(aVal)!==0?650:450,color:n(aVal)!==0?GREEN_TXT:T.textTert,cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>{n(aVal)!==0?<>{fmtD(n(aVal))}{finChev}</>:<>Enter{finChev}</>}</span>
@@ -2114,6 +2115,9 @@ function FinOverview({property,onUpdate}){
   const ob=useOpenBills(property,sharedProps,ctrData);
   const[showOB,setShowOB]=useState(false);
   const[sumOpen,setSumOpen]=useState(false); // 📄 Deal summary pop-up
+  // 🔒 Past Under Contract the projected numbers are frozen (Elie 11/18/26) —
+  // move it back to Under Contract to change them.
+  const pLocked=finLocked(property.status);
   useEffect(()=>{syncOpenBills(property,ob.total,ob.ready,onUpdate);},[ob.ready,ob.total]); // eslint-disable-line react-hooks/exhaustive-deps
   const acOBAll=ob.ready?ob.total:n((f||{}).acOpenBills);
   const acOBOn=openBillsCounted(f||{});          // typed rehab = all-in → not taken off again
@@ -2285,6 +2289,7 @@ function FinOverview({property,onUpdate}){
         </div>}
       </div>
       {f.useActualProfit&&<div style={{textAlign:"center",fontSize:11.5,color:T.gold,marginBottom:2}}>Actual net profit feeds Portfolio Overview · projected shown faded for reference</div>}
+      {pLocked&&<div style={{textAlign:"center",fontSize:11.5,color:T.textSub,margin:"2px 0 4px"}}>🔒 Projected numbers locked{f.proforma&&f.proforma.at?` since ${new Date(f.proforma.at).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}`:""} — they're your original underwriting. To change them, move the property back to Under Contract.</div>}
       {whatIf&&<WhatIfPopup property={property} onClose={()=>setWhatIf(false)}/>}
 
       <div style={{maxWidth:showActual?900:560,margin:"0 auto"}}>
@@ -2341,11 +2346,11 @@ function FinOverview({property,onUpdate}){
         {/* ── Acquisition & Costs ── */}
         <FinSecHd label="Acquisition & Costs" color={T.gold} showActual={showActual} cols={!showActual}/>
         <div className="fin-card" style={FIN_CARD}>
-          <EditGridRow label="Purchase Price" pVal={n(f.purchasePrice)} pEdit={v=>up("purchasePrice",v)}
+          <EditGridRow label="Purchase Price" pVal={n(f.purchasePrice)} pEdit={pLocked?null:v=>up("purchasePrice",v)}
             aVal={f.actualPurchasePrice} aEdit={v=>up("actualPurchasePrice",v)} showActual={showActual} dimP={f.useActualProfit}/>
-          <PopupGridRow label="Buying Costs" pVal={buyingTotal} onOpenP={()=>setShowBuying(true)}
+          <PopupGridRow label="Buying Costs" pVal={buyingTotal} onOpenP={pLocked?null:()=>setShowBuying(true)}
             aVal={f.actualBuyingCosts} aEdit={v=>up("actualBuyingCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
-          <EditGridRow label="Rehab Costs" pVal={n(f.rehabCosts)} pEdit={v=>up("rehabCosts",v)}
+          <EditGridRow label="Rehab Costs" pVal={n(f.rehabCosts)} pEdit={pLocked?null:v=>up("rehabCosts",v)}
             aVal={f.actualRehabCosts} aEdit={v=>upMany({actualRehabCosts:v,acRehabSrc:"manual"})} showActual={showActual} dimP={f.useActualProfit}/>
           {showActual&&acOBAll>0&&<>
             <div onClick={()=>setShowOB(x=>!x)} style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46,cursor:"pointer"}}>
@@ -2368,7 +2373,7 @@ function FinOverview({property,onUpdate}){
               <div style={{color:T.textTert,paddingTop:4}}>Same list as the Cash-Out Analysis (untick or add bills there).</div>
             </div>}
           </>}
-          <PopupGridRow label="Holding Costs" pVal={holdingTotal} onOpenP={()=>setShowHolding(true)}
+          <PopupGridRow label="Holding Costs" pVal={holdingTotal} onOpenP={pLocked?null:()=>setShowHolding(true)}
             aVal={f.actualHoldingCosts} aEdit={v=>up("actualHoldingCosts",v)} showActual={showActual} dimP={f.useActualProfit}/>
           <TotalGridRow label="Total Costs" pVal={totalCosts} aVal={showActual&&acCosts!==0?acCosts:null} showActual={showActual} dimP={f.useActualProfit}/>
         </div>
@@ -2376,13 +2381,13 @@ function FinOverview({property,onUpdate}){
         {/* ── Financing ── */}
         <FinSecHd label="Financing" color={T.blue} showActual={showActual}/>
         <div className="fin-card" style={FIN_CARD}>
-          <EditGridRow label="Hold Period" pVal={f.holdPeriod||"0"} pEdit={v=>up("holdPeriod",v.replace(/[^\d.]/g,""))}
+          <EditGridRow label="Hold Period" pVal={f.holdPeriod||"0"} pEdit={pLocked?null:v=>up("holdPeriod",v.replace(/[^\d.]/g,""))}
             aVal={null} showActual={showActual} readOnlyActual suffix="months" dimP={f.useActualProfit}/>
           <div style={{display:"grid",gridTemplateColumns:finCols(showActual,isMobile),alignItems:"center",borderTop:FIN_HAIR,minHeight:46}}>
-            <div onClick={()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 12px":"11px 18px",fontSize:isMobile?13.5:14,color:f.useActualProfit?T.textTert:T.text,cursor:"pointer"}}>
+            <div onClick={pLocked?undefined:()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 12px":"11px 18px",fontSize:isMobile?13.5:14,color:f.useActualProfit?T.textTert:T.text,cursor:"pointer"}}>
               Financing Details
             </div>
-            <div onClick={()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:isMobile?12.5:13,color:f.useActualProfit?T.textTert:T.textSub,fontWeight:500,textAlign:"right",cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>
+            <div onClick={pLocked?undefined:()=>setShowFinancingP(true)} style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:isMobile?12.5:13,color:f.useActualProfit?T.textTert:T.textSub,fontWeight:500,textAlign:"right",cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>
               HM {fmtD(liveHmTotal)} · Gap {fmtD(equityRequired)}{finChev}
             </div>
             {showActual&&<div onClick={()=>setShowActualFinancing(true)} style={{padding:isMobile?"11px 8px":"11px 14px",fontSize:f.acHmLoanAmt||f.acGapLoanAmt?(isMobile?12.5:13):12.5,fontWeight:f.acHmLoanAmt||f.acGapLoanAmt?650:450,color:f.acHmLoanAmt||f.acGapLoanAmt?GREEN_TXT:T.textTert,textAlign:"right",cursor:"pointer",fontVariantNumeric:"tabular-nums"}}>
@@ -2395,15 +2400,15 @@ function FinOverview({property,onUpdate}){
         {/* ── Revenue ── */}
         <FinSecHd label="Revenue" color={T.green} showActual={showActual}/>
         <div className="fin-card" style={FIN_CARD}>
-          <EditGridRow label="Sale Price" pVal={n(f.salePrice)} pEdit={v=>up("salePrice",v)}
+          <EditGridRow label="Sale Price" pVal={n(f.salePrice)} pEdit={pLocked?null:v=>up("salePrice",v)}
             aVal={f.actualSalePrice} aEdit={v=>up("actualSalePrice",v)} showActual={showActual} dimP={f.useActualProfit}/>
-          {featOn("arvUnderwriter")&&<ArvUnderwriter address={`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`} f={f} upMany={upMany} isMobile={isMobile} pinfo={property.propertyInfo} onInfo={(patch)=>onUpdate(property.id,"propertyInfo",{...(property.propertyInfo||{}),...patch})}/>}
+          {featOn("arvUnderwriter")&&!pLocked&&<ArvUnderwriter address={`${property.address}${property.city?`, ${property.city}`:""}${property.state?`, ${property.state}`:""}${property.zip?` ${property.zip}`:""}`} f={f} upMany={upMany} isMobile={isMobile} pinfo={property.propertyInfo} onInfo={(patch)=>onUpdate(property.id,"propertyInfo",{...(property.propertyInfo||{}),...patch})}/>}
         </div>
 
         {/* ── Selling Costs ── */}
         <FinSecHd label="Selling Costs" color={T.red} showActual={showActual}/>
         <div className="fin-card" style={FIN_CARD}>
-          <PopupGridRow label="Commission + Transfer Tax" pVal={sellingTotal} onOpenP={()=>setShowSelling(true)}
+          <PopupGridRow label="Commission + Transfer Tax" pVal={sellingTotal} onOpenP={pLocked?null:()=>setShowSelling(true)}
             aVal={acSelling} onOpenA={()=>setShowActualSelling(true)} showActual={showActual} aIsPopup dimP={f.useActualProfit}/>
         </div>
         {showActual&&<div style={{fontSize:11.5,color:T.textTert,margin:"7px 8px 0",lineHeight:1.5}}>Commission recalculates automatically from the actual sale price once it's entered.</div>}
@@ -18632,13 +18637,14 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     {id:"loc",icon:"📄",title:"Outstanding LOC by Deal",desc:"Who you owe line-of-credit to, by property — oldest funding first."},
     {id:"future",icon:"📈",title:"Available Future Funds",desc:"LOC capital freeing up from your upcoming closings."},
     {id:"cashout",icon:"💵",title:"Cash-Out Analysis",desc:"What you walk away with at each closing — sale price minus selling costs, loans + interest to closing and open bills, plus the reserve back. Pin deals to model."},
+    {id:"history",icon:"📚",title:"Sold deal history",desc:"Every sold deal kept for your records — original projection vs actual, lenders and what they were paid. Stays even after a property is archived or deleted."},
     {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Bank loan, credit lines with their splits, interest reserve and true equity — live from QuickBooks."},
     {id:"hold",icon:"🏗️",title:"Construction Holdback vs Actuals",desc:"Bank's construction holdback vs your underwriting estimate, per property."},
     {id:"draw",icon:"🏦",title:"Construction Draw Report",desc:"Holdback vs draws pinned from each property's mortgage account, and what's left."},
     {id:"closings",icon:"📅",title:"Upcoming Closings — Capital Flow",desc:"In-closing sales returning LOC capital vs under-contract buys needing equity, with a running balance."},
     {id:"cashflow",icon:"💰",title:"Monthly Cash Flow — Closings",desc:"Net cash landing each month as your in-closing deals settle — sale minus costs, payoffs and unpaid interest."},
   ];
-  const rep=(open&&open!=="bs"&&open!=="cashout")?REPORTS[open]:null;
+  const rep=(open&&open!=="bs"&&open!=="cashout"&&open!=="history")?REPORTS[open]:null;
 
   return(
     <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?"14px":"18px 24px"}}>
@@ -18658,6 +18664,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       </div>
       </>}
 
+      {open==="history"&&<DealHistoryReport isMobile={isMobile} onClose={()=>setOpen(null)}/>}
       {open==="cashout"&&<CashOutReport sharedProps={sharedProps} accounts={accounts} spend={spend} requestSpend={connected?requestSpend:null} canEdit={canEdit} updateProp={updateProp} isMobile={isMobile} onClose={()=>setOpen(null)}/>}
       {open==="bs"&&<FinDealMoney bsProps={bsProps} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={holdbackOf} onClose={()=>setOpen(null)}/>}
       {rep&&(
@@ -23657,27 +23664,83 @@ export function GoldstoneShell(){
 
   // Apply automation rules: when a property reaches a rule's trigger status, add its
   // tasks once (tracked via property.autoApplied so it never double-adds).
+  // ↩ Back to a status it was in before (Elie 11/18/26): don't re-create that
+  // status's tasks on our own — ask first (p.autoAsk → the pop-up below).
+  // p.statusCur / statusSeen{status:firstAt} / statusReentry track the history;
+  // older deals count as "been here" when they already hold tasks from a rule
+  // for that status (or the same task text).
+  const ruleTasksFor=(toApply)=>{
+    const add=[];
+    toApply.forEach((a,ai)=>{
+      (a.tasks||[]).forEach((t,ti)=>{
+        if(!t.text||!t.text.trim()) return;
+        add.push({id:Date.now()+ai*1000+ti,text:t.text,cat:t.category||"Automation",status:"Not Started",assignee:t.assignTo||"",delegate:(t.delegateTo&&t.delegateTo!==t.assignTo)?t.delegateTo:"",autoId:a.id,assignedAt:Date.now(),...(t.subs&&t.subs.length?{subtasks:makeSubs(t.subs)}:{})});
+      });
+    });
+    return add;
+  };
   useEffect(()=>{
-    if(!automations||automations.length===0) return;
+    if(loading||!sharedProps||!sharedProps.length) return;
+    const rules=automations||[];
+    const trig={};rules.forEach(a=>{trig[a.id]=a.trigger;});
+    const textsFor=(st)=>new Set(rules.filter(a=>a.trigger===st).flatMap(a=>(a.tasks||[]).map(t=>String(t.text||"").trim().toLowerCase()).filter(Boolean)));
+    const now=new Date().toISOString();
     let changed=false;
     const next=sharedProps.map(p=>{
       if(p.archived) return p;
-      const applied=new Set(p.autoApplied||[]);
-      const toApply=automations.filter(a=>a.trigger===p.status && !applied.has(a.id));
-      if(toApply.length===0) return p;
+      let q=p;
+      if(p.statusCur!==p.status){
+        const seen={...(p.statusSeen||{})};
+        const first=!p.statusCur; // older deals: start tracking, never a "re-entry"
+        const txt=textsFor(p.status);
+        const been=!first&&!!p.status&&(!!seen[p.status]||(p.tasks||[]).some(t=>t&&!t.deleted&&((t.autoId!=null&&trig[t.autoId]===p.status)||txt.has(String(t.text||"").trim().toLowerCase()))));
+        if(p.statusCur&&!seen[p.statusCur]) seen[p.statusCur]=now;
+        if(p.status&&!seen[p.status]) seen[p.status]=now;
+        q={...q,statusCur:p.status||"",statusSeen:seen,statusReentry:been?{status:p.status,at:now}:null,autoAsk:null};
+        changed=true;
+      }
+      if(!rules.length) return q;
+      const applied=new Set(q.autoApplied||[]);
+      const toApply=rules.filter(a=>a.trigger===q.status&&!applied.has(a.id));
+      if(toApply.length===0) return q;
+      if(q.statusReentry&&q.statusReentry.status===q.status){
+        const ids=toApply.map(a=>a.id);
+        if(q.autoAsk&&q.autoAsk.status===q.status&&JSON.stringify(q.autoAsk.rules)===JSON.stringify(ids)) return q;
+        changed=true;
+        return {...q,autoAsk:{status:q.status,rules:ids,at:now}};
+      }
       changed=true;
-      const add=[];
-      toApply.forEach((a,ai)=>{
-        (a.tasks||[]).forEach((t,ti)=>{
-          if(!t.text||!t.text.trim()) return;
-          add.push({id:Date.now()+ai*1000+ti,text:t.text,cat:t.category||"Automation",status:"Not Started",assignee:t.assignTo||"",delegate:(t.delegateTo&&t.delegateTo!==t.assignTo)?t.delegateTo:"",autoId:a.id,assignedAt:Date.now(),...(t.subs&&t.subs.length?{subtasks:makeSubs(t.subs)}:{})});
-        });
-        applied.add(a.id);
-      });
-      return {...p,tasks:[...(p.tasks||[]),...add],autoApplied:[...applied]};
+      toApply.forEach(a=>applied.add(a.id));
+      return {...q,tasks:[...(q.tasks||[]),...ruleTasksFor(toApply)],autoApplied:[...applied]};
     });
     if(changed) setSharedProps(()=>next);
-  },[sharedProps,automations,setSharedProps]);
+  },[sharedProps,automations,setSharedProps,loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The answer to "create its automatic tasks again?"
+  const askProp=(sharedProps||[]).find(p=>p&&!p.archived&&p.autoAsk&&p.autoAsk.status===p.status);
+  const answerAsk=(yes)=>{
+    if(!askProp)return;
+    const ids=askProp.autoAsk.rules||[];
+    const rules=(automations||[]).filter(a=>ids.includes(a.id));
+    setSharedProps(prev=>prev.map(p=>{
+      if(p.id!==askProp.id)return p;
+      const applied=new Set(p.autoApplied||[]);ids.forEach(id=>applied.add(id));
+      return {...p,...(yes?{tasks:[...(p.tasks||[]),...ruleTasksFor(rules)]}:{}),autoApplied:[...applied],autoAsk:null,statusReentry:null};
+    }));
+  };
+  // 🔒 Lock the projected numbers past Under Contract + 📚 keep sold deals forever.
+  const { draws: drawsShell } = useData();
+  useEffect(()=>{
+    if(loading||!shellIsAdmin||!sharedProps||!sharedProps.length) return;
+    let changed=false;
+    const next=sharedProps.map(p=>{
+      if(!p||p.archived) return p;
+      const nf=proformaUpdate(p);
+      if(!nf) return p;
+      changed=true;return {...p,financials:nf};
+    });
+    if(changed) setSharedProps(()=>next);
+  },[sharedProps,loading,shellIsAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
+  useDealHistorySync(sharedProps,drawsShell,!!shellIsAdmin&&!loading);
 
   function navigateToProperty(propId){
     setNavPropId(propId);
@@ -23917,6 +23980,22 @@ export function GoldstoneShell(){
       );})()}
       {showAiAssistant&&<GlobalAiChat onClose={()=>setShowAiAssistant(false)}/>}
       {showNavMenu&&<NavMenu items={navItems} active={active} isPinned={isPinned} onNavigate={(k)=>{pushPage(k);setShowNavMenu(false);}} onTogglePin={togglePin} onClose={()=>setShowNavMenu(false)}/>}
+      {askProp&&(()=>{const ids=askProp.autoAsk.rules||[];const items=(automations||[]).filter(r=>ids.includes(r.id)).flatMap(r=>(r.tasks||[]).map(t=>t.text).filter(Boolean));return(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",zIndex:420,padding:isMobile?0:16,boxSizing:"border-box"}}>
+          <div style={{background:"#fff",borderRadius:isMobile?"20px 20px 0 0":20,width:440,maxWidth:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 18px 50px rgba(0,0,0,0.25)",overflow:"hidden"}}>
+            <div style={{padding:"18px 20px 8px"}}>
+              <div style={{fontSize:17,fontWeight:700,color:T.text}}>Create the automatic tasks again?</div>
+              <div style={{fontSize:13.5,color:T.textSub,marginTop:6,lineHeight:1.45}}><b style={{color:T.text}}>{String(askProp.address||"").replace(/,.*$/,"")}</b> was <b style={{color:T.text}}>{askProp.status}</b> before. These tasks were made the first time — make them again?</div>
+            </div>
+            <div style={{padding:"4px 20px 8px",overflowY:"auto"}}>
+              {items.map((t,i)=><div key={i} style={{fontSize:13.5,color:T.text,padding:"7px 0",borderTop:i?"1px solid rgba(0,0,0,0.06)":"none"}}>☐ {t}</div>)}
+            </div>
+            <div style={{padding:"12px 20px max(14px,env(safe-area-inset-bottom))",borderTop:"1px solid rgba(0,0,0,0.07)",display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>answerAsk(false)} style={{minHeight:44,padding:"0 18px",borderRadius:22,border:`1px solid ${T.border}`,background:"#fff",color:T.text,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>No, skip them</button>
+              <button onClick={()=>answerAsk(true)} style={{minHeight:44,padding:"0 18px",borderRadius:22,border:"none",background:T.gold,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Yes, create them</button>
+            </div>
+          </div>
+        </div>);})()}
       {showSettings&&<SettingsModal initialSection={typeof showSettings==="string"?showSettings:undefined} archived={archivedProps} onRestore={restoreProperty} onDelete={deleteProperty} onClose={()=>setShowSettings(false)}
         team={team} setUserMuted={setUserMuted} setUserSms={setUserSms} setUserChannels={setUserChannels} displayName={displayName} teamMembers={teamMembers}
         onEditName={()=>{setShowSettings(false);setShowProfile(true);}} onEditEmail={()=>{setShowSettings(false);setShowEmail(true);}}/>}

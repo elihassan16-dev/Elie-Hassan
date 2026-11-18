@@ -7,7 +7,7 @@ import { useOneDrive } from "./onedrive/useOneDrive";
 import { useOutlookMail, groupChains, setMailSignature } from "./outlook/useOutlookMail";
 import { MailSignatureSheet } from "./mailSignature";
 import { DealSummarySheet } from "./dealSummary";
-import { finLocked, proformaUpdate, useDealHistorySync, DealHistoryReport } from "./dealHistory";
+import { finLocked, proformaUpdate, useDealHistorySync, SoldDealSheet, buildDealRecord } from "./dealHistory";
 import { memGet as mailMemGet, cacheGet as mailCacheGet, cachePut as mailCachePut, unreadGet as mailUnreadGet, unreadPut as mailUnreadPut } from "./mailCache";
 import { forceUpdate } from "./autoUpdate";
 import { supabase } from "./supabaseClient";
@@ -6512,7 +6512,7 @@ function PropDetail({property,onUpdate,onArchive,onOpenChat}){
           {headMenu&&<DotsMenu r={headMenu} onClose={()=>setHeadMenu(null)} rows={[
             isAdmin&&property.status!=="New Leads"&&{k:"post",label:"Make a Facebook post",icon:"📣",run:()=>setPostOpen(true)},
             isAdmin&&property.status!=="New Leads"&&{k:"web",label:"Website listing",icon:"🌐",run:()=>setWebOpen(true)},
-            onArchive&&{k:"arch",label:"Archive",icon:"🗄",red:true,run:()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and permanently deleted after 60 days. You can restore it any time before then from Settings → Archived Properties.")) onArchive(property.id);}},
+            onArchive&&{k:"arch",label:"Archive",icon:"🗄",red:true,run:()=>{if(window.confirm("Archive this property?\n\nIt will be hidden from your lists and kept. You can restore it any time from Settings → Archived Properties.")) onArchive(property.id);}},
           ].filter(Boolean)}/>}
           {postOpen&&<PostEditor property={property} onClose={()=>setPostOpen(false)} isMobile={isMobile}/>}
           {webOpen&&<WebsiteListingSheet property={property} onUpdate={onUpdate} onClose={()=>setWebOpen(false)}/>}
@@ -11196,12 +11196,6 @@ function ComingSoon({label}){
 }
 
 // ─── Settings modal — currently houses Archived Properties ───────────────────
-const ARCHIVE_DAYS=60;
-const archiveDaysLeft=(p)=>{
-  if(!p.archivedAt)return ARCHIVE_DAYS;
-  const elapsed=Date.now()-new Date(p.archivedAt).getTime();
-  return Math.max(0,Math.ceil(ARCHIVE_DAYS-elapsed/(24*60*60*1000)));
-};
 // Statuses that can trigger an automation rule.
 const AUTO_TRIGGERS=["Under Contract","Purchased","Under Construction","On Market","Attorney Review","In Closing"];
 // Settings → Automations: build rules that add tasks when a property hits a status.
@@ -12134,16 +12128,15 @@ function SettingsModal({archived,onRestore,onDelete,onClose,team,setUserMuted,se
             </div>
           ):section==="archived"?(
             <>
-              <div style={{fontSize:12,color:T.textSub,marginBottom:14}}>Archived properties are hidden from your lists and are permanently deleted 60 days after archiving. Restore one to bring it back, or delete it now.</div>
+              <div style={{fontSize:12,color:T.textSub,marginBottom:14}}>Archived properties are hidden from your lists and kept until you delete them. Restore one to bring it back, or delete it now.</div>
               {archived.length===0
                 ? <div style={{padding:"24px 0",textAlign:"center",color:T.textTert,fontSize:13}}>No archived properties.</div>
                 : archived.map(p=>{
-                    const left=archiveDaysLeft(p);
                     return(
                       <div key={p.id} style={{border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 14px",marginBottom:10}}>
                         <div style={{fontSize:14,fontWeight:600,color:T.text}}>{fmtAddr(p)}</div>
-                        <div style={{fontSize:12,color:left<=7?T.red:T.textSub,marginTop:2}}>
-                          {left===0?"Deleting soon":`Deletes in ${left} day${left===1?"":"s"}`}{p.status?` · was ${p.status}`:""}
+                        <div style={{fontSize:12,color:T.textSub,marginTop:2}}>
+                          {p.archivedAt?`Archived ${new Date(p.archivedAt).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}`:"Archived"}{p.status?` · was ${p.status}`:""}
                         </div>
                         <div style={{display:"flex",gap:8,marginTop:10}}>
                           <button onClick={()=>onRestore(p.id)} style={{padding:"7px 14px",borderRadius:T.radiusSm,background:T.gold,border:"none",color:"#fff",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Restore</button>
@@ -17950,6 +17943,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     }
   },[connected,soldPnl,soldTxAll]); // eslint-disable-line react-hooks/exhaustive-deps
   const[soldFor,setSoldFor]=useState(null); // property id whose cost breakdown is open
+  const[dealFor,setDealFor]=useState(null); // {propId,profit,qb} → projected-vs-actual pop-up (tap the address)
   const[adjDraft,setAdjDraft]=useState({label:"",amount:"",cat:"Rehab"});
   // Drill-down: tapping a bucket's total lists its underlying QuickBooks
   // transactions (vendor / date / memo, searchable) — same interactivity as
@@ -18498,7 +18492,7 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       subtitle:"Every property sold since January 1 — sale price, all-in cost and profit, live from each deal's QuickBooks project (QB); deals without a linked project use the app's actual figures. Debt service adds each deal's private-lender interest from the draw register. Tap an all-in cost for the breakdown — purchase, rehab, debt service, selling — and to add custom adjustments.",
       cols:[{label:"Property"},{label:"Sold"},{label:"Sale price",align:"right"},{label:"All-in cost",align:"right"},{label:"Profit",align:"right"},{label:"Held",align:"right"}],
       rows:rptSold.rows.map(r=>[
-        {t:r.address+(r.qb?" · QB":"")},
+        {deal:{propId:r.propId,profit:r.profit,qb:r.qb},t:r.address+(r.qb?" · QB":"")},
         {soldCost:{propId:r.propId},t:r.sold?D(r.sold):"Set sale date",color:r.sold?undefined:T.orange},
         {t:fmtD(r.sale),align:"right"},
         {soldCost:{propId:r.propId},t:fmtD(r.allIn)+(r.adj?" ✎":""),align:"right",color:T.blue},
@@ -18648,14 +18642,13 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
     {id:"loc",icon:"📄",title:"Outstanding LOC by Deal",desc:"Who you owe line-of-credit to, by property — oldest funding first."},
     {id:"future",icon:"📈",title:"Available Future Funds",desc:"LOC capital freeing up from your upcoming closings."},
     {id:"cashout",icon:"💵",title:"Cash-Out Analysis",desc:"What you walk away with at each closing — sale price minus selling costs, loans + interest to closing and open bills, plus the reserve back. Pin deals to model."},
-    {id:"history",icon:"📚",title:"Sold deal history",desc:"Every sold deal kept for your records — original projection vs actual, lenders and what they were paid. Stays even after a property is archived or deleted."},
     {id:"bs",icon:"📊",title:"Property Balance Sheet",desc:"Bank loan, credit lines with their splits, interest reserve and true equity — live from QuickBooks."},
     {id:"hold",icon:"🏗️",title:"Construction Holdback vs Actuals",desc:"Bank's construction holdback vs your underwriting estimate, per property."},
     {id:"draw",icon:"🏦",title:"Construction Draw Report",desc:"Holdback vs draws pinned from each property's mortgage account, and what's left."},
     {id:"closings",icon:"📅",title:"Upcoming Closings — Capital Flow",desc:"In-closing sales returning LOC capital vs under-contract buys needing equity, with a running balance."},
     {id:"cashflow",icon:"💰",title:"Monthly Cash Flow — Closings",desc:"Net cash landing each month as your in-closing deals settle — sale minus costs, payoffs and unpaid interest."},
   ];
-  const rep=(open&&open!=="bs"&&open!=="cashout"&&open!=="history")?REPORTS[open]:null;
+  const rep=(open&&open!=="bs"&&open!=="cashout")?REPORTS[open]:null;
 
   return(
     <div style={{flex:1,overflowY:"auto",background:T.bg,padding:isMobile?"14px":"18px 24px"}}>
@@ -18675,7 +18668,9 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
       </div>
       </>}
 
-      {open==="history"&&<DealHistoryReport isMobile={isMobile} onClose={()=>setOpen(null)}/>}
+      {dealFor&&(()=>{const p=(sharedProps||[]).find(x=>x.id===dealFor.propId);if(!p)return null;const rec=buildDealRecord(p,draws);
+        const note=dealFor.qb&&rec.actual&&Math.abs(rec.actual.profit-dealFor.profit)>1?`This report shows ${fmtD(dealFor.profit)} profit from QuickBooks. The Actual here is the deal's Financial Overview.`:(!rec.actual?"No actual sale price on this deal's Financial Overview yet — showing the original projection.":null);
+        return <SoldDealSheet rec={rec} note={note} isMobile={isMobile} onClose={()=>setDealFor(null)}/>;})()}
       {open==="cashout"&&<CashOutReport sharedProps={sharedProps} accounts={accounts} spend={spend} requestSpend={connected?requestSpend:null} canEdit={canEdit} updateProp={updateProp} isMobile={isMobile} onClose={()=>setOpen(null)}/>}
       {open==="bs"&&<FinDealMoney bsProps={bsProps} accounts={accounts} spend={spend} updateProp={updateProp} canEdit={canEdit} holdbackOf={holdbackOf} onClose={()=>setOpen(null)}/>}
       {rep&&(
@@ -18878,6 +18873,8 @@ function FinReportCenter({sharedProps,isMobile,canEdit=true,soldPage=false}){
                         ?(canEdit?<span onClick={(e)=>{e.stopPropagation();setHoldbackFor(c.edit.propId);}} title="Tap to set" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>:<span>{c.t==="Tap to set"?"—":c.t}</span>)
                         :c.draw
                         ?(canEdit?<span onClick={(e)=>{e.stopPropagation();setDrawFor(c.draw.propId);}} title="Tap to pin draws" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>:<span>{c.t==="Tap to pin"?"—":c.t}</span>)
+                        :c.deal
+                        ?<span onClick={(e)=>{e.stopPropagation();setDealFor(c.deal);}} title="Tap for the original projection vs actual" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2,fontWeight:600}}>{c.t}</span>
                         :c.soldCost
                         ?<span onClick={(e)=>{e.stopPropagation();setSoldFor(c.soldCost.propId);}} title="Tap for the cost breakdown + adjustments" style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}}>{c.t}</span>
                         :c.fund
@@ -23597,12 +23594,7 @@ export function GoldstoneShell(){
   const deleteProperty=useCallback((id)=>setSharedProps(prev=>prev.filter(p=>p.id!==id)),[setSharedProps]);
   const archivedProps=sharedProps.filter(p=>p.archived);
 
-  // Auto-purge: permanently drop archived properties past the 60-day window.
-  useEffect(()=>{
-    const cutoff=Date.now()-ARCHIVE_DAYS*24*60*60*1000;
-    const expired=sharedProps.filter(p=>p.archived&&p.archivedAt&&new Date(p.archivedAt).getTime()<cutoff);
-    if(expired.length){const ids=new Set(expired.map(p=>p.id));setSharedProps(prev=>prev.filter(p=>!ids.has(p.id)));}
-  },[sharedProps,setSharedProps]);
+  // (Archived properties are kept forever — the 60-day auto-purge was removed, Elie 11/18/26.)
 
   // One-time cleanup: remove leftover auto-checklist tasks a previous app version saved
   // onto properties. Only untouched, exact-match checklist items are removed — real tasks,

@@ -15,7 +15,7 @@ import { saveMadeFile } from "./fileSave";
 const money = (v) => `${v < 0 ? "−" : ""}$${Math.round(Math.abs(Number(v) || 0)).toLocaleString("en-US")}`;
 const pct = (profit, cash) => (cash > 0 ? `${Math.round((profit / cash) * 1000) / 10}%` : "");
 
-export function DealSummarySheet({ title, sub, views, initial = "projected", isMobile, onClose }) {
+export function DealSummarySheet({ title, sub, views, initial = "projected", isMobile, onClose, extra = null }) {
   const [view, setView] = useState(views && views[initial] ? initial : "projected");
   const [busy, setBusy] = useState(false);
   const v = (views && views[view]) || {};
@@ -122,6 +122,7 @@ export function DealSummarySheet({ title, sub, views, initial = "projected", isM
             <span>{label} profit</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{money(v.profit || 0)}</span>
           </div>
           {v.cashIn > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: T.textSub, padding: "9px 4px 4px" }}><span>Cash in {money(v.cashIn)}</span>{roc && <span>{roc} return on cash in</span>}</div>}
+          {extra}
         </div>
         <div style={{ padding: "12px 20px max(14px,env(safe-area-inset-bottom))", borderTop: "1px solid rgba(0,0,0,0.07)", display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button onClick={pdf} disabled={busy} style={{ minHeight: 44, padding: "0 20px", borderRadius: 22, border: "none", background: T.gold, color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>{busy ? "Making PDF…" : isMobile ? "⤴ Share PDF" : "⬇ PDF"}</button>

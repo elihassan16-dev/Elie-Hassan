@@ -41,7 +41,7 @@ const mapData = (data) => data.map((r) => (r && r.data ? r.data : r)).filter(Boo
 // owner statements (platinum.jsx).
 // mcp_* = the Claude connector's sign-in records (hashed codes/tokens, client
 // registrations — lib/mcpAuth.js); server-only, never synced to devices.
-const DIRECT_SETTINGS = ["appfolio"];
+const DIRECT_SETTINGS = ["appfolio", "deal_history"];
 const SERVER_ONLY_SETTINGS = ["jivetel_events", "jivetel_call_events", "jivetel_msgs", "jivetel_calls", "jivetel_alerts", "jivetel_text_alerts", "rentcast_cache", "chatarv_cache", "chatarv_cfg", "qb_cache"];
 
 // ── A Supabase-backed collection with safe, coalesced, in-order writes ────────
